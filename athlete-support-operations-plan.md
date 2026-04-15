@@ -6,6 +6,7 @@
 - Success condition: athlete and crew can run race operations end-to-end without leaving the app.
 
 ## Workstream Map (for spin-off planning)
+- **WS0:** Tech Stack Decision and Implementation
 - **WS1:** Race Rooms, Access, and Billing
 - **WS2:** Live Split Intelligence Engine
 - **WS3:** Crew Orchestration and Protocol Execution
@@ -15,8 +16,37 @@
 - **WS7:** Shared Platform Contracts and Data Model
 
 ## Phase Allocation
-- **Phase 1 (MVP):** WS1, WS2, WS3, WS4 (v1), WS5, WS6 essentials, WS7 foundations
+- **Phase 1 (MVP):** WS0, WS1, WS2, WS3, WS4 (v1), WS5, WS6 essentials, WS7 foundations
 - **Phase 2+:** deeper AI adaptation, advanced staffing optimization, external race/watch integrations, multi-sport templates
+
+## WS0 Status (Completed)
+- **Current state:** completed and merged to `main`
+- **Decisions locked:** hybrid iOS/Android mobile, TypeScript/Fastify API, PostgreSQL event-log pattern, AWS + Terraform, Auth0, GitHub Actions, OpenTelemetry, baseline SLOs/security controls
+- **Foundation delivered:** mobile app scaffold, API scaffold, shared contracts package, staging infra baseline, CI/deploy/rollback workflows, security/readiness/runbook docs
+- **Readiness outcome:** WS0 acceptance gate passed; WS1 implementation unblocked
+
+## WS0: Tech Stack Decision and Implementation
+**Goal**
+- decide and implement the technology stack that supports all race operations workstreams end-to-end.
+
+**MVP Scope**
+- select frontend, backend, mobile, data, infrastructure, and AI integration stack components
+- implement baseline project architecture, environments, deployment pipelines, and observability
+- establish shared engineering standards for security, reliability, performance, and maintainability
+
+**Inputs**
+- product requirements across WS1-WS7, team capability constraints, budget/timeline constraints, compliance and security requirements
+
+**Outputs**
+- production-ready foundational stack and platform setup enabling all downstream workstreams to build and ship
+
+**Dependencies**
+- none (enabling foundation layer)
+
+**Acceptance Criteria**
+- stack decisions are documented with rationale and trade-offs
+- core environments and CI/CD pipelines are operational for all primary services/apps
+- platform baseline supports implementation velocity and reliability targets for WS1-WS7
 
 ## WS1: Race Rooms, Access, and Billing
 **Goal**
