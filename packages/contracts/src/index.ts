@@ -23,3 +23,23 @@ export interface HealthStatus {
   status: "ok" | "degraded" | "down";
   timestamp: string;
 }
+
+export type RaceRoomStatus = "draft" | "active" | "completed";
+
+export interface RaceRoomMembership {
+  userId: string;
+  role: Role;
+  joinedAt: string;
+}
+
+export interface RaceRoom {
+  id: string;
+  teamId: string;
+  athleteId: string;
+  name: string;
+  status: RaceRoomStatus;
+  createdAt: string;
+  activatedAt?: string;
+  eventEndsAt?: string;
+  memberships: RaceRoomMembership[];
+}
