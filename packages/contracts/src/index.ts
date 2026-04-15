@@ -52,3 +52,18 @@ export interface RaceRoomEntitlement {
   lastUpdatedAt: string;
   source: "manual" | "provider_webhook";
 }
+
+export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
+
+export interface RaceRoomInvite {
+  token: string;
+  roomId: string;
+  email: string;
+  role: Role;
+  expiresAt: string;
+  status: RaceRoomInviteStatus;
+  invitedBy: string;
+  invitedAt: string;
+  acceptedBy?: string;
+  acceptedAt?: string;
+}
