@@ -3,6 +3,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
 import { healthRoutes } from "./routes/health.js";
 import { eventRoutes } from "./routes/events.js";
+import { raceRoomRoutes } from "./routes/raceRooms.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -13,6 +14,7 @@ export function buildApp() {
   app.register(auditPlugin);
   app.register(healthRoutes);
   app.register(eventRoutes);
+  app.register(raceRoomRoutes);
 
   return app;
 }
