@@ -1,0 +1,27 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - name: Terraform Init/Plan (staging)
+        working-directory: infra/terraform/environments/staging
+        run: |
+          terraform init
+          terraform plan -out=tfplan
+      - name: Terraform Apply (manual approval should gate in environment settings)
+        working-directory: infra/terraform/environments/staging
+        run: terraform apply -auto-approve tfplan

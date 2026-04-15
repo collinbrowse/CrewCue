@@ -1,0 +1,25 @@
+name: Rollback Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_ref:
+        description: "Git ref to redeploy"
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.rollback_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - run: echo "Rollback artifact built from ${{ github.event.inputs.rollback_ref }}"
