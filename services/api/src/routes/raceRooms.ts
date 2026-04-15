@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { RaceRoom, Role } from "@crewcue/contracts";
+import type { RaceRoom, RaceRoomInvite, Role } from "@crewcue/contracts";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -14,19 +14,37 @@ const activateRaceRoomInput = z.object({
   eventEndsAt: z.iso.datetime()
 });
 
+const issueInviteInput = z.object({
+  email: z.string().email(),
+  role: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"]),
+  expiresAt: z.iso.datetime().optional()
+});
+
+const acceptInviteInput = z.object({
+  token: z.string().min(1)
+});
+
 const raceRooms = new Map<string, RaceRoom>();
+const raceRoomInvites = new Map<string, RaceRoomInvite>();
 
 type PermissionSet = {
   canViewRoom: boolean;
   canActivateRoom: boolean;
+  canIssueInvite: boolean;
 };
 
 function getPermissions(role: Role): PermissionSet {
   const canActivateRoom = role === "athlete" || role === "crew_chief" || role === "team_manager";
+  const canIssueInvite = role === "athlete" || role === "crew_chief" || role === "team_manager";
   return {
     canViewRoom: true,
-    canActivateRoom
+    canActivateRoom,
+    canIssueInvite
   };
+}
+
+function isExpired(expiresAt: string): boolean {
+  return Date.parse(expiresAt) <= Date.now();
 }
 
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
@@ -117,5 +135,121 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     raceRooms.set(roomId, activated);
     return reply.send(activated);
+  });
+
+  app.post("/race-rooms/:roomId/invites", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const permissions = getPermissions(membership.role);
+    if (!permissions.canIssueInvite) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+
+    const parsed = issueInviteInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid invite payload" });
+    }
+
+    const invite: RaceRoomInvite = {
+      token: randomUUID(),
+      roomId,
+      email: parsed.data.email.toLowerCase(),
+      role: parsed.data.role,
+      invitedBy: request.identity.sub,
+      invitedAt: new Date().toISOString(),
+      expiresAt: parsed.data.expiresAt ?? new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+      status: "pending"
+    };
+
+    raceRoomInvites.set(invite.token, invite);
+    return reply.code(201).send({
+      token: invite.token,
+      roomId: invite.roomId,
+      email: invite.email,
+      role: invite.role,
+      expiresAt: invite.expiresAt
+    });
+  });
+
+  app.post("/race-rooms/:roomId/invites/accept", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const parsed = acceptInviteInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid invite acceptance payload" });
+    }
+
+    const invite = raceRoomInvites.get(parsed.data.token);
+    if (!invite || invite.roomId !== roomId) {
+      return reply.code(404).send({ error: "Invite not found" });
+    }
+
+    if (invite.status !== "pending") {
+      return reply.code(409).send({ error: "Invite is not pending" });
+    }
+
+    if (isExpired(invite.expiresAt)) {
+      raceRoomInvites.set(invite.token, { ...invite, status: "expired" });
+      return reply.code(410).send({ error: "Invite expired" });
+    }
+
+    const existing = room.memberships.find((member) => member.userId === request.identity?.sub);
+    const nextMemberships = existing
+      ? room.memberships.map((member) =>
+          member.userId === request.identity?.sub ? { ...member, role: invite.role } : member
+        )
+      : [
+          ...room.memberships,
+          {
+            userId: request.identity.sub,
+            role: invite.role,
+            joinedAt: new Date().toISOString()
+          }
+        ];
+
+    const updatedRoom: RaceRoom = {
+      ...room,
+      memberships: nextMemberships
+    };
+
+    raceRooms.set(roomId, updatedRoom);
+    raceRoomInvites.set(invite.token, {
+      ...invite,
+      status: "accepted",
+      acceptedBy: request.identity.sub,
+      acceptedAt: new Date().toISOString()
+    });
+
+    const membership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(500).send({ error: "Membership assignment failed" });
+    }
+
+    return reply.send({
+      room: updatedRoom,
+      assignedRole: membership.role,
+      permissions: getPermissions(membership.role)
+    });
   });
 }

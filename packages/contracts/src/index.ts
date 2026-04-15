@@ -43,3 +43,18 @@ export interface RaceRoom {
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
 }
+
+export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
+
+export interface RaceRoomInvite {
+  token: string;
+  roomId: string;
+  email: string;
+  role: Role;
+  expiresAt: string;
+  status: RaceRoomInviteStatus;
+  invitedBy: string;
+  invitedAt: string;
+  acceptedBy?: string;
+  acceptedAt?: string;
+}
