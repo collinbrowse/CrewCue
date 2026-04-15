@@ -42,4 +42,13 @@ export interface RaceRoom {
   activatedAt?: string;
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
+  entitlement: RaceRoomEntitlement;
+}
+
+export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";
+
+export interface RaceRoomEntitlement {
+  status: RaceRoomEntitlementStatus;
+  lastUpdatedAt: string;
+  source: "manual" | "provider_webhook";
 }
