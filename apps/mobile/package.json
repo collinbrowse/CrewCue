@@ -1,0 +1,26 @@
+{
+  "name": "@crewcue/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "build": "expo export --platform all",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@crewcue/contracts": "0.1.0",
+    "expo": "^54.0.20",
+    "expo-status-bar": "^3.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "typescript": "^5.9.3"
+  }
+}

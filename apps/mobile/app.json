@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "CrewCue",
+    "slug": "crewcue",
+    "scheme": "crewcue",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.crewcue.mobile"
+    },
+    "android": {
+      "package": "com.crewcue.mobile"
+    }
+  }
+}

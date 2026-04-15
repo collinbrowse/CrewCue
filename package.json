@@ -1,0 +1,22 @@
+{
+  "name": "crewcue",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CrewCue WS0 foundation monorepo",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev -w @crewcue/api",
+    "dev:mobile": "npm run dev -w @crewcue/mobile"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

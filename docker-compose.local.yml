@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: crewcue-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crewcue
+      POSTGRES_PASSWORD: crewcue
+      POSTGRES_DB: crewcue
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.113.0
+    container_name: crewcue-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"
+
+volumes:
+  postgres_data:
