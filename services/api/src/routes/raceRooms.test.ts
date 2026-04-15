@@ -61,6 +61,18 @@ test("issues and accepts invite with role assignment", async () => {
   const accepted = acceptResponse.json() as { assignedRole: string };
   assert.equal(accepted.assignedRole, "crew_member");
 
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
   const getResponse = await app.inject({
     method: "GET",
     url: `/race-rooms/${room.id}`,
