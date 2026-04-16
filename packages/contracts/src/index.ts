@@ -460,3 +460,139 @@ export interface CheckpointDemandHeatmap {
   evaluatedAt: string;
   cells: CheckpointDemandCell[];
 }
+
+// --- WS7: shared platform contracts and data model (Sprint 1) ---
+// Aligns with ws7-shared-platform-contracts-and-data-model-plan.md and ADR 0003 (PostgreSQL append-only is a later slice).
+
+/**
+ * Current published contract batch for platform events.
+ * @see docs/sdlc/ws7-schema-compatibility.md
+ */
+export const PLATFORM_SCHEMA_VERSION = "2026.05.0" as const;
+export type PlatformSchemaVersion = typeof PLATFORM_SCHEMA_VERSION;
+
+/** Transport surface that produced or carried an event (BLE secondary path per master plan). */
+export type TransportChannel = "cloud" | "ble";
+
+/** Canonical aggregate roots referenced across WS1–WS6. */
+export type PlatformAggregateType =
+  | "team"
+  | "race_room"
+  | "athlete"
+  | "crew_member"
+  | "checkpoint"
+  | "task"
+  | "plan_version"
+  | "projection"
+  | "sync"
+  | "command_board";
+
+/** Cross-workstream lifecycle catalog (extend intentionally; unknown names fail HTTP validation until registered). */
+export type PlatformEventName =
+  | "race_room.draft_created"
+  | "race_room.activated"
+  | "race_room.completed"
+  | "membership.invited"
+  | "membership.accepted"
+  | "athlete_ping.accepted"
+  | "projection.recomputed"
+  | "task.created"
+  | "task.status_changed"
+  | "incident.recorded"
+  | "recommendation.decided"
+  | "plan_version.recorded"
+  | "sync.heartbeat_reported"
+  | "merge.recorded";
+
+export interface RaceRoomDraftCreatedPayload {
+  teamId: string;
+  athleteId: string;
+  name: string;
+}
+
+export interface RaceRoomActivatedPayload {
+  eventEndsAt: string;
+}
+
+export interface PlanVersionRecordedPayload {
+  version: number;
+  planVersionId: string;
+  rationale: string;
+}
+
+/**
+ * Append-only envelope for the canonical event log.
+ * Sprint 1 persists in API memory; WS0/ADR-0003 maps this row shape to PostgreSQL later.
+ */
+export interface PlatformEventEnvelope<TPayload = unknown> {
+  id: string;
+  aggregateId: string;
+  aggregateType: PlatformAggregateType;
+  eventType: PlatformEventName;
+  occurredAt: string;
+  /** Monotonic per `(aggregateType, aggregateId)` for deterministic replay. */
+  sequence: number;
+  idempotencyKey: string;
+  payload: TPayload;
+  schemaVersion: string;
+  transport: TransportChannel;
+  actorUserId: string;
+  correlationId?: string;
+  causationId?: string;
+}
+
+/** Canonical `Team` node in the master entity graph. */
+export interface PlatformTeam {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+/** Canonical athlete identity under a team (distinct from a `RaceRoom.athleteId` user handle). */
+export interface PlatformAthlete {
+  id: string;
+  teamId: string;
+  linkedUserId: string;
+  displayName: string;
+}
+
+/** Canonical crew roster entry under a team. */
+export interface PlatformCrewMemberEntity {
+  id: string;
+  teamId: string;
+  linkedUserId: string;
+  role: Role;
+}
+
+/** Course or room-scoped checkpoint definition. */
+export interface PlatformCheckpointEntity {
+  id: string;
+  scopeId: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** Executable task bound to a race room and checkpoint (aligns with WS3 `CrewTask` semantics). */
+export interface PlatformTaskEntity {
+  id: string;
+  roomId: string;
+  checkpointId: string;
+  title: string;
+  status: CrewTaskStatus;
+}
+
+/** Versioned plan snapshot (same shape as WS4 `PlanVersion`; alias for clarity in entity graph). */
+export type PlatformPlanVersionEntity = PlanVersion;
+
+export type ReplayableRaceRoomStatus = RaceRoomStatus | "unknown";
+
+/** Deterministic projection of `race_room` aggregate state from ordered platform events (Sprint 1 reducer). */
+export interface ReplayedRaceRoomAggregate {
+  aggregateId: string;
+  teamId?: string;
+  athleteId?: string;
+  name?: string;
+  status: ReplayableRaceRoomStatus;
+  lastPlanVersion?: number;
+  lastActivatedEventEndsAt?: string;
+}

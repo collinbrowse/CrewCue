@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js"
+    "test": "npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
