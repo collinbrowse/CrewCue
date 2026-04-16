@@ -8,6 +8,14 @@
 - [ ] WS6
 - [ ] WS7
 
+## Linked issues (required for auto-close on merge)
+
+Every task should have a GitHub issue **before** implementation. When this PR merges, the following line(s) **close** those issues (workflow: `.github/workflows/auto-close-linked-issues.yml`). Use one keyword per line: `Closes`, `Fixes`, or `Resolves`.
+
+Closes #
+
+<!-- Example: Closes #9 -->
+
 ## Scope
 
 Describe exactly what this PR changes.
