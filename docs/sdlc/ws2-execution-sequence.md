@@ -74,7 +74,10 @@ Clients and later workspaces (WS3 tasks, WS4 incidents, WS6 command center) need
 
 - `GET` (or equivalent) **latest projection** for a room, with membership + entitlement checks consistent with WS1.
 - **Staleness / degraded confidence** when no acceptable ping has arrived within a configurable window (server-side threshold).
-- Explicit JSON fields consumers can bind to (numbers + flags + `asOf` timestamp).
+- Optional **`uploadIntervalSeconds`** on accepted pings to derive threshold ≈ **2.5×** interval (bounded); fallback env `PROJECTION_STALE_AFTER_SECONDS` (default 120).
+- Explicit JSON fields consumers can bind to (numbers + flags + `evaluatedAt` timestamp).
+
+**References:** [docs/api/ws2-task3-projection-confidence.md](../api/ws2-task3-projection-confidence.md), deferred mobile work [mobile-athlete-ping-battery-deferred.md](./mobile-athlete-ping-battery-deferred.md).
 
 ### Out-of-scope (this task)
 

@@ -90,6 +90,70 @@ test("returns projection after accepted ping and from GET", async () => {
   await app.close();
 });
 
+test("GET projection exposes derived staleness threshold from uploadIntervalSeconds", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Interval staleness",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: ends,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 45.0, longitude: -67.0 },
+          { id: "cp1", latitude: 45.01, longitude: -67.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 45.005,
+      longitude: -67.0,
+      recordedAt: new Date().toISOString(),
+      uploadIntervalSeconds: 40
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const getResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(getResponse.statusCode, 200);
+  const body = getResponse.json() as RaceRoomProjection;
+  assert.equal(body.stalenessThresholdSeconds, 100);
+  assert.equal(body.projectionConfidence, "fresh");
+
+  await app.close();
+});
+
 test("GET projection becomes degraded after silence beyond threshold", async (t) => {
   const prev = process.env.PROJECTION_STALE_AFTER_SECONDS;
   t.after(() => {

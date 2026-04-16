@@ -28,6 +28,7 @@ Order of checks:
 | `longitude` | number, −180…180 | yes |
 | `recordedAt` | ISO 8601 datetime | yes (device time when fix was taken) |
 | `horizontalAccuracyMeters` | positive number | no; if present must be ≤ 500 |
+| `uploadIntervalSeconds` | integer 10…900 | no; athlete app **target** seconds between pings (battery + race-length policy). When set on an **accepted** ping, the server remembers it for the room and uses it to derive projection **staleness** threshold (see [ws2-task3-projection-confidence.md](./ws2-task3-projection-confidence.md)). |
 
 **Constants (server)**
 
@@ -39,7 +40,7 @@ Order of checks:
 
 **201 response** (`decision: "accepted"`)
 
-Includes `pingId`, `roomId`, `recordedAt`, `receivedAt`, coordinates, and optional accuracy echo.
+Includes `pingId`, `roomId`, `recordedAt`, `receivedAt`, coordinates, optional accuracy echo, and when projection is available a **`projection`** object (including **staleness** fields if the room has an active course).
 
 **422 response** (`decision: "rejected"`)
 

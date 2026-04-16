@@ -58,7 +58,8 @@ const ingestAthletePingInput = z.object({
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
   recordedAt: z.iso.datetime(),
-  horizontalAccuracyMeters: z.number().positive().optional()
+  horizontalAccuracyMeters: z.number().positive().optional(),
+  uploadIntervalSeconds: z.number().int().min(10).max(900).optional()
 });
 
 const raceRooms = new Map<string, RaceRoom>();
@@ -76,6 +77,8 @@ type AcceptedPing = {
 type RoomPingState = {
   lastAccepted: AcceptedPing | null;
   history: AthletePingHistoryEntry[];
+  /** Last athlete-declared target ping interval (seconds); drives staleness threshold when set. */
+  lastUploadIntervalSeconds?: number;
 };
 
 const roomPingState = new Map<string, RoomPingState>();
@@ -518,6 +521,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       recordedAtMs,
       receivedAtMs
     };
+    if (body.uploadIntervalSeconds !== undefined) {
+      pingState.lastUploadIntervalSeconds = body.uploadIntervalSeconds;
+    }
 
     const acceptedEntry: AthletePingHistoryEntry = {
       id: randomUUID(),
@@ -556,7 +562,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             : null
         });
         const evaluatedAtMs = Date.now();
-        projection = attachProjectionTimeliness(nextProjectionCore, recordedAtMs, evaluatedAtMs);
+        projection = attachProjectionTimeliness(
+          nextProjectionCore,
+          recordedAtMs,
+          evaluatedAtMs,
+          pingState.lastUploadIntervalSeconds
+        );
         roomProjectionState.set(roomId, {
           lastProgressMeters: state.lastProgressMeters,
           splitCrossedAt: { ...state.splitCrossedAt },
@@ -620,8 +631,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
-    const lastMs = pingState.lastAccepted?.recordedAtMs ?? null;
-    const view = attachProjectionTimeliness(stored.lastProjectionCore, lastMs, Date.now());
+    const view = attachProjectionTimeliness(
+      stored.lastProjectionCore,
+      pingState.lastAccepted?.recordedAtMs ?? null,
+      Date.now(),
+      pingState.lastUploadIntervalSeconds
+    );
     return reply.send(view);
   });
 
