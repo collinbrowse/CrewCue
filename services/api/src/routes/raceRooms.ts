@@ -7,6 +7,8 @@ import type {
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
+  CrewTaskStatus,
+  OpsTimelineEvent,
   RaceRoom,
   RaceRoomInvite,
   RaceRoomProjection,
@@ -98,9 +100,12 @@ type RoomTaskBoardState = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
   assignments: CrewAssignment[];
+  timelineEvents: OpsTimelineEvent[];
 };
 
 const roomTaskBoardState = new Map<string, RoomTaskBoardState>();
+
+const TASK_TIMELINE_CAP = 100;
 
 const MAX_CLOCK_SKEW_MS = 120_000;
 const MAX_SPEED_MPS = 15;
@@ -118,7 +123,7 @@ function getOrInitPingState(roomId: string): RoomPingState {
 
 function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
   if (!room.course) {
-    return { checkpointPlans: [], tasks: [], assignments: [] };
+    return { checkpointPlans: [], tasks: [], assignments: [], timelineEvents: [] };
   }
 
   const checkpoints = room.course.checkpoints.slice(0, Math.min(room.course.checkpoints.length, 3));
@@ -164,7 +169,7 @@ function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
     assignedAt: now
   }));
 
-  return { checkpointPlans, tasks, assignments };
+  return { checkpointPlans, tasks, assignments, timelineEvents: [] };
 }
 
 function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
@@ -173,7 +178,40 @@ function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
     state = buildInitialTaskBoard(room);
     roomTaskBoardState.set(room.id, state);
   }
+  if (!state.timelineEvents) {
+    state.timelineEvents = [];
+  }
   return state;
+}
+
+const assignTaskInput = z.object({
+  assigneeUserId: z.string().min(1),
+  assigneeRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"])
+});
+
+function canAssignRoomTasks(role: Role): boolean {
+  return role === "crew_chief" || role === "team_manager" || role === "athlete";
+}
+
+function canPrivilegedTaskMutation(role: Role): boolean {
+  return canAssignRoomTasks(role);
+}
+
+function assignmentForTask(board: RoomTaskBoardState, taskId: string): CrewAssignment | undefined {
+  return board.assignments.find((a) => a.taskId === taskId);
+}
+
+function isAssigneeForTask(board: RoomTaskBoardState, taskId: string, userId: string): boolean {
+  const assignment = assignmentForTask(board, taskId);
+  return assignment !== undefined && assignment.assigneeUserId === userId;
+}
+
+function appendTaskTimeline(board: RoomTaskBoardState, event: Omit<OpsTimelineEvent, "id">): void {
+  const full: OpsTimelineEvent = { ...event, id: randomUUID() };
+  board.timelineEvents.push(full);
+  if (board.timelineEvents.length > TASK_TIMELINE_CAP) {
+    board.timelineEvents.splice(0, board.timelineEvents.length - TASK_TIMELINE_CAP);
+  }
 }
 
 function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): void {
@@ -764,6 +802,199 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       tasks,
       assignments: filteredAssignments
     });
+  });
+
+  app.post("/race-rooms/:roomId/tasks/:taskId/assign", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const taskId = (request.params as { taskId: string }).taskId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    if (!canAssignRoomTasks(membership.role)) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const parsed = assignTaskInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid assign task payload" });
+    }
+
+    const assigneeMember = room.memberships.find((m) => m.userId === parsed.data.assigneeUserId);
+    if (!assigneeMember || assigneeMember.role !== parsed.data.assigneeRole) {
+      return reply.code(400).send({ error: "Assignee is not a room member with the given role" });
+    }
+
+    const board = getOrInitTaskBoard(room);
+    const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    const now = new Date().toISOString();
+    const existingIdx = board.assignments.findIndex((a) => a.taskId === taskId);
+    const nextAssignment: CrewAssignment = {
+      id: existingIdx >= 0 ? board.assignments[existingIdx]!.id : randomUUID(),
+      roomId,
+      taskId,
+      assigneeUserId: parsed.data.assigneeUserId,
+      assigneeRole: parsed.data.assigneeRole,
+      assignedByUserId: request.identity.sub,
+      assignedAt: now
+    };
+    if (existingIdx >= 0) {
+      board.assignments[existingIdx] = nextAssignment;
+    } else {
+      board.assignments.push(nextAssignment);
+    }
+
+    appendTaskTimeline(board, {
+      roomId,
+      occurredAt: now,
+      kind: "task_assigned",
+      actorUserId: request.identity.sub,
+      message: `Task assigned to ${parsed.data.assigneeRole}`,
+      taskId
+    });
+
+    return reply.send({ task: board.tasks[taskIndex]!, assignment: nextAssignment });
+  });
+
+  app.post("/race-rooms/:roomId/tasks/:taskId/start", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const taskId = (request.params as { taskId: string }).taskId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const board = getOrInitTaskBoard(room);
+    const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    const task = board.tasks[taskIndex]!;
+    if (task.status !== "pending") {
+      return reply.code(409).send({ error: "Task cannot be started from its current state" });
+    }
+
+    const privileged = canPrivilegedTaskMutation(membership.role);
+    const assignee = isAssigneeForTask(board, taskId, request.identity.sub);
+    if (!privileged && !assignee) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const now = new Date().toISOString();
+    const nextStatus: CrewTaskStatus = "in_progress";
+    board.tasks[taskIndex] = { ...task, status: nextStatus, updatedAt: now };
+
+    appendTaskTimeline(board, {
+      roomId,
+      occurredAt: now,
+      kind: "task_started",
+      actorUserId: request.identity.sub,
+      message: "Task started",
+      taskId
+    });
+
+    return reply.send({ task: board.tasks[taskIndex]! });
+  });
+
+  app.post("/race-rooms/:roomId/tasks/:taskId/complete", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const taskId = (request.params as { taskId: string }).taskId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const board = getOrInitTaskBoard(room);
+    const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) {
+      return reply.code(404).send({ error: "Task not found" });
+    }
+
+    const task = board.tasks[taskIndex]!;
+    if (task.status !== "in_progress") {
+      return reply.code(409).send({ error: "Task cannot be completed from its current state" });
+    }
+
+    const privileged = canPrivilegedTaskMutation(membership.role);
+    const assignee = isAssigneeForTask(board, taskId, request.identity.sub);
+    if (!privileged && !assignee) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const now = new Date().toISOString();
+    const nextStatus: CrewTaskStatus = "completed";
+    board.tasks[taskIndex] = { ...task, status: nextStatus, updatedAt: now };
+
+    appendTaskTimeline(board, {
+      roomId,
+      occurredAt: now,
+      kind: "task_completed",
+      actorUserId: request.identity.sub,
+      message: "Task completed",
+      taskId
+    });
+
+    return reply.send({ task: board.tasks[taskIndex]! });
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
