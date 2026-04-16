@@ -1,0 +1,15 @@
+---
+description: Post-WS7 MVP delivery chunks (A–D) and staging-first cloud; read before persistence, Auth0, payments, deploy, or mobile-staging integration
+alwaysApply: true
+---
+
+# MVP chunks and cloud strategy
+
+When work goes **beyond WS1–WS7 API slices** (durable Postgres, Auth0, real payments, staging/prod behavior, or mobile proving the cloud stack), read **`docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md`** first.
+
+- **Chunk A:** persistence spine (staging Postgres, migrations, event log path per ADR 0003).
+- **Chunk B:** identity + entitlement (Auth0, payments on staging per ADR 0004).
+- **Chunk C:** client E2E against **staging** (not production).
+- **Chunk D:** depth streams (WS2/WS5/WS7 projections); do not reintroduce in-memory as source of truth after Chunk A exits.
+
+Label GitHub issues with **`chunk-a`** … **`chunk-d`** when applicable. Staging-first: no new cloud-only behavior in production before staging soak.
