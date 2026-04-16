@@ -1,4 +1,9 @@
-import type { RaceCourse, RaceCourseCheckpoint, RaceRoomProjection, RaceCheckpointSplitRow } from "@crewcue/contracts";
+import type {
+  RaceCourse,
+  RaceCourseCheckpoint,
+  RaceRoomProjectionCore,
+  RaceCheckpointSplitRow
+} from "@crewcue/contracts";
 
 const EARTH_RADIUS_M = 6_371_000;
 const EPS_M = 0.05;
@@ -120,7 +125,7 @@ export function recomputeRaceProjection(params: {
   plannedPaceSecondsPerKm: number;
   ping: ProjectionPing;
   previous: ProjectionPreviousState | null;
-}): { projection: RaceRoomProjection; state: ProjectionPreviousState } {
+}): { projection: RaceRoomProjectionCore; state: ProjectionPreviousState } {
   const { roomId, activatedAt, course, plannedPaceSecondsPerKm, ping, previous } = params;
   const activatedAtMs = Date.parse(activatedAt);
   const recordedAtMs = Date.parse(ping.recordedAt);
@@ -177,7 +182,7 @@ export function recomputeRaceProjection(params: {
   const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
   const etaFinishPlanIso = new Date(recordedAtMs + remainingSec * 1000).toISOString();
 
-  const projection: RaceRoomProjection = {
+  const projection: RaceRoomProjectionCore = {
     roomId,
     asOfPingId: ping.pingId,
     asOfRecordedAt: ping.recordedAt,

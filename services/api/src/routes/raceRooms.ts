@@ -7,6 +7,7 @@ import type {
   RaceRoom,
   RaceRoomInvite,
   RaceRoomProjection,
+  RaceRoomProjectionCore,
   Role
 } from "@crewcue/contracts";
 import {
@@ -14,6 +15,7 @@ import {
   DEFAULT_RACE_COURSE,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
+import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -81,7 +83,7 @@ const roomPingState = new Map<string, RoomPingState>();
 type RoomProjectionState = {
   lastProgressMeters: number;
   splitCrossedAt: Record<string, string>;
-  lastProjection: RaceRoomProjection;
+  lastProjectionCore: RaceRoomProjectionCore;
 };
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
@@ -535,7 +537,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (room.course && room.plannedPaceSecondsPerKm !== undefined && room.activatedAt) {
       const prev = roomProjectionState.get(roomId);
       try {
-        const { projection: nextProjection, state } = recomputeRaceProjection({
+        const { projection: nextProjectionCore, state } = recomputeRaceProjection({
           roomId,
           activatedAt: room.activatedAt,
           course: room.course,
@@ -553,19 +555,20 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
               }
             : null
         });
-        projection = nextProjection;
+        const evaluatedAtMs = Date.now();
+        projection = attachProjectionTimeliness(nextProjectionCore, recordedAtMs, evaluatedAtMs);
         roomProjectionState.set(roomId, {
           lastProgressMeters: state.lastProgressMeters,
           splitCrossedAt: { ...state.splitCrossedAt },
-          lastProjection: nextProjection
+          lastProjectionCore: nextProjectionCore
         });
         app.log.info(
           {
             projection_recompute: {
               roomId,
               pingId,
-              progressMeters: nextProjection.progressMeters,
-              courseLengthMeters: nextProjection.courseLengthMeters
+              progressMeters: nextProjectionCore.progressMeters,
+              courseLengthMeters: nextProjectionCore.courseLengthMeters
             }
           },
           "projection_recompute"
@@ -616,7 +619,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Projection not available" });
     }
 
-    return reply.send(stored.lastProjection);
+    const pingState = getOrInitPingState(roomId);
+    const lastMs = pingState.lastAccepted?.recordedAtMs ?? null;
+    const view = attachProjectionTimeliness(stored.lastProjectionCore, lastMs, Date.now());
+    return reply.send(view);
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
