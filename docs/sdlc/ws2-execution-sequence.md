@@ -1,5 +1,7 @@
 # WS2 Execution Sequence (First Sprint)
 
+**Sprint status: complete** — see [ws2-sprint-signoff.md](./ws2-sprint-signoff.md).
+
 This sequence turns the **WS1 race room** into something that can carry **live race intelligence**: location pings in, structured projections out. It deliberately stays smaller than the full vision in `ws2-live-split-intelligence-engine-plan.md` (weather, deep history, hardware integrations) until later slices.
 
 ## What WS2 adds (conceptually)
