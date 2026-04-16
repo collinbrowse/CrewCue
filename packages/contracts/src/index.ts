@@ -67,3 +67,45 @@ export interface RaceRoomInvite {
   acceptedBy?: string;
   acceptedAt?: string;
 }
+
+/** WS2 Task 1 — client payload for athlete location ping ingest */
+export interface AthletePingIngestPayload {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  horizontalAccuracyMeters?: number;
+}
+
+/** Business-rule rejections after auth, membership, and entitlement gates */
+export type AthletePingRejectReason =
+  | "room_not_active"
+  | "clock_skew"
+  | "implausible_motion"
+  | "accuracy_too_poor";
+
+export interface AthletePingAcceptedResponse {
+  decision: "accepted";
+  pingId: string;
+  roomId: string;
+  recordedAt: string;
+  receivedAt: string;
+  latitude: number;
+  longitude: number;
+  horizontalAccuracyMeters?: number;
+}
+
+export interface AthletePingRejectedResponse {
+  decision: "rejected";
+  reason: AthletePingRejectReason;
+  message: string;
+}
+
+/** In-memory decision log entry (WS2 Task 1) */
+export interface AthletePingHistoryEntry {
+  id: string;
+  at: string;
+  actor: string;
+  decision: "accepted" | "rejected";
+  reason?: AthletePingRejectReason;
+  pingId?: string;
+}

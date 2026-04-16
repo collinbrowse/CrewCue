@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { RaceRoom, RaceRoomInvite, Role } from "@crewcue/contracts";
+import type {
+  AthletePingHistoryEntry,
+  AthletePingRejectReason,
+  RaceRoom,
+  RaceRoomInvite,
+  Role
+} from "@crewcue/contracts";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -28,8 +34,65 @@ const acceptInviteInput = z.object({
   token: z.string().min(1)
 });
 
+const ingestAthletePingInput = z.object({
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180),
+  recordedAt: z.iso.datetime(),
+  horizontalAccuracyMeters: z.number().positive().optional()
+});
+
 const raceRooms = new Map<string, RaceRoom>();
 const raceRoomInvites = new Map<string, RaceRoomInvite>();
+
+/** WS2 Task 1 — last accepted ping + bounded decision history per room */
+type AcceptedPing = {
+  pingId: string;
+  latitude: number;
+  longitude: number;
+  recordedAtMs: number;
+  receivedAtMs: number;
+};
+
+type RoomPingState = {
+  lastAccepted: AcceptedPing | null;
+  history: AthletePingHistoryEntry[];
+};
+
+const roomPingState = new Map<string, RoomPingState>();
+
+const MAX_CLOCK_SKEW_MS = 120_000;
+const MAX_SPEED_MPS = 15;
+const MAX_HORIZONTAL_ACCURACY_M = 500;
+const PING_HISTORY_CAP = 50;
+
+function getOrInitPingState(roomId: string): RoomPingState {
+  let state = roomPingState.get(roomId);
+  if (!state) {
+    state = { lastAccepted: null, history: [] };
+    roomPingState.set(roomId, state);
+  }
+  return state;
+}
+
+function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): void {
+  const state = getOrInitPingState(roomId);
+  state.history.push(entry);
+  if (state.history.length > PING_HISTORY_CAP) {
+    state.history.splice(0, state.history.length - PING_HISTORY_CAP);
+  }
+}
+
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δφ = toRad(lat2 - lat1);
+  const Δλ = toRad(lon2 - lon1);
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 type PermissionSet = {
   canViewRoom: boolean;
@@ -330,5 +393,152 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     raceRooms.set(roomId, updated);
     return reply.send(updated.entitlement);
+  });
+
+  app.post("/race-rooms/:roomId/pings", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const parsed = ingestAthletePingInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid ping payload" });
+    }
+
+    const body = parsed.data;
+    const receivedAt = new Date().toISOString();
+    const receivedAtMs = Date.parse(receivedAt);
+    const recordedAtMs = Date.parse(body.recordedAt);
+
+    const reject = (reason: AthletePingRejectReason, message: string) => {
+      const entry: AthletePingHistoryEntry = {
+        id: randomUUID(),
+        at: receivedAt,
+        actor: request.identity!.sub,
+        decision: "rejected",
+        reason
+      };
+      pushPingHistory(roomId, entry);
+      app.log.info(
+        { ping_decision: { roomId, actor: request.identity!.sub, decision: "rejected", reason } },
+        "ping_decision"
+      );
+      return reply.code(422).send({ decision: "rejected" as const, reason, message });
+    };
+
+    if (room.status !== "active") {
+      return reject("room_not_active", "Race room must be active to ingest pings");
+    }
+
+    if (body.horizontalAccuracyMeters !== undefined && body.horizontalAccuracyMeters > MAX_HORIZONTAL_ACCURACY_M) {
+      return reject("accuracy_too_poor", "Horizontal accuracy exceeds allowed threshold");
+    }
+
+    if (Number.isNaN(recordedAtMs)) {
+      return reply.code(400).send({ error: "Invalid ping payload" });
+    }
+
+    if (Math.abs(receivedAtMs - recordedAtMs) > MAX_CLOCK_SKEW_MS) {
+      return reject("clock_skew", "recordedAt is too far from server time");
+    }
+
+    const pingState = getOrInitPingState(roomId);
+    if (pingState.lastAccepted) {
+      const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
+      if (dtSec > 0) {
+        const dist = distanceMeters(
+          pingState.lastAccepted.latitude,
+          pingState.lastAccepted.longitude,
+          body.latitude,
+          body.longitude
+        );
+        const impliedSpeed = dist / dtSec;
+        if (impliedSpeed > MAX_SPEED_MPS) {
+          return reject("implausible_motion", "Movement exceeds plausible speed for elapsed time");
+        }
+      }
+    }
+
+    const pingId = randomUUID();
+    pingState.lastAccepted = {
+      pingId,
+      latitude: body.latitude,
+      longitude: body.longitude,
+      recordedAtMs,
+      receivedAtMs
+    };
+
+    const acceptedEntry: AthletePingHistoryEntry = {
+      id: randomUUID(),
+      at: receivedAt,
+      actor: request.identity.sub,
+      decision: "accepted",
+      pingId
+    };
+    pushPingHistory(roomId, acceptedEntry);
+
+    app.log.info(
+      { ping_decision: { roomId, actor: request.identity.sub, decision: "accepted", pingId } },
+      "ping_decision"
+    );
+
+    return reply.code(201).send({
+      decision: "accepted" as const,
+      pingId,
+      roomId,
+      recordedAt: body.recordedAt,
+      receivedAt,
+      latitude: body.latitude,
+      longitude: body.longitude,
+      ...(body.horizontalAccuracyMeters !== undefined
+        ? { horizontalAccuracyMeters: body.horizontalAccuracyMeters }
+        : {})
+    });
+  });
+
+  app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const limitRaw = (request.query as { limit?: string }).limit;
+    const limitParsed = z.coerce.number().int().min(1).max(50).safeParse(limitRaw ?? "20");
+    const limit = limitParsed.success ? limitParsed.data : 20;
+
+    const state = getOrInitPingState(roomId);
+    const decisions = state.history.slice(-limit);
+    return reply.send({ decisions });
   });
 }

@@ -1,0 +1,321 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildApp } from "../app.js";
+
+function buildClaims(sub: string) {
+  return {
+    sub,
+    teamIds: ["team-1"],
+    roomRoles: {}
+  };
+}
+
+async function createPaidActiveRoom(
+  app: ReturnType<typeof buildApp>,
+  ownerToken: string
+): Promise<string> {
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Ping Test Room",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const activateResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: { eventEndsAt: ends },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+
+  return roomId;
+}
+
+function isoNow(): string {
+  return new Date().toISOString();
+}
+
+test("accepts a ping for paid active room and records history", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow(),
+      horizontalAccuracyMeters: 12
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 201);
+  const body = pingResponse.json() as { decision: string; pingId: string };
+  assert.equal(body.decision, "accepted");
+  assert.ok(body.pingId);
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/pings/history?limit=10`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(historyResponse.statusCode, 200);
+  const history = historyResponse.json() as { decisions: Array<{ decision: string }> };
+  assert.equal(history.decisions.length, 1);
+  assert.equal(history.decisions[0].decision, "accepted");
+
+  await app.close();
+});
+
+test("rejects ping when room is not active", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Draft Room",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 422);
+  const body = pingResponse.json() as { decision: string; reason: string };
+  assert.equal(body.decision, "rejected");
+  assert.equal(body.reason, "room_not_active");
+
+  await app.close();
+});
+
+test("rejects ping on clock skew", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: stale
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 422);
+  assert.equal((pingResponse.json() as { reason: string }).reason, "clock_skew");
+
+  await app.close();
+});
+
+test("rejects implausible motion vs last accepted ping", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const t0 = new Date(Date.now() - 30_000).toISOString();
+  const first = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.0,
+      longitude: -74.0,
+      recordedAt: t0
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(first.statusCode, 201);
+
+  const t1 = new Date(Date.now() - 20_000).toISOString();
+  const second = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.9,
+      longitude: -74.0,
+      recordedAt: t1
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(second.statusCode, 422);
+  assert.equal((second.json() as { reason: string }).reason, "implausible_motion");
+
+  await app.close();
+});
+
+test("returns 402 when entitlement unpaid", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Unpaid",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 402);
+
+  await app.close();
+});
+
+test("returns 403 for non-member", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const strangerToken = app.jwt.sign(buildClaims("stranger-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: {
+      authorization: `Bearer ${strangerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 403);
+
+  await app.close();
+});
+
+test("returns 400 for invalid coordinates payload", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 200,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 400);
+
+  await app.close();
+});
+
+test("rejects ping when horizontal accuracy is too poor", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const pingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow(),
+      horizontalAccuracyMeters: 600
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(pingResponse.statusCode, 422);
+  assert.equal((pingResponse.json() as { reason: string }).reason, "accuracy_too_poor");
+
+  await app.close();
+});
