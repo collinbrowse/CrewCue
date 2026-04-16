@@ -83,3 +83,7 @@ When the PR is merged into `default` (`main`), linked issues should move to **Cl
 | PR | PR targets `main`, body includes `Closes #<issue>`. |
 | Merge | CI green, review done, squash/merge per team preference. |
 | Close | Issue closed automatically after merge. |
+
+## See also
+
+- **[MVP delivery chunks and cloud strategy](./mvp-delivery-chunks-and-cloud-strategy.md)** — post–WS7 sequencing (chunks A–D), staging vs production, and gates; use chunk labels on issues when work maps to that layer.

@@ -19,6 +19,12 @@
 - **Phase 1 (MVP):** WS0, WS1, WS2, WS3, WS4 (v1), WS5, WS6 essentials, WS7 foundations
 - **Phase 2+:** deeper AI adaptation, advanced staffing optimization, external race/watch integrations, multi-sport templates
 
+## Post–WS7 MVP execution (chunks + cloud)
+
+After WS1–WS7 **API/contract sprints**, delivery is organized by **four chunks (A–D)** and a **staging-first cloud** path (Postgres, Auth0, payments, then client proof on staging). That strategy is the **official handoff** for what to build next and where it runs:
+
+- **[MVP delivery chunks and cloud strategy](./docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md)** — chunk goals, environment ladder, gates, risks, and a **pickup checklist** for humans and AI agents.
+
 ## WS0 Status (Completed)
 - **Current state:** completed and merged to `main`
 - **Decisions locked:** hybrid iOS/Android mobile, TypeScript/Fastify API, PostgreSQL event-log pattern, AWS + Terraform, Auth0, GitHub Actions, OpenTelemetry, baseline SLOs/security controls
