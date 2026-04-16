@@ -32,6 +32,37 @@ export interface RaceRoomMembership {
   joinedAt: string;
 }
 
+/** Ordered polyline for WS2 projection (local XY projection between consecutive points). */
+export interface RaceCourseCheckpoint {
+  id: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface RaceCourse {
+  checkpoints: RaceCourseCheckpoint[];
+}
+
+export interface RaceCheckpointSplitRow {
+  checkpointId: string;
+  distanceMetersFromStart: number;
+  crossedAtRecordedAt: string | null;
+  plannedElapsedSecondsAtCross: number;
+  actualElapsedSecondsAtCross: number | null;
+  deltaSecondsAtCross: number | null;
+}
+
+export interface RaceRoomProjection {
+  roomId: string;
+  asOfPingId: string;
+  asOfRecordedAt: string;
+  progressMeters: number;
+  courseLengthMeters: number;
+  plannedPaceSecondsPerKm: number;
+  etaFinishPlanIso: string;
+  checkpointSplits: RaceCheckpointSplitRow[];
+}
+
 export interface RaceRoom {
   id: string;
   teamId: string;
@@ -43,6 +74,10 @@ export interface RaceRoom {
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
   entitlement: RaceRoomEntitlement;
+  /** Set on activation; drives WS2 split / ETA projection. */
+  course?: RaceCourse;
+  /** Seconds per kilometre for plan baseline (smaller = faster plan). */
+  plannedPaceSecondsPerKm?: number;
 }
 
 export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";

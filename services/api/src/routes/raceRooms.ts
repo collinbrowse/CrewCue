@@ -6,8 +6,14 @@ import type {
   AthletePingRejectReason,
   RaceRoom,
   RaceRoomInvite,
+  RaceRoomProjection,
   Role
 } from "@crewcue/contracts";
+import {
+  DEFAULT_PLANNED_PACE_SECONDS_PER_KM,
+  DEFAULT_RACE_COURSE,
+  recomputeRaceProjection
+} from "../lib/raceProjection.js";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -16,8 +22,20 @@ const createRaceRoomInput = z.object({
   creatorRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"]).default("athlete")
 });
 
+const raceCourseCheckpointInput = z.object({
+  id: z.string().min(1),
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180)
+});
+
+const raceCourseInput = z.object({
+  checkpoints: z.array(raceCourseCheckpointInput).min(2)
+});
+
 const activateRaceRoomInput = z.object({
-  eventEndsAt: z.iso.datetime()
+  eventEndsAt: z.iso.datetime(),
+  course: raceCourseInput.optional(),
+  plannedPaceSecondsPerKm: z.number().positive().optional()
 });
 
 const updateEntitlementInput = z.object({
@@ -59,6 +77,14 @@ type RoomPingState = {
 };
 
 const roomPingState = new Map<string, RoomPingState>();
+
+type RoomProjectionState = {
+  lastProgressMeters: number;
+  splitCrossedAt: Record<string, string>;
+  lastProjection: RaceRoomProjection;
+};
+
+const roomProjectionState = new Map<string, RoomProjectionState>();
 
 const MAX_CLOCK_SKEW_MS = 120_000;
 const MAX_SPEED_MPS = 15;
@@ -229,13 +255,20 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid activation payload" });
     }
 
+    const activatedAt = new Date().toISOString();
+    const course = parsed.data.course ?? DEFAULT_RACE_COURSE;
+    const plannedPaceSecondsPerKm = parsed.data.plannedPaceSecondsPerKm ?? DEFAULT_PLANNED_PACE_SECONDS_PER_KM;
+
     const activated: RaceRoom = {
       ...room,
       status: "active",
-      activatedAt: new Date().toISOString(),
-      eventEndsAt: parsed.data.eventEndsAt
+      activatedAt,
+      eventEndsAt: parsed.data.eventEndsAt,
+      course,
+      plannedPaceSecondsPerKm
     };
 
+    roomProjectionState.delete(roomId);
     raceRooms.set(roomId, activated);
     return reply.send(activated);
   });
@@ -498,6 +531,50 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       "ping_decision"
     );
 
+    let projection: RaceRoomProjection | undefined;
+    if (room.course && room.plannedPaceSecondsPerKm !== undefined && room.activatedAt) {
+      const prev = roomProjectionState.get(roomId);
+      try {
+        const { projection: nextProjection, state } = recomputeRaceProjection({
+          roomId,
+          activatedAt: room.activatedAt,
+          course: room.course,
+          plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+          ping: {
+            pingId,
+            latitude: body.latitude,
+            longitude: body.longitude,
+            recordedAt: body.recordedAt
+          },
+          previous: prev
+            ? {
+                lastProgressMeters: prev.lastProgressMeters,
+                splitCrossedAt: { ...prev.splitCrossedAt }
+              }
+            : null
+        });
+        projection = nextProjection;
+        roomProjectionState.set(roomId, {
+          lastProgressMeters: state.lastProgressMeters,
+          splitCrossedAt: { ...state.splitCrossedAt },
+          lastProjection: nextProjection
+        });
+        app.log.info(
+          {
+            projection_recompute: {
+              roomId,
+              pingId,
+              progressMeters: nextProjection.progressMeters,
+              courseLengthMeters: nextProjection.courseLengthMeters
+            }
+          },
+          "projection_recompute"
+        );
+      } catch (err) {
+        app.log.warn({ err, roomId }, "projection_recompute_failed");
+      }
+    }
+
     return reply.code(201).send({
       decision: "accepted" as const,
       pingId,
@@ -508,8 +585,38 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       longitude: body.longitude,
       ...(body.horizontalAccuracyMeters !== undefined
         ? { horizontalAccuracyMeters: body.horizontalAccuracyMeters }
-        : {})
+        : {}),
+      ...(projection ? { projection } : {})
     });
+  });
+
+  app.get("/race-rooms/:roomId/projection", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const stored = roomProjectionState.get(roomId);
+    if (!stored) {
+      return reply.code(404).send({ error: "Projection not available" });
+    }
+
+    return reply.send(stored.lastProjection);
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
