@@ -317,3 +317,66 @@ export interface ExplainabilityRecord {
   factors: string[];
   createdAt: string;
 }
+
+// --- WS5: connectivity resilience and sync health (Sprint 1 HTTP slice) ---
+// Shapes align with ws5-connectivity-resilience-and-sync-health-plan.md; BLE + canonical merge defer to later slices.
+
+export type LocalOpQueueItemStatus = "pending" | "flushed" | "failed";
+
+/** Single queued client operation (for future flush/replay; Sprint 1 may only surface summaries). */
+export interface LocalOpQueueItem {
+  id: string;
+  roomId: string;
+  deviceId: string;
+  userId: string;
+  opType: string;
+  payloadSummary: string;
+  clientCreatedAt: string;
+  status: LocalOpQueueItemStatus;
+  serverSeenAt: string;
+}
+
+/** Per-device sync heartbeat as observed by the API (server clock). */
+export interface DeviceHealth {
+  deviceId: string;
+  roomId: string;
+  userId: string;
+  lastHeartbeatAt: string;
+  pendingQueueCount: number;
+  lastSuccessfulFlushAt?: string;
+  /** Computed on read: true when lastHeartbeat is older than the caller’s stale threshold. */
+  isStale: boolean;
+}
+
+/** Aggregated operator-facing sync view for a room. */
+export interface SyncStatus {
+  roomId: string;
+  evaluatedAt: string;
+  staleAfterSeconds: number;
+  devices: DeviceHealth[];
+  totalPendingAcrossDevices: number;
+}
+
+/** Client-reported queue shape snapshot (counts only). */
+export interface SyncQueueDiagnostics {
+  id: string;
+  roomId: string;
+  deviceId: string;
+  userId: string;
+  pendingByOpType: Record<string, number>;
+  reportedAt: string;
+}
+
+export type MergeStrategyKind = "last_writer_wins" | "manual" | "deferred";
+
+/** Client-reported merge decision (telemetry; WS7 owns authoritative merge). */
+export interface MergeRecord {
+  id: string;
+  roomId: string;
+  deviceId: string;
+  conflictKey: string;
+  strategy: MergeStrategyKind;
+  decidedByUserId: string;
+  recordedAt: string;
+  notes?: string;
+}
