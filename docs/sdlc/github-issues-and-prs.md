@@ -2,6 +2,24 @@
 
 This is the default way **CrewCue** ties local work to GitHub: every scoped task has an **issue**, every implementation ships in a **pull request**, and a **merged** PR closes the issue automatically.
 
+## GitHub as the visible task board (sprints, status, links)
+
+You can treat **GitHub as the full tracker** for what is planned, in progress, and done—without replacing the long-form plans in the repo (those stay the “why and what” narrative).
+
+| Piece | What it is for (plain language) |
+| --- | --- |
+| **Issues** | One card per task; scope and acceptance live here (same as today). |
+| **Pull requests** | The actual code change; link to the issue so merge **closes** the task (see below). |
+| **GitHub Projects** | A **board or table** of issues: columns like *Backlog / Ready / In progress / Done*, filters by label (e.g. `ws3`), and optional **dates** so you see the whole workstream at a glance. |
+| **Iterations** (in Projects) | **Sprint-style timeboxes** (e.g. “WS3 Sprint 1 — two weeks”): assign each issue to an iteration to answer “what are we shipping this sprint?” |
+| **Milestones** (optional) | Another way to group issues by release or sprint if you prefer not to use Project iterations; some teams use both. |
+| **Labels** | Quick tags: `workstream-task`, `ws3`, `blocked`, `docs`, etc., so views stay readable. |
+| **Parent / sub-issues** | Optional: one **epic** issue for “WS3 first sprint” with **child issues** per task, so status rolls up visually. |
+
+**Links you care about:** PR bodies already support `Closes #123`. Issues can link to other issues or PRs with `#number` or full URLs. Project views simply **pull in those same issues**, so status, sprint, and code stay connected.
+
+**Suggested split:** keep **sign-off and deep sequencing** in `docs/sdlc/` (like WS2), and use **GitHub for live status**—every sprint gets a **Milestone or Project iteration** plus a short **tracking issue** that lists child issue numbers and links to the execution doc when you add one.
+
 ## 1. Create a GitHub issue first
 
 When you (or the agent) start a **new task**—a slice of work with clear acceptance criteria—**open an issue before writing implementation code**.
