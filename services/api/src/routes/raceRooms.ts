@@ -4,6 +4,9 @@ import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
   AthletePingRejectReason,
+  CheckpointPlan,
+  CrewAssignment,
+  CrewTask,
   RaceRoom,
   RaceRoomInvite,
   RaceRoomProjection,
@@ -91,6 +94,14 @@ type RoomProjectionState = {
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
 
+type RoomTaskBoardState = {
+  checkpointPlans: CheckpointPlan[];
+  tasks: CrewTask[];
+  assignments: CrewAssignment[];
+};
+
+const roomTaskBoardState = new Map<string, RoomTaskBoardState>();
+
 const MAX_CLOCK_SKEW_MS = 120_000;
 const MAX_SPEED_MPS = 15;
 const MAX_HORIZONTAL_ACCURACY_M = 500;
@@ -101,6 +112,66 @@ function getOrInitPingState(roomId: string): RoomPingState {
   if (!state) {
     state = { lastAccepted: null, history: [] };
     roomPingState.set(roomId, state);
+  }
+  return state;
+}
+
+function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
+  if (!room.course) {
+    return { checkpointPlans: [], tasks: [], assignments: [] };
+  }
+
+  const checkpoints = room.course.checkpoints.slice(0, Math.min(room.course.checkpoints.length, 3));
+  const roleCycle: Role[] = ["crew_chief", "crew_member", "crew_member"];
+  const now = new Date().toISOString();
+
+  const checkpointPlans = checkpoints.map((checkpoint, index) => ({
+    id: randomUUID(),
+    roomId: room.id,
+    checkpointId: checkpoint.id,
+    title: `Checkpoint ${index + 1} aid plan`,
+    notes: index === 0 ? "Quick refill + status check." : undefined,
+    createdAt: now,
+    updatedAt: now,
+    authoredByUserId: room.athleteId
+  }));
+
+  const tasks = checkpointPlans.map((plan, index) => ({
+    id: randomUUID(),
+    roomId: room.id,
+    checkpointId: plan.checkpointId,
+    checkpointPlanId: plan.id,
+    title: index === 0 ? "Prepare handoff" : index === 1 ? "Monitor nutrition" : "Confirm exit checklist",
+    description:
+      index === 0
+        ? "Have bottles and fuel ready before athlete arrival."
+        : index === 1
+          ? "Confirm calories, fluids, and heat notes at the stop."
+          : "Make sure athlete leaves with the next checkpoint plan.",
+    status: "pending" as const,
+    createdAt: now,
+    updatedAt: now,
+    createdByUserId: room.athleteId
+  }));
+
+  const assignments = tasks.map((task, index) => ({
+    id: randomUUID(),
+    roomId: room.id,
+    taskId: task.id,
+    assigneeUserId: `${roleCycle[index] ?? "crew_member"}-placeholder`,
+    assigneeRole: roleCycle[index] ?? "crew_member",
+    assignedByUserId: room.athleteId,
+    assignedAt: now
+  }));
+
+  return { checkpointPlans, tasks, assignments };
+}
+
+function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
+  let state = roomTaskBoardState.get(room.id);
+  if (!state) {
+    state = buildInitialTaskBoard(room);
+    roomTaskBoardState.set(room.id, state);
   }
   return state;
 }
@@ -139,6 +210,13 @@ function getPermissions(role: Role): PermissionSet {
     canActivateRoom,
     canIssueInvite
   };
+}
+
+function getTaskBoardVisibleRoles(role: Role): Role[] {
+  if (role === "crew_member") {
+    return ["crew_member"];
+  }
+  return ["athlete", "crew_member", "crew_chief", "team_manager"];
 }
 
 function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor: string): { allowed: boolean; code?: number; error?: string } {
@@ -274,6 +352,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     };
 
     roomProjectionState.delete(roomId);
+    roomTaskBoardState.delete(roomId);
     raceRooms.set(roomId, activated);
     return reply.send(activated);
   });
@@ -638,6 +717,53 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       pingState.lastUploadIntervalSeconds
     );
     return reply.send(view);
+  });
+
+  app.get("/race-rooms/:roomId/tasks", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const checkpointIdRaw = (request.query as { checkpointId?: string }).checkpointId;
+    const checkpointId = typeof checkpointIdRaw === "string" && checkpointIdRaw.length > 0 ? checkpointIdRaw : undefined;
+
+    const board = getOrInitTaskBoard(room);
+    const visibleRoles = new Set(getTaskBoardVisibleRoles(membership.role));
+    const assignments = board.assignments.filter((assignment) => visibleRoles.has(assignment.assigneeRole));
+    const visibleTaskIds = new Set(assignments.map((assignment) => assignment.taskId));
+
+    const tasks = board.tasks.filter((task) => {
+      if (!visibleTaskIds.has(task.id)) {
+        return false;
+      }
+      return checkpointId ? task.checkpointId === checkpointId : true;
+    });
+    const taskIds = new Set(tasks.map((task) => task.id));
+    const filteredAssignments = assignments.filter((assignment) => taskIds.has(assignment.taskId));
+    const checkpointIds = new Set(tasks.map((task) => task.checkpointId));
+    const checkpointPlans = board.checkpointPlans.filter((plan) => checkpointIds.has(plan.checkpointId));
+
+    return reply.send({
+      checkpointPlans,
+      tasks,
+      assignments: filteredAssignments
+    });
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
