@@ -42,6 +42,36 @@ const DEFAULT_STALE_AFTER_SECONDS = Number.parseInt(process.env.SYNC_STALE_AFTER
 const DIAGNOSTICS_CAP = 50;
 const MERGE_RECORDS_CAP = 100;
 
+/** Read-only roll-up for WS6 boards without mutating room state. */
+export function getWs5RoomCommandCenterSummary(
+  roomId: string,
+  staleAfterSeconds: number = DEFAULT_STALE_AFTER_SECONDS
+): {
+  totalPendingAcrossDevices: number;
+  staleDeviceCount: number;
+  trackedDeviceCount: number;
+} {
+  const state = ws5RoomState.get(roomId);
+  if (!state) {
+    return { totalPendingAcrossDevices: 0, staleDeviceCount: 0, trackedDeviceCount: 0 };
+  }
+  const evaluatedAtMs = Date.now();
+  let totalPending = 0;
+  let stale = 0;
+  for (const entry of state.heartbeats.values()) {
+    totalPending += entry.pendingQueueCount;
+    const ageSeconds = (evaluatedAtMs - entry.lastHeartbeatAtMs) / 1000;
+    if (ageSeconds > staleAfterSeconds) {
+      stale += 1;
+    }
+  }
+  return {
+    totalPendingAcrossDevices: totalPending,
+    staleDeviceCount: stale,
+    trackedDeviceCount: state.heartbeats.size
+  };
+}
+
 function getOrInitWs5(roomId: string): Ws5RoomState {
   let state = ws5RoomState.get(roomId);
   if (!state) {

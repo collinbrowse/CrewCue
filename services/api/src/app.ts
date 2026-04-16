@@ -6,6 +6,7 @@ import { eventRoutes } from "./routes/events.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
+import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -19,6 +20,7 @@ export function buildApp() {
   app.register(raceRoomRoutes);
   app.register(ws4AdaptivePlanRoutes);
   app.register(ws5SyncRoutes);
+  app.register(ws6CommandCenterRoutes);
 
   return app;
 }

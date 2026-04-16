@@ -294,6 +294,82 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
   return { allowed: false, code: 403, error: "Entitlement expired" };
 }
 
+/** All race rooms for a team id (WS6 aggregate scope; in-memory store). */
+export function listRaceRoomsByTeamId(teamId: string): RaceRoom[] {
+  return [...raceRooms.values()].filter((r) => r.teamId === teamId);
+}
+
+/** Latest projection view with timeliness, when ping history produced a stored core projection. */
+export function getProjectionViewForRoom(roomId: string): RaceRoomProjection | undefined {
+  const stored = roomProjectionState.get(roomId);
+  if (!stored) {
+    return undefined;
+  }
+  const pingState = getOrInitPingState(roomId);
+  return attachProjectionTimeliness(
+    stored.lastProjectionCore,
+    pingState.lastAccepted?.recordedAtMs ?? null,
+    Date.now(),
+    pingState.lastUploadIntervalSeconds
+  );
+}
+
+/** Task status counts for manager-style boards (not role-filtered). */
+export function getTaskStatusCountsForRoom(room: RaceRoom): Record<CrewTaskStatus, number> {
+  const board = getOrInitTaskBoard(room);
+  const counts: Record<CrewTaskStatus, number> = {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+    cancelled: 0
+  };
+  for (const task of board.tasks) {
+    counts[task.status] += 1;
+  }
+  return counts;
+}
+
+export type InProgressAssignmentRow = {
+  assigneeUserId: string;
+  roomId: string;
+  taskId: string;
+  checkpointId: string;
+};
+
+/** Assignments for tasks currently marked in progress (WS6 staffing overlap input). */
+export function listInProgressAssignmentsForRoom(room: RaceRoom): InProgressAssignmentRow[] {
+  const board = getOrInitTaskBoard(room);
+  const rows: InProgressAssignmentRow[] = [];
+  for (const task of board.tasks) {
+    if (task.status !== "in_progress") {
+      continue;
+    }
+    const assignment = assignmentForTask(board, task.id);
+    if (!assignment) {
+      continue;
+    }
+    rows.push({
+      assigneeUserId: assignment.assigneeUserId,
+      roomId: room.id,
+      taskId: task.id,
+      checkpointId: task.checkpointId
+    });
+  }
+  return rows;
+}
+
+/** Checkpoints with pending or in-progress crew demand (WS6 heatmap input). */
+export function listActiveDemandCheckpointsForRoom(room: RaceRoom): string[] {
+  const board = getOrInitTaskBoard(room);
+  const ids = new Set<string>();
+  for (const task of board.tasks) {
+    if (task.status === "pending" || task.status === "in_progress") {
+      ids.add(task.checkpointId);
+    }
+  }
+  return [...ids];
+}
+
 function isExpired(expiresAt: string): boolean {
   return Date.parse(expiresAt) <= Date.now();
 }
