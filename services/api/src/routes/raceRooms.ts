@@ -9,6 +9,7 @@ import type {
   CrewTask,
   CrewTaskStatus,
   OpsTimelineEvent,
+  ProtocolNote,
   RaceRoom,
   RaceRoomInvite,
   RaceRoomProjection,
@@ -100,6 +101,7 @@ type RoomTaskBoardState = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
   assignments: CrewAssignment[];
+  protocolNotes: ProtocolNote[];
   timelineEvents: OpsTimelineEvent[];
 };
 
@@ -123,7 +125,7 @@ function getOrInitPingState(roomId: string): RoomPingState {
 
 function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
   if (!room.course) {
-    return { checkpointPlans: [], tasks: [], assignments: [], timelineEvents: [] };
+    return { checkpointPlans: [], tasks: [], assignments: [], protocolNotes: [], timelineEvents: [] };
   }
 
   const checkpoints = room.course.checkpoints.slice(0, Math.min(room.course.checkpoints.length, 3));
@@ -169,7 +171,7 @@ function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
     assignedAt: now
   }));
 
-  return { checkpointPlans, tasks, assignments, timelineEvents: [] };
+  return { checkpointPlans, tasks, assignments, protocolNotes: [], timelineEvents: [] };
 }
 
 function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
@@ -187,6 +189,12 @@ function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
 const assignTaskInput = z.object({
   assigneeUserId: z.string().min(1),
   assigneeRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"])
+});
+
+const upsertProtocolNoteInput = z.object({
+  checkpointId: z.string().min(1),
+  category: z.enum(["heat", "nutrition", "blister", "other"]),
+  body: z.string().trim().min(1).max(5_000)
 });
 
 function canAssignRoomTasks(role: Role): boolean {
@@ -212,6 +220,10 @@ function appendTaskTimeline(board: RoomTaskBoardState, event: Omit<OpsTimelineEv
   if (board.timelineEvents.length > TASK_TIMELINE_CAP) {
     board.timelineEvents.splice(0, board.timelineEvents.length - TASK_TIMELINE_CAP);
   }
+}
+
+function sortTimelineAscending(events: OpsTimelineEvent[]): OpsTimelineEvent[] {
+  return [...events].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
 }
 
 function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): void {
@@ -995,6 +1007,132 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return reply.send({ task: board.tasks[taskIndex]! });
+  });
+
+  app.get("/race-rooms/:roomId/protocol-notes", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const checkpointIdRaw = (request.query as { checkpointId?: string }).checkpointId;
+    const checkpointId = typeof checkpointIdRaw === "string" && checkpointIdRaw.length > 0 ? checkpointIdRaw : undefined;
+
+    const board = getOrInitTaskBoard(room);
+    const notes = checkpointId
+      ? board.protocolNotes.filter((note) => note.checkpointId === checkpointId)
+      : board.protocolNotes;
+    return reply.send({ protocolNotes: notes });
+  });
+
+  app.post("/race-rooms/:roomId/protocol-notes", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const parsed = upsertProtocolNoteInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid protocol note payload" });
+    }
+
+    if (room.course && !room.course.checkpoints.some((cp) => cp.id === parsed.data.checkpointId)) {
+      return reply.code(400).send({ error: "Unknown checkpointId for this room course" });
+    }
+
+    const now = new Date().toISOString();
+    const board = getOrInitTaskBoard(room);
+    const existingIdx = board.protocolNotes.findIndex(
+      (note) => note.checkpointId === parsed.data.checkpointId && note.category === parsed.data.category
+    );
+
+    const next: ProtocolNote = {
+      id: existingIdx >= 0 ? board.protocolNotes[existingIdx]!.id : randomUUID(),
+      roomId,
+      checkpointId: parsed.data.checkpointId,
+      category: parsed.data.category,
+      body: parsed.data.body,
+      createdAt: existingIdx >= 0 ? board.protocolNotes[existingIdx]!.createdAt : now,
+      updatedAt: now,
+      authorUserId: request.identity.sub
+    };
+
+    if (existingIdx >= 0) {
+      board.protocolNotes[existingIdx] = next;
+    } else {
+      board.protocolNotes.push(next);
+    }
+
+    appendTaskTimeline(board, {
+      roomId,
+      occurredAt: now,
+      kind: "protocol_updated",
+      actorUserId: request.identity.sub,
+      message: `Protocol updated (${next.category})`,
+      protocolNoteId: next.id
+    });
+
+    return reply.send({ protocolNote: next });
+  });
+
+  app.get("/race-rooms/:roomId/timeline", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = raceRooms.get(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    const board = getOrInitTaskBoard(room);
+    const events = sortTimelineAscending(board.timelineEvents);
+    return reply.send({ events });
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {
