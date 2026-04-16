@@ -9,6 +9,7 @@ This repository now contains the WS0 implementation baseline for a hybrid iOS/An
 - `packages/contracts` - Shared domain/event/auth contracts
 - `infra/terraform` - AWS staging infrastructure baseline
 - `docs/adr` - Approved WS0 architecture decisions
+- `docs/api` - HTTP contract notes for in-flight slices (see WS1 race rooms)
 - `observability` - OpenTelemetry collector baseline
 
 ## Local Setup
