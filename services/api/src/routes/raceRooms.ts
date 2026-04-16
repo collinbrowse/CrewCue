@@ -71,6 +71,10 @@ const ingestAthletePingInput = z.object({
 const raceRooms = new Map<string, RaceRoom>();
 const raceRoomInvites = new Map<string, RaceRoomInvite>();
 
+export function getRaceRoom(roomId: string): RaceRoom | undefined {
+  return raceRooms.get(roomId);
+}
+
 /** WS2 Task 1 — last accepted ping + bounded decision history per room */
 type AcceptedPing = {
   pingId: string;
@@ -269,7 +273,7 @@ function getTaskBoardVisibleRoles(role: Role): Role[] {
   return ["athlete", "crew_member", "crew_chief", "team_manager"];
 }
 
-function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor: string): { allowed: boolean; code?: number; error?: string } {
+export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor: string): { allowed: boolean; code?: number; error?: string } {
   const decision = {
     roomId: room.id,
     actor,

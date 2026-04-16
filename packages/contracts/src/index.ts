@@ -247,3 +247,73 @@ export interface OpsTimelineEvent {
   taskId?: string;
   protocolNoteId?: string;
 }
+
+// --- WS4: structured incidents and adaptive plan loop (Sprint 1) ---
+// Shapes align with ws4-structured-incidents-and-adaptive-plan-loop-plan.md; persistence defers to WS7.
+
+export type IncidentCategory =
+  | "fuel"
+  | "hydration"
+  | "aid_duration"
+  | "equipment"
+  | "protocol_deviation"
+  | "other";
+
+export type IncidentSeverity = "low" | "medium" | "high";
+
+/** Structured crew observation during race operations. */
+export interface IncidentEvent {
+  id: string;
+  roomId: string;
+  category: IncidentCategory;
+  severity: IncidentSeverity;
+  /** Optional link to a course checkpoint when the room has a course. */
+  checkpointId?: string;
+  summary: string;
+  details?: string;
+  reportedByUserId: string;
+  recordedAt: string;
+}
+
+export type RecommendationStatus = "pending" | "accepted" | "rejected";
+
+/** Reviewable plan adjustment proposal derived from an incident (Sprint 1 may use deterministic stubs). */
+export interface Recommendation {
+  id: string;
+  roomId: string;
+  incidentId: string;
+  rationale: string;
+  proposedSummary: string;
+  status: RecommendationStatus;
+  createdAt: string;
+  decidedAt?: string;
+  decidedByUserId?: string;
+}
+
+/** Immutable published plan snapshot after acceptance (in-memory for Sprint 1). */
+export interface PlanVersion {
+  id: string;
+  roomId: string;
+  /** Monotonic per room (1-based). */
+  version: number;
+  parentVersionId: string | null;
+  rationale: string;
+  createdAt: string;
+  acceptedRecommendationId?: string;
+}
+
+/** Human-readable delta between two plan versions (Sprint 1 keeps strings only). */
+export interface PlanDelta {
+  roomId: string;
+  fromVersion: number;
+  toVersion: number;
+  changes: string[];
+}
+
+/** Minimal explainability payload for a recommendation (expand in WS7). */
+export interface ExplainabilityRecord {
+  id: string;
+  recommendationId: string;
+  factors: string[];
+  createdAt: string;
+}
