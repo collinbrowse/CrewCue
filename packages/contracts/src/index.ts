@@ -380,3 +380,83 @@ export interface MergeRecord {
   recordedAt: string;
   notes?: string;
 }
+
+// --- WS6: team command center and multi-athlete concurrency (Sprint 1) ---
+// Shapes align with ws6-team-command-center-and-multi-athlete-concurrency-plan.md; persistence defers to WS7.
+
+export type CommandCenterMetricKind =
+  | "calories_per_hr"
+  | "carbs_per_hr"
+  | "electrolytes_per_hr"
+  | "sodium_per_hr";
+
+/** Manager-selected metrics surfaced on multi-athlete status cards. */
+export interface TeamCommandMetricConfig {
+  teamId: string;
+  selectedMetrics: CommandCenterMetricKind[];
+  updatedAt: string;
+  updatedByUserId: string;
+}
+
+export type AthleteMetricBand = "unknown" | "ok" | "warn" | "critical";
+
+export interface AthleteStatusCardMetricCell {
+  metric: CommandCenterMetricKind;
+  /** null until live nutrition streams exist; Sprint 1 uses deterministic stubs for UI wiring. */
+  value: number | null;
+  band: AthleteMetricBand;
+}
+
+export interface AthleteStatusCard {
+  roomId: string;
+  athleteId: string;
+  roomName: string;
+  roomStatus: RaceRoomStatus;
+  /** Present when an active room has a stored projection read model. */
+  projection?: RaceRoomProjection;
+  taskCounts: {
+    pending: number;
+    in_progress: number;
+    completed: number;
+    cancelled: number;
+  };
+  /** Roll-up of WS5 heartbeat telemetry for the room (zeros when none reported). */
+  syncSummary: {
+    totalPendingAcrossDevices: number;
+    staleDeviceCount: number;
+    trackedDeviceCount: number;
+  };
+  metrics: AthleteStatusCardMetricCell[];
+}
+
+export interface TeamCommandBoard {
+  teamId: string;
+  evaluatedAt: string;
+  metricConfig: TeamCommandMetricConfig;
+  cards: AthleteStatusCard[];
+}
+
+export type StaffingOverlapSeverity = "warning" | "blocking";
+
+/** Same crew identity holds in-progress work across two or more concurrent race rooms. */
+export interface StaffingOverlap {
+  id: string;
+  assigneeUserId: string;
+  roomIds: string[];
+  checkpointIds: string[];
+  severity: StaffingOverlapSeverity;
+  note: string;
+}
+
+export interface CheckpointDemandCell {
+  checkpointId: string;
+  /** Number of distinct active rooms with open crew demand at this checkpoint. */
+  concurrentRoomDemand: number;
+  contributingRoomIds: string[];
+}
+
+export interface CheckpointDemandHeatmap {
+  teamId: string;
+  evaluatedAt: string;
+  cells: CheckpointDemandCell[];
+}
