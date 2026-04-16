@@ -1,0 +1,28 @@
+---
+description: GitHub issue per task, PR-only merges to main, PR body must close linked issues
+alwaysApply: true
+---
+
+# GitHub issues and pull requests
+
+## Before implementation
+
+1. **Create a GitHub issue** for every new scoped task (use `gh issue create` or the *Workstream Task* issue template). Do not treat “local only” work as exempt unless the user explicitly says so for a one-off.
+2. Note the **issue number** (e.g. `#9`).
+
+## Delivery
+
+1. Branch from **`main`**: `git checkout main && git pull`, then `git checkout -b feature/...`.
+2. Implement, test, commit on that branch.
+3. Open a **pull request** to `main` (`gh pr create`). **Do not push feature commits directly to `main`.**
+
+## Auto-close on merge
+
+The repo workflow [`.github/workflows/auto-close-linked-issues.yml`](../../.github/workflows/auto-close-linked-issues.yml) closes issues when a **merged** PR’s **body** matches closing keywords + issue numbers.
+
+- The PR description **must** include a line like **`Closes #9`** (or `Fixes` / `Resolves`).
+- Prefer putting this under **Linked issues** in the PR template so it is never missed.
+
+## PR template
+
+Remind the user to fill **Linked issues** before merge if they open the PR manually without `gh`.
