@@ -52,7 +52,7 @@ export interface RaceCheckpointSplitRow {
   deltaSecondsAtCross: number | null;
 }
 
-/** Deterministic split/ETA math from the last accepted ping. */
+/** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
 export interface RaceRoomProjectionCore {
   roomId: string;
   asOfPingId: string;
@@ -66,12 +66,17 @@ export interface RaceRoomProjectionCore {
 
 export type ProjectionConfidence = "fresh" | "degraded";
 
-/** Server-computed freshness for projection reads (WS2 Task 3). */
+/** Wall-clock freshness for reads (WS2 Task 3); computed when the response is built. */
 export interface ProjectionTimeliness {
   projectionConfidence: ProjectionConfidence;
-  /** Effective threshold: env default, or ~2.5× last declared `uploadIntervalSeconds` when the client sends it (bounded). */
+  /**
+   * Effective threshold: `PROJECTION_STALE_AFTER_SECONDS` (default 120), or when the client declares
+   * `uploadIntervalSeconds` on accepted pings, `clamp(round(2.5 × interval), 45, 600)`.
+   */
   stalenessThresholdSeconds: number;
+  /** Seconds between last accepted ping `recordedAt` and when this payload was evaluated (≥ 0). */
   secondsSinceLastAcceptedPing: number;
+  /** ISO time when timeliness fields were computed (server clock). */
   evaluatedAt: string;
 }
 

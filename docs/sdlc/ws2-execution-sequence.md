@@ -88,6 +88,8 @@ Clients and later workspaces (WS3 tasks, WS4 incidents, WS6 command center) need
 - Tests for: fresh projection, degraded after silence, forbidden for non-members.
 - Manual smoke doc: mint JWT → send pings → read projection → observe degraded state after stopping pings.
 
+**Reference:** [docs/api/ws2-task3-projection-staleness.md](../api/ws2-task3-projection-staleness.md) — `RaceRoomProjection` timeliness fields, `PROJECTION_STALE_AFTER_SECONDS`, GET vs POST behavior.
+
 ---
 
 ## Done definition for this WS2 sprint

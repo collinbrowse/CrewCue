@@ -36,7 +36,7 @@ Same auth, membership, and entitlement rules as `GET /race-rooms/:roomId`.
 | **404** | Room missing, or no projection yet. |
 | **401** / **403** / **402** | Standard auth / membership / entitlement. |
 
-Response body matches `RaceRoomProjection` in `@crewcue/contracts` (core split/ETA fields plus **staleness / confidence** — [ws2-task3-projection-confidence.md](./ws2-task3-projection-confidence.md)).
+Response body matches `RaceRoomProjection` in `@crewcue/contracts` (core split/ETA plus **staleness / confidence** — [ws2-task3-projection-staleness.md](./ws2-task3-projection-staleness.md), [ws2-task3-projection-confidence.md](./ws2-task3-projection-confidence.md)).
 
 ## Logging
 

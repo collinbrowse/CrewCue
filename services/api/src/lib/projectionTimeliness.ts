@@ -39,6 +39,10 @@ export function getStalenessThresholdSeconds(lastDeclaredUploadIntervalSeconds?:
   return readEnvFallbackSeconds();
 }
 
+/**
+ * Adds Task 3 timeliness fields. `lastAcceptedRecordedAtMs` is the client `recordedAt` of the latest
+ * accepted ping (same basis as implausible-motion checks).
+ */
 export function attachProjectionTimeliness(
   core: RaceRoomProjectionCore,
   lastAcceptedRecordedAtMs: number | null,

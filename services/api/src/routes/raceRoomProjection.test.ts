@@ -74,6 +74,7 @@ test("returns projection after accepted ping and from GET", async () => {
   assert.ok(pingBody.projection.progressMeters > 0);
   assert.equal(pingBody.projection.projectionConfidence, "fresh");
   assert.equal(pingBody.projection.stalenessThresholdSeconds, 120);
+  assert.ok(pingBody.projection.secondsSinceLastAcceptedPing >= 0);
 
   const getResponse = await app.inject({
     method: "GET",
@@ -153,7 +154,7 @@ test("GET projection exposes derived staleness threshold from uploadIntervalSeco
   await app.close();
 });
 
-test("default env staleness marks degraded after silence", async (t) => {
+test("GET projection becomes degraded after silence beyond threshold", async (t) => {
   const prev = process.env.PROJECTION_STALE_AFTER_SECONDS;
   t.after(() => {
     if (prev === undefined) {
@@ -174,7 +175,7 @@ test("default env staleness marks degraded after silence", async (t) => {
     payload: {
       teamId: "team-1",
       athleteId: "athlete-1",
-      name: "Stale default",
+      name: "Stale proj",
       creatorRole: "team_manager"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
@@ -194,21 +195,19 @@ test("default env staleness marks degraded after silence", async (t) => {
       eventEndsAt: ends,
       course: {
         checkpoints: [
-          { id: "cp0", latitude: 47.0, longitude: -65.0 },
-          { id: "cp1", latitude: 47.01, longitude: -65.0 }
+          { id: "cp0", latitude: 43.0, longitude: -69.0 },
+          { id: "cp1", latitude: 43.01, longitude: -69.0 }
         ]
       }
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
+
+  const recordedAt = new Date().toISOString();
   await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
-    payload: {
-      latitude: 47.005,
-      longitude: -65.0,
-      recordedAt: new Date().toISOString()
-    },
+    payload: { latitude: 43.005, longitude: -69.0, recordedAt },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
 
@@ -221,8 +220,9 @@ test("default env staleness marks degraded after silence", async (t) => {
   });
   assert.equal(getResponse.statusCode, 200);
   const body = getResponse.json() as RaceRoomProjection;
-  assert.equal(body.stalenessThresholdSeconds, 1);
   assert.equal(body.projectionConfidence, "degraded");
+  assert.equal(body.stalenessThresholdSeconds, 1);
+  assert.ok(body.secondsSinceLastAcceptedPing >= 1);
 
   await app.close();
 });
@@ -239,7 +239,7 @@ test("GET projection returns 403 for non-member", async () => {
     payload: {
       teamId: "team-1",
       athleteId: "athlete-1",
-      name: "Members only",
+      name: "Members only proj",
       creatorRole: "team_manager"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
@@ -259,8 +259,8 @@ test("GET projection returns 403 for non-member", async () => {
       eventEndsAt: ends,
       course: {
         checkpoints: [
-          { id: "cp0", latitude: 46.0, longitude: -66.0 },
-          { id: "cp1", latitude: 46.01, longitude: -66.0 }
+          { id: "cp0", latitude: 44.0, longitude: -68.0 },
+          { id: "cp1", latitude: 44.01, longitude: -68.0 }
         ]
       }
     },
@@ -270,8 +270,8 @@ test("GET projection returns 403 for non-member", async () => {
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
     payload: {
-      latitude: 46.005,
-      longitude: -66.0,
+      latitude: 44.005,
+      longitude: -68.0,
       recordedAt: new Date().toISOString()
     },
     headers: { authorization: `Bearer ${ownerToken}` }
