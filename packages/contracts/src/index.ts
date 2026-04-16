@@ -169,3 +169,81 @@ export interface AthletePingHistoryEntry {
   reason?: AthletePingRejectReason;
   pingId?: string;
 }
+
+// --- WS3: crew orchestration & protocol execution (Sprint 1 read models) ---
+// Shapes align with ws3-crew-orchestration-and-protocol-execution-plan.md; persistence defers to WS7.
+
+/** Athlete / crew intent for a single course checkpoint (aid-station planning). */
+export interface CheckpointPlan {
+  id: string;
+  roomId: string;
+  /** Matches `RaceCourseCheckpoint.id` when the room has an activated course. */
+  checkpointId: string;
+  title: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  authoredByUserId: string;
+}
+
+export type CrewTaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+/** Executable unit of crew work at a checkpoint. */
+export interface CrewTask {
+  id: string;
+  roomId: string;
+  checkpointId: string;
+  checkpointPlanId?: string;
+  title: string;
+  description?: string;
+  status: CrewTaskStatus;
+  createdAt: string;
+  updatedAt: string;
+  createdByUserId?: string;
+}
+
+/** Role-scoped assignment of a task to a crew member. */
+export interface CrewAssignment {
+  id: string;
+  roomId: string;
+  taskId: string;
+  assigneeUserId: string;
+  assigneeRole: Role;
+  assignedByUserId: string;
+  assignedAt: string;
+}
+
+export type ProtocolNoteCategory = "heat" | "nutrition" | "blister" | "other";
+
+/** Shared protocol content (heat, nutrition, blister, etc.) at checkpoint scope. */
+export interface ProtocolNote {
+  id: string;
+  roomId: string;
+  checkpointId: string;
+  category: ProtocolNoteCategory;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUserId: string;
+}
+
+/** Ordered ops feed derived from task + protocol activity (append-friendly). */
+export type OpsTimelineEventKind =
+  | "task_created"
+  | "task_assigned"
+  | "task_started"
+  | "task_completed"
+  | "protocol_updated"
+  | "timeline_note_added";
+
+export interface OpsTimelineEvent {
+  id: string;
+  roomId: string;
+  occurredAt: string;
+  kind: OpsTimelineEventKind;
+  actorUserId: string;
+  /** Short line for crew timeline UIs. */
+  message: string;
+  taskId?: string;
+  protocolNoteId?: string;
+}
