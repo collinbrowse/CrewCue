@@ -1,5 +1,7 @@
 # WS3 Execution Sequence (Sprint 1)
 
+**Sprint status: complete** — see [ws3-sprint-signoff.md](./ws3-sprint-signoff.md).
+
 This sequence is the **first shippable ladder** for **crew orchestration**: turning aid-station intent into **tasks**, **assignments**, **shared protocol notes**, and a **crew-visible timeline**—without pretending the full offline or database story is solved yet.
 
 **Sprint hub (GitHub):** [#23 — WS3 Sprint 1 tracking](https://github.com/collinbrowse/CrewCue/issues/23)  
