@@ -60,6 +60,8 @@ On every **accepted** ping, recompute a **projection**: checkpoint splits, gap v
 - Golden tests: fixture pings → expected splits/ETA/delta within fixed tolerances.
 - Logging or audit-friendly lines for recompute decisions (volume-aware, not noisy secrets).
 
+**Reference:** [docs/api/ws2-task2-projection.md](../api/ws2-task2-projection.md) — activation `course` / `plannedPaceSecondsPerKm`, projection on accepted ping, `GET .../projection`, `projection_recompute` logs.
+
 ---
 
 ## Task 3: Projection read API and staleness
