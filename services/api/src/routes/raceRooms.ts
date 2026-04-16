@@ -7,6 +7,7 @@ import type {
   RaceRoom,
   RaceRoomInvite,
   RaceRoomProjection,
+  RaceRoomProjectionCore,
   Role
 } from "@crewcue/contracts";
 import {
@@ -14,6 +15,7 @@ import {
   DEFAULT_RACE_COURSE,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
+import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -56,7 +58,8 @@ const ingestAthletePingInput = z.object({
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
   recordedAt: z.iso.datetime(),
-  horizontalAccuracyMeters: z.number().positive().optional()
+  horizontalAccuracyMeters: z.number().positive().optional(),
+  uploadIntervalSeconds: z.number().int().min(10).max(900).optional()
 });
 
 const raceRooms = new Map<string, RaceRoom>();
@@ -74,6 +77,8 @@ type AcceptedPing = {
 type RoomPingState = {
   lastAccepted: AcceptedPing | null;
   history: AthletePingHistoryEntry[];
+  /** Last athlete-declared target ping interval (seconds); drives staleness threshold when set. */
+  lastUploadIntervalSeconds?: number;
 };
 
 const roomPingState = new Map<string, RoomPingState>();
@@ -81,7 +86,7 @@ const roomPingState = new Map<string, RoomPingState>();
 type RoomProjectionState = {
   lastProgressMeters: number;
   splitCrossedAt: Record<string, string>;
-  lastProjection: RaceRoomProjection;
+  lastProjectionCore: RaceRoomProjectionCore;
 };
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
@@ -516,6 +521,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       recordedAtMs,
       receivedAtMs
     };
+    if (body.uploadIntervalSeconds !== undefined) {
+      pingState.lastUploadIntervalSeconds = body.uploadIntervalSeconds;
+    }
 
     const acceptedEntry: AthletePingHistoryEntry = {
       id: randomUUID(),
@@ -535,7 +543,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (room.course && room.plannedPaceSecondsPerKm !== undefined && room.activatedAt) {
       const prev = roomProjectionState.get(roomId);
       try {
-        const { projection: nextProjection, state } = recomputeRaceProjection({
+        const { projection: nextProjectionCore, state } = recomputeRaceProjection({
           roomId,
           activatedAt: room.activatedAt,
           course: room.course,
@@ -553,19 +561,25 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
               }
             : null
         });
-        projection = nextProjection;
+        const evaluatedAtMs = Date.now();
+        projection = attachProjectionTimeliness(
+          nextProjectionCore,
+          recordedAtMs,
+          evaluatedAtMs,
+          pingState.lastUploadIntervalSeconds
+        );
         roomProjectionState.set(roomId, {
           lastProgressMeters: state.lastProgressMeters,
           splitCrossedAt: { ...state.splitCrossedAt },
-          lastProjection: nextProjection
+          lastProjectionCore: nextProjectionCore
         });
         app.log.info(
           {
             projection_recompute: {
               roomId,
               pingId,
-              progressMeters: nextProjection.progressMeters,
-              courseLengthMeters: nextProjection.courseLengthMeters
+              progressMeters: nextProjectionCore.progressMeters,
+              courseLengthMeters: nextProjectionCore.courseLengthMeters
             }
           },
           "projection_recompute"
@@ -616,7 +630,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Projection not available" });
     }
 
-    return reply.send(stored.lastProjection);
+    const pingState = getOrInitPingState(roomId);
+    const view = attachProjectionTimeliness(
+      stored.lastProjectionCore,
+      pingState.lastAccepted?.recordedAtMs ?? null,
+      Date.now(),
+      pingState.lastUploadIntervalSeconds
+    );
+    return reply.send(view);
   });
 
   app.get("/race-rooms/:roomId/pings/history", async (request, reply) => {

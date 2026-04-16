@@ -52,7 +52,8 @@ export interface RaceCheckpointSplitRow {
   deltaSecondsAtCross: number | null;
 }
 
-export interface RaceRoomProjection {
+/** Deterministic split/ETA math from the last accepted ping. */
+export interface RaceRoomProjectionCore {
   roomId: string;
   asOfPingId: string;
   asOfRecordedAt: string;
@@ -62,6 +63,19 @@ export interface RaceRoomProjection {
   etaFinishPlanIso: string;
   checkpointSplits: RaceCheckpointSplitRow[];
 }
+
+export type ProjectionConfidence = "fresh" | "degraded";
+
+/** Server-computed freshness for projection reads (WS2 Task 3). */
+export interface ProjectionTimeliness {
+  projectionConfidence: ProjectionConfidence;
+  /** Effective threshold: env default, or ~2.5× last declared `uploadIntervalSeconds` when the client sends it (bounded). */
+  stalenessThresholdSeconds: number;
+  secondsSinceLastAcceptedPing: number;
+  evaluatedAt: string;
+}
+
+export type RaceRoomProjection = RaceRoomProjectionCore & ProjectionTimeliness;
 
 export interface RaceRoom {
   id: string;
@@ -109,6 +123,12 @@ export interface AthletePingIngestPayload {
   longitude: number;
   recordedAt: string;
   horizontalAccuracyMeters?: number;
+  /**
+   * Target seconds between pings from the athlete app (battery + race-length policy).
+   * When set, the server derives projection staleness threshold ≈ 2.5× this value (bounded).
+   * @see docs/sdlc/mobile-athlete-ping-battery-deferred.md
+   */
+  uploadIntervalSeconds?: number;
 }
 
 /** Business-rule rejections after auth, membership, and entitlement gates */

@@ -24,7 +24,7 @@ When **`POST /race-rooms/:roomId/pings`** returns **201** (`decision: "accepted"
 3. Builds `checkpointSplits[]` with planned elapsed at each checkpoint (`distanceKm × pace`), actual elapsed when crossed (`crossedAt − activatedAt`), and `delta = actual − planned`.
 4. Computes **`etaFinishPlanIso`**: `recordedAt` of the ping plus remaining distance at **plan pace**.
 
-The **201** response may include a **`projection`** object (same shape as GET). If projection math fails, the ping is still accepted and a warning is logged (`projection_recompute_failed`).
+The **201** response may include a **`projection`** object (same shape as GET, including timeliness — see below). If projection math fails, the ping is still accepted and a warning is logged (`projection_recompute_failed`).
 
 ## `GET /race-rooms/:roomId/projection`
 
@@ -36,15 +36,11 @@ Same auth, membership, and entitlement rules as `GET /race-rooms/:roomId`.
 | **404** | Room missing, or no projection yet. |
 | **401** / **403** / **402** | Standard auth / membership / entitlement. |
 
-Response body matches `RaceRoomProjection` in `@crewcue/contracts`.
+Response body matches `RaceRoomProjection` in `@crewcue/contracts` (core split/ETA fields plus **staleness / confidence** — [ws2-task3-projection-confidence.md](./ws2-task3-projection-confidence.md)).
 
 ## Logging
 
 Structured log **`projection_recompute`** with `roomId`, `pingId`, `progressMeters`, `courseLengthMeters` (no coordinates in this line).
-
-## Staleness (WS2 Task 3)
-
-This task does **not** add freshness/degraded flags. Task 3 will layer **staleness** and confidence on top of this read model.
 
 ## Notes
 

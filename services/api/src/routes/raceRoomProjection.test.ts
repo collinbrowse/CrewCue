@@ -72,6 +72,8 @@ test("returns projection after accepted ping and from GET", async () => {
   assert.ok(pingBody.projection);
   assert.equal(pingBody.projection.roomId, roomId);
   assert.ok(pingBody.projection.progressMeters > 0);
+  assert.equal(pingBody.projection.projectionConfidence, "fresh");
+  assert.equal(pingBody.projection.stalenessThresholdSeconds, 120);
 
   const getResponse = await app.inject({
     method: "GET",
@@ -79,9 +81,208 @@ test("returns projection after accepted ping and from GET", async () => {
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   assert.equal(getResponse.statusCode, 200);
-  const getBody = getResponse.json() as { asOfPingId: string; progressMeters: number };
+  const getBody = getResponse.json() as RaceRoomProjection;
   assert.equal(getBody.asOfPingId, pingBody.projection!.asOfPingId);
   assert.equal(getBody.progressMeters, pingBody.projection!.progressMeters);
+  assert.equal(getBody.projectionConfidence, "fresh");
+
+  await app.close();
+});
+
+test("GET projection exposes derived staleness threshold from uploadIntervalSeconds", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Interval staleness",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: ends,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 45.0, longitude: -67.0 },
+          { id: "cp1", latitude: 45.01, longitude: -67.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 45.005,
+      longitude: -67.0,
+      recordedAt: new Date().toISOString(),
+      uploadIntervalSeconds: 40
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const getResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(getResponse.statusCode, 200);
+  const body = getResponse.json() as RaceRoomProjection;
+  assert.equal(body.stalenessThresholdSeconds, 100);
+  assert.equal(body.projectionConfidence, "fresh");
+
+  await app.close();
+});
+
+test("default env staleness marks degraded after silence", async (t) => {
+  const prev = process.env.PROJECTION_STALE_AFTER_SECONDS;
+  t.after(() => {
+    if (prev === undefined) {
+      delete process.env.PROJECTION_STALE_AFTER_SECONDS;
+    } else {
+      process.env.PROJECTION_STALE_AFTER_SECONDS = prev;
+    }
+  });
+  process.env.PROJECTION_STALE_AFTER_SECONDS = "1";
+
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Stale default",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: ends,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 47.0, longitude: -65.0 },
+          { id: "cp1", latitude: 47.01, longitude: -65.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 47.005,
+      longitude: -65.0,
+      recordedAt: new Date().toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  await new Promise((r) => setTimeout(r, 1100));
+
+  const getResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(getResponse.statusCode, 200);
+  const body = getResponse.json() as RaceRoomProjection;
+  assert.equal(body.stalenessThresholdSeconds, 1);
+  assert.equal(body.projectionConfidence, "degraded");
+
+  await app.close();
+});
+
+test("GET projection returns 403 for non-member", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const strangerToken = app.jwt.sign(buildClaims("stranger-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Members only",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: ends,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 46.0, longitude: -66.0 },
+          { id: "cp1", latitude: 46.01, longitude: -66.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 46.005,
+      longitude: -66.0,
+      recordedAt: new Date().toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const getResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${strangerToken}` }
+  });
+  assert.equal(getResponse.statusCode, 403);
 
   await app.close();
 });
