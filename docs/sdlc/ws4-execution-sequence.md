@@ -1,5 +1,7 @@
 # WS4 Execution Sequence (Sprint 1)
 
+**Sprint status: complete** — see [ws4-sprint-signoff.md](./ws4-sprint-signoff.md).
+
 This sequence is the **first ladder** for **structured incidents and an adaptive plan loop**: crew logs **typed incidents**, the system proposes a **reviewable recommendation** with rationale, humans **accept or reject**, and **plan versions** (with readable deltas) give everyone a shared history.
 
 **Sprint hub (GitHub):** [#35 — WS4 Sprint 1 tracking](https://github.com/collinbrowse/CrewCue/issues/35)  
