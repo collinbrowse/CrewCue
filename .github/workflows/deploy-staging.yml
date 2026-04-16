@@ -21,11 +21,25 @@ jobs:
         with:
           terraform_version: "1.10.5"
           terraform_wrapper: false
+      - name: Staging Terraform skipped (no AWS credentials)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID == '' || secrets.AWS_SECRET_ACCESS_KEY == '' }}
+        run: |
+          echo "::notice title=Staging deploy::Terraform skipped — add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to the **staging** GitHub Environment (Repository Settings → Environments → staging → Environment secrets). Default AWS region for the provider is us-east-1 (see infra/terraform/environments/staging/variables.tf)."
       - name: Terraform Init/Plan (staging)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
         working-directory: infra/terraform/environments/staging
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
         run: |
           terraform init
           terraform plan -out=tfplan
       - name: Terraform Apply (manual approval should gate in environment settings)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
         working-directory: infra/terraform/environments/staging
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
         run: terraform apply -auto-approve tfplan
