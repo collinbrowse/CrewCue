@@ -15,6 +15,11 @@ import type {
   TeamCommandMetricConfig
 } from "@crewcue/contracts";
 import {
+  isRoomPersistenceEnabled,
+  loadTeamMetricConfigPayload,
+  persistTeamMetricConfigPayload
+} from "../lib/roomPersistence.js";
+import {
   evaluateEntitlement,
   getProjectionViewForRoom,
   getTaskStatusCountsForRoom,
@@ -32,6 +37,8 @@ const putMetricConfigInput = z.object({
 
 const teamMetricConfigs = new Map<string, TeamCommandMetricConfig>();
 
+const teamMetricHydratedFromDb = new Set<string>();
+
 const WS6_STALE_SECONDS = Number.parseInt(
   process.env.WS6_SYNC_STALE_AFTER_SECONDS ?? process.env.SYNC_STALE_AFTER_SECONDS ?? "120",
   10
@@ -47,14 +54,65 @@ function defaultMetricConfig(teamId: string): TeamCommandMetricConfig {
   };
 }
 
-function getOrInitTeamMetricConfig(teamId: string): TeamCommandMetricConfig {
+function normalizeTeamMetricConfigPayload(raw: unknown, teamId: string): TeamCommandMetricConfig | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const rec = raw as Record<string, unknown>;
+  if (
+    rec.teamId !== teamId ||
+    !Array.isArray(rec.selectedMetrics) ||
+    typeof rec.updatedAt !== "string" ||
+    typeof rec.updatedByUserId !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    teamId,
+    selectedMetrics: rec.selectedMetrics as TeamCommandMetricConfig["selectedMetrics"],
+    updatedAt: rec.updatedAt,
+    updatedByUserId: rec.updatedByUserId
+  };
+}
+
+async function loadTeamMetricConfigIfNeeded(teamId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  if (teamMetricHydratedFromDb.has(teamId)) {
+    return;
+  }
+  teamMetricHydratedFromDb.add(teamId);
+  const raw = await loadTeamMetricConfigPayload(teamId);
+  const parsed = normalizeTeamMetricConfigPayload(raw, teamId);
+  if (parsed) {
+    teamMetricConfigs.set(teamId, parsed);
+  }
+}
+
+async function loadOrInitTeamMetricConfig(teamId: string): Promise<TeamCommandMetricConfig> {
+  await loadTeamMetricConfigIfNeeded(teamId);
   const cur = teamMetricConfigs.get(teamId);
   if (cur) {
     return cur;
   }
   const init = defaultMetricConfig(teamId);
   teamMetricConfigs.set(teamId, init);
+  if (isRoomPersistenceEnabled()) {
+    await persistTeamMetricConfigPayload(teamId, init);
+  }
   return init;
+}
+
+async function saveTeamMetricConfigSnapshot(teamId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  const cur = teamMetricConfigs.get(teamId);
+  if (!cur) {
+    return;
+  }
+  await persistTeamMetricConfigPayload(teamId, cur);
 }
 
 function roleCanViewCommandCenter(role: Role): boolean {
@@ -249,7 +307,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const metricConfig = getOrInitTeamMetricConfig(teamId);
+    const metricConfig = await loadOrInitTeamMetricConfig(teamId);
     const evaluatedAt = new Date().toISOString();
     const cardResults = await Promise.all(
       visible.map((room) => buildAthleteCard(app, room, identity, metricConfig))
@@ -276,7 +334,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    return reply.send({ metricConfig: getOrInitTeamMetricConfig(teamId) });
+    return reply.send({ metricConfig: await loadOrInitTeamMetricConfig(teamId) });
   });
 
   app.put("/teams/:teamId/command-center/metric-config", async (request, reply) => {
@@ -303,6 +361,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
       updatedByUserId: identity.sub
     };
     teamMetricConfigs.set(teamId, next);
+    await saveTeamMetricConfigSnapshot(teamId);
     return reply.send({ metricConfig: next });
   });
 
