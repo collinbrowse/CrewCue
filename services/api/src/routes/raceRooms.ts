@@ -26,6 +26,7 @@ import {
   deleteTaskBoardPayload,
   deleteWs2RuntimePayload,
   deleteWs4AdaptivePayload,
+  deleteWs5SyncPayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
@@ -681,6 +682,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     await deleteWs4AdaptivePayload(roomId);
     const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
     clearWs4RoomLocalState(roomId);
+    await deleteWs5SyncPayload(roomId);
+    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+    clearWs5RoomLocalState(roomId);
     await saveRaceRoom(activated);
     return reply.send(activated);
   });

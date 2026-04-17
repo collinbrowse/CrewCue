@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DeviceHealth, MergeRecord, Role, SyncQueueDiagnostics, SyncStatus } from "@crewcue/contracts";
+import {
+  isRoomPersistenceEnabled,
+  loadWs5SyncPayload,
+  persistWs5SyncPayload
+} from "../lib/roomPersistence.js";
 import { evaluateEntitlement, getRaceRoom } from "./raceRooms.js";
 
 const heartbeatInput = z.object({
@@ -38,19 +43,94 @@ type Ws5RoomState = {
 
 const ws5RoomState = new Map<string, Ws5RoomState>();
 
+const ws5RuntimeHydratedFromDb = new Set<string>();
+
 const DEFAULT_STALE_AFTER_SECONDS = Number.parseInt(process.env.SYNC_STALE_AFTER_SECONDS ?? "120", 10);
 const DIAGNOSTICS_CAP = 50;
 const MERGE_RECORDS_CAP = 100;
 
+type Ws5PersistedPayload = {
+  heartbeats: Record<string, HeartbeatEntry>;
+  diagnostics: SyncQueueDiagnostics[];
+  mergeRecords: MergeRecord[];
+};
+
+function normalizeWs5SyncPayload(raw: unknown): Ws5RoomState | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const rec = raw as Record<string, unknown>;
+  if (!rec.heartbeats || typeof rec.heartbeats !== "object" || Array.isArray(rec.heartbeats)) {
+    return undefined;
+  }
+  if (!Array.isArray(rec.diagnostics) || !Array.isArray(rec.mergeRecords)) {
+    return undefined;
+  }
+  return {
+    heartbeats: new Map(Object.entries(rec.heartbeats as Record<string, HeartbeatEntry>)),
+    diagnostics: rec.diagnostics as SyncQueueDiagnostics[],
+    mergeRecords: rec.mergeRecords as MergeRecord[]
+  };
+}
+
+async function loadWs5SyncIfNeeded(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  if (ws5RuntimeHydratedFromDb.has(roomId)) {
+    return;
+  }
+  ws5RuntimeHydratedFromDb.add(roomId);
+  const raw = await loadWs5SyncPayload(roomId);
+  const parsed = normalizeWs5SyncPayload(raw);
+  if (parsed) {
+    ws5RoomState.set(roomId, parsed);
+  }
+}
+
+function ensureWs5InMemory(roomId: string): Ws5RoomState {
+  let state = ws5RoomState.get(roomId);
+  if (!state) {
+    state = { heartbeats: new Map(), diagnostics: [], mergeRecords: [] };
+    ws5RoomState.set(roomId, state);
+  }
+  return state;
+}
+
+async function loadOrInitWs5(roomId: string): Promise<Ws5RoomState> {
+  await loadWs5SyncIfNeeded(roomId);
+  return ensureWs5InMemory(roomId);
+}
+
+async function saveWs5SyncSnapshot(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  const state = ensureWs5InMemory(roomId);
+  const payload: Ws5PersistedPayload = {
+    heartbeats: Object.fromEntries(state.heartbeats),
+    diagnostics: state.diagnostics,
+    mergeRecords: state.mergeRecords
+  };
+  await persistWs5SyncPayload(roomId, payload);
+}
+
+/** Clears in-memory WS5 state for a room (e.g. after activation). */
+export function clearWs5RoomLocalState(roomId: string): void {
+  ws5RoomState.delete(roomId);
+  ws5RuntimeHydratedFromDb.delete(roomId);
+}
+
 /** Read-only roll-up for WS6 boards without mutating room state. */
-export function getWs5RoomCommandCenterSummary(
+export async function getWs5RoomCommandCenterSummary(
   roomId: string,
   staleAfterSeconds: number = DEFAULT_STALE_AFTER_SECONDS
-): {
+): Promise<{
   totalPendingAcrossDevices: number;
   staleDeviceCount: number;
   trackedDeviceCount: number;
-} {
+}> {
+  await loadWs5SyncIfNeeded(roomId);
   const state = ws5RoomState.get(roomId);
   if (!state) {
     return { totalPendingAcrossDevices: 0, staleDeviceCount: 0, trackedDeviceCount: 0 };
@@ -70,15 +150,6 @@ export function getWs5RoomCommandCenterSummary(
     staleDeviceCount: stale,
     trackedDeviceCount: state.heartbeats.size
   };
-}
-
-function getOrInitWs5(roomId: string): Ws5RoomState {
-  let state = ws5RoomState.get(roomId);
-  if (!state) {
-    state = { heartbeats: new Map(), diagnostics: [], mergeRecords: [] };
-    ws5RoomState.set(roomId, state);
-  }
-  return state;
 }
 
 function heartbeatKey(userId: string, deviceId: string): string {
@@ -121,7 +192,7 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid heartbeat payload" });
     }
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     const nowMs = Date.now();
     const key = heartbeatKey(identity.sub, parsed.data.deviceId);
     state.heartbeats.set(key, {
@@ -134,6 +205,7 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
         : {})
     });
 
+    await saveWs5SyncSnapshot(roomId);
     return reply.send({
       ok: true,
       lastHeartbeatAt: new Date(nowMs).toISOString()
@@ -166,7 +238,7 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
     const staleParsed = z.coerce.number().int().min(0).max(3_600).safeParse(q.staleAfterSeconds ?? `${DEFAULT_STALE_AFTER_SECONDS}`);
     const staleAfterSeconds = staleParsed.success ? staleParsed.data : DEFAULT_STALE_AFTER_SECONDS;
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     const evaluatedAtMs = Date.now();
     const evaluatedAt = new Date(evaluatedAtMs).toISOString();
 
@@ -239,12 +311,13 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
       reportedAt: now
     };
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     state.diagnostics.push(row);
     if (state.diagnostics.length > DIAGNOSTICS_CAP) {
       state.diagnostics.splice(0, state.diagnostics.length - DIAGNOSTICS_CAP);
     }
 
+    await saveWs5SyncSnapshot(roomId);
     return reply.code(201).send({ diagnostics: row });
   });
 
@@ -274,7 +347,7 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
     const limitParsed = z.coerce.number().int().min(1).max(DIAGNOSTICS_CAP).safeParse(q.limit ?? "20");
     const limit = limitParsed.success ? limitParsed.data : 20;
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     const rows = state.diagnostics.slice(-limit);
     return reply.send({ diagnostics: rows });
   });
@@ -326,12 +399,13 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
       ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {})
     };
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     state.mergeRecords.push(record);
     if (state.mergeRecords.length > MERGE_RECORDS_CAP) {
       state.mergeRecords.splice(0, state.mergeRecords.length - MERGE_RECORDS_CAP);
     }
 
+    await saveWs5SyncSnapshot(roomId);
     return reply.code(201).send({ mergeRecord: record });
   });
 
@@ -361,7 +435,7 @@ export async function ws5SyncRoutes(app: FastifyInstance): Promise<void> {
     const limitParsed = z.coerce.number().int().min(1).max(MERGE_RECORDS_CAP).safeParse(q.limit ?? "20");
     const limit = limitParsed.success ? limitParsed.data : 20;
 
-    const state = getOrInitWs5(roomId);
+    const state = await loadOrInitWs5(roomId);
     const rows = state.mergeRecords.slice(-limit);
     return reply.send({ mergeRecords: rows });
   });
