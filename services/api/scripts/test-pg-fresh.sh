@@ -6,7 +6,9 @@ DB_NAME="${DB_PREFIX}_$(date +%s)_$RANDOM"
 PG_URL_BASE="${PG_URL_BASE:-postgres://crewcue:crewcue@localhost:5432}"
 
 cleanup() {
-  if psql "${PG_URL_BASE}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | rg -q "^1$"; then
+  local exists
+  exists="$(psql "${PG_URL_BASE}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | tr -d '[:space:]')"
+  if [[ "${exists}" == "1" ]]; then
     dropdb --if-exists "${DB_NAME}" >/dev/null 2>&1 || true
   fi
 }
