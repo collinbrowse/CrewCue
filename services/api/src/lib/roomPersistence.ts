@@ -98,6 +98,13 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS team_command_metric_configs_json (
+        team_id TEXT PRIMARY KEY,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -113,7 +120,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "room_task_boards_json",
           "room_ws2_runtime_json",
           "room_ws4_adaptive_json",
-          "room_ws5_sync_json"
+          "room_ws5_sync_json",
+          "team_command_metric_configs_json"
         ]
       }
     },
@@ -328,4 +336,31 @@ export async function deleteWs5SyncPayload(roomId: string): Promise<void> {
     return;
   }
   await pool.query("DELETE FROM room_ws5_sync_json WHERE room_id = $1", [roomId]);
+}
+
+export async function persistTeamMetricConfigPayload(teamId: string, payload: unknown): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query(
+    `
+      INSERT INTO team_command_metric_configs_json (team_id, payload, updated_at)
+      VALUES ($1, $2::jsonb, NOW())
+      ON CONFLICT (team_id) DO UPDATE
+      SET payload = EXCLUDED.payload,
+          updated_at = NOW();
+    `,
+    [teamId, JSON.stringify(payload)]
+  );
+}
+
+export async function loadTeamMetricConfigPayload(teamId: string): Promise<unknown | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const result = await pool.query<{ payload: unknown }>(
+    "SELECT payload FROM team_command_metric_configs_json WHERE team_id = $1 LIMIT 1",
+    [teamId]
+  );
+  return result.rows[0]?.payload;
 }
