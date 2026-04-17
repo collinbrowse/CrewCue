@@ -1,15 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { FastifyBaseLogger } from "fastify";
 import type { PlatformEventEnvelope } from "@crewcue/contracts";
+import { initRoomPersistence } from "./roomPersistence.js";
 import {
   appendPlatformEvent,
   reduceRaceRoomEvents,
   resetPlatformEventStoreForTests
 } from "./platformEventLog.js";
 
-test("append is idempotent by idempotencyKey", () => {
-  resetPlatformEventStoreForTests();
-  const first = appendPlatformEvent({
+const testLog = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  child: () => testLog
+} as unknown as FastifyBaseLogger;
+
+test("append is idempotent by idempotencyKey", async () => {
+  await initRoomPersistence(testLog);
+  await resetPlatformEventStoreForTests();
+  const first = await appendPlatformEvent({
     aggregateId: "room-a",
     aggregateType: "race_room",
     eventType: "race_room.draft_created",
@@ -20,7 +30,7 @@ test("append is idempotent by idempotencyKey", () => {
     actorUserId: "u1"
   });
   assert.equal(first.duplicate, false);
-  const second = appendPlatformEvent({
+  const second = await appendPlatformEvent({
     aggregateId: "room-a",
     aggregateType: "race_room",
     eventType: "race_room.draft_created",

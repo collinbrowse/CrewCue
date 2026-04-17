@@ -84,7 +84,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }
 
-    const result = appendPlatformEvent({
+    const result = await appendPlatformEvent({
       aggregateId: body.aggregateId,
       aggregateType: body.aggregateType,
       eventType: body.eventType,
@@ -119,7 +119,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }
 
-    const events = listEventsForAggregate("race_room", q.aggregateId);
+    const events = await listEventsForAggregate("race_room", q.aggregateId);
     return reply.send({ events });
   });
 
@@ -135,7 +135,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }
 
-    const snapshot = replayRaceRoomAggregate(aggregateId);
+    const snapshot = await replayRaceRoomAggregate(aggregateId);
     return reply.send({ snapshot });
   });
 }

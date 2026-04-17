@@ -9,7 +9,7 @@ function claims(sub: string) {
 }
 
 test("platform events append, list, replay with membership and idempotent retry", async () => {
-  resetPlatformEventStoreForTests();
+  await resetPlatformEventStoreForTests();
   const app = buildApp();
   await app.ready();
 

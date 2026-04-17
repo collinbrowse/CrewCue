@@ -10,6 +10,12 @@ import type {
   ReplayedRaceRoomAggregate,
   TransportChannel
 } from "@crewcue/contracts";
+import {
+  appendPersistedPlatformEvent,
+  isRoomPersistenceEnabled,
+  listPersistedPlatformEventsForAggregate,
+  resetPersistedPlatformEventsForTests as resetPersistedPlatformEventsInDbForTests
+} from "./roomPersistence.js";
 
 const draftSchema = z.object({
   teamId: z.string().min(1),
@@ -65,7 +71,7 @@ export type AppendPlatformEventInput = {
   causationId?: string;
 };
 
-export function appendPlatformEvent(
+function appendPlatformEventMemory(
   input: AppendPlatformEventInput
 ): { duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope } {
   const existing = idempotencyIndex.get(input.idempotencyKey);
@@ -100,13 +106,37 @@ export function appendPlatformEvent(
   return { duplicate: false, event };
 }
 
-export function listEventsForAggregate(
+export async function appendPlatformEvent(
+  input: AppendPlatformEventInput
+): Promise<{ duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope }> {
+  if (!isRoomPersistenceEnabled()) {
+    return appendPlatformEventMemory(input);
+  }
+  const normalized = coercePlatformEventPayload(input.eventType, input.payload);
+  return appendPersistedPlatformEvent({
+    aggregateId: input.aggregateId,
+    aggregateType: input.aggregateType,
+    eventType: input.eventType,
+    idempotencyKey: input.idempotencyKey,
+    normalizedPayload: normalized,
+    schemaVersion: input.schemaVersion,
+    transport: input.transport,
+    actorUserId: input.actorUserId,
+    ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
+    ...(input.causationId !== undefined ? { causationId: input.causationId } : {})
+  });
+}
+
+export async function listEventsForAggregate(
   aggregateType: PlatformAggregateType,
   aggregateId: string
-): PlatformEventEnvelope[] {
-  return store
-    .filter((e) => e.aggregateType === aggregateType && e.aggregateId === aggregateId)
-    .sort((a, b) => a.sequence - b.sequence);
+): Promise<PlatformEventEnvelope[]> {
+  if (!isRoomPersistenceEnabled()) {
+    return store
+      .filter((e) => e.aggregateType === aggregateType && e.aggregateId === aggregateId)
+      .sort((a, b) => a.sequence - b.sequence);
+  }
+  return listPersistedPlatformEventsForAggregate(aggregateType, aggregateId);
 }
 
 export function reduceRaceRoomEvents(events: PlatformEventEnvelope[]): ReplayedRaceRoomAggregate {
@@ -150,13 +180,14 @@ export function reduceRaceRoomEvents(events: PlatformEventEnvelope[]): ReplayedR
   return snap;
 }
 
-export function replayRaceRoomAggregate(aggregateId: string): ReplayedRaceRoomAggregate {
-  const slice = listEventsForAggregate("race_room", aggregateId);
+export async function replayRaceRoomAggregate(aggregateId: string): Promise<ReplayedRaceRoomAggregate> {
+  const slice = await listEventsForAggregate("race_room", aggregateId);
   return reduceRaceRoomEvents(slice);
 }
 
-export function resetPlatformEventStoreForTests(): void {
+export async function resetPlatformEventStoreForTests(): Promise<void> {
   store.length = 0;
   idempotencyIndex.clear();
   sequenceByAggregate.clear();
+  await resetPersistedPlatformEventsInDbForTests();
 }

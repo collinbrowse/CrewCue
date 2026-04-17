@@ -1,6 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
-import type { RaceRoom, RaceRoomInvite } from "@crewcue/contracts";
+import type {
+  PlatformAggregateType,
+  PlatformEventEnvelope,
+  PlatformEventName,
+  RaceRoom,
+  RaceRoomInvite,
+  TransportChannel
+} from "@crewcue/contracts";
 
 export type PersistenceMode = "memory" | "postgres";
 
@@ -105,6 +113,36 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS platform_aggregate_heads (
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        last_sequence INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (aggregate_type, aggregate_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS platform_domain_events (
+        id TEXT PRIMARY KEY,
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        sequence INT NOT NULL,
+        event_type TEXT NOT NULL,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        payload JSONB NOT NULL,
+        schema_version TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        actor_user_id TEXT NOT NULL,
+        correlation_id TEXT,
+        causation_id TEXT,
+        UNIQUE (aggregate_type, aggregate_id, sequence)
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS platform_domain_events_by_aggregate
+      ON platform_domain_events (aggregate_type, aggregate_id);
+    `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -121,7 +159,9 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "room_ws2_runtime_json",
           "room_ws4_adaptive_json",
           "room_ws5_sync_json",
-          "team_command_metric_configs_json"
+          "team_command_metric_configs_json",
+          "platform_aggregate_heads",
+          "platform_domain_events"
         ]
       }
     },
@@ -363,4 +403,172 @@ export async function loadTeamMetricConfigPayload(teamId: string): Promise<unkno
     [teamId]
   );
   return result.rows[0]?.payload;
+}
+
+type PlatformEventRow = {
+  id: string;
+  aggregate_type: PlatformAggregateType;
+  aggregate_id: string;
+  sequence: number;
+  event_type: PlatformEventName;
+  occurred_at: Date | string;
+  idempotency_key: string;
+  payload: unknown;
+  schema_version: string;
+  transport: TransportChannel;
+  actor_user_id: string;
+  correlation_id: string | null;
+  causation_id: string | null;
+};
+
+function platformEventRowToEnvelope(row: PlatformEventRow): PlatformEventEnvelope {
+  const occurredAt =
+    row.occurred_at instanceof Date ? row.occurred_at.toISOString() : new Date(row.occurred_at).toISOString();
+  return {
+    id: row.id,
+    aggregateId: row.aggregate_id,
+    aggregateType: row.aggregate_type,
+    eventType: row.event_type,
+    occurredAt,
+    sequence: row.sequence,
+    idempotencyKey: row.idempotency_key,
+    payload: row.payload,
+    schemaVersion: row.schema_version,
+    transport: row.transport,
+    actorUserId: row.actor_user_id,
+    ...(row.correlation_id ? { correlationId: row.correlation_id } : {}),
+    ...(row.causation_id ? { causationId: row.causation_id } : {})
+  };
+}
+
+export type AppendPersistedPlatformEventInput = {
+  aggregateId: string;
+  aggregateType: PlatformAggregateType;
+  eventType: PlatformEventName;
+  idempotencyKey: string;
+  normalizedPayload: unknown;
+  schemaVersion: string;
+  transport: TransportChannel;
+  actorUserId: string;
+  correlationId?: string;
+  causationId?: string;
+};
+
+export async function appendPersistedPlatformEvent(
+  input: AppendPersistedPlatformEventInput
+): Promise<{ duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope }> {
+  if (!pool) {
+    throw new Error("appendPersistedPlatformEvent requires Postgres persistence");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query<PlatformEventRow>(
+      `
+        SELECT id, aggregate_type, aggregate_id, sequence, event_type, occurred_at, idempotency_key,
+               payload, schema_version, transport, actor_user_id, correlation_id, causation_id
+        FROM platform_domain_events
+        WHERE idempotency_key = $1
+        LIMIT 1
+      `,
+      [input.idempotencyKey]
+    );
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return { duplicate: true, event: platformEventRowToEnvelope(existing.rows[0]) };
+    }
+
+    const seqResult = await client.query<{ last_sequence: number }>(
+      `
+        INSERT INTO platform_aggregate_heads (aggregate_type, aggregate_id, last_sequence)
+        VALUES ($1, $2, 1)
+        ON CONFLICT (aggregate_type, aggregate_id)
+        DO UPDATE SET last_sequence = platform_aggregate_heads.last_sequence + 1
+        RETURNING last_sequence
+      `,
+      [input.aggregateType, input.aggregateId]
+    );
+    const sequence = seqResult.rows[0]!.last_sequence;
+    const id = randomUUID();
+    const occurredAt = new Date().toISOString();
+
+    await client.query(
+      `
+        INSERT INTO platform_domain_events (
+          id, aggregate_type, aggregate_id, sequence, event_type, occurred_at, idempotency_key,
+          payload, schema_version, transport, actor_user_id, correlation_id, causation_id
+        ) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb, $9, $10, $11, $12, $13)
+      `,
+      [
+        id,
+        input.aggregateType,
+        input.aggregateId,
+        sequence,
+        input.eventType,
+        occurredAt,
+        input.idempotencyKey,
+        JSON.stringify(input.normalizedPayload),
+        input.schemaVersion,
+        input.transport,
+        input.actorUserId,
+        input.correlationId ?? null,
+        input.causationId ?? null
+      ]
+    );
+    await client.query("COMMIT");
+
+    const event: PlatformEventEnvelope = {
+      id,
+      aggregateId: input.aggregateId,
+      aggregateType: input.aggregateType,
+      eventType: input.eventType,
+      occurredAt,
+      sequence,
+      idempotencyKey: input.idempotencyKey,
+      payload: input.normalizedPayload,
+      schemaVersion: input.schemaVersion,
+      transport: input.transport,
+      actorUserId: input.actorUserId,
+      ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
+      ...(input.causationId !== undefined ? { causationId: input.causationId } : {})
+    };
+    return { duplicate: false, event };
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listPersistedPlatformEventsForAggregate(
+  aggregateType: PlatformAggregateType,
+  aggregateId: string
+): Promise<PlatformEventEnvelope[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<PlatformEventRow>(
+    `
+      SELECT id, aggregate_type, aggregate_id, sequence, event_type, occurred_at, idempotency_key,
+             payload, schema_version, transport, actor_user_id, correlation_id, causation_id
+      FROM platform_domain_events
+      WHERE aggregate_type = $1 AND aggregate_id = $2
+      ORDER BY sequence ASC
+    `,
+    [aggregateType, aggregateId]
+  );
+  return result.rows.map(platformEventRowToEnvelope);
+}
+
+export async function resetPersistedPlatformEventsForTests(): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query("TRUNCATE TABLE platform_domain_events");
+  await pool.query("TRUNCATE TABLE platform_aggregate_heads");
 }
