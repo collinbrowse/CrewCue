@@ -1,0 +1,14 @@
+# Railway config-as-code for the CrewCue API (monorepo root = build context).
+# Add a PostgreSQL service in Railway and link DATABASE_URL to this service.
+# Docs: https://docs.railway.com/guides/config-as-code
+
+[build]
+builder = "RAILPACK"
+buildCommand = "npm ci && npm run build -w @crewcue/contracts && npm run build -w @crewcue/api"
+
+[deploy]
+preDeployCommand = ["npm run db:migrate -w @crewcue/api"]
+startCommand = "npm run start -w @crewcue/api"
+healthcheckPath = "/health/live"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
