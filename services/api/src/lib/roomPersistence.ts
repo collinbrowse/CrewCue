@@ -84,6 +84,13 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS room_ws4_adaptive_json (
+        room_id TEXT PRIMARY KEY,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -93,7 +100,13 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     {
       persistence: {
         mode: PERSISTENCE_MODE,
-        tables: ["race_rooms_json", "race_room_invites_json", "room_task_boards_json", "room_ws2_runtime_json"]
+        tables: [
+          "race_rooms_json",
+          "race_room_invites_json",
+          "room_task_boards_json",
+          "room_ws2_runtime_json",
+          "room_ws4_adaptive_json"
+        ]
       }
     },
     "room_persistence_ready"
@@ -239,4 +252,38 @@ export async function deleteWs2RuntimePayload(roomId: string): Promise<void> {
     return;
   }
   await pool.query("DELETE FROM room_ws2_runtime_json WHERE room_id = $1", [roomId]);
+}
+
+export async function persistWs4AdaptivePayload(roomId: string, payload: unknown): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query(
+    `
+      INSERT INTO room_ws4_adaptive_json (room_id, payload, updated_at)
+      VALUES ($1, $2::jsonb, NOW())
+      ON CONFLICT (room_id) DO UPDATE
+      SET payload = EXCLUDED.payload,
+          updated_at = NOW();
+    `,
+    [roomId, JSON.stringify(payload)]
+  );
+}
+
+export async function loadWs4AdaptivePayload(roomId: string): Promise<unknown | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const result = await pool.query<{ payload: unknown }>(
+    "SELECT payload FROM room_ws4_adaptive_json WHERE room_id = $1 LIMIT 1",
+    [roomId]
+  );
+  return result.rows[0]?.payload;
+}
+
+export async function deleteWs4AdaptivePayload(roomId: string): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query("DELETE FROM room_ws4_adaptive_json WHERE room_id = $1", [roomId]);
 }
