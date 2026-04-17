@@ -79,6 +79,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Ships (examples):** Auth0 integration validating JWTs in the API; claim mapping (`sub`, `teamIds`, `roomRoles`) consistent with WS1/WS6; webhook or admin flow updating **entitlement** in Postgres; remove or narrow dev-only auth bypass on staging.
 
+**API env (Auth0):** [chunk-b-auth0-api-env.md](./chunk-b-auth0-api-env.md)
+
 **Cloud in this chunk**
 
 - **Auth0** applications for **staging** first, then production clone.
