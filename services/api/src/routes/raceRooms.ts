@@ -25,6 +25,7 @@ import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
   deleteWs2RuntimePayload,
+  deleteWs4AdaptivePayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
@@ -677,6 +678,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     roomTaskBoardState.delete(roomId);
     await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
+    await deleteWs4AdaptivePayload(roomId);
+    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+    clearWs4RoomLocalState(roomId);
     await saveRaceRoom(activated);
     return reply.send(activated);
   });

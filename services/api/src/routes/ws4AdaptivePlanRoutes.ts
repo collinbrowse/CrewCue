@@ -11,6 +11,11 @@ import type {
   Recommendation,
   Role
 } from "@crewcue/contracts";
+import {
+  isRoomPersistenceEnabled,
+  loadWs4AdaptivePayload,
+  persistWs4AdaptivePayload
+} from "../lib/roomPersistence.js";
 import { evaluateEntitlement, getRaceRoom } from "./raceRooms.js";
 
 const submitIncidentInput = z.object({
@@ -31,13 +36,70 @@ type Ws4RoomState = {
 
 const ws4RoomState = new Map<string, Ws4RoomState>();
 
-function getOrInitWs4(roomId: string): Ws4RoomState {
+const ws4RuntimeHydratedFromDb = new Set<string>();
+
+function normalizeWs4AdaptivePayload(raw: unknown): Ws4RoomState | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const rec = raw as Record<string, unknown>;
+  if (
+    !Array.isArray(rec.incidents) ||
+    !Array.isArray(rec.recommendations) ||
+    !Array.isArray(rec.explainability) ||
+    !Array.isArray(rec.planVersions)
+  ) {
+    return undefined;
+  }
+  return {
+    incidents: rec.incidents as IncidentEvent[],
+    recommendations: rec.recommendations as Recommendation[],
+    explainability: rec.explainability as ExplainabilityRecord[],
+    planVersions: rec.planVersions as PlanVersion[]
+  };
+}
+
+async function loadWs4AdaptiveIfNeeded(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  if (ws4RuntimeHydratedFromDb.has(roomId)) {
+    return;
+  }
+  ws4RuntimeHydratedFromDb.add(roomId);
+  const raw = await loadWs4AdaptivePayload(roomId);
+  const parsed = normalizeWs4AdaptivePayload(raw);
+  if (parsed) {
+    ws4RoomState.set(roomId, parsed);
+  }
+}
+
+function ensureWs4InMemory(roomId: string): Ws4RoomState {
   let state = ws4RoomState.get(roomId);
   if (!state) {
     state = { incidents: [], recommendations: [], explainability: [], planVersions: [] };
     ws4RoomState.set(roomId, state);
   }
   return state;
+}
+
+async function loadOrInitWs4(roomId: string): Promise<Ws4RoomState> {
+  await loadWs4AdaptiveIfNeeded(roomId);
+  return ensureWs4InMemory(roomId);
+}
+
+async function saveWs4AdaptiveSnapshot(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  const state = ensureWs4InMemory(roomId);
+  await persistWs4AdaptivePayload(roomId, state);
+}
+
+/** Clears in-memory WS4 state for a room (e.g. after activation). */
+export function clearWs4RoomLocalState(roomId: string): void {
+  ws4RoomState.delete(roomId);
+  ws4RuntimeHydratedFromDb.delete(roomId);
 }
 
 function canDecideRecommendations(role: Role): boolean {
@@ -121,8 +183,9 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       recordedAt
     };
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     state.incidents.push(incident);
+    await saveWs4AdaptiveSnapshot(roomId);
     return reply.code(201).send({ incident });
   });
 
@@ -148,7 +211,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const incidents = [...state.incidents].sort((a, b) => Date.parse(a.recordedAt) - Date.parse(b.recordedAt));
     return reply.send({ incidents });
   });
@@ -180,7 +243,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const incident = state.incidents.find((i) => i.id === incidentId);
     if (!incident) {
       return reply.code(404).send({ error: "Incident not found" });
@@ -212,6 +275,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     };
     state.explainability.push(explain);
 
+    await saveWs4AdaptiveSnapshot(roomId);
     return reply.code(201).send({ recommendation, explainability: explain });
   });
 
@@ -238,7 +302,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const recommendation = state.recommendations.find((r) => r.id === recommendationId);
     if (!recommendation) {
       return reply.code(404).send({ error: "Recommendation not found" });
@@ -279,7 +343,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const recIndex = state.recommendations.findIndex((r) => r.id === recommendationId);
     if (recIndex === -1) {
       return reply.code(404).send({ error: "Recommendation not found" });
@@ -315,6 +379,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     };
     state.planVersions.push(planVersion);
 
+    await saveWs4AdaptiveSnapshot(roomId);
     return reply.send({ recommendation: state.recommendations[recIndex]!, planVersion });
   });
 
@@ -349,7 +414,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const recIndex = state.recommendations.findIndex((r) => r.id === recommendationId);
     if (recIndex === -1) {
       return reply.code(404).send({ error: "Recommendation not found" });
@@ -368,6 +433,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       decidedByUserId: identity.sub
     };
 
+    await saveWs4AdaptiveSnapshot(roomId);
     return reply.send({ recommendation: state.recommendations[recIndex]! });
   });
 
@@ -393,7 +459,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const versions = [...state.planVersions].sort((a, b) => a.version - b.version);
     return reply.send({ planVersions: versions });
   });
@@ -433,7 +499,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
       return reply.code(400).send({ error: "fromVersion and toVersion must differ" });
     }
 
-    const state = getOrInitWs4(roomId);
+    const state = await loadOrInitWs4(roomId);
     const from = state.planVersions.find((v) => v.version === fromVersion);
     const to = state.planVersions.find((v) => v.version === toVersion);
     if (!from || !to) {
