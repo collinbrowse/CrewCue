@@ -8,9 +8,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.DATABASE_URL?.trim();
 if (!connectionString) {
-  console.error("apply-sql-migrations: DATABASE_URL is not set.");
+  console.error(
+    "apply-sql-migrations: DATABASE_URL is missing or empty. On Railway, set DATABASE_URL on this service (e.g. reference ${{Postgres.DATABASE_URL}}) and redeploy.",
+  );
   process.exit(1);
 }
 
@@ -36,6 +38,12 @@ try {
   process.stdout.write(`apply-sql-migrations: done (${names.length} files).\n`);
 } catch (err) {
   console.error("apply-sql-migrations: failed:", err);
+  const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND") {
+    console.error(
+      "apply-sql-migrations: hint: use the Postgres plugin's internal DATABASE_URL (e.g. ${{Postgres.DATABASE_URL}}), not a localhost URL.",
+    );
+  }
   process.exit(1);
 } finally {
   await pool.end();
