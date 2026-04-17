@@ -158,8 +158,62 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 ---
 
-## 7. Revision history
+## 7. Runbook: enabling real infrastructure deploys
+
+Use this checklist when you are ready for Terraform to actually create/update AWS resources from GitHub Actions.
+
+### 7.1 Prerequisites
+
+- Terraform config exists at `infra/terraform/environments/staging/`.
+- `Deploy Staging` workflow exists at `.github/workflows/deploy-staging.yml`.
+- You have an AWS IAM principal for CI with least-privilege access to the resources managed by this Terraform stack.
+
+### 7.2 Configure GitHub staging environment secrets
+
+In GitHub UI:
+
+1. Repository → **Settings** → **Environments** → **staging**.
+2. Under **Environment secrets**, add:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+3. (Optional) add environment protection rules (required reviewers) before Terraform apply.
+
+Current behavior in the workflow:
+
+- If AWS secrets are missing, Terraform steps are skipped and a notice is emitted.
+- If AWS secrets are present, Terraform `init/plan/apply` runs.
+
+### 7.3 First real deploy (staging)
+
+1. Merge the infrastructure/code change to `main` (or trigger `workflow_dispatch` for `.github/workflows/deploy-staging.yml`).
+2. Open Actions run `Deploy Staging` and confirm:
+   - Build steps pass.
+   - `Detect AWS credentials for Terraform` reports `terraform=true`.
+   - `Terraform Init/Plan (staging)` succeeds.
+   - `Terraform Apply` succeeds (after environment approval if configured).
+3. Verify in AWS console for the target region (`us-east-1` by default in this repo) that expected resources exist or changed as planned.
+
+### 7.4 Safe-operating practices
+
+- Never commit AWS secrets to repo files; only store in GitHub environment secrets or cloud secret manager.
+- Keep IAM scope narrow to staging resources where possible.
+- For production, clone this same pattern with a separate `production` environment, separate credentials, and stricter approvals.
+- Prefer moving to GitHub OIDC + AWS role assumption later to eliminate long-lived access keys.
+
+### 7.5 Troubleshooting
+
+- `terraform: command not found`:
+  - Ensure workflow includes `hashicorp/setup-terraform`.
+- `No valid credential sources found`:
+  - Confirm `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set on the **staging** environment (not just repository secrets).
+- Immediate workflow failure with no Terraform logs:
+  - Check workflow syntax / expression errors in `.github/workflows/deploy-staging.yml`.
+
+---
+
+## 8. Revision history
 
 | Date | Change |
 | --- | --- |
 | 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist. |
+| 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
