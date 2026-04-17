@@ -78,7 +78,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -133,7 +133,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -161,7 +161,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
 
     const roomId = (request.params as { roomId: string }).roomId;
     const incidentId = (request.params as { incidentId: string }).incidentId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -223,7 +223,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
 
     const roomId = (request.params as { roomId: string }).roomId;
     const recommendationId = (request.params as { recommendationId: string }).recommendationId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -256,7 +256,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
 
     const roomId = (request.params as { roomId: string }).roomId;
     const recommendationId = (request.params as { recommendationId: string }).recommendationId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -326,7 +326,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
 
     const roomId = (request.params as { roomId: string }).roomId;
     const recommendationId = (request.params as { recommendationId: string }).recommendationId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -378,7 +378,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -405,7 +405,7 @@ export async function ws4AdaptivePlanRoutes(app: FastifyInstance): Promise<void>
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = getRaceRoom(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }

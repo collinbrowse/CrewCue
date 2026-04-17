@@ -50,8 +50,8 @@ const postEventBody = z.object({
   causationId: z.string().min(1).optional()
 });
 
-function assertRaceRoomMember(roomId: string, userId: string): { ok: true } | { ok: false; code: 403 | 404 } {
-  const room = getRaceRoom(roomId);
+async function assertRaceRoomMember(roomId: string, userId: string): Promise<{ ok: true } | { ok: false; code: 403 | 404 }> {
+  const room = await getRaceRoom(roomId);
   if (!room) {
     return { ok: false, code: 404 };
   }
@@ -79,7 +79,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Sprint 1 only supports race_room aggregates" });
     }
 
-    const gate = assertRaceRoomMember(body.aggregateId, identity.sub);
+    const gate = await assertRaceRoomMember(body.aggregateId, identity.sub);
     if (!gate.ok) {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }
@@ -114,7 +114,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "aggregateType and aggregateId are required" });
     }
 
-    const gate = assertRaceRoomMember(q.aggregateId, identity.sub);
+    const gate = await assertRaceRoomMember(q.aggregateId, identity.sub);
     if (!gate.ok) {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }
@@ -130,7 +130,7 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const aggregateId = (request.params as { aggregateId: string }).aggregateId;
-    const gate = assertRaceRoomMember(aggregateId, identity.sub);
+    const gate = await assertRaceRoomMember(aggregateId, identity.sub);
     if (!gate.ok) {
       return reply.code(gate.code).send({ error: gate.code === 404 ? "Race room not found" : "Forbidden" });
     }

@@ -15,14 +15,16 @@
     "@crewcue/contracts": "0.1.0",
     "@fastify/jwt": "^9.1.0",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-node": "^0.204.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.204.0",
+    "@opentelemetry/sdk-node": "^0.204.0",
     "fastify": "^5.6.1",
     "fastify-plugin": "^5.1.0",
+    "pg": "^8.20.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

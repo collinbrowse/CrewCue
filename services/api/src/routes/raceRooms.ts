@@ -22,6 +22,15 @@ import {
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
+import {
+  initRoomPersistence,
+  isRoomPersistenceEnabled,
+  listPersistedRaceRoomsByTeamId,
+  loadRaceRoom,
+  loadRaceRoomInvite,
+  persistRaceRoom,
+  persistRaceRoomInvite
+} from "../lib/roomPersistence.js";
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -71,8 +80,38 @@ const ingestAthletePingInput = z.object({
 const raceRooms = new Map<string, RaceRoom>();
 const raceRoomInvites = new Map<string, RaceRoomInvite>();
 
-export function getRaceRoom(roomId: string): RaceRoom | undefined {
-  return raceRooms.get(roomId);
+async function saveRaceRoom(room: RaceRoom): Promise<void> {
+  raceRooms.set(room.id, room);
+  await persistRaceRoom(room);
+}
+
+async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
+  raceRoomInvites.set(invite.token, invite);
+  await persistRaceRoomInvite(invite);
+}
+
+export async function getRaceRoom(roomId: string): Promise<RaceRoom | undefined> {
+  const cached = raceRooms.get(roomId);
+  if (cached) {
+    return cached;
+  }
+  const loaded = await loadRaceRoom(roomId);
+  if (loaded) {
+    raceRooms.set(roomId, loaded);
+  }
+  return loaded;
+}
+
+async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefined> {
+  const cached = raceRoomInvites.get(token);
+  if (cached) {
+    return cached;
+  }
+  const loaded = await loadRaceRoomInvite(token);
+  if (loaded) {
+    raceRoomInvites.set(token, loaded);
+  }
+  return loaded;
 }
 
 /** WS2 Task 1 — last accepted ping + bounded decision history per room */
@@ -294,9 +333,21 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
   return { allowed: false, code: 403, error: "Entitlement expired" };
 }
 
-/** All race rooms for a team id (WS6 aggregate scope; in-memory store). */
-export function listRaceRoomsByTeamId(teamId: string): RaceRoom[] {
-  return [...raceRooms.values()].filter((r) => r.teamId === teamId);
+/** All race rooms for a team id (WS6 aggregate scope). */
+export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]> {
+  const local = [...raceRooms.values()].filter((r) => r.teamId === teamId);
+  if (!isRoomPersistenceEnabled()) {
+    return local;
+  }
+  const persisted = await listPersistedRaceRoomsByTeamId(teamId);
+  for (const room of persisted) {
+    raceRooms.set(room.id, room);
+  }
+  const merged = new Map<string, RaceRoom>();
+  for (const room of [...persisted, ...local]) {
+    merged.set(room.id, room);
+  }
+  return [...merged.values()];
 }
 
 /** Latest projection view with timeliness, when ping history produced a stored core projection. */
@@ -375,6 +426,8 @@ function isExpired(expiresAt: string): boolean {
 }
 
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
+  await initRoomPersistence(app.log);
+
   app.post("/race-rooms", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -408,7 +461,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ]
     };
 
-    raceRooms.set(roomId, room);
+    await saveRaceRoom(room);
     return reply.code(201).send(room);
   });
 
@@ -418,7 +471,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -443,7 +496,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -483,7 +536,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     roomProjectionState.delete(roomId);
     roomTaskBoardState.delete(roomId);
-    raceRooms.set(roomId, activated);
+    await saveRaceRoom(activated);
     return reply.send(activated);
   });
 
@@ -493,7 +546,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -524,7 +577,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       status: "pending"
     };
 
-    raceRoomInvites.set(invite.token, invite);
+    await saveRaceRoomInvite(invite);
     return reply.code(201).send({
       token: invite.token,
       roomId: invite.roomId,
@@ -540,7 +593,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -550,7 +603,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite acceptance payload" });
     }
 
-    const invite = raceRoomInvites.get(parsed.data.token);
+    const invite = await getRaceRoomInvite(parsed.data.token);
     if (!invite || invite.roomId !== roomId) {
       return reply.code(404).send({ error: "Invite not found" });
     }
@@ -560,7 +613,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (isExpired(invite.expiresAt)) {
-      raceRoomInvites.set(invite.token, { ...invite, status: "expired" });
+      await saveRaceRoomInvite({ ...invite, status: "expired" });
       return reply.code(410).send({ error: "Invite expired" });
     }
 
@@ -583,8 +636,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       memberships: nextMemberships
     };
 
-    raceRooms.set(roomId, updatedRoom);
-    raceRoomInvites.set(invite.token, {
+    await saveRaceRoom(updatedRoom);
+    await saveRaceRoomInvite({
       ...invite,
       status: "accepted",
       acceptedBy: request.identity.sub,
@@ -609,7 +662,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -638,7 +691,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     };
 
-    raceRooms.set(roomId, updated);
+    await saveRaceRoom(updated);
     return reply.send(updated.entitlement);
   });
 
@@ -648,7 +701,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -819,7 +872,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -855,7 +908,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -903,7 +956,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const roomId = (request.params as { roomId: string }).roomId;
     const taskId = (request.params as { taskId: string }).taskId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -978,7 +1031,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const roomId = (request.params as { roomId: string }).roomId;
     const taskId = (request.params as { taskId: string }).taskId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -1037,7 +1090,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const roomId = (request.params as { roomId: string }).roomId;
     const taskId = (request.params as { taskId: string }).taskId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -1095,7 +1148,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -1126,7 +1179,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -1195,7 +1248,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -1221,7 +1274,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = raceRooms.get(roomId);
+    const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
     }
