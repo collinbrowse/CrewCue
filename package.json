@@ -11,9 +11,14 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:memory": "npm run test:memory -w @crewcue/api",
+    "test:pg": "npm run test:pg -w @crewcue/api",
+    "test:pg:fresh": "npm run test:pg:fresh -w @crewcue/api",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @crewcue/api",
+    "dev:api:memory": "npm run dev:memory -w @crewcue/api",
+    "dev:api:pg": "npm run dev:pg -w @crewcue/api",
     "dev:mobile": "npm run dev -w @crewcue/mobile"
   },
   "engines": {

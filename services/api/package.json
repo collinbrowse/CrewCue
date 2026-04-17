@@ -5,24 +5,31 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:memory": "PERSISTENCE_MODE=memory tsx watch src/server.ts",
+    "dev:pg": "PERSISTENCE_MODE=postgres tsx watch src/server.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js"
+    "test": "npm run test:memory",
+    "test:memory": "PERSISTENCE_MODE=memory sh -c 'npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js'",
+    "test:pg": "PERSISTENCE_MODE=postgres sh -c 'npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js'",
+    "test:pg:fresh": "./scripts/test-pg-fresh.sh"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
     "@fastify/jwt": "^9.1.0",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/sdk-node": "^0.204.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.204.0",
+    "@opentelemetry/sdk-node": "^0.204.0",
     "fastify": "^5.6.1",
     "fastify-plugin": "^5.1.0",
+    "pg": "^8.20.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

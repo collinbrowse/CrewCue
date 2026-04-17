@@ -1,10 +1,12 @@
 import { buildApp } from "./app.js";
 import { startTelemetry, stopTelemetry } from "./telemetry.js";
+import { validateRoomPersistenceEnv } from "./lib/roomPersistence.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
 
 async function start() {
+  validateRoomPersistenceEnv();
   await startTelemetry();
   const app = buildApp();
   await app.listen({ port, host });

@@ -52,6 +52,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Goal:** Restart-safe race operations; align runtime with ADR 0003 (append-only `domain_events`, projections over time).
 
+**Current sprint ladder:** [chunk-a-sprint1-execution.md](./chunk-a-sprint1-execution.md)
+
 **Ships (examples):** PostgreSQL schema and migrations for race rooms, memberships, invites, entitlement, tasks/incidents/plan data as designed; wire **WS7** `appendPlatformEvent` (or successor) to **persisted** storage; repository boundaries so the API is not a giant `Map`.
 
 **Cloud in this chunk**
@@ -185,13 +187,17 @@ Current behavior in the workflow:
 
 ### 7.3 First real deploy (staging)
 
-1. Merge the infrastructure/code change to `main` (or trigger `workflow_dispatch` for `.github/workflows/deploy-staging.yml`).
+1. Set API runtime environment variables for staging:
+   - `PERSISTENCE_MODE=postgres`
+   - `DATABASE_URL=<staging postgres connection string>`
+2. Merge the infrastructure/code change to `main` (or trigger `workflow_dispatch` for `.github/workflows/deploy-staging.yml`).
 2. Open Actions run `Deploy Staging` and confirm:
    - Build steps pass.
    - `Detect AWS credentials for Terraform` reports `terraform=true`.
    - `Terraform Init/Plan (staging)` succeeds.
    - `Terraform Apply` succeeds (after environment approval if configured).
 3. Verify in AWS console for the target region (`us-east-1` by default in this repo) that expected resources exist or changed as planned.
+4. Restart API and confirm previously created race rooms/invites are still retrievable.
 
 ### 7.4 Safe-operating practices
 
@@ -211,9 +217,30 @@ Current behavior in the workflow:
 
 ---
 
-## 8. Revision history
+## 8. Persistence mode testing matrix
+
+Use these modes to validate behavior consistently across local, CI, staging, and production.
+
+| Target | Required env | Typical command |
+| --- | --- | --- |
+| Local fast/manual (memory) | `PERSISTENCE_MODE=memory` | `npm run dev:api:memory` |
+| Local integration/manual (Postgres) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run dev:api:pg` |
+| API tests (memory lane) | `PERSISTENCE_MODE=memory` | `npm run test:memory` |
+| API tests (Postgres lane) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run test:pg` |
+| Staging runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | deploy workflow + readiness checks |
+| Production runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | production deploy workflow |
+
+Validation rules:
+
+- API startup fails fast when `PERSISTENCE_MODE=postgres` but `DATABASE_URL` is missing.
+- Health endpoints (`/health/live`, `/health/ready`) expose active persistence mode for operator verification.
+
+---
+
+## 9. Revision history
 
 | Date | Change |
 | --- | --- |
 | 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist. |
 | 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
+| 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |

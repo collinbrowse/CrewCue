@@ -61,11 +61,11 @@ function roleCanViewCommandCenter(role: Role): boolean {
   return role === "team_manager" || role === "crew_chief";
 }
 
-function collectVisibleRooms(identity: IdentityClaims, teamId: string): RaceRoom[] | null {
+async function collectVisibleRooms(identity: IdentityClaims, teamId: string): Promise<RaceRoom[] | null> {
   if (!identity.teamIds.includes(teamId)) {
     return null;
   }
-  const rooms = listRaceRoomsByTeamId(teamId);
+  const rooms = await listRaceRoomsByTeamId(teamId);
   const visible = rooms.filter((room) => {
     const m = room.memberships.find((x) => x.userId === identity.sub);
     return m !== undefined && roleCanViewCommandCenter(m.role);
@@ -76,23 +76,23 @@ function collectVisibleRooms(identity: IdentityClaims, teamId: string): RaceRoom
   return visible;
 }
 
-function collectEntitledVisibleRooms(
+async function collectEntitledVisibleRooms(
   app: FastifyInstance,
   identity: IdentityClaims,
   teamId: string
-): RaceRoom[] | null {
-  const visible = collectVisibleRooms(identity, teamId);
+): Promise<RaceRoom[] | null> {
+  const visible = await collectVisibleRooms(identity, teamId);
   if (!visible) {
     return null;
   }
   return visible.filter((room) => evaluateEntitlement(app, room, identity.sub).allowed);
 }
 
-function canMutateMetrics(identity: IdentityClaims, teamId: string): boolean {
+async function canMutateMetrics(identity: IdentityClaims, teamId: string): Promise<boolean> {
   if (!identity.teamIds.includes(teamId)) {
     return false;
   }
-  const rooms = listRaceRoomsByTeamId(teamId);
+  const rooms = await listRaceRoomsByTeamId(teamId);
   return rooms.some((room) => {
     const m = room.memberships.find((x) => x.userId === identity.sub);
     return m?.role === "team_manager";
@@ -235,7 +235,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const teamId = (request.params as { teamId: string }).teamId;
-    const visible = collectVisibleRooms(identity, teamId);
+    const visible = await collectVisibleRooms(identity, teamId);
     if (!visible) {
       return reply.code(403).send({ error: "Forbidden" });
     }
@@ -266,7 +266,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const teamId = (request.params as { teamId: string }).teamId;
-    if (!collectVisibleRooms(identity, teamId)) {
+    if (!(await collectVisibleRooms(identity, teamId))) {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
@@ -280,7 +280,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const teamId = (request.params as { teamId: string }).teamId;
-    if (!canMutateMetrics(identity, teamId)) {
+    if (!(await canMutateMetrics(identity, teamId))) {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
@@ -307,7 +307,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const teamId = (request.params as { teamId: string }).teamId;
-    const rooms = collectEntitledVisibleRooms(app, identity, teamId);
+    const rooms = await collectEntitledVisibleRooms(app, identity, teamId);
     if (!rooms) {
       return reply.code(403).send({ error: "Forbidden" });
     }
@@ -326,7 +326,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const teamId = (request.params as { teamId: string }).teamId;
-    const rooms = collectEntitledVisibleRooms(app, identity, teamId);
+    const rooms = await collectEntitledVisibleRooms(app, identity, teamId);
     if (!rooms) {
       return reply.code(403).send({ error: "Forbidden" });
     }
