@@ -21,6 +21,7 @@ const PERSISTENCE_MODE = resolvePersistenceMode();
 const pool = PERSISTENCE_MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) : null;
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 export function isRoomPersistenceEnabled(): boolean {
   return pool !== null;
@@ -37,6 +38,11 @@ export function validateRoomPersistenceEnv(): void {
 }
 
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
+  if (initPromise) {
+    await initPromise;
+    return;
+  }
+  initPromise = (async () => {
   if (initialized) {
     return;
   }
@@ -45,27 +51,40 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     log.info({ persistence: { mode: PERSISTENCE_MODE } }, "room_persistence_ready");
     return;
   }
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS race_rooms_json (
-      id TEXT PRIMARY KEY,
-      team_id TEXT NOT NULL,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS race_room_invites_json (
-      token TEXT PRIMARY KEY,
-      room_id TEXT NOT NULL,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(711001)");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS race_rooms_json (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS race_room_invites_json (
+        token TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(711001)");
+    client.release();
+  }
   initialized = true;
   log.info(
     { persistence: { mode: PERSISTENCE_MODE, tables: ["race_rooms_json", "race_room_invites_json"] } },
     "room_persistence_ready"
   );
+  })();
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
+  }
 }
 
 export async function persistRaceRoom(room: RaceRoom): Promise<void> {

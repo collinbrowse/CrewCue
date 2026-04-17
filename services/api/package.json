@@ -12,8 +12,9 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run test:memory",
-    "test:memory": "PERSISTENCE_MODE=memory npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js",
-    "test:pg": "PERSISTENCE_MODE=postgres npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js"
+    "test:memory": "PERSISTENCE_MODE=memory sh -c 'npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js'",
+    "test:pg": "PERSISTENCE_MODE=postgres sh -c 'npm run build -w @crewcue/contracts && npm run build && node --test dist/services/api/src/routes/*.test.js dist/services/api/src/lib/*.test.js'",
+    "test:pg:fresh": "./scripts/test-pg-fresh.sh"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
