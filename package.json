@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "db:migrate": "npm run db:migrate -w @crewcue/api",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:memory": "npm run test:memory -w @crewcue/api",
