@@ -2,9 +2,23 @@ import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 import type { RaceRoom, RaceRoomInvite } from "@crewcue/contracts";
 
+export type PersistenceMode = "memory" | "postgres";
+
 const DATABASE_URL = process.env.DATABASE_URL;
-const ROOM_PERSISTENCE_BACKEND = process.env.ROOM_PERSISTENCE_BACKEND ?? "memory";
-const pool = ROOM_PERSISTENCE_BACKEND === "postgres" && DATABASE_URL ? new Pool({ connectionString: DATABASE_URL }) : null;
+
+function resolvePersistenceMode(): PersistenceMode {
+  const raw = process.env.PERSISTENCE_MODE;
+  if (!raw || raw === "memory") {
+    return "memory";
+  }
+  if (raw === "postgres") {
+    return "postgres";
+  }
+  throw new Error(`Invalid PERSISTENCE_MODE '${raw}'. Expected 'memory' or 'postgres'.`);
+}
+
+const PERSISTENCE_MODE = resolvePersistenceMode();
+const pool = PERSISTENCE_MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) : null;
 
 let initialized = false;
 
@@ -12,8 +26,23 @@ export function isRoomPersistenceEnabled(): boolean {
   return pool !== null;
 }
 
+export function getRoomPersistenceMode(): PersistenceMode {
+  return PERSISTENCE_MODE;
+}
+
+export function validateRoomPersistenceEnv(): void {
+  if (PERSISTENCE_MODE === "postgres" && !DATABASE_URL) {
+    throw new Error("PERSISTENCE_MODE=postgres requires DATABASE_URL.");
+  }
+}
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
-  if (!pool || initialized) {
+  if (initialized) {
+    return;
+  }
+  if (!pool) {
+    initialized = true;
+    log.info({ persistence: { mode: PERSISTENCE_MODE } }, "room_persistence_ready");
     return;
   }
   await pool.query(`
@@ -33,7 +62,10 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     );
   `);
   initialized = true;
-  log.info({ persistence: { backend: "postgres", tables: ["race_rooms_json", "race_room_invites_json"] } }, "room_persistence_ready");
+  log.info(
+    { persistence: { mode: PERSISTENCE_MODE, tables: ["race_rooms_json", "race_room_invites_json"] } },
+    "room_persistence_ready"
+  );
 }
 
 export async function persistRaceRoom(room: RaceRoom): Promise<void> {

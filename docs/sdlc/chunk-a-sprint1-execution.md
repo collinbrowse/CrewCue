@@ -8,8 +8,8 @@ This sprint is the first **durability** slice after WS1–WS7 API foundations: m
 
 ## Scope
 
-- Postgres-backed persistence for WS1 room and invite records (`DATABASE_URL` enabled).
-- In-memory fallback when `DATABASE_URL` is absent (keeps local/dev tests fast).
+- Postgres-backed persistence for WS1 room and invite records (`PERSISTENCE_MODE=postgres` + `DATABASE_URL`).
+- In-memory fallback mode (`PERSISTENCE_MODE=memory`) for local/dev fast cycles.
 - No endpoint contract changes for `/race-rooms` and invite/entitlement/activation flows.
 - Staging runbook for enabling real infra deploys and verifying restart-safe behavior.
 
@@ -27,6 +27,6 @@ This sprint is the first **durability** slice after WS1–WS7 API foundations: m
 
 ## Done definition
 
-- API restart on staging does not lose WS1 room/invite state when `DATABASE_URL` is configured.
+- API restart on staging does not lose WS1 room/invite state when `PERSISTENCE_MODE=postgres` and `DATABASE_URL` are configured.
 - Existing API tests pass without requiring a local Postgres instance.
 - Docs explain exactly how to enable and validate real infrastructure-backed deploys.

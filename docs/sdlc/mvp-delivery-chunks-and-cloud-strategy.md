@@ -188,7 +188,7 @@ Current behavior in the workflow:
 ### 7.3 First real deploy (staging)
 
 1. Set API runtime environment variables for staging:
-   - `ROOM_PERSISTENCE_BACKEND=postgres`
+   - `PERSISTENCE_MODE=postgres`
    - `DATABASE_URL=<staging postgres connection string>`
 2. Merge the infrastructure/code change to `main` (or trigger `workflow_dispatch` for `.github/workflows/deploy-staging.yml`).
 2. Open Actions run `Deploy Staging` and confirm:
@@ -217,9 +217,30 @@ Current behavior in the workflow:
 
 ---
 
-## 8. Revision history
+## 8. Persistence mode testing matrix
+
+Use these modes to validate behavior consistently across local, CI, staging, and production.
+
+| Target | Required env | Typical command |
+| --- | --- | --- |
+| Local fast/manual (memory) | `PERSISTENCE_MODE=memory` | `npm run dev:api:memory` |
+| Local integration/manual (Postgres) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run dev:api:pg` |
+| API tests (memory lane) | `PERSISTENCE_MODE=memory` | `npm run test:memory` |
+| API tests (Postgres lane) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run test:pg` |
+| Staging runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | deploy workflow + readiness checks |
+| Production runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | production deploy workflow |
+
+Validation rules:
+
+- API startup fails fast when `PERSISTENCE_MODE=postgres` but `DATABASE_URL` is missing.
+- Health endpoints (`/health/live`, `/health/ready`) expose active persistence mode for operator verification.
+
+---
+
+## 9. Revision history
 
 | Date | Change |
 | --- | --- |
 | 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist. |
 | 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
+| 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |
