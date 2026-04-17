@@ -151,7 +151,7 @@ async function buildAthleteCard(
   if (!ent.allowed) {
     return null;
   }
-  const projection = room.status === "active" ? getProjectionViewForRoom(room.id) : undefined;
+  const projection = room.status === "active" ? await getProjectionViewForRoom(room.id) : undefined;
   const taskCountsRecord = await getTaskStatusCountsForRoom(room);
   const syncSummary = getWs5RoomCommandCenterSummary(room.id, WS6_STALE_SECONDS);
   const useStubs = room.status === "active";

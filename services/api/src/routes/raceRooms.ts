@@ -24,15 +24,18 @@ import {
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
+  deleteWs2RuntimePayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
   loadRaceRoom,
   loadRaceRoomInvite,
   loadTaskBoardPayload,
+  loadWs2RuntimePayload,
   persistRaceRoom,
   persistRaceRoomInvite,
-  persistTaskBoardPayload
+  persistTaskBoardPayload,
+  persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
 
 const createRaceRoomInput = z.object({
@@ -142,6 +145,95 @@ type RoomProjectionState = {
 };
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
+
+const ws2RuntimeHydratedFromDb = new Set<string>();
+
+function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
+  if (!x || typeof x !== "object") {
+    return false;
+  }
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.pingId === "string" &&
+    typeof o.latitude === "number" &&
+    typeof o.longitude === "number" &&
+    typeof o.recordedAtMs === "number" &&
+    typeof o.receivedAtMs === "number"
+  );
+}
+
+function normalizeWs2RuntimePayload(raw: unknown): { ping?: RoomPingState; projection?: RoomProjectionState } {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const rec = raw as Record<string, unknown>;
+  let ping: RoomPingState | undefined;
+  if (rec.ping && typeof rec.ping === "object") {
+    const p = rec.ping as Record<string, unknown>;
+    if (Array.isArray(p.history)) {
+      ping = {
+        lastAccepted: isAcceptedPingPayload(p.lastAccepted) ? p.lastAccepted : null,
+        history: p.history as AthletePingHistoryEntry[],
+        ...(typeof p.lastUploadIntervalSeconds === "number"
+          ? { lastUploadIntervalSeconds: p.lastUploadIntervalSeconds }
+          : {})
+      };
+    }
+  }
+  let projection: RoomProjectionState | undefined;
+  if (rec.projection && typeof rec.projection === "object") {
+    const pr = rec.projection as Record<string, unknown>;
+    if (
+      typeof pr.lastProgressMeters === "number" &&
+      pr.splitCrossedAt &&
+      typeof pr.splitCrossedAt === "object" &&
+      pr.lastProjectionCore &&
+      typeof pr.lastProjectionCore === "object"
+    ) {
+      projection = {
+        lastProgressMeters: pr.lastProgressMeters,
+        splitCrossedAt: { ...(pr.splitCrossedAt as Record<string, string>) },
+        lastProjectionCore: pr.lastProjectionCore as RaceRoomProjectionCore
+      };
+    }
+  }
+  return { ping, projection };
+}
+
+async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  if (ws2RuntimeHydratedFromDb.has(roomId)) {
+    return;
+  }
+  ws2RuntimeHydratedFromDb.add(roomId);
+  const raw = await loadWs2RuntimePayload(roomId);
+  const { ping, projection } = normalizeWs2RuntimePayload(raw);
+  if (ping) {
+    roomPingState.set(roomId, ping);
+  }
+  if (projection) {
+    roomProjectionState.set(roomId, projection);
+  }
+}
+
+async function saveWs2RuntimeSnapshot(roomId: string): Promise<void> {
+  if (!isRoomPersistenceEnabled()) {
+    return;
+  }
+  const ping =
+    roomPingState.get(roomId) ??
+    ({
+      lastAccepted: null,
+      history: []
+    } satisfies RoomPingState);
+  const projection = roomProjectionState.get(roomId);
+  await persistWs2RuntimePayload(roomId, {
+    ping,
+    ...(projection !== undefined ? { projection } : {})
+  });
+}
 
 type RoomTaskBoardState = {
   checkpointPlans: CheckpointPlan[];
@@ -312,12 +404,13 @@ function sortTimelineAscending(events: OpsTimelineEvent[]): OpsTimelineEvent[] {
   return [...events].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
 }
 
-function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): void {
+async function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): Promise<void> {
   const state = getOrInitPingState(roomId);
   state.history.push(entry);
   if (state.history.length > PING_HISTORY_CAP) {
     state.history.splice(0, state.history.length - PING_HISTORY_CAP);
   }
+  await saveWs2RuntimeSnapshot(roomId);
 }
 
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -394,7 +487,8 @@ export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]>
 }
 
 /** Latest projection view with timeliness, when ping history produced a stored core projection. */
-export function getProjectionViewForRoom(roomId: string): RaceRoomProjection | undefined {
+export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoomProjection | undefined> {
+  await loadWs2RuntimeIfNeeded(roomId);
   const stored = roomProjectionState.get(roomId);
   if (!stored) {
     return undefined;
@@ -577,8 +671,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       plannedPaceSecondsPerKm
     };
 
+    roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
+    ws2RuntimeHydratedFromDb.delete(roomId);
     roomTaskBoardState.delete(roomId);
+    await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
     await saveRaceRoom(activated);
     return reply.send(activated);
@@ -760,6 +857,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
+    await loadWs2RuntimeIfNeeded(roomId);
+
     const parsed = ingestAthletePingInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid ping payload" });
@@ -770,7 +869,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const receivedAtMs = Date.parse(receivedAt);
     const recordedAtMs = Date.parse(body.recordedAt);
 
-    const reject = (reason: AthletePingRejectReason, message: string) => {
+    const reject = async (reason: AthletePingRejectReason, message: string) => {
       const entry: AthletePingHistoryEntry = {
         id: randomUUID(),
         at: receivedAt,
@@ -778,7 +877,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         decision: "rejected",
         reason
       };
-      pushPingHistory(roomId, entry);
+      await pushPingHistory(roomId, entry);
       app.log.info(
         { ping_decision: { roomId, actor: request.identity!.sub, decision: "rejected", reason } },
         "ping_decision"
@@ -787,11 +886,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     };
 
     if (room.status !== "active") {
-      return reject("room_not_active", "Race room must be active to ingest pings");
+      return await reject("room_not_active", "Race room must be active to ingest pings");
     }
 
     if (body.horizontalAccuracyMeters !== undefined && body.horizontalAccuracyMeters > MAX_HORIZONTAL_ACCURACY_M) {
-      return reject("accuracy_too_poor", "Horizontal accuracy exceeds allowed threshold");
+      return await reject("accuracy_too_poor", "Horizontal accuracy exceeds allowed threshold");
     }
 
     if (Number.isNaN(recordedAtMs)) {
@@ -799,7 +898,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (Math.abs(receivedAtMs - recordedAtMs) > MAX_CLOCK_SKEW_MS) {
-      return reject("clock_skew", "recordedAt is too far from server time");
+      return await reject("clock_skew", "recordedAt is too far from server time");
     }
 
     const pingState = getOrInitPingState(roomId);
@@ -814,7 +913,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         );
         const impliedSpeed = dist / dtSec;
         if (impliedSpeed > MAX_SPEED_MPS) {
-          return reject("implausible_motion", "Movement exceeds plausible speed for elapsed time");
+          return await reject("implausible_motion", "Movement exceeds plausible speed for elapsed time");
         }
       }
     }
@@ -838,7 +937,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       decision: "accepted",
       pingId
     };
-    pushPingHistory(roomId, acceptedEntry);
+    await pushPingHistory(roomId, acceptedEntry);
 
     app.log.info(
       { ping_decision: { roomId, actor: request.identity.sub, decision: "accepted", pingId } },
@@ -895,6 +994,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    await saveWs2RuntimeSnapshot(roomId);
+
     return reply.code(201).send({
       decision: "accepted" as const,
       pingId,
@@ -930,6 +1031,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
+
+    await loadWs2RuntimeIfNeeded(roomId);
 
     const stored = roomProjectionState.get(roomId);
     if (!stored) {
@@ -1336,6 +1439,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
+
+    await loadWs2RuntimeIfNeeded(roomId);
 
     const limitRaw = (request.query as { limit?: string }).limit;
     const limitParsed = z.coerce.number().int().min(1).max(50).safeParse(limitRaw ?? "20");
