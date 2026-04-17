@@ -141,18 +141,18 @@ function buildMetricCells(
   });
 }
 
-function buildAthleteCard(
+async function buildAthleteCard(
   app: FastifyInstance,
   room: RaceRoom,
   identity: IdentityClaims,
   metricConfig: TeamCommandMetricConfig
-): AthleteStatusCard | null {
+): Promise<AthleteStatusCard | null> {
   const ent = evaluateEntitlement(app, room, identity.sub);
   if (!ent.allowed) {
     return null;
   }
   const projection = room.status === "active" ? getProjectionViewForRoom(room.id) : undefined;
-  const taskCountsRecord = getTaskStatusCountsForRoom(room);
+  const taskCountsRecord = await getTaskStatusCountsForRoom(room);
   const syncSummary = getWs5RoomCommandCenterSummary(room.id, WS6_STALE_SECONDS);
   const useStubs = room.status === "active";
   const metrics = buildMetricCells(room.id, metricConfig.selectedMetrics, useStubs);
@@ -173,10 +173,13 @@ function buildAthleteCard(
   };
 }
 
-function computeOverlaps(rooms: RaceRoom[]): StaffingOverlap[] {
+async function computeOverlaps(rooms: RaceRoom[]): Promise<StaffingOverlap[]> {
   const byUser = new Map<string, { roomIds: Set<string>; checkpointIds: Set<string> }>();
-  for (const room of rooms) {
-    for (const row of listInProgressAssignmentsForRoom(room)) {
+  const rowsByRoom = await Promise.all(
+    rooms.map(async (room) => ({ room, rows: await listInProgressAssignmentsForRoom(room) }))
+  );
+  for (const { rows } of rowsByRoom) {
+    for (const row of rows) {
       let bucket = byUser.get(row.assigneeUserId);
       if (!bucket) {
         bucket = { roomIds: new Set(), checkpointIds: new Set() };
@@ -203,14 +206,20 @@ function computeOverlaps(rooms: RaceRoom[]): StaffingOverlap[] {
   return overlaps;
 }
 
-function computeHeatmap(teamId: string, rooms: RaceRoom[]): CheckpointDemandHeatmap {
+async function computeHeatmap(teamId: string, rooms: RaceRoom[]): Promise<CheckpointDemandHeatmap> {
   const demandMap = new Map<string, Set<string>>();
-  for (const room of rooms) {
-    for (const cpId of listActiveDemandCheckpointsForRoom(room)) {
+  const demandByRoom = await Promise.all(
+    rooms.map(async (room) => ({
+      roomId: room.id,
+      cpIds: await listActiveDemandCheckpointsForRoom(room)
+    }))
+  );
+  for (const { roomId, cpIds } of demandByRoom) {
+    for (const cpId of cpIds) {
       if (!demandMap.has(cpId)) {
         demandMap.set(cpId, new Set());
       }
-      demandMap.get(cpId)!.add(room.id);
+      demandMap.get(cpId)!.add(roomId);
     }
   }
   const cells: CheckpointDemandCell[] = [...demandMap.entries()]
@@ -241,14 +250,11 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
     }
 
     const metricConfig = getOrInitTeamMetricConfig(teamId);
-    const cards: AthleteStatusCard[] = [];
     const evaluatedAt = new Date().toISOString();
-    for (const room of visible) {
-      const card = buildAthleteCard(app, room, identity, metricConfig);
-      if (card) {
-        cards.push(card);
-      }
-    }
+    const cardResults = await Promise.all(
+      visible.map((room) => buildAthleteCard(app, room, identity, metricConfig))
+    );
+    const cards = cardResults.filter((card): card is AthleteStatusCard => card !== null);
 
     const board: TeamCommandBoard = {
       teamId,
@@ -312,7 +318,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const overlaps = computeOverlaps(rooms);
+    const overlaps = await computeOverlaps(rooms);
     return reply.send({
       overlaps,
       evaluatedAt: new Date().toISOString()
@@ -331,7 +337,7 @@ export async function ws6CommandCenterRoutes(app: FastifyInstance): Promise<void
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const heatmap = computeHeatmap(teamId, rooms);
+    const heatmap = await computeHeatmap(teamId, rooms);
     return reply.send({ heatmap });
   });
 }

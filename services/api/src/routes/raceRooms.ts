@@ -23,13 +23,16 @@ import {
 } from "../lib/raceProjection.js";
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 import {
+  deleteTaskBoardPayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
   loadRaceRoom,
   loadRaceRoomInvite,
+  loadTaskBoardPayload,
   persistRaceRoom,
-  persistRaceRoomInvite
+  persistRaceRoomInvite,
+  persistTaskBoardPayload
 } from "../lib/roomPersistence.js";
 
 const createRaceRoomInput = z.object({
@@ -217,16 +220,56 @@ function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
   return { checkpointPlans, tasks, assignments, protocolNotes: [], timelineEvents: [] };
 }
 
-function getOrInitTaskBoard(room: RaceRoom): RoomTaskBoardState {
-  let state = roomTaskBoardState.get(room.id);
-  if (!state) {
-    state = buildInitialTaskBoard(room);
-    roomTaskBoardState.set(room.id, state);
+function normalizeTaskBoardPayload(raw: unknown): RoomTaskBoardState | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
   }
-  if (!state.timelineEvents) {
-    state.timelineEvents = [];
+  const rec = raw as Record<string, unknown>;
+  if (
+    !Array.isArray(rec.checkpointPlans) ||
+    !Array.isArray(rec.tasks) ||
+    !Array.isArray(rec.assignments) ||
+    !Array.isArray(rec.protocolNotes)
+  ) {
+    return undefined;
   }
-  return state;
+  return {
+    checkpointPlans: rec.checkpointPlans as CheckpointPlan[],
+    tasks: rec.tasks as CrewTask[],
+    assignments: rec.assignments as CrewAssignment[],
+    protocolNotes: rec.protocolNotes as ProtocolNote[],
+    timelineEvents: Array.isArray(rec.timelineEvents) ? (rec.timelineEvents as OpsTimelineEvent[]) : []
+  };
+}
+
+async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
+  const cached = roomTaskBoardState.get(room.id);
+  if (cached) {
+    if (!cached.timelineEvents) {
+      cached.timelineEvents = [];
+    }
+    return cached;
+  }
+  if (isRoomPersistenceEnabled()) {
+    const raw = await loadTaskBoardPayload(room.id);
+    const parsed = normalizeTaskBoardPayload(raw);
+    if (parsed) {
+      if (!parsed.timelineEvents) {
+        parsed.timelineEvents = [];
+      }
+      roomTaskBoardState.set(room.id, parsed);
+      return parsed;
+    }
+  }
+  const built = buildInitialTaskBoard(room);
+  roomTaskBoardState.set(room.id, built);
+  await persistTaskBoardPayload(room.id, built);
+  return built;
+}
+
+async function saveTaskBoard(roomId: string, board: RoomTaskBoardState): Promise<void> {
+  roomTaskBoardState.set(roomId, board);
+  await persistTaskBoardPayload(roomId, board);
 }
 
 const assignTaskInput = z.object({
@@ -366,8 +409,8 @@ export function getProjectionViewForRoom(roomId: string): RaceRoomProjection | u
 }
 
 /** Task status counts for manager-style boards (not role-filtered). */
-export function getTaskStatusCountsForRoom(room: RaceRoom): Record<CrewTaskStatus, number> {
-  const board = getOrInitTaskBoard(room);
+export async function getTaskStatusCountsForRoom(room: RaceRoom): Promise<Record<CrewTaskStatus, number>> {
+  const board = await getOrInitTaskBoard(room);
   const counts: Record<CrewTaskStatus, number> = {
     pending: 0,
     in_progress: 0,
@@ -388,8 +431,8 @@ export type InProgressAssignmentRow = {
 };
 
 /** Assignments for tasks currently marked in progress (WS6 staffing overlap input). */
-export function listInProgressAssignmentsForRoom(room: RaceRoom): InProgressAssignmentRow[] {
-  const board = getOrInitTaskBoard(room);
+export async function listInProgressAssignmentsForRoom(room: RaceRoom): Promise<InProgressAssignmentRow[]> {
+  const board = await getOrInitTaskBoard(room);
   const rows: InProgressAssignmentRow[] = [];
   for (const task of board.tasks) {
     if (task.status !== "in_progress") {
@@ -410,8 +453,8 @@ export function listInProgressAssignmentsForRoom(room: RaceRoom): InProgressAssi
 }
 
 /** Checkpoints with pending or in-progress crew demand (WS6 heatmap input). */
-export function listActiveDemandCheckpointsForRoom(room: RaceRoom): string[] {
-  const board = getOrInitTaskBoard(room);
+export async function listActiveDemandCheckpointsForRoom(room: RaceRoom): Promise<string[]> {
+  const board = await getOrInitTaskBoard(room);
   const ids = new Set<string>();
   for (const task of board.tasks) {
     if (task.status === "pending" || task.status === "in_progress") {
@@ -536,6 +579,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     roomProjectionState.delete(roomId);
     roomTaskBoardState.delete(roomId);
+    await deleteTaskBoardPayload(roomId);
     await saveRaceRoom(activated);
     return reply.send(activated);
   });
@@ -926,7 +970,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const checkpointIdRaw = (request.query as { checkpointId?: string }).checkpointId;
     const checkpointId = typeof checkpointIdRaw === "string" && checkpointIdRaw.length > 0 ? checkpointIdRaw : undefined;
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const visibleRoles = new Set(getTaskBoardVisibleRoles(membership.role));
     const assignments = board.assignments.filter((assignment) => visibleRoles.has(assignment.assigneeRole));
     const visibleTaskIds = new Set(assignments.map((assignment) => assignment.taskId));
@@ -989,7 +1033,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Assignee is not a room member with the given role" });
     }
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
     if (taskIndex === -1) {
       return reply.code(404).send({ error: "Task not found" });
@@ -1021,6 +1065,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]!, assignment: nextAssignment });
   });
 
@@ -1050,7 +1095,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
     if (taskIndex === -1) {
       return reply.code(404).send({ error: "Task not found" });
@@ -1080,6 +1125,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]! });
   });
 
@@ -1109,7 +1155,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const taskIndex = board.tasks.findIndex((t) => t.id === taskId);
     if (taskIndex === -1) {
       return reply.code(404).send({ error: "Task not found" });
@@ -1139,6 +1185,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]! });
   });
 
@@ -1166,7 +1213,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const checkpointIdRaw = (request.query as { checkpointId?: string }).checkpointId;
     const checkpointId = typeof checkpointIdRaw === "string" && checkpointIdRaw.length > 0 ? checkpointIdRaw : undefined;
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const notes = checkpointId
       ? board.protocolNotes.filter((note) => note.checkpointId === checkpointId)
       : board.protocolNotes;
@@ -1208,7 +1255,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const now = new Date().toISOString();
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const existingIdx = board.protocolNotes.findIndex(
       (note) => note.checkpointId === parsed.data.checkpointId && note.category === parsed.data.category
     );
@@ -1239,6 +1286,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       protocolNoteId: next.id
     });
 
+    await saveTaskBoard(roomId, board);
     return reply.send({ protocolNote: next });
   });
 
@@ -1263,7 +1311,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
-    const board = getOrInitTaskBoard(room);
+    const board = await getOrInitTaskBoard(room);
     const events = sortTimelineAscending(board.timelineEvents);
     return reply.send({ events });
   });
