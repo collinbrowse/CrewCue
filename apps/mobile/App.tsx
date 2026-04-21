@@ -9,7 +9,7 @@ import {
   Text,
   View
 } from "react-native";
-import type { RaceRoom } from "@crewcue/contracts";
+import type { AthletePingAcceptedResponse, AthletePingRejectedResponse, RaceRoom } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
 import { ApiError, createApiClient } from "./src/api/client";
@@ -59,6 +59,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [roomDetail, setRoomDetail] = useState<
     { room: RaceRoom; permissions: Record<string, boolean> } | undefined
   >(undefined);
+  const [lastPing, setLastPing] = useState<
+    AthletePingAcceptedResponse | AthletePingRejectedResponse | undefined
+  >(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
 
@@ -77,6 +80,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       });
       setRoom(created);
       setRoomDetail(undefined);
+      setLastPing(undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -98,6 +102,54 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const entitlement = await client.updateEntitlement(room.id, "paid");
       setRoom((r) => (r ? { ...r, entitlement } : r));
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const activateRoom = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const eventEndsAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+      const activated = await client.activateRaceRoom(room.id, { eventEndsAt });
+      setRoom(activated);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const sendPing = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const result = await client.postPing(room.id, {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        recordedAt: new Date().toISOString(),
+        uploadIntervalSeconds: 30
+      });
+      setLastPing(result);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -211,6 +263,20 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                     <Pressable style={styles.secondaryButton} onPress={fetchRoomDetails} disabled={busy}>
                       <Text style={styles.secondaryButtonLabel}>Fetch room (GET)</Text>
                     </Pressable>
+                    {room.entitlement.status === "paid" && room.status === "draft" ? (
+                      <Pressable style={styles.primaryButton} onPress={activateRoom} disabled={busy}>
+                        <Text style={styles.primaryButtonLabel}>
+                          {busy ? "Calling API..." : "Activate room (staging)"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {room.status === "active" ? (
+                      <Pressable style={styles.primaryButton} onPress={sendPing} disabled={busy}>
+                        <Text style={styles.primaryButtonLabel}>
+                          {busy ? "Sending..." : "Send ping (staging)"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </>
                 ) : null}
                 <Pressable style={styles.secondaryButton} onPress={auth.signOut}>
@@ -249,6 +315,29 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               </Text>
               <Text style={styles.body}>Permissions</Text>
               <Text style={styles.code}>{JSON.stringify(roomDetail.permissions, null, 2)}</Text>
+            </View>
+          ) : null}
+
+          {lastPing ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>Last ping</Text>
+              {lastPing.decision === "accepted" ? (
+                <>
+                  <Text style={styles.body}>Decision</Text>
+                  <Text style={[styles.code, { color: "#86efac" }]}>accepted</Text>
+                  <Text style={styles.body}>Ping ID</Text>
+                  <Text style={styles.code}>{lastPing.pingId}</Text>
+                  <Text style={styles.body}>Recorded at</Text>
+                  <Text style={styles.code}>{lastPing.recordedAt}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.body}>Decision</Text>
+                  <Text style={styles.errorText}>rejected — {lastPing.reason}</Text>
+                  <Text style={styles.body}>Message</Text>
+                  <Text style={styles.errorText}>{lastPing.message}</Text>
+                </>
+              )}
             </View>
           ) : null}
         </View>
