@@ -72,6 +72,8 @@ test("returns projection after accepted ping and from GET", async () => {
   assert.ok(pingBody.projection);
   assert.equal(pingBody.projection.roomId, roomId);
   assert.ok(pingBody.projection.progressMeters > 0);
+  assert.ok(pingBody.projection.weatherStub);
+  assert.equal(pingBody.projection.weatherStub?.source, "stub");
   assert.equal(pingBody.projection.projectionConfidence, "fresh");
   assert.equal(pingBody.projection.stalenessThresholdSeconds, 120);
   assert.ok(pingBody.projection.secondsSinceLastAcceptedPing >= 0);

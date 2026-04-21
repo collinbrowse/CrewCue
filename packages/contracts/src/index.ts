@@ -52,6 +52,16 @@ export interface RaceCheckpointSplitRow {
   deltaSecondsAtCross: number | null;
 }
 
+/**
+ * MVP synthetic race-weather baseline on WS2 projection reads (not live provider data).
+ * Future: replace `source: "stub"` with a provider-backed envelope while keeping the field optional for older clients.
+ */
+export interface ProjectionWeatherStub {
+  source: "stub";
+  summary: string;
+  assumedHeadwindMps: number;
+}
+
 /** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
 export interface RaceRoomProjectionCore {
   roomId: string;
@@ -62,6 +72,7 @@ export interface RaceRoomProjectionCore {
   plannedPaceSecondsPerKm: number;
   etaFinishPlanIso: string;
   checkpointSplits: RaceCheckpointSplitRow[];
+  weatherStub?: ProjectionWeatherStub;
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
