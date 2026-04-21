@@ -18,6 +18,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # Runs workspace tests: @crewcue/contracts (tsx), @crewcue/mobile (tsx), @crewcue/api (node:test + build).
       - run: npm run test
   api-postgres-integration:
     runs-on: ubuntu-latest
