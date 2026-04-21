@@ -1,4 +1,9 @@
-import type { RaceRoom, RaceRoomEntitlement } from "@crewcue/contracts";
+import type {
+  AthletePingAcceptedResponse,
+  AthletePingRejectedResponse,
+  RaceRoom,
+  RaceRoomEntitlement
+} from "@crewcue/contracts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -58,6 +63,20 @@ export type CreateRaceRoomInput = {
   creatorRole?: "athlete" | "crew_member" | "crew_chief" | "team_manager";
 };
 
+export type ActivateRaceRoomInput = {
+  eventEndsAt: string;
+};
+
+export type PostPingInput = {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  horizontalAccuracyMeters?: number;
+  uploadIntervalSeconds?: number;
+};
+
+export type PingResponse = AthletePingAcceptedResponse | AthletePingRejectedResponse;
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -70,7 +89,11 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "GET",
         `/race-rooms/${roomId}`
-      )
+      ),
+    activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
+      request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
+    postPing: (roomId: string, input: PostPingInput) =>
+      request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input)
   };
 }
 
