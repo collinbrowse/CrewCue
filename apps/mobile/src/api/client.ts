@@ -4,6 +4,9 @@ import type {
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
+  OpsTimelineEvent,
+  ProtocolNote,
+  ProtocolNoteCategory,
   RaceRoom,
   RaceRoomEntitlement,
   RaceRoomProjection
@@ -105,7 +108,13 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "GET",
         `/race-rooms/${roomId}/tasks`
-      )
+      ),
+    postProtocolNote: (
+      roomId: string,
+      input: { checkpointId: string; category: ProtocolNoteCategory; body: string }
+    ) => request<{ protocolNote: ProtocolNote }>(options, "POST", `/race-rooms/${roomId}/protocol-notes`, input),
+    getTimeline: (roomId: string) =>
+      request<{ events: OpsTimelineEvent[] }>(options, "GET", `/race-rooms/${roomId}/timeline`)
   };
 }
 
