@@ -1,8 +1,12 @@
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
+  CheckpointPlan,
+  CrewAssignment,
+  CrewTask,
   RaceRoom,
-  RaceRoomEntitlement
+  RaceRoomEntitlement,
+  RaceRoomProjection
 } from "@crewcue/contracts";
 
 export class ApiError extends Error {
@@ -93,7 +97,15 @@ export function createApiClient(options: ApiClientOptions) {
     activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
       request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
     postPing: (roomId: string, input: PostPingInput) =>
-      request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input)
+      request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input),
+    getProjection: (roomId: string) =>
+      request<RaceRoomProjection>(options, "GET", `/race-rooms/${roomId}/projection`),
+    getTaskBoard: (roomId: string) =>
+      request<{ checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/tasks`
+      )
   };
 }
 
