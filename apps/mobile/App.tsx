@@ -15,6 +15,8 @@ import type {
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
+  OpsTimelineEvent,
+  ProtocolNote,
   RaceRoom,
   RaceRoomProjection
 } from "@crewcue/contracts";
@@ -74,6 +76,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [taskBoard, setTaskBoard] = useState<
     { checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] } | undefined
   >(undefined);
+  const [lastProtocolNote, setLastProtocolNote] = useState<ProtocolNote | undefined>(undefined);
+  const [timeline, setTimeline] = useState<OpsTimelineEvent[] | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
 
@@ -95,6 +99,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setLastPing(undefined);
       setProjection(undefined);
       setTaskBoard(undefined);
+      setLastProtocolNote(undefined);
+      setTimeline(undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -204,6 +210,54 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       setTaskBoard(await client.getTaskBoard(room.id));
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const postProtocolNote = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const course = room.course;
+      const checkpointId = course?.checkpoints?.[0]?.id ?? "cp-smoke-1";
+      const { protocolNote } = await client.postProtocolNote(room.id, {
+        checkpointId,
+        category: "nutrition",
+        body: "Smoke: electrolytes + gel at CP1"
+      });
+      setLastProtocolNote(protocolNote);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const fetchTimeline = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { events } = await client.getTimeline(room.id);
+      setTimeline(events);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -337,6 +391,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         <Pressable style={styles.secondaryButton} onPress={fetchTaskBoard} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch task board (GET)</Text>
                         </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={postProtocolNote} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Post protocol note (staging)</Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={fetchTimeline} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Fetch ops timeline (GET)</Text>
+                        </Pressable>
                       </>
                     ) : null}
                   </>
@@ -416,6 +476,37 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
               <Text style={styles.body}>Staleness (s since last ping)</Text>
               <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
+            </View>
+          ) : null}
+
+          {lastProtocolNote ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>POST /race-rooms/:id/protocol-notes</Text>
+              <Text style={styles.body}>Note ID</Text>
+              <Text style={styles.code}>{lastProtocolNote.id}</Text>
+              <Text style={styles.body}>Category / checkpoint</Text>
+              <Text style={styles.code}>
+                {lastProtocolNote.category} @ {lastProtocolNote.checkpointId}
+              </Text>
+              <Text style={styles.body}>Body</Text>
+              <Text style={styles.code}>{lastProtocolNote.body}</Text>
+            </View>
+          ) : null}
+
+          {timeline !== undefined ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>GET /race-rooms/:id/timeline</Text>
+              <Text style={styles.body}>Events</Text>
+              <Text style={styles.code}>{timeline.length} total</Text>
+              {timeline.length === 0 ? (
+                <Text style={[styles.code, { color: "#6b7280" }]}>— no events yet —</Text>
+              ) : (
+                [...timeline].reverse().slice(0, 4).map((e) => (
+                  <Text key={e.id} style={styles.code}>
+                    {e.kind}: {e.message}
+                  </Text>
+                ))
+              )}
             </View>
           ) : null}
 

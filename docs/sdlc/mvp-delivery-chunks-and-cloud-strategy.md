@@ -105,7 +105,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Ships (examples):** Mobile: config for staging `API_BASE_URL`, Auth0 login, room lifecycle, pings, projection UI, task board, incidents/recommendations path, optional sync panel (WS5 heartbeats). Manager tablet/web optional but recommended for WS6 “essentials.”
 
-**First slice (mobile Auth0 + one real API call):** [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)
+**First slice (mobile Auth0 + one real API call):** [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
+**Full smoke script (exit gate doc):** [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)
 
 **Cloud in this chunk**
 
