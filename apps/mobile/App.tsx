@@ -9,7 +9,15 @@ import {
   Text,
   View
 } from "react-native";
-import type { AthletePingAcceptedResponse, AthletePingRejectedResponse, RaceRoom } from "@crewcue/contracts";
+import type {
+  AthletePingAcceptedResponse,
+  AthletePingRejectedResponse,
+  CheckpointPlan,
+  CrewAssignment,
+  CrewTask,
+  RaceRoom,
+  RaceRoomProjection
+} from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
 import { ApiError, createApiClient } from "./src/api/client";
@@ -62,6 +70,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [lastPing, setLastPing] = useState<
     AthletePingAcceptedResponse | AthletePingRejectedResponse | undefined
   >(undefined);
+  const [projection, setProjection] = useState<RaceRoomProjection | undefined>(undefined);
+  const [taskBoard, setTaskBoard] = useState<
+    { checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] } | undefined
+  >(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
 
@@ -81,6 +93,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setRoom(created);
       setRoomDetail(undefined);
       setLastPing(undefined);
+      setProjection(undefined);
+      setTaskBoard(undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -150,6 +164,46 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         uploadIntervalSeconds: 30
       });
       setLastPing(result);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const fetchProjection = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      setProjection(await client.getProjection(room.id));
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const fetchTaskBoard = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      setTaskBoard(await client.getTaskBoard(room.id));
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -271,11 +325,19 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                       </Pressable>
                     ) : null}
                     {room.status === "active" ? (
-                      <Pressable style={styles.primaryButton} onPress={sendPing} disabled={busy}>
-                        <Text style={styles.primaryButtonLabel}>
-                          {busy ? "Sending..." : "Send ping (staging)"}
-                        </Text>
-                      </Pressable>
+                      <>
+                        <Pressable style={styles.primaryButton} onPress={sendPing} disabled={busy}>
+                          <Text style={styles.primaryButtonLabel}>
+                            {busy ? "Sending..." : "Send ping (staging)"}
+                          </Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={fetchProjection} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={fetchTaskBoard} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Fetch task board (GET)</Text>
+                        </Pressable>
+                      </>
                     ) : null}
                   </>
                 ) : null}
@@ -337,6 +399,39 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                   <Text style={styles.body}>Message</Text>
                   <Text style={styles.errorText}>{lastPing.message}</Text>
                 </>
+              )}
+            </View>
+          ) : null}
+
+          {projection ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>GET /race-rooms/:id/projection</Text>
+              <Text style={styles.body}>Confidence</Text>
+              <Text style={[styles.code, { color: projection.projectionConfidence === "fresh" ? "#86efac" : "#fde68a" }]}>
+                {projection.projectionConfidence}
+              </Text>
+              <Text style={styles.body}>Progress</Text>
+              <Text style={styles.code}>{Math.round(projection.progressMeters)} m</Text>
+              <Text style={styles.body}>ETA finish</Text>
+              <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
+              <Text style={styles.body}>Staleness (s since last ping)</Text>
+              <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
+            </View>
+          ) : null}
+
+          {taskBoard ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>GET /race-rooms/:id/tasks</Text>
+              <Text style={styles.body}>Tasks</Text>
+              <Text style={styles.code}>{taskBoard.tasks.length} total</Text>
+              {taskBoard.tasks.length === 0 ? (
+                <Text style={[styles.code, { color: "#6b7280" }]}>— no tasks on board —</Text>
+              ) : (
+                taskBoard.tasks.slice(0, 3).map((t) => (
+                  <Text key={t.id} style={styles.code}>
+                    [{t.status}] {t.title}
+                  </Text>
+                ))
               )}
             </View>
           ) : null}
