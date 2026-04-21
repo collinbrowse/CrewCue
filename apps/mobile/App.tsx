@@ -56,6 +56,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   });
 
   const [room, setRoom] = useState<RaceRoom | undefined>(undefined);
+  const [roomDetail, setRoomDetail] = useState<
+    { room: RaceRoom; permissions: Record<string, boolean> } | undefined
+  >(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
 
@@ -73,6 +76,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         creatorRole: "athlete"
       });
       setRoom(created);
+      setRoomDetail(undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -85,6 +89,49 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setBusy(false);
     }
   }, [auth.accessToken, auth.claims, baseUrl]);
+
+  const markEntitlementPaid = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const entitlement = await client.updateEntitlement(room.id, "paid");
+      setRoom((r) => (r ? { ...r, entitlement } : r));
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  const fetchRoomDetails = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const detail = await client.getRaceRoom(room.id);
+      setRoomDetail(detail);
+      setRoom(detail.room);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -148,6 +195,24 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                     {busy ? "Calling API..." : "Create race room (staging)"}
                   </Text>
                 </Pressable>
+                {room ? (
+                  <>
+                    <Pressable
+                      style={styles.secondaryButton}
+                      onPress={markEntitlementPaid}
+                      disabled={busy || room.entitlement.status === "paid"}
+                    >
+                      <Text style={styles.secondaryButtonLabel}>
+                        {room.entitlement.status === "paid"
+                          ? "Entitlement already paid"
+                          : "Mark entitlement paid (staging)"}
+                      </Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryButton} onPress={fetchRoomDetails} disabled={busy}>
+                      <Text style={styles.secondaryButtonLabel}>Fetch room (GET)</Text>
+                    </Pressable>
+                  </>
+                ) : null}
                 <Pressable style={styles.secondaryButton} onPress={auth.signOut}>
                   <Text style={styles.secondaryButtonLabel}>Sign out</Text>
                 </Pressable>
@@ -170,6 +235,20 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               <Text style={styles.code}>
                 {room.status} / {room.entitlement.status}
               </Text>
+            </View>
+          ) : null}
+
+          {roomDetail ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>GET /race-rooms/:id</Text>
+              <Text style={styles.body}>Name</Text>
+              <Text style={styles.code}>{roomDetail.room.name}</Text>
+              <Text style={styles.body}>Status / entitlement</Text>
+              <Text style={styles.code}>
+                {roomDetail.room.status} / {roomDetail.room.entitlement.status}
+              </Text>
+              <Text style={styles.body}>Permissions</Text>
+              <Text style={styles.code}>{JSON.stringify(roomDetail.permissions, null, 2)}</Text>
             </View>
           ) : null}
         </View>
