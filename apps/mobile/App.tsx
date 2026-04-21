@@ -83,6 +83,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     AthletePingAcceptedResponse | AthletePingRejectedResponse | undefined
   >(undefined);
   const [projection, setProjection] = useState<RaceRoomProjection | undefined>(undefined);
+  const [projectionPollEnabled, setProjectionPollEnabled] = useState(false);
+  const [projectionPolledAt, setProjectionPolledAt] = useState<string | undefined>(undefined);
   const [taskBoard, setTaskBoard] = useState<
     { checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] } | undefined
   >(undefined);
@@ -114,6 +116,28 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     };
   }, []);
 
+  const pollProjectionQuiet = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      setProjection(await client.getProjection(room.id));
+      setProjectionPolledAt(new Date().toISOString());
+    } catch {
+      /* background poll — avoid spamming apiError */
+    }
+  }, [auth.accessToken, room, baseUrl]);
+
+  useEffect(() => {
+    if (!projectionPollEnabled || room?.status !== "active" || !auth.accessToken) {
+      return;
+    }
+    void pollProjectionQuiet();
+    const id = setInterval(() => {
+      void pollProjectionQuiet();
+    }, 8000);
+    return () => clearInterval(id);
+  }, [projectionPollEnabled, room?.status, room?.id, auth.accessToken, pollProjectionQuiet]);
+
   const createRoom = useCallback(async () => {
     if (!auth.accessToken || !auth.claims?.sub) return;
     setBusy(true);
@@ -131,6 +155,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setRoomDetail(undefined);
       setLastPing(undefined);
       setProjection(undefined);
+      setProjectionPollEnabled(false);
+      setProjectionPolledAt(undefined);
       setTaskBoard(undefined);
       setLastProtocolNote(undefined);
       setTimeline(undefined);
@@ -225,6 +251,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       setProjection(await client.getProjection(room.id));
+      setProjectionPolledAt(new Date().toISOString());
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -525,6 +552,20 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         <Pressable style={styles.secondaryButton} onPress={fetchProjection} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
                         </Pressable>
+                        <Pressable
+                          style={[
+                            styles.secondaryButton,
+                            projectionPollEnabled ? styles.secondaryButtonActive : null
+                          ]}
+                          onPress={() => setProjectionPollEnabled((v) => !v)}
+                          disabled={busy}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>
+                            {projectionPollEnabled
+                              ? "Auto-refresh projection: ON (8s)"
+                              : "Auto-refresh projection: OFF"}
+                          </Text>
+                        </Pressable>
                         <Pressable style={styles.secondaryButton} onPress={fetchTaskBoard} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch task board (GET)</Text>
                         </Pressable>
@@ -646,6 +687,20 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
               <Text style={styles.body}>Staleness (s since last ping)</Text>
               <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
+              {projectionPolledAt ? (
+                <>
+                  <Text style={styles.body}>Last projection fetch</Text>
+                  <Text style={styles.code}>{projectionPolledAt}</Text>
+                </>
+              ) : null}
+              {projection.weatherStub ? (
+                <>
+                  <Text style={styles.body}>Weather stub</Text>
+                  <Text style={styles.code}>{projection.weatherStub.summary}</Text>
+                  <Text style={styles.body}>Assumed headwind (m/s)</Text>
+                  <Text style={styles.code}>{String(projection.weatherStub.assumedHeadwindMps)}</Text>
+                </>
+              ) : null}
             </View>
           ) : null}
 
@@ -776,6 +831,10 @@ const styles = StyleSheet.create({
   secondaryButtonLabel: {
     color: "#d1d5db",
     fontSize: 14
+  },
+  secondaryButtonActive: {
+    borderWidth: 2,
+    borderColor: "#3b82f6"
   },
   summaryCard: {
     marginTop: 16,

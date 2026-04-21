@@ -133,7 +133,7 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 | Stream | Example outcomes | Cloud notes |
 | --- | --- | --- |
-| **D1 — WS2 depth** | Baselines, weather stub or integration, richer course model | Store inputs in Postgres; cache if needed |
+| **D1 — WS2 depth** | Baselines, weather stub or integration, richer course model | Store inputs in Postgres; cache if needed — first slice: [chunk-d-d1-ws2-projection.md](./chunk-d-d1-ws2-projection.md) |
 | **D2 — WS5 client resilience** | Offline queue, retry, idempotent mutations | Same staging API; exercise idempotency keys |
 | **D3 — WS7 projections** | Snapshot tables, broader reducers, replay tooling | Jobs run in cloud (worker or cron); document rebuild SOP |
 | **D4 — BLE / mesh (optional)** | Only if pilot evidence requires it | Often **device-local** first; server stays HTTP |

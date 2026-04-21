@@ -57,4 +57,7 @@ test("recompute is deterministic for fixed inputs", () => {
     previous: null
   });
   assert.deepEqual(first.projection, second.projection);
+  assert.ok(first.projection.weatherStub);
+  assert.equal(first.projection.weatherStub?.source, "stub");
+  assert.ok(typeof first.projection.weatherStub?.assumedHeadwindMps === "number");
 });

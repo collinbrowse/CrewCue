@@ -1,4 +1,5 @@
 import type {
+  ProjectionWeatherStub,
   RaceCourse,
   RaceCourseCheckpoint,
   RaceRoomProjectionCore,
@@ -118,6 +119,24 @@ export type ProjectionPreviousState = {
   splitCrossedAt: Record<string, string>;
 };
 
+/** Deterministic headwind assumption by course progress (Chunk D1 stub until a weather provider exists). */
+export function buildProjectionWeatherStub(input: {
+  progressMeters: number;
+  courseLengthMeters: number;
+}): ProjectionWeatherStub {
+  const ratio =
+    input.courseLengthMeters > 0 ? input.progressMeters / input.courseLengthMeters : 0;
+  const segment =
+    ratio < 1 / 3 ? "early_course" : ratio < 2 / 3 ? "mid_course" : "late_course";
+  const assumedHeadwindMps =
+    segment === "early_course" ? 2.0 : segment === "mid_course" ? 1.2 : 0.6;
+  return {
+    source: "stub",
+    summary: `Synthetic baseline (${segment.replace("_", " ")}); replace with a weather provider when available.`,
+    assumedHeadwindMps
+  };
+}
+
 export function recomputeRaceProjection(params: {
   roomId: string;
   activatedAt: string;
@@ -190,7 +209,8 @@ export function recomputeRaceProjection(params: {
     courseLengthMeters,
     plannedPaceSecondsPerKm,
     etaFinishPlanIso,
-    checkpointSplits
+    checkpointSplits,
+    weatherStub: buildProjectionWeatherStub({ progressMeters, courseLengthMeters })
   };
 
   return {
