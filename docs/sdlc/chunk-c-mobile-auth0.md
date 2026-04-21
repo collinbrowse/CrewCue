@@ -97,6 +97,8 @@ In the Auth0 dashboard (same tenant you used for Chunk B):
 7. Tap **Fetch room (GET)** again. The card shows the room name, status, entitlement, and the JSON `permissions` map returned by the API.
 8. Alternatively, use `curl` with the same access token (printed in logs via `adb logcat` / Xcode if needed) for the same entitlement and GET calls.
 
+> **Operator check (2026-04-21):** Full staging checklist in this section confirmed on a dev build (redirect URI, Auth0 login, claims, create room, optional unpaid GET, mark paid, follow-up GET).
+
 ---
 
 ## 6. Troubleshooting
@@ -120,5 +122,6 @@ In the Auth0 dashboard (same tenant you used for Chunk B):
 | ---------- | ------------------------------------------------------ |
 | 2026-04-20 | Initial publication alongside the first Chunk C slice. |
 | 2026-04-21 | Documented in-app entitlement + GET smoke steps (second Chunk C slice). |
+| 2026-04-21 | Operator confirmed section 5 staging validation on a dev build. |
 
 

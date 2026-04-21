@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Platform } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { clearTokens, loadTokens, saveTokens, type StoredTokens } from "./tokenStorage";
@@ -38,14 +39,15 @@ export function useAuth(settings: Auth0Settings): AuthState {
     [settings.domain]
   );
 
-  const redirectUri = useMemo(
-    () =>
-      AuthSession.makeRedirectUri({
-        scheme: "crewcue",
-        path: "auth"
-      }),
-    []
-  );
+  const redirectUri = useMemo(() => {
+    if (Platform.OS === "web") {
+      return AuthSession.makeRedirectUri({ scheme: "crewcue", path: "auth" });
+    }
+    // With a dev client + Metro, `executionEnvironment` is often `storeClient`, so
+    // `makeRedirectUri({ scheme, path })` resolves via `Linking.createURL` to `exp://…`.
+    // Auth0 must see the fixed native scheme from `app.json` (`crewcue`).
+    return "crewcue://auth";
+  }, []);
 
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
