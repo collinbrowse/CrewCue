@@ -1,4 +1,4 @@
-import type { RaceRoom } from "@crewcue/contracts";
+import type { RaceRoom, RaceRoomEntitlement } from "@crewcue/contracts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -64,7 +64,7 @@ export function createApiClient(options: ApiClientOptions) {
     createRaceRoom: (input: CreateRaceRoomInput) =>
       request<RaceRoom>(options, "POST", "/race-rooms", input),
     updateEntitlement: (roomId: string, status: "unpaid" | "paid" | "expired") =>
-      request<{ status: string }>(options, "POST", `/race-rooms/${roomId}/entitlement`, { status }),
+      request<RaceRoomEntitlement>(options, "POST", `/race-rooms/${roomId}/entitlement`, { status }),
     getRaceRoom: (roomId: string) =>
       request<{ room: RaceRoom; permissions: Record<string, boolean> }>(
         options,
