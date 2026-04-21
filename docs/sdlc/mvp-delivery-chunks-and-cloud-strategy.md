@@ -105,6 +105,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Ships (examples):** Mobile: config for staging `API_BASE_URL`, Auth0 login, room lifecycle, pings, projection UI, task board, incidents/recommendations path, optional sync panel (WS5 heartbeats). Manager tablet/web optional but recommended for WS6 “essentials.”
 
+**First slice (mobile Auth0 + one real API call):** [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)
+
 **Cloud in this chunk**
 
 - Clients talk to **staging API** only until release discipline exists.
@@ -246,3 +248,4 @@ Validation rules:
 | 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist. |
 | 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
 | 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |
+| 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)). |
