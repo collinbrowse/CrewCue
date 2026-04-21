@@ -138,6 +138,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 | **D3 — WS7 projections** | Snapshot tables, broader reducers, replay tooling | Jobs run in cloud (worker or cron); document rebuild SOP |
 | **D4 — BLE / mesh (optional)** | Only if pilot evidence requires it | Often **device-local** first; server stays HTTP |
 
+**Replay SOP:** [chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)
+
 **Cross-cutting policy (do before deep D2):** write a **short merge concurrency policy** (per entity: task, protocol note, plan version, incident) so offline sync does not contradict WS7 authority.
 
 **Exit criteria:** per-stream acceptance defined in the issue; no stream may reintroduce **in-memory as source of truth** for data that pilots need after Chunk A exit.
@@ -250,3 +252,4 @@ Validation rules:
 | 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
 | 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |
 | 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)). |
+| 2026-04-21 | Linked Chunk D3 replay SOP ([chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)). |
