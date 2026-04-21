@@ -1,14 +1,180 @@
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
+import type { RaceRoom } from "@crewcue/contracts";
+import { loadMobileConfig } from "./src/config";
+import { useAuth } from "./src/auth/useAuth";
+import { ApiError, createApiClient } from "./src/api/client";
 
-export default function App() {
+export default function App(): ReactElement {
+  const configResult = useMemo(() => loadMobileConfig(), []);
+
+  if (!configResult.ok) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.card}>
+          <Text style={styles.title}>Configuration missing</Text>
+          <Text style={styles.body}>
+            The mobile app cannot start because the following env vars are missing:
+          </Text>
+          {configResult.missing.map((name) => (
+            <Text key={name} style={styles.code}>
+              {name}
+            </Text>
+          ))}
+          <Text style={styles.body}>
+            Copy <Text style={styles.code}>apps/mobile/.env.example</Text> to{" "}
+            <Text style={styles.code}>apps/mobile/.env</Text> and restart Expo.
+          </Text>
+        </View>
+        <StatusBar style="light" />
+      </SafeAreaView>
+    );
+  }
+
+  return <AuthedShell baseUrl={configResult.config.apiBaseUrl} auth0={configResult.config} />;
+}
+
+type AuthedShellProps = {
+  baseUrl: string;
+  auth0: { auth0Domain: string; auth0ClientId: string; auth0Audience: string };
+};
+
+function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
+  const auth = useAuth({
+    domain: auth0.auth0Domain,
+    clientId: auth0.auth0ClientId,
+    audience: auth0.auth0Audience
+  });
+
+  const [room, setRoom] = useState<RaceRoom | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [apiError, setApiError] = useState<string | undefined>(undefined);
+
+  const createRoom = useCallback(async () => {
+    if (!auth.accessToken || !auth.claims?.sub) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const teamId = auth.claims.teamIds?.[0] ?? "mobile-smoketest-team";
+      const created = await client.createRaceRoom({
+        teamId,
+        athleteId: auth.claims.sub,
+        name: `Mobile smoke ${new Date().toISOString().slice(0, 16)}`,
+        creatorRole: "athlete"
+      });
+      setRoom(created);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, auth.claims, baseUrl]);
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.title}>CrewCue WS0 Foundation</Text>
-        <Text style={styles.body}>Hybrid iOS and Android baseline is configured.</Text>
-      </View>
-      <StatusBar style="auto" />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <View style={styles.card}>
+          <Text style={styles.title}>CrewCue</Text>
+          <Text style={styles.subtitle}>Chunk C smoke test</Text>
+
+          <Text style={styles.label}>API base</Text>
+          <Text style={styles.code}>{baseUrl}</Text>
+
+          <Text style={styles.label}>Redirect URI</Text>
+          <Text style={styles.code}>{auth.redirectUri}</Text>
+
+          <Text style={styles.label}>Auth status</Text>
+          <Text style={styles.value}>{auth.status}</Text>
+
+          {auth.status === "bootstrapping" ? (
+            <ActivityIndicator color="#f9fafb" style={{ marginTop: 12 }} />
+          ) : null}
+
+          {auth.status === "authenticated" && auth.claims ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={styles.label}>Subject</Text>
+              <Text style={styles.code}>{auth.claims.sub}</Text>
+              {auth.claims.email ? (
+                <>
+                  <Text style={styles.label}>Email</Text>
+                  <Text style={styles.code}>{auth.claims.email}</Text>
+                </>
+              ) : null}
+              <Text style={styles.label}>team_ids</Text>
+              <Text style={styles.code}>{JSON.stringify(auth.claims.teamIds ?? null)}</Text>
+              <Text style={styles.label}>room_roles</Text>
+              <Text style={styles.code}>{JSON.stringify(auth.claims.roomRoles ?? null)}</Text>
+            </View>
+          ) : null}
+
+          {auth.error ? (
+            <>
+              <Text style={styles.label}>Auth error</Text>
+              <Text style={styles.errorText}>{auth.error}</Text>
+            </>
+          ) : null}
+
+          <View style={{ marginTop: 16, gap: 8 }}>
+            {auth.status !== "authenticated" ? (
+              <Pressable
+                style={styles.primaryButton}
+                onPress={auth.signIn}
+                disabled={auth.status === "authenticating"}
+              >
+                <Text style={styles.primaryButtonLabel}>
+                  {auth.status === "authenticating" ? "Opening Auth0..." : "Sign in with Auth0"}
+                </Text>
+              </Pressable>
+            ) : (
+              <>
+                <Pressable style={styles.primaryButton} onPress={createRoom} disabled={busy}>
+                  <Text style={styles.primaryButtonLabel}>
+                    {busy ? "Calling API..." : "Create race room (staging)"}
+                  </Text>
+                </Pressable>
+                <Pressable style={styles.secondaryButton} onPress={auth.signOut}>
+                  <Text style={styles.secondaryButtonLabel}>Sign out</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+          {apiError ? (
+            <>
+              <Text style={styles.label}>API error</Text>
+              <Text style={styles.errorText}>{apiError}</Text>
+            </>
+          ) : null}
+
+          {room ? (
+            <View style={{ marginTop: 16 }}>
+              <Text style={styles.label}>Created room</Text>
+              <Text style={styles.code}>{room.id}</Text>
+              <Text style={styles.label}>Status / entitlement</Text>
+              <Text style={styles.code}>
+                {room.status} / {room.entitlement.status}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
+      <StatusBar style="light" />
     </SafeAreaView>
   );
 }
@@ -16,24 +182,75 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
     backgroundColor: "#0f172a"
   },
+  scroll: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: 16
+  },
   card: {
-    width: "84%",
     borderRadius: 16,
     padding: 20,
-    backgroundColor: "#111827"
+    backgroundColor: "#111827",
+    gap: 4
   },
   title: {
     color: "#f9fafb",
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 8
+    fontSize: 26,
+    fontWeight: "700"
+  },
+  subtitle: {
+    color: "#9ca3af",
+    fontSize: 14,
+    marginBottom: 12
+  },
+  label: {
+    color: "#9ca3af",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginTop: 10
+  },
+  value: {
+    color: "#f9fafb",
+    fontSize: 16
+  },
+  code: {
+    color: "#e5e7eb",
+    fontSize: 13,
+    fontFamily: "Menlo"
   },
   body: {
     color: "#d1d5db",
-    fontSize: 16
+    fontSize: 14,
+    marginTop: 6
+  },
+  errorText: {
+    color: "#fca5a5",
+    fontSize: 13
+  },
+  primaryButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center"
+  },
+  primaryButtonLabel: {
+    color: "#f9fafb",
+    fontSize: 16,
+    fontWeight: "600"
+  },
+  secondaryButton: {
+    backgroundColor: "#1f2937",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: "center"
+  },
+  secondaryButtonLabel: {
+    color: "#d1d5db",
+    fontSize: 14
   }
 });

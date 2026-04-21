@@ -1,0 +1,77 @@
+import type { RaceRoom } from "@crewcue/contracts";
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  constructor(status: number, body: unknown, message?: string) {
+    super(message ?? `API error ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+type ApiClientOptions = {
+  baseUrl: string;
+  accessToken: string;
+};
+
+async function request<T>(
+  options: ApiClientOptions,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.accessToken}`,
+    Accept: "application/json"
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${options.baseUrl}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text.length > 0 ? JSON.parse(text) : undefined;
+  } catch {
+    parsed = text;
+  }
+  if (!res.ok) {
+    const message =
+      parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
+        ? String((parsed as { error: unknown }).error)
+        : `API error ${res.status}`;
+    throw new ApiError(res.status, parsed, message);
+  }
+  return parsed as T;
+}
+
+export type CreateRaceRoomInput = {
+  teamId: string;
+  athleteId: string;
+  name: string;
+  creatorRole?: "athlete" | "crew_member" | "crew_chief" | "team_manager";
+};
+
+export function createApiClient(options: ApiClientOptions) {
+  return {
+    health: () => request<{ status: string }>(options, "GET", "/health/live"),
+    createRaceRoom: (input: CreateRaceRoomInput) =>
+      request<RaceRoom>(options, "POST", "/race-rooms", input),
+    updateEntitlement: (roomId: string, status: "unpaid" | "paid" | "expired") =>
+      request<{ status: string }>(options, "POST", `/race-rooms/${roomId}/entitlement`, { status }),
+    getRaceRoom: (roomId: string) =>
+      request<{ room: RaceRoom; permissions: Record<string, boolean> }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}`
+      )
+  };
+}
+
+export type ApiClient = ReturnType<typeof createApiClient>;

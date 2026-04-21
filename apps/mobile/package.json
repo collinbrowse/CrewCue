@@ -15,7 +15,11 @@
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
     "expo": "^54.0.20",
+    "expo-auth-session": "~7.0.3",
+    "expo-crypto": "~15.0.7",
+    "expo-secure-store": "~15.0.7",
     "expo-status-bar": "^3.0.8",
+    "expo-web-browser": "~15.0.8",
     "react": "19.1.0",
     "react-native": "0.81.4"
   },
