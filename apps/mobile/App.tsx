@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
   ActivityIndicator,
@@ -18,11 +18,21 @@ import type {
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
-  RaceRoomProjection
+  RaceRoomProjection,
+  SyncStatus
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
 import { ApiError, createApiClient } from "./src/api/client";
+import {
+  flushPendingHeartbeat,
+  loadPendingHeartbeat,
+  postSyncHeartbeatWithRetry,
+  type PendingHeartbeat
+} from "./src/sync/pendingHeartbeat";
+
+const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
+const DEFAULT_PENDING_QUEUE_COUNT = 1;
 
 export default function App(): ReactElement {
   const configResult = useMemo(() => loadMobileConfig(), []);
@@ -78,8 +88,31 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   >(undefined);
   const [lastProtocolNote, setLastProtocolNote] = useState<ProtocolNote | undefined>(undefined);
   const [timeline, setTimeline] = useState<OpsTimelineEvent[] | undefined>(undefined);
+  const [syncHealth, setSyncHealth] = useState<SyncStatus | undefined>(undefined);
+  const [pendingHeartbeat, setPendingHeartbeat] = useState<PendingHeartbeat | undefined>(undefined);
+  const [syncStatusMessage, setSyncStatusMessage] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void loadPendingHeartbeat()
+      .then((value) => {
+        if (isMounted) {
+          setPendingHeartbeat(value);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setPendingHeartbeat(undefined);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const createRoom = useCallback(async () => {
     if (!auth.accessToken || !auth.claims?.sub) return;
@@ -101,6 +134,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setTaskBoard(undefined);
       setLastProtocolNote(undefined);
       setTimeline(undefined);
+      setSyncHealth(undefined);
+      setSyncStatusMessage(undefined);
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -203,6 +238,93 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, room, baseUrl]);
 
+  const postSyncHeartbeat = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    setSyncStatusMessage(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const result = await postSyncHeartbeatWithRetry(client, {
+        roomId: room.id,
+        deviceId: MOBILE_SMOKE_DEVICE_ID,
+        pendingQueueCount: DEFAULT_PENDING_QUEUE_COUNT
+      });
+
+      if (result.persistedForRetry) {
+        setPendingHeartbeat(result.pendingHeartbeat);
+        setSyncStatusMessage("Heartbeat hit a network error and was saved for retry.");
+      } else {
+        setSyncStatusMessage(`Heartbeat accepted at ${result.response.lastHeartbeatAt}.`);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, baseUrl, room]);
+
+  const fetchSyncHealth = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    setSyncStatusMessage(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
+      setSyncHealth(nextSyncHealth);
+      setSyncStatusMessage(`Fetched sync health at ${nextSyncHealth.evaluatedAt}.`);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, baseUrl, room]);
+
+  const flushPendingHeartbeatAction = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    setSyncStatusMessage(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const result = await flushPendingHeartbeat(client);
+      if (!result.flushed) {
+        setSyncStatusMessage("No pending heartbeat is saved on this device.");
+        return;
+      }
+
+      setPendingHeartbeat(undefined);
+      setSyncStatusMessage(`Flushed pending heartbeat at ${result.response.lastHeartbeatAt}.`);
+      if (result.pendingHeartbeat.roomId === room.id) {
+        const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
+        setSyncHealth(nextSyncHealth);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setApiError(`${err.status} ${err.message}`);
+      } else if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Unknown error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, baseUrl, room]);
+
   const fetchTaskBoard = useCallback(async () => {
     if (!auth.accessToken || !room) return;
     setBusy(true);
@@ -298,7 +420,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.card}>
           <Text style={styles.title}>CrewCue</Text>
-          <Text style={styles.subtitle}>Chunk C smoke test</Text>
+          <Text style={styles.subtitle}>Chunk D2 mobile sync smoke test</Text>
 
           <Text style={styles.label}>API base</Text>
           <Text style={styles.code}>{baseUrl}</Text>
@@ -385,6 +507,21 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                             {busy ? "Sending..." : "Send ping (staging)"}
                           </Text>
                         </Pressable>
+                        <Pressable style={styles.primaryButton} onPress={postSyncHeartbeat} disabled={busy}>
+                          <Text style={styles.primaryButtonLabel}>
+                            {busy ? "Sending..." : "POST sync heartbeat"}
+                          </Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={fetchSyncHealth} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>GET sync health</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={flushPendingHeartbeatAction}
+                          disabled={busy}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>Flush pending heartbeat</Text>
+                        </Pressable>
                         <Pressable style={styles.secondaryButton} onPress={fetchProjection} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
                         </Pressable>
@@ -412,6 +549,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             <>
               <Text style={styles.label}>API error</Text>
               <Text style={styles.errorText}>{apiError}</Text>
+            </>
+          ) : null}
+
+          {syncStatusMessage ? (
+            <>
+              <Text style={styles.label}>Sync status</Text>
+              <Text style={styles.body}>{syncStatusMessage}</Text>
             </>
           ) : null}
 
@@ -460,6 +604,32 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                   <Text style={styles.errorText}>{lastPing.message}</Text>
                 </>
               )}
+            </View>
+          ) : null}
+
+          {pendingHeartbeat ? (
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Pending heartbeat retry</Text>
+              <Text style={styles.body}>Room</Text>
+              <Text style={styles.code}>{pendingHeartbeat.roomId}</Text>
+              <Text style={styles.body}>Device / pending count</Text>
+              <Text style={styles.code}>
+                {pendingHeartbeat.deviceId} / {pendingHeartbeat.pendingQueueCount}
+              </Text>
+            </View>
+          ) : null}
+
+          {syncHealth ? (
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>WS5 sync health</Text>
+              <Text style={styles.body}>Tracked devices</Text>
+              <Text style={styles.code}>{syncHealth.devices.length}</Text>
+              <Text style={styles.body}>Total pending</Text>
+              <Text style={styles.code}>{syncHealth.totalPendingAcrossDevices}</Text>
+              <Text style={styles.body}>Stale devices</Text>
+              <Text style={styles.code}>{syncHealth.devices.filter((device) => device.isStale).length}</Text>
+              <Text style={styles.body}>Evaluated at</Text>
+              <Text style={styles.code}>{syncHealth.evaluatedAt}</Text>
             </View>
           ) : null}
 
@@ -606,5 +776,19 @@ const styles = StyleSheet.create({
   secondaryButtonLabel: {
     color: "#d1d5db",
     fontSize: 14
+  },
+  summaryCard: {
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: "#0b1220",
+    borderWidth: 1,
+    borderColor: "#1f2937"
+  },
+  summaryTitle: {
+    color: "#f9fafb",
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4
   }
 });

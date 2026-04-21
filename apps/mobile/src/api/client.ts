@@ -9,7 +9,8 @@ import type {
   ProtocolNoteCategory,
   RaceRoom,
   RaceRoomEntitlement,
-  RaceRoomProjection
+  RaceRoomProjection,
+  SyncStatus
 } from "@crewcue/contracts";
 
 export class ApiError extends Error {
@@ -84,6 +85,25 @@ export type PostPingInput = {
 
 export type PingResponse = AthletePingAcceptedResponse | AthletePingRejectedResponse;
 
+export type PostSyncHeartbeatInput = {
+  deviceId: string;
+  pendingQueueCount: number;
+  lastSuccessfulFlushAt?: string;
+};
+
+export type PostSyncHeartbeatResponse = {
+  ok: true;
+  lastHeartbeatAt: string;
+};
+
+export type GetSyncHealthOptions = {
+  staleAfterSeconds?: number;
+};
+
+export type GetSyncHealthResponse = {
+  syncStatus: SyncStatus;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -108,6 +128,18 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "GET",
         `/race-rooms/${roomId}/tasks`
+      ),
+    postSyncHeartbeat: (roomId: string, input: PostSyncHeartbeatInput) =>
+      request<PostSyncHeartbeatResponse>(options, "POST", `/race-rooms/${roomId}/sync/heartbeat`, input),
+    getSyncHealth: (roomId: string, query?: GetSyncHealthOptions) =>
+      request<GetSyncHealthResponse>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/sync/health${
+          typeof query?.staleAfterSeconds === "number"
+            ? `?staleAfterSeconds=${encodeURIComponent(String(query.staleAfterSeconds))}`
+            : ""
+        }`
       ),
     postProtocolNote: (
       roomId: string,
