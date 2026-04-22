@@ -1,18 +1,26 @@
 import * as SecureStore from "expo-secure-store";
 
 export type OutboxOperationType = "ping" | "task" | "protocol";
+export type OutboxOperationStatus = "pending" | "sent" | "rejected" | "conflict";
 
 export type OutboxOperation = {
   id: string;
   type: OutboxOperationType;
   payload: any;
   attempts: number;
+  status: OutboxOperationStatus;
+  feedback?: string;
+  updatedAt?: string;
 };
 
 const OUTBOX_STORE_KEY = "crewcue.sync.outbox";
 
 function isOutboxOperationType(value: unknown): value is OutboxOperationType {
   return value === "ping" || value === "task" || value === "protocol";
+}
+
+function isOutboxOperationStatus(value: unknown): value is OutboxOperationStatus {
+  return value === "pending" || value === "sent" || value === "rejected" || value === "conflict";
 }
 
 function isOutboxOperation(value: unknown): value is OutboxOperation {
@@ -26,7 +34,8 @@ function isOutboxOperation(value: unknown): value is OutboxOperation {
     candidate.id.length > 0 &&
     isOutboxOperationType(candidate.type) &&
     Number.isInteger(candidate.attempts) &&
-    (candidate.attempts ?? -1) >= 0
+    (candidate.attempts ?? -1) >= 0 &&
+    (candidate.status === undefined || isOutboxOperationStatus(candidate.status))
   );
 }
 
@@ -37,7 +46,12 @@ function parseOutbox(raw: string | null): OutboxOperation[] {
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter(isOutboxOperation) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(isOutboxOperation).map((operation) => ({
+          ...operation,
+          status: operation.status ?? "pending"
+        }))
+      : [];
   } catch {
     return [];
   }
@@ -54,6 +68,10 @@ async function persist(operations: OutboxOperation[]): Promise<void> {
 
 export async function list(): Promise<OutboxOperation[]> {
   return parseOutbox(await SecureStore.getItemAsync(OUTBOX_STORE_KEY));
+}
+
+export async function replace(operations: OutboxOperation[]): Promise<void> {
+  await persist(operations);
 }
 
 export async function enqueue(operation: OutboxOperation): Promise<void> {
