@@ -1,5 +1,6 @@
 import type {
   ProjectionWeatherStub,
+  RaceCourseBaselineTrack,
   RaceCourse,
   RaceCourseCheckpoint,
   RaceRoomProjectionCore,
@@ -41,6 +42,76 @@ export function cumulativeDistanceAtCheckpoints(checkpoints: RaceCourseCheckpoin
     cum.push(cum[cum.length - 1] + Math.sqrt(dx * dx + dy * dy));
   }
   return cum;
+}
+
+function hasUsableBaselineTrack(
+  baselineTrack: RaceCourseBaselineTrack | undefined,
+  courseLengthMeters: number
+): baselineTrack is RaceCourseBaselineTrack {
+  if (!baselineTrack || baselineTrack.points.length < 2) {
+    return false;
+  }
+
+  let prevDistance = -1;
+  let prevElapsed = -1;
+  for (const point of baselineTrack.points) {
+    if (!Number.isFinite(point.distanceMetersFromStart) || !Number.isFinite(point.referenceElapsedSeconds)) {
+      return false;
+    }
+    if (point.distanceMetersFromStart < 0 || point.referenceElapsedSeconds < 0) {
+      return false;
+    }
+    if (prevDistance >= 0 && point.distanceMetersFromStart <= prevDistance + EPS_M) {
+      return false;
+    }
+    if (prevElapsed >= 0 && point.referenceElapsedSeconds < prevElapsed) {
+      return false;
+    }
+    prevDistance = point.distanceMetersFromStart;
+    prevElapsed = point.referenceElapsedSeconds;
+  }
+
+  const firstPoint = baselineTrack.points[0]!;
+  const lastPoint = baselineTrack.points[baselineTrack.points.length - 1]!;
+  return firstPoint.distanceMetersFromStart <= EPS_M && lastPoint.distanceMetersFromStart + EPS_M >= courseLengthMeters;
+}
+
+function interpolateReferenceElapsedSeconds(
+  baselineTrack: RaceCourseBaselineTrack,
+  distanceMetersFromStart: number
+): number {
+  const clampedDistance = Math.max(0, distanceMetersFromStart);
+  const points = baselineTrack.points;
+
+  if (clampedDistance <= points[0]!.distanceMetersFromStart) {
+    return points[0]!.referenceElapsedSeconds;
+  }
+
+  for (let index = 1; index < points.length; index++) {
+    const prev = points[index - 1]!;
+    const next = points[index]!;
+    if (clampedDistance <= next.distanceMetersFromStart) {
+      const spanDistance = next.distanceMetersFromStart - prev.distanceMetersFromStart;
+      const t =
+        spanDistance <= EPS_M ? 0 : (clampedDistance - prev.distanceMetersFromStart) / spanDistance;
+      return prev.referenceElapsedSeconds + t * (next.referenceElapsedSeconds - prev.referenceElapsedSeconds);
+    }
+  }
+
+  return points[points.length - 1]!.referenceElapsedSeconds;
+}
+
+function plannedElapsedSecondsForDistance(input: {
+  distanceMetersFromStart: number;
+  plannedPaceSecondsPerKm: number;
+  baselineTrack?: RaceCourseBaselineTrack;
+  courseLengthMeters: number;
+}): number {
+  const { distanceMetersFromStart, plannedPaceSecondsPerKm, baselineTrack, courseLengthMeters } = input;
+  if (hasUsableBaselineTrack(baselineTrack, courseLengthMeters)) {
+    return interpolateReferenceElapsedSeconds(baselineTrack, distanceMetersFromStart);
+  }
+  return (distanceMetersFromStart / 1000) * plannedPaceSecondsPerKm;
 }
 
 type Candidate = { distSq: number; segIndex: number; t: number; progress: number };
@@ -177,7 +248,12 @@ export function recomputeRaceProjection(params: {
   const checkpointSplits: RaceCheckpointSplitRow[] = course.checkpoints.map((cp, k) => {
     const at = cumAt[k];
     const crossedAt = splitCrossedAt[cp.id] ?? null;
-    const plannedElapsedSecondsAtCross = (at / 1000) * plannedPaceSecondsPerKm;
+    const plannedElapsedSecondsAtCross = plannedElapsedSecondsForDistance({
+      distanceMetersFromStart: at,
+      plannedPaceSecondsPerKm,
+      baselineTrack: course.baselineTrack,
+      courseLengthMeters
+    });
     let actualElapsedSecondsAtCross: number | null = null;
     let deltaSecondsAtCross: number | null = null;
     if (crossedAt) {
@@ -197,9 +273,31 @@ export function recomputeRaceProjection(params: {
     };
   });
 
-  const remainingM = Math.max(0, courseLengthMeters - progressMeters);
-  const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
-  const etaFinishPlanIso = new Date(recordedAtMs + remainingSec * 1000).toISOString();
+  const finishReferenceElapsedSeconds = plannedElapsedSecondsForDistance({
+    distanceMetersFromStart: courseLengthMeters,
+    plannedPaceSecondsPerKm,
+    baselineTrack: course.baselineTrack,
+    courseLengthMeters
+  });
+
+  const etaFinishMs = hasUsableBaselineTrack(course.baselineTrack, courseLengthMeters)
+    ? (() => {
+        const anchor =
+          [...checkpointSplits]
+            .reverse()
+            .find((row) => row.actualElapsedSecondsAtCross !== null) ?? checkpointSplits[0]!;
+        const anchorActualElapsedSeconds = anchor.actualElapsedSecondsAtCross ?? 0;
+        const anchoredFinishElapsedSeconds =
+          anchorActualElapsedSeconds +
+          Math.max(0, finishReferenceElapsedSeconds - anchor.plannedElapsedSecondsAtCross);
+        return Math.max(recordedAtMs, activatedAtMs + anchoredFinishElapsedSeconds * 1000);
+      })()
+    : (() => {
+        const remainingM = Math.max(0, courseLengthMeters - progressMeters);
+        const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
+        return recordedAtMs + remainingSec * 1000;
+      })();
+  const etaFinishPlanIso = new Date(etaFinishMs).toISOString();
 
   const projection: RaceRoomProjectionCore = {
     roomId,

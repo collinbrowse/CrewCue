@@ -53,8 +53,18 @@ const raceCourseCheckpointInput = z.object({
   longitude: z.number().gte(-180).lte(180)
 });
 
+const raceCourseBaselinePointInput = z.object({
+  distanceMetersFromStart: z.number().finite().gte(0),
+  referenceElapsedSeconds: z.number().finite().gte(0)
+});
+
+const raceCourseBaselineTrackInput = z.object({
+  points: z.array(raceCourseBaselinePointInput).min(2)
+});
+
 const raceCourseInput = z.object({
-  checkpoints: z.array(raceCourseCheckpointInput).min(2)
+  checkpoints: z.array(raceCourseCheckpointInput).min(2),
+  baselineTrack: raceCourseBaselineTrackInput.optional()
 });
 
 const activateRaceRoomInput = z.object({

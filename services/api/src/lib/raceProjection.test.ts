@@ -61,3 +61,79 @@ test("recompute is deterministic for fixed inputs", () => {
   assert.equal(first.projection.weatherStub?.source, "stub");
   assert.ok(typeof first.projection.weatherStub?.assumedHeadwindMps === "number");
 });
+
+test("baseline track drives planned splits and anchors ETA to the last crossed checkpoint", () => {
+  const checkpoints = [
+    { id: "a", latitude: 10.0, longitude: 20.0 },
+    { id: "b", latitude: 10.01, longitude: 20.0 },
+    { id: "c", latitude: 10.02, longitude: 20.0 }
+  ];
+  const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+  const course: RaceCourse = {
+    checkpoints,
+    baselineTrack: {
+      points: [
+        { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+        { distanceMetersFromStart: cum[1]!, referenceElapsedSeconds: 300 },
+        { distanceMetersFromStart: cum[2]!, referenceElapsedSeconds: 720 }
+      ]
+    }
+  };
+  const flatCourse: RaceCourse = { checkpoints };
+  const activatedAt = "2026-04-16T12:00:00.000Z";
+  const checkpointPing = {
+    pingId: "ping-cp1",
+    latitude: checkpoints[1]!.latitude,
+    longitude: checkpoints[1]!.longitude,
+    recordedAt: "2026-04-16T12:06:00.000Z"
+  };
+  const midSegmentPing = {
+    pingId: "ping-mid",
+    latitude: 10.015,
+    longitude: 20.0,
+    recordedAt: "2026-04-16T12:07:00.000Z"
+  };
+
+  const baselineCheckpoint = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm: 600,
+    ping: checkpointPing,
+    previous: null
+  });
+  const baselineMidSegment = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm: 600,
+    ping: midSegmentPing,
+    previous: baselineCheckpoint.state
+  });
+  const flatCheckpoint = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt,
+    course: flatCourse,
+    plannedPaceSecondsPerKm: 600,
+    ping: checkpointPing,
+    previous: null
+  });
+  const flatMidSegment = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt,
+    course: flatCourse,
+    plannedPaceSecondsPerKm: 600,
+    ping: midSegmentPing,
+    previous: flatCheckpoint.state
+  });
+
+  assert.equal(baselineMidSegment.projection.checkpointSplits[1]?.plannedElapsedSecondsAtCross, 300);
+  assert.equal(baselineMidSegment.projection.checkpointSplits[2]?.plannedElapsedSecondsAtCross, 720);
+  assert.equal(baselineMidSegment.projection.checkpointSplits[1]?.actualElapsedSecondsAtCross, 360);
+  assert.equal(baselineMidSegment.projection.etaFinishPlanIso, "2026-04-16T12:13:00.000Z");
+  assert.notEqual(flatMidSegment.projection.etaFinishPlanIso, baselineMidSegment.projection.etaFinishPlanIso);
+  assert.ok(
+    baselineMidSegment.projection.progressMeters > baselineCheckpoint.projection.progressMeters,
+    "progress should still advance within the anchored segment"
+  );
+});

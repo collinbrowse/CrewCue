@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceRoomProjection } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
+import { cumulativeDistanceAtCheckpoints } from "../lib/raceProjection.js";
 
 function buildClaims(sub: string) {
   return {
@@ -225,6 +226,115 @@ test("GET projection becomes degraded after silence beyond threshold", async (t)
   assert.equal(body.projectionConfidence, "degraded");
   assert.equal(body.stalenessThresholdSeconds, 1);
   assert.ok(body.secondsSinceLastAcceptedPing >= 1);
+
+  await app.close();
+});
+
+test("projection uses baseline track payloads and keeps ETA anchored within a checkpoint segment", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const checkpoints = [
+    { id: "cp0", latitude: 42.0, longitude: -70.0 },
+    { id: "cp1", latitude: 42.0003, longitude: -70.0 },
+    { id: "cp2", latitude: 42.0006, longitude: -70.0 }
+  ];
+  const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Baseline projection",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const activateResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: ends,
+      course: {
+        checkpoints,
+        baselineTrack: {
+          points: [
+            { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+            { distanceMetersFromStart: cum[1]!, referenceElapsedSeconds: 30 },
+            { distanceMetersFromStart: cum[2]!, referenceElapsedSeconds: 90 }
+          ]
+        }
+      },
+      plannedPaceSecondsPerKm: 1200
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
+  const activatedAtMs = Date.parse(activatedAt);
+
+  const checkpointPingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: checkpoints[1]!.latitude,
+      longitude: checkpoints[1]!.longitude,
+      recordedAt: new Date(activatedAtMs + 40_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(checkpointPingResponse.statusCode, 201);
+
+  const midSegmentPingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.00045,
+      longitude: -70.0,
+      recordedAt: new Date(activatedAtMs + 50_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(midSegmentPingResponse.statusCode, 201);
+  const midSegmentBody = midSegmentPingResponse.json() as { projection?: RaceRoomProjection };
+  assert.ok(midSegmentBody.projection);
+  assert.equal(midSegmentBody.projection.checkpointSplits[1]?.plannedElapsedSecondsAtCross, 30);
+  assert.equal(midSegmentBody.projection.checkpointSplits[2]?.plannedElapsedSecondsAtCross, 90);
+  assert.equal(midSegmentBody.projection.checkpointSplits[1]?.actualElapsedSecondsAtCross, 40);
+  assert.equal(
+    midSegmentBody.projection.etaFinishPlanIso,
+    new Date(activatedAtMs + 100_000).toISOString()
+  );
+
+  const laterSegmentPingResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.00055,
+      longitude: -70.0,
+      recordedAt: new Date(activatedAtMs + 70_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(laterSegmentPingResponse.statusCode, 201);
+  const laterSegmentBody = laterSegmentPingResponse.json() as { projection?: RaceRoomProjection };
+  assert.ok(laterSegmentBody.projection);
+  assert.equal(laterSegmentBody.projection.etaFinishPlanIso, midSegmentBody.projection.etaFinishPlanIso);
+  assert.ok(
+    laterSegmentBody.projection.progressMeters > midSegmentBody.projection.progressMeters,
+    "progress should keep moving inside the anchored ETA segment"
+  );
 
   await app.close();
 });
