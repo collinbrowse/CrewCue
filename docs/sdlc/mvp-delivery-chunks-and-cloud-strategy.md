@@ -140,7 +140,7 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Replay SOP:** [chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)
 
-**Cross-cutting policy (do before deep D2):** write a **short merge concurrency policy** (per entity: task, protocol note, plan version, incident) so offline sync does not contradict WS7 authority.
+**Cross-cutting policy (do before deep D2):** [merge-concurrency-policy.md](./merge-concurrency-policy.md) defines the MVP merge rules for overlapping offline updates and should be extended before new offline-mutable entities ship.
 
 **Exit criteria:** per-stream acceptance defined in the issue; no stream may reintroduce **in-memory as source of truth** for data that pilots need after Chunk A exit.
 
@@ -253,3 +253,4 @@ Validation rules:
 | 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |
 | 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)). |
 | 2026-04-21 | Linked Chunk D3 replay SOP ([chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)). |
+| 2026-04-22 | Linked merge concurrency policy ([merge-concurrency-policy.md](./merge-concurrency-policy.md)) for offline overlap handling. |
