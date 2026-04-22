@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { FastifyBaseLogger } from "fastify";
-import type { PlatformEventEnvelope } from "@crewcue/contracts";
+import type { PlatformEventEnvelope, ReplayedRaceRoomAggregate } from "@crewcue/contracts";
 import { initRoomPersistence } from "./roomPersistence.js";
 import {
   appendPlatformEvent,
@@ -92,4 +92,51 @@ test("race_room replay is deterministic and order-insensitive for sequence sort"
   assert.equal(shuffled.name, "Ultra");
   assert.equal(shuffled.lastPlanVersion, 2);
   assert.equal(shuffled.lastActivatedEventEndsAt, "2026-05-02T00:00:00.000Z");
+});
+
+test("race_room replay can continue from an existing snapshot", () => {
+  const base: ReplayedRaceRoomAggregate = {
+    aggregateId: "r1",
+    teamId: "t",
+    athleteId: "ath",
+    name: "Ultra",
+    status: "draft",
+    lastPlanVersion: 1
+  };
+  const events: PlatformEventEnvelope[] = [
+    {
+      id: "2",
+      aggregateId: "r1",
+      aggregateType: "race_room",
+      eventType: "race_room.activated",
+      occurredAt: "2026-05-01T00:01:00.000Z",
+      sequence: 2,
+      idempotencyKey: "b",
+      payload: { eventEndsAt: "2026-05-02T00:00:00.000Z" },
+      schemaVersion: "2026.05.0",
+      transport: "cloud",
+      actorUserId: "x"
+    },
+    {
+      id: "3",
+      aggregateId: "r1",
+      aggregateType: "race_room",
+      eventType: "plan_version.recorded",
+      occurredAt: "2026-05-01T00:02:00.000Z",
+      sequence: 3,
+      idempotencyKey: "c",
+      payload: { version: 3, planVersionId: "pv-3", rationale: "adjust" },
+      schemaVersion: "2026.05.0",
+      transport: "cloud",
+      actorUserId: "x"
+    }
+  ];
+
+  const continued = reduceRaceRoomEvents(events, base);
+  assert.equal(continued.aggregateId, "r1");
+  assert.equal(continued.teamId, "t");
+  assert.equal(continued.name, "Ultra");
+  assert.equal(continued.status, "active");
+  assert.equal(continued.lastPlanVersion, 3);
+  assert.equal(continued.lastActivatedEventEndsAt, "2026-05-02T00:00:00.000Z");
 });
