@@ -23,16 +23,155 @@ import type {
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
-import { ApiError, createApiClient } from "./src/api/client";
 import {
-  flushPendingHeartbeat,
-  loadPendingHeartbeat,
+  ApiError,
+  createApiClient,
+  type ApiClient,
+  type AssignTaskInput,
+  type PostPingInput
+} from "./src/api/client";
+import {
+  isPendingHeartbeat,
   postSyncHeartbeatWithRetry,
   type PendingHeartbeat
 } from "./src/sync/pendingHeartbeat";
+import {
+  dequeue as dequeueOutbox,
+  enqueue as enqueueOutbox,
+  list as listOutbox,
+  type OutboxOperation
+} from "./src/sync/outboxStore";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
+
+type OutboxPingPayload = { roomId: string } & PostPingInput;
+type OutboxProtocolPayload = {
+  roomId: string;
+  checkpointId: string;
+  category: ProtocolNote["category"];
+  body: string;
+};
+type OutboxTaskPayload =
+  | ({ roomId: string; taskId: string; action: "start" })
+  | ({ roomId: string; taskId: string; action: "complete" })
+  | ({ roomId: string; taskId: string; action: "assign" } & AssignTaskInput);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isOutboxPingPayload(value: unknown): value is OutboxPingPayload {
+  return (
+    isRecord(value) &&
+    typeof value.roomId === "string" &&
+    typeof value.latitude === "number" &&
+    typeof value.longitude === "number" &&
+    typeof value.recordedAt === "string" &&
+    (value.horizontalAccuracyMeters === undefined || typeof value.horizontalAccuracyMeters === "number") &&
+    (value.uploadIntervalSeconds === undefined || typeof value.uploadIntervalSeconds === "number")
+  );
+}
+
+function isOutboxProtocolPayload(value: unknown): value is OutboxProtocolPayload {
+  return (
+    isRecord(value) &&
+    typeof value.roomId === "string" &&
+    typeof value.checkpointId === "string" &&
+    typeof value.category === "string" &&
+    (value.category === "heat" ||
+      value.category === "nutrition" ||
+      value.category === "blister" ||
+      value.category === "other") &&
+    typeof value.body === "string"
+  );
+}
+
+function isOutboxTaskPayload(value: unknown): value is OutboxTaskPayload {
+  if (!isRecord(value) || typeof value.roomId !== "string" || typeof value.taskId !== "string") {
+    return false;
+  }
+
+  if (value.action === "start" || value.action === "complete") {
+    return true;
+  }
+
+  return (
+    value.action === "assign" &&
+    typeof value.assigneeUserId === "string" &&
+    typeof value.assigneeRole === "string" &&
+    (value.assigneeRole === "athlete" ||
+      value.assigneeRole === "crew_member" ||
+      value.assigneeRole === "crew_chief" ||
+      value.assigneeRole === "team_manager")
+  );
+}
+
+function describeOutboxOperation(operation: OutboxOperation): string {
+  if (operation.type === "ping") {
+    if (isPendingHeartbeat(operation.payload)) {
+      return "sync heartbeat";
+    }
+
+    if (isOutboxPingPayload(operation.payload)) {
+      return "athlete ping";
+    }
+  }
+
+  if (operation.type === "protocol") {
+    return "protocol note";
+  }
+
+  if (operation.type === "task" && isOutboxTaskPayload(operation.payload)) {
+    return `task ${operation.payload.action}`;
+  }
+
+  return operation.type;
+}
+
+async function processOutboxOperation(
+  client: ApiClient,
+  operation: OutboxOperation
+): Promise<{ roomId: string; label: string }> {
+  if (operation.type === "ping") {
+    if (isPendingHeartbeat(operation.payload)) {
+      await client.postSyncHeartbeat(operation.payload.roomId, operation.payload);
+      return { roomId: operation.payload.roomId, label: "sync heartbeat" };
+    }
+
+    if (isOutboxPingPayload(operation.payload)) {
+      const { roomId, ...payload } = operation.payload;
+      await client.postPing(roomId, payload);
+      return { roomId, label: "athlete ping" };
+    }
+  }
+
+  if (operation.type === "protocol" && isOutboxProtocolPayload(operation.payload)) {
+    const { roomId, checkpointId, category, body } = operation.payload;
+    await client.postProtocolNote(roomId, { checkpointId, category, body });
+    return { roomId, label: "protocol note" };
+  }
+
+  if (operation.type === "task" && isOutboxTaskPayload(operation.payload)) {
+    if (operation.payload.action === "assign") {
+      await client.assignTask(operation.payload.roomId, operation.payload.taskId, {
+        assigneeUserId: operation.payload.assigneeUserId,
+        assigneeRole: operation.payload.assigneeRole
+      });
+      return { roomId: operation.payload.roomId, label: "task assign" };
+    }
+
+    if (operation.payload.action === "start") {
+      await client.startTask(operation.payload.roomId, operation.payload.taskId);
+      return { roomId: operation.payload.roomId, label: "task start" };
+    }
+
+    await client.completeTask(operation.payload.roomId, operation.payload.taskId);
+    return { roomId: operation.payload.roomId, label: "task complete" };
+  }
+
+  throw new Error(`Unsupported outbox payload for ${operation.type}.`);
+}
 
 export default function App(): ReactElement {
   const configResult = useMemo(() => loadMobileConfig(), []);
@@ -91,23 +230,31 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [lastProtocolNote, setLastProtocolNote] = useState<ProtocolNote | undefined>(undefined);
   const [timeline, setTimeline] = useState<OpsTimelineEvent[] | undefined>(undefined);
   const [syncHealth, setSyncHealth] = useState<SyncStatus | undefined>(undefined);
-  const [pendingHeartbeat, setPendingHeartbeat] = useState<PendingHeartbeat | undefined>(undefined);
+  const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [syncStatusMessage, setSyncStatusMessage] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
 
+  const refreshOutbox = useCallback(async () => {
+    try {
+      setOutbox(await listOutbox());
+    } catch {
+      setOutbox([]);
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    void loadPendingHeartbeat()
+    void listOutbox()
       .then((value) => {
         if (isMounted) {
-          setPendingHeartbeat(value);
+          setOutbox(value);
         }
       })
       .catch(() => {
         if (isMounted) {
-          setPendingHeartbeat(undefined);
+          setOutbox([]);
         }
       });
 
@@ -279,11 +426,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       });
 
       if (result.persistedForRetry) {
-        setPendingHeartbeat(result.pendingHeartbeat);
         setSyncStatusMessage("Heartbeat hit a network error and was saved for retry.");
       } else {
         setSyncStatusMessage(`Heartbeat accepted at ${result.response.lastHeartbeatAt}.`);
       }
+
+      await refreshOutbox();
     } catch (err) {
       if (err instanceof ApiError) {
         setApiError(`${err.status} ${err.message}`);
@@ -295,7 +443,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, baseUrl, room]);
+  }, [auth.accessToken, baseUrl, refreshOutbox, room]);
 
   const fetchSyncHealth = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -320,24 +468,64 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, baseUrl, room]);
 
-  const flushPendingHeartbeatAction = useCallback(async () => {
-    if (!auth.accessToken || !room) return;
+  const processOutboxAction = useCallback(async () => {
+    if (!auth.accessToken) return;
     setBusy(true);
     setApiError(undefined);
     setSyncStatusMessage(undefined);
     try {
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      const result = await flushPendingHeartbeat(client);
-      if (!result.flushed) {
-        setSyncStatusMessage("No pending heartbeat is saved on this device.");
+      const operations = await listOutbox();
+      if (operations.length === 0) {
+        setOutbox([]);
+        setSyncStatusMessage("Outbox is empty.");
         return;
       }
 
-      setPendingHeartbeat(undefined);
-      setSyncStatusMessage(`Flushed pending heartbeat at ${result.response.lastHeartbeatAt}.`);
-      if (result.pendingHeartbeat.roomId === room.id) {
-        const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
-        setSyncHealth(nextSyncHealth);
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      let processedCount = 0;
+      let failedMessage: string | undefined;
+      let failedLabel: string | undefined;
+      const touchedRoomIds = new Set<string>();
+
+      for (const operation of operations) {
+        try {
+          const result = await processOutboxOperation(client, operation);
+          await dequeueOutbox(operation.id);
+          processedCount += 1;
+          touchedRoomIds.add(result.roomId);
+        } catch (err) {
+          failedLabel = describeOutboxOperation(operation);
+          failedMessage =
+            err instanceof ApiError
+              ? `${err.status} ${err.message}`
+              : err instanceof Error
+                ? err.message
+                : "Unknown error";
+          await enqueueOutbox({ ...operation, attempts: operation.attempts + 1 });
+          break;
+        }
+      }
+
+      const nextOutbox = await listOutbox();
+      setOutbox(nextOutbox);
+
+      if (room && touchedRoomIds.has(room.id)) {
+        try {
+          const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
+          setSyncHealth(nextSyncHealth);
+        } catch {
+          /* keep successful outbox processing from being treated as failed */
+        }
+      }
+
+      if (failedMessage) {
+        setSyncStatusMessage(
+          processedCount > 0
+            ? `Processed ${processedCount} outbox item(s); stopped on ${failedLabel}: ${failedMessage}.`
+            : `Outbox processing failed on ${failedLabel}: ${failedMessage}.`
+        );
+      } else {
+        setSyncStatusMessage(`Processed ${processedCount} outbox item(s).`);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -458,6 +646,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
           <Text style={styles.label}>Auth status</Text>
           <Text style={styles.value}>{auth.status}</Text>
 
+          <Text style={styles.label}>Outbox count</Text>
+          <Text style={styles.code}>{outbox.length}</Text>
+
           {auth.status === "bootstrapping" ? (
             <ActivityIndicator color="#f9fafb" style={{ marginTop: 12 }} />
           ) : null}
@@ -504,6 +695,11 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                     {busy ? "Calling API..." : "Create race room (staging)"}
                   </Text>
                 </Pressable>
+                <Pressable style={styles.secondaryButton} onPress={processOutboxAction} disabled={busy}>
+                  <Text style={styles.secondaryButtonLabel}>
+                    {busy ? "Processing..." : "Process Outbox"}
+                  </Text>
+                </Pressable>
                 {room ? (
                   <>
                     <Pressable
@@ -541,13 +737,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         </Pressable>
                         <Pressable style={styles.secondaryButton} onPress={fetchSyncHealth} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>GET sync health</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={flushPendingHeartbeatAction}
-                          disabled={busy}
-                        >
-                          <Text style={styles.secondaryButtonLabel}>Flush pending heartbeat</Text>
                         </Pressable>
                         <Pressable style={styles.secondaryButton} onPress={fetchProjection} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
@@ -648,14 +837,14 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             </View>
           ) : null}
 
-          {pendingHeartbeat ? (
+          {outbox.length > 0 ? (
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Pending heartbeat retry</Text>
-              <Text style={styles.body}>Room</Text>
-              <Text style={styles.code}>{pendingHeartbeat.roomId}</Text>
-              <Text style={styles.body}>Device / pending count</Text>
+              <Text style={styles.summaryTitle}>Queued outbox</Text>
+              <Text style={styles.body}>Count</Text>
+              <Text style={styles.code}>{outbox.length}</Text>
+              <Text style={styles.body}>Next item</Text>
               <Text style={styles.code}>
-                {pendingHeartbeat.deviceId} / {pendingHeartbeat.pendingQueueCount}
+                {describeOutboxOperation(outbox[0]!)} (attempts: {outbox[0]!.attempts})
               </Text>
             </View>
           ) : null}

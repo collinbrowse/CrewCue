@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parsePendingHeartbeat } from "./pendingHeartbeatParse";
+import { isPendingHeartbeat, parsePendingHeartbeat } from "./pendingHeartbeatParse";
 
 test("parsePendingHeartbeat accepts valid JSON", () => {
   const raw = JSON.stringify({ roomId: "r1", deviceId: "d1", pendingQueueCount: 2 });
@@ -20,4 +20,10 @@ test("parsePendingHeartbeat rejects invalid shapes", () => {
     parsePendingHeartbeat(JSON.stringify({ roomId: "r", deviceId: "d", pendingQueueCount: 1.5 })),
     undefined
   );
+});
+
+test("isPendingHeartbeat validates object payloads", () => {
+  assert.equal(isPendingHeartbeat({ roomId: "r1", deviceId: "d1", pendingQueueCount: 2 }), true);
+  assert.equal(isPendingHeartbeat({ roomId: "r1", deviceId: "d1", pendingQueueCount: -1 }), false);
+  assert.equal(isPendingHeartbeat({ roomId: "r1" }), false);
 });
