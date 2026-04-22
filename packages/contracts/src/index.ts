@@ -39,8 +39,20 @@ export interface RaceCourseCheckpoint {
   longitude: number;
 }
 
+/** Optional non-linear baseline profile used for WS2 planned split / ETA projections. */
+export interface RaceCourseBaselinePoint {
+  distanceMetersFromStart: number;
+  referenceElapsedSeconds: number;
+}
+
+export interface RaceCourseBaselineTrack {
+  points: RaceCourseBaselinePoint[];
+}
+
 export interface RaceCourse {
   checkpoints: RaceCourseCheckpoint[];
+  /** Optional high-density reference track; older clients can omit this and retain flat pace behavior. */
+  baselineTrack?: RaceCourseBaselineTrack;
 }
 
 export interface RaceCheckpointSplitRow {
