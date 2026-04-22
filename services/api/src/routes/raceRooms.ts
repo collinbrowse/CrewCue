@@ -4,6 +4,7 @@ import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
   AthletePingRejectReason,
+  CheckpointVisit,
   CheckpointVisitManualData,
   CheckpointVisitSource,
   CheckpointPlan,
@@ -579,6 +580,33 @@ function getPermissions(role: Role): PermissionSet {
     canActivateRoom,
     canIssueInvite
   };
+}
+
+function canEditCheckpointStoppage(role: Role): boolean {
+  return role === "crew_member" || role === "crew_chief" || role === "team_manager";
+}
+
+function refreshCheckpointVisitDerivedFields(visit: CheckpointVisit): void {
+  visit.activeActualStopSeconds =
+    visit.resolvedSource === "manual_crew"
+      ? (visit.manualEntry?.actualStopSeconds ?? null)
+      : (visit.autoDetected?.actualStopSeconds ?? null);
+}
+
+function refreshCheckpointSplitStoppageDerivedFields(
+  split: RaceRoomProjectionCore["checkpointSplits"][number]
+): void {
+  for (const visit of split.visits) {
+    refreshCheckpointVisitDerivedFields(visit);
+  }
+  split.totalActualStopSeconds = split.visits.reduce<number | null>((acc, visit) => {
+    if (visit.activeActualStopSeconds === null) {
+      return acc;
+    }
+    return (acc ?? 0) + visit.activeActualStopSeconds;
+  }, null);
+  split.deltaStopSeconds =
+    split.totalActualStopSeconds === null ? null : split.totalActualStopSeconds - split.plannedStopSeconds;
 }
 
 function getTaskBoardVisibleRoles(role: Role): Role[] {
@@ -1287,6 +1315,19 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!membership) {
       return reply.code(403).send({ error: "Forbidden" });
     }
+    if (!canEditCheckpointStoppage(membership.role)) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+    if (!room.course || !room.course.checkpoints.some((cp) => cp.id === checkpointId)) {
+      return reply.code(404).send({ error: "Unknown checkpointId for this room course" });
+    }
     const parsed = manualCheckpointStopInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid manual stop payload" });
@@ -1333,18 +1374,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         visitIndex: split.visits.length + 1,
         resolvedSource: "manual_crew",
         manualEntry,
-        activeActualStopSeconds: manualEntry.actualStopSeconds,
+        activeActualStopSeconds: null,
         ...(parsed.data.note ? { note: parsed.data.note } : {})
       });
     }
-    split.totalActualStopSeconds = split.visits.reduce<number | null>((acc, visit) => {
-      if (visit.activeActualStopSeconds === null) {
-        return acc;
-      }
-      return (acc ?? 0) + visit.activeActualStopSeconds;
-    }, null);
-    split.deltaStopSeconds =
-      split.totalActualStopSeconds === null ? null : split.totalActualStopSeconds - split.plannedStopSeconds;
+    refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
@@ -1357,7 +1391,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     const roomId = (request.params as { roomId: string }).roomId;
     const checkpointId = (request.params as { cpId: string }).cpId;
-    const visitIndex = Number((request.params as { visitIndex: string }).visitIndex);
+    const visitIndexParsed = z.coerce.number().int().min(1).safeParse((request.params as { visitIndex: string }).visitIndex);
+    if (!visitIndexParsed.success) {
+      return reply.code(400).send({ error: "Invalid visitIndex" });
+    }
+    const visitIndex = visitIndexParsed.data;
     const room = await getRaceRoom(roomId);
     if (!room) {
       return reply.code(404).send({ error: "Race room not found" });
@@ -1365,6 +1403,19 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
     if (!membership) {
       return reply.code(403).send({ error: "Forbidden" });
+    }
+    if (!canEditCheckpointStoppage(membership.role)) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+    if (room.status !== "active") {
+      return reply.code(409).send({ error: "Race room must be active" });
+    }
+    if (!room.course || !room.course.checkpoints.some((cp) => cp.id === checkpointId)) {
+      return reply.code(404).send({ error: "Unknown checkpointId for this room course" });
     }
     const parsed = checkpointVisitResolvedSourceInput.safeParse(request.body);
     if (!parsed.success) {
@@ -1383,19 +1434,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!visit) {
       return reply.code(404).send({ error: "Visit not found" });
     }
+    if (parsed.data.resolvedSource === "manual_crew" && !visit.manualEntry) {
+      return reply.code(400).send({ error: "manual_crew requires manualEntry on the visit" });
+    }
+    if (parsed.data.resolvedSource === "auto" && !visit.autoDetected) {
+      return reply.code(400).send({ error: "auto requires autoDetected on the visit" });
+    }
     visit.resolvedSource = parsed.data.resolvedSource;
-    visit.activeActualStopSeconds =
-      visit.resolvedSource === "manual_crew"
-        ? (visit.manualEntry?.actualStopSeconds ?? null)
-        : (visit.autoDetected?.actualStopSeconds ?? null);
-    split.totalActualStopSeconds = split.visits.reduce<number | null>((acc, current) => {
-      if (current.activeActualStopSeconds === null) {
-        return acc;
-      }
-      return (acc ?? 0) + current.activeActualStopSeconds;
-    }, null);
-    split.deltaStopSeconds =
-      split.totalActualStopSeconds === null ? null : split.totalActualStopSeconds - split.plannedStopSeconds;
+    refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
