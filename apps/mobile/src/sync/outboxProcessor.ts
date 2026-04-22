@@ -15,6 +15,22 @@ type OutboxTaskPayload =
   | ({ roomId: string; taskId: string; action: "start" })
   | ({ roomId: string; taskId: string; action: "complete" })
   | ({ roomId: string; taskId: string; action: "assign" } & AssignTaskInput);
+type OutboxCheckpointPayload =
+  | {
+      roomId: string;
+      checkpointId: string;
+      action: "manual_stop";
+      arrivalAt: string;
+      departureAt: string;
+      note?: string;
+    }
+  | {
+      roomId: string;
+      checkpointId: string;
+      action: "set_resolved_source";
+      visitIndex: number;
+      resolvedSource: "auto" | "manual_crew";
+    };
 
 type ProcessSingleOutboxResult = {
   roomId: string;
@@ -79,6 +95,24 @@ function isOutboxTaskPayload(value: unknown): value is OutboxTaskPayload {
   );
 }
 
+function isOutboxCheckpointPayload(value: unknown): value is OutboxCheckpointPayload {
+  if (!isRecord(value) || typeof value.roomId !== "string" || typeof value.checkpointId !== "string") {
+    return false;
+  }
+  if (
+    value.action === "manual_stop" &&
+    typeof value.arrivalAt === "string" &&
+    typeof value.departureAt === "string"
+  ) {
+    return value.note === undefined || typeof value.note === "string";
+  }
+  return (
+    value.action === "set_resolved_source" &&
+    typeof value.visitIndex === "number" &&
+    (value.resolvedSource === "auto" || value.resolvedSource === "manual_crew")
+  );
+}
+
 export function countPendingOutboxOperations(operations: OutboxOperation[]): number {
   return operations.filter((operation) => operation.status === "pending").length;
 }
@@ -100,6 +134,10 @@ export function describeOutboxOperation(operation: OutboxOperation): string {
 
   if (operation.type === "task" && isOutboxTaskPayload(operation.payload)) {
     return `task ${operation.payload.action}`;
+  }
+
+  if (operation.type === "checkpoint" && isOutboxCheckpointPayload(operation.payload)) {
+    return operation.payload.action === "manual_stop" ? "checkpoint manual stop" : "checkpoint source";
   }
 
   return operation.type;
@@ -160,6 +198,32 @@ async function processOutboxOperation(
 
     await client.completeTask(operation.payload.roomId, operation.payload.taskId);
     return { roomId: operation.payload.roomId, label: "task complete", feedback: "Task completed." };
+  }
+
+  if (operation.type === "checkpoint" && isOutboxCheckpointPayload(operation.payload)) {
+    if (operation.payload.action === "manual_stop") {
+      await client.postManualCheckpointStop(operation.payload.roomId, operation.payload.checkpointId, {
+        arrivalAt: operation.payload.arrivalAt,
+        departureAt: operation.payload.departureAt,
+        ...(operation.payload.note ? { note: operation.payload.note } : {})
+      });
+      return {
+        roomId: operation.payload.roomId,
+        label: "checkpoint manual stop",
+        feedback: "Manual stop saved."
+      };
+    }
+    await client.patchCheckpointVisitResolvedSource(
+      operation.payload.roomId,
+      operation.payload.checkpointId,
+      operation.payload.visitIndex,
+      { resolvedSource: operation.payload.resolvedSource }
+    );
+    return {
+      roomId: operation.payload.roomId,
+      label: "checkpoint source",
+      feedback: "Stop source updated."
+    };
   }
 
   throw new Error(`Unsupported outbox payload for ${operation.type}.`);

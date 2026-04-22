@@ -439,3 +439,93 @@ test("GET projection returns 404 before any accepted ping", async () => {
 
   await app.close();
 });
+
+test("manual checkpoint stop and resolved source toggle update projection split", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Manual stop room",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const activateResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 40.0, longitude: -70.0, plannedStopSeconds: 180, stoppageRadiusMeters: 1000 },
+          { id: "cp1", latitude: 40.01, longitude: -70.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
+  const activatedAtMs = Date.parse(activatedAt);
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.0,
+      longitude: -70.0,
+      recordedAt: new Date(activatedAtMs + 60_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.00001,
+      longitude: -70.0,
+      recordedAt: new Date(activatedAtMs + 120_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const manual = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload: {
+      arrivalAt: new Date(activatedAtMs + 70_000).toISOString(),
+      departureAt: new Date(activatedAtMs + 250_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(manual.statusCode, 200);
+  const patched = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/visits/1/resolved-source`,
+    payload: { resolvedSource: "manual_crew" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(patched.statusCode, 200);
+  const viewResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(viewResponse.statusCode, 200);
+  const projection = viewResponse.json() as RaceRoomProjection;
+  const cp0 = projection.checkpointSplits.find((row) => row.checkpointId === "cp0");
+  assert.ok(cp0);
+  assert.equal(cp0?.visits[0]?.resolvedSource, "manual_crew");
+  assert.equal(cp0?.visits[0]?.activeActualStopSeconds, 180);
+  assert.equal(projection.stoppageSummary.totalActualStopSeconds, 180);
+  await app.close();
+});

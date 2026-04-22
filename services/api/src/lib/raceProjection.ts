@@ -1,4 +1,8 @@
 import type {
+  CheckpointStoppageSummary,
+  CheckpointVisit,
+  CheckpointVisitAutoData,
+  CheckpointVisitSource,
   ProjectionWeatherStub,
   RaceCourseBaselineTrack,
   RaceCourse,
@@ -22,6 +26,19 @@ export const DEFAULT_RACE_COURSE: RaceCourse = {
 };
 
 type XY = { x: number; y: number };
+type VisitAccumulator = {
+  arrivalRecordedAt: string | null;
+  departureRecordedAt: string | null;
+  firstSlowedAt: string | null;
+  accumulatedStopSeconds: number;
+};
+
+type ProjectionPreviousCheckpointVisit = {
+  visitIndex: number;
+  resolvedSource: CheckpointVisitSource;
+  manualEntry?: CheckpointVisit["manualEntry"];
+  note?: string;
+};
 
 function toLocalXY(originLat: number, originLon: number, lat: number, lon: number): XY {
   const φ = ((lat - originLat) * Math.PI) / 180;
@@ -114,6 +131,46 @@ function plannedElapsedSecondsForDistance(input: {
   return (distanceMetersFromStart / 1000) * plannedPaceSecondsPerKm;
 }
 
+function checkpointRadiusMeters(checkpoint: RaceCourseCheckpoint): number {
+  return checkpoint.stoppageRadiusMeters ?? 150;
+}
+
+function checkpointPlannedStopSeconds(checkpoint: RaceCourseCheckpoint): number {
+  return Math.max(0, checkpoint.plannedStopSeconds ?? 0);
+}
+
+function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): number {
+  return checkpoint.slowdownThresholdRatio ?? 0.5;
+}
+
+function pingDistanceMeters(origin: RaceCourseCheckpoint, a: ProjectionPing, b: ProjectionPing): number {
+  const axy = toLocalXY(origin.latitude, origin.longitude, a.latitude, a.longitude);
+  const bxy = toLocalXY(origin.latitude, origin.longitude, b.latitude, b.longitude);
+  const dx = bxy.x - axy.x;
+  const dy = bxy.y - axy.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function pingToCheckpointDistanceMeters(
+  origin: RaceCourseCheckpoint,
+  ping: ProjectionPing,
+  checkpoint: RaceCourseCheckpoint
+): number {
+  const pxy = toLocalXY(origin.latitude, origin.longitude, ping.latitude, ping.longitude);
+  const cxy = toLocalXY(origin.latitude, origin.longitude, checkpoint.latitude, checkpoint.longitude);
+  const dx = pxy.x - cxy.x;
+  const dy = pxy.y - cxy.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function isPingInsideRadius(
+  origin: RaceCourseCheckpoint,
+  ping: ProjectionPing,
+  checkpoint: RaceCourseCheckpoint
+): boolean {
+  return pingToCheckpointDistanceMeters(origin, ping, checkpoint) <= checkpointRadiusMeters(checkpoint);
+}
+
 type Candidate = { distSq: number; segIndex: number; t: number; progress: number };
 
 function betterCandidate(a: Candidate, b: Candidate): boolean {
@@ -188,6 +245,9 @@ export type ProjectionPing = {
 export type ProjectionPreviousState = {
   lastProgressMeters: number;
   splitCrossedAt: Record<string, string>;
+  visitStates: Record<string, VisitAccumulator[]>;
+  visitMeta: Record<string, ProjectionPreviousCheckpointVisit[]>;
+  rollingMovingSpeedMps: number;
 };
 
 /** Deterministic headwind assumption by course progress (Chunk D1 stub until a weather provider exists). */
@@ -214,9 +274,10 @@ export function recomputeRaceProjection(params: {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
   ping: ProjectionPing;
+  previousPing?: ProjectionPing | null;
   previous: ProjectionPreviousState | null;
 }): { projection: RaceRoomProjectionCore; state: ProjectionPreviousState } {
-  const { roomId, activatedAt, course, plannedPaceSecondsPerKm, ping, previous } = params;
+  const { roomId, activatedAt, course, plannedPaceSecondsPerKm, ping, previous, previousPing } = params;
   const activatedAtMs = Date.parse(activatedAt);
   const recordedAtMs = Date.parse(ping.recordedAt);
   if (Number.isNaN(activatedAtMs) || Number.isNaN(recordedAtMs)) {
@@ -231,6 +292,18 @@ export function recomputeRaceProjection(params: {
 
   const cumAt = cumulativeDistanceAtCheckpoints(course.checkpoints);
   const splitCrossedAt: Record<string, string> = { ...previous?.splitCrossedAt };
+  const visitStates: Record<string, VisitAccumulator[]> = Object.fromEntries(
+    Object.entries(previous?.visitStates ?? {}).map(([checkpointId, visits]) => [
+      checkpointId,
+      visits.map((visit) => ({ ...visit }))
+    ])
+  );
+  const visitMeta: Record<string, ProjectionPreviousCheckpointVisit[]> = Object.fromEntries(
+    Object.entries(previous?.visitMeta ?? {}).map(([checkpointId, visits]) => [
+      checkpointId,
+      visits.map((visit) => ({ ...visit }))
+    ])
+  );
 
   if (previous === null) {
     splitCrossedAt[course.checkpoints[0].id] = activatedAt;
@@ -242,6 +315,80 @@ export function recomputeRaceProjection(params: {
     const crossed = progressMeters + EPS_M >= at && prevProgress < at - EPS_M;
     if (crossed && !splitCrossedAt[course.checkpoints[k].id]) {
       splitCrossedAt[course.checkpoints[k].id] = ping.recordedAt;
+    }
+  }
+
+  const origin = course.checkpoints[0]!;
+  const currentIsInsideAny = course.checkpoints.some((cp) => isPingInsideRadius(origin, ping, cp));
+  let rollingMovingSpeedMps = previous?.rollingMovingSpeedMps ?? 1000 / plannedPaceSecondsPerKm;
+  const intervalSeconds =
+    previousPing !== null && previousPing !== undefined
+      ? (recordedAtMs - Date.parse(previousPing.recordedAt)) / 1000
+      : 0;
+  const intervalDistanceMeters =
+    previousPing !== null && previousPing !== undefined
+      ? pingDistanceMeters(origin, previousPing, ping)
+      : 0;
+  const pingSpeedMps = intervalDistanceMeters / Math.max(intervalSeconds, 0.001);
+  if (
+    previousPing !== null &&
+    previousPing !== undefined &&
+    intervalSeconds > 0 &&
+    Number.isFinite(pingSpeedMps) &&
+    !currentIsInsideAny
+  ) {
+    rollingMovingSpeedMps = 0.3 * pingSpeedMps + 0.7 * rollingMovingSpeedMps;
+  }
+
+  if (previousPing !== null && previousPing !== undefined && intervalSeconds > 0) {
+    for (const cp of course.checkpoints) {
+      const checkpointId = cp.id;
+      const visits = visitStates[checkpointId] ?? [];
+      const metadata = visitMeta[checkpointId] ?? [];
+      const prevInRadius = isPingInsideRadius(origin, previousPing, cp);
+      const currInRadius = isPingInsideRadius(origin, ping, cp);
+      let currentVisit = visits.length > 0 ? visits[visits.length - 1] : undefined;
+
+      if (!prevInRadius && currInRadius) {
+        let shouldPushVisit = false;
+        if (!currentVisit) {
+          shouldPushVisit = true;
+        } else if (currentVisit.departureRecordedAt) {
+          const checkpointDistanceMeters = cumAt[course.checkpoints.findIndex((x) => x.id === checkpointId)] ?? 0;
+          const isBackwardReturn = progressMeters <= checkpointDistanceMeters + EPS_M;
+          shouldPushVisit = isBackwardReturn;
+        }
+        if (shouldPushVisit) {
+          currentVisit = {
+            arrivalRecordedAt: ping.recordedAt,
+            departureRecordedAt: null,
+            firstSlowedAt: null,
+            accumulatedStopSeconds: 0
+          };
+          visits.push(currentVisit);
+          metadata.push({
+            visitIndex: visits.length,
+            resolvedSource: "auto"
+          });
+        }
+      } else if (prevInRadius && !currInRadius && currentVisit && !currentVisit.departureRecordedAt) {
+        currentVisit.departureRecordedAt = ping.recordedAt;
+      } else if (prevInRadius && currInRadius && currentVisit && !currentVisit.departureRecordedAt) {
+        const threshold = rollingMovingSpeedMps * checkpointSlowdownThresholdRatio(cp);
+        if (pingSpeedMps < threshold) {
+          currentVisit.accumulatedStopSeconds += intervalSeconds;
+          if (!currentVisit.firstSlowedAt) {
+            currentVisit.firstSlowedAt = previousPing.recordedAt;
+          }
+        }
+      }
+
+      if (visits.length > 0) {
+        visitStates[checkpointId] = visits;
+      }
+      if (metadata.length > 0) {
+        visitMeta[checkpointId] = metadata;
+      }
     }
   }
 
@@ -263,13 +410,49 @@ export function recomputeRaceProjection(params: {
         deltaSecondsAtCross = actualElapsedSecondsAtCross - plannedElapsedSecondsAtCross;
       }
     }
+    const visits = (visitStates[cp.id] ?? []).map((visit, index): CheckpointVisit => {
+      const metadata = visitMeta[cp.id]?.[index];
+      const autoDetected: CheckpointVisitAutoData = {
+        arrivalRecordedAt: visit.arrivalRecordedAt,
+        departureRecordedAt: visit.departureRecordedAt,
+        firstSlowedAt: visit.firstSlowedAt,
+        actualStopSeconds: visit.accumulatedStopSeconds > 0 ? visit.accumulatedStopSeconds : null
+      };
+      const resolvedSource = metadata?.resolvedSource ?? "auto";
+      const activeActualStopSeconds =
+        resolvedSource === "manual_crew"
+          ? (metadata?.manualEntry?.actualStopSeconds ?? null)
+          : autoDetected.actualStopSeconds;
+      return {
+        visitIndex: index + 1,
+        resolvedSource,
+        autoDetected,
+        ...(metadata?.manualEntry ? { manualEntry: metadata.manualEntry } : {}),
+        activeActualStopSeconds,
+        ...(metadata?.note ? { note: metadata.note } : {})
+      };
+    });
+    const totalActualStopSeconds = visits.reduce<number | null>((acc, visit) => {
+      if (visit.activeActualStopSeconds === null) {
+        return acc;
+      }
+      return (acc ?? 0) + visit.activeActualStopSeconds;
+    }, null);
+    const plannedStopSeconds = checkpointPlannedStopSeconds(cp);
+    const deltaStopSeconds =
+      totalActualStopSeconds === null ? null : totalActualStopSeconds - plannedStopSeconds;
+
     return {
       checkpointId: cp.id,
       distanceMetersFromStart: at,
       crossedAtRecordedAt: crossedAt,
       plannedElapsedSecondsAtCross,
       actualElapsedSecondsAtCross,
-      deltaSecondsAtCross
+      deltaSecondsAtCross,
+      plannedStopSeconds,
+      visits,
+      totalActualStopSeconds,
+      deltaStopSeconds
     };
   });
 
@@ -279,6 +462,23 @@ export function recomputeRaceProjection(params: {
     baselineTrack: course.baselineTrack,
     courseLengthMeters
   });
+
+  const remainingPlannedStopSecondsAhead = checkpointSplits.reduce((sum, row) => {
+    const reached = row.visits.length > 0;
+    return sum + (reached ? 0 : row.plannedStopSeconds);
+  }, 0);
+
+  const currentCheckpointRemainingStop = checkpointSplits.reduce((remaining, row) => {
+    const lastVisit = row.visits[row.visits.length - 1];
+    if (!lastVisit || !lastVisit.autoDetected) {
+      return remaining;
+    }
+    const inProgress = lastVisit.autoDetected.firstSlowedAt !== null && lastVisit.autoDetected.departureRecordedAt === null;
+    if (!inProgress) {
+      return remaining;
+    }
+    return Math.max(remaining, Math.max(0, row.plannedStopSeconds - (lastVisit.autoDetected.actualStopSeconds ?? 0)));
+  }, 0);
 
   const etaFinishMs = hasUsableBaselineTrack(course.baselineTrack, courseLengthMeters)
     ? (() => {
@@ -290,14 +490,51 @@ export function recomputeRaceProjection(params: {
         const anchoredFinishElapsedSeconds =
           anchorActualElapsedSeconds +
           Math.max(0, finishReferenceElapsedSeconds - anchor.plannedElapsedSecondsAtCross);
-        return Math.max(recordedAtMs, activatedAtMs + anchoredFinishElapsedSeconds * 1000);
+        return Math.max(
+          recordedAtMs,
+          activatedAtMs +
+            (anchoredFinishElapsedSeconds + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) *
+              1000
+        );
       })()
     : (() => {
         const remainingM = Math.max(0, courseLengthMeters - progressMeters);
         const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
-        return recordedAtMs + remainingSec * 1000;
+      return (
+        recordedAtMs +
+        (remainingSec + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) * 1000
+      );
       })();
   const etaFinishPlanIso = new Date(etaFinishMs).toISOString();
+
+  const completedRows = checkpointSplits.filter((row) =>
+    row.visits.some((visit) => {
+      if (visit.resolvedSource === "manual_crew") {
+        return visit.manualEntry !== undefined;
+      }
+      return visit.autoDetected?.departureRecordedAt !== null && visit.autoDetected?.departureRecordedAt !== undefined;
+    })
+  );
+  const totalPlannedStopSeconds = checkpointSplits.reduce((sum, row) => sum + row.plannedStopSeconds, 0);
+  const totalActualStopSeconds = completedRows.reduce((sum, row) => {
+    return (
+      sum +
+      row.visits.reduce((visitSum, visit) => visitSum + (visit.activeActualStopSeconds ?? 0), 0)
+    );
+  }, 0);
+  const completedPlannedStopSeconds = completedRows.reduce((sum, row) => sum + row.plannedStopSeconds, 0);
+  const raceElapsedSeconds = Math.max(0, (recordedAtMs - activatedAtMs) / 1000);
+  const stoppageSummary: CheckpointStoppageSummary = {
+    totalPlannedStopSeconds,
+    totalActualStopSeconds,
+    totalDeltaStopSeconds:
+      completedRows.length > 0 ? totalActualStopSeconds - completedPlannedStopSeconds : null,
+    stoppageTimePercent:
+      completedRows.length > 0 && raceElapsedSeconds > 0
+        ? (totalActualStopSeconds / raceElapsedSeconds) * 100
+        : null,
+    remainingPlannedStopSeconds: remainingPlannedStopSecondsAhead
+  };
 
   const projection: RaceRoomProjectionCore = {
     roomId,
@@ -308,6 +545,7 @@ export function recomputeRaceProjection(params: {
     plannedPaceSecondsPerKm,
     etaFinishPlanIso,
     checkpointSplits,
+    stoppageSummary,
     weatherStub: buildProjectionWeatherStub({ progressMeters, courseLengthMeters })
   };
 
@@ -315,7 +553,10 @@ export function recomputeRaceProjection(params: {
     projection,
     state: {
       lastProgressMeters: progressMeters,
-      splitCrossedAt
+      splitCrossedAt,
+      visitStates,
+      visitMeta,
+      rollingMovingSpeedMps
     }
   };
 }
