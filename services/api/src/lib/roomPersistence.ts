@@ -7,6 +7,7 @@ import type {
   PlatformEventName,
   RaceRoom,
   RaceRoomInvite,
+  ReplayedRaceRoomAggregate,
   TransportChannel
 } from "@crewcue/contracts";
 
@@ -143,6 +144,14 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
       CREATE INDEX IF NOT EXISTS platform_domain_events_by_aggregate
       ON platform_domain_events (aggregate_type, aggregate_id);
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS race_room_snapshots (
+        aggregate_id TEXT PRIMARY KEY,
+        last_sequence INT NOT NULL,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -161,7 +170,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "room_ws5_sync_json",
           "team_command_metric_configs_json",
           "platform_aggregate_heads",
-          "platform_domain_events"
+          "platform_domain_events",
+          "race_room_snapshots"
         ]
       }
     },
@@ -240,6 +250,52 @@ export async function loadRaceRoomInvite(token: string): Promise<RaceRoomInvite 
     [token]
   );
   return result.rows[0]?.payload;
+}
+
+export type PersistedRaceRoomSnapshot = {
+  aggregateId: string;
+  lastSequence: number;
+  payload: ReplayedRaceRoomAggregate;
+};
+
+export async function persistRaceRoomSnapshot(snapshot: PersistedRaceRoomSnapshot): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query(
+    `
+      INSERT INTO race_room_snapshots (aggregate_id, last_sequence, payload, updated_at)
+      VALUES ($1, $2, $3::jsonb, NOW())
+      ON CONFLICT (aggregate_id) DO UPDATE
+      SET last_sequence = EXCLUDED.last_sequence,
+          payload = EXCLUDED.payload,
+          updated_at = NOW();
+    `,
+    [snapshot.aggregateId, snapshot.lastSequence, JSON.stringify(snapshot.payload)]
+  );
+}
+
+export async function loadRaceRoomSnapshot(aggregateId: string): Promise<PersistedRaceRoomSnapshot | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const result = await pool.query<{
+    aggregate_id: string;
+    last_sequence: number;
+    payload: ReplayedRaceRoomAggregate;
+  }>(
+    "SELECT aggregate_id, last_sequence, payload FROM race_room_snapshots WHERE aggregate_id = $1 LIMIT 1",
+    [aggregateId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return undefined;
+  }
+  return {
+    aggregateId: row.aggregate_id,
+    lastSequence: row.last_sequence,
+    payload: row.payload
+  };
 }
 
 export async function persistTaskBoardPayload(roomId: string, payload: unknown): Promise<void> {
@@ -569,6 +625,7 @@ export async function resetPersistedPlatformEventsForTests(): Promise<void> {
   if (!pool) {
     return;
   }
+  await pool.query("TRUNCATE TABLE race_room_snapshots");
   await pool.query("TRUNCATE TABLE platform_domain_events");
   await pool.query("TRUNCATE TABLE platform_aggregate_heads");
 }
