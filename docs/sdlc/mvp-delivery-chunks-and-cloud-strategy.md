@@ -22,23 +22,27 @@ This doc defines **four delivery chunks (A–D)** and embeds the **cloud promoti
 
 ## 2. Core principles (do not skip)
 
-| Principle | Meaning |
-| --- | --- |
-| **Local for velocity** | Developers run the API (and optional local Postgres) for fast feedback. |
-| **Staging for truth** | The first environment where **shared** state, **Auth0**, and **test-mode payments** must behave like production. |
-| **Production for pilots** | Same code paths as staging; stricter secrets, backups, SLOs, and change control. |
-| **Single write spine** | Avoid maintaining two authorities (in-memory Maps vs DB vs event log). New work should **converge** on one model: either **commands persist to Postgres and emit `PlatformEventEnvelope`**, or **append-only log is source of truth** with projections—pick one per bounded context and document it in an ADR before large migrations. |
-| **Staging-first cloud** | **Never** introduce Postgres-only or Auth0-only behavior in production first. |
+
+| Principle                 | Meaning                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Local for velocity**    | Developers run the API (and optional local Postgres) for fast feedback.                                                                                                                                                                                                                                                                |
+| **Staging for truth**     | The first environment where **shared** state, **Auth0**, and **test-mode payments** must behave like production.                                                                                                                                                                                                                       |
+| **Production for pilots** | Same code paths as staging; stricter secrets, backups, SLOs, and change control.                                                                                                                                                                                                                                                       |
+| **Single write spine**    | Avoid maintaining two authorities (in-memory Maps vs DB vs event log). New work should **converge** on one model: either **commands persist to Postgres and emit `PlatformEventEnvelope`**, or **append-only log is source of truth** with projections—pick one per bounded context and document it in an ADR before large migrations. |
+| **Staging-first cloud**   | **Never** introduce Postgres-only or Auth0-only behavior in production first.                                                                                                                                                                                                                                                          |
+
 
 ---
 
 ## 3. Environment ladder (official)
 
-| Environment | Purpose | Typical data | Auth | Payments |
-| --- | --- | --- | --- | --- |
-| **Local** | Fast iteration, unit/API tests | Optional Docker Postgres; else in-memory only for legacy paths | Dev JWT (current API baseline) or local validation only | Manual `paid` / stub |
-| **Staging** | **Integration truth** for team + mobile + web | **Cloud Postgres** (required once Chunk A lands); event log when wired | **Auth0** (staging tenant/app) | **Provider test mode** + webhooks to staging URL |
-| **Production** | Pilots and paying users | Cloud Postgres + backups | Auth0 production | Live payments when ready |
+
+| Environment    | Purpose                                       | Typical data                                                           | Auth                                                    | Payments                                         |
+| -------------- | --------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------ |
+| **Local**      | Fast iteration, unit/API tests                | Optional Docker Postgres; else in-memory only for legacy paths         | Dev JWT (current API baseline) or local validation only | Manual `paid` / stub                             |
+| **Staging**    | **Integration truth** for team + mobile + web | **Cloud Postgres** (required once Chunk A lands); event log when wired | **Auth0** (staging tenant/app)                          | **Provider test mode** + webhooks to staging URL |
+| **Production** | Pilots and paying users                       | Cloud Postgres + backups                                               | Auth0 production                                        | Live payments when ready                         |
+
 
 **Promotion rule:** a capability is **“cloud complete”** only when it works on **staging** with **Auth0-backed identities** (Chunk B) and documented rollback (see WS0 readiness limitations).
 
@@ -131,12 +135,14 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Organize as parallel streams** (one primary stream per sprint to reduce thrash):
 
-| Stream | Example outcomes | Cloud notes |
-| --- | --- | --- |
-| **D1 — WS2 depth** | Baselines, weather stub or integration, richer course model | Store inputs in Postgres; cache if needed — first slice: [chunk-d-d1-ws2-projection.md](./chunk-d-d1-ws2-projection.md) |
-| **D2 — WS5 client resilience** | Offline queue, retry, idempotent mutations | Same staging API; exercise idempotency keys |
-| **D3 — WS7 projections** | Snapshot tables, broader reducers, replay tooling | Jobs run in cloud (worker or cron); document rebuild SOP. `GET /race-rooms/:roomId/tasks` now prefers `task_board_snapshots` and falls back to canonical board replay when the snapshot is missing or stale. |
-| **D4 — BLE / mesh (optional)** | Only if pilot evidence requires it | Often **device-local** first; server stays HTTP |
+
+| Stream                         | Example outcomes                                                                      | Cloud notes                                                                                                                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D1 — WS2 depth**             | Baselines, weather stub or integration, richer course model, checkpoint stoppage time | Store inputs in Postgres; cache if needed — baseline slice: [chunk-d-d1-ws2-projection.md](./chunk-d-d1-ws2-projection.md) · stoppage spec: [chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md) · stoppage API shipped in [#112](https://github.com/collinbrowse/CrewCue/pull/112) (UI [#114](https://github.com/collinbrowse/CrewCue/issues/114), staging smoke [#113](https://github.com/collinbrowse/CrewCue/issues/113)) |
+| **D2 — WS5 client resilience** | Offline queue, retry, idempotent mutations                                            | Same staging API; exercise idempotency keys                                                                                                                                                                                            |
+| **D3 — WS7 projections**       | Snapshot tables, broader reducers, replay tooling                                     | Jobs run in cloud (worker or cron); document rebuild SOP. `GET /race-rooms/:roomId/tasks` now prefers `task_board_snapshots` and falls back to canonical board replay when the snapshot is missing or stale.                           |
+| **D4 — BLE / mesh (optional)** | Only if pilot evidence requires it                                                    | Often **device-local** first; server stays HTTP                                                                                                                                                                                        |
+
 
 **Replay SOP:** [chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)
 
@@ -159,11 +165,13 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 ## 6. What “done” means for MVP cloud readiness (summary)
 
-| Milestone | Meaning |
-| --- | --- |
-| **Cloud-ready (internal)** | Staging Postgres + migrations + API using DB for core aggregates |
-| **Cloud-ready (external testers)** | Staging + Auth0 + payment test mode + mobile smoke path |
-| **Pilot-ready** | Production equivalents + backups + on-call + rollback validated |
+
+| Milestone                          | Meaning                                                          |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| **Cloud-ready (internal)**         | Staging Postgres + migrations + API using DB for core aggregates |
+| **Cloud-ready (external testers)** | Staging + Auth0 + payment test mode + mobile smoke path          |
+| **Pilot-ready**                    | Production equivalents + backups + on-call + rollback validated  |
+
 
 ---
 
@@ -183,8 +191,8 @@ In GitHub UI:
 
 1. Repository → **Settings** → **Environments** → **staging**.
 2. Under **Environment secrets**, add:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_ACCESS_KEY_ID`
+  - `AWS_SECRET_ACCESS_KEY`
 3. (Optional) add environment protection rules (required reviewers) before Terraform apply.
 
 Current behavior in the workflow:
@@ -195,16 +203,16 @@ Current behavior in the workflow:
 ### 7.3 First real deploy (staging)
 
 1. Set API runtime environment variables for staging:
-   - `PERSISTENCE_MODE=postgres`
-   - `DATABASE_URL=<staging postgres connection string>`
+  - `PERSISTENCE_MODE=postgres`
+  - `DATABASE_URL=<staging postgres connection string>`
 2. Merge the infrastructure/code change to `main` (or trigger `workflow_dispatch` for `.github/workflows/deploy-staging.yml`).
-2. Open Actions run `Deploy Staging` and confirm:
-   - Build steps pass.
-   - `Detect AWS credentials for Terraform` reports `terraform=true`.
-   - `Terraform Init/Plan (staging)` succeeds.
-   - `Terraform Apply` succeeds (after environment approval if configured).
-3. Verify in AWS console for the target region (`us-east-1` by default in this repo) that expected resources exist or changed as planned.
-4. Restart API and confirm previously created race rooms/invites are still retrievable.
+3. Open Actions run `Deploy Staging` and confirm:
+  - Build steps pass.
+  - `Detect AWS credentials for Terraform` reports `terraform=true`.
+  - `Terraform Init/Plan (staging)` succeeds.
+  - `Terraform Apply` succeeds (after environment approval if configured).
+4. Verify in AWS console for the target region (`us-east-1` by default in this repo) that expected resources exist or changed as planned.
+5. Restart API and confirm previously created race rooms/invites are still retrievable.
 
 ### 7.4 Safe-operating practices
 
@@ -228,14 +236,16 @@ Current behavior in the workflow:
 
 Use these modes to validate behavior consistently across local, CI, staging, and production.
 
-| Target | Required env | Typical command |
-| --- | --- | --- |
-| Local fast/manual (memory) | `PERSISTENCE_MODE=memory` | `npm run dev:api:memory` |
-| Local integration/manual (Postgres) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run dev:api:pg` |
-| API tests (memory lane) | `PERSISTENCE_MODE=memory` | `npm run test:memory` |
-| API tests (Postgres lane) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run test:pg` |
-| Staging runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | deploy workflow + readiness checks |
-| Production runtime | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | production deploy workflow |
+
+| Target                              | Required env                                | Typical command                    |
+| ----------------------------------- | ------------------------------------------- | ---------------------------------- |
+| Local fast/manual (memory)          | `PERSISTENCE_MODE=memory`                   | `npm run dev:api:memory`           |
+| Local integration/manual (Postgres) | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run dev:api:pg`               |
+| API tests (memory lane)             | `PERSISTENCE_MODE=memory`                   | `npm run test:memory`              |
+| API tests (Postgres lane)           | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | `npm run test:pg`                  |
+| Staging runtime                     | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | deploy workflow + readiness checks |
+| Production runtime                  | `PERSISTENCE_MODE=postgres`, `DATABASE_URL` | production deploy workflow         |
+
 
 Validation rules:
 
@@ -246,12 +256,15 @@ Validation rules:
 
 ## 9. Revision history
 
-| Date | Change |
-| --- | --- |
-| 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist. |
-| 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment. |
-| 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows. |
-| 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)). |
-| 2026-04-21 | Linked Chunk D3 replay SOP ([chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)). |
-| 2026-04-22 | Linked merge concurrency policy ([merge-concurrency-policy.md](./merge-concurrency-policy.md)) for offline overlap handling. |
-| 2026-04-22 | Noted the D3 task board materialized snapshot read path for `GET /race-rooms/:roomId/tasks`. |
+
+| Date       | Change                                                                                                                                              |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-16 | Initial publication: chunks A–D merged with staging-first cloud strategy and pickup checklist.                                                      |
+| 2026-04-16 | Added runbook for enabling real AWS Terraform deploys from GitHub staging environment.                                                              |
+| 2026-04-16 | Added persistence mode matrix for local/manual/CI/staging/production workflows.                                                                     |
+| 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)).                                                              |
+| 2026-04-21 | Linked Chunk D3 replay SOP ([chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)).                                                              |
+| 2026-04-22 | Linked merge concurrency policy ([merge-concurrency-policy.md](./merge-concurrency-policy.md)) for offline overlap handling.                        |
+| 2026-04-22 | Noted the D3 task board materialized snapshot read path for `GET /race-rooms/:roomId/tasks`.                                                        |
+| 2026-04-22 | Linked checkpoint stoppage time requirements ([chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)) as next D1 slice. |
+| 2026-04-22 | Noted checkpoint stoppage time shipped to `main` via PR #112; linked follow-up issues #114 (UI) and #113 (staging smoke). Reformatted tables for readability and fixed pickup checklist command formatting. |

@@ -56,17 +56,23 @@ Each successful `recomputeRaceProjection` still attaches optional `weatherStub` 
 
 ## 4. Follow-ups (later D1 / provider work)
 
-| Topic | Direction |
-| --- | --- |
-| Baseline authoring | Generate higher-density baseline tracks from GPX / course planning inputs instead of hand-built arrays. |
-| Weather coupling | Replace stub with provider fetch + cache; keep `weatherStub` optional or version the field. |
-| Checkpoint ETAs | Surface future checkpoint arrival ETAs explicitly if the UI needs more than split rows + finish ETA. |
+
+| Topic                        | Direction                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline authoring           | Generate higher-density baseline tracks from GPX / course planning inputs instead of hand-built arrays.                                                                                                                                                                                                                                                        |
+| Weather coupling             | Replace stub with provider fetch + cache; keep `weatherStub` optional or version the field.                                                                                                                                                                                                                                                                    |
+| Checkpoint ETAs              | Surface future checkpoint arrival ETAs explicitly if the UI needs more than split rows + finish ETA.                                                                                                                                                                                                                                                           |
+| **Checkpoint stoppage time** | **Shipped (API + contracts)** in [#112](https://github.com/collinbrowse/CrewCue/pull/112) — spec in **[chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)**. Follow-ups: crew UI ([#114](https://github.com/collinbrowse/CrewCue/issues/114)) and staging hardening ([#113](https://github.com/collinbrowse/CrewCue/issues/113)). |
+
 
 ---
 
 ## 5. Revision history
 
-| Date       | Change |
-| ---------- | ------ |
+
+| Date       | Change                                                                                                                                         |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-04-22 | Added optional `baselineTrack` contract support, baseline-driven planned splits, checkpoint-anchored finish ETA, and backward-compat guidance. |
-| 2026-04-21 | Initial slice: `ProjectionWeatherStub` on projection core + mobile 8s poll toggle. |
+| 2026-04-22 | Linked checkpoint stoppage time requirements doc as the next D1 slice.                                                                         |
+| 2026-04-22 | Documented checkpoint stoppage time merge to `main` via PR #112; pointed follow-ups to issues #114 (UI) and #113 (staging smoke).                 |
+| 2026-04-21 | Initial slice: `ProjectionWeatherStub` on projection core + mobile 8s poll toggle.                                                             |
