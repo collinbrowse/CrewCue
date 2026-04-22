@@ -32,6 +32,12 @@ const pool = PERSISTENCE_MODE === "postgres" ? new Pool({ connectionString: DATA
 let initialized = false;
 let initPromise: Promise<void> | null = null;
 
+function cloneForStorage<T>(value: T): T {
+  return structuredClone(value);
+}
+
+const memoryTaskBoardPayloads = new Map<string, unknown>();
+
 export function isRoomPersistenceEnabled(): boolean {
   return pool !== null;
 }
@@ -152,6 +158,14 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS task_board_snapshots (
+        aggregate_id TEXT PRIMARY KEY,
+        version INT NOT NULL,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -171,7 +185,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "team_command_metric_configs_json",
           "platform_aggregate_heads",
           "platform_domain_events",
-          "race_room_snapshots"
+          "race_room_snapshots",
+          "task_board_snapshots"
         ]
       }
     },
@@ -300,6 +315,7 @@ export async function loadRaceRoomSnapshot(aggregateId: string): Promise<Persist
 
 export async function persistTaskBoardPayload(roomId: string, payload: unknown): Promise<void> {
   if (!pool) {
+    memoryTaskBoardPayloads.set(roomId, cloneForStorage(payload));
     return;
   }
   await pool.query(
@@ -316,7 +332,7 @@ export async function persistTaskBoardPayload(roomId: string, payload: unknown):
 
 export async function loadTaskBoardPayload(roomId: string): Promise<unknown | undefined> {
   if (!pool) {
-    return undefined;
+    return cloneForStorage(memoryTaskBoardPayloads.get(roomId));
   }
   const result = await pool.query<{ payload: unknown }>(
     "SELECT payload FROM room_task_boards_json WHERE room_id = $1 LIMIT 1",
@@ -325,11 +341,96 @@ export async function loadTaskBoardPayload(roomId: string): Promise<unknown | un
   return result.rows[0]?.payload;
 }
 
+export async function loadTaskBoardPayloadVersion(roomId: string): Promise<number | undefined> {
+  if (!pool) {
+    const stored = memoryTaskBoardPayloads.get(roomId);
+    if (!stored || typeof stored !== "object") {
+      return undefined;
+    }
+    const version = (stored as { version?: unknown }).version;
+    return typeof version === "number" ? version : undefined;
+  }
+  const result = await pool.query<{ version: number | null }>(
+    `
+      SELECT CASE
+        WHEN jsonb_typeof(payload) = 'object'
+          AND payload ? 'version'
+          AND jsonb_typeof(payload -> 'version') = 'number'
+        THEN (payload ->> 'version')::int
+        ELSE NULL
+      END AS version
+      FROM room_task_boards_json
+      WHERE room_id = $1
+      LIMIT 1
+    `,
+    [roomId]
+  );
+  return result.rows[0]?.version ?? undefined;
+}
+
 export async function deleteTaskBoardPayload(roomId: string): Promise<void> {
   if (!pool) {
+    memoryTaskBoardPayloads.delete(roomId);
     return;
   }
   await pool.query("DELETE FROM room_task_boards_json WHERE room_id = $1", [roomId]);
+}
+
+export type PersistedTaskBoardSnapshot = {
+  aggregateId: string;
+  version: number;
+  payload: unknown;
+};
+
+const memoryTaskBoardSnapshots = new Map<string, PersistedTaskBoardSnapshot>();
+
+export async function persistTaskBoardSnapshot(snapshot: PersistedTaskBoardSnapshot): Promise<void> {
+  if (!pool) {
+    memoryTaskBoardSnapshots.set(snapshot.aggregateId, cloneForStorage(snapshot));
+    return;
+  }
+  await pool.query(
+    `
+      INSERT INTO task_board_snapshots (aggregate_id, version, payload, updated_at)
+      VALUES ($1, $2, $3::jsonb, NOW())
+      ON CONFLICT (aggregate_id) DO UPDATE
+      SET version = EXCLUDED.version,
+          payload = EXCLUDED.payload,
+          updated_at = NOW();
+    `,
+    [snapshot.aggregateId, snapshot.version, JSON.stringify(snapshot.payload)]
+  );
+}
+
+export async function loadTaskBoardSnapshot(aggregateId: string): Promise<PersistedTaskBoardSnapshot | undefined> {
+  if (!pool) {
+    return cloneForStorage(memoryTaskBoardSnapshots.get(aggregateId));
+  }
+  const result = await pool.query<{
+    aggregate_id: string;
+    version: number;
+    payload: unknown;
+  }>(
+    "SELECT aggregate_id, version, payload FROM task_board_snapshots WHERE aggregate_id = $1 LIMIT 1",
+    [aggregateId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return undefined;
+  }
+  return {
+    aggregateId: row.aggregate_id,
+    version: row.version,
+    payload: row.payload
+  };
+}
+
+export async function deleteTaskBoardSnapshot(aggregateId: string): Promise<void> {
+  if (!pool) {
+    memoryTaskBoardSnapshots.delete(aggregateId);
+    return;
+  }
+  await pool.query("DELETE FROM task_board_snapshots WHERE aggregate_id = $1", [aggregateId]);
 }
 
 export async function persistWs2RuntimePayload(roomId: string, payload: unknown): Promise<void> {

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { deleteTaskBoardSnapshot } from "../lib/roomPersistence.js";
+import { clearTaskBoardLocalState } from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -163,6 +165,112 @@ test("returns 403 when non-member tries to read task board", async () => {
     }
   });
   assert.equal(getForbidden.statusCode, 403);
+
+  await app.close();
+});
+
+test("task board snapshot path matches canonical replay path", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const athleteToken = app.jwt.sign(buildClaims("athlete-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-user",
+      name: "Task Board Snapshots",
+      creatorRole: "athlete"
+    },
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const payResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(payResponse.statusCode, 200);
+
+  const activateResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: new Date(Date.now() + 60_000).toISOString()
+    },
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+
+  const initialBoardResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/tasks`,
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(initialBoardResponse.statusCode, 200);
+  const initialBoard = initialBoardResponse.json() as {
+    tasks: Array<{ id: string }>;
+  };
+  assert.ok(initialBoard.tasks.length >= 1);
+
+  const taskId = initialBoard.tasks[0]!.id;
+  const assignResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/tasks/${taskId}/assign`,
+    payload: {
+      assigneeUserId: "athlete-user",
+      assigneeRole: "athlete"
+    },
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(assignResponse.statusCode, 200);
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/tasks/${taskId}/start`,
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(startResponse.statusCode, 200);
+
+  clearTaskBoardLocalState(roomId);
+  const snapshotResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/tasks`,
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(snapshotResponse.statusCode, 200);
+  const snapshotBoard = snapshotResponse.json();
+
+  await deleteTaskBoardSnapshot(roomId);
+  clearTaskBoardLocalState(roomId);
+  const replayResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/tasks`,
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(replayResponse.statusCode, 200);
+  assert.deepEqual(replayResponse.json(), snapshotBoard);
 
   await app.close();
 });
