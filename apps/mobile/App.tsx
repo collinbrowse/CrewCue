@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
+  type AppStateStatus
 } from "react-native";
 import type {
   AthletePingAcceptedResponse,
@@ -23,154 +25,37 @@ import type {
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
+import { ApiError, createApiClient } from "./src/api/client";
+import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
-  ApiError,
-  createApiClient,
-  type ApiClient,
-  type AssignTaskInput,
-  type PostPingInput
-} from "./src/api/client";
-import {
-  isPendingHeartbeat,
-  postSyncHeartbeatWithRetry,
-  type PendingHeartbeat
-} from "./src/sync/pendingHeartbeat";
-import {
-  dequeue as dequeueOutbox,
-  enqueue as enqueueOutbox,
   list as listOutbox,
+  replace as replaceOutbox,
   type OutboxOperation
 } from "./src/sync/outboxStore";
+import {
+  countPendingOutboxOperations,
+  describeOutboxOperation,
+  processOutboxBatch
+} from "./src/sync/outboxProcessor";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
+const OUTBOX_AUTO_PROCESS_INTERVAL_MS = 8000;
 
-type OutboxPingPayload = { roomId: string } & PostPingInput;
-type OutboxProtocolPayload = {
-  roomId: string;
-  checkpointId: string;
-  category: ProtocolNote["category"];
-  body: string;
-};
-type OutboxTaskPayload =
-  | ({ roomId: string; taskId: string; action: "start" })
-  | ({ roomId: string; taskId: string; action: "complete" })
-  | ({ roomId: string; taskId: string; action: "assign" } & AssignTaskInput);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isOutboxPingPayload(value: unknown): value is OutboxPingPayload {
-  return (
-    isRecord(value) &&
-    typeof value.roomId === "string" &&
-    typeof value.latitude === "number" &&
-    typeof value.longitude === "number" &&
-    typeof value.recordedAt === "string" &&
-    (value.horizontalAccuracyMeters === undefined || typeof value.horizontalAccuracyMeters === "number") &&
-    (value.uploadIntervalSeconds === undefined || typeof value.uploadIntervalSeconds === "number")
-  );
-}
-
-function isOutboxProtocolPayload(value: unknown): value is OutboxProtocolPayload {
-  return (
-    isRecord(value) &&
-    typeof value.roomId === "string" &&
-    typeof value.checkpointId === "string" &&
-    typeof value.category === "string" &&
-    (value.category === "heat" ||
-      value.category === "nutrition" ||
-      value.category === "blister" ||
-      value.category === "other") &&
-    typeof value.body === "string"
-  );
-}
-
-function isOutboxTaskPayload(value: unknown): value is OutboxTaskPayload {
-  if (!isRecord(value) || typeof value.roomId !== "string" || typeof value.taskId !== "string") {
-    return false;
+function describeOutboxStatus(status: OutboxOperation["status"]): string {
+  if (status === "sent") {
+    return "Sent";
   }
 
-  if (value.action === "start" || value.action === "complete") {
-    return true;
+  if (status === "rejected") {
+    return "Rejected";
   }
 
-  return (
-    value.action === "assign" &&
-    typeof value.assigneeUserId === "string" &&
-    typeof value.assigneeRole === "string" &&
-    (value.assigneeRole === "athlete" ||
-      value.assigneeRole === "crew_member" ||
-      value.assigneeRole === "crew_chief" ||
-      value.assigneeRole === "team_manager")
-  );
-}
-
-function describeOutboxOperation(operation: OutboxOperation): string {
-  if (operation.type === "ping") {
-    if (isPendingHeartbeat(operation.payload)) {
-      return "sync heartbeat";
-    }
-
-    if (isOutboxPingPayload(operation.payload)) {
-      return "athlete ping";
-    }
+  if (status === "conflict") {
+    return "Conflict";
   }
 
-  if (operation.type === "protocol") {
-    return "protocol note";
-  }
-
-  if (operation.type === "task" && isOutboxTaskPayload(operation.payload)) {
-    return `task ${operation.payload.action}`;
-  }
-
-  return operation.type;
-}
-
-async function processOutboxOperation(
-  client: ApiClient,
-  operation: OutboxOperation
-): Promise<{ roomId: string; label: string }> {
-  if (operation.type === "ping") {
-    if (isPendingHeartbeat(operation.payload)) {
-      await client.postSyncHeartbeat(operation.payload.roomId, operation.payload);
-      return { roomId: operation.payload.roomId, label: "sync heartbeat" };
-    }
-
-    if (isOutboxPingPayload(operation.payload)) {
-      const { roomId, ...payload } = operation.payload;
-      await client.postPing(roomId, payload);
-      return { roomId, label: "athlete ping" };
-    }
-  }
-
-  if (operation.type === "protocol" && isOutboxProtocolPayload(operation.payload)) {
-    const { roomId, checkpointId, category, body } = operation.payload;
-    await client.postProtocolNote(roomId, { checkpointId, category, body });
-    return { roomId, label: "protocol note" };
-  }
-
-  if (operation.type === "task" && isOutboxTaskPayload(operation.payload)) {
-    if (operation.payload.action === "assign") {
-      await client.assignTask(operation.payload.roomId, operation.payload.taskId, {
-        assigneeUserId: operation.payload.assigneeUserId,
-        assigneeRole: operation.payload.assigneeRole
-      });
-      return { roomId: operation.payload.roomId, label: "task assign" };
-    }
-
-    if (operation.payload.action === "start") {
-      await client.startTask(operation.payload.roomId, operation.payload.taskId);
-      return { roomId: operation.payload.roomId, label: "task start" };
-    }
-
-    await client.completeTask(operation.payload.roomId, operation.payload.taskId);
-    return { roomId: operation.payload.roomId, label: "task complete" };
-  }
-
-  throw new Error(`Unsupported outbox payload for ${operation.type}.`);
+  return "Pending";
 }
 
 export default function App(): ReactElement {
@@ -232,8 +117,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [syncHealth, setSyncHealth] = useState<SyncStatus | undefined>(undefined);
   const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [syncStatusMessage, setSyncStatusMessage] = useState<string | undefined>(undefined);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [outboxProcessing, setOutboxProcessing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
+  const outboxProcessingRef = useRef(false);
+  const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
 
   const refreshOutbox = useCallback(async () => {
     try {
@@ -260,6 +149,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
     return () => {
       isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", setAppState);
+    return () => {
+      subscription.remove();
     };
   }, []);
 
@@ -468,77 +364,118 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, baseUrl, room]);
 
+  const runOutboxProcessing = useCallback(
+    async (mode: "auto" | "manual") => {
+      if (!auth.accessToken || outboxProcessingRef.current) return;
+
+      outboxProcessingRef.current = true;
+      setOutboxProcessing(true);
+      if (mode === "manual") {
+        setApiError(undefined);
+        setSyncStatusMessage(undefined);
+      }
+
+      try {
+        const operations = await listOutbox();
+        if (operations.length === 0) {
+          setOutbox([]);
+          if (mode === "manual") {
+            setSyncStatusMessage("Outbox is empty.");
+          }
+          return;
+        }
+
+        const pendingCount = countPendingOutboxOperations(operations);
+        if (pendingCount === 0) {
+          setOutbox(operations);
+          if (mode === "manual") {
+            setSyncStatusMessage("No pending outbox items.");
+          }
+          return;
+        }
+
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const result = await processOutboxBatch(client, operations);
+        await replaceOutbox(result.operations);
+        setOutbox(result.operations);
+
+        if (room && result.touchedRoomIds.includes(room.id)) {
+          try {
+            const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
+            setSyncHealth(nextSyncHealth);
+          } catch {
+            /* keep successful outbox processing from being treated as failed */
+          }
+        }
+
+        const remainingPendingCount = countPendingOutboxOperations(result.operations);
+        if (result.operatorSignal) {
+          const prefix =
+            result.processedCount > 0
+              ? `Processed ${result.processedCount} outbox item(s). `
+              : mode === "auto"
+                ? "Auto-processed outbox. "
+                : "";
+          setSyncStatusMessage(
+            `${prefix}${describeOutboxStatus(result.operatorSignal.status)}: ${result.operatorSignal.label} — ${result.operatorSignal.feedback}${
+              remainingPendingCount > 0 ? ` (${remainingPendingCount} pending)` : ""
+            }`
+          );
+        } else if (mode === "manual") {
+          setSyncStatusMessage(
+            `Processed ${result.processedCount} outbox item(s).${
+              remainingPendingCount > 0 ? ` ${remainingPendingCount} pending.` : ""
+            }`
+          );
+        }
+      } catch (err) {
+        if (mode === "manual") {
+          if (err instanceof ApiError) {
+            setApiError(`${err.status} ${err.message}`);
+          } else if (err instanceof Error) {
+            setApiError(err.message);
+          } else {
+            setApiError("Unknown error");
+          }
+        }
+      } finally {
+        outboxProcessingRef.current = false;
+        setOutboxProcessing(false);
+      }
+    },
+    [auth.accessToken, baseUrl, room]
+  );
+
   const processOutboxAction = useCallback(async () => {
-    if (!auth.accessToken) return;
-    setBusy(true);
-    setApiError(undefined);
-    setSyncStatusMessage(undefined);
-    try {
-      const operations = await listOutbox();
-      if (operations.length === 0) {
-        setOutbox([]);
-        setSyncStatusMessage("Outbox is empty.");
-        return;
-      }
+    await runOutboxProcessing("manual");
+  }, [runOutboxProcessing]);
 
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      let processedCount = 0;
-      let failedMessage: string | undefined;
-      let failedLabel: string | undefined;
-      const touchedRoomIds = new Set<string>();
-
-      for (const operation of operations) {
-        try {
-          const result = await processOutboxOperation(client, operation);
-          await dequeueOutbox(operation.id);
-          processedCount += 1;
-          touchedRoomIds.add(result.roomId);
-        } catch (err) {
-          failedLabel = describeOutboxOperation(operation);
-          failedMessage =
-            err instanceof ApiError
-              ? `${err.status} ${err.message}`
-              : err instanceof Error
-                ? err.message
-                : "Unknown error";
-          await enqueueOutbox({ ...operation, attempts: operation.attempts + 1 });
-          break;
-        }
-      }
-
-      const nextOutbox = await listOutbox();
-      setOutbox(nextOutbox);
-
-      if (room && touchedRoomIds.has(room.id)) {
-        try {
-          const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
-          setSyncHealth(nextSyncHealth);
-        } catch {
-          /* keep successful outbox processing from being treated as failed */
-        }
-      }
-
-      if (failedMessage) {
-        setSyncStatusMessage(
-          processedCount > 0
-            ? `Processed ${processedCount} outbox item(s); stopped on ${failedLabel}: ${failedMessage}.`
-            : `Outbox processing failed on ${failedLabel}: ${failedMessage}.`
-        );
-      } else {
-        setSyncStatusMessage(`Processed ${processedCount} outbox item(s).`);
-      }
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (
+      auth.status !== "authenticated" ||
+      !auth.accessToken ||
+      room?.status !== "active" ||
+      appState !== "active" ||
+      pendingOutboxCount === 0
+    ) {
+      return;
     }
-  }, [auth.accessToken, baseUrl, room]);
+
+    void runOutboxProcessing("auto");
+    const id = setInterval(() => {
+      void runOutboxProcessing("auto");
+    }, OUTBOX_AUTO_PROCESS_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [
+    appState,
+    auth.accessToken,
+    auth.status,
+    pendingOutboxCount,
+    room?.id,
+    room?.status,
+    runOutboxProcessing
+  ]);
 
   const fetchTaskBoard = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -647,7 +584,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
           <Text style={styles.value}>{auth.status}</Text>
 
           <Text style={styles.label}>Outbox count</Text>
-          <Text style={styles.code}>{outbox.length}</Text>
+          <Text style={styles.code}>
+            {pendingOutboxCount} pending / {outbox.length} total
+          </Text>
+
+          <Text style={styles.label}>App state</Text>
+          <Text style={styles.code}>{appState}</Text>
 
           {auth.status === "bootstrapping" ? (
             <ActivityIndicator color="#f9fafb" style={{ marginTop: 12 }} />
@@ -695,9 +637,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                     {busy ? "Calling API..." : "Create race room (staging)"}
                   </Text>
                 </Pressable>
-                <Pressable style={styles.secondaryButton} onPress={processOutboxAction} disabled={busy}>
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={processOutboxAction}
+                  disabled={busy || outboxProcessing}
+                >
                   <Text style={styles.secondaryButtonLabel}>
-                    {busy ? "Processing..." : "Process Outbox"}
+                    {outboxProcessing ? "Processing..." : "Process Outbox"}
                   </Text>
                 </Pressable>
                 {room ? (
@@ -839,13 +785,35 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
           {outbox.length > 0 ? (
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Queued outbox</Text>
-              <Text style={styles.body}>Count</Text>
-              <Text style={styles.code}>{outbox.length}</Text>
-              <Text style={styles.body}>Next item</Text>
-              <Text style={styles.code}>
-                {describeOutboxOperation(outbox[0]!)} (attempts: {outbox[0]!.attempts})
+              <Text style={styles.summaryTitle}>Outbox items</Text>
+              <Text style={styles.body}>
+                Auto-processing runs every {OUTBOX_AUTO_PROCESS_INTERVAL_MS / 1000}s while authenticated, the
+                room is active, and the app is foregrounded.
               </Text>
+              {[...outbox].reverse().map((operation) => (
+                <View key={operation.id} style={styles.outboxItem}>
+                  <View style={styles.outboxItemHeader}>
+                    <Text style={styles.code}>{describeOutboxOperation(operation)}</Text>
+                    <Text
+                      style={[
+                        styles.outboxStatus,
+                        operation.status === "sent"
+                          ? styles.outboxStatusSent
+                          : operation.status === "rejected"
+                            ? styles.outboxStatusRejected
+                            : operation.status === "conflict"
+                              ? styles.outboxStatusConflict
+                              : styles.outboxStatusPending
+                      ]}
+                    >
+                      {describeOutboxStatus(operation.status)}
+                    </Text>
+                  </View>
+                  <Text style={styles.body}>attempts: {operation.attempts}</Text>
+                  {operation.feedback ? <Text style={styles.body}>{operation.feedback}</Text> : null}
+                  {operation.updatedAt ? <Text style={styles.code}>{operation.updatedAt}</Text> : null}
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -1038,5 +1006,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     marginBottom: 4
+  },
+  outboxItem: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#1f2937",
+    paddingTop: 12
+  },
+  outboxItemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  outboxStatus: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  outboxStatusPending: {
+    color: "#fde68a"
+  },
+  outboxStatusSent: {
+    color: "#86efac"
+  },
+  outboxStatusRejected: {
+    color: "#fca5a5"
+  },
+  outboxStatusConflict: {
+    color: "#f59e0b"
   }
 });

@@ -15,7 +15,8 @@ function toPendingHeartbeatOperation(input: PendingHeartbeat, attempts = 0): Out
     id: pendingHeartbeatOperationId(input),
     type: "ping",
     payload: input,
-    attempts
+    attempts,
+    status: "pending"
   };
 }
 

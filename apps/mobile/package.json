@@ -10,7 +10,7 @@
     "build": "expo export --platform all",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/api/client.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts"
+    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/api/client.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
