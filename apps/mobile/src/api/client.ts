@@ -109,6 +109,16 @@ export type AssignTaskInput = {
   assigneeRole: CrewAssignment["assigneeRole"];
 };
 
+export type ManualCheckpointStopInput = {
+  arrivalAt: string;
+  departureAt: string;
+  note?: string;
+};
+
+export type UpdateCheckpointVisitSourceInput = {
+  resolvedSource: "auto" | "manual_crew";
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -162,7 +172,26 @@ export function createApiClient(options: ApiClientOptions) {
       input: { checkpointId: string; category: ProtocolNoteCategory; body: string }
     ) => request<{ protocolNote: ProtocolNote }>(options, "POST", `/race-rooms/${roomId}/protocol-notes`, input),
     getTimeline: (roomId: string) =>
-      request<{ events: OpsTimelineEvent[] }>(options, "GET", `/race-rooms/${roomId}/timeline`)
+      request<{ events: OpsTimelineEvent[] }>(options, "GET", `/race-rooms/${roomId}/timeline`),
+    postManualCheckpointStop: (roomId: string, checkpointId: string, input: ManualCheckpointStopInput) =>
+      request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/checkpoints/${checkpointId}/manual-stop`,
+        input
+      ),
+    patchCheckpointVisitResolvedSource: (
+      roomId: string,
+      checkpointId: string,
+      visitIndex: number,
+      input: UpdateCheckpointVisitSourceInput
+    ) =>
+      request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
+        options,
+        "PATCH",
+        `/race-rooms/${roomId}/checkpoints/${checkpointId}/visits/${visitIndex}/resolved-source`,
+        input
+      )
   };
 }
 

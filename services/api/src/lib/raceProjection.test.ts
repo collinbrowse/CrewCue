@@ -137,3 +137,69 @@ test("baseline track drives planned splits and anchors ETA to the last crossed c
     "progress should still advance within the anchored segment"
   );
 });
+
+test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
+  const checkpoints = [
+    { id: "a", latitude: 10.0, longitude: 20.0, plannedStopSeconds: 120, stoppageRadiusMeters: 800 },
+    { id: "b", latitude: 10.02, longitude: 20.0 }
+  ];
+  const course: RaceCourse = { checkpoints };
+  const activatedAt = "2026-04-16T12:00:00.000Z";
+  const first = recomputeRaceProjection({
+    roomId: "room-stop",
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm: 300,
+    ping: {
+      pingId: "p1",
+      latitude: 10.03,
+      longitude: 20.0,
+      recordedAt: "2026-04-16T12:01:00.000Z"
+    },
+    previous: null
+  });
+  const second = recomputeRaceProjection({
+    roomId: "room-stop",
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm: 300,
+    ping: {
+      pingId: "p2",
+      latitude: 10.005,
+      longitude: 20.0,
+      recordedAt: "2026-04-16T12:01:30.000Z"
+    },
+    previousPing: {
+      pingId: "p1",
+      latitude: 10.03,
+      longitude: 20.0,
+      recordedAt: "2026-04-16T12:01:00.000Z"
+    },
+    previous: first.state
+  });
+  const third = recomputeRaceProjection({
+    roomId: "room-stop",
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm: 300,
+    ping: {
+      pingId: "p3",
+      latitude: 10.00501,
+      longitude: 20.0,
+      recordedAt: "2026-04-16T12:02:00.000Z"
+    },
+    previousPing: {
+      pingId: "p2",
+      latitude: 10.005,
+      longitude: 20.0,
+      recordedAt: "2026-04-16T12:01:30.000Z"
+    },
+    previous: second.state
+  });
+  const split = third.projection.checkpointSplits[0]!;
+  assert.equal(split.plannedStopSeconds, 120);
+  assert.equal(split.visits.length, 1);
+  assert.ok((split.totalActualStopSeconds ?? 0) > 0);
+  assert.ok(split.deltaStopSeconds !== null);
+  assert.equal(third.projection.stoppageSummary.totalActualStopSeconds, 0);
+});

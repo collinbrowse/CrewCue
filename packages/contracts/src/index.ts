@@ -37,6 +37,9 @@ export interface RaceCourseCheckpoint {
   id: string;
   latitude: number;
   longitude: number;
+  plannedStopSeconds?: number;
+  stoppageRadiusMeters?: number;
+  slowdownThresholdRatio?: number;
 }
 
 /** Optional non-linear baseline profile used for WS2 planned split / ETA projections. */
@@ -62,6 +65,43 @@ export interface RaceCheckpointSplitRow {
   plannedElapsedSecondsAtCross: number;
   actualElapsedSecondsAtCross: number | null;
   deltaSecondsAtCross: number | null;
+  plannedStopSeconds: number;
+  visits: CheckpointVisit[];
+  totalActualStopSeconds: number | null;
+  deltaStopSeconds: number | null;
+}
+
+export type CheckpointVisitSource = "auto" | "manual_crew";
+
+export interface CheckpointVisitAutoData {
+  arrivalRecordedAt: string | null;
+  departureRecordedAt: string | null;
+  firstSlowedAt: string | null;
+  actualStopSeconds: number | null;
+}
+
+export interface CheckpointVisitManualData {
+  arrivalAt: string;
+  departureAt: string;
+  actualStopSeconds: number;
+  recordedByUserId: string;
+}
+
+export interface CheckpointVisit {
+  visitIndex: number;
+  resolvedSource: CheckpointVisitSource;
+  autoDetected?: CheckpointVisitAutoData;
+  manualEntry?: CheckpointVisitManualData;
+  activeActualStopSeconds: number | null;
+  note?: string;
+}
+
+export interface CheckpointStoppageSummary {
+  totalPlannedStopSeconds: number;
+  totalActualStopSeconds: number;
+  totalDeltaStopSeconds: number | null;
+  stoppageTimePercent: number | null;
+  remainingPlannedStopSeconds: number;
 }
 
 /**
@@ -84,6 +124,7 @@ export interface RaceRoomProjectionCore {
   plannedPaceSecondsPerKm: number;
   etaFinishPlanIso: string;
   checkpointSplits: RaceCheckpointSplitRow[];
+  stoppageSummary: CheckpointStoppageSummary;
   weatherStub?: ProjectionWeatherStub;
 }
 

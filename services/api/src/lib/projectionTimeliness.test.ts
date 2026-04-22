@@ -36,7 +36,14 @@ test("attachProjectionTimeliness respects derived threshold", () => {
     courseLengthMeters: 1000,
     plannedPaceSecondsPerKm: 600,
     etaFinishPlanIso: "2026-04-16T13:00:00.000Z",
-    checkpointSplits: []
+    checkpointSplits: [],
+    stoppageSummary: {
+      totalPlannedStopSeconds: 0,
+      totalActualStopSeconds: 0,
+      totalDeltaStopSeconds: null,
+      stoppageTimePercent: null,
+      remainingPlannedStopSeconds: 0
+    }
   };
   const recordedAtMs = Date.parse("2026-04-16T12:00:00.000Z");
   const evaluatedAtMs = recordedAtMs + 160_000;

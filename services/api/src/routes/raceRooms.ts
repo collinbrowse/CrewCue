@@ -4,6 +4,8 @@ import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
   AthletePingRejectReason,
+  CheckpointVisitManualData,
+  CheckpointVisitSource,
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
@@ -54,7 +56,10 @@ const createRaceRoomInput = z.object({
 const raceCourseCheckpointInput = z.object({
   id: z.string().min(1),
   latitude: z.number().gte(-90).lte(90),
-  longitude: z.number().gte(-180).lte(180)
+  longitude: z.number().gte(-180).lte(180),
+  plannedStopSeconds: z.number().nonnegative().optional(),
+  stoppageRadiusMeters: z.number().positive().optional(),
+  slowdownThresholdRatio: z.number().positive().max(1).optional()
 });
 
 const raceCourseBaselinePointInput = z.object({
@@ -97,6 +102,16 @@ const ingestAthletePingInput = z.object({
   recordedAt: z.iso.datetime(),
   horizontalAccuracyMeters: z.number().positive().optional(),
   uploadIntervalSeconds: z.number().int().min(10).max(900).optional()
+});
+
+const manualCheckpointStopInput = z.object({
+  arrivalAt: z.iso.datetime(),
+  departureAt: z.iso.datetime(),
+  note: z.string().trim().max(2_000).optional()
+});
+
+const checkpointVisitResolvedSourceInput = z.object({
+  resolvedSource: z.enum(["auto", "manual_crew"])
 });
 
 const raceRooms = new Map<string, RaceRoom>();
@@ -157,6 +172,25 @@ const roomPingState = new Map<string, RoomPingState>();
 type RoomProjectionState = {
   lastProgressMeters: number;
   splitCrossedAt: Record<string, string>;
+  visitStates: Record<
+    string,
+    Array<{
+      arrivalRecordedAt: string | null;
+      departureRecordedAt: string | null;
+      firstSlowedAt: string | null;
+      accumulatedStopSeconds: number;
+    }>
+  >;
+  visitMeta: Record<
+    string,
+    Array<{
+      visitIndex: number;
+      resolvedSource: CheckpointVisitSource;
+      manualEntry?: CheckpointVisitManualData;
+      note?: string;
+    }>
+  >;
+  rollingMovingSpeedMps: number;
   lastProjectionCore: RaceRoomProjectionCore;
 };
 
@@ -209,6 +243,10 @@ function normalizeWs2RuntimePayload(raw: unknown): { ping?: RoomPingState; proje
       projection = {
         lastProgressMeters: pr.lastProgressMeters,
         splitCrossedAt: { ...(pr.splitCrossedAt as Record<string, string>) },
+        visitStates: (pr.visitStates as RoomProjectionState["visitStates"]) ?? {},
+        visitMeta: (pr.visitMeta as RoomProjectionState["visitMeta"]) ?? {},
+        rollingMovingSpeedMps:
+          typeof pr.rollingMovingSpeedMps === "number" ? pr.rollingMovingSpeedMps : 0,
         lastProjectionCore: pr.lastProjectionCore as RaceRoomProjectionCore
       };
     }
@@ -664,6 +702,68 @@ function isExpired(expiresAt: string): boolean {
   return Date.parse(expiresAt) <= Date.now();
 }
 
+function recomputeProjectionStoppageSummary(core: RaceRoomProjectionCore, activatedAt: string): void {
+  const asOfMs = Date.parse(core.asOfRecordedAt);
+  const activatedAtMs = Date.parse(activatedAt);
+  const completedRows = core.checkpointSplits.filter((row) =>
+    row.visits.some((visit) => {
+      if (visit.resolvedSource === "manual_crew") {
+        return visit.manualEntry !== undefined;
+      }
+      return (
+        visit.autoDetected?.departureRecordedAt !== null &&
+        visit.autoDetected?.departureRecordedAt !== undefined
+      );
+    })
+  );
+  const totalPlannedStopSeconds = core.checkpointSplits.reduce((sum, row) => sum + row.plannedStopSeconds, 0);
+  const totalActualStopSeconds = completedRows.reduce(
+    (sum, row) => sum + row.visits.reduce((vsum, visit) => vsum + (visit.activeActualStopSeconds ?? 0), 0),
+    0
+  );
+  const completedPlannedStopSeconds = completedRows.reduce((sum, row) => sum + row.plannedStopSeconds, 0);
+  const raceElapsedSeconds =
+    Number.isFinite(asOfMs) && Number.isFinite(activatedAtMs) ? Math.max(0, (asOfMs - activatedAtMs) / 1000) : 0;
+  core.stoppageSummary = {
+    totalPlannedStopSeconds,
+    totalActualStopSeconds,
+    totalDeltaStopSeconds:
+      completedRows.length > 0 ? totalActualStopSeconds - completedPlannedStopSeconds : null,
+    stoppageTimePercent:
+      completedRows.length > 0 && raceElapsedSeconds > 0
+        ? (totalActualStopSeconds / raceElapsedSeconds) * 100
+        : null,
+    remainingPlannedStopSeconds: core.checkpointSplits.reduce(
+      (sum, row) => sum + (row.visits.length === 0 ? row.plannedStopSeconds : 0),
+      0
+    )
+  };
+}
+
+function syncProjectionAccumulatorStateFromCore(state: RoomProjectionState): void {
+  const nextVisitStates: RoomProjectionState["visitStates"] = {};
+  const nextVisitMeta: RoomProjectionState["visitMeta"] = {};
+  for (const row of state.lastProjectionCore.checkpointSplits) {
+    if (row.visits.length === 0) {
+      continue;
+    }
+    nextVisitStates[row.checkpointId] = row.visits.map((visit) => ({
+      arrivalRecordedAt: visit.autoDetected?.arrivalRecordedAt ?? null,
+      departureRecordedAt: visit.autoDetected?.departureRecordedAt ?? null,
+      firstSlowedAt: visit.autoDetected?.firstSlowedAt ?? null,
+      accumulatedStopSeconds: visit.autoDetected?.actualStopSeconds ?? 0
+    }));
+    nextVisitMeta[row.checkpointId] = row.visits.map((visit) => ({
+      visitIndex: visit.visitIndex,
+      resolvedSource: visit.resolvedSource,
+      ...(visit.manualEntry ? { manualEntry: visit.manualEntry } : {}),
+      ...(visit.note ? { note: visit.note } : {})
+    }));
+  }
+  state.visitStates = nextVisitStates;
+  state.visitMeta = nextVisitMeta;
+}
+
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   await initRoomPersistence(app.log);
 
@@ -1028,6 +1128,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingId = randomUUID();
+    const previousAccepted = pingState.lastAccepted;
     pingState.lastAccepted = {
       pingId,
       latitude: body.latitude,
@@ -1068,10 +1169,21 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             longitude: body.longitude,
             recordedAt: body.recordedAt
           },
+          previousPing: previousAccepted
+            ? {
+                pingId: previousAccepted.pingId,
+                latitude: previousAccepted.latitude,
+                longitude: previousAccepted.longitude,
+                recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
+              }
+            : null,
           previous: prev
             ? {
                 lastProgressMeters: prev.lastProgressMeters,
-                splitCrossedAt: { ...prev.splitCrossedAt }
+                splitCrossedAt: { ...prev.splitCrossedAt },
+                visitStates: structuredClone(prev.visitStates),
+                visitMeta: structuredClone(prev.visitMeta),
+                rollingMovingSpeedMps: prev.rollingMovingSpeedMps
               }
             : null
         });
@@ -1085,6 +1197,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         roomProjectionState.set(roomId, {
           lastProgressMeters: state.lastProgressMeters,
           splitCrossedAt: { ...state.splitCrossedAt },
+          visitStates: structuredClone(state.visitStates),
+          visitMeta: structuredClone(state.visitMeta),
+          rollingMovingSpeedMps: state.rollingMovingSpeedMps,
           lastProjectionCore: nextProjectionCore
         });
         app.log.info(
@@ -1156,6 +1271,135 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       pingState.lastUploadIntervalSeconds
     );
     return reply.send(view);
+  });
+
+  app.post("/race-rooms/:roomId/checkpoints/:cpId/manual-stop", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { cpId: string }).cpId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    const parsed = manualCheckpointStopInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid manual stop payload" });
+    }
+    await loadWs2RuntimeIfNeeded(roomId);
+    const projectionState = roomProjectionState.get(roomId);
+    if (!projectionState || !room.activatedAt) {
+      return reply.code(409).send({ error: "Projection state unavailable" });
+    }
+    const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
+    if (!split) {
+      return reply.code(404).send({ error: "Checkpoint not found on room course" });
+    }
+    const arrivalMs = Date.parse(parsed.data.arrivalAt);
+    const departureMs = Date.parse(parsed.data.departureAt);
+    if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs) || departureMs <= arrivalMs) {
+      return reply.code(400).send({ error: "departureAt must be after arrivalAt" });
+    }
+    const manualEntry: CheckpointVisitManualData = {
+      arrivalAt: parsed.data.arrivalAt,
+      departureAt: parsed.data.departureAt,
+      actualStopSeconds: (departureMs - arrivalMs) / 1000,
+      recordedByUserId: request.identity.sub
+    };
+    const overlapVisit =
+      split.visits.find(
+        (visit) =>
+          visit.autoDetected?.arrivalRecordedAt &&
+          Date.parse(visit.autoDetected.arrivalRecordedAt) <= departureMs &&
+          (visit.autoDetected.departureRecordedAt
+            ? Date.parse(visit.autoDetected.departureRecordedAt)
+            : Number.POSITIVE_INFINITY) >= arrivalMs
+      ) ?? null;
+    if (overlapVisit) {
+      overlapVisit.manualEntry = manualEntry;
+      if (parsed.data.note) {
+        overlapVisit.note = parsed.data.note;
+      }
+      if (!overlapVisit.autoDetected && overlapVisit.resolvedSource !== "manual_crew") {
+        overlapVisit.resolvedSource = "manual_crew";
+      }
+    } else {
+      split.visits.push({
+        visitIndex: split.visits.length + 1,
+        resolvedSource: "manual_crew",
+        manualEntry,
+        activeActualStopSeconds: manualEntry.actualStopSeconds,
+        ...(parsed.data.note ? { note: parsed.data.note } : {})
+      });
+    }
+    split.totalActualStopSeconds = split.visits.reduce<number | null>((acc, visit) => {
+      if (visit.activeActualStopSeconds === null) {
+        return acc;
+      }
+      return (acc ?? 0) + visit.activeActualStopSeconds;
+    }, null);
+    split.deltaStopSeconds =
+      split.totalActualStopSeconds === null ? null : split.totalActualStopSeconds - split.plannedStopSeconds;
+    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
+    syncProjectionAccumulatorStateFromCore(projectionState);
+    await saveWs2RuntimeSnapshot(roomId);
+    return reply.send({ checkpointSplit: split });
+  });
+
+  app.patch("/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { cpId: string }).cpId;
+    const visitIndex = Number((request.params as { visitIndex: string }).visitIndex);
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    const parsed = checkpointVisitResolvedSourceInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid resolved source payload" });
+    }
+    await loadWs2RuntimeIfNeeded(roomId);
+    const projectionState = roomProjectionState.get(roomId);
+    if (!projectionState || !room.activatedAt) {
+      return reply.code(409).send({ error: "Projection state unavailable" });
+    }
+    const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
+    if (!split) {
+      return reply.code(404).send({ error: "Checkpoint not found on room course" });
+    }
+    const visit = split.visits.find((v) => v.visitIndex === visitIndex);
+    if (!visit) {
+      return reply.code(404).send({ error: "Visit not found" });
+    }
+    visit.resolvedSource = parsed.data.resolvedSource;
+    visit.activeActualStopSeconds =
+      visit.resolvedSource === "manual_crew"
+        ? (visit.manualEntry?.actualStopSeconds ?? null)
+        : (visit.autoDetected?.actualStopSeconds ?? null);
+    split.totalActualStopSeconds = split.visits.reduce<number | null>((acc, current) => {
+      if (current.activeActualStopSeconds === null) {
+        return acc;
+      }
+      return (acc ?? 0) + current.activeActualStopSeconds;
+    }, null);
+    split.deltaStopSeconds =
+      split.totalActualStopSeconds === null ? null : split.totalActualStopSeconds - split.plannedStopSeconds;
+    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
+    syncProjectionAccumulatorStateFromCore(projectionState);
+    await saveWs2RuntimeSnapshot(roomId);
+    return reply.send({ checkpointSplit: split });
   });
 
   app.get("/race-rooms/:roomId/tasks", async (request, reply) => {

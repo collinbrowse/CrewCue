@@ -1,6 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 
-export type OutboxOperationType = "ping" | "task" | "protocol";
+export type OutboxOperationType = "ping" | "task" | "protocol" | "checkpoint";
 export type OutboxOperationStatus = "pending" | "sent" | "rejected" | "conflict";
 
 export type OutboxOperation = {
@@ -16,7 +16,7 @@ export type OutboxOperation = {
 const OUTBOX_STORE_KEY = "crewcue.sync.outbox";
 
 function isOutboxOperationType(value: unknown): value is OutboxOperationType {
-  return value === "ping" || value === "task" || value === "protocol";
+  return value === "ping" || value === "task" || value === "protocol" || value === "checkpoint";
 }
 
 function isOutboxOperationStatus(value: unknown): value is OutboxOperationStatus {
