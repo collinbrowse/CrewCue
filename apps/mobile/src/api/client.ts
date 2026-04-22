@@ -104,6 +104,11 @@ export type GetSyncHealthResponse = {
   syncStatus: SyncStatus;
 };
 
+export type AssignTaskInput = {
+  assigneeUserId: string;
+  assigneeRole: CrewAssignment["assigneeRole"];
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -129,6 +134,17 @@ export function createApiClient(options: ApiClientOptions) {
         "GET",
         `/race-rooms/${roomId}/tasks`
       ),
+    assignTask: (roomId: string, taskId: string, input: AssignTaskInput) =>
+      request<{ task: CrewTask; assignment: CrewAssignment }>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/tasks/${taskId}/assign`,
+        input
+      ),
+    startTask: (roomId: string, taskId: string) =>
+      request<{ task: CrewTask }>(options, "POST", `/race-rooms/${roomId}/tasks/${taskId}/start`),
+    completeTask: (roomId: string, taskId: string) =>
+      request<{ task: CrewTask }>(options, "POST", `/race-rooms/${roomId}/tasks/${taskId}/complete`),
     postSyncHeartbeat: (roomId: string, input: PostSyncHeartbeatInput) =>
       request<PostSyncHeartbeatResponse>(options, "POST", `/race-rooms/${roomId}/sync/heartbeat`, input),
     getSyncHealth: (roomId: string, query?: GetSyncHealthOptions) =>
