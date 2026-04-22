@@ -145,6 +145,7 @@ Replay reads from the same underlying platform event store as event listing:
 
 - With persistence enabled (`PERSISTENCE_MODE=postgres`), WS7 reads the aggregate stream from persisted Postgres-backed storage.
 - With room persistence off (`PERSISTENCE_MODE=memory`; sometimes described operationally as "room persistence off"), WS7 reads from the in-process in-memory store only.
+- For WS3 task-board reads, `GET /race-rooms/:roomId/tasks` now prefers the materialized `task_board_snapshots` row and refreshes it from the canonical persisted board payload when the snapshot is missing or behind the latest version marker.
 
 That means in-memory mode is useful for local development and tests, but it is not restart-safe. If the API process restarts while persistence is off, previously appended platform events disappear and both event listing and replay will return only what has been written since the restart.
 
@@ -164,3 +165,4 @@ That means in-memory mode is useful for local development and tests, but it is n
 | Date | Change |
 | --- | --- |
 | 2026-04-21 | Initial publication for Chunk D3 replay SOP and operator guidance. |
+| 2026-04-22 | Added the task board materialized snapshot note for `GET /race-rooms/:roomId/tasks`. |

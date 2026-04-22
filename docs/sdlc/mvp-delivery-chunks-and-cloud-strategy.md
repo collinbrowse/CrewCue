@@ -135,7 +135,7 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 | --- | --- | --- |
 | **D1 — WS2 depth** | Baselines, weather stub or integration, richer course model | Store inputs in Postgres; cache if needed — first slice: [chunk-d-d1-ws2-projection.md](./chunk-d-d1-ws2-projection.md) |
 | **D2 — WS5 client resilience** | Offline queue, retry, idempotent mutations | Same staging API; exercise idempotency keys |
-| **D3 — WS7 projections** | Snapshot tables, broader reducers, replay tooling | Jobs run in cloud (worker or cron); document rebuild SOP |
+| **D3 — WS7 projections** | Snapshot tables, broader reducers, replay tooling | Jobs run in cloud (worker or cron); document rebuild SOP. `GET /race-rooms/:roomId/tasks` now prefers `task_board_snapshots` and falls back to canonical board replay when the snapshot is missing or stale. |
 | **D4 — BLE / mesh (optional)** | Only if pilot evidence requires it | Often **device-local** first; server stays HTTP |
 
 **Replay SOP:** [chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)
@@ -254,3 +254,4 @@ Validation rules:
 | 2026-04-20 | Linked first Chunk C slice doc ([chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)). |
 | 2026-04-21 | Linked Chunk D3 replay SOP ([chunk-d-ws7-replay-sop.md](./chunk-d-ws7-replay-sop.md)). |
 | 2026-04-22 | Linked merge concurrency policy ([merge-concurrency-policy.md](./merge-concurrency-policy.md)) for offline overlap handling. |
+| 2026-04-22 | Noted the D3 task board materialized snapshot read path for `GET /race-rooms/:roomId/tasks`. |

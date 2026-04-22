@@ -24,6 +24,7 @@ import {
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
+  deleteTaskBoardSnapshot,
   deleteWs2RuntimePayload,
   deleteWs4AdaptivePayload,
   deleteWs5SyncPayload,
@@ -33,10 +34,13 @@ import {
   loadRaceRoom,
   loadRaceRoomInvite,
   loadTaskBoardPayload,
+  loadTaskBoardPayloadVersion,
+  loadTaskBoardSnapshot,
   loadWs2RuntimePayload,
   persistRaceRoom,
   persistRaceRoomInvite,
   persistTaskBoardPayload,
+  persistTaskBoardSnapshot,
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
 
@@ -247,12 +251,21 @@ async function saveWs2RuntimeSnapshot(roomId: string): Promise<void> {
   });
 }
 
-type RoomTaskBoardState = {
+type TaskBoardMaterializedPayload = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
   assignments: CrewAssignment[];
   protocolNotes: ProtocolNote[];
   timelineEvents: OpsTimelineEvent[];
+};
+
+type RoomTaskBoardState = TaskBoardMaterializedPayload & {
+  version: number;
+};
+
+type PersistedTaskBoardRecord = {
+  version: number;
+  board: TaskBoardMaterializedPayload;
 };
 
 const roomTaskBoardState = new Map<string, RoomTaskBoardState>();
@@ -273,9 +286,37 @@ function getOrInitPingState(roomId: string): RoomPingState {
   return state;
 }
 
+function createTaskBoardState(payload: TaskBoardMaterializedPayload, version: number): RoomTaskBoardState {
+  return {
+    checkpointPlans: payload.checkpointPlans,
+    tasks: payload.tasks,
+    assignments: payload.assignments,
+    protocolNotes: payload.protocolNotes,
+    timelineEvents: payload.timelineEvents,
+    version: Number.isInteger(version) && version > 0 ? version : 1
+  };
+}
+
+function toTaskBoardPayload(board: RoomTaskBoardState): TaskBoardMaterializedPayload {
+  return {
+    checkpointPlans: board.checkpointPlans,
+    tasks: board.tasks,
+    assignments: board.assignments,
+    protocolNotes: board.protocolNotes,
+    timelineEvents: board.timelineEvents
+  };
+}
+
 function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
   if (!room.course) {
-    return { checkpointPlans: [], tasks: [], assignments: [], protocolNotes: [], timelineEvents: [] };
+    return {
+      checkpointPlans: [],
+      tasks: [],
+      assignments: [],
+      protocolNotes: [],
+      timelineEvents: [],
+      version: 1
+    };
   }
 
   const checkpoints = room.course.checkpoints.slice(0, Math.min(room.course.checkpoints.length, 3));
@@ -321,10 +362,10 @@ function buildInitialTaskBoard(room: RaceRoom): RoomTaskBoardState {
     assignedAt: now
   }));
 
-  return { checkpointPlans, tasks, assignments, protocolNotes: [], timelineEvents: [] };
+  return { checkpointPlans, tasks, assignments, protocolNotes: [], timelineEvents: [], version: 1 };
 }
 
-function normalizeTaskBoardPayload(raw: unknown): RoomTaskBoardState | undefined {
+function normalizeTaskBoardMaterializedPayload(raw: unknown): TaskBoardMaterializedPayload | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
   }
@@ -346,34 +387,79 @@ function normalizeTaskBoardPayload(raw: unknown): RoomTaskBoardState | undefined
   };
 }
 
+function normalizeTaskBoardPayload(raw: unknown): RoomTaskBoardState | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const rec = raw as Record<string, unknown>;
+  const persistedBoard = normalizeTaskBoardMaterializedPayload(rec.board);
+  if (persistedBoard) {
+    const version = typeof rec.version === "number" ? rec.version : 1;
+    return createTaskBoardState(persistedBoard, version);
+  }
+  const legacyBoard = normalizeTaskBoardMaterializedPayload(raw);
+  if (!legacyBoard) {
+    return undefined;
+  }
+  return createTaskBoardState(legacyBoard, 1);
+}
+
+async function refreshTaskBoardSnapshot(roomId: string, board: RoomTaskBoardState): Promise<void> {
+  await persistTaskBoardSnapshot({
+    aggregateId: roomId,
+    version: board.version,
+    payload: toTaskBoardPayload(board)
+  });
+}
+
 async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
   const cached = roomTaskBoardState.get(room.id);
   if (cached) {
-    if (!cached.timelineEvents) {
-      cached.timelineEvents = [];
-    }
     return cached;
   }
-  if (isRoomPersistenceEnabled()) {
-    const raw = await loadTaskBoardPayload(room.id);
-    const parsed = normalizeTaskBoardPayload(raw);
-    if (parsed) {
-      if (!parsed.timelineEvents) {
-        parsed.timelineEvents = [];
+
+  const snapshot = await loadTaskBoardSnapshot(room.id);
+  if (snapshot) {
+    const parsedSnapshot = normalizeTaskBoardPayload({
+      version: snapshot.version,
+      board: snapshot.payload
+    });
+    if (parsedSnapshot) {
+      const persistedVersion = await loadTaskBoardPayloadVersion(room.id);
+      if (persistedVersion === undefined || persistedVersion <= parsedSnapshot.version) {
+        roomTaskBoardState.set(room.id, parsedSnapshot);
+        return parsedSnapshot;
       }
-      roomTaskBoardState.set(room.id, parsed);
-      return parsed;
     }
   }
+
+  const raw = await loadTaskBoardPayload(room.id);
+  const parsed = normalizeTaskBoardPayload(raw);
+  if (parsed) {
+    roomTaskBoardState.set(room.id, parsed);
+    await refreshTaskBoardSnapshot(room.id, parsed);
+    return parsed;
+  }
+
   const built = buildInitialTaskBoard(room);
-  roomTaskBoardState.set(room.id, built);
-  await persistTaskBoardPayload(room.id, built);
+  await saveTaskBoard(room.id, built);
   return built;
 }
 
 async function saveTaskBoard(roomId: string, board: RoomTaskBoardState): Promise<void> {
   roomTaskBoardState.set(roomId, board);
-  await persistTaskBoardPayload(roomId, board);
+  await persistTaskBoardPayload(
+    roomId,
+    {
+      version: board.version,
+      board: toTaskBoardPayload(board)
+    } satisfies PersistedTaskBoardRecord
+  );
+  await refreshTaskBoardSnapshot(roomId, board);
+}
+
+function bumpTaskBoardVersion(board: RoomTaskBoardState): void {
+  board.version += 1;
 }
 
 const assignTaskInput = z.object({
@@ -414,6 +500,10 @@ function appendTaskTimeline(board: RoomTaskBoardState, event: Omit<OpsTimelineEv
 
 function sortTimelineAscending(events: OpsTimelineEvent[]): OpsTimelineEvent[] {
   return [...events].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+}
+
+export function clearTaskBoardLocalState(roomId: string): void {
+  roomTaskBoardState.delete(roomId);
 }
 
 async function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): Promise<void> {
@@ -686,9 +776,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
     ws2RuntimeHydratedFromDb.delete(roomId);
-    roomTaskBoardState.delete(roomId);
+    clearTaskBoardLocalState(roomId);
     await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
+    await deleteTaskBoardSnapshot(roomId);
     await deleteWs4AdaptivePayload(roomId);
     const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
     clearWs4RoomLocalState(roomId);
@@ -1186,6 +1277,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    bumpTaskBoardVersion(board);
     await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]!, assignment: nextAssignment });
   });
@@ -1246,6 +1338,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    bumpTaskBoardVersion(board);
     await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]! });
   });
@@ -1306,6 +1399,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       taskId
     });
 
+    bumpTaskBoardVersion(board);
     await saveTaskBoard(roomId, board);
     return reply.send({ task: board.tasks[taskIndex]! });
   });
@@ -1407,6 +1501,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       protocolNoteId: next.id
     });
 
+    bumpTaskBoardVersion(board);
     await saveTaskBoard(roomId, board);
     return reply.send({ protocolNote: next });
   });
