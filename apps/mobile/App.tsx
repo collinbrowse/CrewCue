@@ -195,7 +195,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         teamId,
         athleteId: auth.claims.sub,
         name: `Mobile smoke ${new Date().toISOString().slice(0, 16)}`,
-        creatorRole: "athlete"
+        creatorRole: "team_manager"
       });
       setRoom(created);
       setRoomDetail(undefined);
