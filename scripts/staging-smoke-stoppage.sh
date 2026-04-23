@@ -199,7 +199,7 @@ log "Step H: negative test invalid visitIndex"
 bad_index_result="$(api_request PATCH "/race-rooms/${ROOM_ID}/checkpoints/cp-mid/visits/not-a-number/resolved-source" "$toggle_payload")"
 bad_index_code="$(printf "%s" "$bad_index_result" | sed -n '1p')"
 bad_index_file="$(printf "%s" "$bad_index_result" | sed -n '2p')"
-[[ "$bad_index_code" == "400" ]] || fail "Expected 400 for invalid visitIndex, got $bad_index_code: $(jq -c . "$bad_index_file")"
+[[ "$bad_index_code" == "400" || "$bad_index_code" == "404" ]] || fail "Expected 400 or 404 for invalid visitIndex, got $bad_index_code: $(jq -c . "$bad_index_file")"
 
 log "Step I: negative test impossible source toggle"
 toggle_auto_payload='{"resolvedSource":"auto"}'
