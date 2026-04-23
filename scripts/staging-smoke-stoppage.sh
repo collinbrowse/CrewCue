@@ -85,7 +85,7 @@ import sys
 file_path, expr, message = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(file_path, "r", encoding="utf-8") as f:
     data = json.load(f)
-if not eval(expr, {"__builtins__": {}}, {"d": data}):
+if not eval(expr, {"__builtins__": {}}, {"d": data, "isinstance": isinstance, "len": len, "type": type}):
     raise SystemExit(message)
 PY
 }
