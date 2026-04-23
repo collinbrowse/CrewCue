@@ -15,6 +15,7 @@ import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
   CheckpointPlan,
+  CheckpointVisitSource,
   CrewAssignment,
   CrewTask,
   OpsTimelineEvent,
@@ -30,6 +31,7 @@ import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
   list as listOutbox,
   replace as replaceOutbox,
+  enqueue as enqueueOutbox,
   type OutboxOperation
 } from "./src/sync/outboxStore";
 import {
@@ -121,6 +123,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [outboxProcessing, setOutboxProcessing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
+  const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
 
@@ -567,12 +570,47 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, room, baseUrl]);
 
+  const enqueueManualStop = useCallback(
+    async (checkpointId: string, arrivalAt: string, departureAt: string) => {
+      if (!room) return;
+      await enqueueOutbox({
+        id: `manual-stop-${room.id}-${checkpointId}-${Date.now()}`,
+        type: "checkpoint",
+        payload: { roomId: room.id, checkpointId, action: "manual_stop", arrivalAt, departureAt },
+        attempts: 0,
+        status: "pending"
+      });
+      setStationArrivalAt((prev) => {
+        const next = { ...prev };
+        delete next[checkpointId];
+        return next;
+      });
+      await refreshOutbox();
+    },
+    [room, refreshOutbox]
+  );
+
+  const enqueueSourceToggle = useCallback(
+    async (checkpointId: string, visitIndex: number, resolvedSource: CheckpointVisitSource) => {
+      if (!room) return;
+      await enqueueOutbox({
+        id: `source-toggle-${room.id}-${checkpointId}-${visitIndex}-${Date.now()}`,
+        type: "checkpoint",
+        payload: { roomId: room.id, checkpointId, action: "set_resolved_source", visitIndex, resolvedSource },
+        attempts: 0,
+        status: "pending"
+      });
+      await refreshOutbox();
+    },
+    [room, refreshOutbox]
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.card}>
           <Text style={styles.title}>CrewCue</Text>
-          <Text style={styles.subtitle}>Chunk D2 mobile sync smoke test</Text>
+          <Text style={styles.subtitle}>Crew operations</Text>
 
           <Text style={styles.label}>API base</Text>
           <Text style={styles.code}>{baseUrl}</Text>
@@ -710,6 +748,51 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         <Pressable style={styles.secondaryButton} onPress={fetchTimeline} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch ops timeline (GET)</Text>
                         </Pressable>
+                        {room.course?.checkpoints && room.course.checkpoints.length > 0 ? (
+                          <>
+                            <Text style={[styles.label, { marginTop: 8 }]}>Checkpoint stations</Text>
+                            {room.course.checkpoints.map((cp) => {
+                              const arrival = stationArrivalAt[cp.id];
+                              return (
+                                <View key={cp.id} style={{ gap: 4 }}>
+                                  <Text style={styles.body}>
+                                    {cp.id}
+                                    {cp.plannedStopSeconds ? ` · ${cp.plannedStopSeconds}s planned` : ""}
+                                  </Text>
+                                  {arrival ? (
+                                    <>
+                                      <Text style={[styles.code, { color: "#86efac" }]}>
+                                        At station since {arrival.slice(11, 19)}Z
+                                      </Text>
+                                      <Pressable
+                                        style={styles.primaryButton}
+                                        disabled={busy}
+                                        onPress={() => {
+                                          void enqueueManualStop(cp.id, arrival, new Date().toISOString());
+                                        }}
+                                      >
+                                        <Text style={styles.primaryButtonLabel}>Exit station → enqueue stop</Text>
+                                      </Pressable>
+                                    </>
+                                  ) : (
+                                    <Pressable
+                                      style={styles.secondaryButton}
+                                      disabled={busy}
+                                      onPress={() => {
+                                        setStationArrivalAt((prev) => ({
+                                          ...prev,
+                                          [cp.id]: new Date().toISOString()
+                                        }));
+                                      }}
+                                    >
+                                      <Text style={styles.secondaryButtonLabel}>Enter station</Text>
+                                    </Pressable>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </>
+                        ) : null}
                       </>
                     ) : null}
                   </>
@@ -858,6 +941,100 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                   <Text style={styles.code}>{String(projection.weatherStub.assumedHeadwindMps)}</Text>
                 </>
               ) : null}
+            </View>
+          ) : null}
+
+          {projection?.stoppageSummary ? (
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>WS2 Stoppage summary</Text>
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Planned total</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.totalPlannedStopSeconds}s</Text>
+              </View>
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Actual total</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.totalActualStopSeconds}s</Text>
+              </View>
+              {projection.stoppageSummary.totalDeltaStopSeconds !== null ? (
+                <View style={styles.stoppageRow}>
+                  <Text style={styles.body}>Delta</Text>
+                  <Text
+                    style={[
+                      styles.code,
+                      {
+                        color:
+                          projection.stoppageSummary.totalDeltaStopSeconds > 0
+                            ? "#fca5a5"
+                            : "#86efac"
+                      }
+                    ]}
+                  >
+                    {projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "+" : ""}
+                    {projection.stoppageSummary.totalDeltaStopSeconds}s
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Remaining planned</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.remainingPlannedStopSeconds}s</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {projection?.checkpointSplits && projection.checkpointSplits.length > 0 ? (
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>Checkpoint splits</Text>
+              {projection.checkpointSplits.map((split) => (
+                <View key={split.checkpointId} style={{ marginTop: 12 }}>
+                  <View style={styles.stoppageRow}>
+                    <Text style={[styles.code, { fontWeight: "600" }]}>{split.checkpointId}</Text>
+                    {split.crossedAtRecordedAt ? (
+                      <Text style={[styles.code, { color: "#86efac" }]}>
+                        {split.crossedAtRecordedAt.slice(11, 19)}Z
+                      </Text>
+                    ) : (
+                      <Text style={[styles.code, { color: "#6b7280" }]}>not crossed</Text>
+                    )}
+                  </View>
+                  {split.plannedStopSeconds > 0 ? (
+                    <View style={styles.stoppageRow}>
+                      <Text style={styles.body}>Planned / actual stop</Text>
+                      <Text style={styles.code}>
+                        {split.plannedStopSeconds}s /{" "}
+                        {split.totalActualStopSeconds !== null ? `${split.totalActualStopSeconds}s` : "—"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {split.visits.map((visit) => (
+                    <View key={visit.visitIndex} style={styles.visitRow}>
+                      <Text style={styles.body}>
+                        Visit #{visit.visitIndex} · source:{" "}
+                        <Text style={styles.code}>{visit.resolvedSource}</Text>
+                        {visit.activeActualStopSeconds !== null
+                          ? ` · ${visit.activeActualStopSeconds}s`
+                          : ""}
+                      </Text>
+                      {visit.note ? <Text style={[styles.body, { color: "#9ca3af" }]}>{visit.note}</Text> : null}
+                      {visit.autoDetected && visit.manualEntry ? (
+                        <Pressable
+                          style={styles.toggleButton}
+                          onPress={() => {
+                            void enqueueSourceToggle(
+                              split.checkpointId,
+                              visit.visitIndex,
+                              visit.resolvedSource === "auto" ? "manual_crew" : "auto"
+                            );
+                          }}
+                        >
+                          <Text style={styles.toggleButtonLabel}>
+                            → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ))}
             </View>
           ) : null}
 
@@ -1034,5 +1211,31 @@ const styles = StyleSheet.create({
   },
   outboxStatusConflict: {
     color: "#f59e0b"
+  },
+  stoppageRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1f2937"
+  },
+  visitRow: {
+    marginTop: 8,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: "#374151"
+  },
+  toggleButton: {
+    marginTop: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: "#374151",
+    alignSelf: "flex-start"
+  },
+  toggleButtonLabel: {
+    color: "#d1d5db",
+    fontSize: 12
   }
 });
