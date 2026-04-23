@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify";
 import type { IdentityClaims } from "@crewcue/contracts";
 import { isAuth0Configured, verifyAuth0AccessToken } from "../lib/auth0Jwt.js";
 import { mapJwtPayloadToIdentity } from "../lib/authIdentity.js";
+import { readAutomationGuardConfig, validateAutomationAuthPayload } from "../lib/automationAuthGuard.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -22,6 +23,8 @@ function readBearer(request: FastifyRequest): string | undefined {
 }
 
 export const authPlugin = fp(async (app) => {
+  const automationGuard = readAutomationGuardConfig();
+
   await app.register(fastifyJwt, {
     secret: process.env.JWT_SECRET ?? "dev-only-secret",
   });
@@ -41,6 +44,12 @@ export const authPlugin = fp(async (app) => {
       }
       try {
         const payload = await verifyAuth0AccessToken(bearer);
+        const guardReason = validateAutomationAuthPayload(payload, automationGuard);
+        if (guardReason !== null) {
+          request.log.debug({ guardReason }, "automation_auth_guard_rejected");
+          request.identity = undefined;
+          return;
+        }
         request.identity = mapJwtPayloadToIdentity(payload, {
           claimNamespace: process.env.AUTH0_CLAIM_NAMESPACE?.trim(),
         });

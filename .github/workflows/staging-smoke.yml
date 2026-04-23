@@ -1,0 +1,64 @@
+name: Staging Automation Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-staging-smoke'
+    runs-on: ubuntu-latest
+    environment: staging-automation
+    timeout-minutes: 20
+    env:
+      API_BASE_URL: ${{ secrets.STAGING_AUTOMATION_API_BASE_URL }}
+      AUTH0_ISSUER: ${{ secrets.AUTH0_ISSUER }}
+      AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+      AUTH0_AUTOMATION_CLIENT_ID: ${{ secrets.AUTH0_AUTOMATION_CLIENT_ID }}
+      AUTH0_AUTOMATION_CLIENT_SECRET: ${{ secrets.AUTH0_AUTOMATION_CLIENT_SECRET }}
+      AUTH0_AUTOMATION_USER_EMAIL: ${{ secrets.AUTH0_AUTOMATION_USER_EMAIL }}
+      AUTH0_AUTOMATION_USER_PASSWORD: ${{ secrets.AUTH0_AUTOMATION_USER_PASSWORD }}
+      AUTH0_AUTOMATION_CONNECTION: ${{ secrets.AUTH0_AUTOMATION_CONNECTION }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate required env vars are present
+        run: |
+          set -euo pipefail
+          for key in API_BASE_URL AUTH0_ISSUER AUTH0_AUDIENCE AUTH0_AUTOMATION_CLIENT_ID AUTH0_AUTOMATION_CLIENT_SECRET AUTH0_AUTOMATION_USER_EMAIL AUTH0_AUTOMATION_USER_PASSWORD; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error title=Missing secret::${key} is required in environment staging-automation"
+              exit 1
+            fi
+          done
+
+      - name: Ensure script is executable
+        run: chmod +x ./scripts/staging-smoke-stoppage.sh
+
+      - name: Run stoppage staging smoke
+        run: ./scripts/staging-smoke-stoppage.sh
+
+      - name: Post success summary
+        if: success()
+        run: |
+          {
+            echo "## Staging Smoke Result"
+            echo "- Status: ✅ pass"
+            echo "- Script: \`scripts/staging-smoke-stoppage.sh\`"
+            echo "- Scope: WS2 stoppage manual stop + resolved source flows"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post failure summary
+        if: failure()
+        run: |
+          {
+            echo "## Staging Smoke Result"
+            echo "- Status: ❌ fail"
+            echo "- Script: \`scripts/staging-smoke-stoppage.sh\`"
+            echo "- Next: inspect failed step logs (token is never printed)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -21,6 +21,8 @@ It intentionally does **not** require mobile UI — use `curl` (or HTTPie) with 
 
 ## 2. Environment variables
 
+### Manual run (pre-minted token)
+
 Set these in your shell for copy/paste commands:
 
 ```bash
@@ -28,10 +30,26 @@ export API_BASE_URL="https://<your-staging-host>"
 export ACCESS_TOKEN="<staging JWT access token>"
 ```
 
+### Scripted run (recommended, used by CI)
+
+The script `scripts/staging-smoke-stoppage.sh` mints its own token from Auth0 automation credentials and requires:
+
+```bash
+export API_BASE_URL="https://<your-staging-host>"
+export AUTH0_ISSUER="https://<your-tenant>.us.auth0.com/"
+export AUTH0_AUDIENCE="https://api.automation.crewcue.dev"
+export AUTH0_AUTOMATION_CLIENT_ID="<client-id>"
+export AUTH0_AUTOMATION_CLIENT_SECRET="<client-secret>"
+export AUTH0_AUTOMATION_USER_EMAIL="<automation-user-email>"
+export AUTH0_AUTOMATION_USER_PASSWORD="<automation-user-password>"
+export AUTH0_AUTOMATION_CONNECTION="automation-users" # optional, defaults to automation-users
+```
+
 **Notes**
 
 - The token must include a `Bearer` subject that is a **room member with a crew role** for manual stop + source toggle calls (`crew_member`, `crew_chief`, or `team_manager`). Athletes are rejected for those mutations.
-- Keep `ACCESS_TOKEN` out of logs, screen recordings, and support tickets.
+- Keep tokens and client secrets out of logs, screen recordings, and support tickets.
+- GitHub Actions workflow `.github/workflows/staging-smoke.yml` reads these values from the `staging-automation` environment secrets.
 
 ---
 
@@ -121,15 +139,19 @@ Run these from a permitted crew token and confirm **400** for:
 
 ## 7. Record results (paste back into GitHub #113)
 
-| Scenario | Result (pass/fail) | Notes / timestamps |
-| --- | --- | --- |
-| Auto stoppage accumulation |  |  |
-| Manual stop overlap attach |  |  |
-| Source toggle auto ↔ manual |  |  |
-| Athlete denied mutations |  |  |
-| Invalid visitIndex |  |  |
-| ETA sanity with planned stops |  |  |
+
+| Scenario                      | Result (pass/fail) | Notes / timestamps |
+| ----------------------------- | ------------------ | ------------------ |
+| Auto stoppage accumulation    |                    |                    |
+| Manual stop overlap attach    |                    |                    |
+| Source toggle auto ↔ manual   |                    |                    |
+| Athlete denied mutations      |                    |                    |
+| Invalid visitIndex            |                    |                    |
+| ETA sanity with planned stops |                    |                    |
+
 
 **Go / no-go for #114:**  
-- [ ] Go — no correctness blockers found  
-- [ ] No-go — list blocking defects with repro steps
+
+- Go — no correctness blockers found  
+- No-go — list blocking defects with repro steps
+
