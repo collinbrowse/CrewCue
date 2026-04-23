@@ -56,7 +56,9 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 
 **Goal:** Restart-safe race operations; align runtime with ADR 0003 (append-only `domain_events`, projections over time).
 
-**Current sprint ladder:** [chunk-a-sprint1-execution.md](./chunk-a-sprint1-execution.md)
+**Current sprint ladder:** [chunk-a-sprint1-execution.md](./chunk-a-sprint1-execution.md)  
+**Spec:** [chunk-a-ws1-persistence-spec.md](./chunk-a-ws1-persistence-spec.md)  
+**Setup + verification:** [chunk-a-postgres-setup-and-verify.md](./chunk-a-postgres-setup-and-verify.md)
 
 **Ships (examples):** PostgreSQL schema and migrations for race rooms, memberships, invites, entitlement, tasks/incidents/plan data as designed; wire **WS7** `appendPlatformEvent` (or successor) to **persisted** storage; repository boundaries so the API is not a giant `Map`.
 
@@ -269,3 +271,4 @@ Validation rules:
 | 2026-04-22 | Linked checkpoint stoppage time requirements ([chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)) as next D1 slice. |
 | 2026-04-22 | Noted checkpoint stoppage time shipped to `main` via PR #112; linked follow-up issues #114 (UI) and #113 (staging smoke). Reformatted tables for readability and fixed pickup checklist command formatting. |
 | 2026-04-22 | Linked stoppage-time staging smoke companion doc for issue #113 execution. |
+| 2026-04-23 | Added Chunk A persistence spec and Postgres setup/restart verification runbook. |
