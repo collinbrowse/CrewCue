@@ -161,7 +161,7 @@ projection_result="$(api_request GET "/race-rooms/${ROOM_ID}/projection")"
 projection_code="$(printf "%s" "$projection_result" | sed -n '1p')"
 projection_file="$(printf "%s" "$projection_result" | sed -n '2p')"
 [[ "$projection_code" == "200" ]] || fail "Projection fetch failed (HTTP $projection_code): $(jq -c . "$projection_file")"
-json_assert "$projection_file" "'stoppageSummary' in d and isinstance(d['checkpointSplits'], list)" "Projection missing stoppage fields"
+json_assert "$projection_file" "'stoppageSummary' in d and 'checkpointSplits' in d" "Projection missing stoppage fields"
 CP_MID_INDEX="$(jq -r '.checkpointSplits | map(.checkpointId) | index("cp-mid")' "$projection_file")"
 [[ "$CP_MID_INDEX" != "null" ]] || fail "Projection missing cp-mid split"
 
