@@ -61,6 +61,18 @@ function describeOutboxStatus(status: OutboxOperation["status"]): string {
   return "Pending";
 }
 
+function canMutateCheckpointStoppage(auth: ReturnType<typeof useAuth>): boolean {
+  if (auth.status !== "authenticated" || !auth.claims?.sub) {
+    return false;
+  }
+  const roles = auth.claims.roomRoles;
+  if (!roles || typeof roles !== "object") {
+    return false;
+  }
+  const allowed = ["crew_member", "crew_chief", "team_manager"];
+  return Object.values(roles).some((role) => typeof role === "string" && allowed.includes(role));
+}
+
 export default function App(): ReactElement {
   const configResult = useMemo(() => loadMobileConfig(), []);
 
@@ -127,6 +139,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
+  const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
+  const canUseCheckpointControls = Boolean(
+    room?.status === "active" && projection && canEditCheckpointStops && !busy
+  );
 
   const refreshOutbox = useCallback(async () => {
     try {
@@ -752,6 +768,16 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         {room.course?.checkpoints && room.course.checkpoints.length > 0 ? (
                           <>
                             <Text style={[styles.label, { marginTop: 8 }]}>Checkpoint stations</Text>
+                            {!projection ? (
+                              <Text style={styles.body}>
+                                Fetch projection first, then station controls will unlock.
+                              </Text>
+                            ) : null}
+                            {!canEditCheckpointStops ? (
+                              <Text style={styles.body}>
+                                Station timing controls require crew role access (crew_member, crew_chief, or team_manager).
+                              </Text>
+                            ) : null}
                             {room.course.checkpoints.map((cp) => {
                               const arrival = stationArrivalAt[cp.id];
                               return (
@@ -767,7 +793,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                                       </Text>
                                       <Pressable
                                         style={styles.primaryButton}
-                                        disabled={busy}
+                                        disabled={!canUseCheckpointControls}
                                         onPress={() => {
                                           void enqueueManualStop(cp.id, arrival, new Date().toISOString());
                                         }}
@@ -778,7 +804,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                                   ) : (
                                     <Pressable
                                       style={styles.secondaryButton}
-                                      disabled={busy}
+                                      disabled={!canUseCheckpointControls}
                                       onPress={() => {
                                         setStationArrivalAt((prev) => ({
                                           ...prev,
@@ -835,6 +861,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             describeOutboxOperation={describeOutboxOperation}
             describeOutboxStatus={describeOutboxStatus}
             onToggleResolvedSource={enqueueSourceToggle}
+            canToggleResolvedSource={canUseCheckpointControls}
           />
         </View>
       </ScrollView>
