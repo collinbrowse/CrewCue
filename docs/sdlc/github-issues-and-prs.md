@@ -53,6 +53,10 @@ Use a branch name that matches the issue when helpful (not required by Git).
 
 - Push the branch: `git push -u origin <branch>`.
 - Open a PR against **`main`** (use `gh pr create` or the GitHub UI).
+- Complete all required PR template sections, including:
+  - Decision tree and rationale
+  - Implicit assumptions and invariants
+  - Higher-order effects check (or explicit "None identified")
 
 ## 4. Link the PR to the issue (required for auto-close)
 
@@ -102,7 +106,7 @@ Why this matters:
 | --- | --- |
 | Issue | GitHub issue exists with objective + acceptance. |
 | Branch | Feature branch pushed (not implementing on `main`). |
-| PR | PR targets `main`, body includes `Closes #<issue>`. |
+| PR | PR targets `main`, body includes `Closes #<issue>` and required decision-rationale sections. |
 | Merge | CI green, review done, squash/merge per team preference. |
 | Close | Issue closed automatically after merge. |
 | Protection | `main` requires `dual-client-guard`, `checks`, and `api-postgres-integration`. |

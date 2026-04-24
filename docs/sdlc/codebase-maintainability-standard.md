@@ -142,6 +142,14 @@ Never rely on chat history as the only record of why a pattern exists.
 
 When architecture intent includes multiple clients (mobile + web), update [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md) if boundaries or layering rules change.
 
+For every PR, capture decision rationale in the PR body:
+
+- key decision tree (what branches were evaluated)
+- implicit assumptions/invariants
+- second/third-order effects (or explicit "none identified")
+
+If this rationale is missing, the PR is documentation-incomplete even when code/tests are green.
+
 ---
 
 ## 10) Revision history
@@ -150,3 +158,4 @@ When architecture intent includes multiple clients (mobile + web), update [dual-
 | --- | --- |
 | 2026-04-24 | Initial publication of codebase maintainability standard. |
 | 2026-04-24 | Added explicit dual-client references and rules to preserve mobile + web architecture boundaries. |
+| 2026-04-24 | Added required PR decision-tree, assumptions, and higher-order effects documentation policy. |

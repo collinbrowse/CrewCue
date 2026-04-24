@@ -19,6 +19,33 @@ Closes #
 
 Describe exactly what this PR changes.
 
+## Decision Tree and Rationale (required)
+
+Document the key decisions that shaped this implementation so future debugging can reconstruct intent.
+
+- Decision:
+  - Context:
+  - Alternatives considered:
+  - Why selected:
+
+<!-- Repeat for each major decision. If only one straightforward path existed, explicitly state: "Single obvious path; no meaningful alternatives." -->
+
+## Implicit Assumptions and Invariants (required)
+
+List assumptions that are not obvious from code alone.
+
+- Assumption:
+  - Why it is safe today:
+  - What would break if false:
+
+## Higher-Order Effects Check (required)
+
+Explicitly note downstream effects. If none, write "None identified."
+
+- [ ] Second-order effects reviewed (adjacent modules, retries, authz, persistence, observability)
+- [ ] Third-order effects reviewed (operator workflow, incident/debug path, docs/runbooks)
+- Summary:
+
 ## Acceptance Criteria Mapping
 
 List each relevant acceptance criterion and how this PR satisfies it.
