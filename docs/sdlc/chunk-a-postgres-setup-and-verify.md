@@ -269,3 +269,10 @@ Chunk A success for this slice means:
 - WS1 room and invite state is durable
 - staging truth can survive a process restart
 - later chunks now have a real persistence foundation
+
+## 9. Revision history
+
+| Date | Change |
+| --- | --- |
+| 2026-04-23 | Initial publication of Chunk A Postgres setup and restart verification runbook. |
+| 2026-04-24 | Operator validation on staging: migrations `0001`-`0009` applied; service redeployed to `68a26d30-88f6-4587-abe6-94ec8cf9af23`; `/health/live` confirmed `persistence.mode=postgres` and `enabled=true`; persisted row counts remained stable (`rooms=2`, `invites=0`) before and after redeploy. |
