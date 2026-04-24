@@ -8,6 +8,7 @@
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
 - [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  
+- [mobile-phase3-staging-validation-checklist.md](./mobile-phase3-staging-validation-checklist.md)  
 - [chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)  
 - [merge-concurrency-policy.md](./merge-concurrency-policy.md)
 
@@ -332,3 +333,4 @@ A UI PR is not complete unless all apply:
 | --- | --- |
 | 2026-04-24 | Initial publication: phased UI roadmap, architecture constraints, anti-duplication rules, and PR checklist. |
 | 2026-04-24 | Reordered priorities so WS6 manager command center is deferred to Phase 5 (last priority) and added explicit monorepo-first execution order. |
+| 2026-04-24 | Added dedicated Phase 3 staging validation checklist reference for WS3/WS4 mobile exit-gate verification. |

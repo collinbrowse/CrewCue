@@ -3,6 +3,7 @@
 **Audience:** engineers and operators validating the Chunk C exit gate against the Railway staging API.  
 **Strategy ref:** [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md) §Chunk C exit criteria.  
 **Prerequisites:** Chunk A (Postgres persistence) and Chunk B (Auth0 + entitlement) green on staging.
+**Phase 3 follow-up:** [mobile-phase3-staging-validation-checklist.md](./mobile-phase3-staging-validation-checklist.md)
 
 ---
 
@@ -100,3 +101,4 @@ Steps 1–9 exercise: Auth0, room lifecycle, entitlement gate, WS2 ping ingest, 
 | Date       | Change |
 | ---------- | ------ |
 | 2026-04-21 | Initial publication — covers slices 1–5 of Chunk C (issues #82–#89). |
+| 2026-04-24 | Linked dedicated Phase 3 mobile staging validation checklist for WS3/WS4 depth loops. |
