@@ -196,9 +196,28 @@ Exit gate:
 
 - Incident-to-plan-update workflow complete in app
 
-## Phase 4 - WS6 manager command center
+## Phase 4 - UX polish and navigation hardening
 
-**Goal:** multi-athlete operational visibility for team managers.
+**Goal:** improve usability after core flow and resilience stabilize.
+
+Build:
+
+- Navigation architecture cleanup
+- visual system consistency
+- accessibility + large-text support
+- interaction latency optimization
+
+Rule:
+
+- No major design-system effort before Phases 1-3 are field-validated.
+
+Exit gate:
+
+- Core race-day flows are easier/faster to execute without changing backend contracts.
+
+## Phase 5 - WS6 manager command center (deferred / last priority)
+
+**Goal:** multi-athlete operational visibility for team managers, after core athlete+crew value is already in users' hands.
 
 Build:
 
@@ -212,24 +231,14 @@ Reuse requirements:
 - Reuse projection/task/sync primitives from prior phases
 - Avoid duplicating per-athlete feature logic with manager-only variants; compose shared components
 
+Defer rule:
+
+- Do not start WS6 manager command center while any of Phases 1-3 exit gates are open.
+- Treat this phase as post-MVP hardening/expansion unless product priorities explicitly change.
+
 Exit gate:
 
-- Manager can triage multiple athletes without switching tools
-
-## Phase 5 - UX polish and navigation hardening
-
-**Goal:** improve usability after flow and resilience stabilize.
-
-Build:
-
-- Navigation architecture cleanup
-- visual system consistency
-- accessibility + large-text support
-- interaction latency optimization
-
-Rule:
-
-- No major design-system effort before Phases 1-3 are field-validated.
+- Manager can triage multiple athletes without switching tools.
 
 ---
 
@@ -242,12 +251,38 @@ Rule:
 | WS3 | crew task execution + notes/timeline | Phase 3 |
 | WS4 | incident capture + adaptive recommendation view | Phase 3 |
 | WS5 | outbox/sync/conflict visibility and recovery | Phase 2 |
-| WS6 | multi-athlete manager board | Phase 4 |
+| WS6 | multi-athlete manager board | Phase 5 (deferred) |
 | WS7 | contract-backed state and replay-safe semantics | cross-cutting |
 
 ---
 
-## 7) Anti-duplication rules for agents
+## 7) Monorepo-first execution order (global, not per-project)
+
+Use this order across the entire monorepo so UI, API, sync, and ops work stay aligned:
+
+1. **Contracts + backend capability**
+   - add/adjust contracts in `packages/contracts`
+   - implement API route + persistence + authz in `services/api`
+   - add API tests first
+2. **Client transport + outbox plumbing**
+   - wire `apps/mobile/src/api/client.ts`
+   - add/update outbox payload types and processor behavior
+   - add unit tests for outbox processing/conflict behavior
+3. **UI workflow layer**
+   - add/adjust screens/components using existing client/outbox primitives
+   - avoid inline network logic in view components
+4. **Operational docs and smoke updates**
+   - update chunk/runbook docs
+   - update smoke scripts/checklists if the operator flow changed
+5. **Staging verification before merge**
+   - verify health/runtime on staging for cloud-touching changes
+   - only then merge to `main`
+
+This order is mandatory for phases 1-3. Phase 5 (WS6) only starts after the same chain is already stable.
+
+---
+
+## 8) Anti-duplication rules for agents
 
 Before implementing any UI issue, an agent must:
 
@@ -263,7 +298,7 @@ If a task would duplicate existing logic, refactor shared modules first, then ad
 
 ---
 
-## 8) Required documentation updates per phase
+## 9) Required documentation updates per phase
 
 Each merged UI phase should update:
 
@@ -275,7 +310,7 @@ No "silent UI architecture changes" in PRs without doc updates.
 
 ---
 
-## 9) PR acceptance checklist for UI work
+## 10) PR acceptance checklist for UI work
 
 A UI PR is not complete unless all apply:
 
@@ -288,8 +323,9 @@ A UI PR is not complete unless all apply:
 
 ---
 
-## 10) Revision history
+## 11) Revision history
 
 | Date | Change |
 | --- | --- |
 | 2026-04-24 | Initial publication: phased UI roadmap, architecture constraints, anti-duplication rules, and PR checklist. |
+| 2026-04-24 | Reordered priorities so WS6 manager command center is deferred to Phase 5 (last priority) and added explicit monorepo-first execution order. |
