@@ -38,10 +38,12 @@ This is the first persistence bridge after WS1-WS7 foundations. It is intentiona
 
 It supports two modes:
 
-| Mode | Behavior |
-| --- | --- |
-| `memory` | Existing in-process behavior. Fast local iteration, no restart safety. |
+
+| Mode       | Behavior                                                                |
+| ---------- | ----------------------------------------------------------------------- |
+| `memory`   | Existing in-process behavior. Fast local iteration, no restart safety.  |
 | `postgres` | Reads/writes to Postgres-backed JSONB tables and event/snapshot tables. |
+
 
 The current Chunk A implementation is a **bridge design**, not the final data model from ADR 0003:
 
@@ -55,29 +57,35 @@ That bridge is acceptable for Chunk A because it gives restart safety now while 
 
 ### WS1 canonical room/invite state
 
-| Table | Purpose |
-| --- | --- |
-| `race_rooms_json` | current `RaceRoom` payload keyed by room id |
-| `race_room_invites_json` | invite payload keyed by token |
+
+| Table                    | Purpose                                     |
+| ------------------------ | ------------------------------------------- |
+| `race_rooms_json`        | current `RaceRoom` payload keyed by room id |
+| `race_room_invites_json` | invite payload keyed by token               |
+
 
 ### Runtime payload tables already supported by the persistence layer
 
-| Table | Purpose |
-| --- | --- |
-| `room_task_boards_json` | current task board payload for a room |
-| `room_ws2_runtime_json` | WS2 runtime/projection payloads |
-| `room_ws4_adaptive_json` | WS4 adaptive planning payloads |
-| `room_ws5_sync_json` | WS5 sync heartbeat/health payloads |
+
+| Table                              | Purpose                                   |
+| ---------------------------------- | ----------------------------------------- |
+| `room_task_boards_json`            | current task board payload for a room     |
+| `room_ws2_runtime_json`            | WS2 runtime/projection payloads           |
+| `room_ws4_adaptive_json`           | WS4 adaptive planning payloads            |
+| `room_ws5_sync_json`               | WS5 sync heartbeat/health payloads        |
 | `team_command_metric_configs_json` | team-level command metric config payloads |
+
 
 ### Event/snapshot tables aligned with ADR 0003
 
-| Table | Purpose |
-| --- | --- |
-| `platform_aggregate_heads` | last sequence per aggregate |
-| `platform_domain_events` | append-only persisted domain events with idempotency key |
-| `race_room_snapshots` | replay snapshot for race room aggregate |
-| `task_board_snapshots` | replay snapshot for task board aggregate |
+
+| Table                      | Purpose                                                  |
+| -------------------------- | -------------------------------------------------------- |
+| `platform_aggregate_heads` | last sequence per aggregate                              |
+| `platform_domain_events`   | append-only persisted domain events with idempotency key |
+| `race_room_snapshots`      | replay snapshot for race room aggregate                  |
+| `task_board_snapshots`     | replay snapshot for task board aggregate                 |
+
 
 ## 5. Behavioral requirements
 
