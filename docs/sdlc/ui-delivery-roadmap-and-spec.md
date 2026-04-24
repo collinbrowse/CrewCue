@@ -5,6 +5,7 @@
 
 **Related docs:**  
 - [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
+- [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
 - [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  
 - [chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)  
@@ -39,6 +40,8 @@ This is deliberate. Building polished visuals before flow reliability creates re
 - Staging API now runs with Postgres persistence enabled
 
 Implication: UI work should now move from "smoke shell" toward "structured operational UI" without rebuilding auth/network primitives.
+
+For web expansion, this document governs workflow priorities while [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md) governs architecture boundaries. If those conflict, architecture guardrails win.
 
 ---
 

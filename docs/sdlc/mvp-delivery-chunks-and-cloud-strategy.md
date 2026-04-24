@@ -3,7 +3,7 @@
 **Audience:** engineers, operators, and AI coding agents picking up work after WS0–WS7 foundation sprints.  
 **Intent:** one place to learn **what to build next**, **where it runs** (local vs cloud), and **how to ship** without re-deriving strategy from chat history.
 
-**Related:** [athlete-support-operations-plan.md](../../athlete-support-operations-plan.md) (product scope) · [GitHub issues and PRs](./github-issues-and-prs.md) (task workflow) · [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md) (phased UI build plan) · [codebase-maintainability-standard.md](./codebase-maintainability-standard.md) (maintainability policy) · [contributor-onboarding-map.md](./contributor-onboarding-map.md) (quick project navigation) · [WS0 readiness sign-off](../ws0-readiness-signoff.md) · [ADR 0003](../adr/0003-canonical-data-and-event-log.md) · [ADR 0004](../adr/0004-cloud-iac-auth-baseline.md)
+**Related:** [athlete-support-operations-plan.md](../../athlete-support-operations-plan.md) (product scope) · [GitHub issues and PRs](./github-issues-and-prs.md) (task workflow) · [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md) (phased UI build plan) · [codebase-maintainability-standard.md](./codebase-maintainability-standard.md) (maintainability policy) · [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md) (mobile + web architecture policy) · [contributor-onboarding-map.md](./contributor-onboarding-map.md) (quick project navigation) · [WS0 readiness sign-off](../ws0-readiness-signoff.md) · [ADR 0003](../adr/0003-canonical-data-and-event-log.md) · [ADR 0004](../adr/0004-cloud-iac-auth-baseline.md)
 
 ---
 
@@ -163,6 +163,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 5. **Verify on staging** when the task touches cloud behavior (DB, Auth0, webhooks)—local-only tests are insufficient for merge at gate boundaries.
 6. **Update** this doc or ADRs only when strategy changes (avoid drive-by edits).
 
+For any task that affects client-facing behavior, also check [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md) so mobile and future web clients remain aligned at contract/API boundaries.
+
 ---
 
 ## 6. What “done” means for MVP cloud readiness (summary)
@@ -274,3 +276,4 @@ Validation rules:
 | 2026-04-23 | Added Chunk A persistence spec and Postgres setup/restart verification runbook. |
 | 2026-04-24 | Linked UI delivery roadmap/spec to make phased client build order explicit and reduce duplicate implementation. |
 | 2026-04-24 | Added maintainability and onboarding references as first-class SDLC companion docs. |
+| 2026-04-24 | Added dual-client architecture guardrails reference for mobile + web evolution. |
