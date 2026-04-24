@@ -274,32 +274,46 @@ export function OperationalSummarySections({
         </View>
       ) : null}
 
-      {lastProtocolNote ? (
-        <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>POST /race-rooms/:id/protocol-notes</Text>
-          <Text style={styles.body}>Note ID</Text>
-          <Text style={styles.code}>{lastProtocolNote.id}</Text>
-          <Text style={styles.body}>Category / checkpoint</Text>
-          <Text style={styles.code}>
-            {lastProtocolNote.category} @ {lastProtocolNote.checkpointId}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Protocol notes</Text>
+        {!lastProtocolNote ? (
+          <Text style={[styles.code, { color: "#6b7280" }]}>
+            No protocol note posted in this session yet. Post one to verify checkpoint guidance capture.
           </Text>
-          <Text style={styles.body}>Body</Text>
-          <Text style={styles.code}>{lastProtocolNote.body}</Text>
-        </View>
-      ) : null}
+        ) : (
+          <>
+            <Text style={styles.body}>Latest note</Text>
+            <Text style={styles.code}>{lastProtocolNote.id}</Text>
+            <Text style={styles.body}>Category / checkpoint</Text>
+            <Text style={styles.code}>
+              {lastProtocolNote.category} @ {lastProtocolNote.checkpointId}
+            </Text>
+            <Text style={styles.body}>Body</Text>
+            <Text style={styles.code}>{lastProtocolNote.body}</Text>
+            <Text style={styles.body}>Recorded at</Text>
+            <Text style={styles.code}>{lastProtocolNote.updatedAt}</Text>
+          </>
+        )}
+      </View>
 
       {timeline !== undefined ? (
-        <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>GET /race-rooms/:id/timeline</Text>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>Ops timeline</Text>
           <Text style={styles.body}>Events</Text>
           <Text style={styles.code}>{timeline.length} total</Text>
           {timeline.length === 0 ? (
-            <Text style={[styles.code, { color: "#6b7280" }]}>— no events yet —</Text>
+            <Text style={[styles.code, { color: "#6b7280" }]}>
+              No events yet. Trigger task/protocol actions and fetch timeline to verify operation history.
+            </Text>
           ) : (
-            [...timeline].reverse().slice(0, 4).map((e) => (
-              <Text key={e.id} style={styles.code}>
-                {e.kind}: {e.message}
-              </Text>
+            [...timeline].reverse().slice(0, 6).map((event) => (
+              <View key={event.id} style={styles.visitRow}>
+                <Text style={styles.code}>
+                  {event.occurredAt.slice(11, 19)}Z · {event.kind}
+                </Text>
+                <Text style={styles.body}>{event.message}</Text>
+                <Text style={[styles.code, { color: "#9ca3af" }]}>actor: {event.actorUserId}</Text>
+              </View>
             ))
           )}
         </View>
