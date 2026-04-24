@@ -89,6 +89,7 @@ GitHub UI path:
 3. Enable **Require a pull request before merging**
 4. Enable **Require status checks to pass before merging**
 5. Add required checks from CI:
+   - `pr-decision-doc-guard`
    - `dual-client-guard`
    - `checks`
    - `api-postgres-integration`
@@ -96,6 +97,7 @@ GitHub UI path:
 
 Why this matters:
 
+- `pr-decision-doc-guard` fails if required decision-rationale sections are missing or effectively unfilled
 - `dual-client-guard` fails if raw networking drifts outside `apps/mobile/src/api/client.ts`
 - `checks` covers lint/typecheck/build/tests
 - `api-postgres-integration` protects Postgres-backed API behavior
@@ -109,7 +111,7 @@ Why this matters:
 | PR | PR targets `main`, body includes `Closes #<issue>` and required decision-rationale sections. |
 | Merge | CI green, review done, squash/merge per team preference. |
 | Close | Issue closed automatically after merge. |
-| Protection | `main` requires `dual-client-guard`, `checks`, and `api-postgres-integration`. |
+| Protection | `main` requires `pr-decision-doc-guard`, `dual-client-guard`, `checks`, and `api-postgres-integration`. |
 
 ## See also
 

@@ -6,6 +6,57 @@ on:
     branches: [main]
 
 jobs:
+  pr-decision-doc-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR decision documentation sections
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request?.body || "";
+            const requiredHeaders = [
+              "## Decision Tree and Rationale",
+              "## Implicit Assumptions and Invariants",
+              "## Higher-Order Effects Check"
+            ];
+
+            const missingHeaders = requiredHeaders.filter((header) => !body.includes(header));
+            if (missingHeaders.length > 0) {
+              core.setFailed(
+                `PR body missing required section headers: ${missingHeaders.join(", ")}`
+              );
+              return;
+            }
+
+            const hasDecisionContent =
+              /- Decision:\s+\S/.test(body) || /Single obvious path/i.test(body);
+            if (!hasDecisionContent) {
+              core.setFailed(
+                "Decision Tree and Rationale must include at least one filled '- Decision: ...' line or explicit 'Single obvious path'."
+              );
+              return;
+            }
+
+            const hasAssumptionContent =
+              /- Assumption:\s+\S/.test(body) || /None identified/i.test(body);
+            if (!hasAssumptionContent) {
+              core.setFailed(
+                "Implicit Assumptions and Invariants must include at least one filled '- Assumption: ...' line or explicit 'None identified'."
+              );
+              return;
+            }
+
+            const hasEffectsSummary =
+              /- Summary:\s+\S/.test(body) || /None identified/i.test(body);
+            if (!hasEffectsSummary) {
+              core.setFailed(
+                "Higher-Order Effects Check must include a filled '- Summary: ...' line or explicit 'None identified'."
+              );
+              return;
+            }
+
+            core.info("PR decision documentation guard passed.");
   dual-client-guard:
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +68,7 @@ jobs:
       - run: npm install
       - run: npm run verify:dual-client
   checks:
-    needs: dual-client-guard
+    needs: [pr-decision-doc-guard, dual-client-guard]
     runs-on: ubuntu-latest
     env:
       # CI has no local `apps/mobile/.env`; Expo inlines these at bundle time.
