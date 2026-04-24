@@ -4,12 +4,18 @@ import type {
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
+  ExplainabilityRecord,
+  IncidentCategory,
+  IncidentEvent,
+  IncidentSeverity,
   OpsTimelineEvent,
+  PlanDelta,
   ProtocolNote,
   ProtocolNoteCategory,
   RaceRoom,
   RaceRoomEntitlement,
   RaceRoomProjection,
+  Recommendation,
   SyncStatus
 } from "@crewcue/contracts";
 
@@ -119,6 +125,15 @@ export type UpdateCheckpointVisitSourceInput = {
   resolvedSource: "auto" | "manual_crew";
 };
 
+export type PostIncidentInput = {
+  category: IncidentCategory;
+  severity: IncidentSeverity;
+  checkpointId?: string;
+  summary: string;
+  details?: string;
+  recordedAt?: string;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -173,6 +188,34 @@ export function createApiClient(options: ApiClientOptions) {
     ) => request<{ protocolNote: ProtocolNote }>(options, "POST", `/race-rooms/${roomId}/protocol-notes`, input),
     getTimeline: (roomId: string) =>
       request<{ events: OpsTimelineEvent[] }>(options, "GET", `/race-rooms/${roomId}/timeline`),
+    postIncident: (roomId: string, input: PostIncidentInput) =>
+      request<{ incident: IncidentEvent }>(options, "POST", `/race-rooms/${roomId}/incidents`, input),
+    getIncidents: (roomId: string) => request<{ incidents: IncidentEvent[] }>(options, "GET", `/race-rooms/${roomId}/incidents`),
+    generateRecommendation: (roomId: string, incidentId: string) =>
+      request<{ recommendation: Recommendation; explainability: ExplainabilityRecord }>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/incidents/${incidentId}/recommendations`
+      ),
+    getRecommendation: (roomId: string, recommendationId: string) =>
+      request<{ recommendation: Recommendation; explainability: ExplainabilityRecord | null }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/recommendations/${recommendationId}`
+      ),
+    acceptRecommendation: (roomId: string, recommendationId: string) =>
+      request<{ recommendation: Recommendation }>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/recommendations/${recommendationId}/accept`
+      ),
+    rejectRecommendation: (roomId: string, recommendationId: string) =>
+      request<{ recommendation: Recommendation }>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/recommendations/${recommendationId}/reject`
+      ),
+    getPlanDelta: (roomId: string) => request<{ planDelta: PlanDelta | null }>(options, "GET", `/race-rooms/${roomId}/plan-delta`),
     postManualCheckpointStop: (roomId: string, checkpointId: string, input: ManualCheckpointStopInput) =>
       request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
         options,
