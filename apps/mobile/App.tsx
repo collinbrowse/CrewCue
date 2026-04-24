@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
-  ActivityIndicator,
   AppState,
   Pressable,
   SafeAreaView,
@@ -21,7 +20,6 @@ import type {
   ExplainabilityRecord,
   IncidentEvent,
   PlanDelta,
-  Role,
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
@@ -31,6 +29,7 @@ import type {
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
+import { canMutateCheckpointStoppage, canMutateTaskBoard, getCurrentRoomRole } from "./src/auth/roleGuards";
 import { ApiError, createApiClient } from "./src/api/client";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
@@ -48,6 +47,8 @@ import { OperationalSummarySections } from "./src/components/OperationalSummaryS
 import { OperationalStatusRail } from "./src/components/OperationalStatusRail";
 import { OutboxQueueInspector } from "./src/components/OutboxQueueInspector";
 import { AuthenticatedActionPanel } from "./src/components/AuthenticatedActionPanel";
+import { MobileShellSessionHeader } from "./src/components/MobileShellSessionHeader";
+import { MobileShellTabBar, type MobileShellTab } from "./src/components/MobileShellTabBar";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -67,34 +68,6 @@ function describeOutboxStatus(status: OutboxOperation["status"]): string {
   }
 
   return "Pending";
-}
-
-function canMutateCheckpointStoppage(auth: ReturnType<typeof useAuth>): boolean {
-  if (auth.status !== "authenticated" || !auth.claims?.sub) {
-    return false;
-  }
-  const roles = auth.claims.roomRoles;
-  if (!roles || typeof roles !== "object") {
-    return false;
-  }
-  const allowed = ["crew_member", "crew_chief", "team_manager"];
-  return Object.values(roles).some((role) => typeof role === "string" && allowed.includes(role));
-}
-
-function getCurrentRoomRole(auth: ReturnType<typeof useAuth>, roomId?: string): Role | undefined {
-  if (!roomId || auth.status !== "authenticated") {
-    return undefined;
-  }
-  const role = auth.claims?.roomRoles?.[roomId];
-  if (role === "athlete" || role === "crew_member" || role === "crew_chief" || role === "team_manager") {
-    return role;
-  }
-  return undefined;
-}
-
-function canMutateTaskBoard(auth: ReturnType<typeof useAuth>, roomId?: string): boolean {
-  const role = getCurrentRoomRole(auth, roomId);
-  return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
 
 export default function App(): ReactElement {
@@ -165,6 +138,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
   const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
+  const [shellTab, setShellTab] = useState<MobileShellTab>("operate");
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
@@ -223,6 +197,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (auth.status !== "authenticated") {
+      setShellTab("operate");
+    }
+  }, [auth.status]);
 
   const pollProjectionQuiet = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -759,73 +739,43 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
           <Text style={styles.title}>CrewCue</Text>
           <Text style={styles.subtitle}>Crew operations</Text>
 
-          <Text style={styles.label}>API base</Text>
-          <Text style={styles.code}>{baseUrl}</Text>
+          <MobileShellSessionHeader
+            styles={styles}
+            baseUrl={baseUrl}
+            redirectUri={auth.redirectUri}
+            authStatus={auth.status}
+            claims={auth.claims}
+            authError={auth.error}
+            pendingOutboxCount={pendingOutboxCount}
+            outboxTotal={outbox.length}
+            appState={appState}
+          />
 
-          <Text style={styles.label}>Redirect URI</Text>
-          <Text style={styles.code}>{auth.redirectUri}</Text>
-
-          <Text style={styles.label}>Auth status</Text>
-          <Text style={styles.value}>{auth.status}</Text>
-
-          <Text style={styles.label}>Outbox count</Text>
-          <Text style={styles.code}>
-            {pendingOutboxCount} pending / {outbox.length} total
-          </Text>
-
-          <Text style={styles.label}>App state</Text>
-          <Text style={styles.code}>{appState}</Text>
-
-          {auth.status === "bootstrapping" ? (
-            <ActivityIndicator color="#f9fafb" style={{ marginTop: 12 }} />
+          {auth.status === "authenticated" ? (
+            <MobileShellTabBar styles={styles} active={shellTab} onChange={setShellTab} />
           ) : null}
 
-          {auth.status === "authenticated" && auth.claims ? (
-            <View style={{ marginTop: 12 }}>
-              <Text style={styles.label}>Subject</Text>
-              <Text style={styles.code}>{auth.claims.sub}</Text>
-              {auth.claims.email ? (
-                <>
-                  <Text style={styles.label}>Email</Text>
-                  <Text style={styles.code}>{auth.claims.email}</Text>
-                </>
-              ) : null}
-              <Text style={styles.label}>team_ids</Text>
-              <Text style={styles.code}>{JSON.stringify(auth.claims.teamIds ?? null)}</Text>
-              <Text style={styles.label}>room_roles</Text>
-              <Text style={styles.code}>{JSON.stringify(auth.claims.roomRoles ?? null)}</Text>
-            </View>
-          ) : null}
-
-          {auth.error ? (
+          {auth.status === "authenticated" && shellTab === "operate" ? (
             <>
-              <Text style={styles.label}>Auth error</Text>
-              <Text style={styles.errorText}>{auth.error}</Text>
+              <OperationalStatusRail
+                styles={styles}
+                pendingOutboxCount={pendingOutboxCount}
+                lastError={apiError}
+                lastStatusMessage={syncStatusMessage}
+                projectionStaleSeconds={projection?.secondsSinceLastAcceptedPing}
+              />
+              <OutboxQueueInspector
+                styles={styles}
+                outbox={outbox}
+                outboxAutoProcessIntervalMs={OUTBOX_AUTO_PROCESS_INTERVAL_MS}
+                describeOutboxOperation={describeOutboxOperation}
+                describeOutboxStatus={describeOutboxStatus}
+              />
             </>
           ) : null}
 
-          {auth.status === "authenticated" ? (
-            <OperationalStatusRail
-              styles={styles}
-              pendingOutboxCount={pendingOutboxCount}
-              lastError={apiError}
-              lastStatusMessage={syncStatusMessage}
-              projectionStaleSeconds={projection?.secondsSinceLastAcceptedPing}
-            />
-          ) : null}
-
-          {auth.status === "authenticated" ? (
-            <OutboxQueueInspector
-              styles={styles}
-              outbox={outbox}
-              outboxAutoProcessIntervalMs={OUTBOX_AUTO_PROCESS_INTERVAL_MS}
-              describeOutboxOperation={describeOutboxOperation}
-              describeOutboxStatus={describeOutboxStatus}
-            />
-          ) : null}
-
-          <View style={{ marginTop: 16, gap: 8 }}>
-            {auth.status !== "authenticated" ? (
+          {auth.status !== "authenticated" ? (
+            <View style={{ marginTop: 16, gap: 8 }}>
               <Pressable
                 style={styles.primaryButton}
                 onPress={auth.signIn}
@@ -835,7 +785,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                   {auth.status === "authenticating" ? "Opening Auth0..." : "Sign in with Auth0"}
                 </Text>
               </Pressable>
-            ) : (
+            </View>
+          ) : shellTab === "operate" ? (
+            <View style={{ marginTop: 16, gap: 8 }}>
               <AuthenticatedActionPanel
                 styles={styles}
                 busy={busy}
@@ -881,31 +833,33 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                 }}
                 onSignOut={auth.signOut}
               />
-            )}
-          </View>
+            </View>
+          ) : null}
 
-          <OperationalSummarySections
-            styles={styles}
-            room={room}
-            roomDetail={roomDetail}
-            lastPing={lastPing}
-            syncHealth={syncHealth}
-            projection={projection}
-            projectionPolledAt={projectionPolledAt}
-            lastProtocolNote={lastProtocolNote}
-            timeline={timeline}
-            incidents={incidents}
-            latestRecommendation={latestRecommendation}
-            latestExplainability={latestExplainability}
-            planDelta={planDelta}
-            taskBoard={taskBoard}
-            onToggleResolvedSource={enqueueSourceToggle}
-            canToggleResolvedSource={canUseCheckpointControls}
-            onEnqueueTaskAction={enqueueTaskAction}
-            canMutateTasks={Boolean(room?.status === "active" && canEditTasks && !busy)}
-            taskAssigneeUserId={auth.claims?.sub}
-            taskAssigneeRole={currentRoomRole}
-          />
+          {auth.status !== "authenticated" || shellTab === "readouts" ? (
+            <OperationalSummarySections
+              styles={styles}
+              room={room}
+              roomDetail={roomDetail}
+              lastPing={lastPing}
+              syncHealth={syncHealth}
+              projection={projection}
+              projectionPolledAt={projectionPolledAt}
+              lastProtocolNote={lastProtocolNote}
+              timeline={timeline}
+              incidents={incidents}
+              latestRecommendation={latestRecommendation}
+              latestExplainability={latestExplainability}
+              planDelta={planDelta}
+              taskBoard={taskBoard}
+              onToggleResolvedSource={enqueueSourceToggle}
+              canToggleResolvedSource={canUseCheckpointControls}
+              onEnqueueTaskAction={enqueueTaskAction}
+              canMutateTasks={Boolean(room?.status === "active" && canEditTasks && !busy)}
+              taskAssigneeUserId={auth.claims?.sub}
+              taskAssigneeRole={currentRoomRole}
+            />
+          ) : null}
         </View>
       </ScrollView>
       <StatusBar style="light" />
@@ -1078,5 +1032,33 @@ const styles = StyleSheet.create({
   toggleButtonLabel: {
     color: "#d1d5db",
     fontSize: 12
+  },
+  tabRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14
+  },
+  tabButton: {
+    flex: 1,
+    backgroundColor: "#1f2937",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "transparent"
+  },
+  tabButtonActive: {
+    borderColor: "#3b82f6"
+  },
+  tabButtonLabel: {
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  tabButtonLabelActive: {
+    color: "#f9fafb",
+    fontSize: 14,
+    fontWeight: "600"
   }
 });
