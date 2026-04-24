@@ -47,6 +47,7 @@ import {
 import { OperationalSummarySections } from "./src/components/OperationalSummarySections";
 import { OperationalStatusRail } from "./src/components/OperationalStatusRail";
 import { OutboxQueueInspector } from "./src/components/OutboxQueueInspector";
+import { AuthenticatedActionPanel } from "./src/components/AuthenticatedActionPanel";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -835,179 +836,51 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                 </Text>
               </Pressable>
             ) : (
-              <>
-                <Pressable style={styles.primaryButton} onPress={createRoom} disabled={busy}>
-                  <Text style={styles.primaryButtonLabel}>
-                    {busy ? "Calling API..." : "Create race room (staging)"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={processOutboxAction}
-                  disabled={busy || outboxProcessing}
-                >
-                  <Text style={styles.secondaryButtonLabel}>
-                    {outboxProcessing ? "Processing..." : "Process Outbox"}
-                  </Text>
-                </Pressable>
-                {room ? (
-                  <>
-                    <Pressable
-                      style={styles.secondaryButton}
-                      onPress={markEntitlementPaid}
-                      disabled={busy || room.entitlement.status === "paid"}
-                    >
-                      <Text style={styles.secondaryButtonLabel}>
-                        {room.entitlement.status === "paid"
-                          ? "Entitlement already paid"
-                          : "Mark entitlement paid (staging)"}
-                      </Text>
-                    </Pressable>
-                    <Pressable style={styles.secondaryButton} onPress={fetchRoomDetails} disabled={busy}>
-                      <Text style={styles.secondaryButtonLabel}>Fetch room (GET)</Text>
-                    </Pressable>
-                    {room.entitlement.status === "paid" && room.status === "draft" ? (
-                      <Pressable style={styles.primaryButton} onPress={activateRoom} disabled={busy}>
-                        <Text style={styles.primaryButtonLabel}>
-                          {busy ? "Calling API..." : "Activate room (staging)"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    {room.status === "active" ? (
-                      <>
-                        <Pressable style={styles.primaryButton} onPress={sendPing} disabled={busy}>
-                          <Text style={styles.primaryButtonLabel}>
-                            {busy ? "Sending..." : "Send ping (staging)"}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.primaryButton} onPress={postSyncHeartbeat} disabled={busy}>
-                          <Text style={styles.primaryButtonLabel}>
-                            {busy ? "Sending..." : "POST sync heartbeat"}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={fetchSyncHealth} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>GET sync health</Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={fetchProjection} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
-                        </Pressable>
-                        <Pressable
-                          style={[
-                            styles.secondaryButton,
-                            projectionPollEnabled ? styles.secondaryButtonActive : null
-                          ]}
-                          onPress={() => setProjectionPollEnabled((v) => !v)}
-                          disabled={busy}
-                        >
-                          <Text style={styles.secondaryButtonLabel}>
-                            {projectionPollEnabled
-                              ? "Auto-refresh projection: ON (8s)"
-                              : "Auto-refresh projection: OFF"}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={fetchTaskBoard} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Fetch task board (GET)</Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={postProtocolNote} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Post protocol note (staging)</Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={fetchTimeline} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Fetch ops timeline (GET)</Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={postIncident} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Post incident (WS4)</Text>
-                        </Pressable>
-                        <Pressable style={styles.secondaryButton} onPress={fetchIncidents} disabled={busy}>
-                          <Text style={styles.secondaryButtonLabel}>Fetch incidents (GET)</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={generateRecommendation}
-                          disabled={busy || !incidents || incidents.length === 0}
-                        >
-                          <Text style={styles.secondaryButtonLabel}>Generate recommendation</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={() => {
-                            void decideRecommendation("accept");
-                          }}
-                          disabled={busy || latestRecommendation?.status !== "pending"}
-                        >
-                          <Text style={styles.secondaryButtonLabel}>Accept recommendation</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.secondaryButton}
-                          onPress={() => {
-                            void decideRecommendation("reject");
-                          }}
-                          disabled={busy || latestRecommendation?.status !== "pending"}
-                        >
-                          <Text style={styles.secondaryButtonLabel}>Reject recommendation</Text>
-                        </Pressable>
-                        {room.course?.checkpoints && room.course.checkpoints.length > 0 ? (
-                          <>
-                            <Text style={[styles.label, { marginTop: 8 }]}>Checkpoint stations</Text>
-                            {!projection ? (
-                              <Text style={styles.body}>
-                                Fetch projection first, then station controls will unlock.
-                              </Text>
-                            ) : null}
-                            {!canEditCheckpointStops ? (
-                              <Text style={styles.body}>
-                                Station timing controls require crew role access (crew_member, crew_chief, or team_manager).
-                              </Text>
-                            ) : null}
-                            {room.course.checkpoints.map((cp) => {
-                              const arrival = stationArrivalAt[cp.id];
-                              return (
-                                <View key={cp.id} style={{ gap: 4 }}>
-                                  <Text style={styles.body}>
-                                    {cp.id}
-                                    {cp.plannedStopSeconds ? ` · ${cp.plannedStopSeconds}s planned` : ""}
-                                  </Text>
-                                  {arrival ? (
-                                    <>
-                                      <Text style={[styles.code, { color: "#86efac" }]}>
-                                        At station since {arrival.slice(11, 19)}Z
-                                      </Text>
-                                      <Pressable
-                                        style={styles.primaryButton}
-                                        disabled={!canUseCheckpointControls}
-                                        onPress={() => {
-                                          void enqueueManualStop(cp.id, arrival, new Date().toISOString());
-                                        }}
-                                      >
-                                        <Text style={styles.primaryButtonLabel}>Exit station → enqueue stop</Text>
-                                      </Pressable>
-                                    </>
-                                  ) : (
-                                    <Pressable
-                                      style={styles.secondaryButton}
-                                      disabled={!canUseCheckpointControls}
-                                      onPress={() => {
-                                        setStationArrivalAt((prev) => ({
-                                          ...prev,
-                                          [cp.id]: new Date().toISOString()
-                                        }));
-                                      }}
-                                    >
-                                      <Text style={styles.secondaryButtonLabel}>Enter station</Text>
-                                    </Pressable>
-                                  )}
-                                </View>
-                              );
-                            })}
-                          </>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-                <Pressable style={styles.secondaryButton} onPress={auth.signOut}>
-                  <Text style={styles.secondaryButtonLabel}>Sign out</Text>
-                </Pressable>
-              </>
+              <AuthenticatedActionPanel
+                styles={styles}
+                busy={busy}
+                outboxProcessing={outboxProcessing}
+                room={room}
+                hasProjection={Boolean(projection)}
+                projectionPollEnabled={projectionPollEnabled}
+                incidents={incidents}
+                latestRecommendation={latestRecommendation}
+                stationArrivalAt={stationArrivalAt}
+                canEditCheckpointStops={canEditCheckpointStops}
+                canUseCheckpointControls={canUseCheckpointControls}
+                onCreateRoom={createRoom}
+                onProcessOutbox={processOutboxAction}
+                onMarkEntitlementPaid={markEntitlementPaid}
+                onFetchRoomDetails={fetchRoomDetails}
+                onActivateRoom={activateRoom}
+                onSendPing={sendPing}
+                onPostSyncHeartbeat={postSyncHeartbeat}
+                onFetchSyncHealth={fetchSyncHealth}
+                onFetchProjection={fetchProjection}
+                onToggleProjectionPoll={() => setProjectionPollEnabled((v) => !v)}
+                onFetchTaskBoard={fetchTaskBoard}
+                onPostProtocolNote={postProtocolNote}
+                onFetchTimeline={fetchTimeline}
+                onPostIncident={postIncident}
+                onFetchIncidents={fetchIncidents}
+                onGenerateRecommendation={generateRecommendation}
+                onAcceptRecommendation={() => {
+                  void decideRecommendation("accept");
+                }}
+                onRejectRecommendation={() => {
+                  void decideRecommendation("reject");
+                }}
+                onRecordStationArrival={(checkpointId) => {
+                  setStationArrivalAt((prev) => ({
+                    ...prev,
+                    [checkpointId]: new Date().toISOString()
+                  }));
+                }}
+                onEnqueueManualStop={(checkpointId, arrivalAt) => {
+                  void enqueueManualStop(checkpointId, arrivalAt, new Date().toISOString());
+                }}
+                onSignOut={auth.signOut}
+              />
             )}
           </View>
 
