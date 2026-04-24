@@ -5,10 +5,14 @@ import type {
   AthletePingRejectedResponse,
   Role,
   CheckpointVisitSource,
+  ExplainabilityRecord,
+  IncidentEvent,
   OpsTimelineEvent,
+  PlanDelta,
   ProtocolNote,
   RaceRoom,
   RaceRoomProjection,
+  Recommendation,
   SyncStatus,
   CheckpointPlan,
   CrewAssignment,
@@ -25,6 +29,10 @@ type Props = {
   projectionPolledAt?: string;
   lastProtocolNote?: ProtocolNote;
   timeline?: OpsTimelineEvent[];
+  incidents?: IncidentEvent[];
+  latestRecommendation?: Recommendation;
+  latestExplainability?: ExplainabilityRecord | null;
+  planDelta?: PlanDelta | null;
   taskBoard?: { checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] };
   onToggleResolvedSource: (
     checkpointId: string,
@@ -51,6 +59,10 @@ export function OperationalSummarySections({
   projectionPolledAt,
   lastProtocolNote,
   timeline,
+  incidents,
+  latestRecommendation,
+  latestExplainability,
+  planDelta,
   taskBoard,
   onToggleResolvedSource,
   canToggleResolvedSource,
@@ -290,6 +302,65 @@ export function OperationalSummarySections({
               </Text>
             ))
           )}
+        </View>
+      ) : null}
+
+      {incidents !== undefined ? (
+        <View style={{ marginTop: 16 }}>
+          <Text style={styles.label}>GET /race-rooms/:id/incidents</Text>
+          <Text style={styles.body}>Incidents</Text>
+          <Text style={styles.code}>{incidents.length} total</Text>
+          {incidents.length === 0 ? (
+            <Text style={[styles.code, { color: "#6b7280" }]}>— no incidents yet —</Text>
+          ) : (
+            [...incidents].slice(-3).reverse().map((incident) => (
+              <Text key={incident.id} style={styles.code}>
+                [{incident.severity}] {incident.category}: {incident.summary}
+              </Text>
+            ))
+          )}
+        </View>
+      ) : null}
+
+      {latestRecommendation ? (
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>WS4 recommendation</Text>
+          <Text style={styles.body}>Status</Text>
+          <Text
+            style={[
+              styles.code,
+              latestRecommendation.status === "accepted"
+                ? { color: "#86efac" }
+                : latestRecommendation.status === "rejected"
+                  ? styles.errorText
+                  : { color: "#fde68a" }
+            ]}
+          >
+            {latestRecommendation.status}
+          </Text>
+          <Text style={styles.body}>Rationale</Text>
+          <Text style={styles.code}>{latestRecommendation.rationale}</Text>
+          <Text style={styles.body}>Proposed summary</Text>
+          <Text style={styles.code}>{latestRecommendation.proposedSummary}</Text>
+          {latestExplainability?.factors?.length ? (
+            <>
+              <Text style={styles.body}>Explainability factors</Text>
+              <Text style={styles.code}>{latestExplainability.factors.join(" · ")}</Text>
+            </>
+          ) : null}
+          {planDelta ? (
+            <>
+              <Text style={styles.body}>Latest plan delta</Text>
+              <Text style={styles.code}>
+                v{planDelta.fromVersion} → v{planDelta.toVersion}
+              </Text>
+              {planDelta.changes.slice(0, 3).map((change) => (
+                <Text key={change} style={styles.code}>
+                  - {change}
+                </Text>
+              ))}
+            </>
+          ) : null}
         </View>
       ) : null}
 

@@ -18,11 +18,15 @@ import type {
   CheckpointVisitSource,
   CrewAssignment,
   CrewTask,
+  ExplainabilityRecord,
+  IncidentEvent,
+  PlanDelta,
   Role,
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
   RaceRoomProjection,
+  Recommendation,
   SyncStatus
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
@@ -148,6 +152,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   >(undefined);
   const [lastProtocolNote, setLastProtocolNote] = useState<ProtocolNote | undefined>(undefined);
   const [timeline, setTimeline] = useState<OpsTimelineEvent[] | undefined>(undefined);
+  const [incidents, setIncidents] = useState<IncidentEvent[] | undefined>(undefined);
+  const [latestRecommendation, setLatestRecommendation] = useState<Recommendation | undefined>(undefined);
+  const [latestExplainability, setLatestExplainability] = useState<ExplainabilityRecord | null | undefined>(undefined);
+  const [planDelta, setPlanDelta] = useState<PlanDelta | null | undefined>(undefined);
   const [syncHealth, setSyncHealth] = useState<SyncStatus | undefined>(undefined);
   const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [syncStatusMessage, setSyncStatusMessage] = useState<string | undefined>(undefined);
@@ -259,6 +267,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setTaskBoard(undefined);
       setLastProtocolNote(undefined);
       setTimeline(undefined);
+      setIncidents(undefined);
+      setLatestRecommendation(undefined);
+      setLatestExplainability(undefined);
+      setPlanDelta(undefined);
       setSyncHealth(undefined);
       setSyncStatusMessage(undefined);
       setStatusSuccess(`Room created (${created.id.slice(0, 8)}...)`);
@@ -549,6 +561,93 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
+  const postIncident = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const checkpointId = room.course?.checkpoints?.[0]?.id;
+      const { incident } = await client.postIncident(room.id, {
+        category: "fuel",
+        severity: "medium",
+        checkpointId,
+        summary: "Fueling behind planned intake",
+        details: "WS4 smoke flow from mobile shell"
+      });
+      setIncidents((prev) => [...(prev ?? []), incident]);
+      setStatusSuccess("Incident posted.");
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
+
+  const fetchIncidents = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { incidents: nextIncidents } = await client.getIncidents(room.id);
+      setIncidents(nextIncidents);
+      setStatusSuccess(`Fetched incidents (${nextIncidents.length}).`);
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
+
+  const generateRecommendation = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    const latestIncident = incidents?.[incidents.length - 1];
+    if (!latestIncident) {
+      setSyncStatusMessage("Post or fetch incidents first.");
+      return;
+    }
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { recommendation, explainability } = await client.generateRecommendation(room.id, latestIncident.id);
+      setLatestRecommendation(recommendation);
+      setLatestExplainability(explainability);
+      setStatusSuccess("Recommendation generated.");
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, room, incidents, baseUrl, setStatusError, setStatusSuccess]);
+
+  const decideRecommendation = useCallback(
+    async (decision: "accept" | "reject") => {
+      if (!auth.accessToken || !room || !latestRecommendation) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const result =
+          decision === "accept"
+            ? await client.acceptRecommendation(room.id, latestRecommendation.id)
+            : await client.rejectRecommendation(room.id, latestRecommendation.id);
+        setLatestRecommendation(result.recommendation);
+        if (decision === "accept") {
+          const { planDelta: nextPlanDelta } = await client.getPlanDelta(room.id);
+          setPlanDelta(nextPlanDelta);
+        }
+        setStatusSuccess(`Recommendation ${decision}ed.`);
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, room, latestRecommendation, baseUrl, setStatusError, setStatusSuccess]
+  );
+
   const fetchRoomDetails = useCallback(async () => {
     if (!auth.accessToken || !room) return;
     setBusy(true);
@@ -815,6 +914,37 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
                         <Pressable style={styles.secondaryButton} onPress={fetchTimeline} disabled={busy}>
                           <Text style={styles.secondaryButtonLabel}>Fetch ops timeline (GET)</Text>
                         </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={postIncident} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Post incident (WS4)</Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={fetchIncidents} disabled={busy}>
+                          <Text style={styles.secondaryButtonLabel}>Fetch incidents (GET)</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={generateRecommendation}
+                          disabled={busy || !incidents || incidents.length === 0}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>Generate recommendation</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => {
+                            void decideRecommendation("accept");
+                          }}
+                          disabled={busy || latestRecommendation?.status !== "pending"}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>Accept recommendation</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => {
+                            void decideRecommendation("reject");
+                          }}
+                          disabled={busy || latestRecommendation?.status !== "pending"}
+                        >
+                          <Text style={styles.secondaryButtonLabel}>Reject recommendation</Text>
+                        </Pressable>
                         {room.course?.checkpoints && room.course.checkpoints.length > 0 ? (
                           <>
                             <Text style={[styles.label, { marginTop: 8 }]}>Checkpoint stations</Text>
@@ -891,6 +1021,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             projectionPolledAt={projectionPolledAt}
             lastProtocolNote={lastProtocolNote}
             timeline={timeline}
+            incidents={incidents}
+            latestRecommendation={latestRecommendation}
+            latestExplainability={latestExplainability}
+            planDelta={planDelta}
             taskBoard={taskBoard}
             onToggleResolvedSource={enqueueSourceToggle}
             canToggleResolvedSource={canUseCheckpointControls}
