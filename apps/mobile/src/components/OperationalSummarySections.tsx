@@ -35,6 +35,7 @@ type Props = {
     visitIndex: number,
     resolvedSource: CheckpointVisitSource
   ) => Promise<void>;
+  canToggleResolvedSource: boolean;
 };
 
 export function OperationalSummarySections({
@@ -52,7 +53,8 @@ export function OperationalSummarySections({
   outboxAutoProcessIntervalMs,
   describeOutboxOperation,
   describeOutboxStatus,
-  onToggleResolvedSource
+  onToggleResolvedSource,
+  canToggleResolvedSource
 }: Props): ReactElement {
   return (
     <>
@@ -245,6 +247,7 @@ export function OperationalSummarySections({
                   {visit.autoDetected && visit.manualEntry ? (
                     <Pressable
                       style={styles.toggleButton}
+                      disabled={!canToggleResolvedSource}
                       onPress={() => {
                         void onToggleResolvedSource(
                           split.checkpointId,
@@ -253,7 +256,14 @@ export function OperationalSummarySections({
                         );
                       }}
                     >
-                      <Text style={styles.toggleButtonLabel}>→ use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}</Text>
+                      <Text
+                        style={[
+                          styles.toggleButtonLabel,
+                          !canToggleResolvedSource ? { color: "#9ca3af" } : null
+                        ]}
+                      >
+                        → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
+                      </Text>
                     </Pressable>
                   ) : null}
                 </View>
