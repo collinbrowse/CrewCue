@@ -2,7 +2,9 @@
 
 **Sprint hub (GitHub):** [#60](https://github.com/collinbrowse/CrewCue/issues/60)  
 **Milestone:** *Chunk A Sprint 1 — WS1 durable persistence*  
-**Strategy source:** [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)
+**Strategy source:** [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
+**Spec:** [chunk-a-ws1-persistence-spec.md](./chunk-a-ws1-persistence-spec.md)  
+**Setup + verification:** [chunk-a-postgres-setup-and-verify.md](./chunk-a-postgres-setup-and-verify.md)
 
 This sprint is the first **durability** slice after WS1–WS7 API foundations: migrate WS1 race-room and invite state from process memory to a Postgres-backed repository while preserving existing HTTP contracts.
 
@@ -17,6 +19,12 @@ This sprint is the first **durability** slice after WS1–WS7 API foundations: m
 
 - **#61** — durable WS1 room + invite persistence implementation.
 - **#62** — staging migration/runbook documentation for WS1 persistence.
+
+## Current artifact map
+
+- **Spec:** `chunk-a-ws1-persistence-spec.md` defines the current bridge design, persistence boundaries, and acceptance criteria.
+- **Runbook:** `chunk-a-postgres-setup-and-verify.md` documents local setup, staging setup, health verification, and restart-safe validation.
+- **Implementation surface:** `services/api/src/lib/roomPersistence.ts` and `services/api/db/migrations/`.
 
 ## Implementation order
 
