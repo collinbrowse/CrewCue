@@ -24,6 +24,7 @@
 After WS1–WS7 **API/contract sprints**, delivery is organized by **four chunks (A–D)** and a **staging-first cloud** path (Postgres, Auth0, payments, then client proof on staging). That strategy is the **official handoff** for what to build next and where it runs:
 
 - **[MVP delivery chunks and cloud strategy](./docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md)** — chunk goals, environment ladder, gates, risks, and a **pickup checklist** for humans and AI agents.
+- **[UI delivery roadmap and specification](./docs/sdlc/ui-delivery-roadmap-and-spec.md)** — explicit phased UI build order, reuse rules, and anti-duplication guidance for agents/humans.
 
 ## WS0 Status (Completed)
 - **Current state:** completed and merged to `main`
