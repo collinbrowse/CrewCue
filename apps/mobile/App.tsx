@@ -18,6 +18,7 @@ import type {
   CheckpointVisitSource,
   CrewAssignment,
   CrewTask,
+  Role,
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
@@ -73,6 +74,22 @@ function canMutateCheckpointStoppage(auth: ReturnType<typeof useAuth>): boolean 
   }
   const allowed = ["crew_member", "crew_chief", "team_manager"];
   return Object.values(roles).some((role) => typeof role === "string" && allowed.includes(role));
+}
+
+function getCurrentRoomRole(auth: ReturnType<typeof useAuth>, roomId?: string): Role | undefined {
+  if (!roomId || auth.status !== "authenticated") {
+    return undefined;
+  }
+  const role = auth.claims?.roomRoles?.[roomId];
+  if (role === "athlete" || role === "crew_member" || role === "crew_chief" || role === "team_manager") {
+    return role;
+  }
+  return undefined;
+}
+
+function canMutateTaskBoard(auth: ReturnType<typeof useAuth>, roomId?: string): boolean {
+  const role = getCurrentRoomRole(auth, roomId);
+  return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
 
 export default function App(): ReactElement {
@@ -142,6 +159,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
+  const currentRoomRole = useMemo(() => getCurrentRoomRole(auth, room?.id), [auth, room?.id]);
+  const canEditTasks = useMemo(() => canMutateTaskBoard(auth, room?.id), [auth, room?.id]);
   const canUseCheckpointControls = Boolean(
     room?.status === "active" && projection && canEditCheckpointStops && !busy
   );
@@ -582,6 +601,57 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     [room, refreshOutbox]
   );
 
+  const enqueueTaskAction = useCallback(
+    async (action: "assign" | "start" | "complete", task: CrewTask) => {
+      if (!room || !auth.claims?.sub) return;
+      if (room.status !== "active") {
+        setSyncStatusMessage("Task actions require an active room.");
+        return;
+      }
+      if (!canEditTasks) {
+        setSyncStatusMessage("Task actions require crew role access.");
+        return;
+      }
+
+      if (action === "assign") {
+        const assigneeRole = currentRoomRole ?? "crew_member";
+        await enqueueOutbox({
+          id: `task-assign-${room.id}-${task.id}-${Date.now()}`,
+          type: "task",
+          payload: {
+            roomId: room.id,
+            taskId: task.id,
+            action: "assign",
+            assigneeUserId: auth.claims.sub,
+            assigneeRole
+          },
+          attempts: 0,
+          status: "pending"
+        });
+      } else if (action === "start") {
+        await enqueueOutbox({
+          id: `task-start-${room.id}-${task.id}-${Date.now()}`,
+          type: "task",
+          payload: { roomId: room.id, taskId: task.id, action: "start" },
+          attempts: 0,
+          status: "pending"
+        });
+      } else {
+        await enqueueOutbox({
+          id: `task-complete-${room.id}-${task.id}-${Date.now()}`,
+          type: "task",
+          payload: { roomId: room.id, taskId: task.id, action: "complete" },
+          attempts: 0,
+          status: "pending"
+        });
+      }
+
+      await refreshOutbox();
+      setSyncStatusMessage(`Queued task ${action} for "${task.title}".`);
+    },
+    [room, auth.claims?.sub, canEditTasks, currentRoomRole, refreshOutbox]
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -824,6 +894,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             taskBoard={taskBoard}
             onToggleResolvedSource={enqueueSourceToggle}
             canToggleResolvedSource={canUseCheckpointControls}
+            onEnqueueTaskAction={enqueueTaskAction}
+            canMutateTasks={Boolean(room?.status === "active" && canEditTasks && !busy)}
+            taskAssigneeUserId={auth.claims?.sub}
+            taskAssigneeRole={currentRoomRole}
           />
         </View>
       </ScrollView>

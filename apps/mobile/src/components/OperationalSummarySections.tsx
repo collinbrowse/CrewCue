@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
+  Role,
   CheckpointVisitSource,
   OpsTimelineEvent,
   ProtocolNote,
@@ -31,6 +32,13 @@ type Props = {
     resolvedSource: CheckpointVisitSource
   ) => Promise<void>;
   canToggleResolvedSource: boolean;
+  onEnqueueTaskAction: (
+    action: "assign" | "start" | "complete",
+    task: CrewTask
+  ) => Promise<void>;
+  canMutateTasks: boolean;
+  taskAssigneeUserId?: string;
+  taskAssigneeRole?: Role;
 };
 
 export function OperationalSummarySections({
@@ -45,7 +53,11 @@ export function OperationalSummarySections({
   timeline,
   taskBoard,
   onToggleResolvedSource,
-  canToggleResolvedSource
+  canToggleResolvedSource,
+  onEnqueueTaskAction,
+  canMutateTasks,
+  taskAssigneeUserId,
+  taskAssigneeRole
 }: Props): ReactElement {
   const staleDevices = syncHealth?.devices.filter((device) => device.isStale) ?? [];
   const staleCount = staleDevices.length;
@@ -286,13 +298,52 @@ export function OperationalSummarySections({
           <Text style={styles.label}>GET /race-rooms/:id/tasks</Text>
           <Text style={styles.body}>Tasks</Text>
           <Text style={styles.code}>{taskBoard.tasks.length} total</Text>
+          {!canMutateTasks ? (
+            <Text style={styles.body}>Task execution controls require crew role access.</Text>
+          ) : null}
           {taskBoard.tasks.length === 0 ? (
             <Text style={[styles.code, { color: "#6b7280" }]}>— no tasks on board —</Text>
           ) : (
-            taskBoard.tasks.slice(0, 3).map((t) => (
-              <Text key={t.id} style={styles.code}>
-                [{t.status}] {t.title}
-              </Text>
+            taskBoard.tasks.slice(0, 5).map((task) => (
+              <View key={task.id} style={styles.visitRow}>
+                <Text style={styles.code}>
+                  [{task.status}] {task.title}
+                </Text>
+                <Text style={[styles.body, { marginTop: 2 }]}>{task.checkpointId}</Text>
+                {task.status === "pending" ? (
+                  <>
+                    <Pressable
+                      style={styles.secondaryButton}
+                      disabled={!canMutateTasks || !taskAssigneeUserId || !taskAssigneeRole}
+                      onPress={() => {
+                        void onEnqueueTaskAction("assign", task);
+                      }}
+                    >
+                      <Text style={styles.secondaryButtonLabel}>Assign to me</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.primaryButton}
+                      disabled={!canMutateTasks}
+                      onPress={() => {
+                        void onEnqueueTaskAction("start", task);
+                      }}
+                    >
+                      <Text style={styles.primaryButtonLabel}>Start task</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+                {task.status === "in_progress" ? (
+                  <Pressable
+                    style={styles.primaryButton}
+                    disabled={!canMutateTasks}
+                    onPress={() => {
+                      void onEnqueueTaskAction("complete", task);
+                    }}
+                  >
+                    <Text style={styles.primaryButtonLabel}>Complete task</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             ))
           )}
         </View>

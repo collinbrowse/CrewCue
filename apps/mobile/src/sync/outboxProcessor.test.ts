@@ -168,3 +168,95 @@ test("processOutboxBatch processes checkpoint set_resolved_source operation", as
   assert.equal(calls[0]?.visitIndex, 0);
   assert.equal(calls[0]?.resolvedSource, "manual_crew");
 });
+
+test("processOutboxBatch processes task assign operation", async () => {
+  const calls: Array<{ roomId: string; taskId: string; assigneeUserId: string; assigneeRole: string }> = [];
+  const client = {
+    assignTask: async (
+      roomId: string,
+      taskId: string,
+      input: { assigneeUserId: string; assigneeRole: "athlete" | "crew_member" | "crew_chief" | "team_manager" }
+    ) => {
+      calls.push({ roomId, taskId, assigneeUserId: input.assigneeUserId, assigneeRole: input.assigneeRole });
+      return {
+        task: { id: taskId, title: "Task", status: "pending" },
+        assignment: { id: "as-1", taskId, assigneeUserId: input.assigneeUserId, assigneeRole: input.assigneeRole }
+      };
+    }
+  } as unknown as ApiClient;
+
+  const operation: OutboxOperation = {
+    id: "op-task-assign-1",
+    type: "task",
+    payload: {
+      roomId: "room-1",
+      taskId: "task-1",
+      action: "assign",
+      assigneeUserId: "user-1",
+      assigneeRole: "crew_member"
+    },
+    attempts: 0,
+    status: "pending"
+  };
+
+  const result = await processOutboxBatch(client, [operation], () => "2026-04-24T15:00:01.000Z");
+
+  assert.equal(result.processedCount, 1);
+  assert.equal(result.operations[0]?.status, "sent");
+  assert.equal(result.operations[0]?.feedback, "Assignment saved.");
+  assert.deepEqual(result.touchedRoomIds, ["room-1"]);
+  assert.deepEqual(calls[0], {
+    roomId: "room-1",
+    taskId: "task-1",
+    assigneeUserId: "user-1",
+    assigneeRole: "crew_member"
+  });
+});
+
+test("processOutboxBatch processes task start and complete operations", async () => {
+  const calls: string[] = [];
+  const client = {
+    startTask: async (_roomId: string, taskId: string) => {
+      calls.push(`start:${taskId}`);
+      return { task: { id: taskId, title: "Task", status: "in_progress" } };
+    },
+    completeTask: async (_roomId: string, taskId: string) => {
+      calls.push(`complete:${taskId}`);
+      return { task: { id: taskId, title: "Task", status: "completed" } };
+    }
+  } as unknown as ApiClient;
+
+  const operations: OutboxOperation[] = [
+    {
+      id: "op-task-start-1",
+      type: "task",
+      payload: {
+        roomId: "room-1",
+        taskId: "task-1",
+        action: "start"
+      },
+      attempts: 0,
+      status: "pending"
+    },
+    {
+      id: "op-task-complete-1",
+      type: "task",
+      payload: {
+        roomId: "room-1",
+        taskId: "task-1",
+        action: "complete"
+      },
+      attempts: 0,
+      status: "pending"
+    }
+  ];
+
+  const result = await processOutboxBatch(client, operations, () => "2026-04-24T15:00:01.000Z");
+
+  assert.equal(result.processedCount, 2);
+  assert.equal(result.operations[0]?.status, "sent");
+  assert.equal(result.operations[0]?.feedback, "Task started.");
+  assert.equal(result.operations[1]?.status, "sent");
+  assert.equal(result.operations[1]?.feedback, "Task completed.");
+  assert.deepEqual(calls, ["start:task-1", "complete:task-1"]);
+});
