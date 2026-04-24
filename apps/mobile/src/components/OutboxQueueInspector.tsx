@@ -23,6 +23,20 @@ export function OutboxQueueInspector({
     rejected: outbox.filter((entry) => entry.status === "rejected").length,
     conflict: outbox.filter((entry) => entry.status === "conflict").length
   };
+  const needsAttention = counts.conflict + counts.rejected;
+
+  const getRecoveryHint = (operation: OutboxOperation): string | undefined => {
+    if (operation.status === "conflict") {
+      return "Conflict: refresh room/projection, confirm latest state, then retry Process Outbox.";
+    }
+    if (operation.status === "rejected") {
+      return "Rejected: update input data for this operation, then enqueue and process again.";
+    }
+    if (operation.status === "pending" && operation.attempts > 0) {
+      return "Pending retry: check connectivity and keep app foregrounded for auto-process.";
+    }
+    return undefined;
+  };
 
   return (
     <View style={styles.summaryCard}>
@@ -34,6 +48,11 @@ export function OutboxQueueInspector({
       <Text style={styles.code}>
         pending {counts.pending} · sent {counts.sent} · rejected {counts.rejected} · conflict {counts.conflict}
       </Text>
+      {needsAttention > 0 ? (
+        <Text style={styles.errorText}>
+          {needsAttention} item(s) need operator attention (conflict/rejected).
+        </Text>
+      ) : null}
 
       {outbox.length === 0 ? (
         <Text style={[styles.code, { color: "#6b7280" }]}>Queue is empty.</Text>
@@ -59,6 +78,18 @@ export function OutboxQueueInspector({
             </View>
             <Text style={styles.body}>attempts: {operation.attempts}</Text>
             {operation.feedback ? <Text style={styles.body}>{operation.feedback}</Text> : null}
+            {getRecoveryHint(operation) ? (
+              <Text
+                style={[
+                  styles.body,
+                  operation.status === "conflict" || operation.status === "rejected"
+                    ? styles.errorText
+                    : { color: "#9ca3af" }
+                ]}
+              >
+                {getRecoveryHint(operation)}
+              </Text>
+            ) : null}
             {operation.updatedAt ? <Text style={styles.code}>{operation.updatedAt}</Text> : null}
           </View>
         ))
