@@ -3,7 +3,7 @@
 **Audience:** engineers, operators, and AI coding agents picking up work after WS0–WS7 foundation sprints.  
 **Intent:** one place to learn **what to build next**, **where it runs** (local vs cloud), and **how to ship** without re-deriving strategy from chat history.
 
-**Related:** [athlete-support-operations-plan.md](../../athlete-support-operations-plan.md) (product scope) · [GitHub issues and PRs](./github-issues-and-prs.md) (task workflow) · [WS0 readiness sign-off](../ws0-readiness-signoff.md) · [ADR 0003](../adr/0003-canonical-data-and-event-log.md) · [ADR 0004](../adr/0004-cloud-iac-auth-baseline.md)
+**Related:** [athlete-support-operations-plan.md](../../athlete-support-operations-plan.md) (product scope) · [GitHub issues and PRs](./github-issues-and-prs.md) (task workflow) · [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md) (phased UI build plan) · [WS0 readiness sign-off](../ws0-readiness-signoff.md) · [ADR 0003](../adr/0003-canonical-data-and-event-log.md) · [ADR 0004](../adr/0004-cloud-iac-auth-baseline.md)
 
 ---
 
@@ -272,3 +272,4 @@ Validation rules:
 | 2026-04-22 | Noted checkpoint stoppage time shipped to `main` via PR #112; linked follow-up issues #114 (UI) and #113 (staging smoke). Reformatted tables for readability and fixed pickup checklist command formatting. |
 | 2026-04-22 | Linked stoppage-time staging smoke companion doc for issue #113 execution. |
 | 2026-04-23 | Added Chunk A persistence spec and Postgres setup/restart verification runbook. |
+| 2026-04-24 | Linked UI delivery roadmap/spec to make phased client build order explicit and reduce duplicate implementation. |
