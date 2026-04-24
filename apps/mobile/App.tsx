@@ -40,6 +40,7 @@ import {
   processOutboxBatch
 } from "./src/sync/outboxProcessor";
 import { OperationalSummarySections } from "./src/components/OperationalSummarySections";
+import { OperationalStatusRail } from "./src/components/OperationalStatusRail";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -144,6 +145,21 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     room?.status === "active" && projection && canEditCheckpointStops && !busy
   );
 
+  const setStatusSuccess = useCallback((message: string) => {
+    setApiError(undefined);
+    setSyncStatusMessage(message);
+  }, []);
+
+  const setStatusError = useCallback((err: unknown) => {
+    if (err instanceof ApiError) {
+      setApiError(`${err.status} ${err.message}`);
+    } else if (err instanceof Error) {
+      setApiError(err.message);
+    } else {
+      setApiError("Unknown error");
+    }
+  }, []);
+
   const refreshOutbox = useCallback(async () => {
     try {
       setOutbox(await listOutbox());
@@ -225,18 +241,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setTimeline(undefined);
       setSyncHealth(undefined);
       setSyncStatusMessage(undefined);
+      setStatusSuccess(`Room created (${created.id.slice(0, 8)}...)`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, auth.claims, baseUrl]);
+  }, [auth.accessToken, auth.claims, baseUrl, setStatusError, setStatusSuccess]);
 
   const markEntitlementPaid = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -246,18 +257,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const entitlement = await client.updateEntitlement(room.id, "paid");
       setRoom((r) => (r ? { ...r, entitlement } : r));
+      setStatusSuccess("Entitlement updated to paid.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const activateRoom = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -268,18 +274,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const eventEndsAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
       const activated = await client.activateRaceRoom(room.id, { eventEndsAt });
       setRoom(activated);
+      setStatusSuccess("Room activated.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const sendPing = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -294,18 +295,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         uploadIntervalSeconds: 30
       });
       setLastPing(result);
+      setStatusSuccess("Ping submitted.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const fetchProjection = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -315,18 +311,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       setProjection(await client.getProjection(room.id));
       setProjectionPolledAt(new Date().toISOString());
+      setStatusSuccess("Projection fetched.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const postSyncHeartbeat = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -342,24 +333,18 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       });
 
       if (result.persistedForRetry) {
-        setSyncStatusMessage("Heartbeat hit a network error and was saved for retry.");
+        setStatusSuccess("Heartbeat hit a network error and was saved for retry.");
       } else {
-        setSyncStatusMessage(`Heartbeat accepted at ${result.response.lastHeartbeatAt}.`);
+        setStatusSuccess(`Heartbeat accepted at ${result.response.lastHeartbeatAt}.`);
       }
 
       await refreshOutbox();
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, baseUrl, refreshOutbox, room]);
+  }, [auth.accessToken, baseUrl, refreshOutbox, room, setStatusError, setStatusSuccess]);
 
   const fetchSyncHealth = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -370,19 +355,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
       setSyncHealth(nextSyncHealth);
-      setSyncStatusMessage(`Fetched sync health at ${nextSyncHealth.evaluatedAt}.`);
+      setStatusSuccess(`Fetched sync health at ${nextSyncHealth.evaluatedAt}.`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, baseUrl, room]);
+  }, [auth.accessToken, baseUrl, room, setStatusError, setStatusSuccess]);
 
   const runOutboxProcessing = useCallback(
     async (mode: "auto" | "manual") => {
@@ -504,18 +483,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       setTaskBoard(await client.getTaskBoard(room.id));
+      setStatusSuccess("Task board fetched.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const postProtocolNote = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -531,18 +505,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         body: "Smoke: electrolytes + gel at CP1"
       });
       setLastProtocolNote(protocolNote);
+      setStatusSuccess("Protocol note posted.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const fetchTimeline = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -552,18 +521,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const { events } = await client.getTimeline(room.id);
       setTimeline(events);
+      setStatusSuccess("Timeline fetched.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const fetchRoomDetails = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -574,18 +538,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const detail = await client.getRaceRoom(room.id);
       setRoomDetail(detail);
       setRoom(detail.room);
+      setStatusSuccess("Room details fetched.");
     } catch (err) {
-      if (err instanceof ApiError) {
-        setApiError(`${err.status} ${err.message}`);
-      } else if (err instanceof Error) {
-        setApiError(err.message);
-      } else {
-        setApiError("Unknown error");
-      }
+      setStatusError(err);
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl]);
+  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
   const enqueueManualStop = useCallback(
     async (checkpointId: string, arrivalAt: string, departureAt: string) => {
@@ -672,6 +631,16 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               <Text style={styles.label}>Auth error</Text>
               <Text style={styles.errorText}>{auth.error}</Text>
             </>
+          ) : null}
+
+          {auth.status === "authenticated" ? (
+            <OperationalStatusRail
+              styles={styles}
+              pendingOutboxCount={pendingOutboxCount}
+              lastError={apiError}
+              lastStatusMessage={syncStatusMessage}
+              projectionStaleSeconds={projection?.secondsSinceLastAcceptedPing}
+            />
           ) : null}
 
           <View style={{ marginTop: 16, gap: 8 }}>
@@ -831,20 +800,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             )}
           </View>
 
-          {apiError ? (
-            <>
-              <Text style={styles.label}>API error</Text>
-              <Text style={styles.errorText}>{apiError}</Text>
-            </>
-          ) : null}
-
-          {syncStatusMessage ? (
-            <>
-              <Text style={styles.label}>Sync status</Text>
-              <Text style={styles.body}>{syncStatusMessage}</Text>
-            </>
-          ) : null}
-
           <OperationalSummarySections
             styles={styles}
             room={room}
@@ -961,6 +916,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     marginBottom: 4
+  },
+  statusRail: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#0b1220",
+    borderWidth: 1,
+    borderColor: "#1f2937",
+    gap: 4
+  },
+  statusRailTitle: {
+    color: "#f9fafb",
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5
+  },
+  statusRailItem: {
+    color: "#d1d5db",
+    fontSize: 13
   },
   outboxItem: {
     marginTop: 12,
