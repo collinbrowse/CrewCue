@@ -6,7 +6,18 @@ on:
     branches: [main]
 
 jobs:
+  dual-client-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install
+      - run: npm run verify:dual-client
   checks:
+    needs: dual-client-guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

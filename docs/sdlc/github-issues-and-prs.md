@@ -74,6 +74,28 @@ This repository runs [`.github/workflows/auto-close-linked-issues.yml`](../../.g
 
 When the PR is merged into `default` (`main`), linked issues should move to **Closed**. If something did not close, check that the PR body still contains e.g. `Closes #123` (workflow only inspects the **description**, not arbitrary comments).
 
+## 6. Branch protection for dual-client safety (recommended)
+
+To prevent regressions while we prepare for separate mobile + web apps, require CI status checks on `main`.
+
+GitHub UI path:
+
+1. Repository -> **Settings** -> **Branches**
+2. Under **Branch protection rules**, add or edit rule for `main`
+3. Enable **Require a pull request before merging**
+4. Enable **Require status checks to pass before merging**
+5. Add required checks from CI:
+   - `dual-client-guard`
+   - `checks`
+   - `api-postgres-integration`
+6. Save rule
+
+Why this matters:
+
+- `dual-client-guard` fails if raw networking drifts outside `apps/mobile/src/api/client.ts`
+- `checks` covers lint/typecheck/build/tests
+- `api-postgres-integration` protects Postgres-backed API behavior
+
 ## Summary checklist
 
 | Step | Done when |
@@ -83,6 +105,7 @@ When the PR is merged into `default` (`main`), linked issues should move to **Cl
 | PR | PR targets `main`, body includes `Closes #<issue>`. |
 | Merge | CI green, review done, squash/merge per team preference. |
 | Close | Issue closed automatically after merge. |
+| Protection | `main` requires `dual-client-guard`, `checks`, and `api-postgres-integration`. |
 
 ## See also
 
