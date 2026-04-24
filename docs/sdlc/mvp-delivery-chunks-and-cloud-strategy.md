@@ -112,7 +112,8 @@ Chunks are **sequenced layers**, not a reinvention of WS1–WS7. WS numbers stil
 **Ships (examples):** Mobile: config for staging `API_BASE_URL`, Auth0 login, room lifecycle, pings, projection UI, task board, incidents/recommendations path, optional sync panel (WS5 heartbeats). Manager tablet/web optional but recommended for WS6 “essentials.”
 
 **First slice (mobile Auth0 + one real API call):** [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
-**Full smoke script (exit gate doc):** [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)
+**Full smoke script (exit gate doc):** [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  
+**Phase 3 depth validation:** [mobile-phase3-staging-validation-checklist.md](./mobile-phase3-staging-validation-checklist.md)
 
 **Cloud in this chunk**
 
@@ -277,3 +278,4 @@ Validation rules:
 | 2026-04-24 | Linked UI delivery roadmap/spec to make phased client build order explicit and reduce duplicate implementation. |
 | 2026-04-24 | Added maintainability and onboarding references as first-class SDLC companion docs. |
 | 2026-04-24 | Added dual-client architecture guardrails reference for mobile + web evolution. |
+| 2026-04-24 | Linked Phase 3 mobile staging validation checklist for WS3/WS4 exit-gate evidence capture. |
