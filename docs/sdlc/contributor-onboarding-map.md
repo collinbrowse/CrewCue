@@ -9,8 +9,9 @@
 
 1. [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
 2. [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)  
-3. [codebase-maintainability-standard.md](./codebase-maintainability-standard.md)  
-4. [github-issues-and-prs.md](./github-issues-and-prs.md)
+3. [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
+4. [codebase-maintainability-standard.md](./codebase-maintainability-standard.md)  
+5. [github-issues-and-prs.md](./github-issues-and-prs.md)
 
 ---
 
@@ -21,6 +22,7 @@
 | `packages/contracts` | Shared types and contracts | `packages/contracts/src/index.ts` |
 | `services/api` | Fastify API + persistence + authz | `services/api/src/server.ts`, `services/api/src/routes/raceRooms.ts` |
 | `apps/mobile` | Expo mobile UI + sync/outbox | `apps/mobile/App.tsx`, `apps/mobile/src/api/client.ts`, `apps/mobile/src/sync/outboxProcessor.ts` |
+| `apps/web` | Future web UI (desktop/laptop) using same backend contracts | (to be created; follow dual-client guardrails first) |
 | `docs/sdlc` | Delivery strategy/runbooks/policies | chunk docs and standards |
 
 ---
@@ -34,7 +36,7 @@ Use this sequence for debugging or implementation:
 3. Persistence functions in `services/api/src/lib/roomPersistence.ts` (or related libs)
 4. Client method in `apps/mobile/src/api/client.ts`
 5. Outbox operation (if mutation/offline) in `apps/mobile/src/sync/*`
-6. UI section/component in `apps/mobile/App.tsx` or `apps/mobile/src/components/*`
+6. UI section/component in `apps/mobile` (or `apps/web` when introduced)
 7. Tests in matching API/mobile test files
 
 ---
@@ -79,6 +81,7 @@ Use this sequence for debugging or implementation:
 - Creating second retry queues outside outbox
 - Shipping cloud changes without staging verification evidence
 - Leaving operational flow changes undocumented
+- Introducing mobile-specific contract/route behavior that blocks future web client reuse
 
 ---
 
@@ -97,3 +100,4 @@ Use this sequence for debugging or implementation:
 | Date | Change |
 | --- | --- |
 | 2026-04-24 | Initial contributor onboarding map for humans and agents. |
+| 2026-04-24 | Added dual-client (mobile + web) architecture references and guidance. |

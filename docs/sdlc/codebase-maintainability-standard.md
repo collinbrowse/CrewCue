@@ -6,6 +6,7 @@
 **Related docs:**  
 - [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
 - [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)  
+- [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [github-issues-and-prs.md](./github-issues-and-prs.md)
 
 ---
@@ -30,9 +31,11 @@ Use these top-level boundaries consistently:
 - `packages/contracts` -> shared DTO/event/auth contracts; no app-specific UI logic
 - `services/api` -> server routes, domain logic, persistence, authz, replay/projections
 - `apps/mobile` -> client presentation, user interaction, sync/outbox orchestration
+- `apps/web` -> desktop/laptop client presentation (when created); consumes same contracts/API semantics
 - `docs/sdlc` -> execution plans, runbooks, and operating policy
 
 Do not duplicate domain rules across API and mobile. Domain authority stays server-side unless explicitly designed for offline behavior.
+Do not encode client-specific behavior in contracts/routes unless the behavior is truly client-specific and documented.
 
 ---
 
@@ -138,6 +141,8 @@ Update docs when:
 
 Never rely on chat history as the only record of why a pattern exists.
 
+When architecture intent includes multiple clients (mobile + web), update [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md) if boundaries or layering rules change.
+
 ---
 
 ## 10) Revision history
@@ -145,3 +150,4 @@ Never rely on chat history as the only record of why a pattern exists.
 | Date | Change |
 | --- | --- |
 | 2026-04-24 | Initial publication of codebase maintainability standard. |
+| 2026-04-24 | Added explicit dual-client references and rules to preserve mobile + web architecture boundaries. |

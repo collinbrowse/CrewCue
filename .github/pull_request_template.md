@@ -43,6 +43,14 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - [ ] Docs updated for workflow/operational changes
 - [ ] A new contributor can trace this feature from contract to UI
 
+## Dual-Client Architecture Checklist (required when touching contracts/API/client-sync)
+
+- [ ] Contract/API changes are client-agnostic (mobile + web compatible)
+- [ ] No mobile-specific semantics leaked into contracts/routes
+- [ ] Server remains source of truth for domain outcomes
+- [ ] `npm run verify:dual-client` passes
+- [ ] Updated `docs/sdlc/dual-client-architecture-guardrails.md` if architecture boundaries changed
+
 ## Risk and Rollback
 
 - Risk level: low / medium / high

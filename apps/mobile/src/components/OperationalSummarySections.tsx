@@ -47,6 +47,9 @@ export function OperationalSummarySections({
   onToggleResolvedSource,
   canToggleResolvedSource
 }: Props): ReactElement {
+  const staleDevices = syncHealth?.devices.filter((device) => device.isStale) ?? [];
+  const staleCount = staleDevices.length;
+
   return (
     <>
       {room ? (
@@ -105,7 +108,24 @@ export function OperationalSummarySections({
           <Text style={styles.body}>Total pending</Text>
           <Text style={styles.code}>{syncHealth.totalPendingAcrossDevices}</Text>
           <Text style={styles.body}>Stale devices</Text>
-          <Text style={styles.code}>{syncHealth.devices.filter((device) => device.isStale).length}</Text>
+          <Text style={staleCount > 0 ? styles.errorText : styles.code}>{staleCount}</Text>
+          {staleCount > 0 ? (
+            <>
+              <Text style={styles.errorText}>
+                Stale threshold exceeded ({syncHealth.staleAfterSeconds}s). Ask stale device owners to reopen app and
+                flush outbox.
+              </Text>
+              {staleDevices.slice(0, 3).map((device) => (
+                <Text key={device.deviceId} style={styles.code}>
+                  {device.deviceId}: heartbeat {device.lastHeartbeatAt}
+                </Text>
+              ))}
+            </>
+          ) : (
+            <Text style={[styles.code, { color: "#86efac" }]}>
+              All devices are fresh within {syncHealth.staleAfterSeconds}s.
+            </Text>
+          )}
           <Text style={styles.body}>Evaluated at</Text>
           <Text style={styles.code}>{syncHealth.evaluatedAt}</Text>
         </View>
