@@ -26,3 +26,9 @@ The repo workflow [`.github/workflows/auto-close-linked-issues.yml`](../../.gith
 ## PR template
 
 Remind the user to fill **Linked issues** before merge if they open the PR manually without `gh`.
+
+## Merge gate (errors + mobile bundle)
+
+1. **GitHub Actions** on every PR and `main` push must stay green: `dual-client-guard` and `checks` (lint, typecheck, **`npm run build` including `expo export` for `@crewcue/mobile`**, tests). Do not merge with failing checks.
+2. **Branch protection** (repo Settings → Branches): require the `checks` job (and `dual-client-guard` if desired) as required status checks before merge to `main`.
+3. **Local parity** before push: run `npm run verify` at the repo root (same steps as CI’s `checks` job, minus nothing meaningful).

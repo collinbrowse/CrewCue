@@ -2,7 +2,7 @@
   "name": "@crewcue/mobile",
   "version": "0.1.0",
   "private": true,
-  "main": "index.tsx",
+  "main": "index.ts",
   "scripts": {
     "dev": "expo start",
     "android": "expo run:android",

@@ -33,6 +33,7 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - [ ] npm run typecheck
 - [ ] npm run build
 - [ ] npm run test
+- [ ] npm run verify (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**)
 - [ ] Manual checks (if applicable)
 
 ## Maintainability Checklist (required)
