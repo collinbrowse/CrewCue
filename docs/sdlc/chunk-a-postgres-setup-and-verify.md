@@ -30,6 +30,8 @@ PERSISTENCE_MODE=memory
 # DATABASE_URL=postgres://crewcue:crewcue@localhost:5432/crewcue
 ```
 
+> **Security note:** The example `crewcue/crewcue` credentials are intentionally weak local defaults for `docker-compose.local.yml` convenience only. They must never be copied to staging or production.
+
 ## 3. Local setup
 
 ### Option A: fast local dev with in-memory persistence
@@ -67,6 +69,8 @@ This starts Postgres 16 on:
 - db: `crewcue`
 - user: `crewcue`
 - password: `crewcue`
+
+> **Local-only credentials warning:** These credentials are for a localhost development container only. Use unique, secret-managed credentials for all cloud environments.
 
 #### 2. Set env vars
 
@@ -259,6 +263,7 @@ Also verify:
 | Health endpoint shows `mode: "postgres"` but requests still fail on startup | database unreachable | verify the `DATABASE_URL`, network access, and Postgres availability |
 | Migrations fail with `ECONNREFUSED` or `ENOTFOUND` | wrong connection string | use the actual Postgres service URL, not localhost on staging |
 | Room disappears after API restart | service is still on memory mode, or write path is not persisting | check health first, then confirm rows exist in `race_rooms_json` |
+| Staging/production uses `crewcue/crewcue`-style defaults | local defaults were copied to cloud env | rotate credentials immediately, store secrets in the platform secret manager, and update service env vars |
 
 ## 8. What this runbook does not guarantee
 
