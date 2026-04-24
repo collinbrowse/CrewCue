@@ -13,23 +13,18 @@ import type {
   CrewAssignment,
   CrewTask
 } from "@crewcue/contracts";
-import type { OutboxOperation } from "../sync/outboxStore";
 
 type Props = {
   styles: any;
   room?: RaceRoom;
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
-  outbox: OutboxOperation[];
   syncHealth?: SyncStatus;
   projection?: RaceRoomProjection;
   projectionPolledAt?: string;
   lastProtocolNote?: ProtocolNote;
   timeline?: OpsTimelineEvent[];
   taskBoard?: { checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] };
-  outboxAutoProcessIntervalMs: number;
-  describeOutboxOperation: (operation: OutboxOperation) => string;
-  describeOutboxStatus: (status: OutboxOperation["status"]) => string;
   onToggleResolvedSource: (
     checkpointId: string,
     visitIndex: number,
@@ -43,16 +38,12 @@ export function OperationalSummarySections({
   room,
   roomDetail,
   lastPing,
-  outbox,
   syncHealth,
   projection,
   projectionPolledAt,
   lastProtocolNote,
   timeline,
   taskBoard,
-  outboxAutoProcessIntervalMs,
-  describeOutboxOperation,
-  describeOutboxStatus,
   onToggleResolvedSource,
   canToggleResolvedSource
 }: Props): ReactElement {
@@ -103,40 +94,6 @@ export function OperationalSummarySections({
               <Text style={styles.errorText}>{lastPing.message}</Text>
             </>
           )}
-        </View>
-      ) : null}
-
-      {outbox.length > 0 ? (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Outbox items</Text>
-          <Text style={styles.body}>
-            Auto-processing runs every {outboxAutoProcessIntervalMs / 1000}s while authenticated, the room is active,
-            and the app is foregrounded.
-          </Text>
-          {[...outbox].reverse().map((operation) => (
-            <View key={operation.id} style={styles.outboxItem}>
-              <View style={styles.outboxItemHeader}>
-                <Text style={styles.code}>{describeOutboxOperation(operation)}</Text>
-                <Text
-                  style={[
-                    styles.outboxStatus,
-                    operation.status === "sent"
-                      ? styles.outboxStatusSent
-                      : operation.status === "rejected"
-                        ? styles.outboxStatusRejected
-                        : operation.status === "conflict"
-                          ? styles.outboxStatusConflict
-                          : styles.outboxStatusPending
-                  ]}
-                >
-                  {describeOutboxStatus(operation.status)}
-                </Text>
-              </View>
-              <Text style={styles.body}>attempts: {operation.attempts}</Text>
-              {operation.feedback ? <Text style={styles.body}>{operation.feedback}</Text> : null}
-              {operation.updatedAt ? <Text style={styles.code}>{operation.updatedAt}</Text> : null}
-            </View>
-          ))}
         </View>
       ) : null}
 

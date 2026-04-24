@@ -41,6 +41,7 @@ import {
 } from "./src/sync/outboxProcessor";
 import { OperationalSummarySections } from "./src/components/OperationalSummarySections";
 import { OperationalStatusRail } from "./src/components/OperationalStatusRail";
+import { OutboxQueueInspector } from "./src/components/OutboxQueueInspector";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -643,6 +644,16 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             />
           ) : null}
 
+          {auth.status === "authenticated" ? (
+            <OutboxQueueInspector
+              styles={styles}
+              outbox={outbox}
+              outboxAutoProcessIntervalMs={OUTBOX_AUTO_PROCESS_INTERVAL_MS}
+              describeOutboxOperation={describeOutboxOperation}
+              describeOutboxStatus={describeOutboxStatus}
+            />
+          ) : null}
+
           <View style={{ marginTop: 16, gap: 8 }}>
             {auth.status !== "authenticated" ? (
               <Pressable
@@ -805,16 +816,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             room={room}
             roomDetail={roomDetail}
             lastPing={lastPing}
-            outbox={outbox}
             syncHealth={syncHealth}
             projection={projection}
             projectionPolledAt={projectionPolledAt}
             lastProtocolNote={lastProtocolNote}
             timeline={timeline}
             taskBoard={taskBoard}
-            outboxAutoProcessIntervalMs={OUTBOX_AUTO_PROCESS_INTERVAL_MS}
-            describeOutboxOperation={describeOutboxOperation}
-            describeOutboxStatus={describeOutboxStatus}
             onToggleResolvedSource={enqueueSourceToggle}
             canToggleResolvedSource={canUseCheckpointControls}
           />
