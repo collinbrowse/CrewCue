@@ -35,6 +35,14 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - [ ] npm run test
 - [ ] Manual checks (if applicable)
 
+## Maintainability Checklist (required)
+
+- [ ] No duplicate API/outbox/client logic introduced
+- [ ] File/module placement follows monorepo layering (contracts -> api -> client/sync -> UI -> docs)
+- [ ] Complex branches include intent comments where useful
+- [ ] Docs updated for workflow/operational changes
+- [ ] A new contributor can trace this feature from contract to UI
+
 ## Risk and Rollback
 
 - Risk level: low / medium / high
