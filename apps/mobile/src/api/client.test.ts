@@ -169,3 +169,35 @@ test("ws4 client methods target incident and recommendation endpoints", async ()
     globalThis.fetch = prev;
   }
 });
+
+test("WS5 sync client uses queue-diagnostics and merge-records paths", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: string[] = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/sync/queue-diagnostics") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ diagnostics: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/sync/merge-records") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ mergeRecords: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.getQueueDiagnostics("room-z", { limit: 15 });
+    await client.getMergeRecords("room-z", { limit: 10 });
+    assert.ok(calls[0]?.includes("/race-rooms/room-z/sync/queue-diagnostics?limit=15"));
+    assert.ok(calls[1]?.includes("/race-rooms/room-z/sync/merge-records?limit=10"));
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

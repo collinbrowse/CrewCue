@@ -169,6 +169,7 @@ Build:
 - Conflict resolution UX for merge-policy outcomes
 - Retry controls scoped to safe operations
 - Incremental slice shipped in [#162](https://github.com/collinbrowse/CrewCue/issues/162): targeted safe retry for ping/sync outbox items from queue inspector while retaining global process-all behavior for mixed operations
+- **Queue diagnostics + merge telemetry (API parity):** mobile `createApiClient` exposes `getQueueDiagnostics`, `postQueueDiagnostics`, `getMergeRecords`, and `postMergeRecord`. **Operate → Status Detail** includes a WS5 panel to refresh telemetry, push pending-count snapshots, and list recent rows. **Outbox inspector** offers **Log merge telemetry (manual)** on conflict items when the room role may record merge rows (athlete, crew chief, team manager).
 
 Dependencies:
 
@@ -336,6 +337,7 @@ A UI PR is not complete unless all apply:
 | --- | --- |
 | 2026-04-27 | Documented Phase 2 incremental slice for targeted safe retry controls (issue #162) without adding a second retry queue. |
 | 2026-04-27 | Phase 1: structured Operate tab sections (`phase1-part-a` / `phase1-part-b` on `OperationalSummarySections`) plus roadmap note. |
+| 2026-04-27 | Phase 2: WS5 queue diagnostics + merge-record client routes; Status Detail panel; conflict merge telemetry action; shared projection/sync readout blocks to dedupe Operate vs Readouts. |
 | 2026-04-24 | Initial publication: phased UI roadmap, architecture constraints, anti-duplication rules, and PR checklist. |
 | 2026-04-24 | Reordered priorities so WS6 manager command center is deferred to Phase 5 (last priority) and added explicit monorepo-first execution order. |
 | 2026-04-24 | Added dedicated Phase 3 staging validation checklist reference for WS3/WS4 mobile exit-gate verification. |

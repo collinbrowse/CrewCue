@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
+import { Ws5ResiliencePanel } from "../components/Ws5ResiliencePanel";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 export function OperateStatusScreen(): ReactElement {
@@ -29,6 +30,26 @@ export function OperateStatusScreen(): ReactElement {
           lastError={s.apiError}
           lastStatusMessage={s.syncStatusMessage}
           projectionStaleSeconds={s.projection?.secondsSinceLastAcceptedPing}
+        />
+        <Ws5ResiliencePanel
+          styles={s.styles}
+          disableRefresh={!s.room}
+          disablePushDiagnostics={!s.room || s.room.status !== "active"}
+          refreshDisabledHint={!s.room ? "Create a room from Operate before refreshing WS5 telemetry." : undefined}
+          pushDisabledHint={
+            s.room && s.room.status !== "active"
+              ? "Activate the room before pushing queue diagnostics snapshots."
+              : undefined
+          }
+          busy={s.busy}
+          queueDiagnostics={s.queueDiagnostics}
+          mergeRecords={s.mergeRecords}
+          onRefreshTelemetry={() => {
+            void s.onRefreshWs5Telemetry();
+          }}
+          onPushDiagnostics={() => {
+            void s.onPushQueueDiagnosticsSnapshot();
+          }}
         />
       </View>
     </ScrollView>

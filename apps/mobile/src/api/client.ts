@@ -8,6 +8,8 @@ import type {
   IncidentCategory,
   IncidentEvent,
   IncidentSeverity,
+  MergeRecord,
+  MergeStrategyKind,
   OpsTimelineEvent,
   PlanDelta,
   ProtocolNote,
@@ -16,6 +18,7 @@ import type {
   RaceRoomEntitlement,
   RaceRoomProjection,
   Recommendation,
+  SyncQueueDiagnostics,
   SyncStatus
 } from "@crewcue/contracts";
 
@@ -110,6 +113,34 @@ export type GetSyncHealthResponse = {
   syncStatus: SyncStatus;
 };
 
+export type GetQueueDiagnosticsResponse = {
+  diagnostics: SyncQueueDiagnostics[];
+};
+
+export type PostQueueDiagnosticsInput = {
+  deviceId: string;
+  pendingByOpType: Record<string, number>;
+};
+
+export type PostQueueDiagnosticsResponse = {
+  diagnostics: SyncQueueDiagnostics;
+};
+
+export type GetMergeRecordsResponse = {
+  mergeRecords: MergeRecord[];
+};
+
+export type PostMergeRecordInput = {
+  deviceId: string;
+  conflictKey: string;
+  strategy: MergeStrategyKind;
+  notes?: string;
+};
+
+export type PostMergeRecordResponse = {
+  mergeRecord: MergeRecord;
+};
+
 export type AssignTaskInput = {
   assigneeUserId: string;
   assigneeRole: CrewAssignment["assigneeRole"];
@@ -182,6 +213,26 @@ export function createApiClient(options: ApiClientOptions) {
             : ""
         }`
       ),
+    getQueueDiagnostics: (roomId: string, query?: { limit?: number }) =>
+      request<GetQueueDiagnosticsResponse>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/sync/queue-diagnostics${
+          typeof query?.limit === "number" ? `?limit=${encodeURIComponent(String(query.limit))}` : ""
+        }`
+      ),
+    postQueueDiagnostics: (roomId: string, input: PostQueueDiagnosticsInput) =>
+      request<PostQueueDiagnosticsResponse>(options, "POST", `/race-rooms/${roomId}/sync/queue-diagnostics`, input),
+    getMergeRecords: (roomId: string, query?: { limit?: number }) =>
+      request<GetMergeRecordsResponse>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/sync/merge-records${
+          typeof query?.limit === "number" ? `?limit=${encodeURIComponent(String(query.limit))}` : ""
+        }`
+      ),
+    postMergeRecord: (roomId: string, input: PostMergeRecordInput) =>
+      request<PostMergeRecordResponse>(options, "POST", `/race-rooms/${roomId}/sync/merge-records`, input),
     postProtocolNote: (
       roomId: string,
       input: { checkpointId: string; category: ProtocolNoteCategory; body: string }

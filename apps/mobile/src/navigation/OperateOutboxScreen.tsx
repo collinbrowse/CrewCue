@@ -20,6 +20,10 @@ export function OperateOutboxScreen(): ReactElement {
           onRetryOutboxOperationSafely={(operationId) => {
             void s.onRetryOutboxOperationSafely(operationId);
           }}
+          canLogMergeTelemetry={s.canLogMergeTelemetry}
+          onRecordOutboxMergeTelemetry={(operationId) => {
+            void s.onRecordOutboxMergeTelemetry(operationId);
+          }}
         />
       </View>
     </ScrollView>

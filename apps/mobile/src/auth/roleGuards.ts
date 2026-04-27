@@ -28,3 +28,8 @@ export function canMutateTaskBoard(auth: AuthState, roomId?: string): boolean {
   const role = getCurrentRoomRole(auth, roomId);
   return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
+
+/** Matches server `canRecordMergeTelemetry` for POST /sync/merge-records (telemetry). */
+export function canRecordMergeTelemetry(role: Role | undefined): boolean {
+  return role === "athlete" || role === "crew_chief" || role === "team_manager";
+}

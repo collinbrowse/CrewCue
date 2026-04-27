@@ -18,6 +18,13 @@ import type {
   CrewAssignment,
   CrewTask
 } from "@crewcue/contracts";
+import {
+  CheckpointSplitsReadout,
+  ProjectionEndpointReadout,
+  StoppageSummaryReadout,
+  SyncHealthReadout,
+  TimelineEventsReadout
+} from "./operationalReadoutBlocks";
 
 export type OperationalSummaryVariant = "full" | "phase1-part-a" | "phase1-part-b";
 
@@ -84,9 +91,6 @@ export function OperationalSummarySections({
   taskAssigneeUserId,
   taskAssigneeRole
 }: Props): ReactElement {
-  const staleDevices = syncHealth?.devices.filter((device) => device.isStale) ?? [];
-  const staleCount = staleDevices.length;
-
   if (variant === "phase1-part-a") {
     return (
       <>
@@ -135,130 +139,22 @@ export function OperationalSummarySections({
             </Text>
           ) : (
             <>
-              <Text style={styles.body}>Confidence</Text>
-              <Text style={[styles.code, { color: projection.projectionConfidence === "fresh" ? "#86efac" : "#fde68a" }]}>
-                {projection.projectionConfidence}
-              </Text>
-              <Text style={styles.body}>Progress</Text>
-              <Text style={styles.code}>{Math.round(projection.progressMeters)} m</Text>
-              <Text style={styles.body}>ETA finish</Text>
-              <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
-              <Text style={styles.body}>Staleness (s since last ping)</Text>
-              <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
-              {projectionPolledAt ? (
-                <>
-                  <Text style={styles.body}>Last projection fetch</Text>
-                  <Text style={styles.code}>{projectionPolledAt}</Text>
-                </>
-              ) : null}
-              {projection.weatherStub ? (
-                <>
-                  <Text style={styles.body}>Weather stub</Text>
-                  <Text style={styles.code}>{projection.weatherStub.summary}</Text>
-                </>
-              ) : null}
+              <ProjectionEndpointReadout
+                styles={styles}
+                projection={projection}
+                projectionPolledAt={projectionPolledAt}
+                showEndpointLabel={false}
+              />
+              <StoppageSummaryReadout styles={styles} projection={projection} layout="embedded" />
+              <CheckpointSplitsReadout
+                styles={styles}
+                projection={projection}
+                canToggleResolvedSource={canToggleResolvedSource}
+                onToggleResolvedSource={onToggleResolvedSource}
+                layout="embedded"
+              />
             </>
           )}
-          {projection && projection.stoppageSummary ? (
-            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
-              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>WS2 Stoppage summary</Text>
-              <View style={styles.stoppageRow}>
-                <Text style={styles.body}>Planned total</Text>
-                <Text style={styles.code}>{projection.stoppageSummary.totalPlannedStopSeconds}s</Text>
-              </View>
-              <View style={styles.stoppageRow}>
-                <Text style={styles.body}>Actual total</Text>
-                <Text style={styles.code}>{projection.stoppageSummary.totalActualStopSeconds}s</Text>
-              </View>
-              {projection.stoppageSummary.totalDeltaStopSeconds !== null ? (
-                <View style={styles.stoppageRow}>
-                  <Text style={styles.body}>Delta</Text>
-                  <Text
-                    style={[
-                      styles.code,
-                      { color: projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "#fca5a5" : "#86efac" }
-                    ]}
-                  >
-                    {projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "+" : ""}
-                    {projection.stoppageSummary.totalDeltaStopSeconds}s
-                  </Text>
-                </View>
-              ) : null}
-              <View style={styles.stoppageRow}>
-                <Text style={styles.body}>Remaining planned</Text>
-                <Text style={styles.code}>{projection.stoppageSummary.remainingPlannedStopSeconds}s</Text>
-              </View>
-            </View>
-          ) : projection ? (
-            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
-              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>WS2 Stoppage summary</Text>
-              <Text style={[styles.body, { color: "#9ca3af" }]}>
-                No aggregate stoppage on this projection yet (course may omit planned stops, or visits not computed).
-              </Text>
-            </View>
-          ) : null}
-          {projection?.checkpointSplits && projection.checkpointSplits.length > 0 ? (
-            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
-              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>Checkpoint splits</Text>
-              {projection.checkpointSplits.map((split) => (
-                <View key={split.checkpointId} style={{ marginTop: 12 }}>
-                  <View style={styles.stoppageRow}>
-                    <Text style={[styles.code, { fontWeight: "600" }]}>{split.checkpointId}</Text>
-                    {split.crossedAtRecordedAt ? (
-                      <Text style={[styles.code, { color: "#86efac" }]}>{split.crossedAtRecordedAt.slice(11, 19)}Z</Text>
-                    ) : (
-                      <Text style={[styles.code, { color: "#6b7280" }]}>not crossed</Text>
-                    )}
-                  </View>
-                  {split.plannedStopSeconds > 0 ? (
-                    <View style={styles.stoppageRow}>
-                      <Text style={styles.body}>Planned / actual stop</Text>
-                      <Text style={styles.code}>
-                        {split.plannedStopSeconds}s /{" "}
-                        {split.totalActualStopSeconds !== null ? `${split.totalActualStopSeconds}s` : "—"}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {split.visits.map((visit) => (
-                    <View key={visit.visitIndex} style={styles.visitRow}>
-                      <Text style={styles.body}>
-                        Visit #{visit.visitIndex} · source: <Text style={styles.code}>{visit.resolvedSource}</Text>
-                        {visit.activeActualStopSeconds !== null ? ` · ${visit.activeActualStopSeconds}s` : ""}
-                      </Text>
-                      {visit.note ? <Text style={[styles.body, { color: "#9ca3af" }]}>{visit.note}</Text> : null}
-                      {visit.autoDetected && visit.manualEntry ? (
-                        <Pressable
-                          style={styles.toggleButton}
-                          disabled={!canToggleResolvedSource}
-                          onPress={() => {
-                            void onToggleResolvedSource(
-                              split.checkpointId,
-                              visit.visitIndex,
-                              visit.resolvedSource === "auto" ? "manual_crew" : "auto"
-                            );
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.toggleButtonLabel,
-                              !canToggleResolvedSource ? { color: "#9ca3af" } : null
-                            ]}
-                          >
-                            → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </View>
-          ) : projection ? (
-            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
-              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>Checkpoint splits</Text>
-              <Text style={[styles.body, { color: "#9ca3af" }]}>No checkpoint splits on this projection yet.</Text>
-            </View>
-          ) : null}
         </Phase1SectionCard>
       </>
     );
@@ -271,50 +167,15 @@ export function OperationalSummarySections({
           {!syncHealth ? (
             <Text style={styles.body}>No sync health loaded yet. Use POST sync heartbeat / GET sync health from actions.</Text>
           ) : (
-            <>
-              <Text style={styles.body}>Tracked devices</Text>
-              <Text style={styles.code}>{syncHealth.devices.length}</Text>
-              <Text style={styles.body}>Total pending</Text>
-              <Text style={styles.code}>{syncHealth.totalPendingAcrossDevices}</Text>
-              <Text style={styles.body}>Stale devices</Text>
-              <Text style={staleCount > 0 ? styles.errorText : styles.code}>{staleCount}</Text>
-              {staleCount > 0 ? (
-                <>
-                  <Text style={styles.errorText}>
-                    Stale threshold exceeded ({syncHealth.staleAfterSeconds}s). Flush outbox on stale devices.
-                  </Text>
-                  {staleDevices.slice(0, 3).map((device) => (
-                    <Text key={device.deviceId} style={styles.code}>
-                      {device.deviceId}: heartbeat {device.lastHeartbeatAt}
-                    </Text>
-                  ))}
-                </>
-              ) : (
-                <Text style={[styles.code, { color: "#86efac" }]}>
-                  All devices are fresh within {syncHealth.staleAfterSeconds}s.
-                </Text>
-              )}
-              <Text style={styles.body}>Evaluated at</Text>
-              <Text style={styles.code}>{syncHealth.evaluatedAt}</Text>
-            </>
+            <SyncHealthReadout styles={styles} syncHealth={syncHealth} layout="embedded" />
           )}
         </Phase1SectionCard>
 
         <Phase1SectionCard styles={styles} title="Timeline">
           {timeline === undefined ? (
             <Text style={styles.body}>Fetch ops timeline from actions to load recent events.</Text>
-          ) : timeline.length === 0 ? (
-            <Text style={[styles.code, { color: "#6b7280" }]}>No events yet.</Text>
           ) : (
-            [...timeline].reverse().slice(0, 6).map((event) => (
-              <View key={event.id} style={styles.visitRow}>
-                <Text style={styles.code}>
-                  {event.occurredAt.slice(11, 19)}Z · {event.kind}
-                </Text>
-                <Text style={styles.body}>{event.message}</Text>
-                <Text style={[styles.code, { color: "#9ca3af" }]}>actor: {event.actorUserId}</Text>
-              </View>
-            ))
+            <TimelineEventsReadout styles={styles} timeline={timeline} layout="embedded" />
           )}
         </Phase1SectionCard>
       </>
@@ -371,154 +232,25 @@ export function OperationalSummarySections({
         </View>
       ) : null}
 
-      {syncHealth ? (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>WS5 sync health</Text>
-          <Text style={styles.body}>Tracked devices</Text>
-          <Text style={styles.code}>{syncHealth.devices.length}</Text>
-          <Text style={styles.body}>Total pending</Text>
-          <Text style={styles.code}>{syncHealth.totalPendingAcrossDevices}</Text>
-          <Text style={styles.body}>Stale devices</Text>
-          <Text style={staleCount > 0 ? styles.errorText : styles.code}>{staleCount}</Text>
-          {staleCount > 0 ? (
-            <>
-              <Text style={styles.errorText}>
-                Stale threshold exceeded ({syncHealth.staleAfterSeconds}s). Ask stale device owners to reopen app and
-                flush outbox.
-              </Text>
-              {staleDevices.slice(0, 3).map((device) => (
-                <Text key={device.deviceId} style={styles.code}>
-                  {device.deviceId}: heartbeat {device.lastHeartbeatAt}
-                </Text>
-              ))}
-            </>
-          ) : (
-            <Text style={[styles.code, { color: "#86efac" }]}>
-              All devices are fresh within {syncHealth.staleAfterSeconds}s.
-            </Text>
-          )}
-          <Text style={styles.body}>Evaluated at</Text>
-          <Text style={styles.code}>{syncHealth.evaluatedAt}</Text>
-        </View>
-      ) : null}
+      {syncHealth ? <SyncHealthReadout styles={styles} syncHealth={syncHealth} layout="card" /> : null}
 
       {projection ? (
-        <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>GET /race-rooms/:id/projection</Text>
-          <Text style={styles.body}>Confidence</Text>
-          <Text style={[styles.code, { color: projection.projectionConfidence === "fresh" ? "#86efac" : "#fde68a" }]}>
-            {projection.projectionConfidence}
-          </Text>
-          <Text style={styles.body}>Progress</Text>
-          <Text style={styles.code}>{Math.round(projection.progressMeters)} m</Text>
-          <Text style={styles.body}>ETA finish</Text>
-          <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
-          <Text style={styles.body}>Staleness (s since last ping)</Text>
-          <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
-          {projectionPolledAt ? (
-            <>
-              <Text style={styles.body}>Last projection fetch</Text>
-              <Text style={styles.code}>{projectionPolledAt}</Text>
-            </>
-          ) : null}
-          {projection.weatherStub ? (
-            <>
-              <Text style={styles.body}>Weather stub</Text>
-              <Text style={styles.code}>{projection.weatherStub.summary}</Text>
-              <Text style={styles.body}>Assumed headwind (m/s)</Text>
-              <Text style={styles.code}>{String(projection.weatherStub.assumedHeadwindMps)}</Text>
-            </>
-          ) : null}
-        </View>
-      ) : null}
-
-      {projection?.stoppageSummary ? (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>WS2 Stoppage summary</Text>
-          <View style={styles.stoppageRow}>
-            <Text style={styles.body}>Planned total</Text>
-            <Text style={styles.code}>{projection.stoppageSummary.totalPlannedStopSeconds}s</Text>
-          </View>
-          <View style={styles.stoppageRow}>
-            <Text style={styles.body}>Actual total</Text>
-            <Text style={styles.code}>{projection.stoppageSummary.totalActualStopSeconds}s</Text>
-          </View>
-          {projection.stoppageSummary.totalDeltaStopSeconds !== null ? (
-            <View style={styles.stoppageRow}>
-              <Text style={styles.body}>Delta</Text>
-              <Text
-                style={[
-                  styles.code,
-                  { color: projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "#fca5a5" : "#86efac" }
-                ]}
-              >
-                {projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "+" : ""}
-                {projection.stoppageSummary.totalDeltaStopSeconds}s
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.stoppageRow}>
-            <Text style={styles.body}>Remaining planned</Text>
-            <Text style={styles.code}>{projection.stoppageSummary.remainingPlannedStopSeconds}s</Text>
-          </View>
-        </View>
-      ) : null}
-
-      {projection?.checkpointSplits && projection.checkpointSplits.length > 0 ? (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Checkpoint splits</Text>
-          {projection.checkpointSplits.map((split) => (
-            <View key={split.checkpointId} style={{ marginTop: 12 }}>
-              <View style={styles.stoppageRow}>
-                <Text style={[styles.code, { fontWeight: "600" }]}>{split.checkpointId}</Text>
-                {split.crossedAtRecordedAt ? (
-                  <Text style={[styles.code, { color: "#86efac" }]}>{split.crossedAtRecordedAt.slice(11, 19)}Z</Text>
-                ) : (
-                  <Text style={[styles.code, { color: "#6b7280" }]}>not crossed</Text>
-                )}
-              </View>
-              {split.plannedStopSeconds > 0 ? (
-                <View style={styles.stoppageRow}>
-                  <Text style={styles.body}>Planned / actual stop</Text>
-                  <Text style={styles.code}>
-                    {split.plannedStopSeconds}s / {split.totalActualStopSeconds !== null ? `${split.totalActualStopSeconds}s` : "—"}
-                  </Text>
-                </View>
-              ) : null}
-              {split.visits.map((visit) => (
-                <View key={visit.visitIndex} style={styles.visitRow}>
-                  <Text style={styles.body}>
-                    Visit #{visit.visitIndex} · source: <Text style={styles.code}>{visit.resolvedSource}</Text>
-                    {visit.activeActualStopSeconds !== null ? ` · ${visit.activeActualStopSeconds}s` : ""}
-                  </Text>
-                  {visit.note ? <Text style={[styles.body, { color: "#9ca3af" }]}>{visit.note}</Text> : null}
-                  {visit.autoDetected && visit.manualEntry ? (
-                    <Pressable
-                      style={styles.toggleButton}
-                      disabled={!canToggleResolvedSource}
-                      onPress={() => {
-                        void onToggleResolvedSource(
-                          split.checkpointId,
-                          visit.visitIndex,
-                          visit.resolvedSource === "auto" ? "manual_crew" : "auto"
-                        );
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.toggleButtonLabel,
-                          !canToggleResolvedSource ? { color: "#9ca3af" } : null
-                        ]}
-                      >
-                        → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ))}
-        </View>
+        <>
+          <ProjectionEndpointReadout
+            styles={styles}
+            projection={projection}
+            projectionPolledAt={projectionPolledAt}
+            showEndpointLabel
+          />
+          <StoppageSummaryReadout styles={styles} projection={projection} layout="card" />
+          <CheckpointSplitsReadout
+            styles={styles}
+            projection={projection}
+            canToggleResolvedSource={canToggleResolvedSource}
+            onToggleResolvedSource={onToggleResolvedSource}
+            layout="card"
+          />
+        </>
       ) : null}
 
       <View style={styles.summaryCard}>
@@ -544,26 +276,7 @@ export function OperationalSummarySections({
       </View>
 
       {timeline !== undefined ? (
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Ops timeline</Text>
-          <Text style={styles.body}>Events</Text>
-          <Text style={styles.code}>{timeline.length} total</Text>
-          {timeline.length === 0 ? (
-            <Text style={[styles.code, { color: "#6b7280" }]}>
-              No events yet. Trigger task/protocol actions and fetch timeline to verify operation history.
-            </Text>
-          ) : (
-            [...timeline].reverse().slice(0, 6).map((event) => (
-              <View key={event.id} style={styles.visitRow}>
-                <Text style={styles.code}>
-                  {event.occurredAt.slice(11, 19)}Z · {event.kind}
-                </Text>
-                <Text style={styles.body}>{event.message}</Text>
-                <Text style={[styles.code, { color: "#9ca3af" }]}>actor: {event.actorUserId}</Text>
-              </View>
-            ))
-          )}
-        </View>
+        <TimelineEventsReadout styles={styles} timeline={timeline} layout="card" />
       ) : null}
 
       {incidents !== undefined ? (
