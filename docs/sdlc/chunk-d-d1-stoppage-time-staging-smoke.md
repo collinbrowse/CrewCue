@@ -1,6 +1,6 @@
 # Chunk D1 / WS2 — Stoppage time staging smoke (API)
 
-**Audience:** engineers validating stoppage-time behavior on **staging** before building crew UI ([#114](https://github.com/collinbrowse/CrewCue/issues/114)).  
+**Audience:** engineers validating stoppage-time behavior on **staging** and capturing reproducible evidence for future regressions.  
 **Prerequisites:** Chunk C staging smoke prerequisites (Auth0 + paid entitlement) per [chunk-c-smoke-script.md](./chunk-c-smoke-script.md).  
 **Shipped implementation:** PR [#112](https://github.com/collinbrowse/CrewCue/pull/112) (merged).
 
@@ -137,7 +137,7 @@ Run these from a permitted crew token and confirm **400** for:
 
 ---
 
-## 7. Record results (paste back into GitHub #113)
+## 7. Record results (link from issue or PR)
 
 
 | Scenario                      | Result (pass/fail) | Notes / timestamps |
@@ -150,7 +150,7 @@ Run these from a permitted crew token and confirm **400** for:
 | ETA sanity with planned stops |                    |                    |
 
 
-**Go / no-go for #114:**  
+**Go / no-go for downstream UI slices (for example #162):**  
 
 - Go — no correctness blockers found  
 - No-go — list blocking defects with repro steps

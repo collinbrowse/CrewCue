@@ -62,7 +62,7 @@ Each successful `recomputeRaceProjection` still attaches optional `weatherStub` 
 | Baseline authoring           | Generate higher-density baseline tracks from GPX / course planning inputs instead of hand-built arrays.                                                                                                                                                                                                                                                        |
 | Weather coupling             | Replace stub with provider fetch + cache; keep `weatherStub` optional or version the field.                                                                                                                                                                                                                                                                    |
 | Checkpoint ETAs              | Surface future checkpoint arrival ETAs explicitly if the UI needs more than split rows + finish ETA.                                                                                                                                                                                                                                                           |
-| **Checkpoint stoppage time** | **Shipped (API + contracts)** in [#112](https://github.com/collinbrowse/CrewCue/pull/112) — spec in **[chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)**. Follow-ups: staging smoke ([#113](https://github.com/collinbrowse/CrewCue/issues/113) + [chunk-d-d1-stoppage-time-staging-smoke.md](./chunk-d-d1-stoppage-time-staging-smoke.md)), then crew UI ([#114](https://github.com/collinbrowse/CrewCue/issues/114)). |
+| **Checkpoint stoppage time** | **Shipped (API + contracts)** in [#112](https://github.com/collinbrowse/CrewCue/pull/112) — spec in **[chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)**. Staging smoke ([#113](https://github.com/collinbrowse/CrewCue/issues/113)) and first UI follow-up ([#114](https://github.com/collinbrowse/CrewCue/issues/114)) are complete. Current follow-on is Phase 2 resilience UX hardening ([#162](https://github.com/collinbrowse/CrewCue/issues/162)). |
 
 
 ---
@@ -72,6 +72,7 @@ Each successful `recomputeRaceProjection` still attaches optional `weatherStub` 
 
 | Date       | Change                                                                                                                                         |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-27 | Updated D1 follow-up status: #113 and #114 are complete; linked next resilience gap closure issue #162.                                      |
 | 2026-04-22 | Added optional `baselineTrack` contract support, baseline-driven planned splits, checkpoint-anchored finish ETA, and backward-compat guidance. |
 | 2026-04-22 | Linked checkpoint stoppage time requirements doc as the next D1 slice.                                                                         |
 | 2026-04-22 | Documented checkpoint stoppage time merge to `main` via PR #112; pointed follow-ups to issues #114 (UI) and #113 (staging smoke).                 |
