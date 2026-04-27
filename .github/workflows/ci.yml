@@ -35,6 +35,7 @@ jobs:
       - run: npm install
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run smoke:mobile:startup
       - run: npm run build
       # Runs workspace tests: @crewcue/contracts (tsx), @crewcue/mobile (tsx), @crewcue/api (node:test + build).
       - run: npm run test

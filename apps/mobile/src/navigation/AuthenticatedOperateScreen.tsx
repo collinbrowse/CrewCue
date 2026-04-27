@@ -1,13 +1,17 @@
 import type { ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { AuthenticatedActionPanel } from "../components/AuthenticatedActionPanel";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
 import { OutboxQueueInspector } from "../components/OutboxQueueInspector";
 import { useAuthedShell } from "../shell/AuthedShellContext";
+import type { OperateStackParamList } from "./types";
 
 export function AuthenticatedOperateScreen(): ReactElement {
   const s = useAuthedShell();
+  const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "OperateHome">>();
 
   return (
     <ScrollView
@@ -30,6 +34,15 @@ export function AuthenticatedOperateScreen(): ReactElement {
           outboxTotal={s.outbox.length}
           appState={s.appState}
         />
+
+        <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+          <Pressable style={[s.styles.secondaryButton, { flex: 1 }]} onPress={() => navigation.navigate("OperateStatus")}>
+            <Text style={s.styles.secondaryButtonLabel}>Status Detail</Text>
+          </Pressable>
+          <Pressable style={[s.styles.secondaryButton, { flex: 1 }]} onPress={() => navigation.navigate("OperateOutbox")}>
+            <Text style={s.styles.secondaryButtonLabel}>Outbox Detail</Text>
+          </Pressable>
+        </View>
 
         <OperationalStatusRail
           styles={s.styles}

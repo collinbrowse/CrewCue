@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { OperateStack } from "./OperateStack";
+import { ReadoutsStack } from "./ReadoutsStack";
 import type { CrewMainTabParamList } from "./types";
-import { AuthenticatedOperateScreen } from "./AuthenticatedOperateScreen";
-import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
 
 const Tab = createBottomTabNavigator<CrewMainTabParamList>();
 
@@ -19,8 +19,8 @@ export function CrewMainTabs(): ReactElement {
         tabBarInactiveTintColor: "#9ca3af"
       }}
     >
-      <Tab.Screen name="Operate" component={AuthenticatedOperateScreen} options={{ title: "Operate" }} />
-      <Tab.Screen name="Readouts" component={AuthenticatedReadoutsScreen} options={{ title: "Readouts" }} />
+      <Tab.Screen name="Operate" component={OperateStack} options={{ title: "Operate" }} />
+      <Tab.Screen name="Readouts" component={ReadoutsStack} options={{ title: "Readouts" }} />
     </Tab.Navigator>
   );
 }
