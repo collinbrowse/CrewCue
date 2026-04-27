@@ -112,3 +112,34 @@ test("platform events append, list, replay with membership and idempotent retry"
   assert.equal(snap.status, "active");
   assert.equal(snap.name, "WS7 room");
 });
+
+test("race_room replay keeps aggregateId for empty event streams", async () => {
+  await resetPlatformEventStoreForTests();
+  const app = buildApp();
+  await app.ready();
+
+  const athleteToken = app.jwt.sign(claims("athlete-user"));
+  const create = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-user",
+      name: "WS7 empty replay room",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(create.statusCode, 201);
+  const roomId = (create.json() as { id: string }).id;
+
+  const replay = await app.inject({
+    method: "GET",
+    url: `/platform/v1/aggregates/race_room/${roomId}/replay`,
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(replay.statusCode, 200);
+  const snapshot = (replay.json() as { snapshot: { aggregateId: string; status: string } }).snapshot;
+  assert.equal(snapshot.aggregateId, roomId);
+  assert.equal(snapshot.status, "unknown");
+});

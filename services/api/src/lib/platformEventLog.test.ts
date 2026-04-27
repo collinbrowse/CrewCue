@@ -140,3 +140,9 @@ test("race_room replay can continue from an existing snapshot", () => {
   assert.equal(continued.lastPlanVersion, 3);
   assert.equal(continued.lastActivatedEventEndsAt, "2026-05-02T00:00:00.000Z");
 });
+
+test("race_room replay uses provided fallback aggregateId for empty streams", () => {
+  const reduced = reduceRaceRoomEvents([], undefined, "room-empty");
+  assert.equal(reduced.aggregateId, "room-empty");
+  assert.equal(reduced.status, "unknown");
+});
