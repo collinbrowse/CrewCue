@@ -14,6 +14,7 @@ Every task should have a GitHub issue **before** implementation. When this PR me
 
 Closes #
 
+
 ## Scope
 
 Describe exactly what this PR changes.
@@ -60,3 +61,4 @@ List each relevant acceptance criterion and how this PR satisfies it.
 
 - Prompt/task used:
 - What was reviewed manually:
+

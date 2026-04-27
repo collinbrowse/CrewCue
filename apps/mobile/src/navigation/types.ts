@@ -1,8 +1,21 @@
+import type { NavigatorScreenParams } from "@react-navigation/native";
+
 export type GuestStackParamList = {
   Home: undefined;
 };
 
+export type OperateStackParamList = {
+  OperateHome: undefined;
+  OperateStatus: undefined;
+  OperateOutbox: undefined;
+};
+
+export type ReadoutsStackParamList = {
+  ReadoutsHome: undefined;
+  ReadoutsIncidents: undefined;
+};
+
 export type CrewMainTabParamList = {
-  Operate: undefined;
-  Readouts: undefined;
+  Operate: NavigatorScreenParams<OperateStackParamList>;
+  Readouts: NavigatorScreenParams<ReadoutsStackParamList>;
 };
