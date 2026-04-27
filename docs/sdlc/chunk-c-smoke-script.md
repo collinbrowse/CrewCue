@@ -4,6 +4,7 @@
 **Strategy ref:** [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md) §Chunk C exit criteria.  
 **Prerequisites:** Chunk A (Postgres persistence) and Chunk B (Auth0 + entitlement) green on staging.
 **Phase 3 follow-up:** [mobile-phase3-staging-validation-checklist.md](./mobile-phase3-staging-validation-checklist.md)
+**Navigation/deep-link smoke:** [mobile-deeplink-and-ios-smoke.md](./mobile-deeplink-and-ios-smoke.md)
 
 ---
 

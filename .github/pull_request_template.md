@@ -32,8 +32,7 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - npm run typecheck
 - npm run build
 - npm run test
-- npm run smoke:mobile:startup
-
+- npm run smoke:mobile:ios (macOS local smoke; if mobile/deep-link navigation changed)
 - npm run verify (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**)
 - Manual checks (if applicable)
 
