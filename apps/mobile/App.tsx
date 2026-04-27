@@ -3,7 +3,6 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import {
   AppState,
-  Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -43,6 +42,7 @@ import {
   describeOutboxOperation,
   processOutboxBatch
 } from "./src/sync/outboxProcessor";
+import { crewCueLinking } from "./src/navigation/linking";
 import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
@@ -796,7 +796,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   return (
     <AuthedShellProvider value={shellValue}>
-      <NavigationContainer theme={crewCueNavigationTheme}>
+      <NavigationContainer theme={crewCueNavigationTheme} linking={crewCueLinking}>
         {auth.status === "authenticated" ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
       <StatusBar style="light" />
