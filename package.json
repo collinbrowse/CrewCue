@@ -12,6 +12,7 @@
     "db:migrate": "npm run db:migrate -w @crewcue/api",
     "verify:dual-client": "node scripts/verify-dual-client-architecture.mjs",
     "build": "npm run build --workspaces --if-present",
+    "smoke:mobile:ios": "node scripts/mobile-ios-deeplink-smoke.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:memory": "npm run test:memory -w @crewcue/api",
     "test:pg": "npm run test:pg -w @crewcue/api",
