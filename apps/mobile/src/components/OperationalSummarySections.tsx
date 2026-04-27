@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import type {
   AthletePingAcceptedResponse,
@@ -19,8 +19,20 @@ import type {
   CrewTask
 } from "@crewcue/contracts";
 
+export type OperationalSummaryVariant = "full" | "phase1-part-a" | "phase1-part-b";
+
+function Phase1SectionCard({ styles, title, children }: { styles: any; title: string; children: ReactNode }): ReactElement {
+  return (
+    <View style={[styles.summaryCard, { marginTop: 16 }]}>
+      <Text style={styles.summaryTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
 type Props = {
   styles: any;
+  variant?: OperationalSummaryVariant;
   room?: RaceRoom;
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
@@ -51,6 +63,7 @@ type Props = {
 
 export function OperationalSummarySections({
   styles,
+  variant = "full",
   room,
   roomDetail,
   lastPing,
@@ -73,6 +86,240 @@ export function OperationalSummarySections({
 }: Props): ReactElement {
   const staleDevices = syncHealth?.devices.filter((device) => device.isStale) ?? [];
   const staleCount = staleDevices.length;
+
+  if (variant === "phase1-part-a") {
+    return (
+      <>
+        <Phase1SectionCard styles={styles} title="Room">
+          {!room ? (
+            <Text style={styles.body}>No room in this session yet. Create one under Checkpoints and room actions.</Text>
+          ) : (
+            <>
+              <Text style={styles.label}>Room id</Text>
+              <Text style={styles.code}>{room.id}</Text>
+              <Text style={styles.label}>Status / entitlement</Text>
+              <Text style={styles.code}>
+                {room.status} / {room.entitlement.status}
+              </Text>
+            </>
+          )}
+          {roomDetail ? (
+            <>
+              <Text style={[styles.label, { marginTop: 12 }]}>GET /race-rooms/:id</Text>
+              <Text style={styles.body}>Name</Text>
+              <Text style={styles.code}>{roomDetail.room.name}</Text>
+              <Text style={styles.body}>Permissions</Text>
+              <Text style={styles.code}>{JSON.stringify(roomDetail.permissions, null, 2)}</Text>
+            </>
+          ) : null}
+          {lastPing ? (
+            <>
+              <Text style={[styles.label, { marginTop: 12 }]}>Last ping</Text>
+              {lastPing.decision === "accepted" ? (
+                <>
+                  <Text style={[styles.code, { color: "#86efac" }]}>accepted · {lastPing.pingId}</Text>
+                  <Text style={styles.code}>{lastPing.recordedAt}</Text>
+                </>
+              ) : (
+                <Text style={styles.errorText}>rejected — {lastPing.reason}</Text>
+              )}
+            </>
+          ) : null}
+        </Phase1SectionCard>
+
+        <Phase1SectionCard styles={styles} title="Projection">
+          {!projection ? (
+            <Text style={styles.body}>
+              No projection loaded. Activate the room, send a ping, then fetch projection from Checkpoints and room
+              actions.
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.body}>Confidence</Text>
+              <Text style={[styles.code, { color: projection.projectionConfidence === "fresh" ? "#86efac" : "#fde68a" }]}>
+                {projection.projectionConfidence}
+              </Text>
+              <Text style={styles.body}>Progress</Text>
+              <Text style={styles.code}>{Math.round(projection.progressMeters)} m</Text>
+              <Text style={styles.body}>ETA finish</Text>
+              <Text style={styles.code}>{projection.etaFinishPlanIso}</Text>
+              <Text style={styles.body}>Staleness (s since last ping)</Text>
+              <Text style={styles.code}>{Math.round(projection.secondsSinceLastAcceptedPing)} s</Text>
+              {projectionPolledAt ? (
+                <>
+                  <Text style={styles.body}>Last projection fetch</Text>
+                  <Text style={styles.code}>{projectionPolledAt}</Text>
+                </>
+              ) : null}
+              {projection.weatherStub ? (
+                <>
+                  <Text style={styles.body}>Weather stub</Text>
+                  <Text style={styles.code}>{projection.weatherStub.summary}</Text>
+                </>
+              ) : null}
+            </>
+          )}
+          {projection && projection.stoppageSummary ? (
+            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>WS2 Stoppage summary</Text>
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Planned total</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.totalPlannedStopSeconds}s</Text>
+              </View>
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Actual total</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.totalActualStopSeconds}s</Text>
+              </View>
+              {projection.stoppageSummary.totalDeltaStopSeconds !== null ? (
+                <View style={styles.stoppageRow}>
+                  <Text style={styles.body}>Delta</Text>
+                  <Text
+                    style={[
+                      styles.code,
+                      { color: projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "#fca5a5" : "#86efac" }
+                    ]}
+                  >
+                    {projection.stoppageSummary.totalDeltaStopSeconds > 0 ? "+" : ""}
+                    {projection.stoppageSummary.totalDeltaStopSeconds}s
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.stoppageRow}>
+                <Text style={styles.body}>Remaining planned</Text>
+                <Text style={styles.code}>{projection.stoppageSummary.remainingPlannedStopSeconds}s</Text>
+              </View>
+            </View>
+          ) : projection ? (
+            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>WS2 Stoppage summary</Text>
+              <Text style={[styles.body, { color: "#9ca3af" }]}>
+                No aggregate stoppage on this projection yet (course may omit planned stops, or visits not computed).
+              </Text>
+            </View>
+          ) : null}
+          {projection?.checkpointSplits && projection.checkpointSplits.length > 0 ? (
+            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>Checkpoint splits</Text>
+              {projection.checkpointSplits.map((split) => (
+                <View key={split.checkpointId} style={{ marginTop: 12 }}>
+                  <View style={styles.stoppageRow}>
+                    <Text style={[styles.code, { fontWeight: "600" }]}>{split.checkpointId}</Text>
+                    {split.crossedAtRecordedAt ? (
+                      <Text style={[styles.code, { color: "#86efac" }]}>{split.crossedAtRecordedAt.slice(11, 19)}Z</Text>
+                    ) : (
+                      <Text style={[styles.code, { color: "#6b7280" }]}>not crossed</Text>
+                    )}
+                  </View>
+                  {split.plannedStopSeconds > 0 ? (
+                    <View style={styles.stoppageRow}>
+                      <Text style={styles.body}>Planned / actual stop</Text>
+                      <Text style={styles.code}>
+                        {split.plannedStopSeconds}s /{" "}
+                        {split.totalActualStopSeconds !== null ? `${split.totalActualStopSeconds}s` : "—"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {split.visits.map((visit) => (
+                    <View key={visit.visitIndex} style={styles.visitRow}>
+                      <Text style={styles.body}>
+                        Visit #{visit.visitIndex} · source: <Text style={styles.code}>{visit.resolvedSource}</Text>
+                        {visit.activeActualStopSeconds !== null ? ` · ${visit.activeActualStopSeconds}s` : ""}
+                      </Text>
+                      {visit.note ? <Text style={[styles.body, { color: "#9ca3af" }]}>{visit.note}</Text> : null}
+                      {visit.autoDetected && visit.manualEntry ? (
+                        <Pressable
+                          style={styles.toggleButton}
+                          disabled={!canToggleResolvedSource}
+                          onPress={() => {
+                            void onToggleResolvedSource(
+                              split.checkpointId,
+                              visit.visitIndex,
+                              visit.resolvedSource === "auto" ? "manual_crew" : "auto"
+                            );
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.toggleButtonLabel,
+                              !canToggleResolvedSource ? { color: "#9ca3af" } : null
+                            ]}
+                          >
+                            → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : projection ? (
+            <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+              <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>Checkpoint splits</Text>
+              <Text style={[styles.body, { color: "#9ca3af" }]}>No checkpoint splits on this projection yet.</Text>
+            </View>
+          ) : null}
+        </Phase1SectionCard>
+      </>
+    );
+  }
+
+  if (variant === "phase1-part-b") {
+    return (
+      <>
+        <Phase1SectionCard styles={styles} title="Sync">
+          {!syncHealth ? (
+            <Text style={styles.body}>No sync health loaded yet. Use POST sync heartbeat / GET sync health from actions.</Text>
+          ) : (
+            <>
+              <Text style={styles.body}>Tracked devices</Text>
+              <Text style={styles.code}>{syncHealth.devices.length}</Text>
+              <Text style={styles.body}>Total pending</Text>
+              <Text style={styles.code}>{syncHealth.totalPendingAcrossDevices}</Text>
+              <Text style={styles.body}>Stale devices</Text>
+              <Text style={staleCount > 0 ? styles.errorText : styles.code}>{staleCount}</Text>
+              {staleCount > 0 ? (
+                <>
+                  <Text style={styles.errorText}>
+                    Stale threshold exceeded ({syncHealth.staleAfterSeconds}s). Flush outbox on stale devices.
+                  </Text>
+                  {staleDevices.slice(0, 3).map((device) => (
+                    <Text key={device.deviceId} style={styles.code}>
+                      {device.deviceId}: heartbeat {device.lastHeartbeatAt}
+                    </Text>
+                  ))}
+                </>
+              ) : (
+                <Text style={[styles.code, { color: "#86efac" }]}>
+                  All devices are fresh within {syncHealth.staleAfterSeconds}s.
+                </Text>
+              )}
+              <Text style={styles.body}>Evaluated at</Text>
+              <Text style={styles.code}>{syncHealth.evaluatedAt}</Text>
+            </>
+          )}
+        </Phase1SectionCard>
+
+        <Phase1SectionCard styles={styles} title="Timeline">
+          {timeline === undefined ? (
+            <Text style={styles.body}>Fetch ops timeline from actions to load recent events.</Text>
+          ) : timeline.length === 0 ? (
+            <Text style={[styles.code, { color: "#6b7280" }]}>No events yet.</Text>
+          ) : (
+            [...timeline].reverse().slice(0, 6).map((event) => (
+              <View key={event.id} style={styles.visitRow}>
+                <Text style={styles.code}>
+                  {event.occurredAt.slice(11, 19)}Z · {event.kind}
+                </Text>
+                <Text style={styles.body}>{event.message}</Text>
+                <Text style={[styles.code, { color: "#9ca3af" }]}>actor: {event.actorUserId}</Text>
+              </View>
+            ))
+          )}
+        </Phase1SectionCard>
+      </>
+    );
+  }
 
   return (
     <>

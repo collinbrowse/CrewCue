@@ -135,9 +135,11 @@ Exit gate:
 
 - staging smoke passes and basic operator path works manually
 
-## Phase 1 - Operational mobile UI shell (now -> next)
+## Phase 1 - Operational mobile UI shell (Operate tab structured; Readouts unchanged)
 
 **Goal:** turn the single-page shell into a structured MVP operator UI without changing backend contracts.
+
+**Operate tab (2026-04-27):** section order is Room → Projection (stoppage summary always present after fetch, with explicit empty states) → Checkpoints and room actions → Outbox → Sync → Timeline, with the existing unified status rail at the top. Readouts tab remains the deeper WS3/WS4 readout surface.
 
 Build:
 
@@ -333,6 +335,7 @@ A UI PR is not complete unless all apply:
 | Date | Change |
 | --- | --- |
 | 2026-04-27 | Documented Phase 2 incremental slice for targeted safe retry controls (issue #162) without adding a second retry queue. |
+| 2026-04-27 | Phase 1: structured Operate tab sections (`phase1-part-a` / `phase1-part-b` on `OperationalSummarySections`) plus roadmap note. |
 | 2026-04-24 | Initial publication: phased UI roadmap, architecture constraints, anti-duplication rules, and PR checklist. |
 | 2026-04-24 | Reordered priorities so WS6 manager command center is deferred to Phase 5 (last priority) and added explicit monorepo-first execution order. |
 | 2026-04-24 | Added dedicated Phase 3 staging validation checklist reference for WS3/WS4 mobile exit-gate verification. |

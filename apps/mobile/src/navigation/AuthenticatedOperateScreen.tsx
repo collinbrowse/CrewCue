@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { AuthenticatedActionPanel } from "../components/AuthenticatedActionPanel";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
+import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
 import { OutboxQueueInspector } from "../components/OutboxQueueInspector";
 import { useAuthedShell } from "../shell/AuthedShellContext";
@@ -12,6 +13,29 @@ import type { OperateStackParamList } from "./types";
 export function AuthenticatedOperateScreen(): ReactElement {
   const s = useAuthedShell();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "OperateHome">>();
+
+  const phase1ReadoutProps = {
+    styles: s.styles,
+    room: s.room,
+    roomDetail: s.roomDetail,
+    lastPing: s.lastPing,
+    syncHealth: s.syncHealth,
+    projection: s.projection,
+    projectionPolledAt: s.projectionPolledAt,
+    lastProtocolNote: s.lastProtocolNote,
+    timeline: s.timeline,
+    incidents: s.incidents,
+    latestRecommendation: s.latestRecommendation,
+    latestExplainability: s.latestExplainability,
+    planDelta: s.planDelta,
+    taskBoard: s.taskBoard,
+    onToggleResolvedSource: s.onToggleResolvedSource,
+    canToggleResolvedSource: s.canUseCheckpointControls,
+    onEnqueueTaskAction: s.onEnqueueTaskAction,
+    canMutateTasks: Boolean(s.room?.status === "active" && s.canEditTasks && !s.busy),
+    taskAssigneeUserId: s.auth.claims?.sub,
+    taskAssigneeRole: s.currentRoomRole
+  } as const;
 
   return (
     <ScrollView
@@ -52,18 +76,10 @@ export function AuthenticatedOperateScreen(): ReactElement {
           projectionStaleSeconds={s.projection?.secondsSinceLastAcceptedPing}
         />
 
-        <OutboxQueueInspector
-          styles={s.styles}
-          outbox={s.outbox}
-          outboxAutoProcessIntervalMs={s.outboxAutoProcessIntervalMs}
-          describeOutboxOperation={s.describeOutboxOperation}
-          describeOutboxStatus={s.describeOutboxStatus}
-          onRetryOutboxOperationSafely={(operationId) => {
-            void s.onRetryOutboxOperationSafely(operationId);
-          }}
-        />
+        <OperationalSummarySections variant="phase1-part-a" {...phase1ReadoutProps} />
 
-        <View style={{ marginTop: 16, gap: 8 }}>
+        <Text style={[s.styles.label, { marginTop: 16 }]}>Checkpoints and room actions</Text>
+        <View style={{ marginTop: 8, gap: 8 }}>
           <AuthenticatedActionPanel
             styles={s.styles}
             busy={s.busy}
@@ -99,6 +115,20 @@ export function AuthenticatedOperateScreen(): ReactElement {
             onSignOut={s.onSignOut}
           />
         </View>
+
+        <Text style={[s.styles.label, { marginTop: 16 }]}>Outbox</Text>
+        <OutboxQueueInspector
+          styles={s.styles}
+          outbox={s.outbox}
+          outboxAutoProcessIntervalMs={s.outboxAutoProcessIntervalMs}
+          describeOutboxOperation={s.describeOutboxOperation}
+          describeOutboxStatus={s.describeOutboxStatus}
+          onRetryOutboxOperationSafely={(operationId) => {
+            void s.onRetryOutboxOperationSafely(operationId);
+          }}
+        />
+
+        <OperationalSummarySections variant="phase1-part-b" {...phase1ReadoutProps} />
       </View>
     </ScrollView>
   );
