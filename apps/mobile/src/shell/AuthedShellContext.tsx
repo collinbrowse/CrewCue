@@ -81,6 +81,7 @@ export type AuthedShellContextValue = {
     resolvedSource: CheckpointVisitSource
   ) => Promise<void>;
   onEnqueueTaskAction: (action: "assign" | "start" | "complete", task: CrewTask) => Promise<void>;
+  onRetryOutboxOperationSafely: (operationId: string) => Promise<void>;
 };
 
 const AuthedShellContext = createContext<AuthedShellContextValue | null>(null);

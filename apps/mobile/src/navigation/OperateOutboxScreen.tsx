@@ -17,6 +17,9 @@ export function OperateOutboxScreen(): ReactElement {
           outboxAutoProcessIntervalMs={s.outboxAutoProcessIntervalMs}
           describeOutboxOperation={s.describeOutboxOperation}
           describeOutboxStatus={s.describeOutboxStatus}
+          onRetryOutboxOperationSafely={(operationId) => {
+            void s.onRetryOutboxOperationSafely(operationId);
+          }}
         />
       </View>
     </ScrollView>

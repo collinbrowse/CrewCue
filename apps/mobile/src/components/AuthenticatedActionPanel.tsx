@@ -77,7 +77,7 @@ export function AuthenticatedActionPanel({
         <Text style={styles.primaryButtonLabel}>{busy ? "Calling API..." : "Create race room (staging)"}</Text>
       </Pressable>
       <Pressable style={styles.secondaryButton} onPress={onProcessOutbox} disabled={busy || outboxProcessing}>
-        <Text style={styles.secondaryButtonLabel}>{outboxProcessing ? "Processing..." : "Process Outbox"}</Text>
+        <Text style={styles.secondaryButtonLabel}>{outboxProcessing ? "Processing..." : "Process all pending outbox items"}</Text>
       </Pressable>
       {room ? (
         <>

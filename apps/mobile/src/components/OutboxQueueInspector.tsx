@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import type { OutboxOperation } from "../sync/outboxStore";
 
 type Props = {
@@ -8,6 +8,7 @@ type Props = {
   outboxAutoProcessIntervalMs: number;
   describeOutboxOperation: (operation: OutboxOperation) => string;
   describeOutboxStatus: (status: OutboxOperation["status"]) => string;
+  onRetryOutboxOperationSafely?: (operationId: string) => void;
 };
 
 export function OutboxQueueInspector({
@@ -15,7 +16,8 @@ export function OutboxQueueInspector({
   outbox,
   outboxAutoProcessIntervalMs,
   describeOutboxOperation,
-  describeOutboxStatus
+  describeOutboxStatus,
+  onRetryOutboxOperationSafely
 }: Props): ReactElement {
   const counts = {
     pending: outbox.filter((entry) => entry.status === "pending").length,
@@ -36,6 +38,13 @@ export function OutboxQueueInspector({
       return "Pending retry: check connectivity and keep app foregrounded for auto-process.";
     }
     return undefined;
+  };
+
+  const canSafelyRetry = (operation: OutboxOperation): boolean => {
+    if (operation.status === "sent") {
+      return false;
+    }
+    return operation.type === "ping";
   };
 
   return (
@@ -91,6 +100,16 @@ export function OutboxQueueInspector({
               </Text>
             ) : null}
             {operation.updatedAt ? <Text style={styles.code}>{operation.updatedAt}</Text> : null}
+            {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
+              <Text style={styles.body}>
+                Safe retry available for ping/sync operations; task/checkpoint retries stay in global queue processing.
+              </Text>
+            ) : null}
+            {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
+              <Pressable style={styles.toggleButton} onPress={() => onRetryOutboxOperationSafely(operation.id)}>
+                <Text style={styles.toggleButtonLabel}>Retry this operation safely</Text>
+              </Pressable>
+            ) : null}
           </View>
         ))
       )}

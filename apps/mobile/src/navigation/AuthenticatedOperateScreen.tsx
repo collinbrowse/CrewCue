@@ -58,6 +58,9 @@ export function AuthenticatedOperateScreen(): ReactElement {
           outboxAutoProcessIntervalMs={s.outboxAutoProcessIntervalMs}
           describeOutboxOperation={s.describeOutboxOperation}
           describeOutboxStatus={s.describeOutboxStatus}
+          onRetryOutboxOperationSafely={(operationId) => {
+            void s.onRetryOutboxOperationSafely(operationId);
+          }}
         />
 
         <View style={{ marginTop: 16, gap: 8 }}>

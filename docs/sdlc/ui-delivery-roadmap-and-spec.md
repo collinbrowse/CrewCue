@@ -166,6 +166,7 @@ Build:
 - Sync health panel (device staleness + pending counts)
 - Conflict resolution UX for merge-policy outcomes
 - Retry controls scoped to safe operations
+- Incremental slice shipped in [#162](https://github.com/collinbrowse/CrewCue/issues/162): targeted safe retry for ping/sync outbox items from queue inspector while retaining global process-all behavior for mixed operations
 
 Dependencies:
 
@@ -331,6 +332,7 @@ A UI PR is not complete unless all apply:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-27 | Documented Phase 2 incremental slice for targeted safe retry controls (issue #162) without adding a second retry queue. |
 | 2026-04-24 | Initial publication: phased UI roadmap, architecture constraints, anti-duplication rules, and PR checklist. |
 | 2026-04-24 | Reordered priorities so WS6 manager command center is deferred to Phase 5 (last priority) and added explicit monorepo-first execution order. |
 | 2026-04-24 | Added dedicated Phase 3 staging validation checklist reference for WS3/WS4 mobile exit-gate verification. |
