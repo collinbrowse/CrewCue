@@ -15,7 +15,6 @@ Every task should have a GitHub issue **before** implementation. When this PR me
 Closes #
 
 
-
 ## Scope
 
 Describe exactly what this PR changes.
@@ -34,6 +33,7 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - npm run build
 - npm run test
 - npm run smoke:mobile:startup
+
 - npm run verify (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**)
 - Manual checks (if applicable)
 
