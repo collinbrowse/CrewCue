@@ -147,18 +147,20 @@ export async function listEventsForAggregate(
 
 export function reduceRaceRoomEvents(
   events: PlatformEventEnvelope[],
-  base?: ReplayedRaceRoomAggregate
+  base?: ReplayedRaceRoomAggregate,
+  fallbackAggregateId?: string
 ): ReplayedRaceRoomAggregate {
-  return reduceRaceRoomEventsOntoSnapshot(events, base);
+  return reduceRaceRoomEventsOntoSnapshot(events, base, fallbackAggregateId);
 }
 
 function reduceRaceRoomEventsOntoSnapshot(
   events: PlatformEventEnvelope[],
-  base?: ReplayedRaceRoomAggregate
+  base?: ReplayedRaceRoomAggregate,
+  fallbackAggregateId?: string
 ): ReplayedRaceRoomAggregate {
   const sorted = [...events].sort((a, b) => a.sequence - b.sequence);
   const snap: ReplayedRaceRoomAggregate = {
-    aggregateId: base?.aggregateId ?? sorted[0]?.aggregateId ?? "",
+    aggregateId: base?.aggregateId ?? sorted[0]?.aggregateId ?? fallbackAggregateId ?? "",
     status: base?.status ?? "unknown",
     ...(base?.teamId !== undefined ? { teamId: base.teamId } : {}),
     ...(base?.athleteId !== undefined ? { athleteId: base.athleteId } : {}),
@@ -209,7 +211,7 @@ async function refreshRaceRoomSnapshot(
 ): Promise<ReplayedRaceRoomAggregate> {
   const existing = await loadRaceRoomSnapshot(aggregateId);
   if (!existing && appendedEvent && appendedEvent.sequence === 1) {
-    const reduced = reduceRaceRoomEventsOntoSnapshot([appendedEvent]);
+    const reduced = reduceRaceRoomEventsOntoSnapshot([appendedEvent], undefined, aggregateId);
     await persistRaceRoomSnapshot({
       aggregateId,
       lastSequence: appendedEvent.sequence,
@@ -242,7 +244,7 @@ async function refreshRaceRoomSnapshot(
     return reduced;
   }
 
-  const reduced = reduceRaceRoomEventsOntoSnapshot(slice);
+  const reduced = reduceRaceRoomEventsOntoSnapshot(slice, undefined, aggregateId);
   const lastSequence = slice[slice.length - 1]?.sequence;
   if (lastSequence !== undefined) {
     await persistRaceRoomSnapshot({
