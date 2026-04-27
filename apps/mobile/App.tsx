@@ -453,6 +453,41 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     await runOutboxProcessing("manual");
   }, [runOutboxProcessing]);
 
+  const retryOutboxOperationSafely = useCallback(
+    async (operationId: string) => {
+      const operations = await listOutbox();
+      const target = operations.find((operation) => operation.id === operationId);
+      if (!target) {
+        setSyncStatusMessage("Outbox operation no longer exists.");
+        return;
+      }
+      if (target.type !== "ping") {
+        setSyncStatusMessage("Safe targeted retry currently supports ping/sync operations only.");
+        return;
+      }
+      if (target.status === "sent") {
+        setSyncStatusMessage("Outbox operation is already marked sent.");
+        return;
+      }
+
+      const nextOperations = operations.map((operation) =>
+        operation.id === operationId
+          ? {
+              ...operation,
+              status: "pending" as const,
+              feedback: "Operator requested safe retry.",
+              updatedAt: new Date().toISOString()
+            }
+          : operation
+      );
+      await replaceOutbox(nextOperations);
+      setOutbox(nextOperations);
+      setSyncStatusMessage(`Queued safe retry for ${describeOutboxOperation(target)}.`);
+      await runOutboxProcessing("manual");
+    },
+    [describeOutboxOperation, runOutboxProcessing]
+  );
+
   useEffect(() => {
     if (
       auth.status !== "authenticated" ||
@@ -792,6 +827,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onSignOut: auth.signOut,
     onToggleResolvedSource: enqueueSourceToggle,
     onEnqueueTaskAction: enqueueTaskAction
+    ,
+    onRetryOutboxOperationSafely: retryOutboxOperationSafely
   };
 
   return (
