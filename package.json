@@ -17,6 +17,7 @@
     "test:pg": "npm run test:pg -w @crewcue/api",
     "test:pg:fresh": "npm run test:pg:fresh -w @crewcue/api",
     "lint": "npm run verify:dual-client && npm run lint --workspaces --if-present",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @crewcue/api",
     "dev:api:memory": "npm run dev:memory -w @crewcue/api",

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
+import { NavigationContainer } from "@react-navigation/native";
 import {
   AppState,
   Pressable,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -43,12 +43,10 @@ import {
   describeOutboxOperation,
   processOutboxBatch
 } from "./src/sync/outboxProcessor";
-import { OperationalSummarySections } from "./src/components/OperationalSummarySections";
-import { OperationalStatusRail } from "./src/components/OperationalStatusRail";
-import { OutboxQueueInspector } from "./src/components/OutboxQueueInspector";
-import { AuthenticatedActionPanel } from "./src/components/AuthenticatedActionPanel";
-import { MobileShellSessionHeader } from "./src/components/MobileShellSessionHeader";
-import { MobileShellTabBar, type MobileShellTab } from "./src/components/MobileShellTabBar";
+import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
+import { GuestStack } from "./src/navigation/GuestStack";
+import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
+import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
 
 const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -138,7 +136,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
   const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
-  const [shellTab, setShellTab] = useState<MobileShellTab>("operate");
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
@@ -197,12 +194,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       subscription.remove();
     };
   }, []);
-
-  useEffect(() => {
-    if (auth.status !== "authenticated") {
-      setShellTab("operate");
-    }
-  }, [auth.status]);
 
   const pollProjectionQuiet = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -732,138 +723,84 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     [room, auth.claims?.sub, canEditTasks, currentRoomRole, refreshOutbox]
   );
 
+  const shellValue: AuthedShellContextValue = {
+    styles,
+    baseUrl,
+    auth,
+    appState,
+    pendingOutboxCount,
+    outbox,
+    outboxAutoProcessIntervalMs: OUTBOX_AUTO_PROCESS_INTERVAL_MS,
+    apiError,
+    syncStatusMessage,
+    projection,
+    room,
+    roomDetail,
+    lastPing,
+    syncHealth,
+    projectionPolledAt,
+    lastProtocolNote,
+    timeline,
+    incidents,
+    latestRecommendation,
+    latestExplainability,
+    planDelta,
+    taskBoard,
+    busy,
+    outboxProcessing,
+    projectionPollEnabled,
+    canEditCheckpointStops,
+    canUseCheckpointControls,
+    canEditTasks,
+    currentRoomRole,
+    stationArrivalAt,
+    describeOutboxOperation,
+    describeOutboxStatus,
+    onCreateRoom: createRoom,
+    onProcessOutbox: processOutboxAction,
+    onMarkEntitlementPaid: markEntitlementPaid,
+    onFetchRoomDetails: fetchRoomDetails,
+    onActivateRoom: activateRoom,
+    onSendPing: sendPing,
+    onPostSyncHeartbeat: postSyncHeartbeat,
+    onFetchSyncHealth: fetchSyncHealth,
+    onFetchProjection: fetchProjection,
+    onToggleProjectionPoll: () => {
+      setProjectionPollEnabled((v) => !v);
+    },
+    onFetchTaskBoard: fetchTaskBoard,
+    onPostProtocolNote: postProtocolNote,
+    onFetchTimeline: fetchTimeline,
+    onPostIncident: postIncident,
+    onFetchIncidents: fetchIncidents,
+    onGenerateRecommendation: generateRecommendation,
+    onAcceptRecommendation: () => {
+      void decideRecommendation("accept");
+    },
+    onRejectRecommendation: () => {
+      void decideRecommendation("reject");
+    },
+    onRecordStationArrival: (checkpointId) => {
+      setStationArrivalAt((prev) => ({
+        ...prev,
+        [checkpointId]: new Date().toISOString()
+      }));
+    },
+    onEnqueueManualStop: (checkpointId, arrivalAt) => {
+      void enqueueManualStop(checkpointId, arrivalAt, new Date().toISOString());
+    },
+    onSignOut: auth.signOut,
+    onToggleResolvedSource: enqueueSourceToggle,
+    onEnqueueTaskAction: enqueueTaskAction
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.card}>
-          <Text style={styles.title}>CrewCue</Text>
-          <Text style={styles.subtitle}>Crew operations</Text>
-
-          <MobileShellSessionHeader
-            styles={styles}
-            baseUrl={baseUrl}
-            redirectUri={auth.redirectUri}
-            authStatus={auth.status}
-            claims={auth.claims}
-            authError={auth.error}
-            pendingOutboxCount={pendingOutboxCount}
-            outboxTotal={outbox.length}
-            appState={appState}
-          />
-
-          {auth.status === "authenticated" ? (
-            <MobileShellTabBar styles={styles} active={shellTab} onChange={setShellTab} />
-          ) : null}
-
-          {auth.status === "authenticated" && shellTab === "operate" ? (
-            <>
-              <OperationalStatusRail
-                styles={styles}
-                pendingOutboxCount={pendingOutboxCount}
-                lastError={apiError}
-                lastStatusMessage={syncStatusMessage}
-                projectionStaleSeconds={projection?.secondsSinceLastAcceptedPing}
-              />
-              <OutboxQueueInspector
-                styles={styles}
-                outbox={outbox}
-                outboxAutoProcessIntervalMs={OUTBOX_AUTO_PROCESS_INTERVAL_MS}
-                describeOutboxOperation={describeOutboxOperation}
-                describeOutboxStatus={describeOutboxStatus}
-              />
-            </>
-          ) : null}
-
-          {auth.status !== "authenticated" ? (
-            <View style={{ marginTop: 16, gap: 8 }}>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={auth.signIn}
-                disabled={auth.status === "authenticating"}
-              >
-                <Text style={styles.primaryButtonLabel}>
-                  {auth.status === "authenticating" ? "Opening Auth0..." : "Sign in with Auth0"}
-                </Text>
-              </Pressable>
-            </View>
-          ) : shellTab === "operate" ? (
-            <View style={{ marginTop: 16, gap: 8 }}>
-              <AuthenticatedActionPanel
-                styles={styles}
-                busy={busy}
-                outboxProcessing={outboxProcessing}
-                room={room}
-                hasProjection={Boolean(projection)}
-                projectionPollEnabled={projectionPollEnabled}
-                incidents={incidents}
-                latestRecommendation={latestRecommendation}
-                stationArrivalAt={stationArrivalAt}
-                canEditCheckpointStops={canEditCheckpointStops}
-                canUseCheckpointControls={canUseCheckpointControls}
-                onCreateRoom={createRoom}
-                onProcessOutbox={processOutboxAction}
-                onMarkEntitlementPaid={markEntitlementPaid}
-                onFetchRoomDetails={fetchRoomDetails}
-                onActivateRoom={activateRoom}
-                onSendPing={sendPing}
-                onPostSyncHeartbeat={postSyncHeartbeat}
-                onFetchSyncHealth={fetchSyncHealth}
-                onFetchProjection={fetchProjection}
-                onToggleProjectionPoll={() => setProjectionPollEnabled((v) => !v)}
-                onFetchTaskBoard={fetchTaskBoard}
-                onPostProtocolNote={postProtocolNote}
-                onFetchTimeline={fetchTimeline}
-                onPostIncident={postIncident}
-                onFetchIncidents={fetchIncidents}
-                onGenerateRecommendation={generateRecommendation}
-                onAcceptRecommendation={() => {
-                  void decideRecommendation("accept");
-                }}
-                onRejectRecommendation={() => {
-                  void decideRecommendation("reject");
-                }}
-                onRecordStationArrival={(checkpointId) => {
-                  setStationArrivalAt((prev) => ({
-                    ...prev,
-                    [checkpointId]: new Date().toISOString()
-                  }));
-                }}
-                onEnqueueManualStop={(checkpointId, arrivalAt) => {
-                  void enqueueManualStop(checkpointId, arrivalAt, new Date().toISOString());
-                }}
-                onSignOut={auth.signOut}
-              />
-            </View>
-          ) : null}
-
-          {auth.status !== "authenticated" || shellTab === "readouts" ? (
-            <OperationalSummarySections
-              styles={styles}
-              room={room}
-              roomDetail={roomDetail}
-              lastPing={lastPing}
-              syncHealth={syncHealth}
-              projection={projection}
-              projectionPolledAt={projectionPolledAt}
-              lastProtocolNote={lastProtocolNote}
-              timeline={timeline}
-              incidents={incidents}
-              latestRecommendation={latestRecommendation}
-              latestExplainability={latestExplainability}
-              planDelta={planDelta}
-              taskBoard={taskBoard}
-              onToggleResolvedSource={enqueueSourceToggle}
-              canToggleResolvedSource={canUseCheckpointControls}
-              onEnqueueTaskAction={enqueueTaskAction}
-              canMutateTasks={Boolean(room?.status === "active" && canEditTasks && !busy)}
-              taskAssigneeUserId={auth.claims?.sub}
-              taskAssigneeRole={currentRoomRole}
-            />
-          ) : null}
-        </View>
-      </ScrollView>
+    <AuthedShellProvider value={shellValue}>
+      <NavigationContainer theme={crewCueNavigationTheme}>
+        {auth.status === "authenticated" ? <CrewMainTabs /> : <GuestStack />}
+      </NavigationContainer>
       <StatusBar style="light" />
-    </SafeAreaView>
+    </AuthedShellProvider>
   );
 }
 
@@ -1032,33 +969,5 @@ const styles = StyleSheet.create({
   toggleButtonLabel: {
     color: "#d1d5db",
     fontSize: 12
-  },
-  tabRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 14
-  },
-  tabButton: {
-    flex: 1,
-    backgroundColor: "#1f2937",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "transparent"
-  },
-  tabButtonActive: {
-    borderColor: "#3b82f6"
-  },
-  tabButtonLabel: {
-    color: "#9ca3af",
-    fontSize: 14,
-    fontWeight: "600"
-  },
-  tabButtonLabelActive: {
-    color: "#f9fafb",
-    fontSize: 14,
-    fontWeight: "600"
   }
 });
