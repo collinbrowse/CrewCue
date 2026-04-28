@@ -28,7 +28,7 @@ Token budget guardrail:
 
 ## Session status snapshot (update first)
 
-- Last updated (local date/time): 2026-04-28 17:05 (UTC-6)
+- Last updated (local date/time): 2026-04-28 17:45 (UTC-6)
 - Updated by (agent/human): Codex agent
 - Branch: `docs/handoff-post-pr178-ws5-179` (PR targets `main`, closes #180)
 - Active issue: #179 (WS5 field validation — primary); #180 (handoff doc PR — closes when PR merges)
@@ -63,6 +63,18 @@ Token budget guardrail:
 - Dependencies/blockers:
   - Official external design-system source artifacts remain unavailable in-repo; fallback DS baseline is documented.
   - Live staging/device time is human-operated; this issue tracks evidence, not implementation, unless mismatches are found.
+
+---
+
+## How to run issue #179 (WS5 outbox — operator steps)
+
+1. **Configure staging env (mobile)** — Copy `apps/mobile/.env.example` to `apps/mobile/.env`. Set `EXPO_PUBLIC_API_BASE_URL` to the staging API origin, and the three `EXPO_PUBLIC_AUTH0_*` values for your staging Auth0 app/audience. Do not commit `.env`.
+2. **Install and launch** — `cd apps/mobile && npm install` (once). Start the app with `npm run dev` (Expo; scan QR for device) or `npm run ios` / `npm run android` for a simulator/device build.
+3. **Get an active room with real traffic** — Follow `docs/sdlc/chunk-c-smoke-script.md` smoke steps **1–6** at minimum (sign-in → create room → mark paid → fetch → **activate** → **send ping**). Add optional smoke steps (protocol note, task actions) if you need non-ping outbox rows for contrast.
+4. **Open the inspector** — In the authenticated **Operate** area, tap **Outbox Detail** (subtitle: queue health, retries, conflicts). You should see outbox rows as you use smoke/action controls.
+5. **What to verify per row** — Compare UI to the **WS5 operator checklist** bullets under Validation notes below: recovery hint text for **conflict** / **rejected** / **pending** with `attempts > 0`; **Safe retry** copy and button only for **pending + ping** (`isSafeOutboxRetryCandidate`). **Conflict** ping rows: hint + optional merge telemetry when role allows; **no** safe-retry CTA.
+6. **Reaching edge statuses** — **Pending + attempts:** briefly go offline after enqueueing work, or let a call fail once, then reconnect and use **Process Outbox** / foreground auto-process so `attempts` increments. **Conflict / rejected:** capture whenever your session produces them (merge outcomes, bad payloads). If you cannot hit one category in-session, write **N/A (not reproduced)** and why, or open a repro follow-up instead of blocking the issue.
+7. **Record evidence (required to close #179)** — Paste dated bullets into this file § Validation notes or into a PR description / comment that you link from #179: channel (Expo Go vs dev client vs store build), **git SHA** or `main` @ date, **API hostname only** (no tokens), room **role**, and one line per status observed (pass/fail vs expectation).
 
 ---
 
@@ -163,5 +175,5 @@ Read in order:
 7) .github/pull_request_template.md
 
 Before coding, restate phase/issue/PR, acceptance criteria, in-scope files, out-of-scope, validation plan, and guardrails (<=8 bullets).
-Run the #179 checklist on staging/device (Operate → Outbox Detail). Record dated operator bullets in this handoff or in the PR that closes #179. If behavior diverges from `OutboxQueueInspector` / `outboxPolicy`, open a fix issue instead of silent drift.
+Follow **§ How to run issue #179** in this handoff, then record dated operator bullets in § Validation notes or in the PR that closes #179. If behavior diverges from `OutboxQueueInspector` / `outboxPolicy`, open a fix issue instead of silent drift.
 ```
