@@ -18,17 +18,24 @@ import type {
   CrewTask,
   ExplainabilityRecord,
   IncidentEvent,
+  MergeRecord,
   PlanDelta,
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
   RaceRoomProjection,
   Recommendation,
+  SyncQueueDiagnostics,
   SyncStatus
 } from "@crewcue/contracts";
 import { loadMobileConfig } from "./src/config";
 import { useAuth } from "./src/auth/useAuth";
-import { canMutateCheckpointStoppage, canMutateTaskBoard, getCurrentRoomRole } from "./src/auth/roleGuards";
+import {
+  canMutateCheckpointStoppage,
+  canMutateTaskBoard,
+  canRecordMergeTelemetry,
+  getCurrentRoomRole
+} from "./src/auth/roleGuards";
 import { ApiError, createApiClient } from "./src/api/client";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
@@ -129,6 +136,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [latestExplainability, setLatestExplainability] = useState<ExplainabilityRecord | null | undefined>(undefined);
   const [planDelta, setPlanDelta] = useState<PlanDelta | null | undefined>(undefined);
   const [syncHealth, setSyncHealth] = useState<SyncStatus | undefined>(undefined);
+  const [queueDiagnostics, setQueueDiagnostics] = useState<SyncQueueDiagnostics[] | undefined>(undefined);
+  const [mergeRecords, setMergeRecords] = useState<MergeRecord[] | undefined>(undefined);
   const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [syncStatusMessage, setSyncStatusMessage] = useState<string | undefined>(undefined);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
@@ -144,6 +153,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const canUseCheckpointControls = Boolean(
     room?.status === "active" && projection && canEditCheckpointStops && !busy
   );
+  const canLogMergeTelemetry = useMemo(() => canRecordMergeTelemetry(currentRoomRole), [currentRoomRole]);
 
   const setStatusSuccess = useCallback((message: string) => {
     setApiError(undefined);
@@ -244,6 +254,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setLatestExplainability(undefined);
       setPlanDelta(undefined);
       setSyncHealth(undefined);
+      setQueueDiagnostics(undefined);
+      setMergeRecords(undefined);
       setSyncStatusMessage(undefined);
       setStatusSuccess(`Room created (${created.id.slice(0, 8)}...)`);
     } catch (err) {
@@ -366,6 +378,91 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setBusy(false);
     }
   }, [auth.accessToken, baseUrl, room, setStatusError, setStatusSuccess]);
+
+  const refreshWs5Telemetry = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const [health, diag, merges] = await Promise.all([
+        client.getSyncHealth(room.id),
+        client.getQueueDiagnostics(room.id, { limit: 25 }),
+        client.getMergeRecords(room.id, { limit: 25 })
+      ]);
+      setSyncHealth(health.syncStatus);
+      setQueueDiagnostics(diag.diagnostics);
+      setMergeRecords(merges.mergeRecords);
+      setStatusSuccess("WS5 telemetry refreshed.");
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, baseUrl, room, setStatusError, setStatusSuccess]);
+
+  const pushQueueDiagnosticsSnapshot = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    if (room.status !== "active") {
+      setSyncStatusMessage("Activate the room before pushing queue diagnostics.");
+      return;
+    }
+    setBusy(true);
+    setApiError(undefined);
+    try {
+      const operations = await listOutbox();
+      const pendingByOpType: Record<string, number> = {};
+      for (const op of operations) {
+        if (op.status !== "pending") continue;
+        pendingByOpType[op.type] = (pendingByOpType[op.type] ?? 0) + 1;
+      }
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      await client.postQueueDiagnostics(room.id, {
+        deviceId: MOBILE_SMOKE_DEVICE_ID,
+        pendingByOpType
+      });
+      const { diagnostics } = await client.getQueueDiagnostics(room.id, { limit: 25 });
+      setQueueDiagnostics(diagnostics);
+      setStatusSuccess("Queue diagnostics snapshot pushed.");
+    } catch (err) {
+      setStatusError(err);
+    } finally {
+      setBusy(false);
+    }
+  }, [auth.accessToken, baseUrl, room, setStatusError, setStatusSuccess]);
+
+  const recordOutboxMergeTelemetry = useCallback(
+    async (operationId: string) => {
+      if (!auth.accessToken || !room) return;
+      if (room.status !== "active") {
+        setSyncStatusMessage("Activate the room before logging merge telemetry.");
+        return;
+      }
+      if (!canRecordMergeTelemetry(currentRoomRole)) {
+        setSyncStatusMessage("Merge telemetry requires athlete, crew chief, or team manager role.");
+        return;
+      }
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        await client.postMergeRecord(room.id, {
+          deviceId: MOBILE_SMOKE_DEVICE_ID,
+          conflictKey: `outbox:${operationId}`,
+          strategy: "manual",
+          notes: "Conflict acknowledged from mobile outbox inspector"
+        });
+        const { mergeRecords: next } = await client.getMergeRecords(room.id, { limit: 25 });
+        setMergeRecords(next);
+        setStatusSuccess("Merge telemetry recorded.");
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, baseUrl, currentRoomRole, room, setStatusError, setStatusSuccess]
+  );
 
   const runOutboxProcessing = useCallback(
     async (mode: "auto" | "manual") => {
@@ -773,6 +870,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     roomDetail,
     lastPing,
     syncHealth,
+    queueDiagnostics,
+    mergeRecords,
     projectionPolledAt,
     lastProtocolNote,
     timeline,
@@ -788,6 +887,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     canUseCheckpointControls,
     canEditTasks,
     currentRoomRole,
+    canLogMergeTelemetry,
     stationArrivalAt,
     describeOutboxOperation,
     describeOutboxStatus,
@@ -799,6 +899,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onSendPing: sendPing,
     onPostSyncHeartbeat: postSyncHeartbeat,
     onFetchSyncHealth: fetchSyncHealth,
+    onRefreshWs5Telemetry: refreshWs5Telemetry,
+    onPushQueueDiagnosticsSnapshot: pushQueueDiagnosticsSnapshot,
+    onRecordOutboxMergeTelemetry: recordOutboxMergeTelemetry,
     onFetchProjection: fetchProjection,
     onToggleProjectionPoll: () => {
       setProjectionPollEnabled((v) => !v);

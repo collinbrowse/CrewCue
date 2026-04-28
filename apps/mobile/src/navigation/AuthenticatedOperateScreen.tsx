@@ -126,6 +126,10 @@ export function AuthenticatedOperateScreen(): ReactElement {
           onRetryOutboxOperationSafely={(operationId) => {
             void s.onRetryOutboxOperationSafely(operationId);
           }}
+          canLogMergeTelemetry={s.canLogMergeTelemetry}
+          onRecordOutboxMergeTelemetry={(operationId) => {
+            void s.onRecordOutboxMergeTelemetry(operationId);
+          }}
         />
 
         <OperationalSummarySections variant="phase1-part-b" {...phase1ReadoutProps} />

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canMutateCheckpointStoppage, canMutateTaskBoard, getCurrentRoomRole } from "./roleGuards";
+import {
+  canMutateCheckpointStoppage,
+  canMutateTaskBoard,
+  canRecordMergeTelemetry,
+  getCurrentRoomRole
+} from "./roleGuards";
 import type { AuthState } from "./useAuth";
 
 function baseAuth(overrides: Partial<AuthState> = {}): AuthState {
@@ -58,4 +63,12 @@ test("canMutateTaskBoard matches room role", () => {
     claims: { sub: "u1", roomRoles: { roomA: "athlete" } }
   });
   assert.equal(canMutateTaskBoard(athleteOnly, "roomA"), false);
+});
+
+test("canRecordMergeTelemetry allows athlete, crew chief, and team manager", () => {
+  assert.equal(canRecordMergeTelemetry("athlete"), true);
+  assert.equal(canRecordMergeTelemetry("crew_chief"), true);
+  assert.equal(canRecordMergeTelemetry("team_manager"), true);
+  assert.equal(canRecordMergeTelemetry("crew_member"), false);
+  assert.equal(canRecordMergeTelemetry(undefined), false);
 });

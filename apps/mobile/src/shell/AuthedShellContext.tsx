@@ -9,6 +9,7 @@ import type {
   CrewTask,
   ExplainabilityRecord,
   IncidentEvent,
+  MergeRecord,
   OpsTimelineEvent,
   PlanDelta,
   ProtocolNote,
@@ -16,6 +17,7 @@ import type {
   RaceRoomProjection,
   Recommendation,
   Role,
+  SyncQueueDiagnostics,
   SyncStatus
 } from "@crewcue/contracts";
 import type { AuthState } from "../auth/useAuth";
@@ -36,6 +38,8 @@ export type AuthedShellContextValue = {
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
   syncHealth?: SyncStatus;
+  queueDiagnostics?: SyncQueueDiagnostics[];
+  mergeRecords?: MergeRecord[];
   projectionPolledAt?: string;
   lastProtocolNote?: ProtocolNote;
   timeline?: OpsTimelineEvent[];
@@ -51,6 +55,7 @@ export type AuthedShellContextValue = {
   canUseCheckpointControls: boolean;
   canEditTasks: boolean;
   currentRoomRole?: Role;
+  canLogMergeTelemetry: boolean;
   stationArrivalAt: Record<string, string>;
   describeOutboxOperation: (op: OutboxOperation) => string;
   describeOutboxStatus: (status: OutboxOperation["status"]) => string;
@@ -62,6 +67,9 @@ export type AuthedShellContextValue = {
   onSendPing: () => void;
   onPostSyncHeartbeat: () => void;
   onFetchSyncHealth: () => void;
+  onRefreshWs5Telemetry: () => Promise<void>;
+  onPushQueueDiagnosticsSnapshot: () => Promise<void>;
+  onRecordOutboxMergeTelemetry: (operationId: string) => Promise<void>;
   onFetchProjection: () => void;
   onToggleProjectionPoll: () => void;
   onFetchTaskBoard: () => void;

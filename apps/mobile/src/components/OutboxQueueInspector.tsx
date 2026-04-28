@@ -9,6 +9,8 @@ type Props = {
   describeOutboxOperation: (operation: OutboxOperation) => string;
   describeOutboxStatus: (status: OutboxOperation["status"]) => string;
   onRetryOutboxOperationSafely?: (operationId: string) => void;
+  canLogMergeTelemetry?: boolean;
+  onRecordOutboxMergeTelemetry?: (operationId: string) => void;
 };
 
 export function OutboxQueueInspector({
@@ -17,7 +19,9 @@ export function OutboxQueueInspector({
   outboxAutoProcessIntervalMs,
   describeOutboxOperation,
   describeOutboxStatus,
-  onRetryOutboxOperationSafely
+  onRetryOutboxOperationSafely,
+  canLogMergeTelemetry,
+  onRecordOutboxMergeTelemetry
 }: Props): ReactElement {
   const counts = {
     pending: outbox.filter((entry) => entry.status === "pending").length,
@@ -29,7 +33,7 @@ export function OutboxQueueInspector({
 
   const getRecoveryHint = (operation: OutboxOperation): string | undefined => {
     if (operation.status === "conflict") {
-      return "Conflict: refresh room/projection, confirm latest state, then retry Process Outbox.";
+      return "Conflict: refresh room/projection, confirm latest state, then retry Process Outbox. You can log merge telemetry for audit when your role allows.";
     }
     if (operation.status === "rejected") {
       return "Rejected: update input data for this operation, then enqueue and process again.";
@@ -108,6 +112,16 @@ export function OutboxQueueInspector({
             {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
               <Pressable style={styles.toggleButton} onPress={() => onRetryOutboxOperationSafely(operation.id)}>
                 <Text style={styles.toggleButtonLabel}>Retry this operation safely</Text>
+              </Pressable>
+            ) : null}
+            {operation.status === "conflict" && canLogMergeTelemetry && onRecordOutboxMergeTelemetry ? (
+              <Pressable
+                style={[styles.toggleButton, { marginTop: 8 }]}
+                onPress={() => {
+                  void onRecordOutboxMergeTelemetry(operation.id);
+                }}
+              >
+                <Text style={styles.toggleButtonLabel}>Log merge telemetry (manual)</Text>
               </Pressable>
             ) : null}
           </View>
