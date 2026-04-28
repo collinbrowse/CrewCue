@@ -28,11 +28,11 @@ Token budget guardrail:
 
 ## Session status snapshot (update first)
 
-- Last updated (local date/time): 2026-04-28 16:00 (UTC-6)
+- Last updated (local date/time): 2026-04-28 16:03 (UTC-6)
 - Updated by (agent/human): Codex agent
-- Branch: `main` (assumed from workspace snapshot; verify before PR prep)
+- Branch: `feat/ws5-pending-ping-safe-retry-173`
 - Active issue: #173 (WS5 safe retry restricted to pending ping)
-- Active PR: none (PR #172 merged)
+- Active PR: #174 (open)
 - Current roadmap phase: Phase 2 (WS5 resilience UI), with Phase 1 shell/structure in place
 - Current workstream(s): WS1, WS2, WS3, WS4, WS5
 
@@ -46,13 +46,14 @@ Token budget guardrail:
 - Opened issue #171 and delivered a WS5 consistency slice: safe-retry messaging now matches the actual supported outbox retry type (`ping`) and is backed by sync-layer eligibility tests.
 - PR #172 merged to `main` with linked closure for #171.
 - Opened issue #173 and delivered a WS5 behavior-hardening slice: safe retry eligibility now requires `pending` + `ping` (conflict/rejected ping entries no longer qualify), aligning action availability with recovery semantics.
+- Opened PR #174 for #173 with `Closes #173` in body and required Agent Handoff Continuity + Token Budget checklist sections completed.
 
 ---
 
 ## Current in-progress task
 
-- Objective: Prepare merge-ready PR for completed issue #173 and then select the next smallest Phase 2/3 closure slice.
-- Why it matters for MVP exit gates: Converts validated WS5 hardening into merged baseline, then continues closure sequencing.
+- Objective: Keep PR #174 merge-ready (green checks + review) and then select the next smallest Phase 2/3 closure slice.
+- Why it matters for MVP exit gates: Gets validated WS5 hardening merged safely, then maintains closure sequencing momentum.
 - Files currently touched: `apps/mobile/src/sync/outboxPolicy.ts`, `apps/mobile/src/sync/outboxPolicy.test.ts`, `docs/sdlc/agent-handoff.md`
 - Dependencies/blockers:
   - Official external design-system source artifacts remain unavailable in-repo; fallback DS baseline is documented.
@@ -61,10 +62,10 @@ Token budget guardrail:
 
 ## Next 1-3 tasks (strict priority)
 
-1. Task: Open merge-ready PR for issue #173.
-   - Acceptance criteria: PR includes `Closes #173`, continuity checklist complete, token-budget check complete.
-   - Evidence expected: PR URL + checklist completion status in handoff.
-2. Task: Select and open the next single-slice Phase 2/3 closure issue after #173.
+1. Task: Monitor PR #174 to merge readiness and completion.
+   - Acceptance criteria: Required checks green, review resolved, merge completed with linked issue auto-close.
+   - Evidence expected: PR merge URL/state and issue #173 closure confirmation in handoff.
+2. Task: Select and open the next single-slice Phase 2/3 closure issue after #173 merges.
    - Acceptance criteria: New issue scoped to one unresolved gate and mapped to roadmap/spec criteria.
    - Evidence expected: Issue URL/number and short acceptance-criteria mapping in handoff.
 3. Task: Implement that next issue as one smallest complete slice with repo-level validation.
@@ -127,7 +128,7 @@ Validation notes:
 
 ## Open risks, assumptions, and questions
 
-- Risk: PR for #173 is not yet opened, so validated code is not yet in merge-review flow.
+- Risk: PR #174 is open but not yet merged; CI/review outcomes still pending.
 - Assumption: Current roadmap phase remains Phase 2 until a Phase 2 exit-gap item is explicitly closed and merged.
 - Question requiring human decision: After #173 PR prep, should next scope prioritize WS5 manual-device validation depth or WS3/WS4 acceptance-gate hardening?
 
@@ -147,5 +148,5 @@ Read in order:
 7) .github/pull_request_template.md
 
 Before coding, restate phase/issue/PR, acceptance criteria, in-scope files, out-of-scope, validation plan, and guardrails (<=8 bullets).
-Then open a merge-ready PR for issue #173 (include `Closes #173` and complete continuity/token-budget checklist sections), verify checks, and update this handoff with PR evidence and next scoped issue selection.
+Then monitor PR #174 to merge completion (checks + review), record merge/issue-close evidence in handoff, and open the next scoped Phase 2/3 issue.
 ```
