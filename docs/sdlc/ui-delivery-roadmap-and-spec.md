@@ -5,6 +5,7 @@
 
 **Related docs:**  
 - [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
+- [mvp-ui-development-spec.md](./mvp-ui-development-spec.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
 - [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  
@@ -335,6 +336,8 @@ A UI PR is not complete unless all apply:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-28 | Added guarded fallback design-system implementation under `apps/mobile/src/design-system` (tokens + DS wrappers) and switched mobile style generation to token-driven theming while canonical design artifacts are unavailable. |
+| 2026-04-28 | Phase 1/2 UI hardening pass: operator-facing wording updates, explicit disable reasons for key controls, readouts incident return-path improvement, and shared navigation color tokenization. |
 | 2026-04-27 | Documented Phase 2 incremental slice for targeted safe retry controls (issue #162) without adding a second retry queue. |
 | 2026-04-27 | Phase 1: structured Operate tab sections (`phase1-part-a` / `phase1-part-b` on `OperationalSummarySections`) plus roadmap note. |
 | 2026-04-27 | Phase 2: WS5 queue diagnostics + merge-record client routes; Status Detail panel; conflict merge telemetry action; shared projection/sync readout blocks to dedupe Operate vs Readouts. |
