@@ -147,9 +147,10 @@ Validation notes:
 - Manual flow checks:
   - Confirmed roadmap phase text now matches implemented safe-retry scope (`pending` + `ping` only).
   - Confirmed no new API/outbox execution path was introduced; change is test/documentation guardrail only.
+  - **Chunk C staging smoke (`docs/sdlc/chunk-c-smoke-script.md`):** Operator confirmed **all 10 steps pass** on staging (2026-04-28). Satisfies the smoke path used as a precondition for issue #179 step 3 (active room + traffic).
   - **WS5 operator checklist (code-backed, for #179):** In Outbox Detail, expect conflict hint: refresh room/projection, confirm latest state, retry Process Outbox, optional merge telemetry when role allows. Rejected hint: update inputs, enqueue again. Pending with `attempts > 0`: connectivity / foreground auto-process. Safe retry copy + button only when entry is **pending** and type **ping** (`isSafeOutboxRetryCandidate`); not for conflict/rejected ping or non-ping pending.
 - Risks observed:
-  - Live staging/device confirmation for #179 is still outstanding until an operator runs the checklist.
+  - Issue #179 still needs **Outbox Detail** observations (pending/conflict/rejected + safe-retry CTA) even though Chunk C smoke is green end-to-end.
 
 ---
 
