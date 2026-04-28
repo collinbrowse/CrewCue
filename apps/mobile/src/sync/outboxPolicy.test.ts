@@ -58,7 +58,7 @@ test("isSafeOutboxRetryCandidate allows pending ping operations", () => {
   assert.equal(isSafeOutboxRetryCandidate(operation), true);
 });
 
-test("isSafeOutboxRetryCandidate blocks sent and non-ping operations", () => {
+test("isSafeOutboxRetryCandidate blocks sent, conflict/rejected, and non-ping operations", () => {
   const sentPing: OutboxOperation = {
     id: "op-ping-sent",
     type: "ping",
@@ -73,7 +73,23 @@ test("isSafeOutboxRetryCandidate blocks sent and non-ping operations", () => {
     attempts: 0,
     status: "pending"
   };
+  const conflictPing: OutboxOperation = {
+    id: "op-ping-conflict",
+    type: "ping",
+    payload: { roomId: "room-1" },
+    attempts: 2,
+    status: "conflict"
+  };
+  const rejectedPing: OutboxOperation = {
+    id: "op-ping-rejected",
+    type: "ping",
+    payload: { roomId: "room-1" },
+    attempts: 1,
+    status: "rejected"
+  };
 
   assert.equal(isSafeOutboxRetryCandidate(sentPing), false);
   assert.equal(isSafeOutboxRetryCandidate(pendingTask), false);
+  assert.equal(isSafeOutboxRetryCandidate(conflictPing), false);
+  assert.equal(isSafeOutboxRetryCandidate(rejectedPing), false);
 });
