@@ -130,7 +130,7 @@ Validation notes:
   - `npm run test` -> passed (`@crewcue/mobile` + `@crewcue/api` + `@crewcue/contracts`, 0 failures).
   - `npm run verify` -> passed at repo root (dual-client guard, lint/typecheck/test/startup smoke/build parity chain).
   - `npm run verify` (post-merge sync to `main` at `64df3b7`) -> passed again after handoff refresh edits.
-  - `npm run verify` on this branch after handoff edits -> **passed** (exit 0; dual-client guard, lint, typecheck, tests, mobile `expo export`, API/contracts build).
+  - `npm run verify` on this branch -> **passed** (exit 0; dual-client guard, lint, typecheck, tests, mobile `expo export`, API/contracts build; re-run after final handoff markdown edits).
 - Manual flow checks:
   - Confirmed roadmap phase text now matches implemented safe-retry scope (`pending` + `ping` only).
   - Confirmed no new API/outbox execution path was introduced; change is test/documentation guardrail only.
