@@ -171,7 +171,7 @@ Build:
 - Sync health panel (device staleness + pending counts)
 - Conflict resolution UX for merge-policy outcomes
 - Retry controls scoped to safe operations
-- Incremental slice shipped in [#162](https://github.com/collinbrowse/CrewCue/issues/162): targeted safe retry for ping/sync outbox items from queue inspector while retaining global process-all behavior for mixed operations
+- Incremental slice shipped in [#162](https://github.com/collinbrowse/CrewCue/issues/162): targeted safe retry for pending ping outbox items from queue inspector while retaining global process-all behavior for mixed operations
 - **Queue diagnostics + merge telemetry (API parity):** mobile `createApiClient` exposes `getQueueDiagnostics`, `postQueueDiagnostics`, `getMergeRecords`, and `postMergeRecord`. **Operate → Status Detail** includes a WS5 panel to refresh telemetry, push pending-count snapshots, and list recent rows. **Outbox inspector** offers **Log merge telemetry (manual)** on conflict items when the room role may record merge rows (athlete, crew chief, team manager).
 
 Dependencies:
@@ -338,6 +338,7 @@ A UI PR is not complete unless all apply:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-28 | Clarified Phase 2 WS5 safe-retry scope as **pending ping only** in roadmap text to match current UI/sync behavior and guard against retry-path drift. |
 | 2026-04-28 | Added guarded fallback design-system implementation under `apps/mobile/src/design-system` (tokens + DS wrappers) and switched mobile style generation to token-driven theming while canonical design artifacts are unavailable. |
 | 2026-04-28 | Phase 1/2 UI hardening pass: operator-facing wording updates, explicit disable reasons for key controls, readouts incident return-path improvement, and shared navigation color tokenization. |
 | 2026-04-27 | Documented Phase 2 incremental slice for targeted safe retry controls (issue #162) without adding a second retry queue. |
