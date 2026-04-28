@@ -103,3 +103,4 @@ Steps 1–9 exercise: Auth0, room lifecycle, entitlement gate, WS2 ping ingest, 
 | ---------- | ------ |
 | 2026-04-21 | Initial publication — covers slices 1–5 of Chunk C (issues #82–#89). |
 | 2026-04-24 | Linked dedicated Phase 3 mobile staging validation checklist for WS3/WS4 depth loops. |
+| 2026-04-28 | Operator sign-off: all 10 smoke steps verified pass on staging (recorded in `docs/sdlc/agent-handoff.md` validation notes). |
