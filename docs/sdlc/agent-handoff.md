@@ -28,11 +28,11 @@ Token budget guardrail:
 
 ## Session status snapshot (update first)
 
-- Last updated (local date/time): 2026-04-28 16:35 (UTC-6)
+- Last updated (local date/time): 2026-04-28 16:40 (UTC-6)
 - Updated by (agent/human): Codex agent
 - Branch: `main`
 - Active issue: #177 (post-merge handoff refresh after PR #176)
-- Active PR: none (PR #176 merged; follow-up PR may open for #177)
+- Active PR: #178 (handoff refresh for #177)
 - Current roadmap phase: Phase 2 (WS5 resilience UI), with Phase 1 shell/structure in place
 - Current workstream(s): WS1, WS2, WS3, WS4, WS5
 
@@ -55,7 +55,7 @@ Token budget guardrail:
 
 ## Current in-progress task
 
-- Objective: Refresh `docs/sdlc/agent-handoff.md` to post-merge truth after PR #176, then keep Phase 2/3 closure momentum moving.
+- Objective: Land PR #178 to close #177 and finalize post-merge handoff continuity after PR #176.
 - Why it matters for MVP exit gates: Continuity docs must match merged reality so the next agent does not chase closed issues/PRs.
 - Files currently touched: `docs/sdlc/agent-handoff.md`
 - Dependencies/blockers:
@@ -65,9 +65,9 @@ Token budget guardrail:
 
 ## Next 1-3 tasks (strict priority)
 
-1. Task: Land the handoff refresh for #177 via a small merge-ready PR (or direct merge if policy allows).
+1. Task: Merge PR #178 to close #177 and refresh handoff snapshot to post-merge idle state.
    - Acceptance criteria: `Closes #177` in PR body + required continuity/token-budget checklist sections completed + checks green.
-   - Evidence expected: PR URL + merge confirmation in handoff snapshot.
+   - Evidence expected: https://github.com/collinbrowse/CrewCue/pull/178 merged + issue #177 closed.
 2. Task: Run WS5 manual device/staging resilience check for pending/conflict/rejected recovery hints and capture operator evidence.
    - Acceptance criteria: Manual notes confirm distinct recovery guidance and expected CTA availability.
    - Evidence expected: Short manual validation bullets in handoff/PR test plan.
@@ -119,6 +119,7 @@ Validation notes:
 
 - Command/output summary:
   - GitHub merge evidence: PR #176 merged at `2026-04-28T22:15:34Z`; issue #175 closed.
+  - Follow-up PR opened for continuity: https://github.com/collinbrowse/CrewCue/pull/178 (`Closes #177`).
   - `npm run lint` -> passed after adding explicit non-ping (`protocol`) safe-retry test coverage.
   - `npm run typecheck` -> passed.
   - `npm run build` -> passed (includes mobile `expo export` bundles).
@@ -155,5 +156,5 @@ Read in order:
 7) .github/pull_request_template.md
 
 Before coding, restate phase/issue/PR, acceptance criteria, in-scope files, out-of-scope, validation plan, and guardrails (<=8 bullets).
-Then open a merge-ready PR for #177 with `Closes #177`, complete PR template continuity/token-budget checklists, run `npm run verify`, and refresh this handoff snapshot to match merged reality.
+Then monitor PR #178 to merge completion (checks + review), confirm issue #177 auto-closes, and refresh this handoff snapshot to a post-merge idle state (no stale active PR/issue lines).
 ```
