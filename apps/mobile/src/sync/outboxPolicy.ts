@@ -1,5 +1,5 @@
 import { ApiError } from "../api/client";
-import type { OutboxOperationStatus } from "./outboxStore";
+import type { OutboxOperation, OutboxOperationStatus } from "./outboxStore";
 
 type OutboxFailureResolution = {
   status: OutboxOperationStatus;
@@ -67,4 +67,12 @@ export function resolveOutboxFailure(error: unknown): OutboxFailureResolution {
     retryable: true,
     feedback: readErrorField(error.body) ?? error.message
   };
+}
+
+export function isSafeOutboxRetryCandidate(operation: OutboxOperation): boolean {
+  if (operation.status === "sent") {
+    return false;
+  }
+
+  return operation.type === "ping";
 }

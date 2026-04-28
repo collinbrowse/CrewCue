@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApiError } from "../api/client";
-import { resolveOutboxFailure } from "./outboxPolicy";
+import type { OutboxOperation } from "./outboxStore";
+import { isSafeOutboxRetryCandidate, resolveOutboxFailure } from "./outboxPolicy";
 
 test("resolveOutboxFailure keeps retrying network-like failures", () => {
   const resolution = resolveOutboxFailure(new TypeError("fetch failed"));
@@ -43,4 +44,36 @@ test("resolveOutboxFailure marks ping rejection payloads as rejected", () => {
     retryable: false,
     feedback: "recordedAt is too far from server time"
   });
+});
+
+test("isSafeOutboxRetryCandidate allows pending ping operations", () => {
+  const operation: OutboxOperation = {
+    id: "op-ping-1",
+    type: "ping",
+    payload: { roomId: "room-1" },
+    attempts: 1,
+    status: "pending"
+  };
+
+  assert.equal(isSafeOutboxRetryCandidate(operation), true);
+});
+
+test("isSafeOutboxRetryCandidate blocks sent and non-ping operations", () => {
+  const sentPing: OutboxOperation = {
+    id: "op-ping-sent",
+    type: "ping",
+    payload: { roomId: "room-1" },
+    attempts: 1,
+    status: "sent"
+  };
+  const pendingTask: OutboxOperation = {
+    id: "op-task-1",
+    type: "task",
+    payload: { roomId: "room-1" },
+    attempts: 0,
+    status: "pending"
+  };
+
+  assert.equal(isSafeOutboxRetryCandidate(sentPing), false);
+  assert.equal(isSafeOutboxRetryCandidate(pendingTask), false);
 });

@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Text, View } from "react-native";
 import { DSButton } from "../design-system";
+import { isSafeOutboxRetryCandidate } from "../sync/outboxPolicy";
 import type { OutboxOperation } from "../sync/outboxStore";
 
 type Props = {
@@ -43,13 +44,6 @@ export function OutboxQueueInspector({
       return "Pending retry: check connectivity and keep app foregrounded for auto-process.";
     }
     return undefined;
-  };
-
-  const canSafelyRetry = (operation: OutboxOperation): boolean => {
-    if (operation.status === "sent") {
-      return false;
-    }
-    return operation.type === "ping";
   };
 
   return (
@@ -105,12 +99,12 @@ export function OutboxQueueInspector({
               </Text>
             ) : null}
             {operation.updatedAt ? <Text style={styles.code}>{operation.updatedAt}</Text> : null}
-            {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
+            {isSafeOutboxRetryCandidate(operation) && onRetryOutboxOperationSafely ? (
               <Text style={styles.body}>
-                Safe retry available for ping/sync operations; task/checkpoint retries stay in global queue processing.
+                Safe retry available for ping operations; task/checkpoint retries stay in global queue processing.
               </Text>
             ) : null}
-            {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
+            {isSafeOutboxRetryCandidate(operation) && onRetryOutboxOperationSafely ? (
               <DSButton preset="secondary" onPress={() => onRetryOutboxOperationSafely(operation.id)}>
                 Retry this operation safely
               </DSButton>
