@@ -124,6 +124,7 @@ Validation notes:
   - GitHub merge evidence: PR #176 merged at `2026-04-28T22:15:34Z`; issue #175 closed.
   - PR #178 merged at `2026-04-28T22:22:34Z` (`b5c2cd9` on `main`); issue #177 closed at `2026-04-28T22:22:35Z`.
   - Tracking issue for live WS5 checks: https://github.com/collinbrowse/CrewCue/issues/179
+  - Doc PR for post–PR #178 handoff refresh: https://github.com/collinbrowse/CrewCue/pull/181 (`Closes #180`)
   - `npm run lint` -> passed after adding explicit non-ping (`protocol`) safe-retry test coverage.
   - `npm run typecheck` -> passed.
   - `npm run build` -> passed (includes mobile `expo export` bundles).
