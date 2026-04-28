@@ -4,7 +4,9 @@
 **Purpose:** provide a single specification that converts existing backend/platform delivery into a complete, focused MVP UI build plan.
 
 **Standards alignment:**
+- [README.md](./README.md)
 - [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)
+- [agent-handoff.md](./agent-handoff.md)
 - [codebase-maintainability-standard.md](./codebase-maintainability-standard.md)
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)
 - [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)

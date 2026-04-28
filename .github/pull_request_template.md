@@ -61,4 +61,23 @@ List each relevant acceptance criterion and how this PR satisfies it.
 
 - Prompt/task used:
 - What was reviewed manually:
+- Handoff doc updated (`docs/sdlc/agent-handoff.md`): yes / no
+- Successor next-step prompt prepared: yes / no
+
+## Agent Handoff Continuity Checklist (required for agent-assisted PRs)
+
+- Current roadmap phase is explicitly stated
+- Active issue and acceptance criteria are restated before implementation
+- Changed files are listed with rationale and layering compliance
+- "Do-not-change" guardrails are listed for this PR
+- Remaining tasks and blockers are documented for successor agent
+- Validation evidence includes command summary and manual/staging checks where applicable
+
+## Token Budget Check (required for agent-assisted PRs)
+
+- Used `docs/sdlc/token-budget.md` as context policy
+- Kept context to canonical docs + task-specific files only
+- Avoided broad/redundant doc summaries in agent notes
+- Updated `docs/sdlc/agent-handoff.md` with delta-only current state
+- Successor prompt is short, scoped, and actionable
 

@@ -4,8 +4,10 @@
 **Intent:** define what UI to build, when to build it, and how each layer reuses prior work so we avoid duplicate implementation.
 
 **Related docs:**  
+- [README.md](./README.md)  
 - [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
 - [mvp-ui-development-spec.md](./mvp-ui-development-spec.md)  
+- [agent-handoff.md](./agent-handoff.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
 - [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  

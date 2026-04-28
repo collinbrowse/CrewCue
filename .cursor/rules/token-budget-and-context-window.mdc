@@ -1,0 +1,38 @@
+---
+description: Enforce token budget and context-window discipline for agent tasks
+alwaysApply: true
+---
+
+# Token budget and context-window discipline
+
+Follow `docs/sdlc/token-budget.md` for every task.
+
+## Required startup behavior
+
+Before implementation, the agent must read:
+
+1. `docs/sdlc/agent-handoff.md`
+2. `docs/sdlc/README.md`
+3. `docs/sdlc/token-budget.md`
+
+Then restate scope in <= 8 bullets:
+
+- goal
+- active issue/PR
+- in-scope files
+- out-of-scope systems
+- acceptance criteria
+- validation plan
+
+## Budget limits
+
+- Avoid broad doc scans unless blocked.
+- Keep summaries concise and delta-focused.
+- Keep handoff updates to current-state-only, not full history replay.
+- If context is growing too large, archive old handoff content before continuing.
+
+## Delivery expectations
+
+- Use targeted file reads/searches over expansive exploration.
+- Keep end-of-task output concise with completion status, evidence, and next 1-3 tasks.
+- Ensure successor prompt is short and scoped.

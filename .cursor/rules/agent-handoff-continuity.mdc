@@ -1,0 +1,31 @@
+---
+description: Require agent handoff continuity for every agent-assisted task
+alwaysApply: true
+---
+
+# Agent handoff continuity
+
+For every agent-assisted task, treat `docs/sdlc/agent-handoff.md` as the continuity source of truth.
+
+## Start-of-task requirements
+
+Before implementation, the agent must:
+
+1. Read `docs/sdlc/agent-handoff.md` first.
+2. Restate current roadmap phase, active issue/PR, and exact acceptance criteria.
+3. List intended files to touch and confirm do-not-change guardrails.
+
+## End-of-task requirements
+
+Before stopping, the agent must update `docs/sdlc/agent-handoff.md` with:
+
+1. What was completed.
+2. What remains (next 1-3 prioritized tasks).
+3. Validation evidence summary (commands/manual/staging as applicable).
+4. Open risks/blockers/questions.
+5. A ready-to-run successor prompt.
+
+## Delivery requirements
+
+- If opening/updating a PR, ensure `.github/pull_request_template.md` handoff and continuity sections are completed.
+- Do not leave ambiguous ownership or unstated next steps for successor agents.
