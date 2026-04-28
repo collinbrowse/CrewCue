@@ -70,7 +70,7 @@ export function resolveOutboxFailure(error: unknown): OutboxFailureResolution {
 }
 
 export function isSafeOutboxRetryCandidate(operation: OutboxOperation): boolean {
-  if (operation.status === "sent") {
+  if (operation.status !== "pending") {
     return false;
   }
 
