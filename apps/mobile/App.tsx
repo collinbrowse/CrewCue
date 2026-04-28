@@ -54,8 +54,9 @@ import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
+import { useDSTheme, type DSThemeTokens } from "./src/design-system";
 
-const MOBILE_SMOKE_DEVICE_ID = "mobile-smoke-device";
+const MOBILE_DEVICE_ID = "mobile-operator-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
 const OUTBOX_AUTO_PROCESS_INTERVAL_MS = 8000;
 
@@ -80,20 +81,20 @@ export default function App(): ReactElement {
 
   if (!configResult.ok) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Configuration missing</Text>
-          <Text style={styles.body}>
+      <SafeAreaView style={bootStyles.container}>
+        <View style={bootStyles.card}>
+          <Text style={bootStyles.title}>Configuration missing</Text>
+          <Text style={bootStyles.body}>
             The mobile app cannot start because the following env vars are missing:
           </Text>
           {configResult.missing.map((name) => (
-            <Text key={name} style={styles.code}>
+            <Text key={name} style={bootStyles.code}>
               {name}
             </Text>
           ))}
-          <Text style={styles.body}>
-            Copy <Text style={styles.code}>apps/mobile/.env.example</Text> to{" "}
-            <Text style={styles.code}>apps/mobile/.env</Text> and restart Expo.
+          <Text style={bootStyles.body}>
+            Copy <Text style={bootStyles.code}>apps/mobile/.env.example</Text> to{" "}
+            <Text style={bootStyles.code}>apps/mobile/.env</Text> and restart Expo.
           </Text>
         </View>
         <StatusBar style="light" />
@@ -110,6 +111,8 @@ type AuthedShellProps = {
 };
 
 function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
+  const theme = useDSTheme();
+  const styles = useMemo(() => createAuthedStyles(theme), [theme]);
   const auth = useAuth({
     domain: auth0.auth0Domain,
     clientId: auth0.auth0ClientId,
@@ -233,11 +236,11 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     setApiError(undefined);
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      const teamId = auth.claims.teamIds?.[0] ?? "mobile-smoketest-team";
+      const teamId = auth.claims.teamIds?.[0] ?? "mobile-ops-team";
       const created = await client.createRaceRoom({
         teamId,
         athleteId: auth.claims.sub,
-        name: `Mobile smoke ${new Date().toISOString().slice(0, 16)}`,
+        name: `Mobile ops ${new Date().toISOString().slice(0, 16)}`,
         creatorRole: "team_manager"
       });
       setRoom(created);
@@ -344,7 +347,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const result = await postSyncHeartbeatWithRetry(client, {
         roomId: room.id,
-        deviceId: MOBILE_SMOKE_DEVICE_ID,
+        deviceId: MOBILE_DEVICE_ID,
         pendingQueueCount: DEFAULT_PENDING_QUEUE_COUNT
       });
 
@@ -418,7 +421,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       }
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       await client.postQueueDiagnostics(room.id, {
-        deviceId: MOBILE_SMOKE_DEVICE_ID,
+        deviceId: MOBILE_DEVICE_ID,
         pendingByOpType
       });
       const { diagnostics } = await client.getQueueDiagnostics(room.id, { limit: 25 });
@@ -447,7 +450,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       try {
         const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
         await client.postMergeRecord(room.id, {
-          deviceId: MOBILE_SMOKE_DEVICE_ID,
+          deviceId: MOBILE_DEVICE_ID,
           conflictKey: `outbox:${operationId}`,
           strategy: "manual",
           notes: "Conflict acknowledged from mobile outbox inspector"
@@ -634,7 +637,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const course = room.course;
-      const checkpointId = course?.checkpoints?.[0]?.id ?? "cp-smoke-1";
+      const checkpointId = course?.checkpoints?.[0]?.id ?? "cp-ops-1";
       const { protocolNote } = await client.postProtocolNote(room.id, {
         checkpointId,
         category: "nutrition",
@@ -677,7 +680,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         severity: "medium",
         checkpointId,
         summary: "Fueling behind planned intake",
-        details: "WS4 smoke flow from mobile shell"
+        details: "Captured from mobile operations flow"
       });
       setIncidents((prev) => [...(prev ?? []), incident]);
       setStatusSuccess("Incident posted.");
@@ -929,8 +932,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     },
     onSignOut: auth.signOut,
     onToggleResolvedSource: enqueueSourceToggle,
-    onEnqueueTaskAction: enqueueTaskAction
-    ,
+    onEnqueueTaskAction: enqueueTaskAction,
     onRetryOutboxOperationSafely: retryOutboxOperationSafely
   };
 
@@ -944,7 +946,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   );
 }
 
-const styles = StyleSheet.create({
+const bootStyles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0f172a"
@@ -990,6 +992,15 @@ const styles = StyleSheet.create({
     color: "#d1d5db",
     fontSize: 14,
     marginTop: 6
+  },
+  mutedText: {
+    color: "#9ca3af"
+  },
+  successText: {
+    color: "#86efac"
+  },
+  warningText: {
+    color: "#fde68a"
   },
   errorText: {
     color: "#fca5a5",
@@ -1111,3 +1122,187 @@ const styles = StyleSheet.create({
     fontSize: 12
   }
 });
+
+function createAuthedStyles(theme: DSThemeTokens) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.color.background
+    },
+    scroll: {
+      flexGrow: 1,
+      justifyContent: "center",
+      padding: 16
+    },
+    card: {
+      borderRadius: 16,
+      padding: 20,
+      backgroundColor: theme.color.card,
+      gap: 4
+    },
+    title: {
+      color: theme.color.text,
+      fontSize: 26,
+      fontWeight: "700"
+    },
+    subtitle: {
+      color: theme.color.muted,
+      fontSize: 14,
+      marginBottom: 12
+    },
+    label: {
+      color: theme.color.muted,
+      fontSize: 12,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+      marginTop: 10
+    },
+    value: {
+      color: theme.color.text,
+      fontSize: 16
+    },
+    code: {
+      color: theme.color.text,
+      fontSize: 13,
+      fontFamily: "Menlo"
+    },
+    body: {
+      color: theme.color.body,
+      fontSize: 14,
+      marginTop: 6
+    },
+    mutedText: {
+      color: theme.color.muted
+    },
+    successText: {
+      color: theme.color.success
+    },
+    warningText: {
+      color: theme.color.warning
+    },
+    errorText: {
+      color: theme.color.danger,
+      fontSize: 13
+    },
+    primaryButton: {
+      backgroundColor: theme.color.primary,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 10,
+      alignItems: "center"
+    },
+    primaryButtonLabel: {
+      color: theme.color.text,
+      fontSize: 16,
+      fontWeight: "600"
+    },
+    secondaryButton: {
+      backgroundColor: theme.color.secondaryButton,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 10,
+      alignItems: "center"
+    },
+    secondaryButtonLabel: {
+      color: theme.color.body,
+      fontSize: 14
+    },
+    secondaryButtonActive: {
+      borderWidth: 2,
+      borderColor: theme.color.secondaryButtonActiveBorder
+    },
+    summaryCard: {
+      marginTop: 16,
+      borderRadius: 12,
+      padding: 14,
+      backgroundColor: theme.color.summaryCard,
+      borderWidth: 1,
+      borderColor: theme.color.border
+    },
+    summaryTitle: {
+      color: theme.color.text,
+      fontSize: 15,
+      fontWeight: "600",
+      marginBottom: 4
+    },
+    statusRail: {
+      marginTop: 12,
+      padding: 12,
+      borderRadius: 10,
+      backgroundColor: theme.color.statusRail,
+      borderWidth: 1,
+      borderColor: theme.color.border,
+      gap: 4
+    },
+    statusRailTitle: {
+      color: theme.color.text,
+      fontSize: 13,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.5
+    },
+    statusRailItem: {
+      color: theme.color.body,
+      fontSize: 13
+    },
+    sectionDivider: {
+      borderTopWidth: 1,
+      borderTopColor: theme.color.divider,
+      paddingTop: 12
+    },
+    outboxItem: {
+      marginTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: theme.color.divider,
+      paddingTop: 12
+    },
+    outboxItemHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      gap: 12
+    },
+    outboxStatus: {
+      fontSize: 12,
+      fontWeight: "700",
+      textTransform: "uppercase"
+    },
+    outboxStatusPending: {
+      color: theme.color.warning
+    },
+    outboxStatusSent: {
+      color: theme.color.success
+    },
+    outboxStatusRejected: {
+      color: theme.color.danger
+    },
+    outboxStatusConflict: {
+      color: theme.color.warning
+    },
+    stoppageRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 5,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.color.divider
+    },
+    visitRow: {
+      marginTop: 8,
+      paddingLeft: 10,
+      borderLeftWidth: 2,
+      borderLeftColor: theme.color.visitBorder
+    },
+    toggleButton: {
+      marginTop: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 6,
+      backgroundColor: theme.color.toggleButton,
+      alignSelf: "flex-start"
+    },
+    toggleButtonLabel: {
+      color: theme.color.body,
+      fontSize: 12
+    }
+  });
+}

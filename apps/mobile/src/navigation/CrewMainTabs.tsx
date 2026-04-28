@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { navColors } from "./navigationTheme";
 import { OperateStack } from "./OperateStack";
 import { ReadoutsStack } from "./ReadoutsStack";
 import type { CrewMainTabParamList } from "./types";
@@ -12,11 +13,11 @@ export function CrewMainTabs(): ReactElement {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: "#111827",
-          borderTopColor: "#1f2937"
+          backgroundColor: navColors.card,
+          borderTopColor: navColors.border
         },
-        tabBarActiveTintColor: "#f9fafb",
-        tabBarInactiveTintColor: "#9ca3af"
+        tabBarActiveTintColor: navColors.text,
+        tabBarInactiveTintColor: navColors.muted
       }}
     >
       <Tab.Screen name="Operate" component={OperateStack} options={{ title: "Operate" }} />

@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type { MergeRecord, SyncQueueDiagnostics } from "@crewcue/contracts";
+import { DSButton } from "../design-system";
 
 type Props = {
   styles: Record<string, any>;
@@ -40,30 +41,22 @@ export function Ws5ResiliencePanel({
         health, diagnostics, and merge history for this room.
       </Text>
       {disableRefresh && refreshDisabledHint ? (
-        <Text style={[styles.body, { color: "#9ca3af" }]}>{refreshDisabledHint}</Text>
+        <Text style={[styles.body, styles.mutedText]}>{refreshDisabledHint}</Text>
       ) : null}
       {disablePushDiagnostics && pushDisabledHint ? (
-        <Text style={[styles.body, { color: "#9ca3af" }]}>{pushDisabledHint}</Text>
+        <Text style={[styles.body, styles.mutedText]}>{pushDisabledHint}</Text>
       ) : null}
       <View style={{ marginTop: 10, gap: 8 }}>
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={onRefreshTelemetry}
-          disabled={disableRefresh || busy}
-        >
-          <Text style={styles.secondaryButtonLabel}>{busy ? "…" : "Refresh WS5 telemetry"}</Text>
-        </Pressable>
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={onPushDiagnostics}
-          disabled={disablePushDiagnostics || busy}
-        >
-          <Text style={styles.secondaryButtonLabel}>Push outbox pending counts</Text>
-        </Pressable>
+        <DSButton preset="secondary" onPress={onRefreshTelemetry} disabled={disableRefresh || busy}>
+          {busy ? "..." : "Refresh WS5 telemetry"}
+        </DSButton>
+        <DSButton preset="secondary" onPress={onPushDiagnostics} disabled={disablePushDiagnostics || busy}>
+          Push outbox pending counts
+        </DSButton>
       </View>
       <Text style={[styles.label, { marginTop: 14 }]}>Queue diagnostics (recent)</Text>
       {recentDiag.length === 0 ? (
-        <Text style={[styles.code, { color: "#6b7280" }]}>None yet. Push a snapshot after pending items exist.</Text>
+        <Text style={[styles.code, styles.mutedText]}>None yet. Push a snapshot after pending items exist.</Text>
       ) : (
         recentDiag.map((row) => (
           <View key={row.id} style={styles.visitRow}>
@@ -76,7 +69,7 @@ export function Ws5ResiliencePanel({
       )}
       <Text style={[styles.label, { marginTop: 14 }]}>Merge records (recent)</Text>
       {recentMerges.length === 0 ? (
-        <Text style={[styles.code, { color: "#6b7280" }]}>None yet. Log from a conflict row in the outbox inspector.</Text>
+        <Text style={[styles.code, styles.mutedText]}>None yet. Log from a conflict row in the outbox inspector.</Text>
       ) : (
         recentMerges.map((row) => (
           <View key={row.id} style={styles.visitRow}>
@@ -84,7 +77,7 @@ export function Ws5ResiliencePanel({
               {row.recordedAt.slice(11, 19)}Z · {row.strategy}
             </Text>
             <Text style={styles.body}>{row.conflictKey}</Text>
-            {row.notes ? <Text style={[styles.code, { color: "#9ca3af" }]}>{row.notes}</Text> : null}
+            {row.notes ? <Text style={[styles.code, styles.mutedText]}>{row.notes}</Text> : null}
           </View>
         ))
       )}

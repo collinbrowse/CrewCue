@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type { IncidentEvent, RaceRoom, Recommendation } from "@crewcue/contracts";
+import { DSButton, DSCard } from "../design-system";
 
 type Props = {
   styles: any;
@@ -71,94 +72,99 @@ export function AuthenticatedActionPanel({
   onEnqueueManualStop,
   onSignOut
 }: Props): ReactElement {
+  const roomInactive = room?.status !== "active";
+  const noIncidents = !incidents || incidents.length === 0;
+  const recommendationPending = latestRecommendation?.status === "pending";
+
   return (
     <>
-      <Pressable style={styles.primaryButton} onPress={onCreateRoom} disabled={busy}>
-        <Text style={styles.primaryButtonLabel}>{busy ? "Calling API..." : "Create race room (staging)"}</Text>
-      </Pressable>
-      <Pressable style={styles.secondaryButton} onPress={onProcessOutbox} disabled={busy || outboxProcessing}>
-        <Text style={styles.secondaryButtonLabel}>{outboxProcessing ? "Processing..." : "Process all pending outbox items"}</Text>
-      </Pressable>
+      <DSCard style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Session setup</Text>
+        <DSButton preset="primary" onPress={onCreateRoom} disabled={busy}>
+          {busy ? "Working..." : "Create race room"}
+        </DSButton>
+        <DSButton preset="secondary" onPress={onProcessOutbox} disabled={busy || outboxProcessing}>
+          {outboxProcessing ? "Processing..." : "Process queue"}
+        </DSButton>
+      </DSCard>
       {room ? (
         <>
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={onMarkEntitlementPaid}
-            disabled={busy || room.entitlement.status === "paid"}
-          >
-            <Text style={styles.secondaryButtonLabel}>
-              {room.entitlement.status === "paid" ? "Entitlement already paid" : "Mark entitlement paid (staging)"}
-            </Text>
-          </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={onFetchRoomDetails} disabled={busy}>
-            <Text style={styles.secondaryButtonLabel}>Fetch room (GET)</Text>
-          </Pressable>
-          {room.entitlement.status === "paid" && room.status === "draft" ? (
-            <Pressable style={styles.primaryButton} onPress={onActivateRoom} disabled={busy}>
-              <Text style={styles.primaryButtonLabel}>{busy ? "Calling API..." : "Activate room (staging)"}</Text>
-            </Pressable>
-          ) : null}
+          <DSCard style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Room lifecycle</Text>
+            <DSButton
+              preset="secondary"
+              onPress={onMarkEntitlementPaid}
+              disabled={busy || room.entitlement.status === "paid"}
+            >
+              {room.entitlement.status === "paid" ? "Entitlement already paid" : "Mark entitlement paid"}
+            </DSButton>
+            <DSButton preset="secondary" onPress={onFetchRoomDetails} disabled={busy}>
+              Refresh room details
+            </DSButton>
+            {room.entitlement.status === "paid" && room.status === "draft" ? (
+              <DSButton preset="primary" onPress={onActivateRoom} disabled={busy}>
+                {busy ? "Working..." : "Activate room"}
+              </DSButton>
+            ) : null}
+          </DSCard>
           {room.status === "active" ? (
             <>
-              <Pressable style={styles.primaryButton} onPress={onSendPing} disabled={busy}>
-                <Text style={styles.primaryButtonLabel}>{busy ? "Sending..." : "Send ping (staging)"}</Text>
-              </Pressable>
-              <Pressable style={styles.primaryButton} onPress={onPostSyncHeartbeat} disabled={busy}>
-                <Text style={styles.primaryButtonLabel}>{busy ? "Sending..." : "POST sync heartbeat"}</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onFetchSyncHealth} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>GET sync health</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onFetchProjection} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Fetch projection (GET)</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.secondaryButton, projectionPollEnabled ? styles.secondaryButtonActive : null]}
-                onPress={onToggleProjectionPoll}
-                disabled={busy}
-              >
-                <Text style={styles.secondaryButtonLabel}>
+              <DSCard style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Live operations</Text>
+                <DSButton preset="primary" onPress={onSendPing} disabled={busy}>
+                  {busy ? "Sending..." : "Send ping"}
+                </DSButton>
+                <DSButton preset="primary" onPress={onPostSyncHeartbeat} disabled={busy}>
+                  {busy ? "Sending..." : "Send sync heartbeat"}
+                </DSButton>
+                <DSButton preset="secondary" onPress={onFetchSyncHealth} disabled={busy}>
+                  Refresh sync health
+                </DSButton>
+                <DSButton preset="secondary" onPress={onFetchProjection} disabled={busy}>
+                  Refresh projection
+                </DSButton>
+                <DSButton preset="secondary" onPress={onToggleProjectionPoll} disabled={busy}>
                   {projectionPollEnabled ? "Auto-refresh projection: ON (8s)" : "Auto-refresh projection: OFF"}
-                </Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onFetchTaskBoard} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Fetch task board (GET)</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onPostProtocolNote} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Post protocol note (staging)</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onFetchTimeline} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Fetch ops timeline (GET)</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onPostIncident} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Post incident (WS4)</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={onFetchIncidents} disabled={busy}>
-                <Text style={styles.secondaryButtonLabel}>Fetch incidents (GET)</Text>
-              </Pressable>
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={onGenerateRecommendation}
-                disabled={busy || !incidents || incidents.length === 0}
-              >
-                <Text style={styles.secondaryButtonLabel}>Generate recommendation</Text>
-              </Pressable>
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={onAcceptRecommendation}
-                disabled={busy || latestRecommendation?.status !== "pending"}
-              >
-                <Text style={styles.secondaryButtonLabel}>Accept recommendation</Text>
-              </Pressable>
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={onRejectRecommendation}
-                disabled={busy || latestRecommendation?.status !== "pending"}
-              >
-                <Text style={styles.secondaryButtonLabel}>Reject recommendation</Text>
-              </Pressable>
+                </DSButton>
+                <DSButton preset="secondary" onPress={onFetchTaskBoard} disabled={busy}>
+                  Refresh task board
+                </DSButton>
+                <DSButton preset="secondary" onPress={onPostProtocolNote} disabled={busy}>
+                  Post protocol note
+                </DSButton>
+                <DSButton preset="secondary" onPress={onFetchTimeline} disabled={busy}>
+                  Refresh operations timeline
+                </DSButton>
+              </DSCard>
+
+              <DSCard style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Incidents and recommendation</Text>
+                <DSButton preset="secondary" onPress={onPostIncident} disabled={busy}>
+                  Post incident
+                </DSButton>
+                <DSButton preset="secondary" onPress={onFetchIncidents} disabled={busy}>
+                  Refresh incidents
+                </DSButton>
+                <DSButton preset="secondary" onPress={onGenerateRecommendation} disabled={busy || noIncidents}>
+                  Generate recommendation
+                </DSButton>
+              {noIncidents ? (
+                <Text style={styles.body}>Generate recommendation is disabled until incidents are loaded.</Text>
+              ) : null}
+                <DSButton preset="secondary" onPress={onAcceptRecommendation} disabled={busy || !recommendationPending}>
+                  Accept recommendation
+                </DSButton>
+                <DSButton preset="secondary" onPress={onRejectRecommendation} disabled={busy || !recommendationPending}>
+                  Reject recommendation
+                </DSButton>
+              {!recommendationPending ? (
+                <Text style={styles.body}>Recommendation decision controls unlock only when a recommendation is pending.</Text>
+              ) : null}
+              </DSCard>
+
               {room.course?.checkpoints && room.course.checkpoints.length > 0 ? (
-                <>
+                <DSCard style={styles.summaryCard}>
+                  <Text style={styles.summaryTitle}>Checkpoint operations</Text>
                   <Text style={[styles.label, { marginTop: 8 }]}>Checkpoint stations</Text>
                   {!hasProjection ? (
                     <Text style={styles.body}>Fetch projection first, then station controls will unlock.</Text>
@@ -178,36 +184,44 @@ export function AuthenticatedActionPanel({
                         </Text>
                         {arrival ? (
                           <>
-                            <Text style={[styles.code, { color: "#86efac" }]}>At station since {arrival.slice(11, 19)}Z</Text>
-                            <Pressable
-                              style={styles.primaryButton}
+                            <Text style={[styles.code, styles.successText]}>
+                              At station since {arrival.slice(11, 19)}Z
+                            </Text>
+                            <DSButton
+                              preset="primary"
                               disabled={!canUseCheckpointControls}
                               onPress={() => onEnqueueManualStop(cp.id, arrival)}
                             >
-                              <Text style={styles.primaryButtonLabel}>Exit station → enqueue stop</Text>
-                            </Pressable>
+                              Exit station -> enqueue stop
+                            </DSButton>
                           </>
                         ) : (
-                          <Pressable
-                            style={styles.secondaryButton}
+                          <DSButton
+                            preset="secondary"
                             disabled={!canUseCheckpointControls}
                             onPress={() => onRecordStationArrival(cp.id)}
                           >
-                            <Text style={styles.secondaryButtonLabel}>Enter station</Text>
-                          </Pressable>
+                            Enter station
+                          </DSButton>
                         )}
                       </View>
                     );
                   })}
-                </>
+                </DSCard>
               ) : null}
             </>
           ) : null}
+          {roomInactive ? (
+            <Text style={styles.body}>Checkpoint, recommendation, and task controls unlock after the room is active.</Text>
+          ) : null}
         </>
       ) : null}
-      <Pressable style={styles.secondaryButton} onPress={onSignOut}>
-        <Text style={styles.secondaryButtonLabel}>Sign out</Text>
-      </Pressable>
+      <DSCard style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Account</Text>
+        <DSButton preset="secondary" onPress={onSignOut}>
+          Sign out
+        </DSButton>
+      </DSCard>
     </>
   );
 }

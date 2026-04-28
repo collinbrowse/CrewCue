@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
+import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 export function GuestHomeScreen(): ReactElement {
@@ -9,13 +10,13 @@ export function GuestHomeScreen(): ReactElement {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: "#0f172a" }}
+      style={s.styles.container}
       contentContainerStyle={s.styles.scroll}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={s.styles.card}>
+      <DSCard style={s.styles.card}>
         <Text style={s.styles.title}>CrewCue</Text>
-        <Text style={s.styles.subtitle}>Crew operations</Text>
+        <Text style={s.styles.subtitle}>Sign in to start race operations</Text>
 
         <MobileShellSessionHeader
           styles={s.styles}
@@ -30,15 +31,9 @@ export function GuestHomeScreen(): ReactElement {
         />
 
         <View style={{ marginTop: 16, gap: 8 }}>
-          <Pressable
-            style={s.styles.primaryButton}
-            onPress={s.auth.signIn}
-            disabled={s.auth.status === "authenticating"}
-          >
-            <Text style={s.styles.primaryButtonLabel}>
-              {s.auth.status === "authenticating" ? "Opening Auth0..." : "Sign in with Auth0"}
-            </Text>
-          </Pressable>
+          <DSButton preset="primary" onPress={s.auth.signIn} disabled={s.auth.status === "authenticating"}>
+            {s.auth.status === "authenticating" ? "Opening Auth0..." : "Sign in with Auth0"}
+          </DSButton>
         </View>
 
         <OperationalSummarySections
@@ -63,7 +58,7 @@ export function GuestHomeScreen(): ReactElement {
           taskAssigneeUserId={s.auth.claims?.sub}
           taskAssigneeRole={s.currentRoomRole}
         />
-      </View>
+      </DSCard>
     </ScrollView>
   );
 }

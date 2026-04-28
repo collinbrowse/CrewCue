@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
@@ -18,6 +18,7 @@ import type {
   CrewAssignment,
   CrewTask
 } from "@crewcue/contracts";
+import { DSButton, DSCard } from "../design-system";
 import {
   CheckpointSplitsReadout,
   ProjectionEndpointReadout,
@@ -30,10 +31,10 @@ export type OperationalSummaryVariant = "full" | "phase1-part-a" | "phase1-part-
 
 function Phase1SectionCard({ styles, title, children }: { styles: any; title: string; children: ReactNode }): ReactElement {
   return (
-    <View style={[styles.summaryCard, { marginTop: 16 }]}>
+    <DSCard style={[styles.summaryCard, { marginTop: 16 }]}>
       <Text style={styles.summaryTitle}>{title}</Text>
       {children}
-    </View>
+    </DSCard>
   );
 }
 
@@ -109,7 +110,7 @@ export function OperationalSummarySections({
           )}
           {roomDetail ? (
             <>
-              <Text style={[styles.label, { marginTop: 12 }]}>GET /race-rooms/:id</Text>
+              <Text style={[styles.label, { marginTop: 12 }]}>Room details</Text>
               <Text style={styles.body}>Name</Text>
               <Text style={styles.code}>{roomDetail.room.name}</Text>
               <Text style={styles.body}>Permissions</Text>
@@ -121,7 +122,7 @@ export function OperationalSummarySections({
               <Text style={[styles.label, { marginTop: 12 }]}>Last ping</Text>
               {lastPing.decision === "accepted" ? (
                 <>
-                  <Text style={[styles.code, { color: "#86efac" }]}>accepted · {lastPing.pingId}</Text>
+                  <Text style={[styles.code, styles.successText]}>accepted · {lastPing.pingId}</Text>
                   <Text style={styles.code}>{lastPing.recordedAt}</Text>
                 </>
               ) : (
@@ -165,7 +166,7 @@ export function OperationalSummarySections({
       <>
         <Phase1SectionCard styles={styles} title="Sync">
           {!syncHealth ? (
-            <Text style={styles.body}>No sync health loaded yet. Use POST sync heartbeat / GET sync health from actions.</Text>
+            <Text style={styles.body}>No sync health loaded yet. Send a sync heartbeat, then refresh sync health.</Text>
           ) : (
             <SyncHealthReadout styles={styles} syncHealth={syncHealth} layout="embedded" />
           )}
@@ -173,7 +174,7 @@ export function OperationalSummarySections({
 
         <Phase1SectionCard styles={styles} title="Timeline">
           {timeline === undefined ? (
-            <Text style={styles.body}>Fetch ops timeline from actions to load recent events.</Text>
+            <Text style={styles.body}>Refresh the operations timeline to load recent events.</Text>
           ) : (
             <TimelineEventsReadout styles={styles} timeline={timeline} layout="embedded" />
           )}
@@ -197,7 +198,7 @@ export function OperationalSummarySections({
 
       {roomDetail ? (
         <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>GET /race-rooms/:id</Text>
+          <Text style={styles.label}>Room details</Text>
           <Text style={styles.body}>Name</Text>
           <Text style={styles.code}>{roomDetail.room.name}</Text>
           <Text style={styles.body}>Status / entitlement</Text>
@@ -215,7 +216,7 @@ export function OperationalSummarySections({
           {lastPing.decision === "accepted" ? (
             <>
               <Text style={styles.body}>Decision</Text>
-              <Text style={[styles.code, { color: "#86efac" }]}>accepted</Text>
+              <Text style={[styles.code, styles.successText]}>accepted</Text>
               <Text style={styles.body}>Ping ID</Text>
               <Text style={styles.code}>{lastPing.pingId}</Text>
               <Text style={styles.body}>Recorded at</Text>
@@ -253,10 +254,10 @@ export function OperationalSummarySections({
         </>
       ) : null}
 
-      <View style={styles.summaryCard}>
+      <DSCard style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>Protocol notes</Text>
         {!lastProtocolNote ? (
-          <Text style={[styles.code, { color: "#6b7280" }]}>
+          <Text style={[styles.code, styles.mutedText]}>
             No protocol note posted in this session yet. Post one to verify checkpoint guidance capture.
           </Text>
         ) : (
@@ -273,7 +274,7 @@ export function OperationalSummarySections({
             <Text style={styles.code}>{lastProtocolNote.updatedAt}</Text>
           </>
         )}
-      </View>
+      </DSCard>
 
       {timeline !== undefined ? (
         <TimelineEventsReadout styles={styles} timeline={timeline} layout="card" />
@@ -281,11 +282,11 @@ export function OperationalSummarySections({
 
       {incidents !== undefined ? (
         <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>GET /race-rooms/:id/incidents</Text>
+          <Text style={styles.label}>Incidents</Text>
           <Text style={styles.body}>Incidents</Text>
           <Text style={styles.code}>{incidents.length} total</Text>
           {incidents.length === 0 ? (
-            <Text style={[styles.code, { color: "#6b7280" }]}>— no incidents yet —</Text>
+            <Text style={[styles.code, styles.mutedText]}>— no incidents yet —</Text>
           ) : (
             [...incidents].slice(-3).reverse().map((incident) => (
               <Text key={incident.id} style={styles.code}>
@@ -297,17 +298,17 @@ export function OperationalSummarySections({
       ) : null}
 
       {latestRecommendation ? (
-        <View style={styles.summaryCard}>
+        <DSCard style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>WS4 recommendation</Text>
           <Text style={styles.body}>Status</Text>
           <Text
             style={[
               styles.code,
               latestRecommendation.status === "accepted"
-                ? { color: "#86efac" }
+                ? styles.successText
                 : latestRecommendation.status === "rejected"
                   ? styles.errorText
-                  : { color: "#fde68a" }
+                  : styles.warningText
             ]}
           >
             {latestRecommendation.status}
@@ -335,19 +336,19 @@ export function OperationalSummarySections({
               ))}
             </>
           ) : null}
-        </View>
+        </DSCard>
       ) : null}
 
       {taskBoard ? (
         <View style={{ marginTop: 16 }}>
-          <Text style={styles.label}>GET /race-rooms/:id/tasks</Text>
+          <Text style={styles.label}>Task board</Text>
           <Text style={styles.body}>Tasks</Text>
           <Text style={styles.code}>{taskBoard.tasks.length} total</Text>
           {!canMutateTasks ? (
             <Text style={styles.body}>Task execution controls require crew role access.</Text>
           ) : null}
           {taskBoard.tasks.length === 0 ? (
-            <Text style={[styles.code, { color: "#6b7280" }]}>— no tasks on board —</Text>
+            <Text style={[styles.code, styles.mutedText]}>— no tasks on board —</Text>
           ) : (
             taskBoard.tasks.slice(0, 5).map((task) => (
               <View key={task.id} style={styles.visitRow}>
@@ -357,36 +358,36 @@ export function OperationalSummarySections({
                 <Text style={[styles.body, { marginTop: 2 }]}>{task.checkpointId}</Text>
                 {task.status === "pending" ? (
                   <>
-                    <Pressable
-                      style={styles.secondaryButton}
+                    <DSButton
+                      preset="secondary"
                       disabled={!canMutateTasks || !taskAssigneeUserId || !taskAssigneeRole}
                       onPress={() => {
                         void onEnqueueTaskAction("assign", task);
                       }}
                     >
-                      <Text style={styles.secondaryButtonLabel}>Assign to me</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.primaryButton}
+                      Assign to me
+                    </DSButton>
+                    <DSButton
+                      preset="primary"
                       disabled={!canMutateTasks}
                       onPress={() => {
                         void onEnqueueTaskAction("start", task);
                       }}
                     >
-                      <Text style={styles.primaryButtonLabel}>Start task</Text>
-                    </Pressable>
+                      Start task
+                    </DSButton>
                   </>
                 ) : null}
                 {task.status === "in_progress" ? (
-                  <Pressable
-                    style={styles.primaryButton}
+                  <DSButton
+                    preset="primary"
                     disabled={!canMutateTasks}
                     onPress={() => {
                       void onEnqueueTaskAction("complete", task);
                     }}
                   >
-                    <Text style={styles.primaryButtonLabel}>Complete task</Text>
-                  </Pressable>
+                    Complete task
+                  </DSButton>
                 ) : null}
               </View>
             ))

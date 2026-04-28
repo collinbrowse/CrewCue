@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
+import { navColors } from "./navigationTheme";
 import { ReadoutsIncidentsScreen } from "./ReadoutsIncidentsScreen";
 import type { ReadoutsStackParamList } from "./types";
 
@@ -10,10 +11,10 @@ export function ReadoutsStack(): ReactElement {
   return (
     <Stack.Navigator
       screenOptions={{
-        contentStyle: { backgroundColor: "#0f172a" },
-        headerStyle: { backgroundColor: "#111827" },
-        headerTintColor: "#f9fafb",
-        headerTitleStyle: { color: "#f9fafb" },
+        contentStyle: { backgroundColor: navColors.background },
+        headerStyle: { backgroundColor: navColors.card },
+        headerTintColor: navColors.text,
+        headerTitleStyle: { color: navColors.text },
         headerShadowVisible: false
       }}
     >

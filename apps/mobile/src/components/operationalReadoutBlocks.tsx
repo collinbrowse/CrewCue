@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import type { CheckpointVisitSource, OpsTimelineEvent, RaceRoomProjection, SyncStatus } from "@crewcue/contracts";
+import { DSButton } from "../design-system";
 
 type Styles = Record<string, any>;
 
@@ -17,9 +18,11 @@ export function ProjectionEndpointReadout({
 }): ReactElement {
   return (
     <View style={{ marginTop: showEndpointLabel ? 16 : 0 }}>
-      {showEndpointLabel ? <Text style={styles.label}>GET /race-rooms/:id/projection</Text> : null}
+      {showEndpointLabel ? <Text style={styles.label}>Projection snapshot</Text> : null}
       <Text style={styles.body}>Confidence</Text>
-      <Text style={[styles.code, { color: projection.projectionConfidence === "fresh" ? "#86efac" : "#fde68a" }]}>
+      <Text
+        style={[styles.code, projection.projectionConfidence === "fresh" ? styles.successText : styles.warningText]}
+      >
         {projection.projectionConfidence}
       </Text>
       <Text style={styles.body}>Progress</Text>
@@ -53,7 +56,7 @@ export function ProjectionEndpointReadout({
 function stoppageSummaryRows(styles: Styles, projection: RaceRoomProjection): ReactElement {
   if (!projection.stoppageSummary) {
     return (
-      <Text style={[styles.body, { color: "#9ca3af" }]}>
+      <Text style={[styles.body, styles.mutedText]}>
         No aggregate stoppage on this projection yet (course may omit planned stops, or visits not computed).
       </Text>
     );
@@ -72,7 +75,7 @@ function stoppageSummaryRows(styles: Styles, projection: RaceRoomProjection): Re
       {s.totalDeltaStopSeconds !== null ? (
         <View style={styles.stoppageRow}>
           <Text style={styles.body}>Delta</Text>
-          <Text style={[styles.code, { color: s.totalDeltaStopSeconds > 0 ? "#fca5a5" : "#86efac" }]}>
+          <Text style={[styles.code, s.totalDeltaStopSeconds > 0 ? styles.errorText : styles.successText]}>
             {s.totalDeltaStopSeconds > 0 ? "+" : ""}
             {s.totalDeltaStopSeconds}s
           </Text>
@@ -107,7 +110,7 @@ export function StoppageSummaryReadout({
   }
 
   return (
-    <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+    <View style={[{ marginTop: 14 }, styles.sectionDivider]}>
       <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>WS2 Stoppage summary</Text>
       {rows}
     </View>
@@ -138,9 +141,9 @@ export function CheckpointSplitsReadout({
           <View style={styles.stoppageRow}>
             <Text style={[styles.code, { fontWeight: "600" }]}>{split.checkpointId}</Text>
             {split.crossedAtRecordedAt ? (
-              <Text style={[styles.code, { color: "#86efac" }]}>{split.crossedAtRecordedAt.slice(11, 19)}Z</Text>
+              <Text style={[styles.code, styles.successText]}>{split.crossedAtRecordedAt.slice(11, 19)}Z</Text>
             ) : (
-              <Text style={[styles.code, { color: "#6b7280" }]}>not crossed</Text>
+              <Text style={[styles.code, styles.mutedText]}>not crossed</Text>
             )}
           </View>
           {split.plannedStopSeconds > 0 ? (
@@ -157,10 +160,10 @@ export function CheckpointSplitsReadout({
                 Visit #{visit.visitIndex} · source: <Text style={styles.code}>{visit.resolvedSource}</Text>
                 {visit.activeActualStopSeconds !== null ? ` · ${visit.activeActualStopSeconds}s` : ""}
               </Text>
-              {visit.note ? <Text style={[styles.body, { color: "#9ca3af" }]}>{visit.note}</Text> : null}
+              {visit.note ? <Text style={[styles.body, styles.mutedText]}>{visit.note}</Text> : null}
               {visit.autoDetected && visit.manualEntry ? (
-                <Pressable
-                  style={styles.toggleButton}
+                <DSButton
+                  preset="secondary"
                   disabled={!canToggleResolvedSource}
                   onPress={() => {
                     void onToggleResolvedSource(
@@ -170,19 +173,17 @@ export function CheckpointSplitsReadout({
                     );
                   }}
                 >
-                  <Text style={[styles.toggleButtonLabel, !canToggleResolvedSource ? { color: "#9ca3af" } : null]}>
-                    → use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
-                  </Text>
-                </Pressable>
+                  -> use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
+                </DSButton>
               ) : null}
             </View>
           ))}
         </View>
       ))
     ) : layout === "embedded" ? (
-      <Text style={[styles.body, { color: "#9ca3af" }]}>No checkpoint splits on this projection yet.</Text>
+      <Text style={[styles.body, styles.mutedText]}>No checkpoint splits on this projection yet.</Text>
     ) : (
-      <Text style={[styles.code, { color: "#6b7280" }]}>— no splits —</Text>
+      <Text style={[styles.code, styles.mutedText]}>— no splits —</Text>
     );
 
   if (layout === "card") {
@@ -195,7 +196,7 @@ export function CheckpointSplitsReadout({
   }
 
   return (
-    <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: "#1f2937", paddingTop: 12 }}>
+    <View style={[{ marginTop: 14 }, styles.sectionDivider]}>
       <Text style={[styles.summaryTitle, { marginBottom: 8 }]}>Checkpoint splits</Text>
       {splits}
     </View>
@@ -235,7 +236,7 @@ export function SyncHealthReadout({
           ))}
         </>
       ) : (
-        <Text style={[styles.code, { color: "#86efac" }]}>
+        <Text style={[styles.code, styles.successText]}>
           All devices are fresh within {syncHealth.staleAfterSeconds}s.
         </Text>
       )}
@@ -270,7 +271,7 @@ export function TimelineEventsReadout({
       <Text style={styles.body}>Events</Text>
       <Text style={styles.code}>{timeline.length} total</Text>
       {timeline.length === 0 ? (
-        <Text style={[styles.code, { color: "#6b7280" }]}>
+        <Text style={[styles.code, styles.mutedText]}>
           No events yet. Trigger task/protocol actions and fetch timeline to verify operation history.
         </Text>
       ) : (
@@ -280,7 +281,7 @@ export function TimelineEventsReadout({
               {event.occurredAt.slice(11, 19)}Z · {event.kind}
             </Text>
             <Text style={styles.body}>{event.message}</Text>
-            <Text style={[styles.code, { color: "#9ca3af" }]}>actor: {event.actorUserId}</Text>
+            <Text style={[styles.code, styles.mutedText]}>actor: {event.actorUserId}</Text>
           </View>
         ))
       )}
