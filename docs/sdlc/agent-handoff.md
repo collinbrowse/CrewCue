@@ -28,11 +28,11 @@ Token budget guardrail:
 
 ## Session status snapshot (update first)
 
-- Last updated (local date/time): 2026-04-28 17:07 (UTC-6)
+- Last updated (local date/time): 2026-04-28 16:35 (UTC-6)
 - Updated by (agent/human): Codex agent
 - Branch: `main`
-- Active issue: #175 (WS5 safe-retry scope lock + docs alignment)
-- Active PR: none (PR #174 merged)
+- Active issue: #177 (post-merge handoff refresh after PR #176)
+- Active PR: none (PR #176 merged; follow-up PR may open for #177)
 - Current roadmap phase: Phase 2 (WS5 resilience UI), with Phase 1 shell/structure in place
 - Current workstream(s): WS1, WS2, WS3, WS4, WS5
 
@@ -49,14 +49,15 @@ Token budget guardrail:
 - Opened PR #174 for #173 with `Closes #173` in body and required Agent Handoff Continuity + Token Budget checklist sections completed.
 - PR #174 merged to `main`; issue #173 auto-closed via linked issue workflow.
 - Opened issue #175 and delivered a WS5 closure maintenance slice: explicit non-ping (`protocol`) safe-retry exclusion coverage in `outboxPolicy` tests and roadmap text alignment to pending ping-only behavior.
+- Opened PR #176 for #175 with `Closes #175` in body; PR #176 merged to `main` (issue #175 closed).
 
 ---
 
 ## Current in-progress task
 
-- Objective: Keep WS5 resilience acceptance language and tests aligned with current pending-ping safe-retry behavior.
-- Why it matters for MVP exit gates: Prevents docs/behavior drift and protects against re-expanding retry scope outside the approved queue recovery model.
-- Files currently touched: `apps/mobile/src/sync/outboxPolicy.test.ts`, `docs/sdlc/ui-delivery-roadmap-and-spec.md`, `docs/sdlc/agent-handoff.md`
+- Objective: Refresh `docs/sdlc/agent-handoff.md` to post-merge truth after PR #176, then keep Phase 2/3 closure momentum moving.
+- Why it matters for MVP exit gates: Continuity docs must match merged reality so the next agent does not chase closed issues/PRs.
+- Files currently touched: `docs/sdlc/agent-handoff.md`
 - Dependencies/blockers:
   - Official external design-system source artifacts remain unavailable in-repo; fallback DS baseline is documented.
 
@@ -64,15 +65,15 @@ Token budget guardrail:
 
 ## Next 1-3 tasks (strict priority)
 
-1. Task: Select and open the next single-slice Phase 2/3 closure issue.
-   - Acceptance criteria: Completed via #175 creation with explicit WS5 docs+test scope.
-   - Evidence expected: https://github.com/collinbrowse/CrewCue/issues/175
-2. Task: Open a merge-ready PR for #175 with linked issue line and continuity/token-budget checklist sections completed.
-   - Acceptance criteria: PR body includes `Closes #175`, required template sections complete, checks green.
-   - Evidence expected: PR URL + checklist status.
-3. Task: Run WS5 manual device/staging resilience check for pending/conflict/rejected recovery hints and capture operator evidence.
+1. Task: Land the handoff refresh for #177 via a small merge-ready PR (or direct merge if policy allows).
+   - Acceptance criteria: `Closes #177` in PR body + required continuity/token-budget checklist sections completed + checks green.
+   - Evidence expected: PR URL + merge confirmation in handoff snapshot.
+2. Task: Run WS5 manual device/staging resilience check for pending/conflict/rejected recovery hints and capture operator evidence.
    - Acceptance criteria: Manual notes confirm distinct recovery guidance and expected CTA availability.
    - Evidence expected: Short manual validation bullets in handoff/PR test plan.
+3. Task: Select and open the next single-slice Phase 2/3 closure issue mapped to an explicit roadmap/spec exit gate.
+   - Acceptance criteria: Issue includes acceptance criteria + evidence mapping to `docs/sdlc/ui-delivery-roadmap-and-spec.md` / `docs/sdlc/mvp-ui-development-spec.md`.
+   - Evidence expected: Issue URL/number in handoff.
 
 ---
 
@@ -117,31 +118,33 @@ Token budget guardrail:
 Validation notes:
 
 - Command/output summary:
+  - GitHub merge evidence: PR #176 merged at `2026-04-28T22:15:34Z`; issue #175 closed.
   - `npm run lint` -> passed after adding explicit non-ping (`protocol`) safe-retry test coverage.
   - `npm run typecheck` -> passed.
   - `npm run build` -> passed (includes mobile `expo export` bundles).
   - `npm run test` -> passed (`@crewcue/mobile` + `@crewcue/api` + `@crewcue/contracts`, 0 failures).
   - `npm run verify` -> passed at repo root (dual-client guard, lint/typecheck/test/startup smoke/build parity chain).
+  - `npm run verify` (post-merge sync to `main` at `64df3b7`) -> passed again after handoff refresh edits.
 - Manual flow checks:
   - Confirmed roadmap phase text now matches implemented safe-retry scope (`pending` + `ping` only).
   - Confirmed no new API/outbox execution path was introduced; change is test/documentation guardrail only.
 - Risks observed:
-  - WS5 pending/conflict/rejected recovery UX still needs an updated live device/staging verification note for #175 follow-through.
+  - WS5 pending/conflict/rejected recovery UX still needs an updated live device/staging verification note (independent of the #175/#176 merge).
 
 ---
 
 ## Open risks, assumptions, and questions
 
-- Risk: #175 has no PR yet; merge readiness work is still outstanding.
+- Risk: Handoff snapshot drift can recur after merges if post-merge refresh is not landed immediately.
 - Assumption: Current roadmap phase remains Phase 2 until explicit Phase 2 exit-gap completion is merged.
-- Question requiring human decision: Should next closure after #175 prioritize WS5 staging/device validation depth or Phase 3 WS3/WS4 acceptance hardening?
+- Question requiring human decision: Should next closure prioritize WS5 staging/device validation depth or Phase 3 WS3/WS4 acceptance hardening?
 
 ---
 
 ## Successor agent start prompt (copy/paste)
 
 ```text
-Continue CrewCue from current handoff state and focus on issue #175.
+Continue CrewCue from current handoff state and focus on issue #177.
 Read in order:
 1) docs/sdlc/agent-handoff.md
 2) docs/sdlc/README.md
@@ -152,5 +155,5 @@ Read in order:
 7) .github/pull_request_template.md
 
 Before coding, restate phase/issue/PR, acceptance criteria, in-scope files, out-of-scope, validation plan, and guardrails (<=8 bullets).
-Then create a branch for #175, open a merge-ready PR with `Closes #175`, complete PR template continuity/token-budget checklists, and add brief WS5 manual validation notes.
+Then open a merge-ready PR for #177 with `Closes #177`, complete PR template continuity/token-budget checklists, run `npm run verify`, and refresh this handoff snapshot to match merged reality.
 ```
