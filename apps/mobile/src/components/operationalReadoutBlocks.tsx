@@ -173,7 +173,7 @@ export function CheckpointSplitsReadout({
                     );
                   }}
                 >
-                  -> use {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
+                  Switch to {visit.resolvedSource === "auto" ? "manual_crew" : "auto"}
                 </DSButton>
               ) : null}
             </View>

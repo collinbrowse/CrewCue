@@ -192,7 +192,7 @@ export function AuthenticatedActionPanel({
                               disabled={!canUseCheckpointControls}
                               onPress={() => onEnqueueManualStop(cp.id, arrival)}
                             >
-                              Exit station -> enqueue stop
+                              Exit station to enqueue stop
                             </DSButton>
                           </>
                         ) : (
