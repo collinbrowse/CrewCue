@@ -32,7 +32,7 @@ Token budget guardrail:
 - Updated by (agent/human): Codex agent
 - Branch: `docs/handoff-post-pr178-ws5-179` (PR targets `main`, closes #180)
 - Active issue: #179 (WS5 field validation — primary); #180 (handoff doc PR — closes when PR merges)
-- Active PR: (filled when PR opened for this branch)
+- Active PR: #181 — https://github.com/collinbrowse/CrewCue/pull/181 (`Closes #180`)
 - Current roadmap phase: Phase 2 (WS5 resilience UI), with Phase 1 shell/structure in place
 - Current workstream(s): WS1, WS2, WS3, WS4, WS5
 
