@@ -1,12 +1,13 @@
 import type { ReactElement } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { AuthenticatedActionPanel } from "../components/AuthenticatedActionPanel";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
 import { OutboxQueueInspector } from "../components/OutboxQueueInspector";
+import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { OperateStackParamList } from "./types";
 
@@ -39,13 +40,19 @@ export function AuthenticatedOperateScreen(): ReactElement {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: "#0f172a" }}
+      style={s.styles.container}
       contentContainerStyle={s.styles.scroll}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={s.styles.card}>
+      <DSCard style={s.styles.card}>
         <Text style={s.styles.title}>CrewCue</Text>
-        <Text style={s.styles.subtitle}>Crew operations</Text>
+        <Text style={s.styles.subtitle}>Race operations control center</Text>
+        <DSCard style={s.styles.summaryCard}>
+          <Text style={s.styles.summaryTitle}>Next priority</Text>
+          <Text style={s.styles.body}>
+            1) Keep sync fresh, 2) resolve outbox conflicts/rejections, 3) run checkpoint and incident actions.
+          </Text>
+        </DSCard>
 
         <MobileShellSessionHeader
           styles={s.styles}
@@ -60,12 +67,16 @@ export function AuthenticatedOperateScreen(): ReactElement {
         />
 
         <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-          <Pressable style={[s.styles.secondaryButton, { flex: 1 }]} onPress={() => navigation.navigate("OperateStatus")}>
-            <Text style={s.styles.secondaryButtonLabel}>Status Detail</Text>
-          </Pressable>
-          <Pressable style={[s.styles.secondaryButton, { flex: 1 }]} onPress={() => navigation.navigate("OperateOutbox")}>
-            <Text style={s.styles.secondaryButtonLabel}>Outbox Detail</Text>
-          </Pressable>
+          <View style={{ flex: 1 }}>
+            <DSButton preset="secondary" onPress={() => navigation.navigate("OperateStatus")}>
+              Status Detail
+            </DSButton>
+          </View>
+          <View style={{ flex: 1 }}>
+            <DSButton preset="secondary" onPress={() => navigation.navigate("OperateOutbox")}>
+              Outbox Detail
+            </DSButton>
+          </View>
         </View>
 
         <OperationalStatusRail
@@ -78,7 +89,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
 
         <OperationalSummarySections variant="phase1-part-a" {...phase1ReadoutProps} />
 
-        <Text style={[s.styles.label, { marginTop: 16 }]}>Checkpoints and room actions</Text>
+        <Text style={[s.styles.label, { marginTop: 16 }]}>Action center</Text>
         <View style={{ marginTop: 8, gap: 8 }}>
           <AuthenticatedActionPanel
             styles={s.styles}
@@ -116,7 +127,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
           />
         </View>
 
-        <Text style={[s.styles.label, { marginTop: 16 }]}>Outbox</Text>
+        <Text style={[s.styles.label, { marginTop: 16 }]}>Queue recovery</Text>
         <OutboxQueueInspector
           styles={s.styles}
           outbox={s.outbox}
@@ -133,7 +144,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
         />
 
         <OperationalSummarySections variant="phase1-part-b" {...phase1ReadoutProps} />
-      </View>
+      </DSCard>
     </ScrollView>
   );
 }

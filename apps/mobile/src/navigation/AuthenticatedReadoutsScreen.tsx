@@ -1,8 +1,9 @@
 import type { ReactElement } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { OperationalSummarySections } from "../components/OperationalSummarySections";
+import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { ReadoutsStackParamList } from "./types";
 
@@ -12,21 +13,26 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: "#0f172a" }}
+      style={s.styles.container}
       contentContainerStyle={s.styles.scroll}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={s.styles.card}>
+      <DSCard style={s.styles.card}>
         <Text style={s.styles.title}>Readouts</Text>
-        <Text style={s.styles.subtitle}>Projection, timeline, tasks, and WS4 depth</Text>
+        <Text style={s.styles.subtitle}>Projection, timeline, incidents, and adaptive context</Text>
+        <DSCard style={s.styles.summaryCard}>
+          <Text style={s.styles.summaryTitle}>Decision focus</Text>
+          <Text style={s.styles.body}>
+            Prioritize stale sync alerts, new incidents, and pending recommendations before scanning deeper readouts.
+          </Text>
+        </DSCard>
 
         <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-          <Pressable
-            style={[s.styles.secondaryButton, { flex: 1 }]}
-            onPress={() => navigation.navigate("ReadoutsIncidents")}
-          >
-            <Text style={s.styles.secondaryButtonLabel}>Incident Feed Detail</Text>
-          </Pressable>
+          <View style={{ flex: 1 }}>
+            <DSButton preset="secondary" onPress={() => navigation.navigate("ReadoutsIncidents")}>
+              Incident Feed Detail
+            </DSButton>
+          </View>
         </View>
 
         <OperationalSummarySections
@@ -51,7 +57,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           taskAssigneeUserId={s.auth.claims?.sub}
           taskAssigneeRole={s.currentRoomRole}
         />
-      </View>
+      </DSCard>
     </ScrollView>
   );
 }

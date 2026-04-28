@@ -1,18 +1,19 @@
 import type { ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, Text } from "react-native";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
 import { Ws5ResiliencePanel } from "../components/Ws5ResiliencePanel";
+import { DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 export function OperateStatusScreen(): ReactElement {
   const s = useAuthedShell();
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: "#0f172a" }} contentContainerStyle={s.styles.scroll}>
-      <View style={s.styles.card}>
+    <ScrollView style={s.styles.container} contentContainerStyle={s.styles.scroll}>
+      <DSCard style={s.styles.card}>
         <Text style={s.styles.title}>Operate Status</Text>
-        <Text style={s.styles.subtitle}>Focused status rail and session telemetry</Text>
+        <Text style={s.styles.subtitle}>Operational health and sync telemetry</Text>
         <MobileShellSessionHeader
           styles={s.styles}
           baseUrl={s.baseUrl}
@@ -51,7 +52,7 @@ export function OperateStatusScreen(): ReactElement {
             void s.onPushQueueDiagnosticsSnapshot();
           }}
         />
-      </View>
+      </DSCard>
     </ScrollView>
   );
 }

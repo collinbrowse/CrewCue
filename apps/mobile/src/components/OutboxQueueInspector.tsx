@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
+import { DSButton } from "../design-system";
 import type { OutboxOperation } from "../sync/outboxStore";
 
 type Props = {
@@ -68,7 +69,7 @@ export function OutboxQueueInspector({
       ) : null}
 
       {outbox.length === 0 ? (
-        <Text style={[styles.code, { color: "#6b7280" }]}>Queue is empty.</Text>
+        <Text style={[styles.code, styles.mutedText]}>Queue is empty.</Text>
       ) : (
         [...outbox].reverse().map((operation) => (
           <View key={operation.id} style={styles.outboxItem}>
@@ -97,7 +98,7 @@ export function OutboxQueueInspector({
                   styles.body,
                   operation.status === "conflict" || operation.status === "rejected"
                     ? styles.errorText
-                    : { color: "#9ca3af" }
+                    : styles.mutedText
                 ]}
               >
                 {getRecoveryHint(operation)}
@@ -110,19 +111,21 @@ export function OutboxQueueInspector({
               </Text>
             ) : null}
             {canSafelyRetry(operation) && onRetryOutboxOperationSafely ? (
-              <Pressable style={styles.toggleButton} onPress={() => onRetryOutboxOperationSafely(operation.id)}>
-                <Text style={styles.toggleButtonLabel}>Retry this operation safely</Text>
-              </Pressable>
+              <DSButton preset="secondary" onPress={() => onRetryOutboxOperationSafely(operation.id)}>
+                Retry this operation safely
+              </DSButton>
             ) : null}
             {operation.status === "conflict" && canLogMergeTelemetry && onRecordOutboxMergeTelemetry ? (
-              <Pressable
-                style={[styles.toggleButton, { marginTop: 8 }]}
-                onPress={() => {
-                  void onRecordOutboxMergeTelemetry(operation.id);
-                }}
-              >
-                <Text style={styles.toggleButtonLabel}>Log merge telemetry (manual)</Text>
-              </Pressable>
+              <View style={{ marginTop: 8 }}>
+                <DSButton
+                  preset="secondary"
+                  onPress={() => {
+                    void onRecordOutboxMergeTelemetry(operation.id);
+                  }}
+                >
+                  Log merge telemetry (manual)
+                </DSButton>
+              </View>
             ) : null}
           </View>
         ))
