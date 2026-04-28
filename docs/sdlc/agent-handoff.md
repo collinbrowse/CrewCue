@@ -28,11 +28,11 @@ Token budget guardrail:
 
 ## Session status snapshot (update first)
 
-- Last updated (local date/time): 2026-04-28 16:03 (UTC-6)
+- Last updated (local date/time): 2026-04-28 17:07 (UTC-6)
 - Updated by (agent/human): Codex agent
-- Branch: `feat/ws5-pending-ping-safe-retry-173`
-- Active issue: #173 (WS5 safe retry restricted to pending ping)
-- Active PR: #174 (open)
+- Branch: `main`
+- Active issue: #175 (WS5 safe-retry scope lock + docs alignment)
+- Active PR: none (PR #174 merged)
 - Current roadmap phase: Phase 2 (WS5 resilience UI), with Phase 1 shell/structure in place
 - Current workstream(s): WS1, WS2, WS3, WS4, WS5
 
@@ -47,14 +47,16 @@ Token budget guardrail:
 - PR #172 merged to `main` with linked closure for #171.
 - Opened issue #173 and delivered a WS5 behavior-hardening slice: safe retry eligibility now requires `pending` + `ping` (conflict/rejected ping entries no longer qualify), aligning action availability with recovery semantics.
 - Opened PR #174 for #173 with `Closes #173` in body and required Agent Handoff Continuity + Token Budget checklist sections completed.
+- PR #174 merged to `main`; issue #173 auto-closed via linked issue workflow.
+- Opened issue #175 and delivered a WS5 closure maintenance slice: explicit non-ping (`protocol`) safe-retry exclusion coverage in `outboxPolicy` tests and roadmap text alignment to pending ping-only behavior.
 
 ---
 
 ## Current in-progress task
 
-- Objective: Keep PR #174 merge-ready (green checks + review) and then select the next smallest Phase 2/3 closure slice.
-- Why it matters for MVP exit gates: Gets validated WS5 hardening merged safely, then maintains closure sequencing momentum.
-- Files currently touched: `apps/mobile/src/sync/outboxPolicy.ts`, `apps/mobile/src/sync/outboxPolicy.test.ts`, `docs/sdlc/agent-handoff.md`
+- Objective: Keep WS5 resilience acceptance language and tests aligned with current pending-ping safe-retry behavior.
+- Why it matters for MVP exit gates: Prevents docs/behavior drift and protects against re-expanding retry scope outside the approved queue recovery model.
+- Files currently touched: `apps/mobile/src/sync/outboxPolicy.test.ts`, `docs/sdlc/ui-delivery-roadmap-and-spec.md`, `docs/sdlc/agent-handoff.md`
 - Dependencies/blockers:
   - Official external design-system source artifacts remain unavailable in-repo; fallback DS baseline is documented.
 
@@ -62,15 +64,15 @@ Token budget guardrail:
 
 ## Next 1-3 tasks (strict priority)
 
-1. Task: Monitor PR #174 to merge readiness and completion.
-   - Acceptance criteria: Required checks green, review resolved, merge completed with linked issue auto-close.
-   - Evidence expected: PR merge URL/state and issue #173 closure confirmation in handoff.
-2. Task: Select and open the next single-slice Phase 2/3 closure issue after #173 merges.
-   - Acceptance criteria: New issue scoped to one unresolved gate and mapped to roadmap/spec criteria.
-   - Evidence expected: Issue URL/number and short acceptance-criteria mapping in handoff.
-3. Task: Implement that next issue as one smallest complete slice with repo-level validation.
-   - Acceptance criteria: `npm run verify` passes and no duplicate API/outbox paths are introduced.
-   - Evidence expected: Validation summary + diff scope in handoff.
+1. Task: Select and open the next single-slice Phase 2/3 closure issue.
+   - Acceptance criteria: Completed via #175 creation with explicit WS5 docs+test scope.
+   - Evidence expected: https://github.com/collinbrowse/CrewCue/issues/175
+2. Task: Open a merge-ready PR for #175 with linked issue line and continuity/token-budget checklist sections completed.
+   - Acceptance criteria: PR body includes `Closes #175`, required template sections complete, checks green.
+   - Evidence expected: PR URL + checklist status.
+3. Task: Run WS5 manual device/staging resilience check for pending/conflict/rejected recovery hints and capture operator evidence.
+   - Acceptance criteria: Manual notes confirm distinct recovery guidance and expected CTA availability.
+   - Evidence expected: Short manual validation bullets in handoff/PR test plan.
 
 ---
 
@@ -115,29 +117,31 @@ Token budget guardrail:
 Validation notes:
 
 - Command/output summary:
-  - `npm run test --workspace @crewcue/mobile` -> passed (35 tests, 0 failed), including updated `outboxPolicy` eligibility coverage.
-  - `npm run verify` -> passed at repo root (lint, typecheck, tests, mobile bundle export, workspace builds).
+  - `npm run lint` -> passed after adding explicit non-ping (`protocol`) safe-retry test coverage.
+  - `npm run typecheck` -> passed.
+  - `npm run build` -> passed (includes mobile `expo export` bundles).
+  - `npm run test` -> passed (`@crewcue/mobile` + `@crewcue/api` + `@crewcue/contracts`, 0 failures).
+  - `npm run verify` -> passed at repo root (dual-client guard, lint/typecheck/test/startup smoke/build parity chain).
 - Manual flow checks:
-  - Confirmed safe retry eligibility now excludes `conflict`/`rejected` ping operations (`pending`+`ping` only), removing contradictory recovery CTA states.
-  - Verified safe-retry helper now aligns with UI copy (ping-only).
-  - Verified no duplicate API/outbox path was introduced (shared helper in `outboxPolicy` consumed by UI).
+  - Confirmed roadmap phase text now matches implemented safe-retry scope (`pending` + `ping` only).
+  - Confirmed no new API/outbox execution path was introduced; change is test/documentation guardrail only.
 - Risks observed:
-  - WS5 behavior change is unit/integration-validated but not yet manually verified on a live device/staging session in this slice.
+  - WS5 pending/conflict/rejected recovery UX still needs an updated live device/staging verification note for #175 follow-through.
 
 ---
 
 ## Open risks, assumptions, and questions
 
-- Risk: PR #174 is open but not yet merged; CI/review outcomes still pending.
-- Assumption: Current roadmap phase remains Phase 2 until a Phase 2 exit-gap item is explicitly closed and merged.
-- Question requiring human decision: After #173 PR prep, should next scope prioritize WS5 manual-device validation depth or WS3/WS4 acceptance-gate hardening?
+- Risk: #175 has no PR yet; merge readiness work is still outstanding.
+- Assumption: Current roadmap phase remains Phase 2 until explicit Phase 2 exit-gap completion is merged.
+- Question requiring human decision: Should next closure after #175 prioritize WS5 staging/device validation depth or Phase 3 WS3/WS4 acceptance hardening?
 
 ---
 
 ## Successor agent start prompt (copy/paste)
 
 ```text
-Continue CrewCue from current handoff state.
+Continue CrewCue from current handoff state and focus on issue #175.
 Read in order:
 1) docs/sdlc/agent-handoff.md
 2) docs/sdlc/README.md
@@ -148,5 +152,5 @@ Read in order:
 7) .github/pull_request_template.md
 
 Before coding, restate phase/issue/PR, acceptance criteria, in-scope files, out-of-scope, validation plan, and guardrails (<=8 bullets).
-Then monitor PR #174 to merge completion (checks + review), record merge/issue-close evidence in handoff, and open the next scoped Phase 2/3 issue.
+Then create a branch for #175, open a merge-ready PR with `Closes #175`, complete PR template continuity/token-budget checklists, and add brief WS5 manual validation notes.
 ```
