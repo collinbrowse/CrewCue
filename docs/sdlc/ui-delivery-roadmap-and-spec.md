@@ -270,11 +270,16 @@ No "silent UI architecture changes" in PRs without doc updates.
 A UI PR is not complete unless all apply:
 
 - [ ] maps to a specific epic + sprint in this doc
+- [ ] PR body includes required decision rationale sections from `.github/pull_request_template.md`
 - [ ] reuses existing API/outbox contracts or clearly refactors them
 - [ ] includes offline/error/freshness behavior for modified workflows
 - [ ] includes tests for new state/mutation behavior
 - [ ] includes staging validation notes (manual or automated)
 - [ ] updates docs where operator workflow changed
+
+CI gate note:
+
+- `pr-decision-doc-guard` must pass on pull requests; keep decision tree, assumptions, and higher-order effects sections filled (or explicitly mark none).
 
 ---
 
@@ -282,6 +287,7 @@ A UI PR is not complete unless all apply:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-29 | Added PR decision-rationale and CI guard requirements (`pr-decision-doc-guard`) to align roadmap delivery with current repo workflow gates. |
 | 2026-04-29 | Reframed roadmap to demo-first execution using **Epic / Sprint / Backlog** terminology; moved non-demo unfinished work into explicit backlog tracking without deleting scope. |
 | 2026-04-28 | Clarified Phase 2 WS5 safe-retry scope as **pending ping only** in roadmap text to match current UI/sync behavior and guard against retry-path drift. |
 | 2026-04-28 | Added guarded fallback design-system implementation under `apps/mobile/src/design-system` (tokens + DS wrappers) and switched mobile style generation to token-driven theming while canonical design artifacts are unavailable. |

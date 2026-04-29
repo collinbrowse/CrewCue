@@ -377,6 +377,7 @@ Use this table during implementation:
 - [ ] Design mapping table completed with frame references and parity notes for demo-critical surfaces
 - [ ] DS primitives (`DSButton`/`DSCard`/`DSTextInput`) are used where applicable
 - [ ] Light/dark theme parity verified for all demo-critical screens
+- [ ] PR body includes decision rationale, assumptions, and higher-order effects sections (required by template/CI)
 
 ---
 
@@ -392,6 +393,7 @@ Use this table during implementation:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-29 | Integrated PR decision-rationale workflow into demo spec validation (template + `pr-decision-doc-guard` CI gate). |
 | 2026-04-29 | Re-scoped spec to demo-first execution (onboarding, login, GPX import/splits, crew/invites, shared notes), preserving architecture/quality guardrails and moving non-demo scope to Backlog tracking. |
 | 2026-04-28 | Added fallback in-repo design-system baseline (`apps/mobile/src/design-system`) to continue migration safely without external design assets; migrated key navigation surfaces to DS wrappers and tokenized style generation in `App.tsx`. |
 | 2026-04-28 | Interaction hardening + operator copy pass implemented across mobile MVP screens/components; added explicit human-unblock notes for missing design-system artifacts and frame references. |
