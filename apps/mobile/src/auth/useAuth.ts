@@ -4,6 +4,7 @@ import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { clearTokens, loadTokens, saveTokens, type StoredTokens } from "./tokenStorage";
 import { decodeAccessTokenClaims, type DecodedAccessClaims } from "./jwt";
+import { shouldRestoreStoredSession } from "./sessionRestore";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -68,10 +69,11 @@ export function useAuth(settings: Auth0Settings): AuthState {
     (async () => {
       const stored = await loadTokens();
       if (cancelled) return;
-      if (stored) {
+      if (shouldRestoreStoredSession(stored)) {
         setTokens(stored);
         setStatus("authenticated");
       } else {
+        await clearTokens();
         setStatus("anonymous");
       }
     })();
@@ -128,6 +130,11 @@ export function useAuth(settings: Auth0Settings): AuthState {
 
   const signIn = useCallback(async () => {
     setError(undefined);
+    if (!request) {
+      setStatus("anonymous");
+      setError("Login is still initializing. Please try again in a moment.");
+      return;
+    }
     setStatus("authenticating");
     try {
       await promptAsync();
@@ -141,6 +148,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
   const signOut = useCallback(async () => {
     await clearTokens();
     setTokens(undefined);
+    setError(undefined);
     setStatus("anonymous");
     try {
       await WebBrowser.openAuthSessionAsync(
