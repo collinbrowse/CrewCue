@@ -34,10 +34,10 @@ Deliver Sprint 1 demo flows:
 
 ## Completed in this session
 
-1. Implemented first-run onboarding flow in `apps/mobile/src/navigation/GuestHomeScreen.tsx` with persisted completion state and demo-focused copy.
-2. Improved auth reliability in `apps/mobile/src/auth/useAuth.ts` by rejecting expired stored sessions, clearing stale tokens, and handling sign-in attempts before Auth request initialization.
-3. Added focused auth session-restore coverage in `apps/mobile/src/auth/sessionRestore.ts` + `apps/mobile/src/auth/useAuth.test.ts`, and wired test execution in `apps/mobile/package.json`.
-4. Ran validation for touched scope and full repo verify (`npm run test -w @crewcue/mobile`, `npm run typecheck -w @crewcue/mobile`, `npm run verify`).
+1. Reworked guest onboarding into a staged flow in `apps/mobile/src/navigation/GuestHomeScreen.tsx`: splash -> product tour -> Auth0 sign-in -> notifications prompt, with sign-in bypass from product pages.
+2. Added push-notification permission prompt wiring using `expo-notifications` (dependency added in `apps/mobile/package.json` and lockfile).
+3. Persisted onboarding stage so users progress through onboarding once, while authenticated users still return directly to in-app experience through secure token restore in `useAuth`.
+4. Ran validation for touched scope and full repo verify (`npm run typecheck -w @crewcue/mobile`, `npm run test -w @crewcue/mobile`, `npm run verify`).
 
 ## Next 1-3 tasks
 
@@ -54,6 +54,7 @@ Deliver Sprint 1 demo flows:
 ## Open risks/blockers/questions
 
 - Auth0 callback/logout URL configuration must remain aligned with `crewcue://auth`; otherwise login retry guidance is shown but sign-in still fails.
+- iOS notification permission UX depends on simulator/device permission state and OS-level settings; manual demo pass is still required on target demo device.
 - Existing unstaged user change remains in `docs/sdlc/mvp-ui-development-spec.md` (left untouched).
 
 ## Guardrails

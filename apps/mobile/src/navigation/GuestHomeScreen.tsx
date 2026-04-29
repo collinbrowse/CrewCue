@@ -1,95 +1,149 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { ScrollView, Text, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
+import * as Notifications from "expo-notifications";
 import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
-const ONBOARDING_KEY = "crewcue.guest.onboardingCompleted.v2";
+const ONBOARDING_STAGE_KEY = "crewcue.guest.onboardingStage.v1";
+const ONBOARDING_SPLASH_MS = 1400;
 
-const ONBOARDING_STEPS = [
+type OnboardingStage = "splash" | "product" | "auth" | "notifications" | "done";
+
+const PRODUCT_STEPS = [
   {
-    title: "Know what to do next",
-    body: "CrewCue keeps your race room, task board, and checkpoints aligned so your team can move faster."
+    title: "See the race at a glance",
+    body: "CrewCue keeps your room status, checkpoints, and split context in one place so your crew always knows what comes next."
   },
   {
-    title: "Respond quickly with context",
-    body: "Live status, incidents, and recommendations stay in one place so decisions are clear under pressure."
+    title: "Coordinate the full crew quickly",
+    body: "Share updates, assign actions, and keep everyone aligned without jumping across separate tools."
   },
   {
-    title: "Start with your normal login",
-    body: "Use your CrewCue account to enter operations, invite crew, and keep shared notes synchronized."
+    title: "Make faster decisions under pressure",
+    body: "Live pings, incidents, and recommendations surface the right signals so the team can respond with confidence."
   }
 ] as const;
 
 export function GuestHomeScreen(): ReactElement {
   const s = useAuthedShell();
-  const [onboardingReady, setOnboardingReady] = useState(false);
-  const [onboardingDone, setOnboardingDone] = useState(false);
-  const [onboardingIndex, setOnboardingIndex] = useState(0);
+  const [stageReady, setStageReady] = useState(false);
+  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("splash");
+  const [productIndex, setProductIndex] = useState(0);
+  const [notificationsBusy, setNotificationsBusy] = useState(false);
+  const [notificationsMessage, setNotificationsMessage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let mounted = true;
+    let splashTimer: ReturnType<typeof setTimeout> | undefined;
 
     void (async () => {
       try {
-        const value = await SecureStore.getItemAsync(ONBOARDING_KEY);
+        const storedStage = (await SecureStore.getItemAsync(ONBOARDING_STAGE_KEY)) as OnboardingStage | null;
         if (!mounted) {
           return;
         }
-        setOnboardingDone(value === "true");
+        if (storedStage === "product" || storedStage === "auth" || storedStage === "notifications" || storedStage === "done") {
+          setOnboardingStage(storedStage);
+          setStageReady(true);
+          return;
+        }
+
+        setOnboardingStage("splash");
+        splashTimer = setTimeout(() => {
+          if (!mounted) {
+            return;
+          }
+          setOnboardingStage("product");
+          setStageReady(true);
+          void SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, "product");
+        }, ONBOARDING_SPLASH_MS);
       } finally {
-        if (mounted) {
-          setOnboardingReady(true);
+        if (mounted && splashTimer === undefined) {
+          setStageReady(true);
         }
       }
     })();
 
     return () => {
       mounted = false;
+      if (splashTimer) {
+        clearTimeout(splashTimer);
+      }
     };
   }, []);
 
-  const currentStep = ONBOARDING_STEPS[onboardingIndex];
-  const isFinalStep = onboardingIndex === ONBOARDING_STEPS.length - 1;
+  const currentProductStep = PRODUCT_STEPS[productIndex];
+  const isFinalProductStep = productIndex === PRODUCT_STEPS.length - 1;
 
   const primaryButtonLabel = useMemo(() => {
-    if (!onboardingReady) {
+    if (!stageReady) {
       return "Preparing sign-in...";
     }
-    if (!onboardingDone) {
-      return isFinalStep ? "Get started" : "Continue";
+    if (onboardingStage === "product") {
+      return isFinalProductStep ? "Continue to sign in" : "Next";
     }
-    if (s.auth.status === "authenticating") {
-      return "Opening secure login...";
+    if (onboardingStage === "auth") {
+      if (s.auth.status === "authenticating") {
+        return "Opening secure login...";
+      }
+      return "Continue with Auth0";
+    }
+    if (onboardingStage === "notifications") {
+      return notificationsBusy ? "Updating notifications..." : "Enable notifications";
     }
     if (s.auth.status === "error") {
       return "Try sign-in again";
     }
     return "Sign in";
-  }, [isFinalStep, onboardingDone, onboardingReady, s.auth.status]);
+  }, [isFinalProductStep, notificationsBusy, onboardingStage, s.auth.status, stageReady]);
 
-  const completeOnboarding = async () => {
-    await SecureStore.setItemAsync(ONBOARDING_KEY, "true");
-    setOnboardingDone(true);
+  const setStage = async (nextStage: OnboardingStage) => {
+    setOnboardingStage(nextStage);
+    await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, nextStage);
+  };
+
+  const handleEnableNotifications = async () => {
+    setNotificationsBusy(true);
+    setNotificationsMessage(undefined);
+    try {
+      const existing = await Notifications.getPermissionsAsync();
+      const final = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
+      if (final.status === "granted") {
+        setNotificationsMessage("Notifications enabled. You are all set.");
+      } else {
+        setNotificationsMessage("Notifications were skipped. You can enable them later in Settings.");
+      }
+    } catch {
+      setNotificationsMessage("Could not update notifications here. You can enable them later in Settings.");
+    } finally {
+      await setStage("done");
+      setNotificationsBusy(false);
+    }
   };
 
   const handlePrimaryPress = () => {
-    if (!onboardingReady) {
-      return;
-    }
+    if (!stageReady) return;
 
-    if (!onboardingDone) {
-      if (isFinalStep) {
-        void completeOnboarding();
+    if (onboardingStage === "product") {
+      if (isFinalProductStep) {
+        void setStage("auth");
       } else {
-        setOnboardingIndex((value) => value + 1);
+        setProductIndex((value) => value + 1);
       }
       return;
     }
 
-    void s.auth.signIn();
+    if (onboardingStage === "auth" || onboardingStage === "done") {
+      void s.auth.signIn();
+      return;
+    }
+
+    if (onboardingStage === "notifications") {
+      void handleEnableNotifications();
+    }
   };
 
   return (
@@ -99,10 +153,25 @@ export function GuestHomeScreen(): ReactElement {
       keyboardShouldPersistTaps="handled"
     >
       <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>CrewCue</Text>
-        <Text style={s.styles.subtitle}>
-          {onboardingDone ? "Sign in to start race operations" : "A fast onboarding for first-time operators"}
-        </Text>
+        {onboardingStage === "splash" && stageReady ? null : <Text style={s.styles.title}>CrewCue</Text>}
+        {onboardingStage === "splash" ? (
+          <>
+            <Text style={s.styles.subtitle}>Race-day command for athletes and crew</Text>
+            <View style={s.styles.summaryCard}>
+              <Text style={s.styles.summaryTitle}>Loading your workspace...</Text>
+              <Text style={s.styles.body}>Preparing onboarding and secure sign-in.</Text>
+            </View>
+          </>
+        ) : null}
+        {onboardingStage === "product" ? (
+          <Text style={s.styles.subtitle}>Built for fast race-day decisions</Text>
+        ) : null}
+        {onboardingStage === "auth" || onboardingStage === "done" ? (
+          <Text style={s.styles.subtitle}>Sign in to continue race operations</Text>
+        ) : null}
+        {onboardingStage === "notifications" ? (
+          <Text style={s.styles.subtitle}>Enable alerts for real-time crew coordination</Text>
+        ) : null}
 
         <MobileShellSessionHeader
           styles={s.styles}
@@ -116,36 +185,49 @@ export function GuestHomeScreen(): ReactElement {
           appState={s.appState}
         />
 
-        {!onboardingDone ? (
+        {onboardingStage === "product" ? (
           <View style={{ marginTop: 16, gap: 8 }}>
             <View style={s.styles.summaryCard}>
               <Text style={s.styles.summaryTitle}>
-                Step {onboardingIndex + 1} of {ONBOARDING_STEPS.length}: {currentStep.title}
+                Product tour {productIndex + 1} of {PRODUCT_STEPS.length}: {currentProductStep.title}
               </Text>
-              <Text style={s.styles.body}>{currentStep.body}</Text>
+              <Text style={s.styles.body}>{currentProductStep.body}</Text>
             </View>
-            <DSButton preset="primary" onPress={handlePrimaryPress} disabled={!onboardingReady}>
+            <DSButton preset="primary" onPress={handlePrimaryPress} disabled={!stageReady}>
               {primaryButtonLabel}
             </DSButton>
             <DSButton
               preset="secondary"
               onPress={() => {
-                void completeOnboarding();
+                void setStage("auth");
               }}
-              disabled={!onboardingReady}
+              disabled={!stageReady}
             >
-              Skip introduction
+              Sign in now
             </DSButton>
           </View>
-        ) : (
+        ) : null}
+
+        {onboardingStage === "auth" || onboardingStage === "done" ? (
           <View style={{ marginTop: 16, gap: 8 }}>
             <DSButton
               preset="primary"
               onPress={handlePrimaryPress}
-              disabled={s.auth.status === "authenticating" || !onboardingReady}
+              disabled={s.auth.status === "authenticating" || !stageReady}
             >
               {primaryButtonLabel}
             </DSButton>
+            {onboardingStage === "auth" ? (
+              <DSButton
+                preset="secondary"
+                onPress={() => {
+                  void setStage("notifications");
+                }}
+                disabled={!stageReady}
+              >
+                Continue without notifications
+              </DSButton>
+            ) : null}
             {s.auth.status === "error" ? (
               <Text style={s.styles.errorText}>
                 {s.auth.error ?? "Login did not complete. Please try again."}
@@ -159,7 +241,32 @@ export function GuestHomeScreen(): ReactElement {
             ) : null}
             <Text style={s.styles.mutedText}>Secure login uses your normal account and returns here automatically.</Text>
           </View>
-        )}
+        ) : null}
+
+        {onboardingStage === "notifications" ? (
+          <View style={{ marginTop: 16, gap: 8 }}>
+            <View style={s.styles.summaryCard}>
+              <Text style={s.styles.summaryTitle}>Turn on notifications</Text>
+              <Text style={s.styles.body}>
+                Alerts keep your crew synced on pings, incident updates, and assignment changes during active race operations.
+              </Text>
+            </View>
+            <DSButton preset="primary" onPress={handlePrimaryPress} disabled={notificationsBusy}>
+              {primaryButtonLabel}
+            </DSButton>
+            <DSButton
+              preset="secondary"
+              onPress={() => {
+                setNotificationsMessage("Notifications skipped. You can enable them later in Settings.");
+                void setStage("done");
+              }}
+              disabled={notificationsBusy}
+            >
+              Not now
+            </DSButton>
+            {notificationsMessage ? <Text style={s.styles.mutedText}>{notificationsMessage}</Text> : null}
+          </View>
+        ) : null}
 
         {s.auth.status === "authenticating" ? (
           <View style={s.styles.statusRail}>
@@ -168,7 +275,7 @@ export function GuestHomeScreen(): ReactElement {
           </View>
         ) : null}
 
-        {s.auth.status === "error" && onboardingDone ? (
+        {s.auth.status === "error" && (onboardingStage === "auth" || onboardingStage === "done") ? (
           <View style={s.styles.statusRail}>
             <Text style={s.styles.statusRailTitle}>Sign-in needs attention</Text>
             <Text style={s.styles.statusRailItem}>
