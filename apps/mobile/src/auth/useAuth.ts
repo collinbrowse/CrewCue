@@ -65,6 +65,21 @@ export function useAuth(settings: Auth0Settings): AuthState {
     discovery
   );
 
+  const [signupRequest, signupResponse, promptSignupAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        screen_hint: "signup"
+      }
+    },
+    discovery
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -83,51 +98,62 @@ export function useAuth(settings: Auth0Settings): AuthState {
     };
   }, []);
 
+  const handleAuthResponse = useCallback(
+    (nextResponse: AuthSession.AuthSessionResult | null, activeRequest: AuthSession.AuthRequest | null) => {
+      if (!nextResponse) return;
+      if (nextResponse.type === "success") {
+        void (async () => {
+          try {
+            const code = nextResponse.params.code;
+            if (!code) {
+              throw new Error("Missing authorization code");
+            }
+            const tokenResponse = await AuthSession.exchangeCodeAsync(
+              {
+                clientId: settings.clientId,
+                code,
+                redirectUri,
+                extraParams: {
+                  code_verifier: activeRequest?.codeVerifier ?? ""
+                }
+              },
+              discovery
+            );
+            const newTokens: StoredTokens = {
+              accessToken: tokenResponse.accessToken
+            };
+            if (tokenResponse.refreshToken) newTokens.refreshToken = tokenResponse.refreshToken;
+            if (tokenResponse.idToken) newTokens.idToken = tokenResponse.idToken;
+            if (typeof tokenResponse.expiresIn === "number") {
+              newTokens.expiresAtMs = Date.now() + tokenResponse.expiresIn * 1000;
+            }
+            await saveTokens(newTokens);
+            setTokens(newTokens);
+            setStatus("authenticated");
+            setError(undefined);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Token exchange failed";
+            setError(message);
+            setStatus("error");
+          }
+        })();
+      } else if (nextResponse.type === "error") {
+        setError(nextResponse.error?.message ?? "Auth0 returned an error");
+        setStatus("error");
+      } else if (nextResponse.type === "cancel" || nextResponse.type === "dismiss") {
+        setStatus("anonymous");
+      }
+    },
+    [discovery, redirectUri, settings.clientId]
+  );
+
   useEffect(() => {
-    if (!response) return;
-    if (response.type === "success") {
-      (async () => {
-        try {
-          const code = response.params.code;
-          if (!code) {
-            throw new Error("Missing authorization code");
-          }
-          const tokenResponse = await AuthSession.exchangeCodeAsync(
-            {
-              clientId: settings.clientId,
-              code,
-              redirectUri,
-              extraParams: {
-                code_verifier: request?.codeVerifier ?? ""
-              }
-            },
-            discovery
-          );
-          const newTokens: StoredTokens = {
-            accessToken: tokenResponse.accessToken
-          };
-          if (tokenResponse.refreshToken) newTokens.refreshToken = tokenResponse.refreshToken;
-          if (tokenResponse.idToken) newTokens.idToken = tokenResponse.idToken;
-          if (typeof tokenResponse.expiresIn === "number") {
-            newTokens.expiresAtMs = Date.now() + tokenResponse.expiresIn * 1000;
-          }
-          await saveTokens(newTokens);
-          setTokens(newTokens);
-          setStatus("authenticated");
-          setError(undefined);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Token exchange failed";
-          setError(message);
-          setStatus("error");
-        }
-      })();
-    } else if (response.type === "error") {
-      setError(response.error?.message ?? "Auth0 returned an error");
-      setStatus("error");
-    } else if (response.type === "cancel" || response.type === "dismiss") {
-      setStatus("anonymous");
-    }
-  }, [response, request, redirectUri, discovery, settings.clientId]);
+    handleAuthResponse(response, request);
+  }, [handleAuthResponse, request, response]);
+
+  useEffect(() => {
+    handleAuthResponse(signupResponse, signupRequest);
+  }, [handleAuthResponse, signupRequest, signupResponse]);
 
   const signIn = useCallback(async () => {
     setError(undefined);
@@ -144,11 +170,24 @@ export function useAuth(settings: Auth0Settings): AuthState {
       setError(message);
       setStatus("error");
     }
-  }, [promptAsync]);
+  }, [promptAsync, request]);
 
   const signUp = useCallback(async () => {
-    await signIn();
-  }, [signIn]);
+    setError(undefined);
+    if (!signupRequest) {
+      setStatus("anonymous");
+      setError("Sign-up is still initializing. Please try again in a moment.");
+      return;
+    }
+    setStatus("authenticating");
+    try {
+      await promptSignupAsync();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to open sign-up";
+      setError(message);
+      setStatus("error");
+    }
+  }, [promptSignupAsync, signupRequest]);
 
   const signOut = useCallback(async () => {
     await clearTokens();
