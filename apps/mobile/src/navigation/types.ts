@@ -6,7 +6,7 @@ export type GuestStackParamList = {
 
 export type OperateStackParamList = {
   OperateHome: undefined;
-  RacePlanning: undefined;
+  RacePlanning: { mode?: "create" | "edit" } | undefined;
 };
 
 export type ReadoutsStackParamList = {

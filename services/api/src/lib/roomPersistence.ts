@@ -239,6 +239,48 @@ export async function listPersistedRaceRoomsByTeamId(teamId: string): Promise<Ra
   return result.rows.map((r) => r.payload);
 }
 
+export async function listPersistedRaceRoomsForMember(userId: string): Promise<RaceRoom[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ payload: RaceRoom }>(
+    `
+      SELECT payload
+      FROM race_rooms_json r
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(r.payload->'memberships') m
+        WHERE m->>'userId' = $1
+      )
+      ORDER BY r.updated_at DESC
+    `,
+    [userId]
+  );
+  return result.rows.map((r) => r.payload);
+}
+
+export async function isJoinCodeTakenInDb(joinCode: string): Promise<boolean> {
+  if (!pool) {
+    return false;
+  }
+  const result = await pool.query<{ one: number }>(
+    "SELECT 1 AS one FROM race_rooms_json WHERE payload->>'joinCode' = $1 LIMIT 1",
+    [joinCode]
+  );
+  return result.rows.length > 0;
+}
+
+export async function loadRoomIdByJoinCode(joinCode: string): Promise<string | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const result = await pool.query<{ id: string }>(
+    "SELECT id FROM race_rooms_json WHERE payload->>'joinCode' = $1 LIMIT 1",
+    [joinCode]
+  );
+  return result.rows[0]?.id;
+}
+
 export async function persistRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
   if (!pool) {
     return;

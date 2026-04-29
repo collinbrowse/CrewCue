@@ -16,6 +16,7 @@ import type {
   RaceRoom,
   RaceRoomProjection,
   Recommendation,
+  RaceRoomInvite,
   Role,
   SyncQueueDiagnostics,
   SyncStatus
@@ -36,12 +37,15 @@ export type AuthedShellContextValue = {
   projection?: RaceRoomProjection;
   room?: RaceRoom;
   raceProfile?: {
+    creatorName: string;
     raceName: string;
     raceDescription: string;
     crewName: string;
     setupComplete: boolean;
   };
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
+  myRaceRooms?: RaceRoom[];
+  invites?: RaceRoomInvite[];
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
   syncHealth?: SyncStatus;
   queueDiagnostics?: SyncQueueDiagnostics[];
@@ -65,8 +69,14 @@ export type AuthedShellContextValue = {
   stationArrivalAt: Record<string, string>;
   describeOutboxOperation: (op: OutboxOperation) => string;
   describeOutboxStatus: (status: OutboxOperation["status"]) => string;
-  onCreateRoom: (input?: { raceName?: string }) => Promise<RaceRoom | undefined>;
+  onCreateRoom: (input?: {
+    raceName?: string;
+    creatorName?: string;
+    raceDescription?: string;
+    crewName?: string;
+  }) => Promise<RaceRoom | undefined>;
   onSaveRaceProfile: (profile: {
+    creatorName: string;
     raceName: string;
     raceDescription: string;
     crewName: string;
@@ -74,7 +84,13 @@ export type AuthedShellContextValue = {
   }) => Promise<void>;
   onProcessOutbox: () => void;
   onMarkEntitlementPaid: () => void;
-  onFetchRoomDetails: () => void;
+  onFetchRoomDetails: (roomId?: string) => Promise<void>;
+  onApplyRaceRoomFromServer: (room: RaceRoom) => void;
+  onIssueInvite: (input: { email: string; role: RaceRoomInvite["role"] }) => Promise<void>;
+  onFetchInvites: () => Promise<void>;
+  onJoinRoomByCode: (roomCode: string) => Promise<void>;
+  onFetchMyRaceRooms: () => Promise<void>;
+  onSelectRaceRoom: (room: RaceRoom) => Promise<void>;
   onActivateRoom: () => void;
   onSendPing: () => void;
   onPostSyncHeartbeat: () => void;

@@ -5,6 +5,7 @@ import { ApiError, createApiClient } from "./client";
 
 const minimalRoom: RaceRoom = {
   id: "room-1",
+  joinCode: "000001",
   teamId: "team-1",
   athleteId: "ath-1",
   name: "T",
@@ -231,6 +232,126 @@ test("updateRaceCourse sends room course payload", async () => {
         ]
       }
     });
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("invite client methods target room invite endpoints", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/invites") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            token: "invite-1",
+            roomId: "room-1",
+            email: "crew@example.com",
+            role: "crew_member",
+            expiresAt: "2026-05-01T00:00:00.000Z"
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.endsWith("/invites") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ invites: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.issueInvite("room-1", { email: "crew@example.com", role: "crew_member" });
+    await client.getInvites("room-1");
+    assert.equal(calls[0]?.url.endsWith("/race-rooms/room-1/invites"), true);
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[1]?.url.endsWith("/race-rooms/room-1/invites"), true);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("joinRaceRoomByCode targets join-by-code endpoint", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/join-by-code")) {
+        return new Response(
+          JSON.stringify({
+            room: minimalRoom,
+            assignedRole: "crew_member",
+            permissions: { canViewRoom: true, canActivateRoom: false, canIssueInvite: false }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.joinRaceRoomByCode({ roomCode: "123456" });
+    assert.equal(calls[0]?.url.endsWith("/race-rooms/join-by-code"), true);
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[0]?.body, JSON.stringify({ roomCode: "123456" }));
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("listTeamRaceRooms targets team race-room listing endpoint", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; method?: string }> = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method });
+      if (url.includes("/teams/team-1/race-rooms")) {
+        return new Response(JSON.stringify({ rooms: [minimalRoom] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const response = await client.listTeamRaceRooms("team-1");
+    assert.equal(response.rooms.length, 1);
+    assert.equal(calls[0]?.url.includes("/teams/team-1/race-rooms"), true);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("listMyRaceRooms targets membership-scoped listing endpoint", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; method?: string }> = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method });
+      if (url.endsWith("/race-rooms/mine")) {
+        return new Response(JSON.stringify({ rooms: [minimalRoom] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const response = await client.listMyRaceRooms();
+    assert.equal(response.rooms.length, 1);
+    assert.equal(calls[0]?.url.endsWith("/race-rooms/mine"), true);
+    assert.equal(calls[0]?.method, "GET");
   } finally {
     globalThis.fetch = prev;
   }

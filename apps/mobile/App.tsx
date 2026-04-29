@@ -23,6 +23,7 @@ import type {
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
+  RaceRoomInvite,
   RaceRoomProjection,
   Recommendation,
   SyncQueueDiagnostics,
@@ -117,6 +118,7 @@ type AuthedShellProps = {
 };
 
 type RaceProfile = {
+  creatorName: string;
   raceName: string;
   raceDescription: string;
   crewName: string;
@@ -162,6 +164,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [roomDetail, setRoomDetail] = useState<
     { room: RaceRoom; permissions: Record<string, boolean> } | undefined
   >(undefined);
+  const [invites, setInvites] = useState<RaceRoomInvite[] | undefined>(undefined);
+  const [myRaceRooms, setMyRaceRooms] = useState<RaceRoom[] | undefined>(undefined);
   const [lastPing, setLastPing] = useState<
     AthletePingAcceptedResponse | AthletePingRejectedResponse | undefined
   >(undefined);
@@ -290,7 +294,36 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     return () => clearInterval(id);
   }, [projectionPollEnabled, room?.status, room?.id, auth.accessToken, pollProjectionQuiet]);
 
-  const createRoom = useCallback(async (input?: { raceName?: string }) => {
+  const fetchMyRaceRooms = useCallback(async () => {
+    if (!auth.accessToken) return;
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { rooms } = await client.listMyRaceRooms();
+      setMyRaceRooms(rooms);
+      setRoom((prev) => {
+        if (rooms.length === 0) {
+          return undefined;
+        }
+        if (!prev) {
+          return rooms[0];
+        }
+        const stillExists = rooms.find((r) => r.id === prev.id);
+        return stillExists ?? rooms[0];
+      });
+    } catch (err) {
+      setStatusError(err);
+    }
+  }, [auth.accessToken, baseUrl, setStatusError]);
+
+  useEffect(() => {
+    if (auth.status !== "authenticated") {
+      return;
+    }
+    void fetchMyRaceRooms();
+  }, [auth.status, fetchMyRaceRooms]);
+
+  const createRoom = useCallback(
+    async (input?: { raceName?: string; creatorName?: string; raceDescription?: string; crewName?: string }) => {
     if (!auth.accessToken || !auth.claims?.sub) return;
     setBusy(true);
     setApiError(undefined);
@@ -301,11 +334,15 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         teamId,
         athleteId: auth.claims.sub,
         name: input?.raceName?.trim() || `Race ${new Date().toISOString().slice(0, 16)}`,
+        creatorName: input?.creatorName?.trim() || "Race lead",
+        description: input?.raceDescription?.trim() || undefined,
+        crewName: input?.crewName?.trim() || undefined,
         creatorRole: "team_manager"
       });
       setRoom(created);
       setRoomDetail(undefined);
       setLastPing(undefined);
+      setInvites(undefined);
       setProjection(undefined);
       setProjectionPollEnabled(false);
       setProjectionPolledAt(undefined);
@@ -320,6 +357,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setQueueDiagnostics(undefined);
       setMergeRecords(undefined);
       setSyncStatusMessage(undefined);
+      setMyRaceRooms((prev) => [created, ...(prev ?? []).filter((roomItem) => roomItem.id !== created.id)]);
       setStatusSuccess(`Room created (${created.id.slice(0, 8)}...)`);
       return created;
     } catch (err) {
@@ -328,7 +366,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     } finally {
       setBusy(false);
     }
-  }, [auth.accessToken, auth.claims, baseUrl, setStatusError, setStatusSuccess]);
+    },
+    [auth.accessToken, auth.claims, baseUrl, setStatusError, setStatusSuccess]
+  );
 
   const saveRaceProfile = useCallback(
     async (profile: RaceProfile) => {
@@ -828,22 +868,146 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     [auth.accessToken, room, latestRecommendation, baseUrl, setStatusError, setStatusSuccess]
   );
 
-  const fetchRoomDetails = useCallback(async () => {
+  const applyRaceRoomFromServer = useCallback((next: RaceRoom) => {
+    setRoom(next);
+    setRoomDetail((prev) =>
+      prev?.room.id === next.id ? { room: next, permissions: prev.permissions } : prev
+    );
+    setMyRaceRooms((prev) => {
+      if (!prev) {
+        return [next];
+      }
+      const idx = prev.findIndex((r) => r.id === next.id);
+      if (idx === -1) {
+        return [next, ...prev];
+      }
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx]!, ...next };
+      return copy;
+    });
+  }, []);
+
+  const fetchRoomDetails = useCallback(
+    async (explicitRoomId?: string) => {
+      const roomId = explicitRoomId ?? room?.id;
+      if (!auth.accessToken || !roomId) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const detail = await client.getRaceRoom(roomId);
+        setRoomDetail(detail);
+        setRoom(detail.room);
+        setMyRaceRooms((prev) => {
+          if (!prev) {
+            return [detail.room];
+          }
+          const idx = prev.findIndex((r) => r.id === detail.room.id);
+          if (idx === -1) {
+            return [detail.room, ...prev];
+          }
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx]!, ...detail.room };
+          return copy;
+        });
+        setStatusSuccess("Room details fetched.");
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, room?.id, baseUrl, setStatusError, setStatusSuccess]
+  );
+
+  const fetchInvites = useCallback(async () => {
     if (!auth.accessToken || !room) return;
-    setBusy(true);
     setApiError(undefined);
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      const detail = await client.getRaceRoom(room.id);
-      setRoomDetail(detail);
-      setRoom(detail.room);
-      setStatusSuccess("Room details fetched.");
+      const { invites: nextInvites } = await client.getInvites(room.id);
+      setInvites(nextInvites);
     } catch (err) {
       setStatusError(err);
-    } finally {
-      setBusy(false);
     }
-  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
+  }, [auth.accessToken, room, baseUrl, setStatusError]);
+
+  const issueInvite = useCallback(
+    async (input: { email: string; role: RaceRoomInvite["role"] }) => {
+      if (!auth.accessToken || !room) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        await client.issueInvite(room.id, {
+          email: input.email.trim().toLowerCase(),
+          role: input.role
+        });
+        const [{ invites: nextInvites }, detail] = await Promise.all([client.getInvites(room.id), client.getRaceRoom(room.id)]);
+        setInvites(nextInvites);
+        setRoomDetail(detail);
+        setRoom(detail.room);
+        setStatusSuccess(`Invite sent to ${input.email.trim().toLowerCase()}.`);
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]
+  );
+
+  const joinRoomByCode = useCallback(
+    async (roomCode: string) => {
+      if (!auth.accessToken) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const joined = await client.joinRaceRoomByCode({ roomCode: roomCode.trim() });
+        setRoom(joined.room);
+        setRoomDetail({ room: joined.room, permissions: joined.permissions });
+        const { invites: nextInvites } = await client.getInvites(joined.room.id);
+        setInvites(nextInvites);
+        await fetchMyRaceRooms();
+        setStatusSuccess(
+          joined.room.joinCode
+            ? `Joined race: ${joined.room.name} (code ${joined.room.joinCode})`
+            : `Joined race: ${joined.room.name}`
+        );
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, baseUrl, fetchMyRaceRooms, setStatusError, setStatusSuccess]
+  );
+
+  const selectRaceRoom = useCallback(
+    async (selectedRoom: RaceRoom) => {
+      if (!auth.accessToken) return;
+      setRoom(selectedRoom);
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const [detail, { invites: nextInvites }] = await Promise.all([
+          client.getRaceRoom(selectedRoom.id),
+          client.getInvites(selectedRoom.id)
+        ]);
+        setRoom(detail.room);
+        setRoomDetail(detail);
+        setInvites(nextInvites);
+        setStatusSuccess(`Selected race ${detail.room.name}.`);
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, baseUrl, setStatusError, setStatusSuccess]
+  );
 
   const enqueueManualStop = useCallback(
     async (checkpointId: string, arrivalAt: string, departureAt: string) => {
@@ -945,6 +1109,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     room,
     raceProfile,
     roomDetail,
+    invites,
+    myRaceRooms,
     lastPing,
     syncHealth,
     queueDiagnostics,
@@ -973,6 +1139,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onProcessOutbox: processOutboxAction,
     onMarkEntitlementPaid: markEntitlementPaid,
     onFetchRoomDetails: fetchRoomDetails,
+    onApplyRaceRoomFromServer: applyRaceRoomFromServer,
+    onIssueInvite: issueInvite,
+    onFetchInvites: fetchInvites,
+    onJoinRoomByCode: joinRoomByCode,
+    onFetchMyRaceRooms: fetchMyRaceRooms,
+    onSelectRaceRoom: selectRaceRoom,
     onActivateRoom: activateRoom,
     onSendPing: sendPing,
     onPostSyncHeartbeat: postSyncHeartbeat,

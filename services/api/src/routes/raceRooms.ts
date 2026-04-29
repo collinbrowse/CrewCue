@@ -34,6 +34,9 @@ import {
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
+  listPersistedRaceRoomsForMember,
+  isJoinCodeTakenInDb,
+  loadRoomIdByJoinCode,
   loadRaceRoom,
   loadRaceRoomInvite,
   loadTaskBoardPayload,
@@ -51,6 +54,9 @@ const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
   athleteId: z.string().min(1),
   name: z.string().min(1),
+  creatorName: z.string().trim().min(1).optional(),
+  description: z.string().trim().optional(),
+  crewName: z.string().trim().optional(),
   creatorRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"]).default("athlete")
 });
 
@@ -85,7 +91,10 @@ const activateRaceRoomInput = z.object({
 
 const updateRaceCourseInput = z.object({
   course: raceCourseInput,
-  plannedPaceSecondsPerKm: z.number().positive()
+  plannedPaceSecondsPerKm: z.number().positive(),
+  courseDistanceMeters: z.number().finite().nonnegative().optional(),
+  courseElevationGainMeters: z.number().finite().nonnegative().optional(),
+  courseFileName: z.string().trim().min(1).optional()
 });
 
 const updateEntitlementInput = z.object({
@@ -100,6 +109,13 @@ const issueInviteInput = z.object({
 
 const acceptInviteInput = z.object({
   token: z.string().min(1)
+});
+
+const joinRaceRoomByCodeInput = z.object({
+  roomCode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Enter the 6-digit room code")
 });
 
 const ingestAthletePingInput = z.object({
@@ -122,10 +138,88 @@ const checkpointVisitResolvedSourceInput = z.object({
 
 const raceRooms = new Map<string, RaceRoom>();
 const raceRoomInvites = new Map<string, RaceRoomInvite>();
+/** Maps 6-digit join code -> internal room UUID. */
+const joinCodeToRoomId = new Map<string, string>();
+
+function indexJoinCode(room: RaceRoom): void {
+  if (room.joinCode && /^\d{6}$/.test(room.joinCode)) {
+    joinCodeToRoomId.set(room.joinCode, room.id);
+  }
+}
+
+function unindexJoinCodeForRoomId(roomId: string): void {
+  for (const [code, id] of joinCodeToRoomId.entries()) {
+    if (id === roomId) {
+      joinCodeToRoomId.delete(code);
+    }
+  }
+}
+
+async function randomSixDigitJoinCode(): Promise<string> {
+  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+}
+
+async function generateUniqueJoinCode(): Promise<string> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const candidate = await randomSixDigitJoinCode();
+    if (joinCodeToRoomId.has(candidate)) {
+      continue;
+    }
+    const takenInMemory = [...raceRooms.values()].some((r) => r.joinCode === candidate);
+    if (takenInMemory) {
+      continue;
+    }
+    if (await isJoinCodeTakenInDb(candidate)) {
+      continue;
+    }
+    return candidate;
+  }
+  throw new Error("Could not allocate unique join code");
+}
+
+async function resolveStorageRoomId(input: string): Promise<string | undefined> {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (/^\d{6}$/.test(trimmed)) {
+    const mapped = joinCodeToRoomId.get(trimmed);
+    if (mapped) {
+      return mapped;
+    }
+    for (const room of raceRooms.values()) {
+      if (room.joinCode === trimmed) {
+        return room.id;
+      }
+    }
+    if (isRoomPersistenceEnabled()) {
+      const id = await loadRoomIdByJoinCode(trimmed);
+      if (id) {
+        joinCodeToRoomId.set(trimmed, id);
+        return id;
+      }
+    }
+    return undefined;
+  }
+  return trimmed;
+}
 
 async function saveRaceRoom(room: RaceRoom): Promise<void> {
+  unindexJoinCodeForRoomId(room.id);
   raceRooms.set(room.id, room);
+  indexJoinCode(room);
   await persistRaceRoom(room);
+}
+
+async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
+  if (room.joinCode && /^\d{6}$/.test(room.joinCode)) {
+    indexJoinCode(room);
+    return room;
+  }
+  const code = await generateUniqueJoinCode();
+  const updated: RaceRoom = { ...room, joinCode: code };
+  await saveRaceRoom(updated);
+  return updated;
 }
 
 async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
@@ -133,16 +227,22 @@ async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
   await persistRaceRoomInvite(invite);
 }
 
-export async function getRaceRoom(roomId: string): Promise<RaceRoom | undefined> {
-  const cached = raceRooms.get(roomId);
-  if (cached) {
-    return cached;
+export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | undefined> {
+  const resolvedId = await resolveStorageRoomId(roomIdOrCode);
+  if (!resolvedId) {
+    return undefined;
   }
-  const loaded = await loadRaceRoom(roomId);
-  if (loaded) {
-    raceRooms.set(roomId, loaded);
+  let room = raceRooms.get(resolvedId);
+  if (!room) {
+    room = await loadRaceRoom(resolvedId);
+    if (room) {
+      raceRooms.set(resolvedId, room);
+    }
   }
-  return loaded;
+  if (!room) {
+    return undefined;
+  }
+  return ensureJoinCodeBackfill(room);
 }
 
 async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefined> {
@@ -651,12 +751,32 @@ export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]>
   const persisted = await listPersistedRaceRoomsByTeamId(teamId);
   for (const room of persisted) {
     raceRooms.set(room.id, room);
+    indexJoinCode(room);
   }
   const merged = new Map<string, RaceRoom>();
   for (const room of [...persisted, ...local]) {
     merged.set(room.id, room);
   }
   return [...merged.values()];
+}
+
+export async function listRaceRoomsForMember(userId: string): Promise<RaceRoom[]> {
+  const local = [...raceRooms.values()].filter((r) => r.memberships.some((m) => m.userId === userId));
+  if (!isRoomPersistenceEnabled()) {
+    const sorted = local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
+  }
+  const persisted = await listPersistedRaceRoomsForMember(userId);
+  for (const room of persisted) {
+    raceRooms.set(room.id, room);
+    indexJoinCode(room);
+  }
+  const merged = new Map<string, RaceRoom>();
+  for (const room of [...persisted, ...local]) {
+    merged.set(room.id, room);
+  }
+  const sorted = [...merged.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
 }
 
 /** Latest projection view with timeliness, when ping history produced a stored core projection. */
@@ -812,8 +932,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const now = new Date().toISOString();
     const roomId = randomUUID();
+    const joinCode = await generateUniqueJoinCode();
     const room: RaceRoom = {
       id: roomId,
+      joinCode,
+      creatorName: parsed.data.creatorName,
+      description: parsed.data.description,
+      crewName: parsed.data.crewName,
       teamId: parsed.data.teamId,
       athleteId: parsed.data.athleteId,
       name: parsed.data.name,
@@ -835,6 +960,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await saveRaceRoom(room);
     return reply.code(201).send(room);
+  });
+
+  app.get("/race-rooms/mine", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const rooms = await listRaceRoomsForMember(request.identity.sub);
+    return reply.send({ rooms });
   });
 
   app.get("/race-rooms/:roomId", async (request, reply) => {
@@ -952,7 +1086,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const updatedRoom: RaceRoom = {
       ...room,
       course: parsed.data.course,
-      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm
+      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
+      courseDistanceMeters: parsed.data.courseDistanceMeters ?? room.courseDistanceMeters,
+      courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
+      courseFileName: parsed.data.courseFileName ?? room.courseFileName
     };
 
     roomPingState.delete(roomId);
@@ -1018,6 +1155,42 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       role: invite.role,
       expiresAt: invite.expiresAt
     });
+  });
+
+  app.get("/race-rooms/:roomId/invites", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const now = Date.now();
+    const invites = [...raceRoomInvites.values()]
+      .filter((invite) => invite.roomId === roomId)
+      .map((invite) => {
+        if (invite.status === "pending" && Date.parse(invite.expiresAt) <= now) {
+          return { ...invite, status: "expired" as const };
+        }
+        return invite;
+      })
+      .sort((a, b) => Date.parse(b.invitedAt) - Date.parse(a.invitedAt));
+
+    await Promise.all(
+      invites
+        .filter((invite) => invite.status === "expired")
+        .map((invite) => saveRaceRoomInvite(invite))
+    );
+
+    return reply.send({ invites });
   });
 
   app.post("/race-rooms/:roomId/invites/accept", async (request, reply) => {
@@ -1087,6 +1260,76 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       assignedRole: membership.role,
       permissions: getPermissions(membership.role)
     });
+  });
+
+  app.post("/race-rooms/join-by-code", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const parsed = joinRaceRoomByCodeInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid room join payload" });
+    }
+
+    const room = await getRaceRoom(parsed.data.roomCode);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const existingMembership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    const nextMemberships = existingMembership
+      ? room.memberships
+      : [
+          ...room.memberships,
+          {
+            userId: request.identity.sub,
+            role: "crew_member" as const,
+            joinedAt: new Date().toISOString()
+          }
+        ];
+
+    const updatedRoom: RaceRoom = {
+      ...room,
+      memberships: nextMemberships
+    };
+
+    if (!existingMembership) {
+      await saveRaceRoom(updatedRoom);
+    }
+
+    const assignedMembership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!assignedMembership) {
+      return reply.code(500).send({ error: "Membership assignment failed" });
+    }
+
+    return reply.send({
+      room: updatedRoom,
+      assignedRole: assignedMembership.role,
+      permissions: getPermissions(assignedMembership.role)
+    });
+  });
+
+  app.get("/teams/:teamId/race-rooms", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const teamId = (request.params as { teamId: string }).teamId;
+    const identityTeamIds = request.identity.teamIds;
+    const canListTeam =
+      identityTeamIds.includes(teamId) ||
+      (identityTeamIds.length === 0 && teamId === "mobile-ops-team");
+    if (!canListTeam) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const rooms = await listRaceRoomsByTeamId(teamId);
+    const visibleRooms = rooms
+      .filter((room) => room.memberships.some((member) => member.userId === request.identity?.sub))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+    return reply.send({ rooms: visibleRooms });
   });
 
   app.post("/race-rooms/:roomId/entitlement", async (request, reply) => {

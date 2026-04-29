@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Share } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import type { RaceCourse } from "@crewcue/contracts";
@@ -34,31 +33,56 @@ type PendingCourseUpload = {
   fileName: string;
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
+  totalDistanceMeters: number;
+  elevationGainMeters: number;
 };
 
 export function GpxImportScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "RacePlanning">>();
+  const route = useRoute();
+  const mode = (route.params as { mode?: "create" | "edit" } | undefined)?.mode ?? "edit";
+  const isCreateMode = mode === "create";
   const [importState, setImportState] = useState<ImportState>({ status: "idle" });
   const [raceName, setRaceName] = useState("");
+  const [creatorName, setCreatorName] = useState("");
   const [raceDescription, setRaceDescription] = useState("");
   const [crewName, setCrewName] = useState("");
   const [finishingSetup, setFinishingSetup] = useState(false);
   const [pendingCourseUpload, setPendingCourseUpload] = useState<PendingCourseUpload | undefined>(undefined);
 
   const activeUnit: DistanceUnit = "mi";
-
   useEffect(() => {
+    if (isCreateMode) {
+      setRaceName("");
+      setCreatorName("");
+      setRaceDescription("");
+      setCrewName("");
+      setPendingCourseUpload(undefined);
+      setImportState({ status: "idle" });
+      return;
+    }
     if (s.raceProfile) {
       setRaceName(s.raceProfile.raceName);
+      setCreatorName(s.raceProfile.creatorName?.trim() || "");
       setRaceDescription(s.raceProfile.raceDescription);
       setCrewName(s.raceProfile.crewName);
+      return;
     }
-  }, [s.raceProfile]);
+    if (s.room) {
+      setRaceName(s.room.name ?? "");
+      setCreatorName(s.room.creatorName?.trim() || "");
+      setRaceDescription(s.room.description ?? "");
+      setCrewName(s.room.crewName ?? "");
+    }
+  }, [isCreateMode, s.raceProfile, s.room?.id, s.room?.name, s.room?.creatorName, s.room?.description, s.room?.crewName]);
 
   useEffect(() => {
-    if (!s.room?.course || s.room.plannedPaceSecondsPerKm === undefined) {
+    if (isCreateMode) {
+      return;
+    }
+    if (!s.room?.course && typeof s.room?.courseDistanceMeters !== "number") {
       return;
     }
     setImportState((current) => {
@@ -66,23 +90,39 @@ export function GpxImportScreen(): ReactElement {
         return current;
       }
       return buildImportStateFromCourse({
-        fileName: "Saved course",
-        course: s.room!.course!,
+        fileName: s.room?.courseFileName ?? "Saved course",
+        course: s.room?.course,
+        storedDistanceMeters: s.room?.courseDistanceMeters,
+        storedElevationGainMeters: s.room?.courseElevationGainMeters,
         unit: activeUnit
       });
     });
-  }, [activeUnit, s.room?.course, s.room?.plannedPaceSecondsPerKm]);
+  }, [isCreateMode, activeUnit, s.room?.course, s.room?.courseDistanceMeters, s.room?.courseElevationGainMeters]);
+
+  const persistedCourseState = useMemo(() => {
+    if (isCreateMode) {
+      return undefined;
+    }
+    if (!s.room?.course && typeof s.room?.courseDistanceMeters !== "number") {
+      return undefined;
+    }
+    return buildImportStateFromCourse({
+      fileName: s.room?.courseFileName ?? "Saved course",
+      course: s.room?.course ?? { checkpoints: [] },
+      storedDistanceMeters: s.room?.courseDistanceMeters,
+      storedElevationGainMeters: s.room?.courseElevationGainMeters,
+      unit: activeUnit
+    });
+  }, [isCreateMode, activeUnit, s.room?.course, s.room?.courseDistanceMeters, s.room?.courseElevationGainMeters, s.room?.courseFileName]);
+  const visibleImportState = importState.status === "success" ? importState : persistedCourseState;
 
   const uploadFeedback = useMemo(() => {
-    if (importState.status === "loading") {
-      return { tone: "info" as const, message: "Uploading and processing route file..." };
-    }
     if (importState.status === "error") {
       return { tone: "error" as const, message: importState.message };
     }
     return undefined;
   }, [importState]);
-  const canFinishSetup = raceName.trim().length > 0 && !finishingSetup;
+  const canFinishSetup = raceName.trim().length > 0 && creatorName.trim().length > 0 && !finishingSetup;
 
   const onImportGpx = async (): Promise<void> => {
     setImportState({ status: "loading" });
@@ -109,7 +149,13 @@ export function GpxImportScreen(): ReactElement {
       const parsed = parseCourseTrack(fileContents, selectedFile.name);
       const unit: DistanceUnit = "mi";
       const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
-      setPendingCourseUpload({ fileName: selectedFile.name, course, plannedPaceSecondsPerKm });
+      setPendingCourseUpload({
+        fileName: selectedFile.name,
+        course,
+        plannedPaceSecondsPerKm,
+        totalDistanceMeters: parsed.totalDistanceMeters,
+        elevationGainMeters: computeElevationGainMeters(parsed.points)
+      });
       setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
     } catch (error) {
       setPendingCourseUpload(undefined);
@@ -122,16 +168,22 @@ export function GpxImportScreen(): ReactElement {
   };
 
   const onFinishSetup = async (): Promise<void> => {
-    if (!raceName.trim()) {
-      setImportState({ status: "error", message: "Race name is required to finish setup." });
+    if (!raceName.trim() || !creatorName.trim()) {
+      setImportState({ status: "error", message: "Race name and your name are required to finish setup." });
       return;
     }
 
     setFinishingSetup(true);
     try {
-      let room = s.room;
+      const createInput = {
+        raceName: raceName.trim(),
+        creatorName: creatorName.trim(),
+        raceDescription: raceDescription.trim(),
+        crewName: crewName.trim()
+      };
+      let room = isCreateMode ? await s.onCreateRoom(createInput) : s.room;
       if (!room) {
-        room = await s.onCreateRoom({ raceName: raceName.trim() });
+        room = await s.onCreateRoom(createInput);
       }
       if (!room) {
         setImportState({ status: "error", message: "Could not create your race. Try again." });
@@ -139,6 +191,7 @@ export function GpxImportScreen(): ReactElement {
       }
 
       await s.onSaveRaceProfile({
+        creatorName: creatorName.trim(),
         raceName: raceName.trim(),
         raceDescription: raceDescription.trim(),
         crewName: crewName.trim(),
@@ -151,15 +204,20 @@ export function GpxImportScreen(): ReactElement {
           return;
         }
         const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-        await client.updateRaceCourse(room.id, {
+        const updatedRoom = await client.updateRaceCourse(room.id, {
           course: pendingCourseUpload.course,
-          plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm
+          plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
+          courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
+          courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
+          courseFileName: pendingCourseUpload.fileName
         });
+        s.onApplyRaceRoomFromServer(updatedRoom);
         setPendingCourseUpload(undefined);
-        void s.onFetchRoomDetails();
       }
 
-      navigation.navigate("OperateHome");
+      await s.onFetchRoomDetails(room.id);
+      await s.onFetchMyRaceRooms();
+      navigation.goBack();
     } catch (error) {
       if (error instanceof ApiError && (error.status === 404 || error.status === 405 || error.status === 501)) {
         setImportState({
@@ -184,8 +242,8 @@ export function GpxImportScreen(): ReactElement {
       keyboardShouldPersistTaps="handled"
     >
       <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>Start planning your race</Text>
-        <Text style={s.styles.subtitle}>Add race metadata, optionally upload GPX, and share your crew link</Text>
+        <Text style={s.styles.title}>Race setup</Text>
+        <Text style={s.styles.subtitle}>Add race details, optionally upload GPX, and share your crew link</Text>
 
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Race name (required)</Text>
         <DSTextInput
@@ -193,6 +251,9 @@ export function GpxImportScreen(): ReactElement {
           onChangeText={setRaceName}
           autoCapitalize="words"
         />
+
+        <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Your name (required)</Text>
+        <DSTextInput value={creatorName} onChangeText={setCreatorName} autoCapitalize="words" />
 
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Race description (optional)</Text>
         <DSTextInput
@@ -215,11 +276,11 @@ export function GpxImportScreen(): ReactElement {
         <Text style={s.styles.body}>
           Uploading GPX, KML, or JSON generates shared course distance, aid-station split timing, and pacing metadata for your crew.
         </Text>
-        {importState.status === "success" ? (
+        {visibleImportState ? (
           <View style={localStyles.fileDetails}>
-            <Text style={s.styles.successText}>{importState.fileName}</Text>
+            <Text style={s.styles.successText}>{visibleImportState.fileName}</Text>
             <Text style={s.styles.body}>
-              {importState.totalDistanceLabel} • {importState.elevationLabel}
+              {visibleImportState.totalDistanceLabel} • {visibleImportState.elevationLabel}
             </Text>
             <View style={localStyles.actionsRow}>
               <View style={localStyles.actionCell}>
@@ -249,31 +310,6 @@ export function GpxImportScreen(): ReactElement {
               {uploadFeedback.message}
             </Text>
           </DSCard>
-        ) : null}
-
-        <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Invite your crew</Text>
-        <Text style={s.styles.body}>
-          You can share your crew link now or later. Everyone who joins sees the same race and course data.
-        </Text>
-        <View style={localStyles.actionsRow}>
-          <View style={localStyles.actionCell}>
-            <DSButton
-              preset="secondary"
-              disabled={!s.room}
-              onPress={() => {
-                if (!s.room) return;
-                const shareLink = `crewcue://join?roomId=${encodeURIComponent(s.room.id)}`;
-                void Share.share({ message: `Join my CrewCue race room: ${shareLink}` });
-              }}
-            >
-              Share crew link
-            </DSButton>
-          </View>
-        </View>
-        {!s.room ? (
-          <Text style={[s.styles.body, { marginTop: 8 }]}>
-            A race room is created when you upload GPX or finish setup.
-          </Text>
         ) : null}
 
         <View style={{ marginTop: 14 }}>
@@ -328,25 +364,33 @@ function buildImportStateFromParsedTrack(
 function buildImportStateFromCourse({
   fileName,
   course,
+  storedDistanceMeters,
+  storedElevationGainMeters,
   unit
 }: {
   fileName: string;
-  course: RaceCourse;
+  course?: RaceCourse;
+  storedDistanceMeters?: number;
+  storedElevationGainMeters?: number;
   unit: DistanceUnit;
 }): Extract<ImportState, { status: "success" }> {
   const totalDistanceMeters =
-    course.baselineTrack?.points?.[course.baselineTrack.points.length - 1]?.distanceMetersFromStart ?? 0;
+    storedDistanceMeters ?? course?.baselineTrack?.points?.[course.baselineTrack.points.length - 1]?.distanceMetersFromStart ?? 0;
   return {
     status: "success",
     fileName,
     totalDistanceLabel: formatDistance(totalDistanceMeters, unit),
-    elevationLabel: "Vert --"
+    elevationLabel: formatElevationGainFromMeters(storedElevationGainMeters)
   };
 }
 
 function formatElevationGain(points: GpxTrackPoint[]): string {
+  return formatElevationGainFromMeters(computeElevationGainMeters(points));
+}
+
+function computeElevationGainMeters(points: GpxTrackPoint[]): number {
   if (points.length < 2) {
-    return "--";
+    return 0;
   }
   let gainMeters = 0;
   for (let index = 1; index < points.length; index += 1) {
@@ -359,6 +403,13 @@ function formatElevationGain(points: GpxTrackPoint[]): string {
     if (delta > 0) {
       gainMeters += delta;
     }
+  }
+  return gainMeters;
+}
+
+function formatElevationGainFromMeters(gainMeters: number | undefined): string {
+  if (typeof gainMeters !== "number" || !Number.isFinite(gainMeters)) {
+    return "Vert --";
   }
   if (gainMeters <= 0) {
     return "0 ft gain";

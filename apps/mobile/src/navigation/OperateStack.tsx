@@ -19,7 +19,7 @@ export function OperateStack(): ReactElement {
       }}
     >
       <Stack.Screen name="OperateHome" component={AuthenticatedOperateScreen} options={{ title: "Operate" }} />
-      <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Start planning your race" }} />
+      <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Race setup" }} />
     </Stack.Navigator>
   );
 }
