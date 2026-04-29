@@ -49,7 +49,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
   const selectedRace = s.room;
   const membershipLabel = (userId: string): string => {
     if (userId === s.auth.claims?.sub) {
-      const selfName = s.raceProfile?.creatorName?.trim() || s.room?.creatorName?.trim();
+      const selfName = s.room?.creatorName?.trim() || s.raceProfile?.creatorName?.trim();
       if (selfName) {
         return selfName;
       }
@@ -71,9 +71,22 @@ export function AuthenticatedOperateScreen(): ReactElement {
     });
   }, [navigation, selectedRace?.name]);
 
+  /** Include current room so the picker stays complete if /mine omits the active room briefly. */
+  const roomsForRacePicker = useMemo(() => {
+    const list = s.myRaceRooms ?? [];
+    const current = s.room;
+    if (!current) {
+      return list;
+    }
+    if (list.some((r) => r.id === current.id)) {
+      return list;
+    }
+    return [current, ...list];
+  }, [s.myRaceRooms, s.room]);
+
   const raceBuckets = useMemo(() => {
     const now = Date.now();
-    const all = s.myRaceRooms ?? [];
+    const all = roomsForRacePicker;
     const withoutSelected = all.filter((room) => room.id !== selectedRace?.id);
     const current: typeof withoutSelected = [];
     const upcoming: typeof withoutSelected = [];
@@ -89,7 +102,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
       }
     }
     return { current, upcoming, past };
-  }, [s.myRaceRooms, selectedRace?.id]);
+  }, [roomsForRacePicker, selectedRace?.id]);
   const courseDistanceLabel = useMemo(() => {
     const points = s.room?.course?.baselineTrack?.points;
     const meters = s.room?.courseDistanceMeters ?? points?.[points.length - 1]?.distanceMetersFromStart;
@@ -130,7 +143,9 @@ export function AuthenticatedOperateScreen(): ReactElement {
           <Text style={s.styles.summaryTitle}>Race details</Text>
           {inRace ? (
             <>
-              <Text style={s.styles.body}>Race name: {s.raceProfile?.raceName || s.room?.name}</Text>
+              <Text style={s.styles.body}>
+                Race name: {s.room?.name?.trim() || s.raceProfile?.raceName || "—"}
+              </Text>
               <Text style={s.styles.body}>
                 Crew name: {s.room?.crewName?.trim() || s.raceProfile?.crewName?.trim() || "Not set"}
               </Text>
