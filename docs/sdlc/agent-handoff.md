@@ -38,7 +38,12 @@ Deliver Sprint 1 demo flows:
 2. Added GPX unit tests in `apps/mobile/src/features/gpx/gpxImport.test.ts` and wired them into the mobile test script in `apps/mobile/package.json`.
 3. Added `apps/mobile/src/navigation/GpxImportScreen.tsx` using `expo-document-picker` + `expo-file-system` to import GPX files, compute expected splits, and render loading/success/error guidance.
 4. Integrated the new screen into Readouts navigation via `apps/mobile/src/navigation/types.ts`, `apps/mobile/src/navigation/ReadoutsStack.tsx`, and `apps/mobile/src/navigation/AuthenticatedReadoutsScreen.tsx`.
-5. Ran validation for touched scope and full repo verify (`npm run test -w @crewcue/mobile`, `npm run typecheck -w @crewcue/mobile`, `npm run verify`).
+5. Applied UX polish from simulator feedback:
+   - auth error copy on `GuestHomeScreen` now maps OAuth failures to user-friendly guidance,
+   - `AuthenticatedOperateScreen` removes debug/session payload fields from home and replaces them with plain-language session guidance,
+   - `OperationalSummarySections` now supports hiding protocol notes and Readouts home hides protocol notes by default,
+   - GPX screen copy/actions were simplified for non-technical users.
+6. Ran validation for touched scope (`npm run test -w @crewcue/mobile`, `npm run typecheck -w @crewcue/mobile`).
 
 ## Next 1-3 tasks
 
@@ -55,7 +60,7 @@ Deliver Sprint 1 demo flows:
 ## Open risks/blockers/questions
 
 - GPX import currently requires timestamped `<trkpt><time>` data; files without timing metadata intentionally return actionable guidance instead of inferred pacing.
-- GPX import was validated via tests/builds but still needs final on-device manual confirmation with a real demo GPX file chooser flow.
+- GPX import + updated auth/home copy were validated by tests/typecheck, but final simulator/device visual pass is still required before merge.
 - Existing unstaged user change remains in `docs/sdlc/mvp-ui-development-spec.md` (left untouched).
 
 ## Guardrails

@@ -41,6 +41,7 @@ function Phase1SectionCard({ styles, title, children }: { styles: any; title: st
 type Props = {
   styles: any;
   variant?: OperationalSummaryVariant;
+  showProtocolNotes?: boolean;
   room?: RaceRoom;
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
@@ -72,6 +73,7 @@ type Props = {
 export function OperationalSummarySections({
   styles,
   variant = "full",
+  showProtocolNotes = true,
   room,
   roomDetail,
   lastPing,
@@ -254,27 +256,29 @@ export function OperationalSummarySections({
         </>
       ) : null}
 
-      <DSCard style={styles.summaryCard}>
-        <Text style={styles.summaryTitle}>Protocol notes</Text>
-        {!lastProtocolNote ? (
-          <Text style={[styles.code, styles.mutedText]}>
-            No protocol note posted in this session yet. Post one to verify checkpoint guidance capture.
-          </Text>
-        ) : (
-          <>
-            <Text style={styles.body}>Latest note</Text>
-            <Text style={styles.code}>{lastProtocolNote.id}</Text>
-            <Text style={styles.body}>Category / checkpoint</Text>
-            <Text style={styles.code}>
-              {lastProtocolNote.category} @ {lastProtocolNote.checkpointId}
+      {showProtocolNotes ? (
+        <DSCard style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>Protocol notes</Text>
+          {!lastProtocolNote ? (
+            <Text style={[styles.code, styles.mutedText]}>
+              No protocol note posted in this session yet. Post one to verify checkpoint guidance capture.
             </Text>
-            <Text style={styles.body}>Body</Text>
-            <Text style={styles.code}>{lastProtocolNote.body}</Text>
-            <Text style={styles.body}>Recorded at</Text>
-            <Text style={styles.code}>{lastProtocolNote.updatedAt}</Text>
-          </>
-        )}
-      </DSCard>
+          ) : (
+            <>
+              <Text style={styles.body}>Latest note</Text>
+              <Text style={styles.code}>{lastProtocolNote.id}</Text>
+              <Text style={styles.body}>Category / checkpoint</Text>
+              <Text style={styles.code}>
+                {lastProtocolNote.category} @ {lastProtocolNote.checkpointId}
+              </Text>
+              <Text style={styles.body}>Body</Text>
+              <Text style={styles.code}>{lastProtocolNote.body}</Text>
+              <Text style={styles.body}>Recorded at</Text>
+              <Text style={styles.code}>{lastProtocolNote.updatedAt}</Text>
+            </>
+          )}
+        </DSCard>
+      ) : null}
 
       {timeline !== undefined ? (
         <TimelineEventsReadout styles={styles} timeline={timeline} layout="card" />

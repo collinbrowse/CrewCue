@@ -80,7 +80,10 @@ export function GpxImportScreen(): ReactElement {
         unit
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to import GPX file.";
+      const message =
+        error instanceof Error
+          ? toUserFriendlyImportErrorMessage(error.message)
+          : "We could not read that file. Please choose a GPX file and try again.";
       setImportState({ status: "error", message });
     }
   };
@@ -106,31 +109,31 @@ export function GpxImportScreen(): ReactElement {
       keyboardShouldPersistTaps="handled"
     >
       <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>GPX Import</Text>
-        <Text style={s.styles.subtitle}>Import route data and present expected split-time output</Text>
+        <Text style={s.styles.title}>Upload your GPX route</Text>
+        <Text style={s.styles.subtitle}>Get clear expected split times for your pacing plan</Text>
         <DSCard style={s.styles.summaryCard}>
-          <Text style={s.styles.summaryTitle}>Presenter guidance</Text>
+          <Text style={s.styles.summaryTitle}>How it works</Text>
           <Text style={s.styles.body}>{summaryNote}</Text>
         </DSCard>
 
         <View style={localStyles.actionsRow}>
           <View style={localStyles.actionCell}>
             <DSButton preset="primary" onPress={() => void onImportGpx()} disabled={importState.status === "loading"}>
-              {importState.status === "loading" ? "Importing..." : "Import GPX File"}
+              {importState.status === "loading" ? "Uploading..." : "Choose GPX file"}
             </DSButton>
           </View>
           <View style={localStyles.actionCell}>
             <DSButton preset="secondary" onPress={onToggleUnit} disabled={!canToggleUnit}>
-              Show in {activeUnit === "km" ? "miles" : "kilometers"}
+              Show splits in {activeUnit === "km" ? "miles" : "kilometers"}
             </DSButton>
           </View>
         </View>
 
         {importState.status === "success" ? (
           <View style={localStyles.results}>
-            <Text style={s.styles.label}>Run summary</Text>
-            <Text style={s.styles.body}>Distance: {importState.totalDistanceLabel}</Text>
-            <Text style={s.styles.body}>Elapsed: {importState.elapsedLabel}</Text>
+            <Text style={s.styles.label}>Route summary</Text>
+            <Text style={s.styles.body}>Total distance: {importState.totalDistanceLabel}</Text>
+            <Text style={s.styles.body}>Total time: {importState.elapsedLabel}</Text>
             <Text style={s.styles.body}>Average pace: {importState.averagePaceLabel}</Text>
 
             <Text style={[s.styles.label, localStyles.splitHeader]}>Expected splits ({importState.unit})</Text>
@@ -151,6 +154,23 @@ export function GpxImportScreen(): ReactElement {
       </DSCard>
     </ScrollView>
   );
+}
+
+function toUserFriendlyImportErrorMessage(errorMessage: string): string {
+  const normalized = errorMessage.toLowerCase();
+  if (normalized.includes("empty")) {
+    return "That file looks empty. Please choose a valid GPX export.";
+  }
+  if (normalized.includes("timestamps")) {
+    return "This GPX file does not include timing data. Export a GPX with timestamps to see expected splits.";
+  }
+  if (normalized.includes("distance is zero")) {
+    return "We could not detect movement in this GPX file. Please choose a route file with track points.";
+  }
+  if (normalized.includes("track points")) {
+    return "We could not read enough route points from this file. Please choose a standard GPX track export.";
+  }
+  return "We could not process this GPX file. Please choose another GPX export and try again.";
 }
 
 const localStyles = StyleSheet.create({

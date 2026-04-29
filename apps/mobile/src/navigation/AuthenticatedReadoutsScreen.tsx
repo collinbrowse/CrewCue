@@ -42,6 +42,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
 
         <OperationalSummarySections
           styles={s.styles}
+          showProtocolNotes={false}
           room={s.room}
           roomDetail={s.roomDetail}
           lastPing={s.lastPing}

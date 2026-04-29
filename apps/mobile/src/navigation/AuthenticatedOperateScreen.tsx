@@ -3,7 +3,6 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScrollView, Text, View } from "react-native";
 import { AuthenticatedActionPanel } from "../components/AuthenticatedActionPanel";
-import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
 import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { OperationalStatusRail } from "../components/OperationalStatusRail";
 import { OutboxQueueInspector } from "../components/OutboxQueueInspector";
@@ -54,17 +53,22 @@ export function AuthenticatedOperateScreen(): ReactElement {
           </Text>
         </DSCard>
 
-        <MobileShellSessionHeader
-          styles={s.styles}
-          baseUrl={s.baseUrl}
-          redirectUri={s.auth.redirectUri}
-          authStatus={s.auth.status}
-          claims={s.auth.claims}
-          authError={s.auth.error}
-          pendingOutboxCount={s.pendingOutboxCount}
-          outboxTotal={s.outbox.length}
-          appState={s.appState}
-        />
+        <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
+          <Text style={s.styles.summaryTitle}>Today&apos;s session</Text>
+          <Text style={s.styles.body}>
+            {s.room
+              ? `Room ${s.room.name} is ${s.room.status}. Keep queue health clear and check status before key actions.`
+              : "No active room yet. Create a room to start race operations and unlock full controls."}
+          </Text>
+          <Text style={[s.styles.body, { marginTop: 8 }]}>
+            Queue health: {s.pendingOutboxCount} pending action{s.pendingOutboxCount === 1 ? "" : "s"}.
+          </Text>
+          {s.apiError ? (
+            <Text style={[s.styles.errorText, { marginTop: 8 }]}>
+              Sync needs attention. Open Status Detail for recovery guidance.
+            </Text>
+          ) : null}
+        </DSCard>
 
         <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>

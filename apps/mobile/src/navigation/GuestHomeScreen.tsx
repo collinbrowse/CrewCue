@@ -200,7 +200,9 @@ export function GuestHomeScreen(): ReactElement {
         <Text style={styles.stageBodyText}>
           Sign in with your CrewCue account to continue where you left off and keep race operations synchronized.
         </Text>
-        {s.auth.status === "error" ? <Text style={styles.errorText}>{s.auth.error ?? "Sign-in failed. Try again."}</Text> : null}
+        {s.auth.status === "error" ? (
+          <Text style={styles.errorText}>{toUserFriendlyAuthErrorMessage(s.auth.error)}</Text>
+        ) : null}
       </View>
       <View style={styles.actionWrap}>
         <ActionButton
@@ -268,6 +270,23 @@ export function GuestHomeScreen(): ReactElement {
       </View>
     </View>
   );
+}
+
+function toUserFriendlyAuthErrorMessage(errorText?: string): string {
+  if (!errorText) {
+    return "We could not complete sign-in. Please try again.";
+  }
+
+  const normalized = errorText.toLowerCase();
+  if (
+    normalized.includes("invalid authorization code") ||
+    normalized.includes("authorization grant") ||
+    normalized.includes("redirect uri")
+  ) {
+    return "Your sign-in session expired before it finished. Tap \"Try sign-in again\" to start a fresh sign-in.";
+  }
+
+  return "We could not complete sign-in. Please try again.";
 }
 
 type ActionButtonProps = {
