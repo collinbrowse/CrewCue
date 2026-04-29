@@ -6,13 +6,13 @@ export type GuestStackParamList = {
 
 export type OperateStackParamList = {
   OperateHome: undefined;
-  OperateStatus: undefined;
-  OperateOutbox: undefined;
+  RacePlanning: undefined;
 };
 
 export type ReadoutsStackParamList = {
   ReadoutsHome: undefined;
   ReadoutsIncidents: undefined;
+  GpxImport: undefined;
 };
 
 export type CrewMainTabParamList = {

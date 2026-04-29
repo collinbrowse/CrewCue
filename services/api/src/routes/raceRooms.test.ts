@@ -172,3 +172,55 @@ test("rejects expired invite token", async () => {
 
   await app.close();
 });
+
+test("updates room course for shared GPX usage", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Race Room",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const updateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: 360,
+      course: {
+        checkpoints: [
+          { id: "aid-1", latitude: 40.7128, longitude: -74.006, plannedStopSeconds: 120 },
+          { id: "aid-2", latitude: 40.7228, longitude: -73.996, plannedStopSeconds: 120 }
+        ],
+        baselineTrack: {
+          points: [
+            { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+            { distanceMetersFromStart: 1500, referenceElapsedSeconds: 540 }
+          ]
+        }
+      }
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+
+  assert.equal(updateResponse.statusCode, 200);
+  const updated = updateResponse.json() as { course: { checkpoints: Array<{ id: string }> } };
+  assert.equal(updated.course.checkpoints.length, 2);
+  assert.equal(updated.course.checkpoints[0]?.id, "aid-1");
+
+  await app.close();
+});

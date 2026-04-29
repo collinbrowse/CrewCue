@@ -30,6 +30,7 @@ export function GuestHomeScreen(): ReactElement {
   const [productIndex, setProductIndex] = useState(0);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
   const [notificationsMessage, setNotificationsMessage] = useState<string | undefined>(undefined);
+  const [signupFlowStarted, setSignupFlowStarted] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -44,11 +45,17 @@ export function GuestHomeScreen(): ReactElement {
         if (
           storedStage === "product" ||
           storedStage === "auth" ||
-          storedStage === "signupAuth" ||
           storedStage === "notifications" ||
           storedStage === "done"
         ) {
           setOnboardingStage(storedStage);
+          setStageReady(true);
+          return;
+        }
+        if (storedStage === "signupAuth") {
+          // Avoid getting stuck in signup-only stage across app restarts.
+          setOnboardingStage("done");
+          await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, "done");
           setStageReady(true);
           return;
         }
@@ -78,11 +85,11 @@ export function GuestHomeScreen(): ReactElement {
   }, []);
 
   useEffect(() => {
-    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth") {
+    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth" || !signupFlowStarted) {
       return;
     }
     void setStage("notifications");
-  }, [onboardingStage, s.auth.status]);
+  }, [onboardingStage, s.auth.status, signupFlowStarted]);
 
   const currentProductStep = PRODUCT_STEPS[productIndex];
   const isFinalProductStep = productIndex === PRODUCT_STEPS.length - 1;
@@ -200,12 +207,15 @@ export function GuestHomeScreen(): ReactElement {
         <Text style={styles.stageBodyText}>
           Sign in with your CrewCue account to continue where you left off and keep race operations synchronized.
         </Text>
-        {s.auth.status === "error" ? <Text style={styles.errorText}>{s.auth.error ?? "Sign-in failed. Try again."}</Text> : null}
+        {s.auth.status === "error" ? (
+          <Text style={styles.errorText}>{toUserFriendlyAuthErrorMessage(s.auth.error)}</Text>
+        ) : null}
       </View>
       <View style={styles.actionWrap}>
         <ActionButton
           label={primaryButtonLabel}
           onPress={() => {
+            setSignupFlowStarted(true);
             void setStage("signupAuth").then(() => s.auth.signUp());
           }}
           disabled={s.auth.status === "authenticating" || !stageReady}
@@ -213,7 +223,8 @@ export function GuestHomeScreen(): ReactElement {
         <ActionButton
           label="I already have an account"
           onPress={() => {
-            void s.auth.signIn();
+            setSignupFlowStarted(false);
+            void setStage("done").then(() => s.auth.signIn());
           }}
           variant="ghost"
         />
@@ -268,6 +279,23 @@ export function GuestHomeScreen(): ReactElement {
       </View>
     </View>
   );
+}
+
+function toUserFriendlyAuthErrorMessage(errorText?: string): string {
+  if (!errorText) {
+    return "We could not complete sign-in. Please try again.";
+  }
+
+  const normalized = errorText.toLowerCase();
+  if (
+    normalized.includes("invalid authorization code") ||
+    normalized.includes("authorization grant") ||
+    normalized.includes("redirect uri")
+  ) {
+    return "Your sign-in session expired before it finished. Tap \"Try sign-in again\" to start a fresh sign-in.";
+  }
+
+  return "We could not complete sign-in. Please try again.";
 }
 
 type ActionButtonProps = {

@@ -35,6 +35,12 @@ export type AuthedShellContextValue = {
   syncStatusMessage?: string;
   projection?: RaceRoomProjection;
   room?: RaceRoom;
+  raceProfile?: {
+    raceName: string;
+    raceDescription: string;
+    crewName: string;
+    setupComplete: boolean;
+  };
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
   syncHealth?: SyncStatus;
@@ -59,7 +65,13 @@ export type AuthedShellContextValue = {
   stationArrivalAt: Record<string, string>;
   describeOutboxOperation: (op: OutboxOperation) => string;
   describeOutboxStatus: (status: OutboxOperation["status"]) => string;
-  onCreateRoom: () => void;
+  onCreateRoom: (input?: { raceName?: string }) => Promise<RaceRoom | undefined>;
+  onSaveRaceProfile: (profile: {
+    raceName: string;
+    raceDescription: string;
+    crewName: string;
+    setupComplete: boolean;
+  }) => Promise<void>;
   onProcessOutbox: () => void;
   onMarkEntitlementPaid: () => void;
   onFetchRoomDetails: () => void;

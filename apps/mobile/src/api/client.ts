@@ -15,6 +15,7 @@ import type {
   ProtocolNote,
   ProtocolNoteCategory,
   RaceRoom,
+  RaceCourse,
   RaceRoomEntitlement,
   RaceRoomProjection,
   Recommendation,
@@ -82,6 +83,11 @@ export type CreateRaceRoomInput = {
 
 export type ActivateRaceRoomInput = {
   eventEndsAt: string;
+};
+
+export type UpdateRaceCourseInput = {
+  course: RaceCourse;
+  plannedPaceSecondsPerKm: number;
 };
 
 export type PostPingInput = {
@@ -180,6 +186,8 @@ export function createApiClient(options: ApiClientOptions) {
       ),
     activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
       request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
+    updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input),
     postPing: (roomId: string, input: PostPingInput) =>
       request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input),
     getProjection: (roomId: string) =>
