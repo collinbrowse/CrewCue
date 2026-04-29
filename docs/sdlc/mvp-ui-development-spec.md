@@ -9,25 +9,26 @@
 - [agent-handoff.md](./agent-handoff.md)
 - [codebase-maintainability-standard.md](./codebase-maintainability-standard.md)
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)
-- [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)
 - `CrewCue Design/design-system-kit/design-system/DESIGN_SYSTEM_INSTRUCTIONS.md`
 - `CrewCue Design/design-system-kit/design-system/design-system.json`
 
 ---
 
-## 1) Scope and outcome
+## 1) Scope and outcome (demo priority)
 
-The MVP UI must let a team run core race-day operations from the app without backend-side manual intervention:
+Current priority is a customer-facing **demo build** delivered as fast as possible while preserving clean architecture.
 
-1. authenticate and enter an operational session
-2. create/activate a race room
-3. execute checkpoint and stoppage operations
-4. monitor projection/sync status and queue health
-5. execute task board actions
-6. record incidents and process adaptive recommendations
-7. recover from expected offline/conflict/rejected paths
+The demo UI must clearly show what CrewCue does through these workflows:
 
-MVP is complete when these workflows are reliable, role-aware, and operator-comprehensible on staging.
+1. onboarding experience
+2. normal login flow (Auth0)
+3. GPX import with expected split-time output
+4. crew creation and member invites
+5. shared crew notes visible across members
+
+Demo readiness is complete when these workflows are reliable, role-aware where applicable, and visually polished enough for customer demos on staging.
+
+Non-demo flows remain in the backlog (Backlog section in roadmap) and are not deleted.
 
 ---
 
@@ -49,17 +50,17 @@ MVP is complete when these workflows are reliable, role-aware, and operator-comp
 - Information architecture is present but still shell-like in interaction language and visual hierarchy.
 - Primary gap is UI productization: clearer workflow affordances, reduced cognitive load, and design-system-level consistency.
 
-### 2.3 MVP delta to complete
+### 2.3 Demo delta to complete
 
-- tighten IA and microcopy around operator mental model
-- harden screen-level states and transitions
+- tighten IA and microcopy around onboarding/auth/demo narrative
+- harden screen-level states and transitions for demo-critical paths
 - remove shell/testing phrasing from user-facing controls
-- add deterministic validation checklist by flow and role
+- add deterministic validation checklist by demo flow and role
 - map design file components/tokens to implementation modules
 
 ---
 
-## 3) Product information architecture (MVP)
+## 3) Product information architecture (demo build)
 
 ## Top-level navigation
 
@@ -77,7 +78,7 @@ MVP is complete when these workflows are reliable, role-aware, and operator-comp
 - `ReadoutsHome`: full operational readout composition
 - `ReadoutsIncidents`: incident feed detail
 
-No additional top-level tabs are required for MVP.
+No additional top-level tabs are required for the demo.
 
 ---
 
@@ -202,46 +203,47 @@ Incident-centered drilldown for WS4 operational review.
 
 ---
 
-## 6) Core user flows and acceptance criteria
+## 6) Demo flows and acceptance criteria
 
-## 6.1 Room lifecycle flow (WS1)
+## 6.1 Onboarding + login flow
 
-**Path:** authenticate -> create room -> entitlement paid -> activate room  
+**Path:** first app open -> onboarding -> Auth0 login -> authenticated landing  
 **Acceptance:**
-- user can complete flow without leaving app
-- role and permission context visible after room fetch
-- failure responses surfaced with actionable text
+- first-run value proposition is clear in onboarding
+- user can sign in and return to an authenticated session without manual resets
+- failure responses are actionable and non-technical
 
-## 6.2 Projection/stoppage flow (WS2)
+## 6.2 GPX import -> expected split times flow
 
-**Path:** active room -> ping -> projection -> station enter -> station exit/manual stop queue -> outbox process -> refreshed projection  
+**Path:** open import -> select GPX -> parse/process -> render expected split times  
 **Acceptance:**
-- queue intent appears immediately
-- processed state visible after flush
-- stoppage readout updates from authoritative projection
+- valid GPX imports produce expected split-time output in-app
+- invalid/unsupported files show clear guidance
+- loading and completion states are obvious to presenter/operator
 
-## 6.3 Resilience/recovery flow (WS5)
+## 6.3 Crew creation + invites flow
 
-**Path:** pending/conflict/rejected queue item -> operator reads hint -> retry or corrective action -> process queue -> health recheck  
+**Path:** create crew -> invite one or more members -> view invite/member state  
 **Acceptance:**
-- conflict and rejected are visually distinct
-- operators can complete at least one successful recovery path in-app
-- telemetry rows can be refreshed and inspected
+- crew can be created end-to-end in-app
+- invite actions provide immediate feedback and state visibility
+- role/permission constraints are explained when an action is unavailable
 
-## 6.4 Task flow (WS3)
+## 6.4 Shared crew notes flow
 
-**Path:** fetch task board -> assign/start/complete -> queue process -> task status updated  
+**Path:** add note in crew context -> refresh or observe update -> other member sees same note  
 **Acceptance:**
-- action availability strictly follows task status + role guard
-- queued actions include immediate user feedback
+- notes post successfully with visible confirmation
+- notes are visible to invited crew members
+- empty/error states are clear and recoverable
 
-## 6.5 Incident/adaptive flow (WS4)
+## 6.5 Demo visual polish flow
 
-**Path:** post incident -> fetch incidents -> generate recommendation -> accept/reject -> inspect plan delta  
+**Path:** navigate through all demo-critical screens  
 **Acceptance:**
-- recommendation status change clearly shown
-- explainability factors displayed when present
-- accepted recommendation can produce visible plan delta
+- consistent DS components/tokens on demo-critical surfaces
+- no smoke/test wording in primary user actions
+- hierarchy and spacing look customer-ready in light and dark themes
 
 ---
 
@@ -353,37 +355,36 @@ Use this table during implementation:
 
 ---
 
-## 11) MVP implementation sequence (UI-focused)
+## 11) Demo implementation sequence (UI-focused)
 
-1. **Freeze baseline contracts/routes:** no speculative UI-only behavior.
-2. **Interaction hardening pass:** enforce state gating and empty/error/freshness states across all existing screens.
-3. **IA and wording pass:** convert shell/testing labels into operator language.
-4. **Design parity pass:** map design tokens/components to current screen modules.
-5. **Flow validation pass:** run end-to-end role-based manual checks on staging.
-6. **Documentation pass:** update this spec + roadmap doc with completion status.
+1. **Freeze demo contracts/routes:** no speculative UI-only behavior for non-demo flows.
+2. **Demo interaction hardening:** enforce state gating and empty/error/freshness states for onboarding, login, GPX import, crew/invites, and notes.
+3. **Demo IA and wording pass:** remove shell/testing language and align with customer demo narrative.
+4. **Design parity pass:** map design tokens/components to demo-critical screen modules first.
+5. **Demo validation pass:** run end-to-end manual checks for all section 6 demo flows on staging.
+6. **Documentation pass:** update this spec + roadmap doc with demo status and Backlog deltas.
 7. **Design system compliance pass:** verify DS wrapper usage and forbidden-token checks before merge.
 
 ---
 
-## 12) Validation checklist (definition of done)
+## 12) Validation checklist (demo definition of done)
 
-- [ ] All MVP flows in section 6 are executable in app on staging
-- [ ] Role gating and disabled-reason copy verified for all mutating controls
-- [ ] Outbox states (pending/sent/rejected/conflict) are distinct and recoverable
+- [ ] All demo flows in section 6 are executable in app on staging
+- [ ] Role gating and disabled-reason copy verified where mutations exist
 - [ ] No duplicate API or outbox logic introduced
-- [ ] UI labels are operator-facing (no smoke/test phrasing in primary controls)
-- [ ] Manual validation evidence documented for each flow
-- [ ] Design mapping table completed with frame references and parity notes
+- [ ] UI labels are customer-facing (no smoke/test phrasing in primary controls)
+- [ ] Manual validation evidence documented for each demo flow
+- [ ] Design mapping table completed with frame references and parity notes for demo-critical surfaces
 - [ ] DS primitives (`DSButton`/`DSCard`/`DSTextInput`) are used where applicable
-- [ ] Light/dark theme parity verified for all touched screens
+- [ ] Light/dark theme parity verified for all demo-critical screens
 
 ---
 
-## 13) Deliverables expected from UI MVP completion
+## 13) Deliverables expected from demo completion
 
-- production-ready mobile MVP workflow surfaces for WS1-WS5 + WS3/WS4 depth
-- documented design-to-implementation mapping for all MVP screens
-- stable base for deferred WS6 manager command center and eventual `apps/web`
+- demo-ready mobile workflow surfaces for onboarding, login, GPX import/splits, crew/invites, and shared notes
+- documented design-to-implementation mapping for all demo-critical screens
+- explicit Backlog carry-forward plan for remaining WS2/WS3/WS4/WS5/WS6 scope
 
 ---
 
@@ -391,6 +392,7 @@ Use this table during implementation:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-29 | Re-scoped spec to demo-first execution (onboarding, login, GPX import/splits, crew/invites, shared notes), preserving architecture/quality guardrails and moving non-demo scope to Backlog tracking. |
 | 2026-04-28 | Added fallback in-repo design-system baseline (`apps/mobile/src/design-system`) to continue migration safely without external design assets; migrated key navigation surfaces to DS wrappers and tokenized style generation in `App.tsx`. |
 | 2026-04-28 | Interaction hardening + operator copy pass implemented across mobile MVP screens/components; added explicit human-unblock notes for missing design-system artifacts and frame references. |
 | 2026-04-28 | Adopted design system baseline from provided instructions + JSON token schema; added mandatory DS rules, migration order, and compliance criteria for MVP UI work. |

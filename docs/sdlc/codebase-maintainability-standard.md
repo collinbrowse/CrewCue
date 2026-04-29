@@ -4,7 +4,6 @@
 **Intent:** make code understandable, navigable, and safe to extend without hidden coupling.
 
 **Related docs:**  
-- [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
 - [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [github-issues-and-prs.md](./github-issues-and-prs.md)

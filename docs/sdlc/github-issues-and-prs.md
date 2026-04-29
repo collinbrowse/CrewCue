@@ -109,6 +109,5 @@ Why this matters:
 
 ## See also
 
-- **[MVP delivery chunks and cloud strategy](./mvp-delivery-chunks-and-cloud-strategy.md)** — post–WS7 sequencing (chunks A–D), staging vs production, and gates; use chunk labels on issues when work maps to that layer.
 - **[Codebase maintainability standard](./codebase-maintainability-standard.md)** — required structure/comment/duplication expectations for PR quality.
-- **[Contributor onboarding map](./contributor-onboarding-map.md)** — fastest path for new humans/agents to find where logic lives.
+- **[SDLC docs map](./README.md)** — active docs vs archive doc.

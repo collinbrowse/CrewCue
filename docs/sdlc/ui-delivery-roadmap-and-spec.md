@@ -5,15 +5,11 @@
 
 **Related docs:**  
 - [README.md](./README.md)  
-- [mvp-delivery-chunks-and-cloud-strategy.md](./mvp-delivery-chunks-and-cloud-strategy.md)  
 - [mvp-ui-development-spec.md](./mvp-ui-development-spec.md)  
 - [agent-handoff.md](./agent-handoff.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
-- [chunk-c-mobile-auth0.md](./chunk-c-mobile-auth0.md)  
-- [chunk-c-smoke-script.md](./chunk-c-smoke-script.md)  
-- [mobile-phase3-staging-validation-checklist.md](./mobile-phase3-staging-validation-checklist.md)  
-- [chunk-d-d1-checkpoint-stoppage-time.md](./chunk-d-d1-checkpoint-stoppage-time.md)  
-- [merge-concurrency-policy.md](./merge-concurrency-policy.md)
+- [codebase-maintainability-standard.md](./codebase-maintainability-standard.md)
+- [github-issues-and-prs.md](./github-issues-and-prs.md)
 
 ---
 
@@ -119,150 +115,98 @@ Do not add parallel "fire-and-forget fetch" paths for the same operation type.
 
 ---
 
-## 5) Phased roadmap (explicit build order)
+## 5) Demo-first roadmap (explicit build order)
 
-Each phase should build on previous phases. Do not skip ordering unless issue-specific context explicitly says so.
+This roadmap now targets a customer-ready **demo build** as the top priority.
 
-## Phase 0 - Stabilize existing shell (complete)
+New terminology:
 
-**Goal:** prove cloud wiring and end-to-end smoke operations.
+- **Epic** = a large delivery stage (replaces "phase")
+- **Sprint** = a focused execution stream inside an epic (replaces "slice/chunk" language for UI planning)
+- **Backlog** = deferred or non-demo work that stays tracked
 
-Delivered:
+Delivery rule: complete Epic A before Epic B unless an issue explicitly documents an exception.
 
-- Auth0 sign-in
-- room create/activate/entitlement
-- ping + projection fetch
-- stoppage controls in shell
+## Epic A - Demo foundation (must ship first)
 
-Exit gate:
+**Goal:** demo visual polish + core "what this app does" workflow coverage.
 
-- staging smoke passes and basic operator path works manually
+Sprints:
 
-## Phase 1 - Operational mobile UI shell (Operate tab structured; Readouts unchanged)
-
-**Goal:** turn the single-page shell into a structured MVP operator UI without changing backend contracts.
-
-**Operate tab (2026-04-27):** section order is Room → Projection (stoppage summary always present after fetch, with explicit empty states) → Checkpoints and room actions → Outbox → Sync → Timeline, with the existing unified status rail at the top. Readouts tab remains the deeper WS3/WS4 readout surface.
-
-Build:
-
-- Sectioned layout (Room, Projection, Checkpoints, Outbox, Sync, Timeline)
-- Projection split list with stoppage summary always visible after fetch
-- Checkpoint action cards (enter/exit, source toggle) with role/freshness gating
-- Unified status rail (`last success`, `last error`, `pending count`, `stale`)
-
-Reuse requirements:
-
-- Keep existing API client and outbox contract
-- Extract repeated render/state helpers from `App.tsx` before adding new controls
-
-Exit gate:
-
-- Crew can run stoppage flow from structured UI with no curl
-- No duplicate fetch/mutation implementations
-
-## Phase 2 - WS5 resilience UI (D2)
-
-**Goal:** make offline/poor-connectivity behavior explicit and actionable.
-
-Build:
-
-- Outbox queue inspector (per operation, attempts, status, feedback)
-- Sync health panel (device staleness + pending counts)
-- Conflict resolution UX for merge-policy outcomes
-- Retry controls scoped to safe operations
-- Incremental slice shipped in [#162](https://github.com/collinbrowse/CrewCue/issues/162): targeted safe retry for pending ping outbox items from queue inspector while retaining global process-all behavior for mixed operations
-- **Queue diagnostics + merge telemetry (API parity):** mobile `createApiClient` exposes `getQueueDiagnostics`, `postQueueDiagnostics`, `getMergeRecords`, and `postMergeRecord`. **Operate → Status Detail** includes a WS5 panel to refresh telemetry, push pending-count snapshots, and list recent rows. **Outbox inspector** offers **Log merge telemetry (manual)** on conflict items when the room role may record merge rows (athlete, crew chief, team manager).
-
-Dependencies:
-
-- [merge-concurrency-policy.md](./merge-concurrency-policy.md) must be current
-
-Reuse requirements:
-
-- Extend existing outbox operation types and processor
-- Do not introduce a second retry queue
+1. **DL1 - Welcome and onboarding**
+   - clear first-run framing (what CrewCue is, who it is for)
+   - smooth path from onboarding into auth
+2. **DL2 - Normal login flow**
+   - reliable Auth0 sign-in/sign-out and session restore behavior
+   - production-like copy and visual treatment for auth screens/states
+3. **DL3 - GPX import -> expected split times**
+   - import a GPX file
+   - compute/show expected split times in a clear readout
+   - show actionable error states for invalid/unsupported GPX files
+4. **DL4 - Crew creation + member invite**
+   - create crew workflow
+   - invite members workflow
+   - role-aware visibility of member/invite status
+5. **DL5 - Shared crew notes**
+   - add notes to crew context
+   - notes are visible to all crew members in-app
+   - freshness/empty/error states are clear
+6. **DL6 - Demo visual pass**
+   - design-system consistency across demo-critical screens
+   - remove shell/test phrasing and rough edge copy
+   - tighten layout hierarchy so screens look customer-ready
 
 Exit gate:
 
-- Operators can distinguish pending vs conflict vs rejected and recover in-app
+- A presenter can complete onboarding, login, GPX import with expected splits, crew creation/invite, and shared notes live in-app without needing race ping/checkpoint flows.
+- Demo-critical screens look production-like and consistent with design-system baseline.
 
-## Phase 3 - WS3/WS4 operation depth UI
+## Epic B - Demo hardening
 
-**Goal:** round out race operations beyond stoppage timing.
+**Goal:** reduce demo risk and make presentation resilient.
 
-Build:
+Sprints:
 
-- Task board UX (assign/start/complete) with role-scoped views
-- Protocol notes + timeline as first-class panels
-- Structured incident capture + recommendation display
-- Plan delta view (before/after) for adaptive loop visibility
-
-Reuse requirements:
-
-- Use existing timeline/task API surfaces
-- Keep event semantics aligned with WS7 contracts
+- scripted demo path with deterministic seed data + reset steps
+- empty/loading/error polish for all Wave A surfaces
+- staging smoke checklist dedicated to the demo narrative
+- latency and reliability spot checks for demo actions
 
 Exit gate:
 
-- Incident-to-plan-update workflow complete in app
+- Demo can be repeated by another operator with predictable output and no ad-hoc setup.
 
-## Phase 4 - UX polish and navigation hardening
+## Backlog - not required for this demo (do not delete, keep tracked)
 
-**Goal:** improve usability after core flow and resilience stabilize.
+The items below remain valid roadmap work and should move forward after demo waves unless reprioritized again:
 
-Build:
-
-- Navigation architecture cleanup
-- visual system consistency
-- accessibility + large-text support
-- interaction latency optimization
-
-Rule:
-
-- No major design-system effort before Phases 1-3 are field-validated.
-
-Exit gate:
-
-- Core race-day flows are easier/faster to execute without changing backend contracts.
-
-## Phase 5 - WS6 manager command center (deferred / last priority)
-
-**Goal:** multi-athlete operational visibility for team managers, after core athlete+crew value is already in users' hands.
-
-Build:
-
-- Roster/athlete board view
-- Configurable status cards (calories/hr, carbs/hr, electrolytes/hr, sodium/hr)
-- Overlap/conflict views across checkpoints
-- Drill-down into per-athlete operational state
-
-Reuse requirements:
-
-- Reuse projection/task/sync primitives from prior phases
-- Avoid duplicating per-athlete feature logic with manager-only variants; compose shared components
-
-Defer rule:
-
-- Do not start WS6 manager command center while any of Phases 1-3 exit gates are open.
-- Treat this phase as post-MVP hardening/expansion unless product priorities explicitly change.
-
-Exit gate:
-
-- Manager can triage multiple athletes without switching tools.
+- Live race operations depth:
+  - WS2 checkpoint/stoppage operator depth
+  - ping-driven projection operation loops
+- WS5 resilience depth:
+  - outbox conflict/rejected recovery UX expansion beyond current baseline
+  - queue diagnostics/merge telemetry hardening
+- WS3/WS4 deeper race operations:
+  - full incident-to-plan-update operational loop hardening
+  - extended protocol/timeline/task operation depth
+- Broader UX architecture hardening:
+  - global navigation cleanup
+  - larger accessibility/large-text and latency program across all surfaces
+- WS6 manager command center:
+  - multi-athlete board and overlap/conflict views (still deferred until post-demo priorities allow)
 
 ---
 
 ## 6) UI capability matrix by workstream
 
-| Workstream | MVP UI requirement | First phase |
+| Workstream | MVP UI requirement | First epic |
 | --- | --- | --- |
-| WS1 | role-aware room lifecycle UI | Phase 1 |
-| WS2 | projection + checkpoint stoppage controls | Phase 1 |
-| WS3 | crew task execution + notes/timeline | Phase 3 |
-| WS4 | incident capture + adaptive recommendation view | Phase 3 |
-| WS5 | outbox/sync/conflict visibility and recovery | Phase 2 |
-| WS6 | multi-athlete manager board | Phase 5 (deferred) |
+| WS1 | role-aware room lifecycle UI + demo auth/onboarding continuity | Epic A |
+| WS2 | projection + checkpoint stoppage controls | Backlog (post-demo) |
+| WS3 | crew task execution + notes/timeline | Backlog (post-demo) |
+| WS4 | incident capture + adaptive recommendation view | Backlog (post-demo) |
+| WS5 | outbox/sync/conflict visibility and recovery | Backlog (post-demo) |
+| WS6 | multi-athlete manager board | Backlog (deferred) |
 | WS7 | contract-backed state and replay-safe semantics | cross-cutting |
 
 ---
@@ -289,7 +233,7 @@ Use this order across the entire monorepo so UI, API, sync, and ops work stay al
    - verify health/runtime on staging for cloud-touching changes
    - only then merge to `main`
 
-This order is mandatory for phases 1-3. Phase 5 (WS6) only starts after the same chain is already stable.
+This order is mandatory for active epics. WS6 starts only when explicitly pulled from the Backlog.
 
 ---
 
@@ -309,9 +253,9 @@ If a task would duplicate existing logic, refactor shared modules first, then ad
 
 ---
 
-## 9) Required documentation updates per phase
+## 9) Required documentation updates per epic
 
-Each merged UI phase should update:
+Each merged epic or sprint should update:
 
 1. this file (`ui-delivery-roadmap-and-spec.md`) revision history
 2. relevant chunk doc(s) (Chunk C for shell changes, Chunk D stream doc for depth changes)
@@ -325,7 +269,7 @@ No "silent UI architecture changes" in PRs without doc updates.
 
 A UI PR is not complete unless all apply:
 
-- [ ] maps to a specific roadmap phase in this doc
+- [ ] maps to a specific epic + sprint in this doc
 - [ ] reuses existing API/outbox contracts or clearly refactors them
 - [ ] includes offline/error/freshness behavior for modified workflows
 - [ ] includes tests for new state/mutation behavior
@@ -338,6 +282,7 @@ A UI PR is not complete unless all apply:
 
 | Date | Change |
 | --- | --- |
+| 2026-04-29 | Reframed roadmap to demo-first execution using **Epic / Sprint / Backlog** terminology; moved non-demo unfinished work into explicit backlog tracking without deleting scope. |
 | 2026-04-28 | Clarified Phase 2 WS5 safe-retry scope as **pending ping only** in roadmap text to match current UI/sync behavior and guard against retry-path drift. |
 | 2026-04-28 | Added guarded fallback design-system implementation under `apps/mobile/src/design-system` (tokens + DS wrappers) and switched mobile style generation to token-driven theming while canonical design artifacts are unavailable. |
 | 2026-04-28 | Phase 1/2 UI hardening pass: operator-facing wording updates, explicit disable reasons for key controls, readouts incident return-path improvement, and shared navigation color tokenization. |
