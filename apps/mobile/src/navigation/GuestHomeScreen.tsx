@@ -30,6 +30,7 @@ export function GuestHomeScreen(): ReactElement {
   const [productIndex, setProductIndex] = useState(0);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
   const [notificationsMessage, setNotificationsMessage] = useState<string | undefined>(undefined);
+  const [signupFlowStarted, setSignupFlowStarted] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -44,11 +45,17 @@ export function GuestHomeScreen(): ReactElement {
         if (
           storedStage === "product" ||
           storedStage === "auth" ||
-          storedStage === "signupAuth" ||
           storedStage === "notifications" ||
           storedStage === "done"
         ) {
           setOnboardingStage(storedStage);
+          setStageReady(true);
+          return;
+        }
+        if (storedStage === "signupAuth") {
+          // Avoid getting stuck in signup-only stage across app restarts.
+          setOnboardingStage("done");
+          await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, "done");
           setStageReady(true);
           return;
         }
@@ -78,11 +85,11 @@ export function GuestHomeScreen(): ReactElement {
   }, []);
 
   useEffect(() => {
-    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth") {
+    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth" || !signupFlowStarted) {
       return;
     }
     void setStage("notifications");
-  }, [onboardingStage, s.auth.status]);
+  }, [onboardingStage, s.auth.status, signupFlowStarted]);
 
   const currentProductStep = PRODUCT_STEPS[productIndex];
   const isFinalProductStep = productIndex === PRODUCT_STEPS.length - 1;
@@ -208,6 +215,7 @@ export function GuestHomeScreen(): ReactElement {
         <ActionButton
           label={primaryButtonLabel}
           onPress={() => {
+            setSignupFlowStarted(true);
             void setStage("signupAuth").then(() => s.auth.signUp());
           }}
           disabled={s.auth.status === "authenticating" || !stageReady}
@@ -215,7 +223,8 @@ export function GuestHomeScreen(): ReactElement {
         <ActionButton
           label="I already have an account"
           onPress={() => {
-            void s.auth.signIn();
+            setSignupFlowStarted(false);
+            void setStage("done").then(() => s.auth.signIn());
           }}
           variant="ghost"
         />

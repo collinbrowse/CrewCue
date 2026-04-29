@@ -34,33 +34,33 @@ Deliver Sprint 1 demo flows:
 
 ## Completed in this session
 
-1. Added a full GPX import feature module in `apps/mobile/src/features/gpx/gpxImport.ts` with track parsing/validation, distance computation, expected split generation, and presenter-friendly formatting helpers.
-2. Added GPX unit tests in `apps/mobile/src/features/gpx/gpxImport.test.ts` and wired them into the mobile test script in `apps/mobile/package.json`.
-3. Added `apps/mobile/src/navigation/GpxImportScreen.tsx` using `expo-document-picker` + `expo-file-system` to import GPX files, compute expected splits, and render loading/success/error guidance.
-4. Integrated the new screen into Readouts navigation via `apps/mobile/src/navigation/types.ts`, `apps/mobile/src/navigation/ReadoutsStack.tsx`, and `apps/mobile/src/navigation/AuthenticatedReadoutsScreen.tsx`.
-5. Applied UX polish from simulator feedback:
-   - auth error copy on `GuestHomeScreen` now maps OAuth failures to user-friendly guidance,
-   - `AuthenticatedOperateScreen` removes debug/session payload fields from home and replaces them with plain-language session guidance,
-   - `OperationalSummarySections` now supports hiding protocol notes and Readouts home hides protocol notes by default,
-   - GPX screen copy/actions were simplified for non-technical users.
-6. Ran validation for touched scope (`npm run test -w @crewcue/mobile`, `npm run typecheck -w @crewcue/mobile`).
+1. Finalized Sprint 1 Issue #187 upload flow polish in `apps/mobile/src/navigation/GpxImportScreen.tsx`:
+   - successful file selection now replaces the upload CTA with compact file details only,
+   - filename is shown in success green without extra surrounding text,
+   - file detail row now shows distance + elevation gain and a `Select new file` action,
+   - removed route summary/expected splits block from setup screen.
+2. Shifted server course persistence to `Finish race setup` so upload parse succeeds first and room course sync occurs on finalize.
+3. Removed local-only sync notice behavior from race setup flow.
+4. Updated elevation copy to remove `vert` wording (`ft gain` label).
+5. Validated with:
+   - `npm run typecheck -w @crewcue/mobile`
+   - `npm test -w @crewcue/mobile -- gpxImport`
 
 ## Next 1-3 tasks
 
-1. Open and merge PR for #187 after review/checks, then move #187 project status forward.
-2. Start #184 (Sprint 1: Crew creation + member invite workflow) as the next demo-critical user-visible flow.
-3. Keep non-demo scope in Backlog unless explicitly reprioritized.
+1. Open PR for #187 with required template sections and `Closes #187`.
+2. Run full repo `npm run verify` before merge.
+3. Start #184 (Sprint 1: crew creation + member invite workflow) after #187 PR is in review.
 
 ## Validation summary
 
-- `npm run test -w @crewcue/mobile`: pass
 - `npm run typecheck -w @crewcue/mobile`: pass
-- `npm run verify`: pass
+- `npm test -w @crewcue/mobile -- gpxImport`: pass
 
 ## Open risks/blockers/questions
 
-- GPX import currently requires timestamped `<trkpt><time>` data; files without timing metadata intentionally return actionable guidance instead of inferred pacing.
-- GPX import + updated auth/home copy were validated by tests/typecheck, but final simulator/device visual pass is still required before merge.
+- Server course upload now occurs on `Finish race setup`; if finalize fails, route details remain local until retry.
+- Final on-device visual smoke is still recommended before merge for issue #187.
 - Existing unstaged user change remains in `docs/sdlc/mvp-ui-development-spec.md` (left untouched).
 
 ## Guardrails
@@ -75,6 +75,6 @@ Deliver Sprint 1 demo flows:
 ```text
 Continue CrewCue on Epic A Sprint 1 (demo-first).
 Read: agent-handoff.md -> README.md -> token-budget.md -> mvp-ui-development-spec.md -> ui-delivery-roadmap-and-spec.md.
-Complete PR lifecycle for #187 (GPX import + expected splits) if still open, including project status updates.
-Then start #184 (crew creation + invites), implement the largest safe complete sprint slice, run npm run verify, and open/update a PR with Closes #184 and full required template sections.
+Complete PR lifecycle for #187 if still open (required template sections + Closes #187 + checks review).
+Then start #184 (crew creation + invites) as the next largest safe sprint slice.
 ```

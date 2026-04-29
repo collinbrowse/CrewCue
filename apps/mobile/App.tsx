@@ -116,6 +116,13 @@ type AuthedShellProps = {
   auth0: { auth0Domain: string; auth0ClientId: string; auth0Audience: string };
 };
 
+type RaceProfile = {
+  raceName: string;
+  raceDescription: string;
+  crewName: string;
+  setupComplete: boolean;
+};
+
 function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const theme = useDSTheme();
   const styles = useMemo(() => createAuthedStyles(theme), [theme]);
@@ -126,6 +133,32 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   });
 
   const [room, setRoom] = useState<RaceRoom | undefined>(undefined);
+  const [raceProfile, setRaceProfile] = useState<RaceProfile | undefined>(undefined);
+  const profileStorageKey = useMemo(
+    () => (room ? `crewcue.race-profile.${room.id}` : undefined),
+    [room?.id]
+  );
+
+  useEffect(() => {
+    if (!profileStorageKey) {
+      setRaceProfile(undefined);
+      return;
+    }
+    void (async () => {
+      const raw = await SecureStore.getItemAsync(profileStorageKey);
+      if (!raw) {
+        setRaceProfile(undefined);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw) as RaceProfile;
+        setRaceProfile(parsed);
+      } catch {
+        setRaceProfile(undefined);
+      }
+    })();
+  }, [profileStorageKey]);
+
   const [roomDetail, setRoomDetail] = useState<
     { room: RaceRoom; permissions: Record<string, boolean> } | undefined
   >(undefined);
@@ -257,7 +290,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     return () => clearInterval(id);
   }, [projectionPollEnabled, room?.status, room?.id, auth.accessToken, pollProjectionQuiet]);
 
-  const createRoom = useCallback(async () => {
+  const createRoom = useCallback(async (input?: { raceName?: string }) => {
     if (!auth.accessToken || !auth.claims?.sub) return;
     setBusy(true);
     setApiError(undefined);
@@ -267,7 +300,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const created = await client.createRaceRoom({
         teamId,
         athleteId: auth.claims.sub,
-        name: `Mobile ops ${new Date().toISOString().slice(0, 16)}`,
+        name: input?.raceName?.trim() || `Race ${new Date().toISOString().slice(0, 16)}`,
         creatorRole: "team_manager"
       });
       setRoom(created);
@@ -288,12 +321,25 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setMergeRecords(undefined);
       setSyncStatusMessage(undefined);
       setStatusSuccess(`Room created (${created.id.slice(0, 8)}...)`);
+      return created;
     } catch (err) {
       setStatusError(err);
+      return undefined;
     } finally {
       setBusy(false);
     }
   }, [auth.accessToken, auth.claims, baseUrl, setStatusError, setStatusSuccess]);
+
+  const saveRaceProfile = useCallback(
+    async (profile: RaceProfile) => {
+      setRaceProfile(profile);
+      if (!profileStorageKey) {
+        return;
+      }
+      await SecureStore.setItemAsync(profileStorageKey, JSON.stringify(profile));
+    },
+    [profileStorageKey]
+  );
 
   const markEntitlementPaid = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -897,6 +943,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     syncStatusMessage,
     projection,
     room,
+    raceProfile,
     roomDetail,
     lastPing,
     syncHealth,
@@ -922,6 +969,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     describeOutboxOperation,
     describeOutboxStatus,
     onCreateRoom: createRoom,
+    onSaveRaceProfile: saveRaceProfile,
     onProcessOutbox: processOutboxAction,
     onMarkEntitlementPaid: markEntitlementPaid,
     onFetchRoomDetails: fetchRoomDetails,

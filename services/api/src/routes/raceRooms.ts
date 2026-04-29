@@ -83,6 +83,11 @@ const activateRaceRoomInput = z.object({
   plannedPaceSecondsPerKm: z.number().positive().optional()
 });
 
+const updateRaceCourseInput = z.object({
+  course: raceCourseInput,
+  plannedPaceSecondsPerKm: z.number().positive()
+});
+
 const updateEntitlementInput = z.object({
   status: z.enum(["unpaid", "paid", "expired"])
 });
@@ -916,6 +921,56 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     clearWs5RoomLocalState(roomId);
     await saveRaceRoom(activated);
     return reply.send(activated);
+  });
+
+  app.put("/race-rooms/:roomId/course", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const permissions = getPermissions(membership.role);
+    if (!permissions.canActivateRoom) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+
+    const parsed = updateRaceCourseInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid course payload" });
+    }
+
+    const updatedRoom: RaceRoom = {
+      ...room,
+      course: parsed.data.course,
+      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm
+    };
+
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
+    ws2RuntimeHydratedFromDb.delete(roomId);
+    clearTaskBoardLocalState(roomId);
+    await deleteWs2RuntimePayload(roomId);
+    await deleteTaskBoardPayload(roomId);
+    await deleteTaskBoardSnapshot(roomId);
+    await deleteWs4AdaptivePayload(roomId);
+    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+    clearWs4RoomLocalState(roomId);
+    await deleteWs5SyncPayload(roomId);
+    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+    clearWs5RoomLocalState(roomId);
+
+    await saveRaceRoom(updatedRoom);
+    return reply.send(updatedRoom);
   });
 
   app.post("/race-rooms/:roomId/invites", async (request, reply) => {

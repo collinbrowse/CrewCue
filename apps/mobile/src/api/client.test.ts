@@ -201,3 +201,37 @@ test("WS5 sync client uses queue-diagnostics and merge-records paths", async () 
     globalThis.fetch = prev;
   }
 });
+
+test("updateRaceCourse sends room course payload", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      assert.ok(url.endsWith("/race-rooms/room-1/course"));
+      assert.equal(init?.method, "PUT");
+      const body = JSON.parse(String(init?.body)) as {
+        plannedPaceSecondsPerKm: number;
+        course: { checkpoints: Array<{ id: string }> };
+      };
+      assert.equal(body.plannedPaceSecondsPerKm, 360);
+      assert.equal(body.course.checkpoints[0]?.id, "aid-1");
+      return new Response(JSON.stringify(minimalRoom), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.updateRaceCourse("room-1", {
+      plannedPaceSecondsPerKm: 360,
+      course: {
+        checkpoints: [
+          { id: "aid-1", latitude: 40.7, longitude: -74.0 },
+          { id: "aid-2", latitude: 40.8, longitude: -73.9 }
+        ]
+      }
+    });
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

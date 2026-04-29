@@ -2,7 +2,6 @@ import type { ReactElement } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScrollView, Text, View } from "react-native";
-import { OperationalSummarySections } from "../components/OperationalSummarySections";
 import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { ReadoutsStackParamList } from "./types";
@@ -33,36 +32,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               Incident Feed Detail
             </DSButton>
           </View>
-          <View style={{ flex: 1 }}>
-            <DSButton preset="primary" onPress={() => navigation.navigate("GpxImport")}>
-              GPX Import + Splits
-            </DSButton>
-          </View>
         </View>
 
-        <OperationalSummarySections
-          styles={s.styles}
-          showProtocolNotes={false}
-          room={s.room}
-          roomDetail={s.roomDetail}
-          lastPing={s.lastPing}
-          syncHealth={s.syncHealth}
-          projection={s.projection}
-          projectionPolledAt={s.projectionPolledAt}
-          lastProtocolNote={s.lastProtocolNote}
-          timeline={s.timeline}
-          incidents={s.incidents}
-          latestRecommendation={s.latestRecommendation}
-          latestExplainability={s.latestExplainability}
-          planDelta={s.planDelta}
-          taskBoard={s.taskBoard}
-          onToggleResolvedSource={s.onToggleResolvedSource}
-          canToggleResolvedSource={s.canUseCheckpointControls}
-          onEnqueueTaskAction={s.onEnqueueTaskAction}
-          canMutateTasks={Boolean(s.room?.status === "active" && s.canEditTasks && !s.busy)}
-          taskAssigneeUserId={s.auth.claims?.sub}
-          taskAssigneeRole={s.currentRoomRole}
-        />
+        <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
+          <Text style={s.styles.summaryTitle}>What to open next</Text>
+          <Text style={s.styles.body}>Use Incident Feed Detail when reviewing race events and recommendations.</Text>
+        </DSCard>
       </DSCard>
     </ScrollView>
   );
