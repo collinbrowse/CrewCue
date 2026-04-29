@@ -33,6 +33,11 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               Incident Feed Detail
             </DSButton>
           </View>
+          <View style={{ flex: 1 }}>
+            <DSButton preset="primary" onPress={() => navigation.navigate("GpxImport")}>
+              GPX Import + Splits
+            </DSButton>
+          </View>
         </View>
 
         <OperationalSummarySections

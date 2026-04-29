@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
+import { GpxImportScreen } from "./GpxImportScreen";
 import { navColors } from "./navigationTheme";
 import { ReadoutsIncidentsScreen } from "./ReadoutsIncidentsScreen";
 import type { ReadoutsStackParamList } from "./types";
@@ -24,6 +25,7 @@ export function ReadoutsStack(): ReactElement {
         component={ReadoutsIncidentsScreen}
         options={{ title: "Incident Feed Detail" }}
       />
+      <Stack.Screen name="GpxImport" component={GpxImportScreen} options={{ title: "GPX Import + Splits" }} />
     </Stack.Navigator>
   );
 }

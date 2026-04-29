@@ -13,6 +13,7 @@ export type OperateStackParamList = {
 export type ReadoutsStackParamList = {
   ReadoutsHome: undefined;
   ReadoutsIncidents: undefined;
+  GpxImport: undefined;
 };
 
 export type CrewMainTabParamList = {
