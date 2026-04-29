@@ -194,17 +194,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
     setTokens(undefined);
     setError(undefined);
     setStatus("anonymous");
-    try {
-      await WebBrowser.openAuthSessionAsync(
-        `https://${settings.domain}/v2/logout?client_id=${encodeURIComponent(
-          settings.clientId
-        )}&returnTo=${encodeURIComponent(redirectUri)}`,
-        redirectUri
-      );
-    } catch {
-      /* best effort */
-    }
-  }, [settings.domain, settings.clientId, redirectUri]);
+  }, []);
 
   const claims = tokens?.accessToken ? decodeAccessTokenClaims(tokens.accessToken) : undefined;
 
