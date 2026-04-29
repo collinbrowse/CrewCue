@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import * as Notifications from "expo-notifications";
-import { OperationalSummarySections } from "../components/OperationalSummarySections";
-import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader";
-import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 const ONBOARDING_STAGE_KEY = "crewcue.guest.onboardingStage.v1";
@@ -146,167 +143,274 @@ export function GuestHomeScreen(): ReactElement {
     }
   };
 
+  const renderSplash = () => (
+    <View style={[styles.stageContainer, styles.splashBackground]}>
+      <View style={[styles.orb, styles.orbTop]} />
+      <View style={[styles.orb, styles.orbBottom]} />
+      <View style={styles.contentWrap}>
+        <Text style={styles.brandTitle}>CrewCue</Text>
+        <Text style={styles.brandTagline}>Race-day command for athletes and crew</Text>
+        <View style={styles.loadingPill}>
+          <Text style={styles.loadingText}>Preparing your workspace...</Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderProduct = () => (
+    <View style={[styles.stageContainer, styles.productBackground]}>
+      <View style={styles.contentWrap}>
+        <Text style={styles.stageKicker}>Welcome to CrewCue</Text>
+        <Text style={styles.stageTitle}>{currentProductStep.title}</Text>
+        <Text style={styles.stageBody}>{currentProductStep.body}</Text>
+        <View style={styles.dotRow}>
+          {PRODUCT_STEPS.map((_, index) => (
+            <View key={`dot-${index}`} style={[styles.dot, productIndex === index ? styles.dotActive : null]} />
+          ))}
+        </View>
+      </View>
+      <View style={styles.actionWrap}>
+        <ActionButton label={primaryButtonLabel} onPress={handlePrimaryPress} />
+        <ActionButton label="Sign in now" onPress={() => void setStage("auth")} variant="ghost" />
+      </View>
+    </View>
+  );
+
+  const renderAuth = () => (
+    <View style={[styles.stageContainer, styles.authBackground]}>
+      <View style={styles.contentWrap}>
+        <Text style={styles.stageKicker}>Secure sign-in</Text>
+        <Text style={styles.stageTitle}>Welcome back</Text>
+        <Text style={styles.stageBody}>
+          Sign in with your CrewCue account to continue where you left off and keep race operations synchronized.
+        </Text>
+        {s.auth.status === "error" ? <Text style={styles.errorText}>{s.auth.error ?? "Sign-in failed. Try again."}</Text> : null}
+      </View>
+      <View style={styles.actionWrap}>
+        <ActionButton
+          label={primaryButtonLabel}
+          onPress={handlePrimaryPress}
+          disabled={s.auth.status === "authenticating" || !stageReady}
+        />
+        <ActionButton
+          label="Continue without notifications"
+          onPress={() => {
+            void setStage("notifications");
+          }}
+          variant="ghost"
+        />
+      </View>
+    </View>
+  );
+
+  const renderNotifications = () => (
+    <View style={[styles.stageContainer, styles.notificationsBackground]}>
+      <View style={styles.contentWrap}>
+        <Text style={styles.stageKicker}>Stay in sync</Text>
+        <Text style={styles.stageTitle}>Enable notifications</Text>
+        <Text style={styles.stageBody}>
+          Get important alerts for assignments, incidents, and pace changes so your crew can react quickly.
+        </Text>
+        {notificationsMessage ? <Text style={styles.infoText}>{notificationsMessage}</Text> : null}
+      </View>
+      <View style={styles.actionWrap}>
+        <ActionButton label={primaryButtonLabel} onPress={handlePrimaryPress} disabled={notificationsBusy} />
+        <ActionButton
+          label="Not now"
+          onPress={() => {
+            setNotificationsMessage("You can enable notifications later in Settings.");
+            void setStage("done");
+          }}
+          variant="ghost"
+        />
+      </View>
+    </View>
+  );
+
   return (
-    <ScrollView
-      style={s.styles.container}
-      contentContainerStyle={s.styles.scroll}
-      keyboardShouldPersistTaps="handled"
-    >
-      <DSCard style={s.styles.card}>
-        {onboardingStage === "splash" && stageReady ? null : <Text style={s.styles.title}>CrewCue</Text>}
-        {onboardingStage === "splash" ? (
-          <>
-            <Text style={s.styles.subtitle}>Race-day command for athletes and crew</Text>
-            <View style={s.styles.summaryCard}>
-              <Text style={s.styles.summaryTitle}>Loading your workspace...</Text>
-              <Text style={s.styles.body}>Preparing onboarding and secure sign-in.</Text>
-            </View>
-          </>
-        ) : null}
-        {onboardingStage === "product" ? (
-          <Text style={s.styles.subtitle}>Built for fast race-day decisions</Text>
-        ) : null}
-        {onboardingStage === "auth" || onboardingStage === "done" ? (
-          <Text style={s.styles.subtitle}>Sign in to continue race operations</Text>
-        ) : null}
-        {onboardingStage === "notifications" ? (
-          <Text style={s.styles.subtitle}>Enable alerts for real-time crew coordination</Text>
-        ) : null}
-
-        <MobileShellSessionHeader
-          styles={s.styles}
-          baseUrl={s.baseUrl}
-          redirectUri={s.auth.redirectUri}
-          authStatus={s.auth.status}
-          claims={s.auth.claims}
-          authError={s.auth.error}
-          pendingOutboxCount={s.pendingOutboxCount}
-          outboxTotal={s.outbox.length}
-          appState={s.appState}
-        />
-
-        {onboardingStage === "product" ? (
-          <View style={{ marginTop: 16, gap: 8 }}>
-            <View style={s.styles.summaryCard}>
-              <Text style={s.styles.summaryTitle}>
-                Product tour {productIndex + 1} of {PRODUCT_STEPS.length}: {currentProductStep.title}
-              </Text>
-              <Text style={s.styles.body}>{currentProductStep.body}</Text>
-            </View>
-            <DSButton preset="primary" onPress={handlePrimaryPress} disabled={!stageReady}>
-              {primaryButtonLabel}
-            </DSButton>
-            <DSButton
-              preset="secondary"
-              onPress={() => {
-                void setStage("auth");
-              }}
-              disabled={!stageReady}
-            >
-              Sign in now
-            </DSButton>
-          </View>
-        ) : null}
-
-        {onboardingStage === "auth" || onboardingStage === "done" ? (
-          <View style={{ marginTop: 16, gap: 8 }}>
-            <DSButton
-              preset="primary"
-              onPress={handlePrimaryPress}
-              disabled={s.auth.status === "authenticating" || !stageReady}
-            >
-              {primaryButtonLabel}
-            </DSButton>
-            {onboardingStage === "auth" ? (
-              <DSButton
-                preset="secondary"
-                onPress={() => {
-                  void setStage("notifications");
-                }}
-                disabled={!stageReady}
-              >
-                Continue without notifications
-              </DSButton>
-            ) : null}
-            {s.auth.status === "error" ? (
-              <Text style={s.styles.errorText}>
-                {s.auth.error ?? "Login did not complete. Please try again."}
-              </Text>
-            ) : null}
-            {s.auth.status === "bootstrapping" ? (
-              <Text style={s.styles.mutedText}>Restoring your previous session...</Text>
-            ) : null}
-            {s.auth.status === "anonymous" ? (
-              <Text style={s.styles.mutedText}>Use your CrewCue login to continue.</Text>
-            ) : null}
-            <Text style={s.styles.mutedText}>Secure login uses your normal account and returns here automatically.</Text>
-          </View>
-        ) : null}
-
-        {onboardingStage === "notifications" ? (
-          <View style={{ marginTop: 16, gap: 8 }}>
-            <View style={s.styles.summaryCard}>
-              <Text style={s.styles.summaryTitle}>Turn on notifications</Text>
-              <Text style={s.styles.body}>
-                Alerts keep your crew synced on pings, incident updates, and assignment changes during active race operations.
-              </Text>
-            </View>
-            <DSButton preset="primary" onPress={handlePrimaryPress} disabled={notificationsBusy}>
-              {primaryButtonLabel}
-            </DSButton>
-            <DSButton
-              preset="secondary"
-              onPress={() => {
-                setNotificationsMessage("Notifications skipped. You can enable them later in Settings.");
-                void setStage("done");
-              }}
-              disabled={notificationsBusy}
-            >
-              Not now
-            </DSButton>
-            {notificationsMessage ? <Text style={s.styles.mutedText}>{notificationsMessage}</Text> : null}
-          </View>
-        ) : null}
-
-        {s.auth.status === "authenticating" ? (
-          <View style={s.styles.statusRail}>
-            <Text style={s.styles.statusRailTitle}>Signing in</Text>
-            <Text style={s.styles.statusRailItem}>Waiting for secure login to complete...</Text>
-          </View>
-        ) : null}
-
-        {s.auth.status === "error" && (onboardingStage === "auth" || onboardingStage === "done") ? (
-          <View style={s.styles.statusRail}>
-            <Text style={s.styles.statusRailTitle}>Sign-in needs attention</Text>
-            <Text style={s.styles.statusRailItem}>
-              Retry sign-in. If this keeps happening, verify your Auth0 callback URL configuration.
-            </Text>
-          </View>
-        ) : null}
-
-        <OperationalSummarySections
-          styles={s.styles}
-          room={s.room}
-          roomDetail={s.roomDetail}
-          lastPing={s.lastPing}
-          syncHealth={s.syncHealth}
-          projection={s.projection}
-          projectionPolledAt={s.projectionPolledAt}
-          lastProtocolNote={s.lastProtocolNote}
-          timeline={s.timeline}
-          incidents={s.incidents}
-          latestRecommendation={s.latestRecommendation}
-          latestExplainability={s.latestExplainability}
-          planDelta={s.planDelta}
-          taskBoard={s.taskBoard}
-          onToggleResolvedSource={s.onToggleResolvedSource}
-          canToggleResolvedSource={s.canUseCheckpointControls}
-          onEnqueueTaskAction={s.onEnqueueTaskAction}
-          canMutateTasks={Boolean(s.room?.status === "active" && s.canEditTasks && !s.busy)}
-          taskAssigneeUserId={s.auth.claims?.sub}
-          taskAssigneeRole={s.currentRoomRole}
-        />
-      </DSCard>
-    </ScrollView>
+    <SafeAreaView style={styles.root}>
+      {onboardingStage === "splash" ? renderSplash() : null}
+      {onboardingStage === "product" ? renderProduct() : null}
+      {onboardingStage === "auth" || onboardingStage === "done" ? renderAuth() : null}
+      {onboardingStage === "notifications" ? renderNotifications() : null}
+    </SafeAreaView>
   );
 }
+
+type ActionButtonProps = {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  variant?: "primary" | "ghost";
+};
+
+function ActionButton({ label, onPress, disabled = false, variant = "primary" }: ActionButtonProps): ReactElement {
+  const ghost = variant === "ghost";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[
+        styles.actionButton,
+        ghost ? styles.ghostActionButton : styles.primaryActionButton,
+        disabled ? styles.disabledActionButton : null
+      ]}
+    >
+      <Text style={[styles.actionButtonLabel, ghost ? styles.ghostActionLabel : styles.primaryActionLabel]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: "#090f26"
+  },
+  stageContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    justifyContent: "space-between"
+  },
+  splashBackground: {
+    backgroundColor: "#1e1b4b"
+  },
+  productBackground: {
+    backgroundColor: "#0f766e"
+  },
+  authBackground: {
+    backgroundColor: "#1d4ed8"
+  },
+  notificationsBackground: {
+    backgroundColor: "#7c3aed"
+  },
+  orb: {
+    position: "absolute",
+    borderRadius: 9999,
+    opacity: 0.26
+  },
+  orbTop: {
+    width: 240,
+    height: 240,
+    backgroundColor: "#22d3ee",
+    top: -50,
+    right: -40
+  },
+  orbBottom: {
+    width: 280,
+    height: 280,
+    backgroundColor: "#a78bfa",
+    bottom: -120,
+    left: -110
+  },
+  contentWrap: {
+    gap: 14,
+    marginTop: 36
+  },
+  brandTitle: {
+    color: "#ffffff",
+    fontSize: 46,
+    fontWeight: "800",
+    letterSpacing: -1
+  },
+  brandTagline: {
+    color: "#dbeafe",
+    fontSize: 18,
+    lineHeight: 24
+  },
+  loadingPill: {
+    marginTop: 16,
+    alignSelf: "flex-start",
+    borderRadius: 9999,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    paddingVertical: 10,
+    paddingHorizontal: 16
+  },
+  loadingText: {
+    color: "#eff6ff",
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  stageKicker: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1
+  },
+  stageTitle: {
+    color: "#ffffff",
+    fontSize: 40,
+    fontWeight: "800",
+    lineHeight: 42,
+    letterSpacing: -0.8
+  },
+  stageBody: {
+    color: "#e0e7ff",
+    fontSize: 18,
+    lineHeight: 27
+  },
+  dotRow: {
+    marginTop: 16,
+    flexDirection: "row",
+    gap: 8
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.4)"
+  },
+  dotActive: {
+    width: 26,
+    backgroundColor: "#ffffff"
+  },
+  actionWrap: {
+    gap: 12,
+    marginBottom: 8
+  },
+  actionButton: {
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+    paddingHorizontal: 14
+  },
+  primaryActionButton: {
+    backgroundColor: "#ffffff"
+  },
+  ghostActionButton: {
+    backgroundColor: "rgba(255,255,255,0.17)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)"
+  },
+  disabledActionButton: {
+    opacity: 0.55
+  },
+  actionButtonLabel: {
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  primaryActionLabel: {
+    color: "#111827"
+  },
+  ghostActionLabel: {
+    color: "#f8fafc"
+  },
+  errorText: {
+    color: "#fee2e2",
+    backgroundColor: "rgba(153,27,27,0.35)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    overflow: "hidden"
+  },
+  infoText: {
+    color: "#ede9fe",
+    backgroundColor: "rgba(76,29,149,0.28)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    overflow: "hidden"
+  }
+});
