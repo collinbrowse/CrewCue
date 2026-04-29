@@ -6,7 +6,7 @@ import { MobileShellSessionHeader } from "../components/MobileShellSessionHeader
 import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
-const ONBOARDING_KEY = "crewcue.guest.onboardingCompleted";
+const ONBOARDING_KEY = "crewcue.guest.onboardingCompleted.v2";
 
 const ONBOARDING_STEPS = [
   {
