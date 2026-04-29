@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import * as Notifications from "expo-notifications";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-
-const ONBOARDING_STAGE_KEY = "crewcue.guest.onboardingStage.v1";
+import { ONBOARDING_STAGE_KEY, type OnboardingStage } from "./onboardingState";
 const ONBOARDING_SPLASH_MS = 1400;
-
-type OnboardingStage = "splash" | "product" | "auth" | "notifications" | "done";
 
 const PRODUCT_STEPS = [
   {
@@ -26,6 +24,7 @@ const PRODUCT_STEPS = [
 
 export function GuestHomeScreen(): ReactElement {
   const s = useAuthedShell();
+  const insets = useSafeAreaInsets();
   const [stageReady, setStageReady] = useState(false);
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("splash");
   const [productIndex, setProductIndex] = useState(0);
@@ -42,7 +41,13 @@ export function GuestHomeScreen(): ReactElement {
         if (!mounted) {
           return;
         }
-        if (storedStage === "product" || storedStage === "auth" || storedStage === "notifications" || storedStage === "done") {
+        if (
+          storedStage === "product" ||
+          storedStage === "auth" ||
+          storedStage === "signupAuth" ||
+          storedStage === "notifications" ||
+          storedStage === "done"
+        ) {
           setOnboardingStage(storedStage);
           setStageReady(true);
           return;
@@ -72,6 +77,13 @@ export function GuestHomeScreen(): ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth") {
+      return;
+    }
+    void setStage("notifications");
+  }, [onboardingStage, s.auth.status]);
+
   const currentProductStep = PRODUCT_STEPS[productIndex];
   const isFinalProductStep = productIndex === PRODUCT_STEPS.length - 1;
 
@@ -84,9 +96,12 @@ export function GuestHomeScreen(): ReactElement {
     }
     if (onboardingStage === "auth") {
       if (s.auth.status === "authenticating") {
-        return "Opening secure login...";
+        return "Connecting to Auth0...";
       }
-      return "Continue with Auth0";
+      return "Sign Up";
+    }
+    if (onboardingStage === "signupAuth") {
+      return "Finishing account setup...";
     }
     if (onboardingStage === "notifications") {
       return notificationsBusy ? "Updating notifications..." : "Enable notifications";
@@ -100,6 +115,7 @@ export function GuestHomeScreen(): ReactElement {
   const setStage = async (nextStage: OnboardingStage) => {
     setOnboardingStage(nextStage);
     await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, nextStage);
+    await s.onRefreshOnboardingStage();
   };
 
   const handleEnableNotifications = async () => {
@@ -133,7 +149,7 @@ export function GuestHomeScreen(): ReactElement {
       return;
     }
 
-    if (onboardingStage === "auth" || onboardingStage === "done") {
+    if (onboardingStage === "done") {
       void s.auth.signIn();
       return;
     }
@@ -144,7 +160,7 @@ export function GuestHomeScreen(): ReactElement {
   };
 
   const renderSplash = () => (
-    <View style={[styles.stageContainer, styles.splashBackground]}>
+    <View style={styles.stageScreen}>
       <View style={[styles.orb, styles.orbTop]} />
       <View style={[styles.orb, styles.orbBottom]} />
       <View style={styles.contentWrap}>
@@ -158,11 +174,11 @@ export function GuestHomeScreen(): ReactElement {
   );
 
   const renderProduct = () => (
-    <View style={[styles.stageContainer, styles.productBackground]}>
+    <View style={styles.stageScreen}>
       <View style={styles.contentWrap}>
         <Text style={styles.stageKicker}>Welcome to CrewCue</Text>
         <Text style={styles.stageTitle}>{currentProductStep.title}</Text>
-        <Text style={styles.stageBody}>{currentProductStep.body}</Text>
+        <Text style={styles.stageBodyText}>{currentProductStep.body}</Text>
         <View style={styles.dotRow}>
           {PRODUCT_STEPS.map((_, index) => (
             <View key={`dot-${index}`} style={[styles.dot, productIndex === index ? styles.dotActive : null]} />
@@ -177,11 +193,11 @@ export function GuestHomeScreen(): ReactElement {
   );
 
   const renderAuth = () => (
-    <View style={[styles.stageContainer, styles.authBackground]}>
+    <View style={styles.stageScreen}>
       <View style={styles.contentWrap}>
         <Text style={styles.stageKicker}>Secure sign-in</Text>
         <Text style={styles.stageTitle}>Welcome back</Text>
-        <Text style={styles.stageBody}>
+        <Text style={styles.stageBodyText}>
           Sign in with your CrewCue account to continue where you left off and keep race operations synchronized.
         </Text>
         {s.auth.status === "error" ? <Text style={styles.errorText}>{s.auth.error ?? "Sign-in failed. Try again."}</Text> : null}
@@ -189,13 +205,15 @@ export function GuestHomeScreen(): ReactElement {
       <View style={styles.actionWrap}>
         <ActionButton
           label={primaryButtonLabel}
-          onPress={handlePrimaryPress}
+          onPress={() => {
+            void setStage("signupAuth").then(() => s.auth.signUp());
+          }}
           disabled={s.auth.status === "authenticating" || !stageReady}
         />
         <ActionButton
-          label="Continue without notifications"
+          label="I already have an account"
           onPress={() => {
-            void setStage("notifications");
+            void s.auth.signIn();
           }}
           variant="ghost"
         />
@@ -204,11 +222,11 @@ export function GuestHomeScreen(): ReactElement {
   );
 
   const renderNotifications = () => (
-    <View style={[styles.stageContainer, styles.notificationsBackground]}>
+    <View style={styles.stageScreen}>
       <View style={styles.contentWrap}>
         <Text style={styles.stageKicker}>Stay in sync</Text>
         <Text style={styles.stageTitle}>Enable notifications</Text>
-        <Text style={styles.stageBody}>
+        <Text style={styles.stageBodyText}>
           Get important alerts for assignments, incidents, and pace changes so your crew can react quickly.
         </Text>
         {notificationsMessage ? <Text style={styles.infoText}>{notificationsMessage}</Text> : null}
@@ -228,12 +246,27 @@ export function GuestHomeScreen(): ReactElement {
   );
 
   return (
-    <SafeAreaView style={styles.root}>
-      {onboardingStage === "splash" ? renderSplash() : null}
-      {onboardingStage === "product" ? renderProduct() : null}
-      {onboardingStage === "auth" || onboardingStage === "done" ? renderAuth() : null}
-      {onboardingStage === "notifications" ? renderNotifications() : null}
-    </SafeAreaView>
+    <View
+      style={[
+        styles.root,
+        onboardingStage === "splash"
+          ? styles.splashBackground
+          : onboardingStage === "product"
+            ? styles.productBackground
+            : onboardingStage === "notifications"
+              ? styles.notificationsBackground
+              : styles.authBackground
+      ]}
+    >
+      <View style={[styles.stageContainer, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+        {onboardingStage === "splash" ? renderSplash() : null}
+        {onboardingStage === "product" ? renderProduct() : null}
+        {onboardingStage === "auth" || onboardingStage === "done" || onboardingStage === "signupAuth"
+          ? renderAuth()
+          : null}
+        {onboardingStage === "notifications" ? renderNotifications() : null}
+      </View>
+    </View>
   );
 }
 
@@ -269,7 +302,10 @@ const styles = StyleSheet.create({
   stageContainer: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    justifyContent: "space-between"
+  },
+  stageScreen: {
+    flex: 1,
     justifyContent: "space-between"
   },
   splashBackground: {
@@ -305,7 +341,7 @@ const styles = StyleSheet.create({
   },
   contentWrap: {
     gap: 14,
-    marginTop: 36
+    marginTop: 16
   },
   brandTitle: {
     color: "#ffffff",
@@ -345,7 +381,7 @@ const styles = StyleSheet.create({
     lineHeight: 42,
     letterSpacing: -0.8
   },
-  stageBody: {
+  stageBodyText: {
     color: "#e0e7ff",
     fontSize: 18,
     lineHeight: 27

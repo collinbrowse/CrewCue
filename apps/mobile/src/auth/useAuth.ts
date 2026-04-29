@@ -23,6 +23,7 @@ export type AuthState = {
   error?: string;
   redirectUri: string;
   signIn: () => Promise<void>;
+  signUp: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -145,6 +146,10 @@ export function useAuth(settings: Auth0Settings): AuthState {
     }
   }, [promptAsync]);
 
+  const signUp = useCallback(async () => {
+    await signIn();
+  }, [signIn]);
+
   const signOut = useCallback(async () => {
     await clearTokens();
     setTokens(undefined);
@@ -168,6 +173,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
     status,
     redirectUri,
     signIn,
+    signUp,
     signOut
   };
   if (tokens?.accessToken) state.accessToken = tokens.accessToken;

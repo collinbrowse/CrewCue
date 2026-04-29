@@ -55,6 +55,12 @@ import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
 import { useDSTheme, type DSThemeTokens } from "./src/design-system";
+import * as SecureStore from "expo-secure-store";
+import {
+  ONBOARDING_STAGE_KEY,
+  requiresOnboardingGateForAuthenticatedUser,
+  type OnboardingStage
+} from "./src/navigation/onboardingState";
 
 const MOBILE_DEVICE_ID = "mobile-operator-device";
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
@@ -148,6 +154,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
   const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
+  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("done");
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
@@ -207,6 +214,26 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       subscription.remove();
     };
   }, []);
+
+  const refreshOnboardingStage = useCallback(async () => {
+    const storedStage = (await SecureStore.getItemAsync(ONBOARDING_STAGE_KEY)) as OnboardingStage | null;
+    if (
+      storedStage === "splash" ||
+      storedStage === "product" ||
+      storedStage === "auth" ||
+      storedStage === "signupAuth" ||
+      storedStage === "notifications" ||
+      storedStage === "done"
+    ) {
+      setOnboardingStage(storedStage);
+      return;
+    }
+    setOnboardingStage("done");
+  }, []);
+
+  useEffect(() => {
+    void refreshOnboardingStage();
+  }, [refreshOnboardingStage]);
 
   const pollProjectionQuiet = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -933,13 +960,17 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onSignOut: auth.signOut,
     onToggleResolvedSource: enqueueSourceToggle,
     onEnqueueTaskAction: enqueueTaskAction,
-    onRetryOutboxOperationSafely: retryOutboxOperationSafely
+    onRetryOutboxOperationSafely: retryOutboxOperationSafely,
+    onRefreshOnboardingStage: refreshOnboardingStage
   };
+
+  const showAuthedTabs =
+    auth.status === "authenticated" && !requiresOnboardingGateForAuthenticatedUser(onboardingStage);
 
   return (
     <AuthedShellProvider value={shellValue}>
       <NavigationContainer theme={crewCueNavigationTheme} linking={crewCueLinking}>
-        {auth.status === "authenticated" ? <CrewMainTabs /> : <GuestStack />}
+        {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
       <StatusBar style="light" />
     </AuthedShellProvider>
