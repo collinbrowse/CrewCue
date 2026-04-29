@@ -146,19 +146,31 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setRaceProfile(undefined);
       return;
     }
+    const storageKey = profileStorageKey;
+    let cancelled = false;
     void (async () => {
-      const raw = await SecureStore.getItemAsync(profileStorageKey);
+      const raw = await SecureStore.getItemAsync(storageKey);
+      if (cancelled) {
+        return;
+      }
       if (!raw) {
         setRaceProfile(undefined);
         return;
       }
       try {
         const parsed = JSON.parse(raw) as RaceProfile;
-        setRaceProfile(parsed);
+        if (!cancelled) {
+          setRaceProfile(parsed);
+        }
       } catch {
-        setRaceProfile(undefined);
+        if (!cancelled) {
+          setRaceProfile(undefined);
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [profileStorageKey]);
 
   const [roomDetail, setRoomDetail] = useState<

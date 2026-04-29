@@ -63,18 +63,18 @@ export function GpxImportScreen(): ReactElement {
       setImportState({ status: "idle" });
       return;
     }
+    if (s.room) {
+      setRaceName(s.room.name?.trim() || s.raceProfile?.raceName || "");
+      setCreatorName(s.room.creatorName?.trim() || s.raceProfile?.creatorName?.trim() || "");
+      setRaceDescription(s.room.description?.trim() || s.raceProfile?.raceDescription || "");
+      setCrewName(s.room.crewName?.trim() || s.raceProfile?.crewName || "");
+      return;
+    }
     if (s.raceProfile) {
       setRaceName(s.raceProfile.raceName);
       setCreatorName(s.raceProfile.creatorName?.trim() || "");
       setRaceDescription(s.raceProfile.raceDescription);
       setCrewName(s.raceProfile.crewName);
-      return;
-    }
-    if (s.room) {
-      setRaceName(s.room.name ?? "");
-      setCreatorName(s.room.creatorName?.trim() || "");
-      setRaceDescription(s.room.description ?? "");
-      setCrewName(s.room.crewName ?? "");
     }
   }, [isCreateMode, s.raceProfile, s.room?.id, s.room?.name, s.room?.creatorName, s.room?.description, s.room?.crewName]);
 
