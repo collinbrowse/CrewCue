@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ScrollView, Share, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Share, Text, View } from "react-native";
 import { DSButton, DSCard, DSTextInput } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { OperateStackParamList } from "./types";
@@ -9,28 +9,104 @@ import type { OperateStackParamList } from "./types";
 export function AuthenticatedOperateScreen(): ReactElement {
   const s = useAuthedShell();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "OperateHome">>();
-  const inRace = Boolean(s.room && s.raceProfile?.setupComplete);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"crew_member" | "crew_chief" | "team_manager">("crew_member");
+  const inRace = Boolean(s.room);
+  const [joinCode, setJoinCode] = useState("");
+  const [showMenuModal, setShowMenuModal] = useState(false);
+  const [showRaceSelectorModal, setShowRaceSelectorModal] = useState(false);
 
   useEffect(() => {
-    if (!s.room) {
+    if (!inRace || !s.room) {
       return;
     }
-    void s.onFetchRoomDetails();
+    void s.onFetchRoomDetails(s.room.id);
     void s.onFetchInvites();
-  }, [s.room?.id]);
+  }, [inRace, s.room?.id]);
 
-  const canIssueInvite = Boolean(s.roomDetail?.permissions?.canIssueInvite);
-  const inviteDisabledReason = useMemo(() => {
-    if (!s.room) {
-      return "Finish race setup first to create your crew room.";
+  const canIssueInvite = useMemo(() => {
+    if (s.roomDetail?.permissions?.canIssueInvite) {
+      return true;
     }
-    if (canIssueInvite) {
-      return undefined;
+    const myUserId = s.auth.claims?.sub;
+    if (!myUserId || !s.room) {
+      return false;
     }
-    return "Only athlete, crew chief, or team manager can send invites for this room.";
-  }, [canIssueInvite, s.room]);
+    const myMembership = s.room.memberships.find((member) => member.userId === myUserId);
+    if (!myMembership) {
+      return false;
+    }
+    return (
+      myMembership.role === "athlete" ||
+      myMembership.role === "crew_chief" ||
+      myMembership.role === "team_manager"
+    );
+  }, [s.roomDetail?.permissions?.canIssueInvite, s.auth.claims?.sub, s.room]);
+  const inviteDisabledReason = useMemo(
+    () =>
+      canIssueInvite ? undefined : "Only athlete, crew chief, or team manager can share race-room invites.",
+    [canIssueInvite]
+  );
+  const roomCode = s.room?.joinCode ?? s.room?.id ?? "";
+  const selectedRace = s.room;
+  const membershipLabel = (userId: string): string => {
+    if (userId === s.auth.claims?.sub) {
+      const selfName = s.raceProfile?.creatorName?.trim() || s.room?.creatorName?.trim();
+      if (selfName) {
+        return selfName;
+      }
+    }
+    if (s.room?.athleteId === userId) {
+      return s.room.creatorName?.trim() || s.raceProfile?.creatorName?.trim() || userId;
+    }
+    return userId;
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: selectedRace?.name?.trim() ? selectedRace.name : "Operate",
+      headerRight: () => (
+        <Pressable onPress={() => setShowMenuModal(true)} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+          <Text style={{ color: "#93c5fd", fontWeight: "600" }}>Menu</Text>
+        </Pressable>
+      )
+    });
+  }, [navigation, selectedRace?.name]);
+
+  const raceBuckets = useMemo(() => {
+    const now = Date.now();
+    const all = s.myRaceRooms ?? [];
+    const withoutSelected = all.filter((room) => room.id !== selectedRace?.id);
+    const current: typeof withoutSelected = [];
+    const upcoming: typeof withoutSelected = [];
+    const past: typeof withoutSelected = [];
+    for (const room of withoutSelected) {
+      const endMs = room.eventEndsAt ? Date.parse(room.eventEndsAt) : undefined;
+      if (room.status === "active" && (endMs === undefined || endMs >= now)) {
+        current.push(room);
+      } else if (endMs !== undefined && endMs < now) {
+        past.push(room);
+      } else {
+        upcoming.push(room);
+      }
+    }
+    return { current, upcoming, past };
+  }, [s.myRaceRooms, selectedRace?.id]);
+  const courseDistanceLabel = useMemo(() => {
+    const points = s.room?.course?.baselineTrack?.points;
+    const meters = s.room?.courseDistanceMeters ?? points?.[points.length - 1]?.distanceMetersFromStart;
+    if (typeof meters !== "number" || !Number.isFinite(meters) || meters <= 0) {
+      return "Not available";
+    }
+    const miles = meters / 1609.344;
+    return `${miles.toFixed(1)} mi`;
+  }, [s.room?.course?.baselineTrack?.points, s.room?.courseDistanceMeters]);
+  const courseVertLabel = useMemo(() => {
+    const meters = s.room?.courseElevationGainMeters;
+    if (typeof meters !== "number" || !Number.isFinite(meters) || meters < 0) {
+      return "Not available";
+    }
+    const feet = Math.round(meters * 3.28084);
+    return `${feet.toLocaleString()} ft gain`;
+  }, [s.room?.courseElevationGainMeters]);
 
   return (
     <ScrollView
@@ -56,143 +132,197 @@ export function AuthenticatedOperateScreen(): ReactElement {
             <>
               <Text style={s.styles.body}>Race name: {s.raceProfile?.raceName || s.room?.name}</Text>
               <Text style={s.styles.body}>
-                Crew name: {s.raceProfile?.crewName?.trim() ? s.raceProfile.crewName : "Not set"}
+                Crew name: {s.room?.crewName?.trim() || s.raceProfile?.crewName?.trim() || "Not set"}
               </Text>
               <Text style={s.styles.body}>
-                Description: {s.raceProfile?.raceDescription?.trim() ? s.raceProfile.raceDescription : "Not set"}
+                Description: {s.room?.description?.trim() || s.raceProfile?.raceDescription?.trim() || "Not set"}
               </Text>
               <Text style={s.styles.body}>Course uploaded: {s.room?.course ? "Yes" : "No"}</Text>
+              <Text style={s.styles.body}>Course distance: {courseDistanceLabel}</Text>
+              <Text style={s.styles.body}>Course vert: {courseVertLabel}</Text>
+              {s.room?.memberships.length ? (
+                <Text style={s.styles.body}>
+                  Crew members:{" "}
+                  {s.room.memberships.map((member) => membershipLabel(member.userId)).join(", ")}
+                </Text>
+              ) : null}
             </>
           ) : (
             <Text style={s.styles.body}>
-              You are not in a race yet. Tap Start planning your race to create your race and optional setup details.
+              You are not in a race yet. Tap Race setup to create your race and optional setup details.
             </Text>
           )}
-        </DSCard>
-
-        <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <DSButton preset="primary" onPress={() => navigation.navigate("RacePlanning")}>
-              Start planning your race
-            </DSButton>
-          </View>
-        </View>
-
-        {inRace ? (
           <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
             <View style={{ flex: 1 }}>
+              <DSButton
+                preset="primary"
+                onPress={() => navigation.navigate("RacePlanning", { mode: inRace ? "edit" : "create" })}
+              >
+                {inRace ? "Update race setup" : "Race setup"}
+              </DSButton>
+            </View>
+          </View>
+        </DSCard>
+
+        {!inRace ? (
+          <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
+            <Text style={s.styles.summaryTitle}>Join an existing race room</Text>
+            <Text style={s.styles.body}>
+              Enter the 6-digit room code from your crew lead to join their race room as a crew member.
+            </Text>
+            <View style={{ marginTop: 8 }}>
+              <DSTextInput
+                value={joinCode}
+                onChangeText={setJoinCode}
+                autoCapitalize="none"
+                keyboardType="number-pad"
+                maxLength={6}
+                placeholder="6-digit code"
+              />
+            </View>
+            <View style={{ marginTop: 8 }}>
+              <DSButton
+                preset="secondary"
+                disabled={!joinCode.trim() || s.busy}
+                onPress={() => void s.onJoinRoomByCode(joinCode)}
+              >
+                Join race room by code
+              </DSButton>
+            </View>
+          </DSCard>
+        ) : null}
+
+        {inRace ? (
+          <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
+            <Text style={s.styles.body}>Share this room code with your crew so they can join from their app.</Text>
+            <View style={{ marginTop: 10 }}>
               <DSButton
                 preset="secondary"
                 onPress={() => {
                   if (!s.room) return;
-                  const shareLink = `crewcue://join?roomId=${encodeURIComponent(s.room.id)}`;
-                  void Share.share({ message: `Join my CrewCue race room: ${shareLink}` });
+                  const raceName = s.room.name?.trim() || "my race";
+                  void Share.share({
+                    message: `It's time to start prepping. Join my crew for "${raceName}" in CrewCue with the code: "${roomCode}"`
+                  });
                 }}
+                disabled={Boolean(inviteDisabledReason)}
               >
-                Share crew link
+                Add crew members
               </DSButton>
             </View>
-          </View>
+          </DSCard>
         ) : null}
 
-        <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
-          <Text style={s.styles.summaryTitle}>Crew and invites</Text>
-          <Text style={s.styles.body}>
-            Create invites in-app and keep membership status visible for demo handoff.
-          </Text>
-          <View style={{ marginTop: 10 }}>
-            <Text style={s.styles.label}>Invite email</Text>
-            <View style={{ marginTop: 6 }}>
-              <DSTextInput
-                value={inviteEmail}
-                onChangeText={setInviteEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                placeholder="crew@example.com"
-              />
-            </View>
-            <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <DSButton
-                  preset="secondary"
-                  onPress={() => setInviteRole("crew_member")}
-                  disabled={inviteRole === "crew_member"}
-                >
-                  Crew member
-                </DSButton>
-              </View>
-              <View style={{ flex: 1 }}>
-                <DSButton
-                  preset="secondary"
-                  onPress={() => setInviteRole("crew_chief")}
-                  disabled={inviteRole === "crew_chief"}
-                >
-                  Crew chief
-                </DSButton>
-              </View>
-              <View style={{ flex: 1 }}>
-                <DSButton
-                  preset="secondary"
-                  onPress={() => setInviteRole("team_manager")}
-                  disabled={inviteRole === "team_manager"}
-                >
-                  Team manager
-                </DSButton>
-              </View>
-            </View>
-            <View style={{ marginTop: 8 }}>
-              <DSButton
-                preset="primary"
-                disabled={!canIssueInvite || !inviteEmail.includes("@") || s.busy}
-                onPress={() => {
-                  void s.onIssueInvite({ email: inviteEmail, role: inviteRole }).then(() => setInviteEmail(""));
-                }}
-              >
-                Send invite
-              </DSButton>
-            </View>
-            <View style={{ marginTop: 8 }}>
-              <DSButton
-                preset="secondary"
-                disabled={!s.room || s.busy}
-                onPress={() => {
-                  void s.onFetchInvites();
-                  void s.onFetchRoomDetails();
-                }}
-              >
-                Refresh crew status
-              </DSButton>
-            </View>
-            {inviteDisabledReason ? <Text style={[s.styles.body, { marginTop: 8 }]}>{inviteDisabledReason}</Text> : null}
-          </View>
-
-          <View style={{ marginTop: 12 }}>
-            <Text style={s.styles.label}>Pending invites</Text>
-            {s.invites && s.invites.length > 0 ? (
-              s.invites.map((invite) => (
-                <Text key={invite.token} style={s.styles.body}>
-                  {invite.email} - {invite.role.replace("_", " ")} ({invite.status})
-                </Text>
-              ))
-            ) : (
-              <Text style={s.styles.body}>No invites yet.</Text>
-            )}
-          </View>
-          <View style={{ marginTop: 10 }}>
-            <Text style={s.styles.label}>Current crew members</Text>
-            {s.room?.memberships.length ? (
-              s.room.memberships.map((member) => (
-                <Text key={`${member.userId}-${member.joinedAt}`} style={s.styles.body}>
-                  {member.userId} - {member.role.replace("_", " ")}
-                </Text>
-              ))
-            ) : (
-              <Text style={s.styles.body}>No members have joined yet.</Text>
-            )}
-          </View>
-        </DSCard>
-
       </DSCard>
+      <Modal visible={showMenuModal} transparent animationType="fade" onRequestClose={() => setShowMenuModal(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-start", alignItems: "flex-end" }}
+          onPress={() => setShowMenuModal(false)}
+        >
+          <View style={{ marginTop: 88, marginRight: 14, backgroundColor: "#111827", borderRadius: 10, minWidth: 210 }}>
+            <Pressable
+              onPress={() => {
+                setShowMenuModal(false);
+                void s.onFetchMyRaceRooms();
+                setShowRaceSelectorModal(true);
+              }}
+              style={{ paddingHorizontal: 14, paddingVertical: 12 }}
+            >
+              <Text style={{ color: "#f9fafb", fontSize: 15 }}>Change selected race</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setShowMenuModal(false);
+                navigation.navigate("RacePlanning", { mode: "create" });
+              }}
+              style={{ paddingHorizontal: 14, paddingVertical: 12 }}
+            >
+              <Text style={{ color: "#f9fafb", fontSize: 15 }}>Create new race</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showRaceSelectorModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRaceSelectorModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 18 }}>
+          <View style={{ backgroundColor: "#0f172a", borderRadius: 14, maxHeight: "82%", padding: 14 }}>
+            <Text style={{ color: "#f9fafb", fontSize: 18, fontWeight: "700" }}>Select race</Text>
+            {selectedRace ? (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ color: "#22c55e", fontWeight: "700" }}>
+                  Selected: {selectedRace.name}
+                </Text>
+              </View>
+            ) : null}
+            <ScrollView style={{ marginTop: 10 }}>
+              {raceBuckets.current.length > 0 ? (
+                <>
+                  <Text style={{ color: "#93c5fd", fontSize: 12, textTransform: "uppercase", marginBottom: 6 }}>Current races</Text>
+                  {raceBuckets.current.map((room) => (
+                    <Pressable
+                      key={room.id}
+                      onPress={() => {
+                        void s.onSelectRaceRoom(room);
+                        setShowRaceSelectorModal(false);
+                      }}
+                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
+                    >
+                      <Text style={{ color: "#e5e7eb", fontSize: 15 }}>{room.name}</Text>
+                    </Pressable>
+                  ))}
+                </>
+              ) : null}
+              {raceBuckets.upcoming.length > 0 ? (
+                <>
+                  <Text style={{ color: "#93c5fd", fontSize: 12, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>
+                    Upcoming races
+                  </Text>
+                  {raceBuckets.upcoming.map((room) => (
+                    <Pressable
+                      key={room.id}
+                      onPress={() => {
+                        void s.onSelectRaceRoom(room);
+                        setShowRaceSelectorModal(false);
+                      }}
+                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
+                    >
+                      <Text style={{ color: "#e5e7eb", fontSize: 15 }}>{room.name}</Text>
+                    </Pressable>
+                  ))}
+                </>
+              ) : null}
+              {raceBuckets.past.length > 0 ? (
+                <>
+                  <Text style={{ color: "#94a3b8", fontSize: 12, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>
+                    Past races
+                  </Text>
+                  {raceBuckets.past.map((room) => (
+                    <Pressable
+                      key={room.id}
+                      onPress={() => {
+                        void s.onSelectRaceRoom(room);
+                        setShowRaceSelectorModal(false);
+                      }}
+                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
+                    >
+                      <Text style={{ color: "#cbd5e1", fontSize: 15 }}>{room.name}</Text>
+                    </Pressable>
+                  ))}
+                </>
+              ) : null}
+            </ScrollView>
+            <View style={{ marginTop: 12 }}>
+              <DSButton preset="secondary" onPress={() => setShowRaceSelectorModal(false)}>
+                Close
+              </DSButton>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }

@@ -148,6 +148,11 @@ export type RaceRoomProjection = RaceRoomProjectionCore & ProjectionTimeliness;
 
 export interface RaceRoom {
   id: string;
+  /** Human-friendly 6-digit join code (zero-padded). Distinct from internal `id`. */
+  joinCode?: string;
+  creatorName?: string;
+  description?: string;
+  crewName?: string;
   teamId: string;
   athleteId: string;
   name: string;
@@ -159,6 +164,12 @@ export interface RaceRoom {
   entitlement: RaceRoomEntitlement;
   /** Set on activation; drives WS2 split / ETA projection. */
   course?: RaceCourse;
+  /** Persisted at upload time for fast UI reads without recomputation. */
+  courseDistanceMeters?: number;
+  /** Persisted at upload time for fast UI reads without recomputation. */
+  courseElevationGainMeters?: number;
+  /** Original uploaded filename for route metadata display. */
+  courseFileName?: string;
   /** Seconds per kilometre for plan baseline (smaller = faster plan). */
   plannedPaceSecondsPerKm?: number;
 }

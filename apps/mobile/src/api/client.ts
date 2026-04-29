@@ -79,6 +79,9 @@ export type CreateRaceRoomInput = {
   teamId: string;
   athleteId: string;
   name: string;
+  creatorName?: string;
+  description?: string;
+  crewName?: string;
   creatorRole?: "athlete" | "crew_member" | "crew_chief" | "team_manager";
 };
 
@@ -89,6 +92,9 @@ export type ActivateRaceRoomInput = {
 export type UpdateRaceCourseInput = {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
+  courseDistanceMeters?: number;
+  courseElevationGainMeters?: number;
+  courseFileName?: string;
 };
 
 export type PostPingInput = {
@@ -178,6 +184,10 @@ export type IssueInviteInput = {
   expiresAt?: string;
 };
 
+export type JoinRaceRoomByCodeInput = {
+  roomCode: string;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -200,6 +210,16 @@ export function createApiClient(options: ApiClientOptions) {
       ),
     getInvites: (roomId: string) =>
       request<{ invites: RaceRoomInvite[] }>(options, "GET", `/race-rooms/${roomId}/invites`),
+    joinRaceRoomByCode: (input: JoinRaceRoomByCodeInput) =>
+      request<{ room: RaceRoom; assignedRole: RaceRoomInvite["role"]; permissions: Record<string, boolean> }>(
+        options,
+        "POST",
+        "/race-rooms/join-by-code",
+        input
+      ),
+    listMyRaceRooms: () => request<{ rooms: RaceRoom[] }>(options, "GET", "/race-rooms/mine"),
+    listTeamRaceRooms: (teamId: string) =>
+      request<{ rooms: RaceRoom[] }>(options, "GET", `/teams/${encodeURIComponent(teamId)}/race-rooms`),
     activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
       request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
     updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput) =>

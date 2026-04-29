@@ -24,6 +24,7 @@ test("issues and accepts invite with role assignment", async () => {
       teamId: "team-1",
       athleteId: "athlete-1",
       name: "Race Room",
+      creatorName: "Owner User",
       creatorRole: "team_manager"
     },
     headers: {
@@ -99,6 +100,7 @@ test("rejects invalid invite token", async () => {
       teamId: "team-1",
       athleteId: "athlete-1",
       name: "Race Room",
+      creatorName: "Owner User",
       creatorRole: "team_manager"
     },
     headers: {
@@ -136,6 +138,7 @@ test("rejects expired invite token", async () => {
       teamId: "team-1",
       athleteId: "athlete-1",
       name: "Race Room",
+      creatorName: "Owner User",
       creatorRole: "team_manager"
     },
     headers: {
@@ -185,6 +188,7 @@ test("updates room course for shared GPX usage", async () => {
       teamId: "team-1",
       athleteId: "athlete-1",
       name: "Race Room",
+      creatorName: "Owner User",
       creatorRole: "team_manager"
     },
     headers: {
@@ -237,6 +241,7 @@ test("lists room invites with current statuses", async () => {
       teamId: "team-1",
       athleteId: "athlete-1",
       name: "Race Room",
+      creatorName: "Owner User",
       creatorRole: "team_manager"
     },
     headers: {
@@ -271,6 +276,215 @@ test("lists room invites with current statuses", async () => {
   assert.equal(listed.invites.length, 1);
   assert.equal(listed.invites[0]?.email, "crew@example.com");
   assert.equal(listed.invites[0]?.status, "pending");
+
+  await app.close();
+});
+
+test("joins room by room code and creates membership", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Race Room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode?: string };
+  assert.ok(room.joinCode && /^\d{6}$/.test(room.joinCode), "create assigns 6-digit joinCode");
+
+  const joinResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms/join-by-code",
+    payload: {
+      roomCode: room.joinCode
+    },
+    headers: {
+      authorization: `Bearer ${joinerToken}`
+    }
+  });
+  assert.equal(joinResponse.statusCode, 200);
+  const joined = joinResponse.json() as { assignedRole: string; room: { memberships: Array<{ userId: string }> } };
+  assert.equal(joined.assignedRole, "crew_member");
+  assert.equal(joined.room.memberships.some((membership) => membership.userId === "joiner-user"), true);
+
+  await app.close();
+});
+
+test("join-by-code rejects non-6-digit room codes", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const joinerToken = app.jwt.sign(buildClaims("joiner-user"));
+  const joinResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms/join-by-code",
+    payload: {
+      roomCode: "not-a-code"
+    },
+    headers: {
+      authorization: `Bearer ${joinerToken}`
+    }
+  });
+  assert.equal(joinResponse.statusCode, 400);
+
+  await app.close();
+});
+
+test("lists race rooms for authenticated member via mine endpoint", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const userAToken = app.jwt.sign(buildClaims("user-a"));
+  const userBToken = app.jwt.sign(buildClaims("user-b"));
+
+  const roomA = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-a",
+      name: "Room A",
+      creatorName: "User A",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${userAToken}`
+    }
+  });
+  const roomAId = (roomA.json() as { id: string }).id;
+
+  await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-b",
+      name: "Room B",
+      creatorName: "User B",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${userBToken}`
+    }
+  });
+
+  const listMine = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: {
+      authorization: `Bearer ${userAToken}`
+    }
+  });
+  assert.equal(listMine.statusCode, 200);
+  const payloadMine = listMine.json() as { rooms: Array<{ id: string }> };
+  assert.equal(payloadMine.rooms.some((room) => room.id === roomAId), true);
+  assert.equal(payloadMine.rooms.length >= 1, true);
+
+  await app.close();
+});
+
+test("lists only caller-visible race rooms for team", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const userAToken = app.jwt.sign(buildClaims("user-a"));
+  const userBToken = app.jwt.sign(buildClaims("user-b"));
+
+  const roomA = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-a",
+      name: "Room A",
+      creatorName: "User A",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${userAToken}`
+    }
+  });
+  const roomAId = (roomA.json() as { id: string }).id;
+
+  const roomB = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-b",
+      name: "Room B",
+      creatorName: "User B",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${userBToken}`
+    }
+  });
+  const roomBId = (roomB.json() as { id: string }).id;
+
+  const listA = await app.inject({
+    method: "GET",
+    url: "/teams/team-1/race-rooms",
+    headers: {
+      authorization: `Bearer ${userAToken}`
+    }
+  });
+  assert.equal(listA.statusCode, 200);
+  const payloadA = listA.json() as { rooms: Array<{ id: string }> };
+  assert.equal(payloadA.rooms.some((room) => room.id === roomAId), true);
+  assert.equal(payloadA.rooms.some((room) => room.id === roomBId), false);
+
+  await app.close();
+});
+
+test("lists mobile-ops-team races when JWT has empty teamIds (mobile demo parity)", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const token = app.jwt.sign({
+    sub: "no-team-user",
+    teamIds: [],
+    roomRoles: {}
+  });
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "mobile-ops-team",
+      athleteId: "athlete-1",
+      name: "Fallback team room",
+      creatorName: "No Team User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: "/teams/mobile-ops-team/race-rooms",
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+  assert.equal(listResponse.statusCode, 200);
+  const payload = listResponse.json() as { rooms: Array<{ id: string }> };
+  assert.equal(payload.rooms.some((room) => room.id === roomId), true);
 
   await app.close();
 });

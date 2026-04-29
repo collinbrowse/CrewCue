@@ -4,6 +4,7 @@
 **Purpose:** provide a single specification that converts existing backend/platform delivery into a complete, focused MVP UI build plan.
 
 **Standards alignment:**
+
 - [README.md](./README.md)
 - [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)
 - [agent-handoff.md](./agent-handoff.md)
@@ -209,6 +210,7 @@ Incident-centered drilldown for WS4 operational review.
 
 **Path:** first app open -> onboarding -> Auth0 login -> authenticated landing  
 **Acceptance:**
+
 - first-run value proposition is clear in onboarding
 - user can sign in and return to an authenticated session without manual resets
 - failure responses are actionable and non-technical
@@ -217,6 +219,7 @@ Incident-centered drilldown for WS4 operational review.
 
 **Path:** open import -> select GPX -> parse/process -> render expected split times  
 **Acceptance:**
+
 - valid GPX imports produce expected split-time output in-app
 - invalid/unsupported files show clear guidance
 - loading and completion states are obvious to presenter/operator
@@ -225,6 +228,7 @@ Incident-centered drilldown for WS4 operational review.
 
 **Path:** create crew -> invite one or more members -> view invite/member state  
 **Acceptance:**
+
 - crew can be created end-to-end in-app
 - invite actions provide immediate feedback and state visibility
 - role/permission constraints are explained when an action is unavailable
@@ -233,6 +237,7 @@ Incident-centered drilldown for WS4 operational review.
 
 **Path:** add note in crew context -> refresh or observe update -> other member sees same note  
 **Acceptance:**
+
 - notes post successfully with visible confirmation
 - notes are visible to invited crew members
 - empty/error states are clear and recoverable
@@ -241,6 +246,7 @@ Incident-centered drilldown for WS4 operational review.
 
 **Path:** navigate through all demo-critical screens  
 **Acceptance:**
+
 - consistent DS components/tokens on demo-critical surfaces
 - no smoke/test wording in primary user actions
 - hierarchy and spacing look customer-ready in light and dark themes
@@ -259,7 +265,7 @@ Required layering:
 Implementation constraints:
 
 - no duplicate network paths outside `apps/mobile/src/api/client.ts`
-- no duplicate outbox execution paths outside `apps/mobile/src/sync/*`
+- no duplicate outbox execution paths outside `apps/mobile/src/sync/`*
 - shared readout/composition logic belongs in `apps/mobile/src/components/*` or `apps/mobile/src/features/*`
 - `App.tsx` remains orchestration and provider assembly, not screen-specific business logic
 
@@ -339,13 +345,15 @@ For each screen, record:
 
 Use this table during implementation:
 
-| UI surface | Design reference | Implementation target | Parity status | Notes |
-| --- | --- | --- | --- | --- |
-| OperateHome | TBD | `src/navigation/AuthenticatedOperateScreen.tsx` | interaction-hardened | copy/guardrail pass complete; waiting on design frame ids + DS token mapping |
-| OperateStatus | TBD | `src/navigation/OperateStatusScreen.tsx` | interaction-hardened | telemetry disable reasons and wording aligned; waiting on design handoff |
-| OperateOutbox | TBD | `src/navigation/OperateOutboxScreen.tsx` | interaction-hardened | queue semantics and hints aligned; waiting on design handoff |
-| ReadoutsHome | TBD | `src/navigation/AuthenticatedReadoutsScreen.tsx` | interaction-hardened | readout language tightened; waiting on design handoff |
-| ReadoutsIncidents | TBD | `src/navigation/ReadoutsIncidentsScreen.tsx` | interaction-hardened | incident drilldown + return path added; waiting on design handoff |
+
+| UI surface        | Design reference | Implementation target                            | Parity status        | Notes                                                                        |
+| ----------------- | ---------------- | ------------------------------------------------ | -------------------- | ---------------------------------------------------------------------------- |
+| OperateHome       | TBD              | `src/navigation/AuthenticatedOperateScreen.tsx`  | interaction-hardened | copy/guardrail pass complete; waiting on design frame ids + DS token mapping |
+| OperateStatus     | TBD              | `src/navigation/OperateStatusScreen.tsx`         | interaction-hardened | telemetry disable reasons and wording aligned; waiting on design handoff     |
+| OperateOutbox     | TBD              | `src/navigation/OperateOutboxScreen.tsx`         | interaction-hardened | queue semantics and hints aligned; waiting on design handoff                 |
+| ReadoutsHome      | TBD              | `src/navigation/AuthenticatedReadoutsScreen.tsx` | interaction-hardened | readout language tightened; waiting on design handoff                        |
+| ReadoutsIncidents | TBD              | `src/navigation/ReadoutsIncidentsScreen.tsx`     | interaction-hardened | incident drilldown + return path added; waiting on design handoff            |
+
 
 ### 10.1 Human intervention required before DS parity pass
 
@@ -369,15 +377,15 @@ Use this table during implementation:
 
 ## 12) Validation checklist (demo definition of done)
 
-- [ ] All demo flows in section 6 are executable in app on staging
-- [ ] Role gating and disabled-reason copy verified where mutations exist
-- [ ] No duplicate API or outbox logic introduced
-- [ ] UI labels are customer-facing (no smoke/test phrasing in primary controls)
-- [ ] Manual validation evidence documented for each demo flow
-- [ ] Design mapping table completed with frame references and parity notes for demo-critical surfaces
-- [ ] DS primitives (`DSButton`/`DSCard`/`DSTextInput`) are used where applicable
-- [ ] Light/dark theme parity verified for all demo-critical screens
-- [ ] PR body includes decision rationale, assumptions, and higher-order effects sections (required by template/CI)
+- All demo flows in section 6 are executable in app on staging
+- Role gating and disabled-reason copy verified where mutations exist
+- No duplicate API or outbox logic introduced
+- UI labels are customer-facing (no smoke/test phrasing in primary controls)
+- Manual validation evidence documented for each demo flow
+- Design mapping table completed with frame references and parity notes for demo-critical surfaces
+- DS primitives (`DSButton`/`DSCard`/`DSTextInput`) are used where applicable
+- Light/dark theme parity verified for all demo-critical screens
+- PR body includes decision rationale, assumptions, and higher-order effects sections (required by template/CI)
 
 ---
 
@@ -391,11 +399,14 @@ Use this table during implementation:
 
 ## 14) Revision history
 
-| Date | Change |
-| --- | --- |
-| 2026-04-29 | Integrated PR decision-rationale workflow into demo spec validation (template + `pr-decision-doc-guard` CI gate). |
-| 2026-04-29 | Re-scoped spec to demo-first execution (onboarding, login, GPX import/splits, crew/invites, shared notes), preserving architecture/quality guardrails and moving non-demo scope to Backlog tracking. |
+
+| Date       | Change                                                                                                                                                                                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-29 | Integrated PR decision-rationale workflow into demo spec validation (template + `pr-decision-doc-guard` CI gate).                                                                                                                         |
+| 2026-04-29 | Re-scoped spec to demo-first execution (onboarding, login, GPX import/splits, crew/invites, shared notes), preserving architecture/quality guardrails and moving non-demo scope to Backlog tracking.                                      |
 | 2026-04-28 | Added fallback in-repo design-system baseline (`apps/mobile/src/design-system`) to continue migration safely without external design assets; migrated key navigation surfaces to DS wrappers and tokenized style generation in `App.tsx`. |
-| 2026-04-28 | Interaction hardening + operator copy pass implemented across mobile MVP screens/components; added explicit human-unblock notes for missing design-system artifacts and frame references. |
-| 2026-04-28 | Adopted design system baseline from provided instructions + JSON token schema; added mandatory DS rules, migration order, and compliance criteria for MVP UI work. |
-| 2026-04-28 | Initial publication: implementation-ready MVP UI development spec based on current mobile/navigation/API/outbox baseline with full screen/flow acceptance criteria and design integration contract. |
+| 2026-04-28 | Interaction hardening + operator copy pass implemented across mobile MVP screens/components; added explicit human-unblock notes for missing design-system artifacts and frame references.                                                 |
+| 2026-04-28 | Adopted design system baseline from provided instructions + JSON token schema; added mandatory DS rules, migration order, and compliance criteria for MVP UI work.                                                                        |
+| 2026-04-28 | Initial publication: implementation-ready MVP UI development spec based on current mobile/navigation/API/outbox baseline with full screen/flow acceptance criteria and design integration contract.                                       |
+
+
