@@ -10,7 +10,7 @@
     "build": "expo export --platform all",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/auth/roleGuards.test.ts src/api/client.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts"
+    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/auth/roleGuards.test.ts src/auth/useAuth.test.ts src/api/client.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
@@ -20,6 +20,7 @@
     "expo": "^54.0.20",
     "expo-auth-session": "~7.0.3",
     "expo-crypto": "~15.0.7",
+    "expo-notifications": "^55.0.21",
     "expo-secure-store": "~15.0.7",
     "expo-status-bar": "^3.0.8",
     "expo-web-browser": "~15.0.8",

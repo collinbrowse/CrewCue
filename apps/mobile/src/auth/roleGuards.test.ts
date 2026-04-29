@@ -15,6 +15,7 @@ function baseAuth(overrides: Partial<AuthState> = {}): AuthState {
     claims: { sub: "u1", roomRoles: { roomA: "crew_member" } },
     redirectUri: "https://example/callback",
     signIn: async () => {},
+    signUp: async () => {},
     signOut: async () => {},
     ...overrides
   };

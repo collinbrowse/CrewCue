@@ -4,6 +4,7 @@ import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { clearTokens, loadTokens, saveTokens, type StoredTokens } from "./tokenStorage";
 import { decodeAccessTokenClaims, type DecodedAccessClaims } from "./jwt";
+import { shouldRestoreStoredSession } from "./sessionRestore";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -22,6 +23,7 @@ export type AuthState = {
   error?: string;
   redirectUri: string;
   signIn: () => Promise<void>;
+  signUp: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -63,15 +65,31 @@ export function useAuth(settings: Auth0Settings): AuthState {
     discovery
   );
 
+  const [signupRequest, signupResponse, promptSignupAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        screen_hint: "signup"
+      }
+    },
+    discovery
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const stored = await loadTokens();
       if (cancelled) return;
-      if (stored) {
+      if (shouldRestoreStoredSession(stored)) {
         setTokens(stored);
         setStatus("authenticated");
       } else {
+        await clearTokens();
         setStatus("anonymous");
       }
     })();
@@ -80,54 +98,70 @@ export function useAuth(settings: Auth0Settings): AuthState {
     };
   }, []);
 
+  const handleAuthResponse = useCallback(
+    (nextResponse: AuthSession.AuthSessionResult | null, activeRequest: AuthSession.AuthRequest | null) => {
+      if (!nextResponse) return;
+      if (nextResponse.type === "success") {
+        void (async () => {
+          try {
+            const code = nextResponse.params.code;
+            if (!code) {
+              throw new Error("Missing authorization code");
+            }
+            const tokenResponse = await AuthSession.exchangeCodeAsync(
+              {
+                clientId: settings.clientId,
+                code,
+                redirectUri,
+                extraParams: {
+                  code_verifier: activeRequest?.codeVerifier ?? ""
+                }
+              },
+              discovery
+            );
+            const newTokens: StoredTokens = {
+              accessToken: tokenResponse.accessToken
+            };
+            if (tokenResponse.refreshToken) newTokens.refreshToken = tokenResponse.refreshToken;
+            if (tokenResponse.idToken) newTokens.idToken = tokenResponse.idToken;
+            if (typeof tokenResponse.expiresIn === "number") {
+              newTokens.expiresAtMs = Date.now() + tokenResponse.expiresIn * 1000;
+            }
+            await saveTokens(newTokens);
+            setTokens(newTokens);
+            setStatus("authenticated");
+            setError(undefined);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "Token exchange failed";
+            setError(message);
+            setStatus("error");
+          }
+        })();
+      } else if (nextResponse.type === "error") {
+        setError(nextResponse.error?.message ?? "Auth0 returned an error");
+        setStatus("error");
+      } else if (nextResponse.type === "cancel" || nextResponse.type === "dismiss") {
+        setStatus("anonymous");
+      }
+    },
+    [discovery, redirectUri, settings.clientId]
+  );
+
   useEffect(() => {
-    if (!response) return;
-    if (response.type === "success") {
-      (async () => {
-        try {
-          const code = response.params.code;
-          if (!code) {
-            throw new Error("Missing authorization code");
-          }
-          const tokenResponse = await AuthSession.exchangeCodeAsync(
-            {
-              clientId: settings.clientId,
-              code,
-              redirectUri,
-              extraParams: {
-                code_verifier: request?.codeVerifier ?? ""
-              }
-            },
-            discovery
-          );
-          const newTokens: StoredTokens = {
-            accessToken: tokenResponse.accessToken
-          };
-          if (tokenResponse.refreshToken) newTokens.refreshToken = tokenResponse.refreshToken;
-          if (tokenResponse.idToken) newTokens.idToken = tokenResponse.idToken;
-          if (typeof tokenResponse.expiresIn === "number") {
-            newTokens.expiresAtMs = Date.now() + tokenResponse.expiresIn * 1000;
-          }
-          await saveTokens(newTokens);
-          setTokens(newTokens);
-          setStatus("authenticated");
-          setError(undefined);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Token exchange failed";
-          setError(message);
-          setStatus("error");
-        }
-      })();
-    } else if (response.type === "error") {
-      setError(response.error?.message ?? "Auth0 returned an error");
-      setStatus("error");
-    } else if (response.type === "cancel" || response.type === "dismiss") {
-      setStatus("anonymous");
-    }
-  }, [response, request, redirectUri, discovery, settings.clientId]);
+    handleAuthResponse(response, request);
+  }, [handleAuthResponse, request, response]);
+
+  useEffect(() => {
+    handleAuthResponse(signupResponse, signupRequest);
+  }, [handleAuthResponse, signupRequest, signupResponse]);
 
   const signIn = useCallback(async () => {
     setError(undefined);
+    if (!request) {
+      setStatus("anonymous");
+      setError("Login is still initializing. Please try again in a moment.");
+      return;
+    }
     setStatus("authenticating");
     try {
       await promptAsync();
@@ -136,23 +170,31 @@ export function useAuth(settings: Auth0Settings): AuthState {
       setError(message);
       setStatus("error");
     }
-  }, [promptAsync]);
+  }, [promptAsync, request]);
+
+  const signUp = useCallback(async () => {
+    setError(undefined);
+    if (!signupRequest) {
+      setStatus("anonymous");
+      setError("Sign-up is still initializing. Please try again in a moment.");
+      return;
+    }
+    setStatus("authenticating");
+    try {
+      await promptSignupAsync();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to open sign-up";
+      setError(message);
+      setStatus("error");
+    }
+  }, [promptSignupAsync, signupRequest]);
 
   const signOut = useCallback(async () => {
     await clearTokens();
     setTokens(undefined);
+    setError(undefined);
     setStatus("anonymous");
-    try {
-      await WebBrowser.openAuthSessionAsync(
-        `https://${settings.domain}/v2/logout?client_id=${encodeURIComponent(
-          settings.clientId
-        )}&returnTo=${encodeURIComponent(redirectUri)}`,
-        redirectUri
-      );
-    } catch {
-      /* best effort */
-    }
-  }, [settings.domain, settings.clientId, redirectUri]);
+  }, []);
 
   const claims = tokens?.accessToken ? decodeAccessTokenClaims(tokens.accessToken) : undefined;
 
@@ -160,6 +202,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
     status,
     redirectUri,
     signIn,
+    signUp,
     signOut
   };
   if (tokens?.accessToken) state.accessToken = tokens.accessToken;

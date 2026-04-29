@@ -11,13 +11,10 @@ export function GuestStack(): ReactElement {
     <Stack.Navigator
       screenOptions={{
         contentStyle: { backgroundColor: navColors.background },
-        headerStyle: { backgroundColor: navColors.card },
-        headerTintColor: navColors.text,
-        headerTitleStyle: { color: navColors.text },
-        headerShadowVisible: false
+        headerShown: false
       }}
     >
-      <Stack.Screen name="Home" component={GuestHomeScreen} options={{ title: "CrewCue" }} />
+      <Stack.Screen name="Home" component={GuestHomeScreen} />
     </Stack.Navigator>
   );
 }
