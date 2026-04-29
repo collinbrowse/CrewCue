@@ -16,6 +16,7 @@ import type {
   RaceRoom,
   RaceRoomProjection,
   Recommendation,
+  RaceRoomInvite,
   Role,
   SyncQueueDiagnostics,
   SyncStatus
@@ -42,6 +43,7 @@ export type AuthedShellContextValue = {
     setupComplete: boolean;
   };
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
+  invites?: RaceRoomInvite[];
   lastPing?: AthletePingAcceptedResponse | AthletePingRejectedResponse;
   syncHealth?: SyncStatus;
   queueDiagnostics?: SyncQueueDiagnostics[];
@@ -75,6 +77,8 @@ export type AuthedShellContextValue = {
   onProcessOutbox: () => void;
   onMarkEntitlementPaid: () => void;
   onFetchRoomDetails: () => void;
+  onIssueInvite: (input: { email: string; role: RaceRoomInvite["role"] }) => Promise<void>;
+  onFetchInvites: () => Promise<void>;
   onActivateRoom: () => void;
   onSendPing: () => void;
   onPostSyncHeartbeat: () => void;

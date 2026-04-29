@@ -23,6 +23,7 @@ import type {
   OpsTimelineEvent,
   ProtocolNote,
   RaceRoom,
+  RaceRoomInvite,
   RaceRoomProjection,
   Recommendation,
   SyncQueueDiagnostics,
@@ -162,6 +163,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [roomDetail, setRoomDetail] = useState<
     { room: RaceRoom; permissions: Record<string, boolean> } | undefined
   >(undefined);
+  const [invites, setInvites] = useState<RaceRoomInvite[] | undefined>(undefined);
   const [lastPing, setLastPing] = useState<
     AthletePingAcceptedResponse | AthletePingRejectedResponse | undefined
   >(undefined);
@@ -306,6 +308,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       setRoom(created);
       setRoomDetail(undefined);
       setLastPing(undefined);
+      setInvites(undefined);
       setProjection(undefined);
       setProjectionPollEnabled(false);
       setProjectionPolledAt(undefined);
@@ -845,6 +848,43 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
+  const fetchInvites = useCallback(async () => {
+    if (!auth.accessToken || !room) return;
+    setApiError(undefined);
+    try {
+      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+      const { invites: nextInvites } = await client.getInvites(room.id);
+      setInvites(nextInvites);
+    } catch (err) {
+      setStatusError(err);
+    }
+  }, [auth.accessToken, room, baseUrl, setStatusError]);
+
+  const issueInvite = useCallback(
+    async (input: { email: string; role: RaceRoomInvite["role"] }) => {
+      if (!auth.accessToken || !room) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        await client.issueInvite(room.id, {
+          email: input.email.trim().toLowerCase(),
+          role: input.role
+        });
+        const [{ invites: nextInvites }, detail] = await Promise.all([client.getInvites(room.id), client.getRaceRoom(room.id)]);
+        setInvites(nextInvites);
+        setRoomDetail(detail);
+        setRoom(detail.room);
+        setStatusSuccess(`Invite sent to ${input.email.trim().toLowerCase()}.`);
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]
+  );
+
   const enqueueManualStop = useCallback(
     async (checkpointId: string, arrivalAt: string, departureAt: string) => {
       if (!room) return;
@@ -945,6 +985,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     room,
     raceProfile,
     roomDetail,
+    invites,
     lastPing,
     syncHealth,
     queueDiagnostics,
@@ -973,6 +1014,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onProcessOutbox: processOutboxAction,
     onMarkEntitlementPaid: markEntitlementPaid,
     onFetchRoomDetails: fetchRoomDetails,
+    onIssueInvite: issueInvite,
+    onFetchInvites: fetchInvites,
     onActivateRoom: activateRoom,
     onSendPing: sendPing,
     onPostSyncHeartbeat: postSyncHeartbeat,

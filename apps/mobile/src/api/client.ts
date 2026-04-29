@@ -15,6 +15,7 @@ import type {
   ProtocolNote,
   ProtocolNoteCategory,
   RaceRoom,
+  RaceRoomInvite,
   RaceCourse,
   RaceRoomEntitlement,
   RaceRoomProjection,
@@ -171,6 +172,12 @@ export type PostIncidentInput = {
   recordedAt?: string;
 };
 
+export type IssueInviteInput = {
+  email: string;
+  role: RaceRoomInvite["role"];
+  expiresAt?: string;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -184,6 +191,15 @@ export function createApiClient(options: ApiClientOptions) {
         "GET",
         `/race-rooms/${roomId}`
       ),
+    issueInvite: (roomId: string, input: IssueInviteInput) =>
+      request<Pick<RaceRoomInvite, "token" | "roomId" | "email" | "role" | "expiresAt">>(
+        options,
+        "POST",
+        `/race-rooms/${roomId}/invites`,
+        input
+      ),
+    getInvites: (roomId: string) =>
+      request<{ invites: RaceRoomInvite[] }>(options, "GET", `/race-rooms/${roomId}/invites`),
     activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
       request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
     updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput) =>

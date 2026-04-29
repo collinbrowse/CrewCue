@@ -235,3 +235,42 @@ test("updateRaceCourse sends room course payload", async () => {
     globalThis.fetch = prev;
   }
 });
+
+test("invite client methods target room invite endpoints", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/invites") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            token: "invite-1",
+            roomId: "room-1",
+            email: "crew@example.com",
+            role: "crew_member",
+            expiresAt: "2026-05-01T00:00:00.000Z"
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.endsWith("/invites") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ invites: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.issueInvite("room-1", { email: "crew@example.com", role: "crew_member" });
+    await client.getInvites("room-1");
+    assert.equal(calls[0]?.url.endsWith("/race-rooms/room-1/invites"), true);
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[1]?.url.endsWith("/race-rooms/room-1/invites"), true);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

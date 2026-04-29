@@ -1020,6 +1020,42 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  app.get("/race-rooms/:roomId/invites", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const now = Date.now();
+    const invites = [...raceRoomInvites.values()]
+      .filter((invite) => invite.roomId === roomId)
+      .map((invite) => {
+        if (invite.status === "pending" && Date.parse(invite.expiresAt) <= now) {
+          return { ...invite, status: "expired" as const };
+        }
+        return invite;
+      })
+      .sort((a, b) => Date.parse(b.invitedAt) - Date.parse(a.invitedAt));
+
+    await Promise.all(
+      invites
+        .filter((invite) => invite.status === "expired")
+        .map((invite) => saveRaceRoomInvite(invite))
+    );
+
+    return reply.send({ invites });
+  });
+
   app.post("/race-rooms/:roomId/invites/accept", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });

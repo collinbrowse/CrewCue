@@ -224,3 +224,53 @@ test("updates room course for shared GPX usage", async () => {
 
   await app.close();
 });
+
+test("lists room invites with current statuses", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Race Room",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites`,
+    payload: {
+      email: "crew@example.com",
+      role: "crew_member"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(inviteResponse.statusCode, 201);
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/invites`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(listResponse.statusCode, 200);
+  const listed = listResponse.json() as { invites: Array<{ email: string; status: string }> };
+  assert.equal(listed.invites.length, 1);
+  assert.equal(listed.invites[0]?.email, "crew@example.com");
+  assert.equal(listed.invites[0]?.status, "pending");
+
+  await app.close();
+});
