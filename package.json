@@ -25,9 +25,18 @@
     "dev:api": "npm run dev -w @crewcue/api",
     "dev:api:memory": "npm run dev:memory -w @crewcue/api",
     "dev:api:pg": "npm run dev:pg -w @crewcue/api",
-    "dev:mobile": "npm run dev -w @crewcue/mobile"
+    "dev:mobile": "npm run dev -w @crewcue/mobile",
+    "postinstall": "patch-package"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "expo": "~55.0.18",
+    "react": "19.2.0",
+    "react-native": "0.83.6"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }
