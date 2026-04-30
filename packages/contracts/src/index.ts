@@ -30,6 +30,8 @@ export interface RaceRoomMembership {
   userId: string;
   role: Role;
   joinedAt: string;
+  /** Roster display name chosen by this member; shown to the whole room when set. */
+  displayName?: string;
 }
 
 /** Ordered polyline for WS2 projection (local XY projection between consecutive points). */

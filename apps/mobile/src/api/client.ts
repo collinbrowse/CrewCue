@@ -188,6 +188,14 @@ export type JoinRaceRoomByCodeInput = {
   roomCode: string;
 };
 
+export type UpdateRaceRoomMemberRoleInput = {
+  role: RaceRoomInvite["role"];
+};
+
+export type UpdateRaceRoomMemberDisplayNameInput = {
+  displayName: string;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -217,6 +225,26 @@ export function createApiClient(options: ApiClientOptions) {
         "/race-rooms/join-by-code",
         input
       ),
+    updateRaceRoomMemberRole: (roomId: string, memberUserId: string, input: UpdateRaceRoomMemberRoleInput) =>
+      request<{ room: RaceRoom; membership: RaceRoom["memberships"][number] }>(
+        options,
+        "PATCH",
+        `/race-rooms/${roomId}/members/${encodeURIComponent(memberUserId)}`,
+        input
+      ),
+    updateRaceRoomMemberDisplayName: (
+      roomId: string,
+      memberUserId: string,
+      input: UpdateRaceRoomMemberDisplayNameInput
+    ) =>
+      request<{ room: RaceRoom; membership: RaceRoom["memberships"][number] }>(
+        options,
+        "PATCH",
+        `/race-rooms/${roomId}/members/${encodeURIComponent(memberUserId)}`,
+        input
+      ),
+    removeRaceRoomMember: (roomId: string, memberUserId: string) =>
+      request<{ room: RaceRoom }>(options, "DELETE", `/race-rooms/${roomId}/members/${encodeURIComponent(memberUserId)}`),
     listMyRaceRooms: () => request<{ rooms: RaceRoom[] }>(options, "GET", "/race-rooms/mine"),
     listTeamRaceRooms: (teamId: string) =>
       request<{ rooms: RaceRoom[] }>(options, "GET", `/teams/${encodeURIComponent(teamId)}/race-rooms`),

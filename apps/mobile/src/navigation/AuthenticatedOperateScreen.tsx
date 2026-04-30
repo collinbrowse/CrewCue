@@ -1,18 +1,59 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Modal, Pressable, ScrollView, Share, Text, View } from "react-native";
-import { DSButton, DSCard, DSTextInput } from "../design-system";
+import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DSButton, DSCard } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
+import { RacePickerOverlay } from "./RacePickerOverlay";
+import { TOOLTIP_SHEET_SEAM_OVERLAP } from "./racePickerLayoutConstants";
 import type { OperateStackParamList } from "./types";
+
+const WINDOW = Dimensions.get("window");
+/** Native-stack header content height (below status bar / notch). */
+const STACK_HEADER_BAR = Platform.select({ ios: 44, default: 56 });
+/** Fixed “Switch race” block inside the card (not scrolled). */
+const RACE_CARD_TOP_BLOCK = 76;
+/** Close row + top border + padding inside the card. */
+const RACE_CARD_FOOTER_BLOCK = 58;
+/** Vertical padding inside the tooltip card (top + bottom). */
+const RACE_CARD_INNER_PADDING_V = 18;
+
+type WindowRect = { x: number; y: number; width: number; height: number };
+
+const racePickerChrome = StyleSheet.create({
+  /** Header title when the picker is open — visually continues into the sheet below. */
+  titleCapsule: {
+    backgroundColor: "#0b1220",
+    borderWidth: 1,
+    borderColor: "#1e40af",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: WINDOW.width * 0.92,
+    maxWidth: WINDOW.width * 0.92,
+    alignItems: "center"
+  }
+});
 
 export function AuthenticatedOperateScreen(): ReactElement {
   const s = useAuthedShell();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "OperateHome">>();
   const inRace = Boolean(s.room);
-  const [joinCode, setJoinCode] = useState("");
-  const [showMenuModal, setShowMenuModal] = useState(false);
   const [showRaceSelectorModal, setShowRaceSelectorModal] = useState(false);
+  const [raceTitleRect, setRaceTitleRect] = useState<WindowRect | null>(null);
+  const raceTitleRef = useRef<View>(null);
+  const raceSelectorMaxHeight = WINDOW.height * 0.5;
+  const headerBottomY = insets.top + STACK_HEADER_BAR;
+  const raceSelectorScrollMaxHeight = Math.max(
+    120,
+    raceSelectorMaxHeight - RACE_CARD_INNER_PADDING_V - RACE_CARD_TOP_BLOCK - RACE_CARD_FOOTER_BLOCK
+  );
 
   useEffect(() => {
     if (!inRace || !s.room) {
@@ -22,56 +63,8 @@ export function AuthenticatedOperateScreen(): ReactElement {
     void s.onFetchInvites();
   }, [inRace, s.room?.id]);
 
-  const canIssueInvite = useMemo(() => {
-    if (s.roomDetail?.permissions?.canIssueInvite) {
-      return true;
-    }
-    const myUserId = s.auth.claims?.sub;
-    if (!myUserId || !s.room) {
-      return false;
-    }
-    const myMembership = s.room.memberships.find((member) => member.userId === myUserId);
-    if (!myMembership) {
-      return false;
-    }
-    return (
-      myMembership.role === "athlete" ||
-      myMembership.role === "crew_chief" ||
-      myMembership.role === "team_manager"
-    );
-  }, [s.roomDetail?.permissions?.canIssueInvite, s.auth.claims?.sub, s.room]);
-  const inviteDisabledReason = useMemo(
-    () =>
-      canIssueInvite ? undefined : "Only athlete, crew chief, or team manager can share race-room invites.",
-    [canIssueInvite]
-  );
-  const roomCode = s.room?.joinCode ?? s.room?.id ?? "";
   const selectedRace = s.room;
-  const membershipLabel = (userId: string): string => {
-    if (userId === s.auth.claims?.sub) {
-      const selfName = s.room?.creatorName?.trim() || s.raceProfile?.creatorName?.trim();
-      if (selfName) {
-        return selfName;
-      }
-    }
-    if (s.room?.athleteId === userId) {
-      return s.room.creatorName?.trim() || s.raceProfile?.creatorName?.trim() || userId;
-    }
-    return userId;
-  };
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      title: selectedRace?.name?.trim() ? selectedRace.name : "Operate",
-      headerRight: () => (
-        <Pressable onPress={() => setShowMenuModal(true)} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-          <Text style={{ color: "#93c5fd", fontWeight: "600" }}>Menu</Text>
-        </Pressable>
-      )
-    });
-  }, [navigation, selectedRace?.name]);
-
-  /** Include current room so the picker stays complete if /mine omits the active room briefly. */
+  /** Keep active room visible even if /mine briefly omits it. */
   const roomsForRacePicker = useMemo(() => {
     const list = s.myRaceRooms ?? [];
     const current = s.room;
@@ -103,6 +96,87 @@ export function AuthenticatedOperateScreen(): ReactElement {
     }
     return { current, upcoming, past };
   }, [roomsForRacePicker, selectedRace?.id]);
+  const syncRaceTitleRect = useCallback(() => {
+    raceTitleRef.current?.measureInWindow((x, y, w, h) => {
+      setRaceTitleRect({ x, y, width: w, height: h });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!showRaceSelectorModal) {
+      setRaceTitleRect(null);
+      return;
+    }
+    const t = requestAnimationFrame(() => {
+      syncRaceTitleRect();
+      requestAnimationFrame(syncRaceTitleRect);
+    });
+    return () => cancelAnimationFrame(t);
+  }, [showRaceSelectorModal, selectedRace?.name, syncRaceTitleRect]);
+
+  const membershipLabel = (userId: string): string => {
+    const member = s.room?.memberships.find((m) => m.userId === userId);
+    const fromRoster = member?.displayName?.trim();
+    if (fromRoster) {
+      return fromRoster;
+    }
+    if (s.room?.athleteId === userId) {
+      return s.room.creatorName?.trim() || s.raceProfile?.creatorName?.trim() || userId;
+    }
+    if (userId === s.auth.claims?.sub) {
+      const ownName = s.auth.claims?.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim();
+      if (ownName) {
+        return toTitleCaseRoster(ownName);
+      }
+      return "You";
+    }
+    return userId;
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitleAlign: "center",
+      headerTitle: () => (
+        <View
+          ref={raceTitleRef}
+          collapsable={false}
+          onLayout={() => {
+            if (showRaceSelectorModal) {
+              syncRaceTitleRect();
+            }
+          }}
+          style={showRaceSelectorModal ? racePickerChrome.titleCapsule : undefined}
+        >
+          <Pressable
+            onPress={() => {
+              setShowRaceSelectorModal((open) => {
+                const next = !open;
+                if (next) {
+                  void s.onFetchMyRaceRooms();
+                }
+                return next;
+              });
+            }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              paddingHorizontal: 4,
+              paddingVertical: 2,
+              width: showRaceSelectorModal ? "100%" : undefined
+            }}
+          >
+            <Text style={{ color: "#f8fafc", fontSize: 18, fontWeight: "700" }}>
+              {selectedRace?.name?.trim() ? selectedRace.name : "Operate"}
+            </Text>
+            <Text style={{ color: "#93c5fd", fontSize: 14, fontWeight: "800" }}>{showRaceSelectorModal ? "▲" : "▼"}</Text>
+          </Pressable>
+        </View>
+      )
+    });
+  }, [navigation, s, selectedRace?.name, showRaceSelectorModal, syncRaceTitleRect]);
+
   const courseDistanceLabel = useMemo(() => {
     const points = s.room?.course?.baselineTrack?.points;
     const meters = s.room?.courseDistanceMeters ?? points?.[points.length - 1]?.distanceMetersFromStart;
@@ -120,6 +194,22 @@ export function AuthenticatedOperateScreen(): ReactElement {
     const feet = Math.round(meters * 3.28084);
     return `${feet.toLocaleString()} ft gain`;
   }, [s.room?.courseElevationGainMeters]);
+
+  const racePanelLayout = useMemo(() => {
+    const panelW = WINDOW.width * 0.92;
+    if (!raceTitleRect) {
+      return {
+        left: (WINDOW.width - panelW) / 2,
+        width: panelW,
+        top: headerBottomY
+      };
+    }
+    /** Match sheet to measured title chrome exactly so borders line up (avoids corner hairlines). */
+    const left = Math.round(raceTitleRect.x);
+    const width = Math.round(raceTitleRect.width);
+    const top = Math.round(raceTitleRect.y + raceTitleRect.height) - TOOLTIP_SHEET_SEAM_OVERLAP;
+    return { left, width, top };
+  }, [raceTitleRect, headerBottomY]);
 
   return (
     <ScrollView
@@ -181,163 +271,37 @@ export function AuthenticatedOperateScreen(): ReactElement {
 
         {!inRace ? (
           <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
-            <Text style={s.styles.summaryTitle}>Join an existing race room</Text>
+            <Text style={s.styles.summaryTitle}>Join and member management moved to Menu</Text>
             <Text style={s.styles.body}>
-              Enter the 6-digit room code from your crew lead to join their race room as a crew member.
+              Open the top-right Menu from any screen to join a race room and manage team members.
             </Text>
-            <View style={{ marginTop: 8 }}>
-              <DSTextInput
-                value={joinCode}
-                onChangeText={setJoinCode}
-                autoCapitalize="none"
-                keyboardType="number-pad"
-                maxLength={6}
-                placeholder="6-digit code"
-              />
-            </View>
-            <View style={{ marginTop: 8 }}>
-              <DSButton
-                preset="secondary"
-                disabled={!joinCode.trim() || s.busy}
-                onPress={() => void s.onJoinRoomByCode(joinCode)}
-              >
-                Join race room by code
-              </DSButton>
-            </View>
-          </DSCard>
-        ) : null}
-
-        {inRace ? (
-          <DSCard style={[s.styles.summaryCard, { marginTop: 12 }]}>
-            <Text style={s.styles.body}>Share this room code with your crew so they can join from their app.</Text>
-            <View style={{ marginTop: 10 }}>
-              <DSButton
-                preset="secondary"
-                onPress={() => {
-                  if (!s.room) return;
-                  const raceName = s.room.name?.trim() || "my race";
-                  void Share.share({
-                    message: `It's time to start prepping. Join my crew for "${raceName}" in CrewCue with the code: "${roomCode}"`
-                  });
-                }}
-                disabled={Boolean(inviteDisabledReason)}
-              >
-                Add crew members
-              </DSButton>
-            </View>
           </DSCard>
         ) : null}
 
       </DSCard>
-      <Modal visible={showMenuModal} transparent animationType="fade" onRequestClose={() => setShowMenuModal(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-start", alignItems: "flex-end" }}
-          onPress={() => setShowMenuModal(false)}
-        >
-          <View style={{ marginTop: 88, marginRight: 14, backgroundColor: "#111827", borderRadius: 10, minWidth: 210 }}>
-            <Pressable
-              onPress={() => {
-                setShowMenuModal(false);
-                void s.onFetchMyRaceRooms();
-                setShowRaceSelectorModal(true);
-              }}
-              style={{ paddingHorizontal: 14, paddingVertical: 12 }}
-            >
-              <Text style={{ color: "#f9fafb", fontSize: 15 }}>Change selected race</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setShowMenuModal(false);
-                navigation.navigate("RacePlanning", { mode: "create" });
-              }}
-              style={{ paddingHorizontal: 14, paddingVertical: 12 }}
-            >
-              <Text style={{ color: "#f9fafb", fontSize: 15 }}>Create new race</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
-      <Modal
+      <RacePickerOverlay
         visible={showRaceSelectorModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowRaceSelectorModal(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 18 }}>
-          <View style={{ backgroundColor: "#0f172a", borderRadius: 14, maxHeight: "82%", padding: 14 }}>
-            <Text style={{ color: "#f9fafb", fontSize: 18, fontWeight: "700" }}>Select race</Text>
-            {selectedRace ? (
-              <View style={{ marginTop: 10 }}>
-                <Text style={{ color: "#22c55e", fontWeight: "700" }}>
-                  Selected: {selectedRace.name}
-                </Text>
-              </View>
-            ) : null}
-            <ScrollView style={{ marginTop: 10 }}>
-              {raceBuckets.current.length > 0 ? (
-                <>
-                  <Text style={{ color: "#93c5fd", fontSize: 12, textTransform: "uppercase", marginBottom: 6 }}>Current races</Text>
-                  {raceBuckets.current.map((room) => (
-                    <Pressable
-                      key={room.id}
-                      onPress={() => {
-                        void s.onSelectRaceRoom(room);
-                        setShowRaceSelectorModal(false);
-                      }}
-                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
-                    >
-                      <Text style={{ color: "#e5e7eb", fontSize: 15 }}>{room.name}</Text>
-                    </Pressable>
-                  ))}
-                </>
-              ) : null}
-              {raceBuckets.upcoming.length > 0 ? (
-                <>
-                  <Text style={{ color: "#93c5fd", fontSize: 12, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>
-                    Upcoming races
-                  </Text>
-                  {raceBuckets.upcoming.map((room) => (
-                    <Pressable
-                      key={room.id}
-                      onPress={() => {
-                        void s.onSelectRaceRoom(room);
-                        setShowRaceSelectorModal(false);
-                      }}
-                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
-                    >
-                      <Text style={{ color: "#e5e7eb", fontSize: 15 }}>{room.name}</Text>
-                    </Pressable>
-                  ))}
-                </>
-              ) : null}
-              {raceBuckets.past.length > 0 ? (
-                <>
-                  <Text style={{ color: "#94a3b8", fontSize: 12, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>
-                    Past races
-                  </Text>
-                  {raceBuckets.past.map((room) => (
-                    <Pressable
-                      key={room.id}
-                      onPress={() => {
-                        void s.onSelectRaceRoom(room);
-                        setShowRaceSelectorModal(false);
-                      }}
-                      style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1f2937" }}
-                    >
-                      <Text style={{ color: "#cbd5e1", fontSize: 15 }}>{room.name}</Text>
-                    </Pressable>
-                  ))}
-                </>
-              ) : null}
-            </ScrollView>
-            <View style={{ marginTop: 12 }}>
-              <DSButton preset="secondary" onPress={() => setShowRaceSelectorModal(false)}>
-                Close
-              </DSButton>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        headerBottomY={headerBottomY}
+        panelLayout={racePanelLayout}
+        titleHitRect={raceTitleRect}
+        maxSheetHeight={raceSelectorMaxHeight}
+        scrollMaxHeight={raceSelectorScrollMaxHeight}
+        selectedRace={selectedRace}
+        buckets={raceBuckets}
+        onClose={() => setShowRaceSelectorModal(false)}
+        onSelectRoom={(room) => {
+          void s.onSelectRaceRoom(room);
+          setShowRaceSelectorModal(false);
+        }}
+      />
     </ScrollView>
   );
+}
+
+function toTitleCaseRoster(value: string): string {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }

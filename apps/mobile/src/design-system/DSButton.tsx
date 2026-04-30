@@ -28,7 +28,7 @@ export function DSButton({
         ? theme.color.danger
         : theme.color.secondaryButton;
 
-  const textColor = preset === "danger" ? theme.color.text : preset === "secondary" ? theme.color.body : theme.color.text;
+  const textColor = theme.color.text;
 
   return (
     <Pressable

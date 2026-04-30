@@ -118,6 +118,16 @@ const joinRaceRoomByCodeInput = z.object({
     .regex(/^\d{6}$/, "Enter the 6-digit room code")
 });
 
+const updateRaceRoomMemberRoleInput = z.object({
+  role: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"])
+});
+
+const updateRaceRoomMemberDisplayNameInput = z
+  .object({
+    displayName: z.string().trim().min(1).max(120)
+  })
+  .strict();
+
 const ingestAthletePingInput = z.object({
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
@@ -1308,6 +1318,102 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       assignedRole: assignedMembership.role,
       permissions: getPermissions(assignedMembership.role)
     });
+  });
+
+  app.patch("/race-rooms/:roomId/members/:memberUserId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const { roomId, memberUserId } = request.params as { roomId: string; memberUserId: string };
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const targetMember = room.memberships.find((member) => member.userId === memberUserId);
+    if (!targetMember) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
+
+    const nameParsed = updateRaceRoomMemberDisplayNameInput.safeParse(request.body);
+    if (nameParsed.success) {
+      if (memberUserId !== request.identity.sub) {
+        return reply.code(403).send({ error: "You can only update your own display name" });
+      }
+      const trimmed = nameParsed.data.displayName.trim();
+      let updatedRoom: RaceRoom = {
+        ...room,
+        memberships: room.memberships.map((member) =>
+          member.userId === memberUserId ? { ...member, displayName: trimmed } : member
+        )
+      };
+      if (memberUserId === room.athleteId) {
+        updatedRoom = { ...updatedRoom, creatorName: trimmed };
+      }
+      await saveRaceRoom(updatedRoom);
+      const updatedMembership = updatedRoom.memberships.find((member) => member.userId === memberUserId);
+      if (!updatedMembership) {
+        return reply.code(500).send({ error: "Could not update display name" });
+      }
+      return reply.send({ room: updatedRoom, membership: updatedMembership });
+    }
+
+    if (room.athleteId !== request.identity.sub) {
+      return reply.code(403).send({ error: "Only the race owner can manage room members" });
+    }
+
+    const parsed = updateRaceRoomMemberRoleInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid member update payload" });
+    }
+
+    if (targetMember.userId === room.athleteId && parsed.data.role !== "athlete") {
+      return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+    }
+
+    const updatedRoom: RaceRoom = {
+      ...room,
+      memberships: room.memberships.map((member) =>
+        member.userId === memberUserId ? { ...member, role: parsed.data.role } : member
+      )
+    };
+    await saveRaceRoom(updatedRoom);
+    const updatedMembership = updatedRoom.memberships.find((member) => member.userId === memberUserId);
+    if (!updatedMembership) {
+      return reply.code(500).send({ error: "Could not update member role" });
+    }
+    return reply.send({ room: updatedRoom, membership: updatedMembership });
+  });
+
+  app.delete("/race-rooms/:roomId/members/:memberUserId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const { roomId, memberUserId } = request.params as { roomId: string; memberUserId: string };
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (room.athleteId !== request.identity.sub) {
+      return reply.code(403).send({ error: "Only the race owner can manage room members" });
+    }
+    if (memberUserId === room.athleteId) {
+      return reply.code(409).send({ error: "Race owner cannot be removed from room" });
+    }
+
+    const hasMember = room.memberships.some((member) => member.userId === memberUserId);
+    if (!hasMember) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
+
+    const updatedRoom: RaceRoom = {
+      ...room,
+      memberships: room.memberships.filter((member) => member.userId !== memberUserId)
+    };
+    await saveRaceRoom(updatedRoom);
+    return reply.send({ room: updatedRoom });
   });
 
   app.get("/teams/:teamId/race-rooms", async (request, reply) => {
