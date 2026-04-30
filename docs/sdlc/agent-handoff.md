@@ -16,7 +16,7 @@ Use this as the minimal continuity file between sessions.
 
 - Last updated: 2026-04-30 (UTC-6)
 - Branch: `feature/issue-194-race-room-roster-mobile`
-- Active PR: (open after push) for #194
+- Active PR: #195 (`feature/issue-194-race-room-roster-mobile` → `main`, closes #194)
 - Active issue: #194 (Race room roster: member PATCH/DELETE, display names, mobile workspace navigation)
 - Current priority: demo-first **Epic A**
 - Current sprint milestone: `Epic A Sprint 1 - Demo foundation`
@@ -67,6 +67,6 @@ Deliver Sprint 1 demo flows:
 
 ```text
 Continue CrewCue Epic A Sprint 1. Read agent-handoff.md -> README.md -> token-budget.md -> mvp-ui-development-spec.md -> ui-delivery-roadmap-and-spec.md.
-If PR #194 is open: address review, keep `Closes #194`, ensure `npm run verify` is green.
+If PR #195 is open: address review, keep `Closes #194`, ensure `npm run verify` is green.
 Then pick the next Sprint 1 issue with highest demo value (e.g. shared crew notes).
 ```
