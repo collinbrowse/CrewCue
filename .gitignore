@@ -8,3 +8,11 @@ coverage/
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# Local IDE/project artifacts
+.idea/
+
+# Expo prebuild output when run from repo root
+/android/
+/ios/
+/app.json
