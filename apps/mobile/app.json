@@ -7,7 +7,8 @@
     "orientation": "portrait",
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "ios": {
       "supportsTablet": true,
@@ -15,6 +16,10 @@
     },
     "android": {
       "package": "com.crewcue.mobile"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
   }
 }
