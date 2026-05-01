@@ -9,20 +9,28 @@ jobs:
   pr-decision-doc-guard:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Validate PR decision documentation sections
         uses: actions/github-script@v7
         with:
           script: |
-            // Use the REST API: `context.payload.pull_request.body` is sometimes empty/stale
-            // in `pull_request` webhook payloads, which falsely fails this guard.
+            // Prefer REST `pulls.get` (full body); fall back to webhook payload if token cannot read pulls.
             const prNumber = context.payload.pull_request.number;
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-            let body = pr.body ?? "";
+            let body = "";
+            try {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              body = pr.body ?? "";
+            } catch (e) {
+              core.warning(`pulls.get failed (${e.message}); using pull_request payload body`);
+              body = context.payload.pull_request?.body ?? "";
+            }
             body = body.replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
             // Normalize dash lookalikes so "## Higher-Order ..." matches after copy/paste from docs
             body = body.replace(/\u2011|\u2013|\u2014/g, "-");
