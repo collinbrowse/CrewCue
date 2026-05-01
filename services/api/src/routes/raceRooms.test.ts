@@ -556,3 +556,39 @@ test("lists mobile-ops-team races when JWT has empty teamIds (mobile demo parity
 
   await app.close();
 });
+
+test("returns anonymous join preview with allowlisted room details", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Western States Build",
+      creatorName: "Owner User",
+      creatorRole: "athlete"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode: string };
+
+  const previewResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/join-preview/${room.joinCode}`
+  });
+  assert.equal(previewResponse.statusCode, 200);
+  const payload = previewResponse.json() as { preview: { roomName: string; joinCode: string; members: Array<{ role: string }> } };
+  assert.equal(payload.preview.roomName, "Western States Build");
+  assert.equal(payload.preview.joinCode, room.joinCode);
+  assert.equal(payload.preview.members.length >= 1, true);
+  assert.equal(payload.preview.members[0]?.role, "athlete");
+
+  await app.close();
+});

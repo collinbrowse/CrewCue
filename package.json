@@ -26,6 +26,7 @@
     "dev:api:memory": "npm run dev:memory -w @crewcue/api",
     "dev:api:pg": "npm run dev:pg -w @crewcue/api",
     "dev:mobile": "npm run dev -w @crewcue/mobile",
+    "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
     "postinstall": "patch-package"
   },
   "engines": {

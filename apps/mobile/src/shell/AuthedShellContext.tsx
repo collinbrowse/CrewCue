@@ -43,6 +43,10 @@ export type AuthedShellContextValue = {
     crewName: string;
     setupComplete: boolean;
   };
+  onboardingIntent?: "none" | "signupAthlete" | "joinCrew";
+  onboardingJoinDraft?: { roomCode: string; displayName: string };
+  onboardingNotificationsSeen: boolean;
+  onboardingNotificationsRequired: boolean;
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   myRaceRooms?: RaceRoom[];
   invites?: RaceRoomInvite[];

@@ -16,6 +16,7 @@ import type {
   ProtocolNoteCategory,
   RaceRoom,
   RaceRoomInvite,
+  RaceRoomJoinPreview,
   RaceCourse,
   RaceRoomEntitlement,
   RaceRoomProjection,
@@ -40,6 +41,10 @@ type ApiClientOptions = {
   accessToken: string;
 };
 
+type PublicApiClientOptions = {
+  baseUrl: string;
+};
+
 async function request<T>(
   options: ApiClientOptions,
   method: string,
@@ -57,6 +62,28 @@ async function request<T>(
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text.length > 0 ? JSON.parse(text) : undefined;
+  } catch {
+    parsed = text;
+  }
+  if (!res.ok) {
+    const message =
+      parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
+        ? String((parsed as { error: unknown }).error)
+        : `API error ${res.status}`;
+    throw new ApiError(res.status, parsed, message);
+  }
+  return parsed as T;
+}
+
+async function requestPublic<T>(options: PublicApiClientOptions, method: string, path: string): Promise<T> {
+  const res = await fetch(`${options.baseUrl}${path}`, {
+    method,
+    headers: { Accept: "application/json" }
   });
   const text = await res.text();
   let parsed: unknown;
@@ -362,3 +389,14 @@ export function createApiClient(options: ApiClientOptions) {
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+export function createPublicApiClient(options: PublicApiClientOptions) {
+  return {
+    getJoinPreviewByCode: (roomCode: string) =>
+      requestPublic<{ preview: RaceRoomJoinPreview }>(
+        { baseUrl: options.baseUrl.replace(/\/$/, "") },
+        "GET",
+        `/race-rooms/join-preview/${encodeURIComponent(roomCode.trim())}`
+      )
+  };
+}

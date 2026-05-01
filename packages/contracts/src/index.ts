@@ -176,6 +176,34 @@ export interface RaceRoom {
   plannedPaceSecondsPerKm?: number;
 }
 
+/** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */
+export interface RaceRoomJoinPreviewMember {
+  displayName: string;
+  role: Role;
+}
+
+/** Checkpoint markers suitable for a future map preview (no visit telemetry). */
+export interface RaceRoomJoinPreviewCheckpoint {
+  id: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface RaceRoomJoinPreview {
+  roomName: string;
+  joinCode: string;
+  status: RaceRoomStatus;
+  memberCount: number;
+  members: RaceRoomJoinPreviewMember[];
+  courseDistanceMeters?: number;
+  courseElevationGainMeters?: number;
+  plannedPaceSecondsPerKm?: number;
+  courseFileName?: string;
+  /** Simplified route geometry for optional map UI during onboarding. */
+  baselineTrack?: RaceCourseBaselineTrack;
+  checkpoints?: RaceRoomJoinPreviewCheckpoint[];
+}
+
 export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";
 
 export interface RaceRoomEntitlement {

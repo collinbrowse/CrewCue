@@ -58,9 +58,12 @@ import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/A
 import { useDSTheme, type DSThemeTokens } from "./src/design-system";
 import * as SecureStore from "expo-secure-store";
 import {
-  ONBOARDING_STAGE_KEY,
-  requiresOnboardingGateForAuthenticatedUser,
-  type OnboardingStage
+  ONBOARDING_INTENT_KEY,
+  ONBOARDING_JOIN_DRAFT_KEY,
+  ONBOARDING_NOTIFICATIONS_REQUIRED_KEY,
+  ONBOARDING_NOTIFICATIONS_SEEN_KEY,
+  type OnboardingIntent,
+  type OnboardingJoinDraft
 } from "./src/navigation/onboardingState";
 
 const MOBILE_DEVICE_ID = "mobile-operator-device";
@@ -114,7 +117,14 @@ export default function App(): ReactElement {
 
 type AuthedShellProps = {
   baseUrl: string;
-  auth0: { auth0Domain: string; auth0ClientId: string; auth0Audience: string };
+  auth0: {
+    auth0Domain: string;
+    auth0ClientId: string;
+    auth0Audience: string;
+    auth0ConnectionGoogle: string;
+    auth0ConnectionApple: string;
+    auth0ConnectionEmail: string;
+  };
 };
 
 type RaceProfile = {
@@ -154,7 +164,12 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const auth = useAuth({
     domain: auth0.auth0Domain,
     clientId: auth0.auth0ClientId,
-    audience: auth0.auth0Audience
+    audience: auth0.auth0Audience,
+    connections: {
+      google: auth0.auth0ConnectionGoogle,
+      apple: auth0.auth0ConnectionApple,
+      email: auth0.auth0ConnectionEmail
+    }
   });
 
   const [room, setRoom] = useState<RaceRoom | undefined>(undefined);
@@ -226,7 +241,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>(undefined);
   const [stationArrivalAt, setStationArrivalAt] = useState<Record<string, string>>({});
-  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("done");
+  const [onboardingIntent, setOnboardingIntent] = useState<OnboardingIntent>("none");
+  const [onboardingJoinDraft, setOnboardingJoinDraft] = useState<OnboardingJoinDraft | undefined>(undefined);
+  const [onboardingNotificationsSeen, setOnboardingNotificationsSeen] = useState(false);
+  const [onboardingNotificationsRequired, setOnboardingNotificationsRequired] = useState(false);
   const outboxProcessingRef = useRef(false);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
@@ -288,24 +306,35 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   }, []);
 
   const refreshOnboardingStage = useCallback(async () => {
-    const storedStage = (await SecureStore.getItemAsync(ONBOARDING_STAGE_KEY)) as OnboardingStage | null;
-    if (
-      storedStage === "splash" ||
-      storedStage === "product" ||
-      storedStage === "auth" ||
-      storedStage === "signupAuth" ||
-      storedStage === "notifications" ||
-      storedStage === "done"
-    ) {
-      setOnboardingStage(storedStage);
-      return;
+    const storedIntent = (await SecureStore.getItemAsync(ONBOARDING_INTENT_KEY)) as OnboardingIntent | null;
+    if (storedIntent === "signupAthlete" || storedIntent === "joinCrew" || storedIntent === "none") {
+      setOnboardingIntent(storedIntent);
+    } else {
+      setOnboardingIntent("none");
     }
-    setOnboardingStage("done");
+    const rawJoin = await SecureStore.getItemAsync(ONBOARDING_JOIN_DRAFT_KEY);
+    if (rawJoin) {
+      try {
+        const parsed = JSON.parse(rawJoin) as OnboardingJoinDraft;
+        if (parsed.roomCode && parsed.displayName) {
+          setOnboardingJoinDraft(parsed);
+        } else {
+          setOnboardingJoinDraft(undefined);
+        }
+      } catch {
+        setOnboardingJoinDraft(undefined);
+      }
+    } else {
+      setOnboardingJoinDraft(undefined);
+    }
+    setOnboardingNotificationsSeen((await SecureStore.getItemAsync(ONBOARDING_NOTIFICATIONS_SEEN_KEY)) === "true");
+    setOnboardingNotificationsRequired((await SecureStore.getItemAsync(ONBOARDING_NOTIFICATIONS_REQUIRED_KEY)) === "true");
   }, []);
 
   useEffect(() => {
     void refreshOnboardingStage();
   }, [refreshOnboardingStage]);
+
 
   const pollProjectionQuiet = useCallback(async () => {
     if (!auth.accessToken || !room) return;
@@ -1122,6 +1151,55 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     ]
   );
 
+  useEffect(() => {
+    if (
+      auth.status !== "authenticated" ||
+      onboardingIntent !== "joinCrew" ||
+      !onboardingJoinDraft?.roomCode ||
+      !onboardingJoinDraft.displayName
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const joined = await joinRoomByCode(onboardingJoinDraft.roomCode);
+        if (!joined || cancelled) {
+          return;
+        }
+        await updateMyRosterDisplayName(onboardingJoinDraft.displayName);
+        await SecureStore.deleteItemAsync(ONBOARDING_JOIN_DRAFT_KEY);
+        await SecureStore.setItemAsync(ONBOARDING_INTENT_KEY, "none");
+        if (!cancelled) {
+          await refreshOnboardingStage();
+        }
+      } catch {
+        /* surfaced via existing API status handlers */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    auth.status,
+    joinRoomByCode,
+    onboardingIntent,
+    onboardingJoinDraft,
+    refreshOnboardingStage,
+    updateMyRosterDisplayName
+  ]);
+
+  useEffect(() => {
+    if (auth.status !== "authenticated" || !onboardingNotificationsSeen || onboardingIntent === "none") {
+      return;
+    }
+    void (async () => {
+      await SecureStore.setItemAsync(ONBOARDING_INTENT_KEY, "none");
+      await SecureStore.setItemAsync(ONBOARDING_NOTIFICATIONS_REQUIRED_KEY, "false");
+      await refreshOnboardingStage();
+    })();
+  }, [auth.status, onboardingIntent, onboardingNotificationsSeen, refreshOnboardingStage]);
+
   const removeMember = useCallback(
     async (memberUserId: string) => {
       if (!auth.accessToken || !room) return;
@@ -1267,6 +1345,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     projection,
     room,
     raceProfile,
+    onboardingIntent,
+    onboardingJoinDraft,
+    onboardingNotificationsSeen,
+    onboardingNotificationsRequired,
     roomDetail,
     invites,
     myRaceRooms,
@@ -1346,8 +1428,22 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onRefreshOnboardingStage: refreshOnboardingStage
   };
 
+  const pendingAthleteSetup = auth.status === "authenticated" && onboardingIntent === "signupAthlete";
+  const pendingJoinCompletion =
+    auth.status === "authenticated" &&
+    onboardingIntent === "joinCrew" &&
+    !!onboardingJoinDraft?.roomCode &&
+    !!onboardingJoinDraft.displayName;
+  const pendingNotificationsPrompt =
+    auth.status === "authenticated" &&
+    onboardingNotificationsRequired &&
+    !onboardingNotificationsSeen &&
+    !pendingJoinCompletion;
   const showAuthedTabs =
-    auth.status === "authenticated" && !requiresOnboardingGateForAuthenticatedUser(onboardingStage);
+    auth.status === "authenticated" &&
+    !pendingAthleteSetup &&
+    !pendingJoinCompletion &&
+    !pendingNotificationsPrompt;
 
   return (
     <AuthedShellProvider value={shellValue}>
