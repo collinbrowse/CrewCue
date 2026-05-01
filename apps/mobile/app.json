@@ -18,6 +18,7 @@
       "package": "com.crewcue.mobile"
     },
     "plugins": [
+      "expo-dev-client",
       "expo-secure-store",
       "expo-web-browser"
     ]

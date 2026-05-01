@@ -4,9 +4,9 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "dev": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "dev": "node ../../scripts/mobile-expo-start.mjs",
+    "android": "node ../../scripts/mobile-expo-start.mjs run:android",
+    "ios": "node ../../scripts/mobile-expo-start.mjs run:ios",
     "build": "expo export --platform all",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

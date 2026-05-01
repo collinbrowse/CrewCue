@@ -322,6 +322,74 @@ test("joins room by room code and creates membership", async () => {
   await app.close();
 });
 
+test("member can PATCH own displayName and owner syncs creatorName when athlete updates", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-user",
+      name: "Room With Names",
+      creatorName: "Original Owner",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode?: string };
+
+  const joinResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms/join-by-code",
+    payload: { roomCode: room.joinCode },
+    headers: { authorization: `Bearer ${joinerToken}` }
+  });
+  assert.equal(joinResponse.statusCode, 200);
+
+  const joinerPatch = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${room.id}/members/joiner-user`,
+    payload: { displayName: "Crew Pat" },
+    headers: { authorization: `Bearer ${joinerToken}` }
+  });
+  assert.equal(joinerPatch.statusCode, 200);
+  const joinerBody = joinerPatch.json() as {
+    room: { memberships: Array<{ userId: string; displayName?: string }> };
+  };
+  const jm = joinerBody.room.memberships.find((m) => m.userId === "joiner-user");
+  assert.equal(jm?.displayName, "Crew Pat");
+
+  const ownerPatch = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${room.id}/members/owner-user`,
+    payload: { displayName: "Updated Owner" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(ownerPatch.statusCode, 200);
+  const ownerBody = ownerPatch.json() as {
+    room: { creatorName?: string; memberships: Array<{ userId: string; displayName?: string }> };
+  };
+  assert.equal(ownerBody.room.creatorName, "Updated Owner");
+  const om = ownerBody.room.memberships.find((m) => m.userId === "owner-user");
+  assert.equal(om?.displayName, "Updated Owner");
+
+  const joinerCannotPatchOther = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${room.id}/members/owner-user`,
+    payload: { displayName: "Hijack" },
+    headers: { authorization: `Bearer ${joinerToken}` }
+  });
+  assert.equal(joinerCannotPatchOther.statusCode, 403);
+
+  await app.close();
+});
+
 test("join-by-code rejects non-6-digit room codes", async () => {
   const app = buildApp();
   await app.ready();

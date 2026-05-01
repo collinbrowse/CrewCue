@@ -125,6 +125,29 @@ type RaceProfile = {
   setupComplete: boolean;
 };
 
+/** `/race-rooms/mine` can briefly return a snapshot that omits optional roster fields; keep client state from regressing. */
+function mergeRaceRoomListSnapshot(prev: RaceRoom, fromList: RaceRoom): RaceRoom {
+  const memberships = fromList.memberships.map((m) => {
+    const p = prev.memberships.find((x) => x.userId === m.userId);
+    const nextName = m.displayName?.trim();
+    const prevName = p?.displayName?.trim();
+    if (nextName) {
+      return m;
+    }
+    if (prevName) {
+      return { ...m, displayName: prevName };
+    }
+    return m;
+  });
+  const listCreator = fromList.creatorName?.trim();
+  const prevCreator = prev.creatorName?.trim();
+  return {
+    ...fromList,
+    creatorName: listCreator || prevCreator || fromList.creatorName,
+    memberships
+  };
+}
+
 function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const theme = useDSTheme();
   const styles = useMemo(() => createAuthedStyles(theme), [theme]);
@@ -311,7 +334,15 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const { rooms } = await client.listMyRaceRooms();
-      setMyRaceRooms(rooms);
+      setMyRaceRooms((prevList) => {
+        if (!prevList?.length) {
+          return rooms;
+        }
+        return rooms.map((r) => {
+          const older = prevList.find((x) => x.id === r.id);
+          return older ? mergeRaceRoomListSnapshot(older, r) : r;
+        });
+      });
       setRoom((prev) => {
         if (rooms.length === 0) {
           return undefined;
@@ -319,8 +350,11 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         if (!prev) {
           return rooms[0];
         }
-        const stillExists = rooms.find((r) => r.id === prev.id);
-        return stillExists ?? rooms[0];
+        const stillExists = rooms.find((r) => r.id === prev.id) ?? rooms[0];
+        if (stillExists.id !== prev.id) {
+          return stillExists;
+        }
+        return mergeRaceRoomListSnapshot(prev, stillExists);
       });
     } catch (err) {
       setStatusError(err);
@@ -971,7 +1005,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   const joinRoomByCode = useCallback(
     async (roomCode: string) => {
-      if (!auth.accessToken) return;
+      if (!auth.accessToken) return false;
       setBusy(true);
       setApiError(undefined);
       try {
@@ -987,13 +1021,126 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
             ? `Joined race: ${joined.room.name} (code ${joined.room.joinCode})`
             : `Joined race: ${joined.room.name}`
         );
+        return true;
+      } catch (err) {
+        setStatusError(err);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, baseUrl, fetchMyRaceRooms, setStatusError, setStatusSuccess]
+  );
+
+  const updateMemberRole = useCallback(
+    async (memberUserId: string, role: RaceRoomInvite["role"]) => {
+      if (!auth.accessToken || !room) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const updated = await client.updateRaceRoomMemberRole(room.id, memberUserId, { role });
+        setRoom(updated.room);
+        setRoomDetail((prev) => (prev ? { ...prev, room: updated.room } : prev));
+        await fetchMyRaceRooms();
+        setStatusSuccess(`Updated member role for ${memberUserId}.`);
       } catch (err) {
         setStatusError(err);
       } finally {
         setBusy(false);
       }
     },
-    [auth.accessToken, baseUrl, fetchMyRaceRooms, setStatusError, setStatusSuccess]
+    [auth.accessToken, room, baseUrl, fetchMyRaceRooms, setStatusError, setStatusSuccess]
+  );
+
+  const updateMyRosterDisplayName = useCallback(
+    async (displayName: string) => {
+      if (!auth.accessToken || !room || !auth.claims?.sub) {
+        throw new Error("Sign in and open a race room before updating your roster name.");
+      }
+      const trimmed = displayName.trim();
+      if (!trimmed) {
+        throw new Error("Name cannot be empty.");
+      }
+      const sub = auth.claims.sub;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const updated = await client.updateRaceRoomMemberDisplayName(room.id, sub, {
+          displayName: trimmed
+        });
+        const patched = updated.room;
+        /** Always persist the name we saved into local state (some responses omit nested fields). */
+        const normalized: RaceRoom = {
+          ...patched,
+          memberships: patched.memberships.map((m) =>
+            m.userId === sub ? { ...m, displayName: trimmed } : m
+          ),
+          creatorName: patched.athleteId === sub ? trimmed : patched.creatorName
+        };
+        setRoom(normalized);
+        setRoomDetail((prev) => (prev ? { ...prev, room: normalized } : prev));
+        if (normalized.athleteId === sub) {
+          await saveRaceProfile({
+            creatorName: trimmed,
+            raceName: raceProfile?.raceName?.trim() || normalized.name || "",
+            raceDescription: raceProfile?.raceDescription ?? normalized.description ?? "",
+            crewName: raceProfile?.crewName ?? normalized.crewName ?? "",
+            setupComplete: raceProfile?.setupComplete ?? true
+          });
+        }
+        setMyRaceRooms((prev) => {
+          if (!prev?.length) {
+            return [normalized];
+          }
+          const idx = prev.findIndex((r) => r.id === normalized.id);
+          if (idx === -1) {
+            return [...prev, normalized];
+          }
+          const next = [...prev];
+          next[idx] = normalized;
+          return next;
+        });
+        setStatusSuccess("Your roster name was updated.");
+      } catch (err) {
+        setStatusError(err);
+        throw err;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      auth.accessToken,
+      auth.claims?.sub,
+      room,
+      baseUrl,
+      raceProfile,
+      saveRaceProfile,
+      setStatusError,
+      setStatusSuccess
+    ]
+  );
+
+  const removeMember = useCallback(
+    async (memberUserId: string) => {
+      if (!auth.accessToken || !room) return;
+      setBusy(true);
+      setApiError(undefined);
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const updated = await client.removeRaceRoomMember(room.id, memberUserId);
+        setRoom(updated.room);
+        setRoomDetail((prev) => (prev ? { ...prev, room: updated.room } : prev));
+        await fetchMyRaceRooms();
+        setStatusSuccess(`Removed ${memberUserId} from room members.`);
+      } catch (err) {
+        setStatusError(err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [auth.accessToken, room, baseUrl, fetchMyRaceRooms, setStatusError, setStatusSuccess]
   );
 
   const selectRaceRoom = useCallback(
@@ -1155,6 +1302,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onIssueInvite: issueInvite,
     onFetchInvites: fetchInvites,
     onJoinRoomByCode: joinRoomByCode,
+    onUpdateMemberRole: updateMemberRole,
+    onUpdateMyRosterDisplayName: updateMyRosterDisplayName,
+    onRemoveMember: removeMember,
     onFetchMyRaceRooms: fetchMyRaceRooms,
     onSelectRaceRoom: selectRaceRoom,
     onActivateRoom: activateRoom,
