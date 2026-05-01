@@ -14,7 +14,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.pull_request?.body || "";
+            // Use the REST API: `context.payload.pull_request.body` is sometimes empty/stale
+            // in `pull_request` webhook payloads, which falsely fails this guard.
+            const prNumber = context.payload.pull_request.number;
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            let body = pr.body ?? "";
+            body = body.replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
+            // Normalize dash lookalikes so "## Higher-Order ..." matches after copy/paste from docs
+            body = body.replace(/\u2011|\u2013|\u2014/g, "-");
+
             const requiredHeaders = [
               "## Decision Tree and Rationale",
               "## Implicit Assumptions and Invariants",
@@ -23,8 +35,9 @@ jobs:
 
             const missingHeaders = requiredHeaders.filter((header) => !body.includes(header));
             if (missingHeaders.length > 0) {
+              const payloadLen = (context.payload.pull_request?.body ?? "").length;
               core.setFailed(
-                `PR body missing required section headers: ${missingHeaders.join(", ")}`
+                `PR body missing required section headers: ${missingHeaders.join(", ")} (API body length ${body.length}, payload body length ${payloadLen})`
               );
               return;
             }
