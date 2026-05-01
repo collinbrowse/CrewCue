@@ -3,12 +3,16 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RaceRoomJoinPreview } from "@crewcue/contracts";
 import { createPublicApiClient } from "../api/client";
+import { useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { GuestStackParamList } from "./types";
 
 export function JoinCrewPreviewScreen(): ReactElement {
+  const theme = useDSTheme();
+  const insets = useSafeAreaInsets();
   const s = useAuthedShell();
   const navigation = useNavigation<NativeStackNavigationProp<GuestStackParamList>>();
   const route = useRoute<RouteProp<GuestStackParamList, "JoinPreview">>();
@@ -37,7 +41,10 @@ export function JoinCrewPreviewScreen(): ReactElement {
   }, [roomCode, s.baseUrl]);
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.root, { backgroundColor: theme.color.background, paddingTop: insets.top }]}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+    >
       <Text style={styles.title}>Preview your crew</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {preview ? (
@@ -69,14 +76,14 @@ export function JoinCrewPreviewScreen(): ReactElement {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0b1020" },
-  content: { padding: 20, gap: 10, paddingBottom: 40 },
-  title: { color: "#f8fafc", fontSize: 30, fontWeight: "800" },
-  roomName: { color: "#86efac", fontSize: 24, fontWeight: "800" },
-  meta: { color: "#cbd5e1", fontSize: 16 },
-  memberWrap: { backgroundColor: "#111827", borderRadius: 12, padding: 12, gap: 8, marginTop: 8 },
-  memberRow: { color: "#e5e7eb", fontSize: 15 },
+  root: { flex: 1 },
+  content: { padding: 20, gap: 10 },
+  title: { color: "#111827", fontSize: 30, fontWeight: "800" },
+  roomName: { color: "#15803d", fontSize: 24, fontWeight: "800" },
+  meta: { color: "#5c5a54", fontSize: 16 },
+  memberWrap: { backgroundColor: "#e7e5de", borderRadius: 12, padding: 12, gap: 8, marginTop: 8 },
+  memberRow: { color: "#1f2937", fontSize: 15 },
   button: { marginTop: 14, minHeight: 54, borderRadius: 12, backgroundColor: "#22c55e", alignItems: "center", justifyContent: "center" },
   buttonText: { color: "#052e16", fontWeight: "800", fontSize: 17 },
-  error: { color: "#fecaca" }
+  error: { color: "#b91c1c" }
 });

@@ -12,7 +12,8 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.crewcue.mobile"
+      "bundleIdentifier": "com.crewcue.mobile",
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.crewcue.mobile"
@@ -20,7 +21,8 @@
     "plugins": [
       "expo-dev-client",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-apple-authentication"
     ]
   }
 }

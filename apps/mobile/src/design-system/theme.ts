@@ -1,5 +1,8 @@
 import { useColorScheme } from "react-native";
 
+/** App-wide canvas behind navigators and full-bleed screens. Toggle once here — wired to `color.background` in both schemes and React Navigation `colors.background`. */
+export const CANVAS_BACKGROUND_COLOR = "#f3efe6";
+
 export type DSThemeTokens = {
   color: {
     primary: string;
@@ -26,7 +29,7 @@ export type DSThemeTokens = {
 const darkTokens: DSThemeTokens = {
   color: {
     primary: "#2563eb",
-    background: "#0f172a",
+    background: CANVAS_BACKGROUND_COLOR,
     card: "#111827",
     text: "#f9fafb",
     border: "#1f2937",
@@ -49,7 +52,7 @@ const darkTokens: DSThemeTokens = {
 const lightTokens: DSThemeTokens = {
   color: {
     primary: "#2563eb",
-    background: "#f8fafc",
+    background: CANVAS_BACKGROUND_COLOR,
     card: "#ffffff",
     text: "#0f172a",
     border: "#cbd5e1",

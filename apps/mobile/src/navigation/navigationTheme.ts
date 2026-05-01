@@ -1,8 +1,9 @@
 import { DarkTheme, type Theme } from "@react-navigation/native";
+import { CANVAS_BACKGROUND_COLOR } from "../design-system/theme";
 
 export const navColors = {
   primary: "#2563eb",
-  background: "#0f172a",
+  background: CANVAS_BACKGROUND_COLOR,
   card: "#111827",
   text: "#f9fafb",
   border: "#1f2937",

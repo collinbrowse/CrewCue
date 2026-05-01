@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { GuestHomeScreen } from "./GuestHomeScreen";
-import { AuthOptionsScreen } from "./AuthOptionsScreen";
 import { JoinCrewEntryScreen } from "./JoinCrewEntryScreen";
 import { JoinCrewPreviewScreen } from "./JoinCrewPreviewScreen";
 import { JoinCrewAccountScreen } from "./JoinCrewAccountScreen";
@@ -21,7 +20,6 @@ export function GuestStack(): ReactElement {
       }}
     >
       <Stack.Screen name="Home" component={GuestHomeScreen} />
-      <Stack.Screen name="AuthOptions" component={AuthOptionsScreen} />
       <Stack.Screen name="JoinEntry" component={JoinCrewEntryScreen} />
       <Stack.Screen name="JoinPreview" component={JoinCrewPreviewScreen} />
       <Stack.Screen name="JoinAccount" component={JoinCrewAccountScreen} />

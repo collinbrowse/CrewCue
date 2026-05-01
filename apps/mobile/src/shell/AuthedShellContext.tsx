@@ -117,7 +117,7 @@ export type AuthedShellContextValue = {
   onRejectRecommendation: () => void;
   onRecordStationArrival: (checkpointId: string) => void;
   onEnqueueManualStop: (checkpointId: string, arrivalAt: string) => void;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
   onToggleResolvedSource: (
     checkpointId: string,
     visitIndex: number,

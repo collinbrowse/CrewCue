@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactElement } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard } from "../design-system";
@@ -12,9 +12,41 @@ export function WorkspaceMenuScreen(): ReactElement {
   const theme = useDSTheme();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList>>();
   const [changingRace, setChangingRace] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | undefined>(undefined);
   const isOwner = Boolean(s.room && s.auth.claims?.sub && s.room.athleteId === s.auth.claims.sub);
 
   const selectedRaceName = useMemo(() => s.room?.name?.trim() || "No race selected", [s.room?.name]);
+  const executeSignOut = () => {
+    if (signingOut) {
+      return;
+    }
+    setSignOutError(undefined);
+    setSigningOut(true);
+    void s
+      .onSignOut()
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Unable to sign out right now. Please try again.";
+        setSignOutError(message);
+      })
+      .finally(() => {
+        setSigningOut(false);
+      });
+  };
+
+  const confirmSignOut = () => {
+    if (signingOut) {
+      return;
+    }
+    Alert.alert("Sign out?", "You will need to sign in again to access your races.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: executeSignOut
+      }
+    ]);
+  };
 
   return (
     <ScrollView style={s.styles.container} contentContainerStyle={[s.styles.scroll, { paddingBottom: 28 }]}>
@@ -81,6 +113,17 @@ export function WorkspaceMenuScreen(): ReactElement {
             </DSButton>
           </View>
         </DSCard>
+
+        <DSCard style={[s.styles.summaryCard, styles.section]}>
+          <Text style={s.styles.summaryTitle}>Account</Text>
+          <Text style={s.styles.body}>Sign out of this device and return to the login flow.</Text>
+          <View style={styles.buttonSpacing}>
+            <DSButton preset="danger" onPress={confirmSignOut} disabled={signingOut}>
+              {signingOut ? "Signing out..." : "Sign out"}
+            </DSButton>
+          </View>
+          {signOutError ? <Text style={[s.styles.errorText, styles.errorSpacing]}>{signOutError}</Text> : null}
+        </DSCard>
       </DSCard>
     </ScrollView>
   );
@@ -115,6 +158,9 @@ const styles = StyleSheet.create({
   },
   buttonSpacing: {
     gap: 8,
+    marginTop: 10
+  },
+  errorSpacing: {
     marginTop: 10
   }
 });

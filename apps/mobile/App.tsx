@@ -51,11 +51,15 @@ import {
   processOutboxBatch
 } from "./src/sync/outboxProcessor";
 import { crewCueLinking } from "./src/navigation/linking";
+import {
+  CANVAS_BACKGROUND_COLOR,
+  useDSTheme,
+  type DSThemeTokens
+} from "./src/design-system";
 import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
-import { useDSTheme, type DSThemeTokens } from "./src/design-system";
 import * as SecureStore from "expo-secure-store";
 import {
   ONBOARDING_INTENT_KEY,
@@ -107,7 +111,7 @@ export default function App(): ReactElement {
             <Text style={bootStyles.code}>apps/mobile/.env</Text> and restart Expo.
           </Text>
         </View>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
       </SafeAreaView>
     );
   }
@@ -1450,7 +1454,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       <NavigationContainer theme={crewCueNavigationTheme} linking={crewCueLinking}>
         {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
     </AuthedShellProvider>
   );
 }
@@ -1458,7 +1462,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 const bootStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0f172a"
+    backgroundColor: CANVAS_BACKGROUND_COLOR
   },
   scroll: {
     flexGrow: 1,
