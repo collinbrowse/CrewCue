@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
-import { NavigateScreenNative } from "./NavigateScreen.native";
+import { MapLibreNativeMissingScreen } from "../features/maps/MapLibreNativeMissingScreen";
+import { isMapLibreNativeAvailable } from "../features/maps/maplibreNativeGate";
 
 export function NavigateScreen(): ReactElement {
   if (Platform.OS === "web") {
@@ -10,6 +11,11 @@ export function NavigateScreen(): ReactElement {
       </View>
     );
   }
+  if (!isMapLibreNativeAvailable()) {
+    return <MapLibreNativeMissingScreen />;
+  }
+  const { NavigateScreenNative } =
+    require("./NavigateScreen.native") as typeof import("./NavigateScreen.native");
   return <NavigateScreenNative />;
 }
 
