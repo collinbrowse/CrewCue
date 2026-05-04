@@ -7,7 +7,8 @@ export function MapLibreNativeMissingScreen(): ReactElement {
     <ScrollView contentContainerStyle={styles.scroll} style={styles.root}>
       <Text style={styles.title}>Maps require a development build</Text>
       <Text style={styles.body}>
-        MapLibre runs only in an iOS/Android binary that includes its native modules. Expo Go does not include them.
+        MapLibre runs only in an iOS/Android binary that includes its native modules. Expo Go does not ship them —
+        open this app with your CrewCue development build (see <Text style={styles.mono}>npx expo run:ios</Text> below).
       </Text>
       <Text style={styles.body}>
         From the monorepo root, after installing dependencies: run{"\n"}
