@@ -2,8 +2,17 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const repoRoot = process.cwd();
-const mobileRoot = path.join(repoRoot, "apps/mobile");
-const allowedNetworkSource = path.join(mobileRoot, "src/api/client.ts");
+
+const clientRoots = [
+  {
+    root: path.join(repoRoot, "apps/mobile"),
+    allowedNetworkSources: new Set([path.join(repoRoot, "apps/mobile/src/api/client.ts")])
+  },
+  {
+    root: path.join(repoRoot, "apps/web"),
+    allowedNetworkSources: new Set([path.join(repoRoot, "apps/web/src/api/client.ts")])
+  }
+];
 
 const sourceFileExtensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const ignoredSuffixes = [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"];
@@ -36,8 +45,8 @@ async function listFilesRecursively(dir) {
   return files;
 }
 
-function shouldCheckFile(filePath) {
-  const relative = path.relative(mobileRoot, filePath);
+function shouldCheckFile(appRoot, filePath) {
+  const relative = path.relative(appRoot, filePath);
   if (!relative || relative.startsWith("..")) {
     return false;
   }
@@ -52,37 +61,48 @@ function shouldCheckFile(filePath) {
 }
 
 async function main() {
-  const files = await listFilesRecursively(mobileRoot);
   const violations = [];
 
-  for (const filePath of files) {
-    if (!shouldCheckFile(filePath)) {
-      continue;
-    }
-    if (path.normalize(filePath) === path.normalize(allowedNetworkSource)) {
+  for (const { root: appRoot, allowedNetworkSources } of clientRoots) {
+    try {
+      await readFile(path.join(appRoot, "package.json"));
+    } catch {
       continue;
     }
 
-    const content = await readFile(filePath, "utf8");
-    for (const rule of disallowedPatterns) {
-      if (rule.regex.test(content)) {
-        violations.push({
-          file: path.relative(repoRoot, filePath),
-          rule: rule.label
-        });
+    const files = await listFilesRecursively(appRoot);
+
+    for (const filePath of files) {
+      if (!shouldCheckFile(appRoot, filePath)) {
+        continue;
+      }
+      if (allowedNetworkSources.has(path.normalize(filePath))) {
+        continue;
+      }
+
+      const content = await readFile(filePath, "utf8");
+      for (const rule of disallowedPatterns) {
+        if (rule.regex.test(content)) {
+          violations.push({
+            file: path.relative(repoRoot, filePath),
+            rule: rule.label
+          });
+        }
       }
     }
   }
 
   if (violations.length > 0) {
-    console.error("Dual-client guard failed: raw networking found outside apps/mobile/src/api/client.ts");
+    console.error(
+      "Dual-client guard failed: raw networking found outside allowed apps/*/src/api/client.ts entrypoints."
+    );
     for (const violation of violations) {
       console.error(`- ${violation.file}: ${violation.rule}`);
     }
     process.exit(1);
   }
 
-  console.log("Dual-client guard passed: mobile networking remains centralized in src/api/client.ts");
+  console.log("Dual-client guard passed: networking stays centralized per client.");
 }
 
 main().catch((error) => {

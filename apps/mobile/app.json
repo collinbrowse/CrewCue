@@ -22,7 +22,8 @@
       "expo-dev-client",
       "expo-secure-store",
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "@maplibre/maplibre-react-native"
     ]
   }
 }

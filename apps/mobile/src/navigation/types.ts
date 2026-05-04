@@ -12,6 +12,8 @@ export type GuestStackParamList = {
 export type OperateStackParamList = {
   OperateHome: undefined;
   RacePlanning: { mode?: "create" | "edit" } | undefined;
+  MapWorkspace: undefined;
+  Navigate: undefined;
   JoinRoomDetails: { roomCode?: string } | undefined;
   WorkspaceMenu: undefined;
   ManageRoomMembers: undefined;

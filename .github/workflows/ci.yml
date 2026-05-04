@@ -101,6 +101,9 @@ jobs:
       EXPO_PUBLIC_AUTH0_CONNECTION_APPLE: ci-placeholder-apple
       EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL: ci-placeholder-email-db
       EXPO_PUBLIC_API_BASE_URL: https://ci-placeholder.invalid
+      EXPO_PUBLIC_MAPTILER_API_KEY: ci-placeholder-maptiler
+      VITE_MAPTILER_API_KEY: ci-placeholder-maptiler
+      VITE_API_BASE_URL: https://ci-placeholder.invalid
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

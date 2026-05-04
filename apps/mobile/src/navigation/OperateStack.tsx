@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Pressable, Text } from "react-native";
 import { AuthenticatedOperateScreen } from "./AuthenticatedOperateScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
+import { MapWorkspaceScreen } from "./MapWorkspaceScreen";
+import { NavigateScreen } from "./NavigateScreen";
 import { JoinRoomDetailsScreen } from "./JoinRoomDetailsScreen";
 import { ManageRoomMembersScreen } from "./ManageRoomMembersScreen";
 import { WorkspaceMenuScreen } from "./WorkspaceMenuScreen";
@@ -28,6 +30,8 @@ export function OperateStack(): ReactElement {
       })}
     >
       <Stack.Screen name="OperateHome" component={AuthenticatedOperateScreen} options={{ title: "Operate" }} />
+      <Stack.Screen name="MapWorkspace" component={MapWorkspaceScreen} options={{ title: "Map workspace" }} />
+      <Stack.Screen name="Navigate" component={NavigateScreen} options={{ title: "Navigate" }} />
       <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Race setup" }} />
       <Stack.Screen name="JoinRoomDetails" component={JoinRoomDetailsScreen} options={{ title: "Join race room" }} />
       <Stack.Screen

@@ -14,7 +14,10 @@
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
+    "@crewcue/map-core": "0.1.0",
     "@expo/vector-icons": "^15.0.2",
+    "@maplibre/maplibre-react-native": "^11.0.2",
+    "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/bottom-tabs": "^7.15.10",
     "@react-navigation/native": "^7.2.2",
     "@react-navigation/native-stack": "^7.14.12",
@@ -38,6 +41,7 @@
     "react-native-web": "^0.21.0"
   },
   "devDependencies": {
+    "@expo/config-plugins": "^55.0.8",
     "@types/react": "^19.2.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3"

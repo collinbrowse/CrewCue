@@ -1,0 +1,64 @@
+import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  constructor(status: number, body: unknown, message?: string) {
+    super(message ?? `API error ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+type WebApiClientOptions = {
+  baseUrl: string;
+  accessToken: string;
+};
+
+export type PutRaceMapWorkspaceInput = {
+  layers: RaceMapWorkspace["layers"];
+  selectedLayerId?: string;
+  drivesProjectionLayerId?: string;
+  checkpoints: RaceMapWorkspace["checkpoints"];
+  syncBaselineFromLayer?: boolean;
+};
+
+async function request<T>(options: WebApiClientOptions, method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.accessToken}`,
+    Accept: "application/json"
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${options.baseUrl.replace(/\/$/, "")}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text.length > 0 ? JSON.parse(text) : undefined;
+  } catch {
+    parsed = text;
+  }
+  if (!res.ok) {
+    const message =
+      parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
+        ? String((parsed as { error: unknown }).error)
+        : `API error ${res.status}`;
+    throw new ApiError(res.status, parsed, message);
+  }
+  return parsed as T;
+}
+
+export function createWebApiClient(options: WebApiClientOptions) {
+  return {
+    getMapWorkspace: (roomId: string) =>
+      request<{ mapWorkspace: RaceMapWorkspace }>(options, "GET", `/race-rooms/${roomId}/map-workspace`),
+    putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input)
+  };
+}
