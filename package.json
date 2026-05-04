@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "CrewCue WS0 foundation monorepo",
+  "main": "./apps/mobile/index.ts",
   "workspaces": [
     "apps/*",
     "services/*",
