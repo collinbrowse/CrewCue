@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { useDSTheme } from "./theme";
 
-export type DSButtonPreset = "primary" | "secondary" | "danger";
+export type DSButtonPreset = "primary" | "secondary" | "danger" | "authPrimary" | "authSecondary" | "authOutline";
 
 type Props = {
   preset?: DSButtonPreset;
@@ -24,11 +24,24 @@ export function DSButton({
   const backgroundColor =
     preset === "primary"
       ? theme.color.primary
+      : preset === "authPrimary"
+        ? theme.color.authPrimaryAction
+        : preset === "authSecondary"
+          ? theme.color.authSecondaryAction
+          : preset === "authOutline"
+            ? "transparent"
       : preset === "danger"
         ? theme.color.danger
         : theme.color.secondaryButton;
 
-  const textColor = theme.color.text;
+  const textColor =
+    preset === "authPrimary"
+      ? theme.color.authPrimaryActionText
+      : preset === "authSecondary"
+        ? theme.color.authSecondaryActionText
+        : preset === "authOutline"
+          ? theme.color.authOutlineText
+          : theme.color.text;
 
   return (
     <Pressable
@@ -36,11 +49,27 @@ export function DSButton({
       disabled={disabled}
       style={[
         styles.base,
+        preset === "authPrimary" || preset === "authSecondary" || preset === "authOutline"
+          ? styles.authBase
+          : null,
+        preset === "authOutline"
+          ? { borderWidth: 2, borderColor: theme.color.authOutlineBorder }
+          : null,
         { backgroundColor, opacity: disabled ? 0.6 : 1 },
         fullWidth ? styles.fullWidth : null
       ]}
     >
-      <Text style={[styles.label, { color: textColor }]}>{children}</Text>
+      <Text
+        style={[
+          styles.label,
+          preset === "authPrimary" || preset === "authSecondary" || preset === "authOutline"
+            ? styles.authLabel
+            : null,
+          { color: textColor }
+        ]}
+      >
+        {children}
+      </Text>
     </Pressable>
   );
 }
@@ -52,9 +81,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center"
   },
+  authBase: {
+    minHeight: 48,
+    borderRadius: 24,
+    justifyContent: "center"
+  },
   label: {
     fontSize: 14,
     fontWeight: "600"
+  },
+  authLabel: {
+    fontSize: 17,
+    fontWeight: "700"
   },
   fullWidth: {
     width: "100%"

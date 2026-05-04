@@ -1472,42 +1472,44 @@ const bootStyles = StyleSheet.create({
   card: {
     borderRadius: 16,
     padding: 20,
-    backgroundColor: "#111827",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#d8d1c4",
     gap: 4
   },
   title: {
-    color: "#f9fafb",
+    color: "#111827",
     fontSize: 26,
     fontWeight: "700"
   },
   subtitle: {
-    color: "#9ca3af",
+    color: "#5c5a54",
     fontSize: 14,
     marginBottom: 12
   },
   label: {
-    color: "#9ca3af",
+    color: "#5c5a54",
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 0.6,
     marginTop: 10
   },
   value: {
-    color: "#f9fafb",
+    color: "#111827",
     fontSize: 16
   },
   code: {
-    color: "#e5e7eb",
+    color: "#111827",
     fontSize: 13,
     fontFamily: "Menlo"
   },
   body: {
-    color: "#d1d5db",
+    color: "#5c5a54",
     fontSize: 14,
     marginTop: 6
   },
   mutedText: {
-    color: "#9ca3af"
+    color: "#5c5a54"
   },
   successText: {
     color: "#86efac"
@@ -1520,42 +1522,42 @@ const bootStyles = StyleSheet.create({
     fontSize: 13
   },
   primaryButton: {
-    backgroundColor: "#2563eb",
+    backgroundColor: "#6B46C1",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: "center"
   },
   primaryButtonLabel: {
-    color: "#f9fafb",
+    color: "#ffffff",
     fontSize: 16,
     fontWeight: "600"
   },
   secondaryButton: {
-    backgroundColor: "#1f2937",
+    backgroundColor: "#e7e5de",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: "center"
   },
   secondaryButtonLabel: {
-    color: "#d1d5db",
+    color: "#1f2937",
     fontSize: 14
   },
   secondaryButtonActive: {
     borderWidth: 2,
-    borderColor: "#3b82f6"
+    borderColor: "#6B46C1"
   },
   summaryCard: {
     marginTop: 16,
     borderRadius: 12,
     padding: 14,
-    backgroundColor: "#0b1220",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#1f2937"
+    borderColor: "#d8d1c4"
   },
   summaryTitle: {
-    color: "#f9fafb",
+    color: "#111827",
     fontSize: 15,
     fontWeight: "600",
     marginBottom: 4
@@ -1564,26 +1566,26 @@ const bootStyles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 10,
-    backgroundColor: "#0b1220",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#1f2937",
+    borderColor: "#d8d1c4",
     gap: 4
   },
   statusRailTitle: {
-    color: "#f9fafb",
+    color: "#111827",
     fontSize: 13,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5
   },
   statusRailItem: {
-    color: "#d1d5db",
+    color: "#5c5a54",
     fontSize: 13
   },
   outboxItem: {
     marginTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#1f2937",
+    borderTopColor: "#d8d1c4",
     paddingTop: 12
   },
   outboxItemHeader: {
@@ -1614,24 +1616,24 @@ const bootStyles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: "#1f2937"
+    borderBottomColor: "#d8d1c4"
   },
   visitRow: {
     marginTop: 8,
     paddingLeft: 10,
     borderLeftWidth: 2,
-    borderLeftColor: "#374151"
+    borderLeftColor: "#7a756c"
   },
   toggleButton: {
     marginTop: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 6,
-    backgroundColor: "#374151",
+    backgroundColor: "#e7e5de",
     alignSelf: "flex-start"
   },
   toggleButtonLabel: {
-    color: "#d1d5db",
+    color: "#1f2937",
     fontSize: 12
   }
 });
@@ -1650,7 +1652,9 @@ function createAuthedStyles(theme: DSThemeTokens) {
     card: {
       borderRadius: 16,
       padding: 20,
-      backgroundColor: theme.color.card,
+      backgroundColor: "#ffffff",
+      borderWidth: 1,
+      borderColor: theme.color.divider,
       gap: 4
     },
     title: {
@@ -1659,12 +1663,12 @@ function createAuthedStyles(theme: DSThemeTokens) {
       fontWeight: "700"
     },
     subtitle: {
-      color: theme.color.muted,
+      color: theme.color.authBody,
       fontSize: 14,
       marginBottom: 12
     },
     label: {
-      color: theme.color.muted,
+      color: theme.color.authBody,
       fontSize: 12,
       textTransform: "uppercase",
       letterSpacing: 0.6,
@@ -1675,17 +1679,17 @@ function createAuthedStyles(theme: DSThemeTokens) {
       fontSize: 16
     },
     code: {
-      color: theme.color.text,
+      color: theme.color.authHeading,
       fontSize: 13,
       fontFamily: "Menlo"
     },
     body: {
-      color: theme.color.body,
+      color: theme.color.authBody,
       fontSize: 14,
       marginTop: 6
     },
     mutedText: {
-      color: theme.color.muted
+      color: theme.color.authBody
     },
     successText: {
       color: theme.color.success
@@ -1698,27 +1702,30 @@ function createAuthedStyles(theme: DSThemeTokens) {
       fontSize: 13
     },
     primaryButton: {
-      backgroundColor: theme.color.primary,
+      backgroundColor: theme.color.authPrimaryAction,
       paddingVertical: 12,
       paddingHorizontal: 16,
-      borderRadius: 10,
+      borderRadius: 24,
+      minHeight: 48,
       alignItems: "center"
     },
     primaryButtonLabel: {
-      color: theme.color.text,
-      fontSize: 16,
-      fontWeight: "600"
+      color: theme.color.authPrimaryActionText,
+      fontSize: 17,
+      fontWeight: "700"
     },
     secondaryButton: {
-      backgroundColor: theme.color.secondaryButton,
+      backgroundColor: theme.color.authSecondaryAction,
       paddingVertical: 12,
       paddingHorizontal: 16,
-      borderRadius: 10,
+      borderRadius: 24,
+      minHeight: 48,
       alignItems: "center"
     },
     secondaryButtonLabel: {
-      color: theme.color.body,
-      fontSize: 14
+      color: theme.color.authSecondaryActionText,
+      fontSize: 17,
+      fontWeight: "700"
     },
     secondaryButtonActive: {
       borderWidth: 2,
@@ -1726,14 +1733,14 @@ function createAuthedStyles(theme: DSThemeTokens) {
     },
     summaryCard: {
       marginTop: 16,
-      borderRadius: 12,
+      borderRadius: 16,
       padding: 14,
-      backgroundColor: theme.color.summaryCard,
+      backgroundColor: "#ffffff",
       borderWidth: 1,
-      borderColor: theme.color.border
+      borderColor: theme.color.divider
     },
     summaryTitle: {
-      color: theme.color.text,
+      color: theme.color.authHeading,
       fontSize: 15,
       fontWeight: "600",
       marginBottom: 4
@@ -1742,20 +1749,20 @@ function createAuthedStyles(theme: DSThemeTokens) {
       marginTop: 12,
       padding: 12,
       borderRadius: 10,
-      backgroundColor: theme.color.statusRail,
+      backgroundColor: "#ffffff",
       borderWidth: 1,
-      borderColor: theme.color.border,
+      borderColor: theme.color.divider,
       gap: 4
     },
     statusRailTitle: {
-      color: theme.color.text,
+      color: theme.color.authHeading,
       fontSize: 13,
       fontWeight: "700",
       textTransform: "uppercase",
       letterSpacing: 0.5
     },
     statusRailItem: {
-      color: theme.color.body,
+      color: theme.color.authBody,
       fontSize: 13
     },
     sectionDivider: {
@@ -1810,11 +1817,11 @@ function createAuthedStyles(theme: DSThemeTokens) {
       paddingVertical: 6,
       paddingHorizontal: 10,
       borderRadius: 6,
-      backgroundColor: theme.color.toggleButton,
+      backgroundColor: theme.color.authSecondaryAction,
       alignSelf: "flex-start"
     },
     toggleButtonLabel: {
-      color: theme.color.body,
+      color: theme.color.authSecondaryActionText,
       fontSize: 12
     }
   });

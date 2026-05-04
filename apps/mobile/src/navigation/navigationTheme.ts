@@ -2,13 +2,13 @@ import { DarkTheme, type Theme } from "@react-navigation/native";
 import { CANVAS_BACKGROUND_COLOR } from "../design-system/theme";
 
 export const navColors = {
-  primary: "#2563eb",
+  primary: "#6B46C1",
   background: CANVAS_BACKGROUND_COLOR,
-  card: "#111827",
-  text: "#f9fafb",
-  border: "#1f2937",
-  notification: "#3b82f6",
-  muted: "#9ca3af"
+  card: "#f7f2e9",
+  text: "#111827",
+  border: "#d8d1c4",
+  notification: "#6B46C1",
+  muted: "#7a756c"
 } as const;
 
 export const crewCueNavigationTheme: Theme = {

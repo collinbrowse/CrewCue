@@ -9,14 +9,21 @@ type Props = {
 
 export function DSCard({ children, style }: Props): ReactElement {
   const theme = useDSTheme();
-  return <View style={[styles.base, { backgroundColor: theme.color.card }, style]}>{children}</View>;
+  return (
+    <View
+      style={[styles.base, { backgroundColor: theme.color.card, borderColor: theme.color.divider }, style]}
+    >
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   base: {
     borderRadius: 16,
     padding: 20,
-    gap: 4
+    gap: 4,
+    borderWidth: 1
   }
 });
 

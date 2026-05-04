@@ -10,13 +10,13 @@ export function DSTextInput(props: TextInputProps): ReactElement {
       style={[
         styles.base,
         {
-          color: theme.color.text,
-          borderColor: theme.color.border,
-          backgroundColor: theme.color.summaryCard
+          color: theme.color.authHeading,
+          borderColor: theme.color.divider,
+          backgroundColor: "#ffffff"
         },
         props.style
       ]}
-      placeholderTextColor={theme.color.muted}
+      placeholderTextColor={theme.color.authBody}
     />
   );
 }
@@ -24,9 +24,11 @@ export function DSTextInput(props: TextInputProps): ReactElement {
 const styles = StyleSheet.create({
   base: {
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10
+    borderRadius: 16,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 16
   }
 });
 

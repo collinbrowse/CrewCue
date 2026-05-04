@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RaceRoomJoinPreview } from "@crewcue/contracts";
 import { createPublicApiClient } from "../api/client";
 import { useDSTheme } from "../design-system";
+import { DSButton } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { GuestStackParamList } from "./types";
 
@@ -45,31 +46,28 @@ export function JoinCrewPreviewScreen(): ReactElement {
       style={[styles.root, { backgroundColor: theme.color.background, paddingTop: insets.top }]}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
     >
-      <Text style={styles.title}>Preview your crew</Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Text style={[styles.title, { color: theme.color.authHeading }]}>Preview your crew</Text>
+      {error ? <Text style={[styles.error, { color: theme.color.authErrorText }]}>{error}</Text> : null}
       {preview ? (
         <>
-          <Text style={styles.roomName}>{preview.roomName}</Text>
-          <Text style={styles.meta}>
+          <Text style={[styles.roomName, { color: theme.color.authAccent }]}>{preview.roomName}</Text>
+          <Text style={[styles.meta, { color: theme.color.authBody }]}>
             Members: {preview.memberCount}
             {typeof preview.courseDistanceMeters === "number" ? ` • ${(preview.courseDistanceMeters / 1000).toFixed(1)} km` : ""}
           </Text>
-          <View style={styles.memberWrap}>
+          <View style={[styles.memberWrap, { borderColor: theme.color.divider }]}>
             {preview.members.map((member, index) => (
-              <Text key={`${member.displayName}-${index}`} style={styles.memberRow}>
+              <Text key={`${member.displayName}-${index}`} style={[styles.memberRow, { color: theme.color.authHeading }]}>
                 {member.displayName} • {member.role}
               </Text>
             ))}
           </View>
-          <Pressable
-            style={styles.button}
-            onPress={() => navigation.navigate("JoinAccount", { roomCode, displayName })}
-          >
-            <Text style={styles.buttonText}>This is my crew</Text>
-          </Pressable>
+          <DSButton preset="authPrimary" onPress={() => navigation.navigate("JoinAccount", { roomCode, displayName })}>
+            This is my crew
+          </DSButton>
         </>
       ) : (
-        <Text style={styles.meta}>Loading preview…</Text>
+        <Text style={[styles.meta, { color: theme.color.authBody }]}>Loading preview…</Text>
       )}
     </ScrollView>
   );
@@ -78,12 +76,10 @@ export function JoinCrewPreviewScreen(): ReactElement {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { padding: 20, gap: 10 },
-  title: { color: "#111827", fontSize: 30, fontWeight: "800" },
-  roomName: { color: "#15803d", fontSize: 24, fontWeight: "800" },
-  meta: { color: "#5c5a54", fontSize: 16 },
-  memberWrap: { backgroundColor: "#e7e5de", borderRadius: 12, padding: 12, gap: 8, marginTop: 8 },
-  memberRow: { color: "#1f2937", fontSize: 15 },
-  button: { marginTop: 14, minHeight: 54, borderRadius: 12, backgroundColor: "#22c55e", alignItems: "center", justifyContent: "center" },
-  buttonText: { color: "#052e16", fontWeight: "800", fontSize: 17 },
-  error: { color: "#b91c1c" }
+  title: { fontSize: 30, fontWeight: "800" },
+  roomName: { fontSize: 24, fontWeight: "800" },
+  meta: { fontSize: 16 },
+  memberWrap: { backgroundColor: "#ffffff", borderRadius: 16, borderWidth: 1, padding: 12, gap: 8, marginTop: 8 },
+  memberRow: { fontSize: 15 },
+  error: { fontWeight: "600" }
 });

@@ -3,13 +3,14 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DSButton, DSCard } from "../design-system";
+import { DSButton, DSCard, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { RacePickerOverlay } from "./RacePickerOverlay";
 import { TOOLTIP_SHEET_SEAM_OVERLAP } from "./racePickerLayoutConstants";
 import type { OperateStackParamList } from "./types";
 
 const WINDOW = Dimensions.get("window");
+const RACE_PICKER_WIDTH_RATIO = 0.92;
 /** Native-stack header content height (below status bar / notch). */
 const STACK_HEADER_BAR = Platform.select({ ios: 44, default: 56 });
 /** Fixed “Switch race” block inside the card (not scrolled). */
@@ -22,26 +23,17 @@ const RACE_CARD_INNER_PADDING_V = 18;
 type WindowRect = { x: number; y: number; width: number; height: number };
 
 const racePickerChrome = StyleSheet.create({
-  /** Header title when the picker is open — visually continues into the sheet below. */
+  /** Keep title layout stable and unboxed. */
   titleCapsule: {
-    backgroundColor: "#0b1220",
-    borderWidth: 1,
-    borderColor: "#1e40af",
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    borderBottomWidth: 0,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    minWidth: WINDOW.width * 0.92,
-    maxWidth: WINDOW.width * 0.92,
     alignItems: "center"
   }
 });
 
 export function AuthenticatedOperateScreen(): ReactElement {
   const s = useAuthedShell();
+  const theme = useDSTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "OperateHome">>();
   const inRace = Boolean(s.room);
@@ -145,7 +137,7 @@ export function AuthenticatedOperateScreen(): ReactElement {
               syncRaceTitleRect();
             }
           }}
-          style={showRaceSelectorModal ? racePickerChrome.titleCapsule : undefined}
+          style={racePickerChrome.titleCapsule}
         >
           <Pressable
             onPress={() => {
@@ -164,18 +156,20 @@ export function AuthenticatedOperateScreen(): ReactElement {
               gap: 6,
               paddingHorizontal: 4,
               paddingVertical: 2,
-              width: showRaceSelectorModal ? "100%" : undefined
+              width: "100%"
             }}
           >
-            <Text style={{ color: "#f8fafc", fontSize: 18, fontWeight: "700" }}>
+            <Text style={{ color: theme.color.authHeading, fontSize: 18, fontWeight: "700" }}>
               {selectedRace?.name?.trim() ? selectedRace.name : "Operate"}
             </Text>
-            <Text style={{ color: "#93c5fd", fontSize: 14, fontWeight: "800" }}>{showRaceSelectorModal ? "▲" : "▼"}</Text>
+            <Text style={{ color: theme.color.authAccent, fontSize: 14, fontWeight: "800" }}>
+              {showRaceSelectorModal ? "▲" : "▼"}
+            </Text>
           </Pressable>
         </View>
       )
     });
-  }, [navigation, s, selectedRace?.name, showRaceSelectorModal, syncRaceTitleRect]);
+  }, [navigation, s, selectedRace?.name, showRaceSelectorModal, syncRaceTitleRect, theme.color.authAccent, theme.color.authHeading]);
 
   const courseDistanceLabel = useMemo(() => {
     const points = s.room?.course?.baselineTrack?.points;
@@ -196,20 +190,13 @@ export function AuthenticatedOperateScreen(): ReactElement {
   }, [s.room?.courseElevationGainMeters]);
 
   const racePanelLayout = useMemo(() => {
-    const panelW = WINDOW.width * 0.92;
-    if (!raceTitleRect) {
-      return {
-        left: (WINDOW.width - panelW) / 2,
-        width: panelW,
-        top: headerBottomY
-      };
-    }
-    /** Match sheet to measured title chrome exactly so borders line up (avoids corner hairlines). */
-    const left = Math.round(raceTitleRect.x);
-    const width = Math.round(raceTitleRect.width);
-    const top = Math.round(raceTitleRect.y + raceTitleRect.height) - TOOLTIP_SHEET_SEAM_OVERLAP;
-    return { left, width, top };
-  }, [raceTitleRect, headerBottomY]);
+    const panelW = WINDOW.width * RACE_PICKER_WIDTH_RATIO;
+    return {
+      left: Math.round((WINDOW.width - panelW) / 2),
+      width: Math.round(panelW),
+      top: headerBottomY - TOOLTIP_SHEET_SEAM_OVERLAP
+    };
+  }, [headerBottomY]);
 
   return (
     <ScrollView
@@ -281,7 +268,6 @@ export function AuthenticatedOperateScreen(): ReactElement {
       </DSCard>
       <RacePickerOverlay
         visible={showRaceSelectorModal}
-        headerBottomY={headerBottomY}
         panelLayout={racePanelLayout}
         titleHitRect={raceTitleRect}
         maxSheetHeight={raceSelectorMaxHeight}

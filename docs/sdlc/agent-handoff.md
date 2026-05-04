@@ -14,49 +14,47 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-01 (America/Chicago)
-- Branch: `feature/issue-196-onboarding-overhaul` (tracks `origin/feature/issue-196-onboarding-overhaul`)
-- Active issue: [#196](https://github.com/collinbrowse/CrewCue/issues/196) Production onboarding overhaul; [#198](https://github.com/collinbrowse/CrewCue/issues/198) Settings sign-out UX
-- Active PR: [#197](https://github.com/collinbrowse/CrewCue/pull/197) OPEN (`feature/issue-196-onboarding-overhaul` → `main`), PR body includes **`Closes #196`** and **`Closes #198`** for merge auto-close
-- Current priority: demo-first **Epic A**
+- Last updated: 2026-05-04 (America/Chicago)
+- Branch: `feature/issue-199-auth-visual-rollout`
+- Active issue: [#199](https://github.com/collinbrowse/CrewCue/issues/199) signup/login visual system rollout across `apps/mobile`
+- Active PR: none yet for issue #199
+- Current priority: demo-first **Epic A** UI consistency follow-through
 - Sprint milestone: `Epic A Sprint 1 - Demo foundation`
 
 ## Current objective
 
-Land onboarding + Auth0-backed demo paths behind **merge-ready PR #197**, then soak against Auth0 staging before production tenant promotion.
+Apply the signup/login visual language across mobile auth + authenticated surfaces with high-fidelity styling parity, while preserving onboarding and settings behavior.
 
 ## Acceptance criteria (merge gate)
 
-1. Guest landing replaces legacy auth-options funnel with consolidated intent semantics (`guestHomeAuthIntent.ts`), Amy-like hero, stacked Apple/Google/email/join-code entry, provider-aware chrome (`IdpAuthMarkButtons`).
-2. Join-by-code wizard (`JoinCrewEntry` → `JoinCrewPreview` → `JoinCrewAccount`) plus athlete setup + one-time notifications gate align with secure-store onboarding keys and root gating in `apps/mobile/App.tsx`.
-3. Anonymous join preview stays covered by contracts + API route + tests (already on branch baseline).
-4. Settings exposes destructive **Sign out** with confirm / loading / error affordances (`WorkspaceMenuScreen` + `AuthedShellContext` typing).
+1. Design-system/theme tokens and shared controls encode the signup/login style primitives.
+2. Shell + navigation chrome match the refreshed auth visual language.
+3. Onboarding/auth-adjacent screens use the new style system with reduced hardcoded drift.
+4. Key authenticated surfaces (`Operate`, workspace menu, member/join flows) align to the same visual system.
 5. CI parity: root **`npm run verify`** green after latest push.
 
-## Delivered on branch (Epic A onboarding slice)
+## Delivered on branch (issue #199 slice)
 
-- **Landing & IdP UX:** `GuestHomeScreen` consolidation (removed `AuthOptionsScreen` route/file); Google raster buttons use letterboxed `contain` + column max width helper; guest-landing Apple black / Google light-chrome styling; onboarding runner + Google asset pack under `apps/mobile/assets/`.
-- **Flows:** Join wizard + `AthleteSetupWizardScreen` + `OnboardingNotificationsScreen` polish; navigation types / `GuestStack` / theme tokens updated to match.
-- **Sign-out (#198):** Account section sign-out UX in workspace menu.
-- **Ops / CI:** Auth0 runbook updates; `.github/workflows/ci.yml` placeholder `EXPO_PUBLIC_AUTH0_CONNECTION_*` for `expo export` alignment with `loadMobileConfig()`.
-- **Repo hygiene:** Removed accidental root `App.tsx` / `tsconfig.json` (Expo entry remains `apps/mobile` only).
+- Extended `DSThemeTokens` with auth-focused color primitives and applied them across `DSButton`, `DSTextInput`, `DSCard`.
+- Updated navigation and shell chrome (`navigationTheme`, `OperateStack`, `ReadoutsStack`, `App.tsx` style factories) to auth-style palette/shape hierarchy.
+- Migrated onboarding/auth flows (`GuestHomeScreen`, `JoinCrewEntry`, `JoinCrewPreview`, `JoinCrewAccount`, `AthleteSetupWizardScreen`, `OnboardingNotificationsScreen`) to token-driven signup/login styling.
+- Migrated key authenticated surfaces (`AuthenticatedOperateScreen`, `WorkspaceMenuScreen`, `ManageRoomMembersScreen`, `JoinRoomDetailsScreen`) to matching visual treatment and reduced hardcoded color drift.
 
-## Next 1–3 tasks
+## Next 1-3 tasks
 
-1. **Merge #197** after green checks, human review of PR template sections (Decision tree, effects, acceptance mapping), and optional `smoke:mobile:ios` if navigation deep links regressed.
-2. **Device smoke:** signup + join-by-code + notification one-time gate + Settings sign-out on a physical device or simulator build.
-3. **Auth0 staging:** Run `docs/runbooks/auth0-and-social-idp-setup.md` against the real tenant; confirm `EXPO_PUBLIC_AUTH0_CONNECTION_*` parity; soak before production promotion.
+1. Run manual mobile smoke on-device/simulator to confirm visual parity + onboarding/settings behavior after the style pass.
+2. Open PR for `feature/issue-199-auth-visual-rollout` with `Closes #199` and include before/after screenshots for key screens.
+3. Address any visual regressions from review (especially IdP button compliance and dark/light consistency checks).
 
 ## Validation summary
 
-- `npm run verify` (root): **pass** after the final onboarding handoff commit (lint, typecheck, tests, mobile `expo export`, workspace builds).
+- `npm run verify` (root): **pass** on `feature/issue-199-auth-visual-rollout` after UI refresh changes (lint, typecheck, tests, mobile `expo export`, workspace builds).
 
 ## Open risks/blockers/questions
 
-- Join preview payload may need stricter limits per final security posture.
-- Auth0 connection names must match tenant + EAS secrets exactly (`EXPO_PUBLIC_AUTH0_CONNECTION_*`).
-- Hero art is placeholder; swap assets without logic changes when ready.
-- Sign-out clears local tokens; remote IdP session revocation is **not** in this slice.
+- Apple/Google provider button brand constraints still require strict visual compliance; avoid over-customizing branded internals.
+- Additional non-targeted screens may still contain legacy hardcoded color constants outside this issue #199 scope.
+- Manual visual QA on physical devices remains pending to catch spacing/font rendering differences.
 
 ## Guardrails
 
@@ -67,7 +65,7 @@ Land onboarding + Auth0-backed demo paths behind **merge-ready PR #197**, then s
 ## Successor prompt
 
 ```text
-PR #197 (onboarding overhaul) should be merge-ready: confirm checks green, template filled, Closes #196 and #198 in the body.
-Run device smoke: guest landing IdP/email, join-by-code wizard, athlete setup, one-time notifications, Settings → Sign out.
-If anything fails CI or smoke, fix on feature/issue-196-onboarding-overhaul and push; then execute Auth0 staging runbook and note parity gaps before prod.
+Continue on feature/issue-199-auth-visual-rollout.
+Run focused mobile smoke for GuestHome, JoinCrew flow, AthleteSetup, Notifications, Operate, Workspace Menu, Manage Members, Join Room Details.
+If UI regressions appear, fix them and open a PR to main with Closes #199 and screenshot evidence.
 ```

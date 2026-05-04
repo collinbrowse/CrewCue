@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     gap: 6
   },
   fieldLabel: {
-    color: "#e2e8f0",
+    color: "#5c5a54",
     fontSize: 13,
     fontWeight: "700"
   },
@@ -160,27 +160,27 @@ const styles = StyleSheet.create({
   rolePill: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0f172a",
+    borderColor: "#d8d1c4",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 12,
     paddingVertical: 8
   },
   rolePillActive: {
-    backgroundColor: "#1d4ed8",
-    borderColor: "#60a5fa"
+    backgroundColor: "rgba(107,70,193,0.14)",
+    borderColor: "#6B46C1"
   },
   rolePillLabel: {
-    color: "#cbd5e1",
+    color: "#5c5a54",
     fontSize: 13,
     fontWeight: "700"
   },
   rolePillLabelActive: {
-    color: "#dbeafe"
+    color: "#6B46C1"
   },
   errorText: {
     marginTop: 12,
-    color: "#fecaca",
-    backgroundColor: "rgba(127,29,29,0.32)",
+    color: "#991b1b",
+    backgroundColor: "#fef2f2",
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     width: 94,
     height: 94,
     borderRadius: 47,
-    backgroundColor: "#22c55e",
+    backgroundColor: "#6B46C1",
     alignItems: "center",
     justifyContent: "center"
   },
@@ -225,26 +225,26 @@ const styles = StyleSheet.create({
   dotTopLeft: {
     top: 8,
     left: "24%",
-    backgroundColor: "#f97316"
+    backgroundColor: "#d6bcfa"
   },
   dotTopRight: {
     top: 10,
     right: "23%",
-    backgroundColor: "#38bdf8"
+    backgroundColor: "#c4b5fd"
   },
   dotBottomLeft: {
     bottom: 18,
     left: "18%",
-    backgroundColor: "#a78bfa"
+    backgroundColor: "#8b5cf6"
   },
   successTitle: {
-    color: "#f8fafc",
+    color: "#111827",
     fontSize: 30,
     fontWeight: "800",
     textAlign: "center"
   },
   successBody: {
-    color: "#dbeafe",
+    color: "#5c5a54",
     fontSize: 16,
     textAlign: "center",
     lineHeight: 24,
