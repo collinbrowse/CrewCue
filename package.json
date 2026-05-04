@@ -27,7 +27,7 @@
     "dev:api:pg": "npm run dev:pg -w @crewcue/api",
     "dev:mobile": "npm run dev -w @crewcue/mobile",
     "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package && npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core"
   },
   "engines": {
     "node": ">=20"
