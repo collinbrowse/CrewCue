@@ -95,11 +95,19 @@ export function GuestHomeScreen(): ReactElement {
         </View>
 
         <View style={styles.copyBlock}>
-          <Text style={styles.welcomeTitle}>Welcome to {ONBOARDING_BRAND_NAME} 👋</Text>
-          <Text style={styles.tagline}>Find your crew and run race day together.</Text>
+          <Text style={[styles.welcomeTitle, { color: theme.color.authHeading }]}>
+            Welcome to {ONBOARDING_BRAND_NAME} 👋
+          </Text>
+          <Text style={[styles.tagline, { color: theme.color.authBody }]}>
+            Find your crew and run race day together.
+          </Text>
         </View>
 
-        {s.auth.error ? <Text style={styles.error}>{s.auth.error}</Text> : null}
+        {s.auth.error ? (
+          <Text style={[styles.error, { color: theme.color.authErrorText, backgroundColor: theme.color.authErrorBg }]}>
+            {s.auth.error}
+          </Text>
+        ) : null}
 
         <View style={[styles.actions, idpColumn]}>
           <AppleAuthMarkButton
@@ -116,15 +124,19 @@ export function GuestHomeScreen(): ReactElement {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={emailLabel}
-            style={({ pressed }) => [styles.emailButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.emailButton,
+              { backgroundColor: theme.color.authPrimaryAction },
+              pressed && styles.pressed
+            ]}
             onPress={() => void startAuth("email")}
           >
-            <Text style={styles.emailButtonLabel}>{emailLabel}</Text>
+            <Text style={[styles.emailButtonLabel, { color: theme.color.authPrimaryActionText }]}>{emailLabel}</Text>
           </Pressable>
 
           <View style={styles.orRow}>
             <View style={styles.orLine} />
-            <Text style={styles.orText}>or</Text>
+            <Text style={[styles.orText, { color: theme.color.authBody }]}>or</Text>
             <View style={styles.orLine} />
           </View>
 
@@ -137,21 +149,23 @@ export function GuestHomeScreen(): ReactElement {
             ]}
             onPress={() => navigation.navigate("JoinEntry")}
           >
-            <Text style={styles.joinOutlineLabel}>Join your crew with a code</Text>
+            <Text style={[styles.joinOutlineLabel, { color: theme.color.authOutlineText }]}>
+              Join your crew with a code
+            </Text>
           </Pressable>
         </View>
 
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
           {authMode === "signup" ? (
             <Pressable accessibilityRole="button" onPress={() => setAuthMode("signin")}>
-              <Text style={styles.footerMuted}>
-                Already have an account? <Text style={styles.footerAccent}>Log in</Text>
+              <Text style={[styles.footerMuted, { color: theme.color.authBody }]}>
+                Already have an account? <Text style={[styles.footerAccent, { color: theme.color.authAccent }]}>Log in</Text>
               </Text>
             </Pressable>
           ) : (
             <Pressable accessibilityRole="button" onPress={() => setAuthMode("signup")}>
-              <Text style={styles.footerMuted}>
-                New here? <Text style={styles.footerAccent}>Sign up</Text>
+              <Text style={[styles.footerMuted, { color: theme.color.authBody }]}>
+                New here? <Text style={[styles.footerAccent, { color: theme.color.authAccent }]}>Sign up</Text>
               </Text>
             </Pressable>
           )}
@@ -192,7 +206,6 @@ const styles = StyleSheet.create({
     paddingTop: 4
   },
   welcomeTitle: {
-    color: "#111827",
     fontSize: 28,
     fontWeight: "800",
     textAlign: "left",
@@ -203,7 +216,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 17,
     textAlign: "left",
-    color: "#5c5a54",
     fontWeight: "500",
     lineHeight: 24,
     alignSelf: "stretch"
@@ -222,23 +234,20 @@ const styles = StyleSheet.create({
   orLine: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#c9c4bb"
+    backgroundColor: "#d8d1c4"
   },
   orText: {
-    color: "#7a756c",
     fontSize: 14,
     fontWeight: "500"
   },
   emailButton: {
     minHeight: 48,
     borderRadius: 24,
-    backgroundColor: "#6B46C1",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16
   },
   emailButtonLabel: {
-    color: "#ffffff",
     fontSize: 17,
     fontWeight: "700"
   },
@@ -252,7 +261,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16
   },
   joinOutlineLabel: {
-    color: "#111827",
     fontSize: 17,
     fontWeight: "600"
   },
@@ -262,18 +270,14 @@ const styles = StyleSheet.create({
     alignSelf: "stretch"
   },
   footerMuted: {
-    color: "#5c5a54",
     fontSize: 15,
     fontWeight: "500",
     textAlign: "center"
   },
   footerAccent: {
-    color: "#6B46C1",
     fontWeight: "700"
   },
   error: {
-    color: "#991b1b",
-    backgroundColor: "#fef2f2",
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,

@@ -23,6 +23,17 @@ export type DSThemeTokens = {
     visitBorder: string;
     divider: string;
     notification: string;
+    authHeading: string;
+    authBody: string;
+    authAccent: string;
+    authPrimaryAction: string;
+    authPrimaryActionText: string;
+    authSecondaryAction: string;
+    authSecondaryActionText: string;
+    authOutlineBorder: string;
+    authOutlineText: string;
+    authErrorBg: string;
+    authErrorText: string;
   };
 };
 
@@ -45,7 +56,18 @@ const darkTokens: DSThemeTokens = {
     statusRail: "#0b1220",
     visitBorder: "#374151",
     divider: "#1f2937",
-    notification: "#3b82f6"
+    notification: "#3b82f6",
+    authHeading: "#111827",
+    authBody: "#5c5a54",
+    authAccent: "#6B46C1",
+    authPrimaryAction: "#6B46C1",
+    authPrimaryActionText: "#ffffff",
+    authSecondaryAction: "#e7e5de",
+    authSecondaryActionText: "#1f2937",
+    authOutlineBorder: "#64748b",
+    authOutlineText: "#111827",
+    authErrorBg: "#fef2f2",
+    authErrorText: "#991b1b"
   }
 };
 
@@ -68,7 +90,18 @@ const lightTokens: DSThemeTokens = {
     statusRail: "#f1f5f9",
     visitBorder: "#94a3b8",
     divider: "#cbd5e1",
-    notification: "#2563eb"
+    notification: "#2563eb",
+    authHeading: "#111827",
+    authBody: "#5c5a54",
+    authAccent: "#6B46C1",
+    authPrimaryAction: "#6B46C1",
+    authPrimaryActionText: "#ffffff",
+    authSecondaryAction: "#e7e5de",
+    authSecondaryActionText: "#1f2937",
+    authOutlineBorder: "#64748b",
+    authOutlineText: "#111827",
+    authErrorBg: "#fef2f2",
+    authErrorText: "#991b1b"
   }
 };
 

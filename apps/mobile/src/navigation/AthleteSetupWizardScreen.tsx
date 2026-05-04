@@ -11,7 +11,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DSTextInput, useDSTheme } from "../design-system";
+import { DSButton, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { buildExpectedSplits, buildRaceCourseFromGpx, parseCourseTrack, type ParsedGpxTrack } from "../features/gpx/gpxImport";
 import { createApiClient } from "../api/client";
@@ -113,16 +113,16 @@ export function AthleteSetupWizardScreen(): ReactElement {
       style={[styles.scrollView, { backgroundColor: theme.color.background, paddingTop: insets.top }]}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}
     >
-      <Text style={styles.title}>Athlete setup</Text>
+      <Text style={[styles.title, { color: theme.color.authHeading }]}>Athlete setup</Text>
       {page === 0 ? (
         <View style={styles.page}>
-          <Text style={styles.heading}>Page 1: Your name</Text>
+          <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 1: Your name</Text>
           <DSTextInput value={name} onChangeText={setName} placeholder="Taylor Smith" autoCapitalize="words" />
         </View>
       ) : null}
       {page === 1 ? (
         <View style={styles.page}>
-          <Text style={styles.heading}>Page 2: Race and GPX</Text>
+          <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 2: Race and GPX</Text>
           <DSTextInput value={raceName} onChangeText={setRaceName} placeholder="Silverton 100" autoCapitalize="words" />
           <Pressable
             style={[styles.secondaryButton, pickingFile && styles.buttonDisabled]}
@@ -130,44 +130,49 @@ export function AthleteSetupWizardScreen(): ReactElement {
             onPress={() => void onPick()}
           >
             {pickingFile ? (
-              <ActivityIndicator accessibilityLabel="Opening file picker" color="#111827" />
+              <ActivityIndicator accessibilityLabel="Opening file picker" color={theme.color.authHeading} />
             ) : (
-              <Text style={styles.secondaryText}>{fileName ? `Selected: ${fileName}` : "Upload GPX / route file"}</Text>
+              <Text style={[styles.secondaryText, { color: theme.color.authSecondaryActionText }]}>
+                {fileName ? `Selected: ${fileName}` : "Upload GPX / route file"}
+              </Text>
             )}
           </Pressable>
         </View>
       ) : null}
       {page === 2 ? (
         <View style={styles.page}>
-          <Text style={styles.heading}>Page 3: Splits preview</Text>
+          <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 3: Splits preview</Text>
           {splits.length ? (
             splits.map((split) => (
-              <Text key={split.splitIndex} style={styles.splitRow}>
+              <Text key={split.splitIndex} style={[styles.splitRow, { color: theme.color.authHeading }]}>
                 {split.distanceLabel} • {split.elapsedLabel}
               </Text>
             ))
           ) : (
-            <Text style={styles.body}>Upload a route file to compute expected splits.</Text>
+            <Text style={[styles.body, { color: theme.color.authBody }]}>
+              Upload a route file to compute expected splits.
+            </Text>
           )}
         </View>
       ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: theme.color.authErrorText }]}>{error}</Text> : null}
       <View style={styles.navRow}>
-        <Pressable
-          style={[styles.secondaryButton, page === 0 && styles.buttonDisabled]}
-          disabled={page === 0}
-          onPress={() => setPage((v) => Math.max(0, v - 1))}
-        >
-          <Text style={styles.secondaryText}>Back</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.primaryButton, primaryNavDisabled && styles.buttonDisabled]}
-          disabled={primaryNavDisabled}
-          onPress={onPrimaryNav}
-        >
-          <Text style={styles.primaryText}>{primaryNavLabel}</Text>
-        </Pressable>
+        <View style={styles.navButton}>
+          <DSButton
+            preset="authSecondary"
+            disabled={page === 0}
+            onPress={() => setPage((v) => Math.max(0, v - 1))}
+            fullWidth
+          >
+            Back
+          </DSButton>
+        </View>
+        <View style={styles.navButton}>
+          <DSButton preset="authPrimary" disabled={primaryNavDisabled} onPress={onPrimaryNav} fullWidth>
+            {primaryNavLabel}
+          </DSButton>
+        </View>
       </View>
     </ScrollView>
   );
@@ -176,30 +181,24 @@ export function AthleteSetupWizardScreen(): ReactElement {
 const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   content: { padding: 20, gap: 12 },
-  title: { color: "#111827", fontSize: 34, fontWeight: "800" },
-  heading: { color: "#2563eb", fontSize: 20, fontWeight: "700", marginBottom: 8 },
+  title: { fontSize: 34, fontWeight: "800" },
+  heading: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
   page: { gap: 10 },
-  body: { color: "#5c5a54", fontSize: 15 },
-  splitRow: { color: "#374151", fontSize: 15, paddingVertical: 2 },
+  body: { fontSize: 15 },
+  splitRow: { fontSize: 15, paddingVertical: 2 },
   navRow: { marginTop: 8, flexDirection: "row", gap: 10 },
-  primaryButton: {
+  navButton: {
     flex: 1,
-    minHeight: 52,
-    borderRadius: 10,
-    backgroundColor: "#16a34a",
-    alignItems: "center",
-    justifyContent: "center"
+    alignSelf: "stretch"
   },
-  primaryText: { color: "#052e16", fontWeight: "800", fontSize: 17 },
   secondaryButton: {
-    flex: 1,
     minHeight: 52,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#e7e5de",
     alignItems: "center",
     justifyContent: "center"
   },
-  secondaryText: { color: "#1f2937", fontWeight: "700", fontSize: 16, paddingHorizontal: 10, textAlign: "center" },
+  secondaryText: { fontWeight: "700", fontSize: 16, paddingHorizontal: 10, textAlign: "center" },
   buttonDisabled: { opacity: 0.45 },
-  error: { color: "#b91c1c" }
+  error: { fontWeight: "600" }
 });

@@ -118,8 +118,8 @@ export function ManageRoomMembersScreen(): ReactElement {
     const isLight = colorScheme === "light";
     return {
       headerCard: {
-        backgroundColor: isLight ? "#dbeafe" : "rgba(30,58,138,0.28)",
-        borderColor: isLight ? "#93c5fd" : "rgba(56,189,248,0.45)"
+        backgroundColor: isLight ? "rgba(107,70,193,0.12)" : "rgba(107,70,193,0.22)",
+        borderColor: isLight ? "#c9b8ed" : "#6B46C1"
       },
       headerTitle: { color: theme.color.text },
       headerBody: { color: theme.color.body },
@@ -130,11 +130,11 @@ export function ManageRoomMembersScreen(): ReactElement {
         backgroundColor: theme.color.secondaryButton
       },
       rolePillActive: {
-        borderColor: theme.color.primary,
-        backgroundColor: isLight ? "#bfdbfe" : "#1e3a8a"
+        borderColor: theme.color.authAccent,
+        backgroundColor: isLight ? "rgba(107,70,193,0.14)" : "rgba(107,70,193,0.28)"
       },
       rolePillLabel: { color: theme.color.body },
-      rolePillLabelActive: { color: isLight ? "#1e3a8a" : "#dbeafe" },
+      rolePillLabelActive: { color: theme.color.authAccent },
       inviteRow: { borderTopColor: theme.color.divider }
     };
   }, [colorScheme, theme]);
@@ -453,19 +453,19 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0b1220",
+    borderColor: "#d8d1c4",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 10,
     paddingVertical: 8
   },
   roleReadOnlyLabel: {
-    color: "#94a3b8",
+    color: "#7a756c",
     fontSize: 11,
     textTransform: "uppercase",
     letterSpacing: 0.5
   },
   roleReadOnlyValue: {
-    color: "#e2e8f0",
+    color: "#111827",
     marginTop: 4,
     fontWeight: "700"
   }

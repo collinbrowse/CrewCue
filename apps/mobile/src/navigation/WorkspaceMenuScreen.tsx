@@ -134,8 +134,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#93c5fd",
-    backgroundColor: "#dbeafe"
+    borderColor: "#c9b8ed",
+    backgroundColor: "rgba(107,70,193,0.12)"
   },
   kicker: {
     color: "#93c5fd",

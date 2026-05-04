@@ -23,7 +23,7 @@ export function ReadoutsStack(): ReactElement {
             onPress={() => navigation.getParent()?.navigate("Operate", { screen: "WorkspaceMenu" })}
             style={{ paddingHorizontal: 8, paddingVertical: 6 }}
           >
-            <Text style={{ color: "#93c5fd", fontWeight: "700", fontSize: 20 }}>☰</Text>
+            <Text style={{ color: navColors.primary, fontWeight: "700", fontSize: 20 }}>☰</Text>
           </Pressable>
         )
       })}

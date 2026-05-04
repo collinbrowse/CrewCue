@@ -10,7 +10,7 @@ import {
   GoogleAuthMarkButton,
   useAuthIdpColumnConstraints
 } from "../components/idp/IdpAuthMarkButtons";
-import { useDSTheme } from "../design-system";
+import { DSButton, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { ONBOARDING_INTENT_KEY, ONBOARDING_JOIN_DRAFT_KEY, ONBOARDING_NOTIFICATIONS_REQUIRED_KEY } from "./onboardingState";
 import type { GuestStackParamList } from "./types";
@@ -55,8 +55,10 @@ export function JoinCrewAccountScreen(): ReactElement {
         }
       ]}
     >
-      <Text style={styles.title}>Create your account</Text>
-      <Text style={styles.body}>We just need to make an account so you will not lose access to your crew.</Text>
+      <Text style={[styles.title, { color: theme.color.authHeading }]}>Create your account</Text>
+      <Text style={[styles.body, { color: theme.color.authBody }]}>
+        We just need to make an account so you will not lose access to your crew.
+      </Text>
       <View style={[styles.providers, idpColumn]}>
         <GoogleAuthMarkButton flow="signup" onPress={() => void onStart("google", "signup")} />
         <AppleAuthMarkButton flow="signup" onPress={() => void onStart("apple", "signup")} />
@@ -71,10 +73,10 @@ export function JoinCrewAccountScreen(): ReactElement {
           })
         }
       >
-        <Text style={styles.link}>Already have an account? Log in</Text>
+        <Text style={[styles.link, { color: theme.color.authAccent }]}>Already have an account? Log in</Text>
       </Pressable>
       <Pressable onPress={() => navigation.goBack()}>
-        <Text style={styles.back}>Back</Text>
+        <Text style={[styles.back, { color: theme.color.authBody }]}>Back</Text>
       </Pressable>
     </View>
   );
@@ -82,9 +84,9 @@ export function JoinCrewAccountScreen(): ReactElement {
 
 function ProviderButton({ label, onPress }: { label: string; onPress: () => void }): ReactElement {
   return (
-    <Pressable style={styles.button} onPress={onPress}>
-      <Text style={styles.buttonText}>{label}</Text>
-    </Pressable>
+    <DSButton preset="authPrimary" onPress={onPress}>
+      {label}
+    </DSButton>
   );
 }
 
@@ -98,10 +100,8 @@ const styles = StyleSheet.create({
     width: "100%"
   },
   providers: { gap: 12, alignSelf: "stretch", width: "100%" },
-  title: { color: "#111827", fontSize: 32, fontWeight: "800" },
-  body: { color: "#5c5a54", fontSize: 16, marginBottom: 6 },
-  button: { minHeight: 48, borderRadius: 12, backgroundColor: "#1d4ed8", alignItems: "center", justifyContent: "center" },
-  buttonText: { color: "#ffffff", fontWeight: "700", fontSize: 17 },
-  link: { color: "#2563eb", textAlign: "center", marginTop: 8, textDecorationLine: "underline", fontWeight: "600" },
-  back: { color: "#64748b", textAlign: "center", marginTop: 6 }
+  title: { fontSize: 32, fontWeight: "800" },
+  body: { fontSize: 16, marginBottom: 6 },
+  link: { textAlign: "center", marginTop: 8, textDecorationLine: "underline", fontWeight: "600" },
+  back: { textAlign: "center", marginTop: 6, fontWeight: "500" }
 });
