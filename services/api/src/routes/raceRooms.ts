@@ -22,7 +22,11 @@ import type {
   RaceRoomProjectionCore,
   Role
 } from "@crewcue/contracts";
-import { normalizeRaceMapWorkspace, workspaceGeometryToBaseline } from "@crewcue/map-core";
+import {
+  mergePrimaryCourseRouteLayer,
+  normalizeRaceMapWorkspace,
+  workspaceGeometryToBaseline
+} from "@crewcue/map-core";
 import {
   DEFAULT_PLANNED_PACE_SECONDS_PER_KM,
   DEFAULT_RACE_COURSE,
@@ -93,14 +97,6 @@ const activateRaceRoomInput = z.object({
   plannedPaceSecondsPerKm: z.number().positive().optional()
 });
 
-const updateRaceCourseInput = z.object({
-  course: raceCourseInput,
-  plannedPaceSecondsPerKm: z.number().positive(),
-  courseDistanceMeters: z.number().finite().nonnegative().optional(),
-  courseElevationGainMeters: z.number().finite().nonnegative().optional(),
-  courseFileName: z.string().trim().min(1).optional()
-});
-
 const mapWorkspacePosition = z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90)]);
 
 const mapWorkspaceLineStringGeometryInput = z.object({
@@ -125,6 +121,15 @@ const mapWorkspaceLayerInput = z.object({
   sourceFileName: z.string().trim().max(500).optional(),
   strokeColor: z.string().trim().max(32).optional(),
   geometry: mapWorkspaceGeometryInput
+});
+
+const updateRaceCourseInput = z.object({
+  course: raceCourseInput,
+  plannedPaceSecondsPerKm: z.number().positive(),
+  courseDistanceMeters: z.number().finite().nonnegative().optional(),
+  courseElevationGainMeters: z.number().finite().nonnegative().optional(),
+  courseFileName: z.string().trim().min(1).optional(),
+  routeOverlayLayer: mapWorkspaceLayerInput.optional()
 });
 
 const putRaceMapWorkspaceInput = z.object({
@@ -1242,7 +1247,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid course payload" });
     }
 
-    const updatedRoom: RaceRoom = {
+    let updatedRoom: RaceRoom = {
       ...room,
       course: parsed.data.course,
       plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
@@ -1250,6 +1255,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName
     };
+
+    if (parsed.data.routeOverlayLayer) {
+      const mergedWorkspace = mergePrimaryCourseRouteLayer(
+        resolveMapWorkspace(updatedRoom),
+        parsed.data.routeOverlayLayer,
+        parsed.data.course.checkpoints
+      );
+      updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
+    }
 
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);

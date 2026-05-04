@@ -23,6 +23,8 @@ Describe exactly what this PR changes.
 
 Document the key decisions that shaped this implementation so future debugging can reconstruct intent.
 
+<!-- CI (`pr-decision-doc-guard`) requires the section headers below and, in the body, a filled bullet matching `- Decision: …` / `- Assumption: …` / `- Summary: …` (non-whitespace after the colon on that line) or the phrases "Single obvious path" / "None identified" where applicable. Optional Markdown bold around the label (e.g. `- **Decision:** text`) is accepted. -->
+
 - Decision:
   - Context:
   - Alternatives considered:

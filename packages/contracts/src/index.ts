@@ -116,6 +116,26 @@ export interface NavigationRouteResult {
   steps: NavigationRouteStep[];
 }
 
+/** Optional routing UX hints computed server-side (Crow-flight vs routed distance, hike detour signals). */
+export interface NavigationRouteMeta {
+  /** routed path length / crow-flight distance between first and last routing coordinate */
+  detourRatio: number;
+  /** Best-effort hint when pedestrian routing is much longer than straight-line between endpoints */
+  hikeRouteQuality?: "direct" | "possibly_indirect";
+}
+
+export interface PostNavigationRouteResponse {
+  route: NavigationRouteResult;
+  meta?: NavigationRouteMeta;
+}
+
+/** MapTiler geocode proxy result item (normalized for clients). */
+export interface GeocodeSearchResultItem {
+  label: string;
+  longitude: number;
+  latitude: number;
+}
+
 export interface RaceCheckpointSplitRow {
   checkpointId: string;
   distanceMetersFromStart: number;

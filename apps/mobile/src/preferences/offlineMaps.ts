@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 
 const OFFLINE_MAPS_KEY = "crewcue.offline_maps_unlocked";
 

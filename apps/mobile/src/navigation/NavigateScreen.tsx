@@ -20,6 +20,6 @@ export function NavigateScreen(): ReactElement {
 }
 
 const styles = StyleSheet.create({
-  box: { flex: 1, padding: 24, justifyContent: "center", backgroundColor: "#0f172a" },
-  text: { color: "#e2e8f0", textAlign: "center" }
+  box: { flex: 1, padding: 24, justifyContent: "center", backgroundColor: "#f3efe6" },
+  text: { color: "#111827", textAlign: "center" }
 });

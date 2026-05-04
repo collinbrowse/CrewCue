@@ -1,4 +1,10 @@
-import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
+import type {
+  GeocodeSearchResultItem,
+  MapWorkspaceLayer,
+  RaceCourse,
+  RaceMapWorkspace,
+  RaceRoom
+} from "@crewcue/contracts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -22,6 +28,15 @@ export type PutRaceMapWorkspaceInput = {
   drivesProjectionLayerId?: string;
   checkpoints: RaceMapWorkspace["checkpoints"];
   syncBaselineFromLayer?: boolean;
+};
+
+export type UpdateRaceCourseWebInput = {
+  course: RaceCourse;
+  plannedPaceSecondsPerKm: number;
+  courseDistanceMeters?: number;
+  courseElevationGainMeters?: number;
+  courseFileName?: string;
+  routeOverlayLayer?: MapWorkspaceLayer;
 };
 
 async function request<T>(options: WebApiClientOptions, method: string, path: string, body?: unknown): Promise<T> {
@@ -56,9 +71,20 @@ async function request<T>(options: WebApiClientOptions, method: string, path: st
 
 export function createWebApiClient(options: WebApiClientOptions) {
   return {
+    updateRaceCourse: (roomId: string, input: UpdateRaceCourseWebInput) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input),
     getMapWorkspace: (roomId: string) =>
       request<{ mapWorkspace: RaceMapWorkspace }>(options, "GET", `/race-rooms/${roomId}/map-workspace`),
     putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>
-      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input)
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input),
+    getGeocodeSearch: (roomId: string, query: string) =>
+      request<{ results: GeocodeSearchResultItem[] }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/geocode/search?q=${encodeURIComponent(query)}`
+      ),
+    postAnalyticsEvents: (
+      events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
+    ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events })
   };
 }

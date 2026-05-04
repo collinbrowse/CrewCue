@@ -9,11 +9,18 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DSButton, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import { buildExpectedSplits, buildRaceCourseFromGpx, parseCourseTrack, type ParsedGpxTrack } from "../features/gpx/gpxImport";
+import {
+  buildExpectedSplits,
+  buildRaceCourseFromGpx,
+  computeElevationGainMeters,
+  parseCourseTrack,
+  parsedTrackToWorkspaceLayer,
+  type ParsedGpxTrack
+} from "../features/gpx/gpxImport";
 import { createApiClient } from "../api/client";
 import { ONBOARDING_INTENT_KEY } from "./onboardingState";
 
@@ -67,14 +74,16 @@ export function AthleteSetupWizardScreen(): ReactElement {
         crewName: "",
         setupComplete: true
       });
-      if (parsed) {
+      if (parsed && fileName) {
         const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
         const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
         const updatedRoom = await client.updateRaceCourse(room.id, {
           course,
           plannedPaceSecondsPerKm,
           courseDistanceMeters: parsed.totalDistanceMeters,
-          courseFileName: fileName
+          courseElevationGainMeters: computeElevationGainMeters(parsed.points),
+          courseFileName: fileName,
+          routeOverlayLayer: parsedTrackToWorkspaceLayer(fileName, parsed)
         });
         s.onApplyRaceRoomFromServer(updatedRoom);
       }

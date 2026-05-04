@@ -60,7 +60,7 @@ import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./src/storage/secureStorage";
 import {
   ONBOARDING_INTENT_KEY,
   ONBOARDING_JOIN_DRAFT_KEY,

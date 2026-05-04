@@ -662,6 +662,48 @@ function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/** Bucket vertex counts for analytics / pricing instrumentation. */
+export function vertexCountBucket(vertexCount: number): string {
+  if (vertexCount < 500) {
+    return "lt_500";
+  }
+  if (vertexCount < 2000) {
+    return "500_1999";
+  }
+  return "2000_plus";
+}
+
+/** Positive elevation gain along the GPX/KML track when elevations exist on consecutive points. */
+export function computeElevationGainMeters(points: GpxTrackPoint[]): number {
+  if (points.length < 2) {
+    return 0;
+  }
+  let gainMeters = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1]!.elevationMeters;
+    const next = points[index]!.elevationMeters;
+    if (prev !== null && next !== null && next > prev) {
+      gainMeters += next - prev;
+    }
+  }
+  return gainMeters;
+}
+
+/** GPX/KML-derived upload stats for `gpx_uploaded` analytics events. */
+export function summarizeParsedCourseUploadAnalytics(parsed: ParsedGpxTrack): {
+  vertex_count: number;
+  vertex_bucket: string;
+  waypoint_count: number;
+  track_segments: number;
+} {
+  return {
+    vertex_count: parsed.points.length,
+    vertex_bucket: vertexCountBucket(parsed.points.length),
+    waypoint_count: parsed.waypoints.length,
+    track_segments: 1
+  };
+}
+
 /** Builds a downsampled baseline track suitable for `RaceCourse.baselineTrack`. */
 export function buildBaselineTrackFromGpxPoints(points: GpxTrackPoint[]): RaceCourseBaselineTrack | undefined {
   const baselinePoints = buildBaselinePoints(points);
