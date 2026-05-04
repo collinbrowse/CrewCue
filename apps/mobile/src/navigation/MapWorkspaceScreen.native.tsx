@@ -1,6 +1,6 @@
 import { randomUUID } from "expo-crypto";
 import * as DocumentPicker from "expo-document-picker";
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import {
   type AlertButton
 } from "react-native";
 import { Camera, GeoJSONSource, Layer, Map } from "@maplibre/maplibre-react-native";
-import type { RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
+import type { RaceCourseCheckpoint, RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import {
   PRIMARY_COURSE_ROUTE_LAYER_ID,
   buildRaceCourseFromGpx,
@@ -31,6 +31,26 @@ import { mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
 import type { BasemapPresetId } from "../preferences/basemapPreference";
 import { getBasemapPreset, setBasemapPreset } from "../preferences/basemapPreference";
 import { useAuthedShell } from "../shell/AuthedShellContext";
+
+/** Matches `resolveMapWorkspace` in services/api race room routes — use shell room as source of truth when map-workspace GET fails. */
+function resolveWorkspaceFromRoom(room: RaceRoom | undefined): RaceMapWorkspace {
+  if (!room) {
+    return { layers: [], checkpoints: [] };
+  }
+  if (room.mapWorkspace) {
+    return room.mapWorkspace;
+  }
+  return {
+    layers: [],
+    checkpoints: room.course?.checkpoints?.map((c) => ({ ...c })) ?? []
+  };
+}
+
+function geometryCoordCount(geometry: RaceMapWorkspace["layers"][number]["geometry"]): number {
+  return geometry.type === "LineString"
+    ? geometry.coordinates.length
+    : geometry.coordinates.reduce((n, ring) => n + ring.length, 0);
+}
 
 function layerFeature(layerId: string, geometry: RaceMapWorkspace["layers"][number]["geometry"]) {
   return {
@@ -74,16 +94,31 @@ export function MapWorkspaceScreenNative(): ReactElement {
   const theme = useDSTheme();
   const roomId = shell.room?.id;
   const token = shell.auth.status === "authenticated" ? shell.auth.accessToken : undefined;
+  const prevRoomIdRef = useRef<string | undefined>(undefined);
+  const shellRoomRef = useRef(shell.room);
+  shellRoomRef.current = shell.room;
 
-  const [loading, setLoading] = useState(true);
+  /** False initially so Map mounts immediately; avoids blank UI if GET /map-workspace hangs (H6). */
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [workspace, setWorkspace] = useState<RaceMapWorkspace>({
-    layers: [],
-    checkpoints: []
-  });
+  const [workspace, setWorkspace] = useState<RaceMapWorkspace>(() => resolveWorkspaceFromRoom(shell.room));
   const [placementMode, setPlacementMode] = useState(false);
   const [basemapPreset, setBasemapPresetState] = useState<BasemapPresetId>("outdoor");
+
+  useEffect(() => {
+    if (!roomId) {
+      prevRoomIdRef.current = undefined;
+      return;
+    }
+    if (prevRoomIdRef.current === roomId) {
+      return;
+    }
+    prevRoomIdRef.current = roomId;
+    if (shell.room?.id === roomId) {
+      setWorkspace(resolveWorkspaceFromRoom(shell.room));
+    }
+  }, [roomId, shell.room]);
 
   const reload = useCallback(async () => {
     if (!roomId || !token) {
@@ -94,15 +129,32 @@ export function MapWorkspaceScreenNative(): ReactElement {
     setError(undefined);
     try {
       const client = createApiClient({ baseUrl: shell.baseUrl, accessToken: token });
-      const res = await client.getMapWorkspace(roomId);
+      const syncMs = 18_000;
+      const res = await Promise.race([
+        client.getMapWorkspace(roomId),
+        new Promise<never>((_, reject) => {
+          globalThis.setTimeout(() => reject(new Error("Map workspace request timed out")), syncMs);
+        })
+      ]);
       setWorkspace(res.mapWorkspace);
+      const roomSnap = shellRoomRef.current;
+      if (roomSnap?.id === roomId) {
+        shell.onApplyRaceRoomFromServer({ ...roomSnap, mapWorkspace: res.mapWorkspace });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to load map workspace.";
-      setError(message);
+      const latestRoom = shellRoomRef.current;
+      const fb = resolveWorkspaceFromRoom(latestRoom?.id === roomId ? latestRoom : undefined);
+      const hasRenderable =
+        fb.layers.some((l) => l.visible && geometryCoordCount(l.geometry) > 0) || fb.checkpoints.length > 0;
+      setWorkspace((prev) =>
+        prev.layers.length > 0 || prev.checkpoints.length > 0 ? prev : fb
+      );
+      setError(hasRenderable ? undefined : message);
     } finally {
       setLoading(false);
     }
-  }, [roomId, shell.baseUrl, token]);
+  }, [roomId, shell.baseUrl, shell.onApplyRaceRoomFromServer, token]);
 
   useEffect(() => {
     void reload();
@@ -314,7 +366,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
   const checkpointGeoJson = useMemo(() => checkpointsFeatureCollection(workspace.checkpoints), [workspace.checkpoints]);
 
   const center = useMemo(() => {
-    const visibleLine = workspace.layers.find((l) => l.visible && l.geometry.coordinates.length > 0);
+    const visibleLine = workspace.layers.find((l) => l.visible && geometryCoordCount(l.geometry) > 0);
     if (visibleLine) {
       const coords =
         visibleLine.geometry.type === "LineString"
@@ -339,7 +391,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
     () =>
       StyleSheet.create({
         root: { flex: 1, backgroundColor: theme.color.background },
-        mapWrap: { height: 280 },
+        mapWrap: { height: 280, width: "100%" },
         map: { flex: 1 },
         panel: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
         title: { color: theme.color.text, fontWeight: "700", marginTop: 12, marginBottom: 8 },
@@ -381,6 +433,18 @@ export function MapWorkspaceScreenNative(): ReactElement {
     await setBasemapPreset(preset);
   };
 
+  const onMapDidFailLoading = useCallback(() => {
+    if (basemapPreset !== "demo") {
+      setBasemapPresetState("demo");
+      void setBasemapPreset("demo");
+      setError(
+        "Basemap style failed to load (often an invalid EXPO_PUBLIC_MAPTILER_API_KEY). Switched to demo tiles."
+      );
+    } else {
+      setError("Map style failed to load. Check network permissions for this app.");
+    }
+  }, [basemapPreset]);
+
   if (!roomId) {
     return (
       <View style={styles.centered}>
@@ -389,19 +453,16 @@ export function MapWorkspaceScreenNative(): ReactElement {
     );
   }
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={styles.body}>Loading workspace…</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.root}>
       <View style={styles.mapWrap}>
-        <Map style={styles.map} mapStyle={mobileMapStyleUrlForPreset(basemapPreset)} onPress={mapPress}>
+        <Map
+          key={`mw-map-${basemapPreset}`}
+          style={styles.map}
+          mapStyle={mobileMapStyleUrlForPreset(basemapPreset)}
+          onPress={mapPress}
+          onDidFailLoadingMap={onMapDidFailLoading}
+        >
           <Camera center={center.lngLat} zoom={center.zoom} duration={0} />
           {workspace.layers
             .filter((layer) => layer.visible)
@@ -414,10 +475,10 @@ export function MapWorkspaceScreenNative(): ReactElement {
                 <Layer
                   id={`layer-line-${layer.id}`}
                   type="line"
-                  style={{
-                    lineColor: layer.strokeColor ?? (workspace.selectedLayerId === layer.id ? "#f97316" : "#2563eb"),
-                    lineWidth: workspace.selectedLayerId === layer.id ? 6 : 3,
-                    lineOpacity: 0.9
+                  paint={{
+                    "line-color": layer.strokeColor ?? (workspace.selectedLayerId === layer.id ? "#f97316" : "#2563eb"),
+                    "line-width": workspace.selectedLayerId === layer.id ? 6 : 3,
+                    "line-opacity": 0.9
                   }}
                 />
               </GeoJSONSource>
@@ -426,11 +487,11 @@ export function MapWorkspaceScreenNative(): ReactElement {
             <Layer
               id="checkpoint-circles"
               type="circle"
-              style={{
-                circleRadius: 6,
-                circleColor: "#22c55e",
-                circleStrokeWidth: 2,
-                circleStrokeColor: "#ffffff"
+              paint={{
+                "circle-radius": 6,
+                "circle-color": "#22c55e",
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff"
               }}
             />
           </GeoJSONSource>
@@ -438,6 +499,12 @@ export function MapWorkspaceScreenNative(): ReactElement {
       </View>
 
       <ScrollView style={styles.panel} contentContainerStyle={{ paddingBottom: 24 }}>
+        {loading ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <ActivityIndicator />
+            <Text style={styles.body}>Syncing workspace from server…</Text>
+          </View>
+        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <Text style={styles.title}>Basemap</Text>
@@ -481,8 +548,8 @@ export function MapWorkspaceScreenNative(): ReactElement {
           </View>
         ))}
 
-        <DSButton preset="primary" onPress={() => void reload()} disabled={saving}>
-          {saving ? "Saving…" : "Reload from server"}
+        <DSButton preset="primary" onPress={() => void reload()} disabled={saving || loading}>
+          {saving ? "Saving…" : loading ? "Syncing…" : "Reload from server"}
         </DSButton>
       </ScrollView>
     </View>

@@ -71,6 +71,69 @@ test("request throws ApiError with server error message", async () => {
   }
 });
 
+test("request strips trailing slash from baseUrl when calling fetch", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      assert.equal(String(input), "https://api.example.com/race-rooms/rid");
+      return new Response(JSON.stringify(minimalRoom), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example.com/", accessToken: "test-token" });
+    await client.getRaceRoom("rid");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("request throws ApiError including Fastify message for route 404", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          statusCode: 404,
+          error: "Not Found",
+          message: "Route GET:/race-rooms/rid/map-workspace not found"
+        }),
+        { status: 404, headers: { "content-type": "application/json" } }
+      );
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(
+      () => client.getMapWorkspace("rid"),
+      (err: unknown) =>
+        err instanceof ApiError &&
+        err.status === 404 &&
+        err.message === "Not Found — Route GET:/race-rooms/rid/map-workspace not found"
+    );
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("request augments bare Not Found 404 with method and path", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: "Not Found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" }
+      });
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(
+      () => client.getMapWorkspace("rid"),
+      (err: unknown) =>
+        err instanceof ApiError &&
+        err.status === 404 &&
+        err.message === "Not Found (GET /race-rooms/rid/map-workspace)"
+    );
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
 test("ws4 client methods target incident and recommendation endpoints", async () => {
   const prev = globalThis.fetch;
   try {
