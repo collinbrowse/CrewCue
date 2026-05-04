@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 
 const ACCESS_TOKEN_KEY = "crewcue.auth0.accessToken";
 const REFRESH_TOKEN_KEY = "crewcue.auth0.refreshToken";

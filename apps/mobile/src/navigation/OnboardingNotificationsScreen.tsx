@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import * as Notifications from "expo-notifications";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ONBOARDING_INTENT_KEY,

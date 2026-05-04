@@ -3,7 +3,7 @@ import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { ReactElement } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AppleAuthMarkButton,

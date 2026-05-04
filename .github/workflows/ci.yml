@@ -50,29 +50,35 @@ jobs:
               return;
             }
 
+            // Allow optional Markdown bold: "- Decision: ..." or "- **Decision:** ..." (colon may sit inside **...**)
+            const mdLabel = (word) =>
+              new RegExp(
+                `-\\s*\\*{0,2}${word}:\\*{0,2}\\s+\\S`,
+                "i"
+              );
             const hasDecisionContent =
-              /- Decision:\s+\S/.test(body) || /Single obvious path/i.test(body);
+              mdLabel("Decision").test(body) || /Single obvious path/i.test(body);
             if (!hasDecisionContent) {
               core.setFailed(
-                "Decision Tree and Rationale must include at least one filled '- Decision: ...' line or explicit 'Single obvious path'."
+                "Decision Tree and Rationale must include at least one filled '- Decision: ...' (or **Decision**) line or explicit 'Single obvious path'."
               );
               return;
             }
 
             const hasAssumptionContent =
-              /- Assumption:\s+\S/.test(body) || /None identified/i.test(body);
+              mdLabel("Assumption").test(body) || /None identified/i.test(body);
             if (!hasAssumptionContent) {
               core.setFailed(
-                "Implicit Assumptions and Invariants must include at least one filled '- Assumption: ...' line or explicit 'None identified'."
+                "Implicit Assumptions and Invariants must include at least one filled '- Assumption: ...' (or **Assumption**) line or explicit 'None identified'."
               );
               return;
             }
 
             const hasEffectsSummary =
-              /- Summary:\s+\S/.test(body) || /None identified/i.test(body);
+              mdLabel("Summary").test(body) || /None identified/i.test(body);
             if (!hasEffectsSummary) {
               core.setFailed(
-                "Higher-Order Effects Check must include a filled '- Summary: ...' line or explicit 'None identified'."
+                "Higher-Order Effects Check must include a filled '- Summary: ...' (or **Summary**) line or explicit 'None identified'."
               );
               return;
             }

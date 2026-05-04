@@ -50,6 +50,36 @@ type PublicApiClientOptions = {
   baseUrl: string;
 };
 
+function normalizeApiBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+/** Prefer JSON `error`; append `message` when present (Fastify route 404s expose which path missed). */
+function formatApiFailureMessage(status: number, parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || parsed === null) {
+    return `API error ${status}`;
+  }
+  const o = parsed as Record<string, unknown>;
+  if (!("error" in o)) {
+    return `API error ${status}`;
+  }
+  const errPart = String(o.error);
+  const msgPart = "message" in o && o.message !== undefined && o.message !== null ? String(o.message) : "";
+  if (msgPart.length > 0 && msgPart !== errPart) {
+    return `${errPart} — ${msgPart}`;
+  }
+  return errPart;
+}
+
+/** Many gateways return `{ error: "Not Found" }` without `message`; include the request we made. */
+function finalizeApiFailureMessage(status: number, parsed: unknown, method: string, path: string): string {
+  const message = formatApiFailureMessage(status, parsed);
+  if (status === 404 && message === "Not Found") {
+    return `Not Found (${method} ${path})`;
+  }
+  return message;
+}
+
 async function request<T>(
   options: ApiClientOptions,
   method: string,
@@ -63,7 +93,8 @@ async function request<T>(
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${options.baseUrl}${path}`, {
+  const base = normalizeApiBaseUrl(options.baseUrl);
+  const res = await fetch(`${base}${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body)
@@ -76,17 +107,15 @@ async function request<T>(
     parsed = text;
   }
   if (!res.ok) {
-    const message =
-      parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
-        ? String((parsed as { error: unknown }).error)
-        : `API error ${res.status}`;
+    const message = finalizeApiFailureMessage(res.status, parsed, method, path);
     throw new ApiError(res.status, parsed, message);
   }
   return parsed as T;
 }
 
 async function requestPublic<T>(options: PublicApiClientOptions, method: string, path: string): Promise<T> {
-  const res = await fetch(`${options.baseUrl}${path}`, {
+  const base = normalizeApiBaseUrl(options.baseUrl);
+  const res = await fetch(`${base}${path}`, {
     method,
     headers: { Accept: "application/json" }
   });
@@ -98,10 +127,7 @@ async function requestPublic<T>(options: PublicApiClientOptions, method: string,
     parsed = text;
   }
   if (!res.ok) {
-    const message =
-      parsed && typeof parsed === "object" && parsed !== null && "error" in parsed
-        ? String((parsed as { error: unknown }).error)
-        : `API error ${res.status}`;
+    const message = finalizeApiFailureMessage(res.status, parsed, method, path);
     throw new ApiError(res.status, parsed, message);
   }
   return parsed as T;
@@ -429,7 +455,7 @@ export function createPublicApiClient(options: PublicApiClientOptions) {
   return {
     getJoinPreviewByCode: (roomCode: string) =>
       requestPublic<{ preview: RaceRoomJoinPreview }>(
-        { baseUrl: options.baseUrl.replace(/\/$/, "") },
+        { baseUrl: normalizeApiBaseUrl(options.baseUrl) },
         "GET",
         `/race-rooms/join-preview/${encodeURIComponent(roomCode.trim())}`
       )

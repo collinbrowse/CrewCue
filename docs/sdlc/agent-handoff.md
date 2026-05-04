@@ -15,10 +15,12 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-04 (America/Chicago)
-- Branch: `feature/gpx-course-map-sync`
-- Active issue: [#206](https://github.com/collinbrowse/CrewCue/issues/206) unify GPX upload (course + map workspace)
-- Active PR: [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
-- Current priority: CI on PR #207; merge order: land maps audit (#204) then GPX sync (#207), or retarget #207 to `main` after #204.
+- CI fix shipped: [#210](https://github.com/collinbrowse/CrewCue/pull/210) (**Closes #209**) — `pr-decision-doc-guard` now accepts `- **Decision:**` / `- **Assumption:**` / `- **Summary:**` bullets (colon inside bold).
+- Railway hotfix merged: [#212](https://github.com/collinbrowse/CrewCue/pull/212) (**Closes #211**) — `railway.toml` build is `npm run build -w @crewcue/api` only (no second `npm ci`); remote `fix/railway-ebusy-npm-ci` deleted.
+- Local **`main`** at **`origin/main`** (merge **`a049fd3`**: [#213](https://github.com/collinbrowse/CrewCue/pull/213) GPX/client polish + secureStorage web + CI `MAPTILER_API_KEY` + PR template guard note). Remote `feature/gpx-course-map-sync` deleted after merge.
+- Active issue: [#206](https://github.com/collinbrowse/CrewCue/issues/206) unify GPX upload — **confirm open/closed** (#213 used *Relates to*; [#207](https://github.com/collinbrowse/CrewCue/pull/207) may still **Close** it when merged).
+- Active PR (maps audit stack): [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
+- Current priority: land **#207** / **#204** stack on `main`; staging MapTiler + GPX QA.
 - Sprint milestone: maps + single-upload GPX parity
 
 ## Current objective
@@ -43,16 +45,15 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 
 ## Next 1-3 tasks
 
-1. Confirm Actions green on [#207](https://github.com/collinbrowse/CrewCue/pull/207); merge after/with maps audit branch per stack plan (include `railway.toml` Railpack build fix in `main` so GitHub-triggered Railway builds stay green).
-2. Staging/dev: set **`MAPTILER_API_KEY`** on API service (distinct from optional public tile keys).
-3. Manual QA: upload GPX from race setup vs map workspace; confirm dashboard distance + map polyline + checkpoints match; extra non-primary layers preserved on re-upload.
+1. Confirm Actions green on maps stack [#207](https://github.com/collinbrowse/CrewCue/pull/207) / [#204](https://github.com/collinbrowse/CrewCue/pull/204); merge to **`main`** per stack plan.
+2. Staging: set **`MAPTILER_API_KEY`** on the API service; manual GPX upload QA (race setup vs map workspace).
+3. Close or retarget [#206](https://github.com/collinbrowse/CrewCue/issues/206) if #213 + remaining #207 scope covers it.
 
 ## Validation summary
 
-- `npm run verify` (root): **pass** on `feature/gpx-course-map-sync` (includes PR #207 changes).
-- **Railway staging** (`crewcue-staging.up.railway.app`): API image updated from branch code including `GET /race-rooms/:roomId/map-workspace`; unauthenticated `curl` returns **401** `{"error":"Unauthorized"}` (not Fastify **404** route missing). `railway.toml`: build step is `npm run build -w @crewcue/api` only (Railpack already runs `npm ci`); avoids EBUSY on `apps/web/node_modules/.vite` (commit `7f34e71` on PR #207). `EXPO_PUBLIC_API_BASE_URL` unchanged — no mobile rebuild for URL.
-- Debug session `44caa2`: client ingest missed user repro (no NDJSON file); API unit path confirmed merged layers + GET map-workspace in tests. Mobile map workspace: seed/recover from `shell.room` on GET failure; **removed full-screen loading gate** so Map mounts while `/map-workspace` syncs (18s deadline); instrumentation retained pending verification.
-- Debug session `d58857`: prior staging showed Fastify **404** for `/map-workspace` because `origin/main` lacked the route; clients now get auth **401** against staging when unauthenticated. Mobile `apps/mobile/src/api/client.ts` appends JSON `message` (route detail) and normalizes trailing slashes on `baseUrl`; `apps/mobile/src/api/client.test.ts` covers Fastify-style 404.
+- **`main`**: [#213](https://github.com/collinbrowse/CrewCue/pull/213) merged; includes secureStorage web/native split, mobile API client URL/errors + tests, map workspace reload behavior, CI `MAPTILER_API_KEY`, PR template alignment with `pr-decision-doc-guard`.
+- **Railway**: [#212](https://github.com/collinbrowse/CrewCue/pull/212) merged to `main`; staging build reported **green** (no EBUSY on `apps/web/node_modules/.vite`). Keep dashboard **Build Command** empty or aligned with `railway.toml`.
+- Maps/mobile: map workspace **reload** seeds from `shell.room` when GET `/map-workspace` fails; **no full-screen gate** before Map mounts; **18s** timeout on sync. Mobile API client **trims trailing slashes** on `baseUrl`, surfaces Fastify **`message`** with **`error`**, and clearer generic **404** text — covered in `client.test.ts`. Cursor-only debug ingest / NDJSON / file logging **removed** before push.
 - Mobile **web**: `expo-secure-store` has no `getValueWithKeyAsync` on web (runtime TypeError on sign-in). Added `src/storage/secureStorage.{ts,native.ts,web.ts}` — Metro picks **`.web`** (localStorage only, zero SecureStore) vs **`.native`** (real SecureStore); app code still imports `./storage/secureStorage`.
 
 ## Open risks/blockers/questions
@@ -60,6 +61,7 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 - MapTiler geocode URL shape must match Cloud API for production (monitor `502`/empty features).
 - Offline pack polling assumes `OfflinePack.status()` transitions to `"complete"`; validate on hardware.
 - GPX parity: API still stores **parsed** course + simplified route geometry (not raw GPX bytes); primary route layer id is fixed (`crewcue-primary-course-route`).
+- Railway: if the service **Build Command** in the dashboard overrides `railway.toml` and includes `npm ci && …`, the second `npm ci` can hit **EBUSY** on `apps/web/node_modules/.vite`. Use only `npm run build -w @crewcue/api` for the build step (contracts/map-core run inside that script and via `postinstall`).
 
 ## Delivered (#206 / PR #207)
 
@@ -74,6 +76,5 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 ## Successor prompt
 
 ```text
-PR #207: confirm CI green; merge stack after maps audit (#204) or retarget #207 to main (carry railway.toml Railpack build fix to main).
-QA: Map workspace against staging with EXPO_PUBLIC_API_BASE_URL=https://crewcue-staging.up.railway.app — GPX upload parity.
+#213 merged. Next: merge maps stack #207 / #204; staging MAPTILER_API_KEY + GPX QA; reconcile #206 state.
 ```
