@@ -12,7 +12,14 @@ type Auth0Settings = {
   domain: string;
   clientId: string;
   audience: string;
+  connections: {
+    google: string;
+    apple: string;
+    email: string;
+  };
 };
+
+export type AuthProvider = "google" | "apple" | "email";
 
 export type AuthStatus = "bootstrapping" | "anonymous" | "authenticating" | "authenticated" | "error";
 
@@ -24,6 +31,8 @@ export type AuthState = {
   redirectUri: string;
   signIn: () => Promise<void>;
   signUp: () => Promise<void>;
+  signInWithProvider?: (provider: AuthProvider) => Promise<void>;
+  signUpWithProvider?: (provider: AuthProvider) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -65,6 +74,51 @@ export function useAuth(settings: Auth0Settings): AuthState {
     discovery
   );
 
+  const [signInGoogleRequest, signInGoogleResponse, promptSignInGoogleAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        connection: settings.connections.google
+      }
+    },
+    discovery
+  );
+
+  const [signInAppleRequest, signInAppleResponse, promptSignInAppleAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        connection: settings.connections.apple
+      }
+    },
+    discovery
+  );
+
+  const [signInEmailRequest, signInEmailResponse, promptSignInEmailAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        connection: settings.connections.email
+      }
+    },
+    discovery
+  );
+
   const [signupRequest, signupResponse, promptSignupAsync] = AuthSession.useAuthRequest(
     {
       clientId: settings.clientId,
@@ -75,6 +129,54 @@ export function useAuth(settings: Auth0Settings): AuthState {
       extraParams: {
         audience: settings.audience,
         screen_hint: "signup"
+      }
+    },
+    discovery
+  );
+
+  const [signupGoogleRequest, signupGoogleResponse, promptSignupGoogleAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        screen_hint: "signup",
+        connection: settings.connections.google
+      }
+    },
+    discovery
+  );
+
+  const [signupAppleRequest, signupAppleResponse, promptSignupAppleAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        screen_hint: "signup",
+        connection: settings.connections.apple
+      }
+    },
+    discovery
+  );
+
+  const [signupEmailRequest, signupEmailResponse, promptSignupEmailAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: settings.clientId,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ["openid", "profile", "email", "offline_access"],
+      usePKCE: true,
+      extraParams: {
+        audience: settings.audience,
+        screen_hint: "signup",
+        connection: settings.connections.email
       }
     },
     discovery
@@ -152,8 +254,32 @@ export function useAuth(settings: Auth0Settings): AuthState {
   }, [handleAuthResponse, request, response]);
 
   useEffect(() => {
+    handleAuthResponse(signInGoogleResponse, signInGoogleRequest);
+  }, [handleAuthResponse, signInGoogleRequest, signInGoogleResponse]);
+
+  useEffect(() => {
+    handleAuthResponse(signInAppleResponse, signInAppleRequest);
+  }, [handleAuthResponse, signInAppleRequest, signInAppleResponse]);
+
+  useEffect(() => {
+    handleAuthResponse(signInEmailResponse, signInEmailRequest);
+  }, [handleAuthResponse, signInEmailRequest, signInEmailResponse]);
+
+  useEffect(() => {
     handleAuthResponse(signupResponse, signupRequest);
   }, [handleAuthResponse, signupRequest, signupResponse]);
+
+  useEffect(() => {
+    handleAuthResponse(signupGoogleResponse, signupGoogleRequest);
+  }, [handleAuthResponse, signupGoogleRequest, signupGoogleResponse]);
+
+  useEffect(() => {
+    handleAuthResponse(signupAppleResponse, signupAppleRequest);
+  }, [handleAuthResponse, signupAppleRequest, signupAppleResponse]);
+
+  useEffect(() => {
+    handleAuthResponse(signupEmailResponse, signupEmailRequest);
+  }, [handleAuthResponse, signupEmailRequest, signupEmailResponse]);
 
   const signIn = useCallback(async () => {
     setError(undefined);
@@ -196,6 +322,72 @@ export function useAuth(settings: Auth0Settings): AuthState {
     setStatus("anonymous");
   }, []);
 
+  const signInWithProvider = useCallback(
+    async (provider: AuthProvider) => {
+      setError(undefined);
+      const promptForProvider =
+        provider === "google"
+          ? { request: signInGoogleRequest, prompt: promptSignInGoogleAsync }
+          : provider === "apple"
+            ? { request: signInAppleRequest, prompt: promptSignInAppleAsync }
+            : { request: signInEmailRequest, prompt: promptSignInEmailAsync };
+      if (!promptForProvider.request) {
+        setStatus("anonymous");
+        setError("Login is still initializing. Please try again in a moment.");
+        return;
+      }
+      setStatus("authenticating");
+      try {
+        await promptForProvider.prompt();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to open login";
+        setError(message);
+        setStatus("error");
+      }
+    },
+    [
+      promptSignInAppleAsync,
+      promptSignInEmailAsync,
+      promptSignInGoogleAsync,
+      signInAppleRequest,
+      signInEmailRequest,
+      signInGoogleRequest
+    ]
+  );
+
+  const signUpWithProvider = useCallback(
+    async (provider: AuthProvider) => {
+      setError(undefined);
+      const promptForProvider =
+        provider === "google"
+          ? { request: signupGoogleRequest, prompt: promptSignupGoogleAsync }
+          : provider === "apple"
+            ? { request: signupAppleRequest, prompt: promptSignupAppleAsync }
+            : { request: signupEmailRequest, prompt: promptSignupEmailAsync };
+      if (!promptForProvider.request) {
+        setStatus("anonymous");
+        setError("Sign-up is still initializing. Please try again in a moment.");
+        return;
+      }
+      setStatus("authenticating");
+      try {
+        await promptForProvider.prompt();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to open sign-up";
+        setError(message);
+        setStatus("error");
+      }
+    },
+    [
+      promptSignupAppleAsync,
+      promptSignupEmailAsync,
+      promptSignupGoogleAsync,
+      signupAppleRequest,
+      signupEmailRequest,
+      signupGoogleRequest
+    ]
+  );
+
   const claims = tokens?.accessToken ? decodeAccessTokenClaims(tokens.accessToken) : undefined;
 
   const state: AuthState = {
@@ -203,6 +395,8 @@ export function useAuth(settings: Auth0Settings): AuthState {
     redirectUri,
     signIn,
     signUp,
+    signInWithProvider,
+    signUpWithProvider,
     signOut
   };
   if (tokens?.accessToken) state.accessToken = tokens.accessToken;

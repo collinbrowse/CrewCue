@@ -1,480 +1,283 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import * as SecureStore from "expo-secure-store";
-import * as Notifications from "expo-notifications";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useCallback, useEffect, useState } from "react";
+import type { ReactElement } from "react";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  AppleAuthMarkButton,
+  GoogleAuthMarkButton,
+  useAuthIdpColumnConstraints
+} from "../components/idp/IdpAuthMarkButtons";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import { ONBOARDING_STAGE_KEY, type OnboardingStage } from "./onboardingState";
-const ONBOARDING_SPLASH_MS = 1400;
+import { useDSTheme } from "../design-system";
+import { applyGuestLandingAuthIntent } from "./guestHomeAuthIntent";
+import type { GuestStackParamList } from "./types";
 
-const PRODUCT_STEPS = [
-  {
-    title: "See the race at a glance",
-    body: "CrewCue keeps your room status, checkpoints, and split context in one place so your crew always knows what comes next."
-  },
-  {
-    title: "Coordinate the full crew quickly",
-    body: "Share updates, assign actions, and keep everyone aligned without jumping across separate tools."
-  },
-  {
-    title: "Make faster decisions under pressure",
-    body: "Live pings, incidents, and recommendations surface the right signals so the team can respond with confidence."
-  }
-] as const;
+/** Single tweak point for welcome headline (“Crew Q” vs “CrewCue”). */
+const ONBOARDING_BRAND_NAME = "CrewCue";
 
 export function GuestHomeScreen(): ReactElement {
-  const s = useAuthedShell();
+  const theme = useDSTheme();
   const insets = useSafeAreaInsets();
-  const [stageReady, setStageReady] = useState(false);
-  const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>("splash");
-  const [productIndex, setProductIndex] = useState(0);
-  const [notificationsBusy, setNotificationsBusy] = useState(false);
-  const [notificationsMessage, setNotificationsMessage] = useState<string | undefined>(undefined);
-  const [signupFlowStarted, setSignupFlowStarted] = useState(false);
+  const navigation = useNavigation<NativeStackNavigationProp<GuestStackParamList>>();
+  const route = useRoute<RouteProp<GuestStackParamList, "Home">>();
+  const idpColumn = useAuthIdpColumnConstraints();
+  const s = useAuthedShell();
+  const [authMode, setAuthMode] = useState<"signup" | "signin">("signup");
 
   useEffect(() => {
-    let mounted = true;
-    let splashTimer: ReturnType<typeof setTimeout> | undefined;
-
-    void (async () => {
-      try {
-        const storedStage = (await SecureStore.getItemAsync(ONBOARDING_STAGE_KEY)) as OnboardingStage | null;
-        if (!mounted) {
-          return;
-        }
-        if (
-          storedStage === "product" ||
-          storedStage === "auth" ||
-          storedStage === "notifications" ||
-          storedStage === "done"
-        ) {
-          setOnboardingStage(storedStage);
-          setStageReady(true);
-          return;
-        }
-        if (storedStage === "signupAuth") {
-          // Avoid getting stuck in signup-only stage across app restarts.
-          setOnboardingStage("done");
-          await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, "done");
-          setStageReady(true);
-          return;
-        }
-
-        setOnboardingStage("splash");
-        splashTimer = setTimeout(() => {
-          if (!mounted) {
-            return;
-          }
-          setOnboardingStage("product");
-          setStageReady(true);
-          void SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, "product");
-        }, ONBOARDING_SPLASH_MS);
-      } finally {
-        if (mounted && splashTimer === undefined) {
-          setStageReady(true);
-        }
-      }
-    })();
-
-    return () => {
-      mounted = false;
-      if (splashTimer) {
-        clearTimeout(splashTimer);
-      }
-    };
-  }, []);
+    const fromRoute = route.params?.authMode;
+    if (fromRoute === "signup" || fromRoute === "signin") {
+      setAuthMode(fromRoute);
+    }
+  }, [route.params?.authMode]);
 
   useEffect(() => {
-    if (s.auth.status !== "authenticated" || onboardingStage !== "signupAuth" || !signupFlowStarted) {
+    if (s.auth.status !== "authenticated") {
       return;
     }
-    void setStage("notifications");
-  }, [onboardingStage, s.auth.status, signupFlowStarted]);
+    if (s.onboardingIntent === "signupAthlete") {
+      navigation.navigate("AthleteSetup");
+      return;
+    }
+    if (s.onboardingIntent === "joinCrew" && !s.onboardingJoinDraft && s.onboardingNotificationsRequired) {
+      navigation.navigate("Notifications");
+      return;
+    }
+    if (s.onboardingNotificationsRequired && !s.onboardingJoinDraft) {
+      navigation.navigate("Notifications");
+    }
+  }, [
+    navigation,
+    s.auth.status,
+    s.onboardingIntent,
+    s.onboardingJoinDraft,
+    s.onboardingNotificationsRequired
+  ]);
 
-  const currentProductStep = PRODUCT_STEPS[productIndex];
-  const isFinalProductStep = productIndex === PRODUCT_STEPS.length - 1;
-
-  const primaryButtonLabel = useMemo(() => {
-    if (!stageReady) {
-      return "Preparing sign-in...";
-    }
-    if (onboardingStage === "product") {
-      return isFinalProductStep ? "Continue to sign in" : "Next";
-    }
-    if (onboardingStage === "auth") {
-      if (s.auth.status === "authenticating") {
-        return "Connecting to Auth0...";
-      }
-      return "Sign Up";
-    }
-    if (onboardingStage === "signupAuth") {
-      return "Finishing account setup...";
-    }
-    if (onboardingStage === "notifications") {
-      return notificationsBusy ? "Updating notifications..." : "Enable notifications";
-    }
-    if (s.auth.status === "error") {
-      return "Try sign-in again";
-    }
-    return "Sign in";
-  }, [isFinalProductStep, notificationsBusy, onboardingStage, s.auth.status, stageReady]);
-
-  const setStage = async (nextStage: OnboardingStage) => {
-    setOnboardingStage(nextStage);
-    await SecureStore.setItemAsync(ONBOARDING_STAGE_KEY, nextStage);
-    await s.onRefreshOnboardingStage();
-  };
-
-  const handleEnableNotifications = async () => {
-    setNotificationsBusy(true);
-    setNotificationsMessage(undefined);
-    try {
-      const existing = await Notifications.getPermissionsAsync();
-      const final = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
-      if (final.status === "granted") {
-        setNotificationsMessage("Notifications enabled. You are all set.");
+  const startAuth = useCallback(
+    async (provider: "google" | "apple" | "email") => {
+      await applyGuestLandingAuthIntent(authMode, s.onRefreshOnboardingStage);
+      if (authMode === "signup") {
+        if (s.auth.signUpWithProvider) {
+          await s.auth.signUpWithProvider(provider);
+        } else {
+          await s.auth.signUp();
+        }
       } else {
-        setNotificationsMessage("Notifications were skipped. You can enable them later in Settings.");
+        if (s.auth.signInWithProvider) {
+          await s.auth.signInWithProvider(provider);
+        } else {
+          await s.auth.signIn();
+        }
       }
-    } catch {
-      setNotificationsMessage("Could not update notifications here. You can enable them later in Settings.");
-    } finally {
-      await setStage("done");
-      setNotificationsBusy(false);
-    }
-  };
+    },
+    [authMode, s]
+  );
 
-  const handlePrimaryPress = () => {
-    if (!stageReady) return;
+  const idpFlow = authMode === "signup" ? "signup" : "signin";
+  const emailLabel = authMode === "signup" ? "Sign up with Email" : "Continue with Email";
 
-    if (onboardingStage === "product") {
-      if (isFinalProductStep) {
-        void setStage("auth");
-      } else {
-        setProductIndex((value) => value + 1);
-      }
-      return;
-    }
+  return (
+    <View style={[styles.root, { paddingTop: insets.top, backgroundColor: theme.color.background }]}>
+      <View style={[styles.column, { paddingHorizontal: 22 }]}>
+        {/* Flex grows: illustration centered in space above headline — headline/buttons stay below */}
+        <View style={styles.heroImageFill}>
+          <Image
+            accessibilityIgnoresInvertColors
+            accessibilityRole="image"
+            accessibilityLabel="Trail runner illustration"
+            resizeMode="contain"
+            source={require("../../assets/onboarding/crew-cue-onboarding-runner.png")}
+            style={styles.heroImage}
+          />
+        </View>
 
-    if (onboardingStage === "done") {
-      void s.auth.signIn();
-      return;
-    }
+        <View style={styles.copyBlock}>
+          <Text style={styles.welcomeTitle}>Welcome to {ONBOARDING_BRAND_NAME} 👋</Text>
+          <Text style={styles.tagline}>Find your crew and run race day together.</Text>
+        </View>
 
-    if (onboardingStage === "notifications") {
-      void handleEnableNotifications();
-    }
-  };
+        {s.auth.error ? <Text style={styles.error}>{s.auth.error}</Text> : null}
 
-  const renderSplash = () => (
-    <View style={styles.stageScreen}>
-      <View style={[styles.orb, styles.orbTop]} />
-      <View style={[styles.orb, styles.orbBottom]} />
-      <View style={styles.contentWrap}>
-        <Text style={styles.brandTitle}>CrewCue</Text>
-        <Text style={styles.brandTagline}>Race-day command for athletes and crew</Text>
-        <View style={styles.loadingPill}>
-          <Text style={styles.loadingText}>Preparing your workspace...</Text>
+        <View style={[styles.actions, idpColumn]}>
+          <AppleAuthMarkButton
+            surface="guestLanding"
+            flow={idpFlow}
+            onPress={() => void startAuth("apple")}
+          />
+          <GoogleAuthMarkButton
+            surface="guestLanding"
+            flow={idpFlow}
+            onPress={() => void startAuth("google")}
+          />
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={emailLabel}
+            style={({ pressed }) => [styles.emailButton, pressed && styles.pressed]}
+            onPress={() => void startAuth("email")}
+          >
+            <Text style={styles.emailButtonLabel}>{emailLabel}</Text>
+          </Pressable>
+
+          <View style={styles.orRow}>
+            <View style={styles.orLine} />
+            <Text style={styles.orText}>or</Text>
+            <View style={styles.orLine} />
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.joinOutlineButton,
+              { backgroundColor: theme.color.background },
+              pressed && styles.pressed
+            ]}
+            onPress={() => navigation.navigate("JoinEntry")}
+          >
+            <Text style={styles.joinOutlineLabel}>Join your crew with a code</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
+          {authMode === "signup" ? (
+            <Pressable accessibilityRole="button" onPress={() => setAuthMode("signin")}>
+              <Text style={styles.footerMuted}>
+                Already have an account? <Text style={styles.footerAccent}>Log in</Text>
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable accessibilityRole="button" onPress={() => setAuthMode("signup")}>
+              <Text style={styles.footerMuted}>
+                New here? <Text style={styles.footerAccent}>Sign up</Text>
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
-  );
-
-  const renderProduct = () => (
-    <View style={styles.stageScreen}>
-      <View style={styles.contentWrap}>
-        <Text style={styles.stageKicker}>Welcome to CrewCue</Text>
-        <Text style={styles.stageTitle}>{currentProductStep.title}</Text>
-        <Text style={styles.stageBodyText}>{currentProductStep.body}</Text>
-        <View style={styles.dotRow}>
-          {PRODUCT_STEPS.map((_, index) => (
-            <View key={`dot-${index}`} style={[styles.dot, productIndex === index ? styles.dotActive : null]} />
-          ))}
-        </View>
-      </View>
-      <View style={styles.actionWrap}>
-        <ActionButton label={primaryButtonLabel} onPress={handlePrimaryPress} />
-        <ActionButton label="Sign in now" onPress={() => void setStage("auth")} variant="ghost" />
-      </View>
-    </View>
-  );
-
-  const renderAuth = () => (
-    <View style={styles.stageScreen}>
-      <View style={styles.contentWrap}>
-        <Text style={styles.stageKicker}>Secure sign-in</Text>
-        <Text style={styles.stageTitle}>Welcome back</Text>
-        <Text style={styles.stageBodyText}>
-          Sign in with your CrewCue account to continue where you left off and keep race operations synchronized.
-        </Text>
-        {s.auth.status === "error" ? (
-          <Text style={styles.errorText}>{toUserFriendlyAuthErrorMessage(s.auth.error)}</Text>
-        ) : null}
-      </View>
-      <View style={styles.actionWrap}>
-        <ActionButton
-          label={primaryButtonLabel}
-          onPress={() => {
-            setSignupFlowStarted(true);
-            void setStage("signupAuth").then(() => s.auth.signUp());
-          }}
-          disabled={s.auth.status === "authenticating" || !stageReady}
-        />
-        <ActionButton
-          label="I already have an account"
-          onPress={() => {
-            setSignupFlowStarted(false);
-            void setStage("done").then(() => s.auth.signIn());
-          }}
-          variant="ghost"
-        />
-      </View>
-    </View>
-  );
-
-  const renderNotifications = () => (
-    <View style={styles.stageScreen}>
-      <View style={styles.contentWrap}>
-        <Text style={styles.stageKicker}>Stay in sync</Text>
-        <Text style={styles.stageTitle}>Enable notifications</Text>
-        <Text style={styles.stageBodyText}>
-          Get important alerts for assignments, incidents, and pace changes so your crew can react quickly.
-        </Text>
-        {notificationsMessage ? <Text style={styles.infoText}>{notificationsMessage}</Text> : null}
-      </View>
-      <View style={styles.actionWrap}>
-        <ActionButton label={primaryButtonLabel} onPress={handlePrimaryPress} disabled={notificationsBusy} />
-        <ActionButton
-          label="Not now"
-          onPress={() => {
-            setNotificationsMessage("You can enable notifications later in Settings.");
-            void setStage("done");
-          }}
-          variant="ghost"
-        />
-      </View>
-    </View>
-  );
-
-  return (
-    <View
-      style={[
-        styles.root,
-        onboardingStage === "splash"
-          ? styles.splashBackground
-          : onboardingStage === "product"
-            ? styles.productBackground
-            : onboardingStage === "notifications"
-              ? styles.notificationsBackground
-              : styles.authBackground
-      ]}
-    >
-      <View style={[styles.stageContainer, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
-        {onboardingStage === "splash" ? renderSplash() : null}
-        {onboardingStage === "product" ? renderProduct() : null}
-        {onboardingStage === "auth" || onboardingStage === "done" || onboardingStage === "signupAuth"
-          ? renderAuth()
-          : null}
-        {onboardingStage === "notifications" ? renderNotifications() : null}
-      </View>
-    </View>
-  );
-}
-
-function toUserFriendlyAuthErrorMessage(errorText?: string): string {
-  if (!errorText) {
-    return "We could not complete sign-in. Please try again.";
-  }
-
-  const normalized = errorText.toLowerCase();
-  if (
-    normalized.includes("invalid authorization code") ||
-    normalized.includes("authorization grant") ||
-    normalized.includes("redirect uri")
-  ) {
-    return "Your sign-in session expired before it finished. Tap \"Try sign-in again\" to start a fresh sign-in.";
-  }
-
-  return "We could not complete sign-in. Please try again.";
-}
-
-type ActionButtonProps = {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "ghost";
-};
-
-function ActionButton({ label, onPress, disabled = false, variant = "primary" }: ActionButtonProps): ReactElement {
-  const ghost = variant === "ghost";
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.actionButton,
-        ghost ? styles.ghostActionButton : styles.primaryActionButton,
-        disabled ? styles.disabledActionButton : null
-      ]}
-    >
-      <Text style={[styles.actionButtonLabel, ghost ? styles.ghostActionLabel : styles.primaryActionLabel]}>{label}</Text>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#090f26"
+    alignSelf: "stretch",
+    width: "100%"
   },
-  stageContainer: {
+  column: {
     flex: 1,
-    paddingHorizontal: 24,
-    justifyContent: "space-between"
+    width: "100%",
+    alignSelf: "stretch",
+    minHeight: 0
   },
-  stageScreen: {
+  heroImageFill: {
     flex: 1,
-    justifyContent: "space-between"
+    minHeight: 56,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center"
   },
-  splashBackground: {
-    backgroundColor: "#1e1b4b"
+  heroImage: {
+    width: "88%",
+    maxWidth: 348,
+    height: 196
   },
-  productBackground: {
-    backgroundColor: "#0f766e"
+  copyBlock: {
+    alignSelf: "stretch",
+    alignItems: "flex-start",
+    paddingBottom: 18,
+    paddingTop: 4
   },
-  authBackground: {
-    backgroundColor: "#1d4ed8"
-  },
-  notificationsBackground: {
-    backgroundColor: "#7c3aed"
-  },
-  orb: {
-    position: "absolute",
-    borderRadius: 9999,
-    opacity: 0.26
-  },
-  orbTop: {
-    width: 240,
-    height: 240,
-    backgroundColor: "#22d3ee",
-    top: -50,
-    right: -40
-  },
-  orbBottom: {
-    width: 280,
-    height: 280,
-    backgroundColor: "#a78bfa",
-    bottom: -120,
-    left: -110
-  },
-  contentWrap: {
-    gap: 14,
-    marginTop: 16
-  },
-  brandTitle: {
-    color: "#ffffff",
-    fontSize: 46,
+  welcomeTitle: {
+    color: "#111827",
+    fontSize: 28,
     fontWeight: "800",
-    letterSpacing: -1
+    textAlign: "left",
+    letterSpacing: -0.6,
+    alignSelf: "stretch"
   },
-  brandTagline: {
-    color: "#dbeafe",
-    fontSize: 18,
-    lineHeight: 24
+  tagline: {
+    marginTop: 10,
+    fontSize: 17,
+    textAlign: "left",
+    color: "#5c5a54",
+    fontWeight: "500",
+    lineHeight: 24,
+    alignSelf: "stretch"
   },
-  loadingPill: {
-    marginTop: 16,
-    alignSelf: "flex-start",
-    borderRadius: 9999,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    paddingVertical: 10,
-    paddingHorizontal: 16
-  },
-  loadingText: {
-    color: "#eff6ff",
-    fontSize: 14,
-    fontWeight: "600"
-  },
-  stageKicker: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 14,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1
-  },
-  stageTitle: {
-    color: "#ffffff",
-    fontSize: 40,
-    fontWeight: "800",
-    lineHeight: 42,
-    letterSpacing: -0.8
-  },
-  stageBodyText: {
-    color: "#e0e7ff",
-    fontSize: 18,
-    lineHeight: 27
-  },
-  dotRow: {
-    marginTop: 16,
-    flexDirection: "row",
-    gap: 8
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.4)"
-  },
-  dotActive: {
-    width: 26,
-    backgroundColor: "#ffffff"
-  },
-  actionWrap: {
+  actions: {
     gap: 12,
-    marginBottom: 8
+    alignSelf: "stretch",
+    width: "100%"
   },
-  actionButton: {
-    borderRadius: 16,
+  orRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginVertical: 4
+  },
+  orLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#c9c4bb"
+  },
+  orText: {
+    color: "#7a756c",
+    fontSize: 14,
+    fontWeight: "500"
+  },
+  emailButton: {
+    minHeight: 48,
+    borderRadius: 24,
+    backgroundColor: "#6B46C1",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 14
+    paddingHorizontal: 16
   },
-  primaryActionButton: {
-    backgroundColor: "#ffffff"
-  },
-  ghostActionButton: {
-    backgroundColor: "rgba(255,255,255,0.17)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)"
-  },
-  disabledActionButton: {
-    opacity: 0.55
-  },
-  actionButtonLabel: {
-    fontSize: 18,
+  emailButtonLabel: {
+    color: "#ffffff",
+    fontSize: 17,
     fontWeight: "700"
   },
-  primaryActionLabel: {
-    color: "#111827"
+  joinOutlineButton: {
+    minHeight: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: "#64748b",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16
   },
-  ghostActionLabel: {
-    color: "#f8fafc"
+  joinOutlineLabel: {
+    color: "#111827",
+    fontSize: 17,
+    fontWeight: "600"
   },
-  errorText: {
-    color: "#fee2e2",
-    backgroundColor: "rgba(153,27,27,0.35)",
+  footer: {
+    marginTop: 12,
+    alignItems: "center",
+    alignSelf: "stretch"
+  },
+  footerMuted: {
+    color: "#5c5a54",
+    fontSize: 15,
+    fontWeight: "500",
+    textAlign: "center"
+  },
+  footerAccent: {
+    color: "#6B46C1",
+    fontWeight: "700"
+  },
+  error: {
+    color: "#991b1b",
+    backgroundColor: "#fef2f2",
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    padding: 12,
+    marginBottom: 12,
     overflow: "hidden"
   },
-  infoText: {
-    color: "#ede9fe",
-    backgroundColor: "rgba(76,29,149,0.28)",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    overflow: "hidden"
-  }
+  pressed: { opacity: 0.88 }
 });

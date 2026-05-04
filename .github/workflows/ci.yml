@@ -9,12 +9,32 @@ jobs:
   pr-decision-doc-guard:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Validate PR decision documentation sections
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.pull_request?.body || "";
+            // Prefer REST `pulls.get` (full body); fall back to webhook payload if token cannot read pulls.
+            const prNumber = context.payload.pull_request.number;
+            let body = "";
+            try {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              body = pr.body ?? "";
+            } catch (e) {
+              core.warning(`pulls.get failed (${e.message}); using pull_request payload body`);
+              body = context.payload.pull_request?.body ?? "";
+            }
+            body = body.replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
+            // Normalize dash lookalikes so "## Higher-Order ..." matches after copy/paste from docs
+            body = body.replace(/\u2011|\u2013|\u2014/g, "-");
+
             const requiredHeaders = [
               "## Decision Tree and Rationale",
               "## Implicit Assumptions and Invariants",
@@ -23,8 +43,9 @@ jobs:
 
             const missingHeaders = requiredHeaders.filter((header) => !body.includes(header));
             if (missingHeaders.length > 0) {
+              const payloadLen = (context.payload.pull_request?.body ?? "").length;
               core.setFailed(
-                `PR body missing required section headers: ${missingHeaders.join(", ")}`
+                `PR body missing required section headers: ${missingHeaders.join(", ")} (API body length ${body.length}, payload body length ${payloadLen})`
               );
               return;
             }
@@ -76,6 +97,9 @@ jobs:
       EXPO_PUBLIC_AUTH0_DOMAIN: ci-placeholder.invalid
       EXPO_PUBLIC_AUTH0_CLIENT_ID: ci-placeholder-client
       EXPO_PUBLIC_AUTH0_AUDIENCE: https://ci-placeholder-api
+      EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE: ci-placeholder-google-oauth2
+      EXPO_PUBLIC_AUTH0_CONNECTION_APPLE: ci-placeholder-apple
+      EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL: ci-placeholder-email-db
       EXPO_PUBLIC_API_BASE_URL: https://ci-placeholder.invalid
     steps:
       - uses: actions/checkout@v5

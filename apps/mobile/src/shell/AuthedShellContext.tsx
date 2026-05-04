@@ -43,6 +43,10 @@ export type AuthedShellContextValue = {
     crewName: string;
     setupComplete: boolean;
   };
+  onboardingIntent?: "none" | "signupAthlete" | "joinCrew";
+  onboardingJoinDraft?: { roomCode: string; displayName: string };
+  onboardingNotificationsSeen: boolean;
+  onboardingNotificationsRequired: boolean;
   roomDetail?: { room: RaceRoom; permissions: Record<string, boolean> };
   myRaceRooms?: RaceRoom[];
   invites?: RaceRoomInvite[];
@@ -113,7 +117,7 @@ export type AuthedShellContextValue = {
   onRejectRecommendation: () => void;
   onRecordStationArrival: (checkpointId: string) => void;
   onEnqueueManualStop: (checkpointId: string, arrivalAt: string) => void;
-  onSignOut: () => void;
+  onSignOut: () => Promise<void>;
   onToggleResolvedSource: (
     checkpointId: string,
     visitIndex: number,

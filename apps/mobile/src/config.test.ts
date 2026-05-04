@@ -6,6 +6,9 @@ const KEYS = [
   "EXPO_PUBLIC_AUTH0_DOMAIN",
   "EXPO_PUBLIC_AUTH0_CLIENT_ID",
   "EXPO_PUBLIC_AUTH0_AUDIENCE",
+  "EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE",
+  "EXPO_PUBLIC_AUTH0_CONNECTION_APPLE",
+  "EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL",
   "EXPO_PUBLIC_API_BASE_URL"
 ] as const;
 
@@ -51,6 +54,9 @@ test("loadMobileConfig strips trailing slash from API base URL", () => {
     process.env.EXPO_PUBLIC_AUTH0_DOMAIN = "dev.example.auth0.com";
     process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID = "cid";
     process.env.EXPO_PUBLIC_AUTH0_AUDIENCE = "https://api.audience/";
+    process.env.EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE = "google-oauth2";
+    process.env.EXPO_PUBLIC_AUTH0_CONNECTION_APPLE = "apple";
+    process.env.EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL = "Username-Password-Authentication";
     process.env.EXPO_PUBLIC_API_BASE_URL = "https://api.example.com/";
     const r = loadMobileConfig();
     assert.equal(r.ok, true);

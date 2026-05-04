@@ -1,7 +1,12 @@
 import type { NavigatorScreenParams } from "@react-navigation/native";
 
 export type GuestStackParamList = {
-  Home: undefined;
+  Home: { authMode?: "signup" | "signin" } | undefined;
+  JoinEntry: undefined;
+  JoinPreview: { roomCode: string; displayName: string };
+  JoinAccount: { roomCode: string; displayName: string };
+  AthleteSetup: undefined;
+  Notifications: undefined;
 };
 
 export type OperateStackParamList = {

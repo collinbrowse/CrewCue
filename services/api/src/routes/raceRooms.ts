@@ -15,6 +15,7 @@ import type {
   ProtocolNote,
   RaceRoom,
   RaceRoomInvite,
+  RaceRoomJoinPreview,
   RaceRoomProjection,
   RaceRoomProjectionCore,
   Role
@@ -265,6 +266,50 @@ async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefi
     raceRoomInvites.set(token, loaded);
   }
   return loaded;
+}
+
+function toJoinPreview(room: RaceRoom): RaceRoomJoinPreview {
+  const members = room.memberships.map((member) => ({
+    displayName: member.displayName?.trim() || `Member ${member.userId.slice(0, 6)}`,
+    role: member.role
+  }));
+  return {
+    roomName: room.name,
+    joinCode: room.joinCode ?? "",
+    status: room.status,
+    memberCount: members.length,
+    members,
+    courseDistanceMeters: room.courseDistanceMeters,
+    courseElevationGainMeters: room.courseElevationGainMeters,
+    plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+    courseFileName: room.courseFileName,
+    baselineTrack: room.course?.baselineTrack,
+    checkpoints: room.course?.checkpoints.map((cp) => ({
+      id: cp.id,
+      latitude: cp.latitude,
+      longitude: cp.longitude
+    }))
+  };
+}
+
+const JOIN_PREVIEW_RATE_WINDOW_MS = 60_000;
+const JOIN_PREVIEW_RATE_LIMIT = 20;
+const joinPreviewRateState = new Map<string, { count: number; windowStartedAtMs: number }>();
+
+function readRequestIp(request: { ip?: string }): string {
+  return typeof request.ip === "string" && request.ip.trim().length > 0 ? request.ip.trim() : "unknown";
+}
+
+function isJoinPreviewRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const existing = joinPreviewRateState.get(ip);
+  if (!existing || now - existing.windowStartedAtMs > JOIN_PREVIEW_RATE_WINDOW_MS) {
+    joinPreviewRateState.set(ip, { count: 1, windowStartedAtMs: now });
+    return false;
+  }
+  const next = { ...existing, count: existing.count + 1 };
+  joinPreviewRateState.set(ip, next);
+  return next.count > JOIN_PREVIEW_RATE_LIMIT;
 }
 
 /** WS2 Task 1 — last accepted ping + bounded decision history per room */
@@ -979,6 +1024,22 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const rooms = await listRaceRoomsForMember(request.identity.sub);
     return reply.send({ rooms });
+  });
+
+  app.get("/race-rooms/join-preview/:roomCode", async (request, reply) => {
+    const roomCode = ((request.params as { roomCode?: string }).roomCode ?? "").trim();
+    if (!/^\d{6}$/.test(roomCode)) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const ip = readRequestIp(request);
+    if (isJoinPreviewRateLimited(ip)) {
+      return reply.code(429).send({ error: "Too many requests" });
+    }
+    const room = await getRaceRoom(roomCode);
+    if (!room || room.joinCode !== roomCode) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    return reply.send({ preview: toJoinPreview(room) });
   });
 
   app.get("/race-rooms/:roomId", async (request, reply) => {
