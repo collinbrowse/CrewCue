@@ -9,9 +9,11 @@ export {
   buildExpectedAidStationSplitsFromCourse,
   buildExpectedSplits,
   buildRaceCourseFromGpx,
+  computeElevationGainMeters,
   formatDistance,
   formatDuration,
   formatPace,
   parseCourseTrack,
-  parseGpxTrack
+  parseGpxTrack,
+  parsedTrackToWorkspaceLayer
 } from "@crewcue/map-core";
