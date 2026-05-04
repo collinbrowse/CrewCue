@@ -18,9 +18,9 @@ Use this as the minimal continuity file between sessions.
 - CI fix shipped: [#210](https://github.com/collinbrowse/CrewCue/pull/210) (**Closes #209**) — `pr-decision-doc-guard` now accepts `- **Decision:**` / `- **Assumption:**` / `- **Summary:**` bullets (colon inside bold).
 - Railway hotfix merged: [#212](https://github.com/collinbrowse/CrewCue/pull/212) (**Closes #211**) — `railway.toml` build is `npm run build -w @crewcue/api` only (no second `npm ci`); remote `fix/railway-ebusy-npm-ci` deleted.
 - Local `main` fast-forwarded to `origin/main` (includes #212). Local branch `fix/railway-ebusy-npm-ci` deleted.
-- Branch: `feature/gpx-course-map-sync` (no `origin/*` upstream — remote feature branch was deleted; run `git merge origin/main` then `git push -u origin feature/gpx-course-map-sync` when resuming this line of work, or cut a fresh branch from `main`).
+- Branch: `feature/gpx-course-map-sync` → tracks `origin/feature/gpx-course-map-sync`; PR [#213](https://github.com/collinbrowse/CrewCue/pull/213) → `main` (**Relates to #206**).
 - Active issue: [#206](https://github.com/collinbrowse/CrewCue/issues/206) unify GPX upload (course + map workspace)
-- Active PR: [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
+- Active PR (maps audit stack): [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
 - Current priority: CI on PR #207; merge order: land maps audit (#204) then GPX sync (#207), or retarget #207 to `main` after #204.
 - Sprint milestone: maps + single-upload GPX parity
 
@@ -46,9 +46,8 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 
 ## Next 1-3 tasks
 
-1. Push **`feature/gpx-course-map-sync`** (`git push -u origin …`); open/update PR toward **`main`** (debug stripped; **`npm run verify`** green locally).
-2. Confirm Actions green on [#207](https://github.com/collinbrowse/CrewCue/pull/207); merge maps audit stack per plan (**#204** / `feature/maps-audit-closure`).
-3. Staging: set **`MAPTILER_API_KEY`** on the API service; manual GPX upload QA (race setup vs map workspace).
+1. Confirm Actions green on [#213](https://github.com/collinbrowse/CrewCue/pull/213) and maps stack [#207](https://github.com/collinbrowse/CrewCue/pull/207) / [#204](https://github.com/collinbrowse/CrewCue/pull/204); decide merge order vs **`main`** and **Linked issues** text (`#206`).
+2. Staging: set **`MAPTILER_API_KEY`** on the API service; manual GPX upload QA (race setup vs map workspace).
 
 ## Validation summary
 
@@ -77,6 +76,5 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 ## Successor prompt
 
 ```text
-Push feature/gpx-course-map-sync (verify green); open/update PR vs main.
-Then PR #207 / maps audit (#204); staging MapTiler key + GPX QA.
+PR #213: green CI, resolve relationship to #207/#206 before merge; staging MapTiler + GPX QA.
 ```
