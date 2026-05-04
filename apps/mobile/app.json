@@ -23,7 +23,13 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-apple-authentication",
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "CrewCue uses your location during navigation to advance turn-by-turn steps."
+        }
+      ]
     ]
   }
 }

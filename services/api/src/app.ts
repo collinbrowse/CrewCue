@@ -4,6 +4,7 @@ import { auditPlugin } from "./plugins/audit.js";
 import { healthRoutes } from "./routes/health.js";
 import { eventRoutes } from "./routes/events.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
+import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
@@ -22,6 +23,7 @@ export function buildApp() {
   app.register(eventRoutes);
   app.register(raceRoomRoutes);
   app.register(routingRoutes);
+  app.register(geocodeRoutes);
   app.register(analyticsRoutes);
   app.register(ws4AdaptivePlanRoutes);
   app.register(ws5SyncRoutes);

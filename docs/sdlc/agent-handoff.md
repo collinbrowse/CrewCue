@@ -15,59 +15,55 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-04 (America/Chicago)
-- Branch: `feature/maps-navigation-plan`
-- Active issue: [#201](https://github.com/collinbrowse/CrewCue/issues/201) interactive maps + navigation (plan implementation)
-- Active PR: [#202](https://github.com/collinbrowse/CrewCue/pull/202) → `main` (**Closes #201**)
-- Current priority: merge readiness — CI on PR #202, manual native maps QA on dev client
-- Sprint milestone: maps/workspace MVP aligned to engineering plan (Phases A–C)
+- Branch: `feature/maps-audit-closure`
+- Active issue: [#203](https://github.com/collinbrowse/CrewCue/issues/203) maps/navigation audit closure (geocode, GPS progression, web parity, analytics, DS)
+- Active PR: *(open after push)* → `main` (**should close #203**)
+- Current priority: CI on new PR; native QA for Navigate destinations + offline pack polling + MapTiler geocode proxy wiring in staging
+- Sprint milestone: audit-gap closure on top of maps-navigation-plan baseline
 
 ## Current objective
 
-Land dual-client Map Workspace + mobile Navigate + offline corridor/analytics instrumentation behind documented env (`EXPO_PUBLIC_MAPTILER_*`, `VITE_MAPTILER_*`, `OSRM_ROUTER_BASE_URL`, API analytics ingest).
+Ship synchronized fixes from the maps audit closure plan: MapTiler **server** geocode proxy, richer routing payloads (`checkpointIds` vs coordinates), GPS-based step progression (replacing timer hack), web checkpoint placement + analytics + basemap picker aligned to CSS tokens, mobile basemap persistence, offline download lifecycle (`started`/`completed`/`failed`/`deleted`) via pack status polling, hike detour-ratio UX hint from routing `meta`.
 
 ## Acceptance criteria (merge gate)
 
-1. Contracts include `RaceMapWorkspace` / layer geometry; `RaceRoom` carries optional `mapWorkspace`.
-2. API: authenticated GET/PUT `/race-rooms/:roomId/map-workspace`; POST `/race-rooms/:roomId/routing/route` (OSRM proxy); POST `/analytics/v1/events`.
-3. `@crewcue/map-core` owns GPX/KML normalization; mobile resolves package via built `dist/` (no `paths` to map-core `src` — Metro cannot resolve emitted `.js` re-exports from TS source).
-4. Web (`apps/web`) and mobile Map Workspace: layers, uploads, toggles, selection; Navigate: Drive/Hike, reroute when online, offline banner + frozen progression per plan.
-5. Root **`npm run verify`** green (including mobile `expo export` and `verify:dual-client`).
+1. API: `GET /race-rooms/:roomId/geocode/search` (requires `MAPTILER_API_KEY`); routing returns `{ route, meta? }` with `detourRatio` / `hikeRouteQuality` when applicable.
+2. Mobile Navigate: checkpoint sequence vs ends-only vs address (geocode) vs lat/lng; `expo-location` foreground permission + watch-based progression while online; reroute analytics includes failed outcomes.
+3. Web MapWorkspace: placement-mode map clicks add/remove checkpoints; `emitWebAnalytics` for uploads/layers/checkpoints; basemap picker persists in `localStorage`.
+4. Root **`npm run verify`** green.
 
-## Delivered on branch (issue #201)
+## Delivered on branch (issue #203)
 
-- **Spike / basemap:** MapLibre RN (Expo config plugin + dev-client workflow) + MapLibre GL JS web; MapTiler-style URL helpers; CI placeholders.
-- **Contracts + API:** `RaceMapWorkspace`, zod-validated persistence on race room; merge rules for checkpoints / optional baseline sync from primary layer.
-- **map-core:** Shared parse + workspace layer normalization; API + mobile consume; tests in package.
-- **Phase A UI:** `MapWorkspace` on web + mobile wired to API; GPX/KML upload flows.
-- **Phase B:** `NavigateScreen` with OSRM-backed routing proxy; NetInfo reachability; hike/drive modes + fallback messaging hooks.
-- **Phase C:** Offline corridor helpers + OfflineManager wiring pattern; settings entitlement toggle (`offlineMaps` preference); `emitAnalytics` → ingest API; typed event names per plan inventory where wired.
-- **Tooling:** `scripts/verify-dual-client-architecture.mjs` extended to web `src/api/client.ts`; root workspaces include `@crewcue/web`; `.gitignore` includes `*.tsbuildinfo`.
+- Contracts: `NavigationRouteMeta`, `PostNavigationRouteResponse`, `GeocodeSearchResultItem`.
+- API: [`geocodeRoutes.ts`](services/api/src/routes/geocodeRoutes.ts); routing resolves `checkpointIds` from room workspace; crow-flight detour meta for hike UX.
+- map-core: `summarizeParsedCourseUploadAnalytics`, `parseUploadToWorkspaceLayerWithAnalytics`.
+- Mobile: [`NavigateScreen.native.tsx`](apps/mobile/src/navigation/NavigateScreen.native.tsx), [`MapWorkspaceScreen.native.tsx`](apps/mobile/src/navigation/MapWorkspaceScreen.native.tsx), [`routeProgress.ts`](apps/mobile/src/features/maps/routeProgress.ts), basemap prefs + `expo-location` + AsyncStorage deps.
+- Web: [`MapWorkspace.tsx`](apps/web/src/MapWorkspace.tsx), [`analytics/track.ts`](apps/web/src/analytics/track.ts), API client extensions, [`mapStyleUrl.ts`](apps/web/src/mapStyleUrl.ts).
+- CI/docs: `.github/workflows/ci.yml` adds `MAPTILER_API_KEY` placeholder; `.env.example` documents server MapTiler key.
 
 ## Next 1-3 tasks
 
-1. Wait for **GitHub Actions** on PR #202; fix any CI drift (secrets/schema).
-2. **Manual QA:** iOS/Android dev client — MapLibre native module, workspace sync, Navigate online/offline transitions, offline download gated by entitlement toggle.
-3. **Docs/runbook:** Document `OSRM_ROUTER_BASE_URL`, MapTiler keys, and analytics ingest auth expectations for staging operators.
+1. Open PR from `feature/maps-audit-closure` → `main` with **`Closes #203`**; confirm Actions green.
+2. Staging/dev: set **`MAPTILER_API_KEY`** on API service (distinct from optional public tile keys).
+3. Manual QA: offline corridor download completion vs timeout; geocode empty/error paths; web map style reload after basemap change without checkpoint loss.
 
 ## Validation summary
 
-- `npm run verify` (root): **pass** on `feature/maps-navigation-plan` after Metro fix (`@crewcue/map-core` via `dist/`), analytics import fix (`../api/client` not `client.js`), and removing committed `tsconfig.tsbuildinfo`.
+- `npm run verify` (root): **pass** after fixing `PostRoomRouteInput` import source (`../api/client`, not `@crewcue/contracts`).
 
 ## Open risks/blockers/questions
 
-- OSRM demo host rate/availability vs production routing vendor terms (Phase B plan noted vendor validation).
-- Physical-device behavior for OfflineManager tile budgets and entitlement UX needs field tuning.
-- `dual-client-architecture-guardrails.md` not updated in this slice — refresh if reviewers want explicit `apps/web` networking diagram.
+- MapTiler geocode URL shape must match Cloud API for production (monitor `502`/empty features).
+- Offline pack polling assumes `OfflinePack.status()` transitions to `"complete"`; validate on hardware.
 
 ## Guardrails
 
-- Keep layering: contracts → api → client/sync → UI → docs.
-- Centralize HTTP in each client `src/api/client.ts` per dual-client guard.
-- Do not commit secrets; CI uses placeholder env vars only.
+- Keep HTTP centralized per dual-client guard (`apps/mobile/src/api/client.ts`, `apps/web/src/api/client.ts`).
+- Do not commit real MapTiler/OSRM secrets.
 
 ## Successor prompt
 
 ```text
-PR #202 (branch feature/maps-navigation-plan): confirm CI green; run dev-client smoke on iOS/Android for Map workspace + Navigate + offline banner.
-If checks fail, fix and push. After merge, close loop on runbook env vars for OSRM + MapTiler + analytics.
+PR for branch feature/maps-audit-closure: ensure body includes Closes #203; confirm CI green.
+Validate MAPTILER_API_KEY on staging API + smoke geocode + Navigate address flow + offline pack completion on device.
 ```

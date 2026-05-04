@@ -103,6 +103,7 @@ jobs:
       EXPO_PUBLIC_API_BASE_URL: https://ci-placeholder.invalid
       EXPO_PUBLIC_MAPTILER_API_KEY: ci-placeholder-maptiler
       VITE_MAPTILER_API_KEY: ci-placeholder-maptiler
+      MAPTILER_API_KEY: ci-placeholder-maptiler
       VITE_API_BASE_URL: https://ci-placeholder.invalid
     steps:
       - uses: actions/checkout@v5

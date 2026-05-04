@@ -14,12 +14,15 @@ import {
 } from "react-native";
 import { Camera, GeoJSONSource, Layer, Map } from "@maplibre/maplibre-react-native";
 import type { RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
-import { parseUploadToWorkspaceLayer } from "@crewcue/map-core";
+import { parseUploadToWorkspaceLayerWithAnalytics } from "@crewcue/map-core";
 import * as FileSystem from "expo-file-system/legacy";
 import { emitAnalytics } from "../analytics/track";
 import { createApiClient } from "../api/client";
 import { DSButton } from "../design-system";
-import { mobileMapStyleUrl } from "../features/maps/mapStyleUrl";
+import { useDSTheme } from "../design-system/theme";
+import { mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
+import type { BasemapPresetId } from "../preferences/basemapPreference";
+import { getBasemapPreset, setBasemapPreset } from "../preferences/basemapPreference";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 function layerFeature(layerId: string, geometry: RaceMapWorkspace["layers"][number]["geometry"]) {
@@ -31,23 +34,37 @@ function layerFeature(layerId: string, geometry: RaceMapWorkspace["layers"][numb
   } as const;
 }
 
-function checkpointsFeatureCollection(checkpoints: RaceCourseCheckpoint[]): GeoJSON.FeatureCollection {
+function checkpointsFeatureCollection(checkpoints: RaceCourseCheckpoint[]) {
   return {
-    type: "FeatureCollection",
+    type: "FeatureCollection" as const,
     features: checkpoints.map((cp, index) => ({
-      type: "Feature",
+      type: "Feature" as const,
       id: `${cp.id}-${index}`,
       properties: { title: cp.id },
       geometry: {
-        type: "Point",
-        coordinates: [cp.longitude, cp.latitude]
+        type: "Point" as const,
+        coordinates: [cp.longitude, cp.latitude] as [number, number]
       }
     }))
   };
 }
 
+type UploadAnalyticsPayload = {
+  vertex_count: number;
+  vertex_bucket: string;
+  waypoint_count: number;
+  track_segments: number;
+};
+
+type PersistAnalytics = {
+  layerToggle?: { layerId: string; visible: boolean };
+  uploadStats?: UploadAnalyticsPayload;
+  selectedLayerId?: string;
+};
+
 export function MapWorkspaceScreenNative(): ReactElement {
   const shell = useAuthedShell();
+  const theme = useDSTheme();
   const roomId = shell.room?.id;
   const token = shell.auth.status === "authenticated" ? shell.auth.accessToken : undefined;
 
@@ -59,6 +76,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
     checkpoints: []
   });
   const [placementMode, setPlacementMode] = useState(false);
+  const [basemapPreset, setBasemapPresetState] = useState<BasemapPresetId>("outdoor");
 
   const reload = useCallback(async () => {
     if (!roomId || !token) {
@@ -83,9 +101,13 @@ export function MapWorkspaceScreenNative(): ReactElement {
     void reload();
   }, [reload]);
 
-  const persist = async (next: RaceMapWorkspace, analytics?: { toggle?: boolean; upload?: boolean; select?: boolean }) => {
+  useEffect(() => {
+    void getBasemapPreset().then(setBasemapPresetState);
+  }, []);
+
+  const persist = async (next: RaceMapWorkspace, analytics?: PersistAnalytics): Promise<boolean> => {
     if (!roomId || !token) {
-      return;
+      return false;
     }
     setSaving(true);
     setError(undefined);
@@ -104,36 +126,44 @@ export function MapWorkspaceScreenNative(): ReactElement {
         setWorkspace(next);
       }
       shell.onApplyRaceRoomFromServer(updatedRoom);
-      if (analytics?.toggle) {
+
+      if (analytics?.layerToggle) {
         await emitAnalytics({
           baseUrl: shell.baseUrl,
           accessToken: token,
           event: "layer_toggled",
-          properties: { visible_count: next.layers.filter((l) => l.visible).length }
+          properties: { visible: analytics.layerToggle.visible, layer_id: analytics.layerToggle.layerId }
         });
       }
-      if (analytics?.upload) {
+      if (analytics?.uploadStats) {
+        const ua = analytics.uploadStats;
         await emitAnalytics({
           baseUrl: shell.baseUrl,
           accessToken: token,
           event: "gpx_uploaded",
           properties: {
             file_count: 1,
-            layers_total: next.layers.length
+            layers_total: next.layers.length,
+            vertex_count: ua.vertex_count,
+            vertex_bucket: ua.vertex_bucket,
+            waypoint_count: ua.waypoint_count,
+            track_segments: ua.track_segments
           }
         });
       }
-      if (analytics?.select) {
+      if (analytics?.selectedLayerId !== undefined) {
         await emitAnalytics({
           baseUrl: shell.baseUrl,
           accessToken: token,
           event: "layer_selected",
-          properties: { layer_id: next.selectedLayerId ?? "" }
+          properties: { layer_id: analytics.selectedLayerId }
         });
       }
+      return true;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to save map workspace.";
       setError(message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -155,13 +185,13 @@ export function MapWorkspaceScreenNative(): ReactElement {
       const uri = asset.uri;
       const name = asset.name ?? "upload";
       const contents = await FileSystem.readAsStringAsync(uri);
-      const layer = parseUploadToWorkspaceLayer(contents, name);
+      const { layer, uploadAnalytics } = parseUploadToWorkspaceLayerWithAnalytics(contents, name);
       const next: RaceMapWorkspace = {
         ...workspace,
         layers: [...workspace.layers, layer],
         selectedLayerId: layer.id
       };
-      await persist(next, { upload: true, select: true });
+      await persist(next, { uploadStats: uploadAnalytics, selectedLayerId: layer.id });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unsupported route file.";
       setError(message);
@@ -173,7 +203,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
       ...workspace,
       layers: workspace.layers.map((l) => (l.id === layerId ? { ...l, visible } : l))
     };
-    await persist(next, { toggle: true });
+    await persist(next, { layerToggle: { layerId, visible } });
   };
 
   const selectLayer = async (layerId: string) => {
@@ -182,7 +212,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
       selectedLayerId: layerId
     };
     setWorkspace(next);
-    await persist(next, { select: true });
+    await persist(next, { selectedLayerId: layerId });
   };
 
   const mapPress = async (event: NativeSyntheticEvent<{ lngLat: [number, number] }>) => {
@@ -202,7 +232,15 @@ export function MapWorkspaceScreenNative(): ReactElement {
       ...workspace,
       checkpoints: [...workspace.checkpoints, cp]
     };
-    await persist(next);
+    const ok = await persist(next);
+    if (ok) {
+      await emitAnalytics({
+        baseUrl: shell.baseUrl,
+        accessToken: token,
+        event: "checkpoint_added",
+        properties: { checkpoint_id: cp.id }
+      });
+    }
   };
 
   const confirmRemoveCheckpoint = (checkpointId: string) => {
@@ -212,10 +250,20 @@ export function MapWorkspaceScreenNative(): ReactElement {
         text: "Remove",
         style: "destructive",
         onPress: () => {
-          void persist({
-            ...workspace,
-            checkpoints: workspace.checkpoints.filter((c) => c.id !== checkpointId)
-          });
+          void (async () => {
+            const ok = await persist({
+              ...workspace,
+              checkpoints: workspace.checkpoints.filter((c) => c.id !== checkpointId)
+            });
+            if (ok) {
+              await emitAnalytics({
+                baseUrl: shell.baseUrl,
+                accessToken: token,
+                event: "checkpoint_removed",
+                properties: { checkpoint_id: checkpointId }
+              });
+            }
+          })();
         }
       }
     ];
@@ -232,6 +280,52 @@ export function MapWorkspaceScreenNative(): ReactElement {
     const [lng, lat] = visible.geometry.coordinates[Math.floor(visible.geometry.coordinates.length / 2)]!;
     return { lngLat: [lng, lat] as [number, number], zoom: 12 };
   }, [workspace.layers]);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        root: { flex: 1, backgroundColor: theme.color.background },
+        mapWrap: { height: 280 },
+        map: { flex: 1 },
+        panel: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
+        title: { color: theme.color.text, fontWeight: "700", marginTop: 12, marginBottom: 8 },
+        body: { color: theme.color.body, marginTop: 8 },
+        hint: { color: theme.color.muted, fontSize: 13, marginBottom: 8 },
+        error: { color: theme.color.danger, marginBottom: 8 },
+        centered: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          backgroundColor: theme.color.background
+        },
+        layerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 8,
+          flexWrap: "wrap"
+        },
+        layerLabel: { flex: 1, color: theme.color.text, minWidth: 120 },
+        layerSelected: { color: theme.color.warning, fontWeight: "700" },
+        rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
+        checkpointRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+          gap: 8
+        },
+        mono: { color: theme.color.body, fontFamily: "Menlo", flex: 1 },
+        row: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }
+      }),
+    [theme]
+  );
+
+  const pickBasemap = async (preset: BasemapPresetId) => {
+    setBasemapPresetState(preset);
+    await setBasemapPreset(preset);
+  };
 
   if (!roomId) {
     return (
@@ -253,7 +347,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
   return (
     <View style={styles.root}>
       <View style={styles.mapWrap}>
-        <Map style={styles.map} mapStyle={mobileMapStyleUrl()} onPress={mapPress}>
+        <Map style={styles.map} mapStyle={mobileMapStyleUrlForPreset(basemapPreset)} onPress={mapPress}>
           <Camera center={center.lngLat} zoom={center.zoom} duration={0} />
           {workspace.layers
             .filter((layer) => layer.visible)
@@ -291,6 +385,16 @@ export function MapWorkspaceScreenNative(): ReactElement {
 
       <ScrollView style={styles.panel} contentContainerStyle={{ paddingBottom: 24 }}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <Text style={styles.title}>Basemap</Text>
+        <View style={styles.row}>
+          {(["outdoor", "streets", "satellite", "demo"] as const).map((p) => (
+            <DSButton key={p} preset={basemapPreset === p ? "primary" : "secondary"} onPress={() => void pickBasemap(p)}>
+              {p}
+            </DSButton>
+          ))}
+        </View>
+
         <Text style={styles.title}>Layers</Text>
         <DSButton preset="secondary" onPress={onPickUpload} disabled={saving}>
           Upload GPX / KML layer
@@ -330,33 +434,3 @@ export function MapWorkspaceScreenNative(): ReactElement {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0f172a" },
-  mapWrap: { height: 280 },
-  map: { flex: 1 },
-  panel: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
-  title: { color: "#e2e8f0", fontWeight: "700", marginTop: 12, marginBottom: 8 },
-  body: { color: "#cbd5e1", marginTop: 8 },
-  hint: { color: "#94a3b8", fontSize: 13, marginBottom: 8 },
-  error: { color: "#fca5a5", marginBottom: 8 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "#0f172a" },
-  layerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-    flexWrap: "wrap"
-  },
-  layerLabel: { flex: 1, color: "#e2e8f0", minWidth: 120 },
-  layerSelected: { color: "#fdba74", fontWeight: "700" },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
-  checkpointRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-    gap: 8
-  },
-  mono: { color: "#cbd5e1", fontFamily: "Menlo", flex: 1 }
-});

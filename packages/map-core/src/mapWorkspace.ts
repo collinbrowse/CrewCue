@@ -9,7 +9,8 @@ import {
   buildBaselineTrackFromGpxPoints,
   type GpxTrackPoint,
   type ParsedGpxTrack,
-  parseCourseTrack
+  parseCourseTrack,
+  summarizeParsedCourseUploadAnalytics
 } from "./courseParse.js";
 
 export const MAX_LAYER_VERTICES = 4000;
@@ -94,6 +95,20 @@ export function parsedTrackToWorkspaceLayer(fileName: string, parsed: ParsedGpxT
 export function parseUploadToWorkspaceLayer(fileContents: string, fileName: string): MapWorkspaceLayer {
   const parsed = parseCourseTrack(fileContents, fileName);
   return parsedTrackToWorkspaceLayer(fileName, parsed);
+}
+
+export function parseUploadToWorkspaceLayerWithAnalytics(
+  fileContents: string,
+  fileName: string
+): {
+  layer: MapWorkspaceLayer;
+  uploadAnalytics: ReturnType<typeof summarizeParsedCourseUploadAnalytics>;
+} {
+  const parsed = parseCourseTrack(fileContents, fileName);
+  return {
+    layer: parsedTrackToWorkspaceLayer(fileName, parsed),
+    uploadAnalytics: summarizeParsedCourseUploadAnalytics(parsed)
+  };
 }
 
 export function workspaceGeometryToBaseline(

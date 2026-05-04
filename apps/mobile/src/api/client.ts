@@ -10,8 +10,9 @@ import type {
   IncidentSeverity,
   MergeRecord,
   MergeStrategyKind,
-  NavigationRouteResult,
+  GeocodeSearchResultItem,
   NavigationRoutingMode,
+  PostNavigationRouteResponse,
   OpsTimelineEvent,
   PlanDelta,
   ProtocolNote,
@@ -236,7 +237,8 @@ export type PutRaceMapWorkspaceInput = {
 
 export type PostRoomRouteInput = {
   mode: NavigationRoutingMode;
-  coordinates: Array<{ longitude: number; latitude: number }>;
+  coordinates?: Array<{ longitude: number; latitude: number }>;
+  checkpointIds?: string[];
 };
 
 export function createApiClient(options: ApiClientOptions) {
@@ -406,7 +408,13 @@ export function createApiClient(options: ApiClientOptions) {
     putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>
       request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input),
     postRoomRoute: (roomId: string, input: PostRoomRouteInput) =>
-      request<{ route: NavigationRouteResult }>(options, "POST", `/race-rooms/${roomId}/routing/route`, input),
+      request<PostNavigationRouteResponse>(options, "POST", `/race-rooms/${roomId}/routing/route`, input),
+    getGeocodeSearch: (roomId: string, query: string) =>
+      request<{ results: GeocodeSearchResultItem[] }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/geocode/search?q=${encodeURIComponent(query)}`
+      ),
     postAnalyticsEvents: (
       events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
     ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events })

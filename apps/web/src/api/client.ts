@@ -1,4 +1,4 @@
-import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
+import type { GeocodeSearchResultItem, RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -59,6 +59,15 @@ export function createWebApiClient(options: WebApiClientOptions) {
     getMapWorkspace: (roomId: string) =>
       request<{ mapWorkspace: RaceMapWorkspace }>(options, "GET", `/race-rooms/${roomId}/map-workspace`),
     putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>
-      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input)
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input),
+    getGeocodeSearch: (roomId: string, query: string) =>
+      request<{ results: GeocodeSearchResultItem[] }>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/geocode/search?q=${encodeURIComponent(query)}`
+      ),
+    postAnalyticsEvents: (
+      events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
+    ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events })
   };
 }
