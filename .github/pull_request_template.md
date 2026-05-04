@@ -23,6 +23,8 @@ Describe exactly what this PR changes.
 
 Document the key decisions that shaped this implementation so future debugging can reconstruct intent.
 
+<!-- CI (`.github/workflows/ci.yml` `pr-decision-doc-guard`) requires a literal line matching `- Decision: <text>` (same line), or the phrase "Single obvious path". Do not use bold (e.g. `- **Decision:**`) — the check will fail. Same pattern for `- Assumption:` and `- Summary:` in the sections below. -->
+
 - Decision:
   - Context:
   - Alternatives considered:

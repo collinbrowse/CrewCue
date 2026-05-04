@@ -17,6 +17,7 @@ import type {
   PlanDelta,
   ProtocolNote,
   ProtocolNoteCategory,
+  MapWorkspaceLayer,
   RaceMapWorkspace,
   RaceRoom,
   RaceRoomInvite,
@@ -126,6 +127,7 @@ export type UpdateRaceCourseInput = {
   courseDistanceMeters?: number;
   courseElevationGainMeters?: number;
   courseFileName?: string;
+  routeOverlayLayer?: MapWorkspaceLayer;
 };
 
 export type PostPingInput = {

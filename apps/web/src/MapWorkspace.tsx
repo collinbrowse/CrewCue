@@ -1,5 +1,13 @@
 import type { MapWorkspaceLayer, RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
-import { parseUploadToWorkspaceLayerWithAnalytics } from "@crewcue/map-core";
+import {
+  PRIMARY_COURSE_ROUTE_LAYER_ID,
+  buildRaceCourseFromGpx,
+  computeElevationGainMeters,
+  parseCourseTrack,
+  parseUploadToWorkspaceLayerWithAnalytics,
+  parsedTrackToWorkspaceLayer,
+  summarizeParsedCourseUploadAnalytics
+} from "@crewcue/map-core";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -233,34 +241,78 @@ export function MapWorkspace(): ReactElement {
     }
     try {
       const text = await file.text();
-      const { layer, uploadAnalytics } = parseUploadToWorkspaceLayerWithAnalytics(text, file.name);
-      const next: RaceMapWorkspace = {
-        ...workspace,
-        layers: [...workspace.layers, layer],
-        selectedLayerId: layer.id
-      };
-      setWorkspace(next);
-      setStatus(`Added layer ${layer.label}`);
-      await emitWebAnalytics({
-        baseUrl: analyticsAuth.baseUrl,
-        accessToken: analyticsAuth.token,
-        event: "gpx_uploaded",
-        properties: {
-          file_count: 1,
-          layers_total: next.layers.length,
-          vertex_count: uploadAnalytics.vertex_count,
-          vertex_bucket: uploadAnalytics.vertex_bucket,
-          waypoint_count: uploadAnalytics.waypoint_count,
-          track_segments: uploadAnalytics.track_segments,
-          style_id: webBasemapAnalyticsId(basemapPreset)
-        }
-      });
-      await emitWebAnalytics({
-        baseUrl: analyticsAuth.baseUrl,
-        accessToken: analyticsAuth.token,
-        event: "layer_selected",
-        properties: { layer_id: layer.id }
-      });
+      const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+      const token = import.meta.env.VITE_CREWCUE_ACCESS_TOKEN?.trim();
+      const roomId = import.meta.env.VITE_CREWCUE_ROOM_ID?.trim();
+
+      if (baseUrl && token && roomId) {
+        const parsed = parseCourseTrack(text, file.name);
+        const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
+        const routeOverlayLayer = parsedTrackToWorkspaceLayer(file.name, parsed);
+        const uploadAnalytics = summarizeParsedCourseUploadAnalytics(parsed);
+        const client = createWebApiClient({ baseUrl, accessToken: token });
+        const updatedRoom = await client.updateRaceCourse(roomId, {
+          course,
+          plannedPaceSecondsPerKm,
+          courseDistanceMeters: parsed.totalDistanceMeters,
+          courseElevationGainMeters: computeElevationGainMeters(parsed.points),
+          courseFileName: file.name,
+          routeOverlayLayer
+        });
+        const next = updatedRoom.mapWorkspace ?? { layers: [], checkpoints: [] };
+        setWorkspace(next);
+        workspaceRef.current = next;
+        setStatus(`Synced course + map from ${file.name}`);
+        await emitWebAnalytics({
+          baseUrl: analyticsAuth.baseUrl,
+          accessToken: analyticsAuth.token,
+          event: "gpx_uploaded",
+          properties: {
+            file_count: 1,
+            layers_total: next.layers.length,
+            vertex_count: uploadAnalytics.vertex_count,
+            vertex_bucket: uploadAnalytics.vertex_bucket,
+            waypoint_count: uploadAnalytics.waypoint_count,
+            track_segments: uploadAnalytics.track_segments,
+            style_id: webBasemapAnalyticsId(basemapPreset)
+          }
+        });
+        await emitWebAnalytics({
+          baseUrl: analyticsAuth.baseUrl,
+          accessToken: analyticsAuth.token,
+          event: "layer_selected",
+          properties: { layer_id: PRIMARY_COURSE_ROUTE_LAYER_ID }
+        });
+      } else {
+        const { layer, uploadAnalytics } = parseUploadToWorkspaceLayerWithAnalytics(text, file.name);
+        const next: RaceMapWorkspace = {
+          ...workspace,
+          layers: [...workspace.layers, layer],
+          selectedLayerId: layer.id
+        };
+        setWorkspace(next);
+        setStatus(`Added layer ${layer.label}`);
+        await emitWebAnalytics({
+          baseUrl: analyticsAuth.baseUrl,
+          accessToken: analyticsAuth.token,
+          event: "gpx_uploaded",
+          properties: {
+            file_count: 1,
+            layers_total: next.layers.length,
+            vertex_count: uploadAnalytics.vertex_count,
+            vertex_bucket: uploadAnalytics.vertex_bucket,
+            waypoint_count: uploadAnalytics.waypoint_count,
+            track_segments: uploadAnalytics.track_segments,
+            style_id: webBasemapAnalyticsId(basemapPreset)
+          }
+        });
+        await emitWebAnalytics({
+          baseUrl: analyticsAuth.baseUrl,
+          accessToken: analyticsAuth.token,
+          event: "layer_selected",
+          properties: { layer_id: layer.id }
+        });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Could not parse file.";
       setStatus(message);

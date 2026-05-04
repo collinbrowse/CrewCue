@@ -673,6 +673,22 @@ export function vertexCountBucket(vertexCount: number): string {
   return "2000_plus";
 }
 
+/** Positive elevation gain along the GPX/KML track when elevations exist on consecutive points. */
+export function computeElevationGainMeters(points: GpxTrackPoint[]): number {
+  if (points.length < 2) {
+    return 0;
+  }
+  let gainMeters = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1]!.elevationMeters;
+    const next = points[index]!.elevationMeters;
+    if (prev !== null && next !== null && next > prev) {
+      gainMeters += next - prev;
+    }
+  }
+  return gainMeters;
+}
+
 /** GPX/KML-derived upload stats for `gpx_uploaded` analytics events. */
 export function summarizeParsedCourseUploadAnalytics(parsed: ParsedGpxTrack): {
   vertex_count: number;

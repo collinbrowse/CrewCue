@@ -9,8 +9,10 @@ import { ApiError, createApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import {
   buildRaceCourseFromGpx,
+  computeElevationGainMeters,
   formatDistance,
   parseCourseTrack,
+  parsedTrackToWorkspaceLayer,
   type DistanceUnit,
   type GpxTrackPoint,
   type ParsedGpxTrack
@@ -35,6 +37,7 @@ type PendingCourseUpload = {
   plannedPaceSecondsPerKm: number;
   totalDistanceMeters: number;
   elevationGainMeters: number;
+  routeOverlayLayer: ReturnType<typeof parsedTrackToWorkspaceLayer>;
 };
 
 export function GpxImportScreen(): ReactElement {
@@ -154,7 +157,8 @@ export function GpxImportScreen(): ReactElement {
         course,
         plannedPaceSecondsPerKm,
         totalDistanceMeters: parsed.totalDistanceMeters,
-        elevationGainMeters: computeElevationGainMeters(parsed.points)
+        elevationGainMeters: computeElevationGainMeters(parsed.points),
+        routeOverlayLayer: parsedTrackToWorkspaceLayer(selectedFile.name, parsed)
       });
       setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
     } catch (error) {
@@ -209,7 +213,8 @@ export function GpxImportScreen(): ReactElement {
           plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
           courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
           courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
-          courseFileName: pendingCourseUpload.fileName
+          courseFileName: pendingCourseUpload.fileName,
+          routeOverlayLayer: pendingCourseUpload.routeOverlayLayer
         });
         s.onApplyRaceRoomFromServer(updatedRoom);
         setPendingCourseUpload(undefined);
@@ -386,25 +391,6 @@ function buildImportStateFromCourse({
 
 function formatElevationGain(points: GpxTrackPoint[]): string {
   return formatElevationGainFromMeters(computeElevationGainMeters(points));
-}
-
-function computeElevationGainMeters(points: GpxTrackPoint[]): number {
-  if (points.length < 2) {
-    return 0;
-  }
-  let gainMeters = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const prev = points[index - 1]!.elevationMeters;
-    const next = points[index]!.elevationMeters;
-    if (prev === null || next === null) {
-      continue;
-    }
-    const delta = next - prev;
-    if (delta > 0) {
-      gainMeters += delta;
-    }
-  }
-  return gainMeters;
 }
 
 function formatElevationGainFromMeters(gainMeters: number | undefined): string {

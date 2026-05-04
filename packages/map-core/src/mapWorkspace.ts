@@ -3,6 +3,7 @@ import type {
   MapWorkspacePosition,
   MapWorkspaceTrackGeometry,
   RaceCourseBaselineTrack,
+  RaceCourseCheckpoint,
   RaceMapWorkspace
 } from "@crewcue/contracts";
 import {
@@ -14,6 +15,9 @@ import {
 } from "./courseParse.js";
 
 export const MAX_LAYER_VERTICES = 4000;
+
+/** Canonical map layer id for the primary course route (synced from race-setup or map-workspace GPX). */
+export const PRIMARY_COURSE_ROUTE_LAYER_ID = "crewcue-primary-course-route";
 
 function newRandomId(): string {
   const globalCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -76,6 +80,27 @@ export function normalizeRaceMapWorkspace(workspace: RaceMapWorkspace): RaceMapW
       geometry: normalizeGeometry(layer.geometry)
     }))
   };
+}
+
+/** Upserts the primary route overlay and aligns checkpoints with the race course (preserves non-primary layers). */
+export function mergePrimaryCourseRouteLayer(
+  workspace: RaceMapWorkspace,
+  overlayLayer: MapWorkspaceLayer,
+  checkpoints: RaceCourseCheckpoint[]
+): RaceMapWorkspace {
+  const canonical: MapWorkspaceLayer = {
+    ...overlayLayer,
+    id: PRIMARY_COURSE_ROUTE_LAYER_ID,
+    visible: true
+  };
+  const layersWithoutPrimary = workspace.layers.filter((layer: MapWorkspaceLayer) => layer.id !== PRIMARY_COURSE_ROUTE_LAYER_ID);
+  return normalizeRaceMapWorkspace({
+    ...workspace,
+    layers: [...layersWithoutPrimary, canonical],
+    checkpoints: checkpoints.map((checkpoint: RaceCourseCheckpoint) => ({ ...checkpoint })),
+    selectedLayerId: PRIMARY_COURSE_ROUTE_LAYER_ID,
+    drivesProjectionLayerId: PRIMARY_COURSE_ROUTE_LAYER_ID
+  });
 }
 
 export function parsedTrackToWorkspaceLayer(fileName: string, parsed: ParsedGpxTrack): MapWorkspaceLayer {

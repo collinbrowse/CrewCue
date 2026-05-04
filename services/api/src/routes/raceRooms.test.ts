@@ -229,6 +229,78 @@ test("updates room course for shared GPX usage", async () => {
   await app.close();
 });
 
+test("updates course with routeOverlayLayer merges canonical map workspace layer", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Race Room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const updateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: 360,
+      course: {
+        checkpoints: [
+          { id: "aid-1", latitude: 40.7128, longitude: -74.006, plannedStopSeconds: 120 },
+          { id: "aid-2", latitude: 40.7228, longitude: -73.996, plannedStopSeconds: 120 }
+        ]
+      },
+      routeOverlayLayer: {
+        id: "client-temp-id",
+        label: "Marathon",
+        visible: true,
+        sourceFileName: "race.gpx",
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [-74.006, 40.7128],
+            [-73.996, 40.7228]
+          ]
+        }
+      }
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+
+  assert.equal(updateResponse.statusCode, 200);
+
+  const wsResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/map-workspace`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(wsResponse.statusCode, 200);
+  const body = wsResponse.json() as {
+    mapWorkspace: { layers: Array<{ id: string }>; checkpoints: Array<{ id: string }> };
+  };
+  assert.ok(body.mapWorkspace.layers.some((layer) => layer.id === "crewcue-primary-course-route"));
+  assert.equal(body.mapWorkspace.checkpoints.length, 2);
+  assert.equal(body.mapWorkspace.checkpoints[0]?.id, "aid-1");
+
+  await app.close();
+});
+
 test("lists room invites with current statuses", async () => {
   const app = buildApp();
   await app.ready();

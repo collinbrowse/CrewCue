@@ -14,7 +14,14 @@ import {
 } from "react-native";
 import { Camera, GeoJSONSource, Layer, Map } from "@maplibre/maplibre-react-native";
 import type { RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
-import { parseUploadToWorkspaceLayerWithAnalytics } from "@crewcue/map-core";
+import {
+  PRIMARY_COURSE_ROUTE_LAYER_ID,
+  buildRaceCourseFromGpx,
+  computeElevationGainMeters,
+  parseCourseTrack,
+  parsedTrackToWorkspaceLayer,
+  summarizeParsedCourseUploadAnalytics
+} from "@crewcue/map-core";
 import * as FileSystem from "expo-file-system/legacy";
 import { emitAnalytics } from "../analytics/track";
 import { createApiClient } from "../api/client";
@@ -173,6 +180,8 @@ export function MapWorkspaceScreenNative(): ReactElement {
     if (!roomId || !token) {
       return;
     }
+    setSaving(true);
+    setError(undefined);
     try {
       const pick = await DocumentPicker.getDocumentAsync({
         multiple: false,
@@ -185,16 +194,48 @@ export function MapWorkspaceScreenNative(): ReactElement {
       const uri = asset.uri;
       const name = asset.name ?? "upload";
       const contents = await FileSystem.readAsStringAsync(uri);
-      const { layer, uploadAnalytics } = parseUploadToWorkspaceLayerWithAnalytics(contents, name);
-      const next: RaceMapWorkspace = {
-        ...workspace,
-        layers: [...workspace.layers, layer],
-        selectedLayerId: layer.id
-      };
-      await persist(next, { uploadStats: uploadAnalytics, selectedLayerId: layer.id });
+      const parsed = parseCourseTrack(contents, name);
+      const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
+      const routeOverlayLayer = parsedTrackToWorkspaceLayer(name, parsed);
+      const uploadAnalytics = summarizeParsedCourseUploadAnalytics(parsed);
+      const client = createApiClient({ baseUrl: shell.baseUrl, accessToken: token });
+      const updatedRoom = await client.updateRaceCourse(roomId, {
+        course,
+        plannedPaceSecondsPerKm,
+        courseDistanceMeters: parsed.totalDistanceMeters,
+        courseElevationGainMeters: computeElevationGainMeters(parsed.points),
+        courseFileName: name,
+        routeOverlayLayer
+      });
+      if (updatedRoom.mapWorkspace) {
+        setWorkspace(updatedRoom.mapWorkspace);
+      }
+      shell.onApplyRaceRoomFromServer(updatedRoom);
+
+      await emitAnalytics({
+        baseUrl: shell.baseUrl,
+        accessToken: token,
+        event: "gpx_uploaded",
+        properties: {
+          file_count: 1,
+          layers_total: updatedRoom.mapWorkspace?.layers.length ?? 0,
+          vertex_count: uploadAnalytics.vertex_count,
+          vertex_bucket: uploadAnalytics.vertex_bucket,
+          waypoint_count: uploadAnalytics.waypoint_count,
+          track_segments: uploadAnalytics.track_segments
+        }
+      });
+      await emitAnalytics({
+        baseUrl: shell.baseUrl,
+        accessToken: token,
+        event: "layer_selected",
+        properties: { layer_id: PRIMARY_COURSE_ROUTE_LAYER_ID }
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unsupported route file.";
       setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -273,13 +314,26 @@ export function MapWorkspaceScreenNative(): ReactElement {
   const checkpointGeoJson = useMemo(() => checkpointsFeatureCollection(workspace.checkpoints), [workspace.checkpoints]);
 
   const center = useMemo(() => {
-    const visible = workspace.layers.find((l) => l.visible && l.geometry.coordinates.length > 0);
-    if (!visible || visible.geometry.type !== "LineString") {
-      return { lngLat: [-98.5795, 39.8283] as [number, number], zoom: 3 };
+    const visibleLine = workspace.layers.find((l) => l.visible && l.geometry.coordinates.length > 0);
+    if (visibleLine) {
+      const coords =
+        visibleLine.geometry.type === "LineString"
+          ? visibleLine.geometry.coordinates
+          : visibleLine.geometry.coordinates.flat();
+      if (coords.length > 0) {
+        const [lng, lat] = coords[Math.floor(coords.length / 2)]!;
+        return { lngLat: [lng, lat] as [number, number], zoom: 12 };
+      }
     }
-    const [lng, lat] = visible.geometry.coordinates[Math.floor(visible.geometry.coordinates.length / 2)]!;
-    return { lngLat: [lng, lat] as [number, number], zoom: 12 };
-  }, [workspace.layers]);
+    if (workspace.checkpoints.length > 0) {
+      const lngs = workspace.checkpoints.map((c) => c.longitude);
+      const lats = workspace.checkpoints.map((c) => c.latitude);
+      const midLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+      const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+      return { lngLat: [midLng, midLat] as [number, number], zoom: 12 };
+    }
+    return { lngLat: [-98.5795, 39.8283] as [number, number], zoom: 3 };
+  }, [workspace.layers, workspace.checkpoints]);
 
   const styles = useMemo(
     () =>
