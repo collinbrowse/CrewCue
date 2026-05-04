@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 import {
   ONBOARDING_INTENT_KEY,
   ONBOARDING_JOIN_DRAFT_KEY,

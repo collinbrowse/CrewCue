@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../storage/secureStorage";
 
 export type OutboxOperationType = "ping" | "task" | "protocol" | "checkpoint";
 export type OutboxOperationStatus = "pending" | "sent" | "rejected" | "conflict";
