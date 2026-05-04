@@ -17,10 +17,10 @@ Use this as the minimal continuity file between sessions.
 - Last updated: 2026-05-04 (America/Chicago)
 - CI fix shipped: [#210](https://github.com/collinbrowse/CrewCue/pull/210) (**Closes #209**) — `pr-decision-doc-guard` now accepts `- **Decision:**` / `- **Assumption:**` / `- **Summary:**` bullets (colon inside bold).
 - Railway hotfix merged: [#212](https://github.com/collinbrowse/CrewCue/pull/212) (**Closes #211**) — `railway.toml` build is `npm run build -w @crewcue/api` only (no second `npm ci`); remote `fix/railway-ebusy-npm-ci` deleted.
-- Local **`main`** at **`origin/main`** (merge **`a049fd3`**: [#213](https://github.com/collinbrowse/CrewCue/pull/213) GPX/client polish + secureStorage web + CI `MAPTILER_API_KEY` + PR template guard note). Remote `feature/gpx-course-map-sync` deleted after merge.
-- Active issue: [#206](https://github.com/collinbrowse/CrewCue/issues/206) unify GPX upload — **confirm open/closed** (#213 used *Relates to*; [#207](https://github.com/collinbrowse/CrewCue/pull/207) may still **Close** it when merged).
-- Active PR (maps audit stack): [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
-- Current priority: land **#207** / **#204** stack on `main`; staging MapTiler + GPX QA.
+- **`main`**: includes [#213](https://github.com/collinbrowse/CrewCue/pull/213) (mobile secureStorage web, API client polish, CI `MAPTILER_API_KEY`, PR template note), [#212](https://github.com/collinbrowse/CrewCue/pull/212) Railway, and earlier merges through **#202** / **#210**.
+- **Only open PR:** [#204](https://github.com/collinbrowse/CrewCue/pull/204) from **`feature/maps-audit-closure`** → **`main`** (**Closes #203**). [#207](https://github.com/collinbrowse/CrewCue/pull/207) is **already merged** into this branch (merge commit on the PR branch, not a separate open PR). Branch was **synced with `origin/main`** (merge) so it carries **#213** too; **`npm run verify`** green locally after sync.
+- Related: [#206](https://github.com/collinbrowse/CrewCue/issues/206) GPX parity — still track until you close it or tie it to a follow-up issue.
+- Current priority: green CI on **#204**, merge to **`main`**, then staging **`MAPTILER_API_KEY`** + QA.
 - Sprint milestone: maps + single-upload GPX parity
 
 ## Current objective
@@ -45,13 +45,14 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 
 ## Next 1-3 tasks
 
-1. Confirm Actions green on maps stack [#207](https://github.com/collinbrowse/CrewCue/pull/207) / [#204](https://github.com/collinbrowse/CrewCue/pull/204); merge to **`main`** per stack plan.
-2. Staging: set **`MAPTILER_API_KEY`** on the API service; manual GPX upload QA (race setup vs map workspace).
-3. Close or retarget [#206](https://github.com/collinbrowse/CrewCue/issues/206) if #213 + remaining #207 scope covers it.
+1. **[#204](https://github.com/collinbrowse/CrewCue/pull/204):** confirm Actions green after sync; merge to **`main`** (resolves **#203** per PR body).
+2. Staging: set **`MAPTILER_API_KEY`** on the API service; GPX / map workspace QA.
+3. Triage [#206](https://github.com/collinbrowse/CrewCue/issues/206) (close or split follow-ups) once **#204** is on `main`.
 
 ## Validation summary
 
 - **`main`**: [#213](https://github.com/collinbrowse/CrewCue/pull/213) merged; includes secureStorage web/native split, mobile API client URL/errors + tests, map workspace reload behavior, CI `MAPTILER_API_KEY`, PR template alignment with `pr-decision-doc-guard`.
+- **`feature/maps-audit-closure`:** merged **`origin/main`** into the branch for **#204**; **`npm run verify`** green locally after sync.
 - **Railway**: [#212](https://github.com/collinbrowse/CrewCue/pull/212) merged to `main`; staging build reported **green** (no EBUSY on `apps/web/node_modules/.vite`). Keep dashboard **Build Command** empty or aligned with `railway.toml`.
 - Maps/mobile: map workspace **reload** seeds from `shell.room` when GET `/map-workspace` fails; **no full-screen gate** before Map mounts; **18s** timeout on sync. Mobile API client **trims trailing slashes** on `baseUrl`, surfaces Fastify **`message`** with **`error`**, and clearer generic **404** text — covered in `client.test.ts`. Cursor-only debug ingest / NDJSON / file logging **removed** before push.
 - Mobile **web**: `expo-secure-store` has no `getValueWithKeyAsync` on web (runtime TypeError on sign-in). Added `src/storage/secureStorage.{ts,native.ts,web.ts}` — Metro picks **`.web`** (localStorage only, zero SecureStore) vs **`.native`** (real SecureStore); app code still imports `./storage/secureStorage`.
@@ -63,7 +64,7 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 - GPX parity: API still stores **parsed** course + simplified route geometry (not raw GPX bytes); primary route layer id is fixed (`crewcue-primary-course-route`).
 - Railway: if the service **Build Command** in the dashboard overrides `railway.toml` and includes `npm ci && …`, the second `npm ci` can hit **EBUSY** on `apps/web/node_modules/.vite`. Use only `npm run build -w @crewcue/api` for the build step (contracts/map-core run inside that script and via `postinstall`).
 
-## Delivered (#206 / PR #207)
+## Delivered (on `feature/maps-audit-closure`; merged via [#207](https://github.com/collinbrowse/CrewCue/pull/207) into that branch)
 
 - API: optional `routeOverlayLayer` on `PUT …/course`; `mergePrimaryCourseRouteLayer` in map-core.
 - Clients: race setup, athlete wizard, native map workspace upload, web MapWorkspace (when API env vars set) send course + overlay from one parse.
@@ -76,5 +77,5 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 ## Successor prompt
 
 ```text
-#213 merged. Next: merge maps stack #207 / #204; staging MAPTILER_API_KEY + GPX QA; reconcile #206 state.
+Single open PR #204 (feature/maps-audit-closure): confirm CI, merge to main. Staging MAPTILER_API_KEY + QA; close or retarget #206.
 ```
