@@ -17,7 +17,7 @@ Use this as the minimal continuity file between sessions.
 - Last updated: 2026-05-04 (America/Chicago)
 - Branch: `feature/maps-audit-closure`
 - Active issue: [#203](https://github.com/collinbrowse/CrewCue/issues/203) maps/navigation audit closure (geocode, GPS progression, web parity, analytics, DS)
-- Active PR: *(open after push)* → `main` (**should close #203**)
+- Active PR: [#204](https://github.com/collinbrowse/CrewCue/pull/204) → `main` (**Closes #203**)
 - Current priority: CI on new PR; native QA for Navigate destinations + offline pack polling + MapTiler geocode proxy wiring in staging
 - Sprint milestone: audit-gap closure on top of maps-navigation-plan baseline
 
