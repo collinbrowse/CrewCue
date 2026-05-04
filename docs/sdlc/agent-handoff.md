@@ -43,13 +43,17 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 
 ## Next 1-3 tasks
 
-1. Confirm Actions green on [#207](https://github.com/collinbrowse/CrewCue/pull/207); merge after/with maps audit branch per stack plan.
+1. Confirm Actions green on [#207](https://github.com/collinbrowse/CrewCue/pull/207); merge after/with maps audit branch per stack plan (include `railway.toml` Railpack build fix in `main` so GitHub-triggered Railway builds stay green).
 2. Staging/dev: set **`MAPTILER_API_KEY`** on API service (distinct from optional public tile keys).
 3. Manual QA: upload GPX from race setup vs map workspace; confirm dashboard distance + map polyline + checkpoints match; extra non-primary layers preserved on re-upload.
 
 ## Validation summary
 
 - `npm run verify` (root): **pass** on `feature/gpx-course-map-sync` (includes PR #207 changes).
+- **Railway staging** (`crewcue-staging.up.railway.app`): API image updated from branch code including `GET /race-rooms/:roomId/map-workspace`; unauthenticated `curl` returns **401** `{"error":"Unauthorized"}` (not Fastify **404** route missing). `railway.toml`: build step is `npm run build -w @crewcue/api` only (Railpack already runs `npm ci`); avoids EBUSY on `apps/web/node_modules/.vite` (commit `7f34e71` on PR #207). `EXPO_PUBLIC_API_BASE_URL` unchanged — no mobile rebuild for URL.
+- Debug session `44caa2`: client ingest missed user repro (no NDJSON file); API unit path confirmed merged layers + GET map-workspace in tests. Mobile map workspace: seed/recover from `shell.room` on GET failure; **removed full-screen loading gate** so Map mounts while `/map-workspace` syncs (18s deadline); instrumentation retained pending verification.
+- Debug session `d58857`: prior staging showed Fastify **404** for `/map-workspace` because `origin/main` lacked the route; clients now get auth **401** against staging when unauthenticated. Mobile `apps/mobile/src/api/client.ts` appends JSON `message` (route detail) and normalizes trailing slashes on `baseUrl`; `apps/mobile/src/api/client.test.ts` covers Fastify-style 404.
+- Mobile **web**: `expo-secure-store` has no `getValueWithKeyAsync` on web (runtime TypeError on sign-in). Added `src/storage/secureStorage.{ts,native.ts,web.ts}` — Metro picks **`.web`** (localStorage only, zero SecureStore) vs **`.native`** (real SecureStore); app code still imports `./storage/secureStorage`.
 
 ## Open risks/blockers/questions
 
@@ -70,6 +74,6 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 ## Successor prompt
 
 ```text
-PR #207: confirm CI green; merge stack after maps audit (#204) or retarget #207 to main.
-QA: single GPX upload from Race setup vs Map workspace — dashboard + map route + checkpoints aligned.
+PR #207: confirm CI green; merge stack after maps audit (#204) or retarget #207 to main (carry railway.toml Railpack build fix to main).
+QA: Map workspace against staging with EXPO_PUBLIC_API_BASE_URL=https://crewcue-staging.up.railway.app — GPX upload parity.
 ```
