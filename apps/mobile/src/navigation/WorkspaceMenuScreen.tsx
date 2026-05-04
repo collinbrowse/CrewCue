@@ -1,11 +1,12 @@
-import { useMemo, useState, type ReactElement } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { Alert, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard } from "../design-system";
 import { useDSTheme } from "../design-system/theme";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { OperateStackParamList } from "./types";
+import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/offlineMaps";
 
 export function WorkspaceMenuScreen(): ReactElement {
   const s = useAuthedShell();
@@ -14,6 +15,11 @@ export function WorkspaceMenuScreen(): ReactElement {
   const [changingRace, setChangingRace] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | undefined>(undefined);
+  const [offlineMapsUnlocked, setOfflineMapsUnlockedState] = useState(false);
+
+  useEffect(() => {
+    void getOfflineMapsUnlocked().then(setOfflineMapsUnlockedState);
+  }, []);
   const isOwner = Boolean(s.room && s.auth.claims?.sub && s.room.athleteId === s.auth.claims.sub);
 
   const selectedRaceName = useMemo(() => s.room?.name?.trim() || "No race selected", [s.room?.name]);
@@ -115,6 +121,25 @@ export function WorkspaceMenuScreen(): ReactElement {
         </DSCard>
 
         <DSCard style={[s.styles.summaryCard, styles.section]}>
+          <Text style={s.styles.summaryTitle}>Offline map downloads</Text>
+          <Text style={s.styles.body}>
+            Placeholder entitlement (future subscription SKU). Unlocking allows creating corridor offline packs around
+            routes from Navigate.
+          </Text>
+          <View style={[styles.rowBetween, styles.buttonSpacing]}>
+            <Text style={[s.styles.body, { flex: 1 }]}>{offlineMapsUnlocked ? "Unlocked" : "Locked"}</Text>
+            <Switch
+              value={offlineMapsUnlocked}
+              onValueChange={(value) => {
+                setOfflineMapsUnlockedState(value);
+                void setOfflineMapsUnlocked(value);
+              }}
+              trackColor={{ false: "#475569", true: "#22c55e" }}
+            />
+          </View>
+        </DSCard>
+
+        <DSCard style={[s.styles.summaryCard, styles.section]}>
           <Text style={s.styles.summaryTitle}>Account</Text>
           <Text style={s.styles.body}>Sign out of this device and return to the login flow.</Text>
           <View style={styles.buttonSpacing}>
@@ -162,5 +187,10 @@ const styles = StyleSheet.create({
   },
   errorSpacing: {
     marginTop: 10
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12
   }
 });

@@ -13,6 +13,8 @@ import type {
   CrewTaskStatus,
   OpsTimelineEvent,
   ProtocolNote,
+  MapWorkspaceLayer,
+  RaceMapWorkspace,
   RaceRoom,
   RaceRoomInvite,
   RaceRoomJoinPreview,
@@ -20,6 +22,7 @@ import type {
   RaceRoomProjectionCore,
   Role
 } from "@crewcue/contracts";
+import { normalizeRaceMapWorkspace, workspaceGeometryToBaseline } from "@crewcue/map-core";
 import {
   DEFAULT_PLANNED_PACE_SECONDS_PER_KM,
   DEFAULT_RACE_COURSE,
@@ -96,6 +99,40 @@ const updateRaceCourseInput = z.object({
   courseDistanceMeters: z.number().finite().nonnegative().optional(),
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
   courseFileName: z.string().trim().min(1).optional()
+});
+
+const mapWorkspacePosition = z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90)]);
+
+const mapWorkspaceLineStringGeometryInput = z.object({
+  type: z.literal("LineString"),
+  coordinates: z.array(mapWorkspacePosition).min(2)
+});
+
+const mapWorkspaceMultiLineStringGeometryInput = z.object({
+  type: z.literal("MultiLineString"),
+  coordinates: z.array(z.array(mapWorkspacePosition).min(2)).min(1)
+});
+
+const mapWorkspaceGeometryInput = z.union([
+  mapWorkspaceLineStringGeometryInput,
+  mapWorkspaceMultiLineStringGeometryInput
+]);
+
+const mapWorkspaceLayerInput = z.object({
+  id: z.string().min(1),
+  label: z.string().trim().min(1).max(200),
+  visible: z.boolean(),
+  sourceFileName: z.string().trim().max(500).optional(),
+  strokeColor: z.string().trim().max(32).optional(),
+  geometry: mapWorkspaceGeometryInput
+});
+
+const putRaceMapWorkspaceInput = z.object({
+  layers: z.array(mapWorkspaceLayerInput).max(24),
+  selectedLayerId: z.string().optional(),
+  drivesProjectionLayerId: z.string().optional(),
+  checkpoints: z.array(raceCourseCheckpointInput),
+  syncBaselineFromLayer: z.boolean().optional()
 });
 
 const updateEntitlementInput = z.object({
@@ -972,6 +1009,57 @@ function syncProjectionAccumulatorStateFromCore(state: RoomProjectionState): voi
   state.visitMeta = nextVisitMeta;
 }
 
+function resolveMapWorkspace(room: RaceRoom): RaceMapWorkspace {
+  if (room.mapWorkspace) {
+    return room.mapWorkspace;
+  }
+  return {
+    layers: [],
+    checkpoints: room.course?.checkpoints ? room.course.checkpoints.map((checkpoint) => ({ ...checkpoint })) : []
+  };
+}
+
+function applyRaceMapWorkspacePut(
+  room: RaceRoom,
+  input: z.infer<typeof putRaceMapWorkspaceInput>
+): RaceRoom {
+  const base: RaceMapWorkspace = {
+    layers: input.layers,
+    selectedLayerId: input.selectedLayerId,
+    drivesProjectionLayerId: input.drivesProjectionLayerId,
+    checkpoints: input.checkpoints
+  };
+  const normalized = normalizeRaceMapWorkspace(base);
+  let next: RaceRoom = { ...room, mapWorkspace: normalized };
+
+  if (normalized.checkpoints.length >= 2) {
+    let baselineTrack = room.course?.baselineTrack;
+    if (input.syncBaselineFromLayer && normalized.drivesProjectionLayerId) {
+      const layer = normalized.layers.find((entry: MapWorkspaceLayer) => entry.id === normalized.drivesProjectionLayerId);
+      if (layer) {
+        const computed = workspaceGeometryToBaseline(layer.geometry);
+        if (computed) {
+          baselineTrack = computed;
+        }
+      }
+    }
+    next = {
+      ...next,
+      course: {
+        checkpoints: normalized.checkpoints,
+        ...(baselineTrack ? { baselineTrack } : {})
+      }
+    };
+  } else if (room.course && normalized.checkpoints.length > 0) {
+    next = {
+      ...next,
+      course: { ...room.course, checkpoints: normalized.checkpoints }
+    };
+  }
+
+  return next;
+}
+
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   await initRoomPersistence(app.log);
 
@@ -1162,6 +1250,71 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName
     };
+
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
+    ws2RuntimeHydratedFromDb.delete(roomId);
+    clearTaskBoardLocalState(roomId);
+    await deleteWs2RuntimePayload(roomId);
+    await deleteTaskBoardPayload(roomId);
+    await deleteTaskBoardSnapshot(roomId);
+    await deleteWs4AdaptivePayload(roomId);
+    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+    clearWs4RoomLocalState(roomId);
+    await deleteWs5SyncPayload(roomId);
+    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+    clearWs5RoomLocalState(roomId);
+
+    await saveRaceRoom(updatedRoom);
+    return reply.send(updatedRoom);
+  });
+
+  app.get("/race-rooms/:roomId/map-workspace", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    return reply.send({ mapWorkspace: resolveMapWorkspace(room) });
+  });
+
+  app.put("/race-rooms/:roomId/map-workspace", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const permissions = getPermissions(membership.role);
+    if (!permissions.canActivateRoom) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+
+    const parsed = putRaceMapWorkspaceInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid map workspace payload" });
+    }
+
+    const updatedRoom = applyRaceMapWorkspacePut(room, parsed.data);
 
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "CrewCue WS0 foundation monorepo",
+  "main": "./apps/mobile/index.ts",
   "workspaces": [
     "apps/*",
     "services/*",
@@ -20,14 +21,14 @@
     "test:pg": "npm run test:pg -w @crewcue/api",
     "test:pg:fresh": "npm run test:pg:fresh -w @crewcue/api",
     "lint": "npm run verify:dual-client && npm run lint --workspaces --if-present",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run smoke:mobile:startup && npm run build",
+    "verify": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run lint && npm run typecheck && npm run test && npm run smoke:mobile:startup && npm run build",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @crewcue/api",
     "dev:api:memory": "npm run dev:memory -w @crewcue/api",
     "dev:api:pg": "npm run dev:pg -w @crewcue/api",
     "dev:mobile": "npm run dev -w @crewcue/mobile",
     "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package && npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core"
   },
   "engines": {
     "node": ">=20"

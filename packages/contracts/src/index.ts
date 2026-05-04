@@ -60,6 +60,62 @@ export interface RaceCourse {
   baselineTrack?: RaceCourseBaselineTrack;
 }
 
+/** GeoJSON position [longitude, latitude]. */
+export type MapWorkspacePosition = [number, number];
+
+export interface MapWorkspaceLineStringGeometry {
+  type: "LineString";
+  coordinates: MapWorkspacePosition[];
+}
+
+export interface MapWorkspaceMultiLineStringGeometry {
+  type: "MultiLineString";
+  coordinates: MapWorkspacePosition[][];
+}
+
+export type MapWorkspaceTrackGeometry =
+  | MapWorkspaceLineStringGeometry
+  | MapWorkspaceMultiLineStringGeometry;
+
+/** Single uploaded track/route overlay for the interactive map workspace (display + optional projection driver). */
+export interface MapWorkspaceLayer {
+  id: string;
+  label: string;
+  visible: boolean;
+  sourceFileName?: string;
+  /** Stroke color hint for renderers, e.g. #3388ff */
+  strokeColor?: string;
+  geometry: MapWorkspaceTrackGeometry;
+}
+
+/**
+ * Server-persisted map workspace per race room (multi-upload overlays + selection).
+ * Operational checkpoints mirror `RaceCourse.checkpoints` when synchronized via PUT.
+ */
+export interface RaceMapWorkspace {
+  layers: MapWorkspaceLayer[];
+  selectedLayerId?: string;
+  /** Overlay whose geometry may regenerate `RaceCourse.baselineTrack` when requested. */
+  drivesProjectionLayerId?: string;
+  checkpoints: RaceCourseCheckpoint[];
+}
+
+export type NavigationRoutingMode = "drive" | "hike";
+
+export interface NavigationRouteStep {
+  instruction: string;
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
+/** Normalized routing result (CrewCue API); mobile navigation UI consumes this shape. */
+export interface NavigationRouteResult {
+  distanceMeters: number;
+  durationSeconds: number;
+  geometry: MapWorkspaceLineStringGeometry;
+  steps: NavigationRouteStep[];
+}
+
 export interface RaceCheckpointSplitRow {
   checkpointId: string;
   distanceMetersFromStart: number;
@@ -174,6 +230,8 @@ export interface RaceRoom {
   courseFileName?: string;
   /** Seconds per kilometre for plan baseline (smaller = faster plan). */
   plannedPaceSecondsPerKm?: number;
+  /** Multi-upload map overlays + map-authored checkpoints (optional until clients populate). */
+  mapWorkspace?: RaceMapWorkspace;
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */

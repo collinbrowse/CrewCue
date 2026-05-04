@@ -6,8 +6,6 @@ import { clearTokens, loadTokens, saveTokens, type StoredTokens } from "./tokenS
 import { decodeAccessTokenClaims, type DecodedAccessClaims } from "./jwt";
 import { shouldRestoreStoredSession } from "./sessionRestore";
 
-WebBrowser.maybeCompleteAuthSession();
-
 type Auth0Settings = {
   domain: string;
   clientId: string;
@@ -40,6 +38,10 @@ export function useAuth(settings: Auth0Settings): AuthState {
   const [status, setStatus] = useState<AuthStatus>("bootstrapping");
   const [tokens, setTokens] = useState<StoredTokens | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    WebBrowser.maybeCompleteAuthSession();
+  }, []);
 
   const discovery = useMemo(
     () => ({

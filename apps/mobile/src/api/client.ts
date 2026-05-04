@@ -10,10 +10,13 @@ import type {
   IncidentSeverity,
   MergeRecord,
   MergeStrategyKind,
+  NavigationRouteResult,
+  NavigationRoutingMode,
   OpsTimelineEvent,
   PlanDelta,
   ProtocolNote,
   ProtocolNoteCategory,
+  RaceMapWorkspace,
   RaceRoom,
   RaceRoomInvite,
   RaceRoomJoinPreview,
@@ -223,6 +226,19 @@ export type UpdateRaceRoomMemberDisplayNameInput = {
   displayName: string;
 };
 
+export type PutRaceMapWorkspaceInput = {
+  layers: RaceMapWorkspace["layers"];
+  selectedLayerId?: string;
+  drivesProjectionLayerId?: string;
+  checkpoints: RaceMapWorkspace["checkpoints"];
+  syncBaselineFromLayer?: boolean;
+};
+
+export type PostRoomRouteInput = {
+  mode: NavigationRoutingMode;
+  coordinates: Array<{ longitude: number; latitude: number }>;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -384,7 +400,16 @@ export function createApiClient(options: ApiClientOptions) {
         "PATCH",
         `/race-rooms/${roomId}/checkpoints/${checkpointId}/visits/${visitIndex}/resolved-source`,
         input
-      )
+      ),
+    getMapWorkspace: (roomId: string) =>
+      request<{ mapWorkspace: RaceMapWorkspace }>(options, "GET", `/race-rooms/${roomId}/map-workspace`),
+    putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/map-workspace`, input),
+    postRoomRoute: (roomId: string, input: PostRoomRouteInput) =>
+      request<{ route: NavigationRouteResult }>(options, "POST", `/race-rooms/${roomId}/routing/route`, input),
+    postAnalyticsEvents: (
+      events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
+    ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events })
   };
 }
 

@@ -244,15 +244,23 @@ export function AuthenticatedOperateScreen(): ReactElement {
               You are not in a race yet. Tap Race setup to create your race and optional setup details.
             </Text>
           )}
-          <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
-            <View style={{ flex: 1 }}>
-              <DSButton
-                preset="primary"
-                onPress={() => navigation.navigate("RacePlanning", { mode: inRace ? "edit" : "create" })}
-              >
-                {inRace ? "Update race setup" : "Race setup"}
-              </DSButton>
-            </View>
+          <View style={{ marginTop: 12, flexDirection: "column", gap: 8 }}>
+            <DSButton
+              preset="primary"
+              onPress={() => navigation.navigate("RacePlanning", { mode: inRace ? "edit" : "create" })}
+            >
+              {inRace ? "Update race setup" : "Race setup"}
+            </DSButton>
+            {inRace ? (
+              <>
+                <DSButton preset="secondary" onPress={() => navigation.navigate("MapWorkspace")}>
+                  Map workspace
+                </DSButton>
+                <DSButton preset="secondary" onPress={() => navigation.navigate("Navigate")}>
+                  Navigate
+                </DSButton>
+              </>
+            ) : null}
           </View>
         </DSCard>
 

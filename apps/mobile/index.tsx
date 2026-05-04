@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
+import { useEffect, useState } from "react";
 import { registerRootComponent } from "expo";
-import { LogBox } from "react-native";
+import { ActivityIndicator, LogBox, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import App from "./App";
 
 const KEEP_AWAKE_ACTIVITY_ERROR = "ExpoKeepAwake.activate";
 const ACTIVITY_UNAVAILABLE_ERROR = "The current activity is no longer available";
@@ -26,11 +26,44 @@ if (typeof globalThis.addEventListener === "function") {
 }
 
 function Root(): ReactElement {
+  const [AppComponent, setAppComponent] = useState<React.ComponentType<object> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void import("./App").then((mod) => {
+      if (!cancelled) {
+        setAppComponent(() => mod.default);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!AppComponent) {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.bootSplash}>
+          <ActivityIndicator color="#94a3b8" />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
-      <App />
+      <AppComponent />
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  bootSplash: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#0f172a"
+  }
+});
 
 registerRootComponent(Root);

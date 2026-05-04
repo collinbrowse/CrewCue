@@ -1,0 +1,29 @@
+{
+  "name": "@crewcue/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "tsc -b --noEmit",
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview",
+    "test": "node -e \"console.log('no unit tests yet')\""
+  },
+  "dependencies": {
+    "@crewcue/contracts": "0.1.0",
+    "@crewcue/map-core": "0.1.0",
+    "maplibre-gl": "^5.13.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.10"
+  }
+}
