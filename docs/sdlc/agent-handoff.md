@@ -15,11 +15,11 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-04 (America/Chicago)
-- Branch: `feature/maps-audit-closure`
-- Active issue: [#203](https://github.com/collinbrowse/CrewCue/issues/203) maps/navigation audit closure (geocode, GPS progression, web parity, analytics, DS)
-- Active PR: [#204](https://github.com/collinbrowse/CrewCue/pull/204) → `main` (**Closes #203**)
-- Current priority: CI on new PR; native QA for Navigate destinations + offline pack polling + MapTiler geocode proxy wiring in staging
-- Sprint milestone: audit-gap closure on top of maps-navigation-plan baseline
+- Branch: `feature/gpx-course-map-sync`
+- Active issue: [#206](https://github.com/collinbrowse/CrewCue/issues/206) unify GPX upload (course + map workspace)
+- Active PR: [#207](https://github.com/collinbrowse/CrewCue/pull/207) → `feature/maps-audit-closure` (**Closes #206**); stacks ahead of [#204](https://github.com/collinbrowse/CrewCue/pull/204) maps audit → `main`
+- Current priority: CI on PR #207; merge order: land maps audit (#204) then GPX sync (#207), or retarget #207 to `main` after #204.
+- Sprint milestone: maps + single-upload GPX parity
 
 ## Current objective
 
@@ -43,18 +43,24 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 
 ## Next 1-3 tasks
 
-1. Open PR from `feature/maps-audit-closure` → `main` with **`Closes #203`**; confirm Actions green.
+1. Confirm Actions green on [#207](https://github.com/collinbrowse/CrewCue/pull/207); merge after/with maps audit branch per stack plan.
 2. Staging/dev: set **`MAPTILER_API_KEY`** on API service (distinct from optional public tile keys).
-3. Manual QA: offline corridor download completion vs timeout; geocode empty/error paths; web map style reload after basemap change without checkpoint loss.
+3. Manual QA: upload GPX from race setup vs map workspace; confirm dashboard distance + map polyline + checkpoints match; extra non-primary layers preserved on re-upload.
 
 ## Validation summary
 
-- `npm run verify` (root): **pass** after fixing `PostRoomRouteInput` import source (`../api/client`, not `@crewcue/contracts`).
+- `npm run verify` (root): **pass** on `feature/gpx-course-map-sync` (includes PR #207 changes).
 
 ## Open risks/blockers/questions
 
 - MapTiler geocode URL shape must match Cloud API for production (monitor `502`/empty features).
 - Offline pack polling assumes `OfflinePack.status()` transitions to `"complete"`; validate on hardware.
+- GPX parity: API still stores **parsed** course + simplified route geometry (not raw GPX bytes); primary route layer id is fixed (`crewcue-primary-course-route`).
+
+## Delivered (#206 / PR #207)
+
+- API: optional `routeOverlayLayer` on `PUT …/course`; `mergePrimaryCourseRouteLayer` in map-core.
+- Clients: race setup, athlete wizard, native map workspace upload, web MapWorkspace (when API env vars set) send course + overlay from one parse.
 
 ## Guardrails
 
@@ -64,6 +70,6 @@ Ship synchronized fixes from the maps audit closure plan: MapTiler **server** ge
 ## Successor prompt
 
 ```text
-PR for branch feature/maps-audit-closure: ensure body includes Closes #203; confirm CI green.
-Validate MAPTILER_API_KEY on staging API + smoke geocode + Navigate address flow + offline pack completion on device.
+PR #207: confirm CI green; merge stack after maps audit (#204) or retarget #207 to main.
+QA: single GPX upload from Race setup vs Map workspace — dashboard + map route + checkpoints aligned.
 ```
