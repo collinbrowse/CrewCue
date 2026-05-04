@@ -7,7 +7,8 @@
 
 [build]
 builder = "RAILPACK"
-buildCommand = "npm ci && npm run build -w @crewcue/contracts && npm run build -w @crewcue/api"
+# Railpack already runs `npm ci` in the install phase; a second `npm ci` here can fail with EBUSY on workspace caches (e.g. apps/web/node_modules/.vite).
+buildCommand = "npm run build -w @crewcue/api"
 
 [deploy]
 preDeployCommand = ["npm run db:migrate"]
