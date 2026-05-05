@@ -24,7 +24,7 @@ export function WorkspaceMenuScreen(): ReactElement {
           <Text style={[styles.kicker, { color: theme.color.primary }]}>Selected race</Text>
           <Text style={[styles.heroTitle, { color: theme.color.text }]}>{selectedRaceName}</Text>
           <Text style={[styles.heroBody, { color: theme.color.body }]}>
-            Join a room, manage members, or start race setup. Appearance, offline maps, and sign out are on the Profile tab.
+            Join a room, manage members, or open race setup below. Appearance, offline maps, and sign out are on the Profile tab.
           </Text>
         </DSCard>
 
@@ -68,6 +68,11 @@ export function WorkspaceMenuScreen(): ReactElement {
             <DSButton preset="secondary" onPress={() => navigation.navigate("RacePlanning", { mode: "create" })}>
               Create new race
             </DSButton>
+            {s.room ? (
+              <DSButton preset="secondary" onPress={() => navigation.navigate("RacePlanning", { mode: "edit" })}>
+                Race setup
+              </DSButton>
+            ) : null}
             <DSButton
               preset="secondary"
               onPress={() => {

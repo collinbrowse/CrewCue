@@ -28,7 +28,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "CrewCue uses your location during navigation to advance turn-by-turn steps."
+          "locationWhenInUsePermission": "CrewCue uses your location on the map to center on where you are when you tap the locate control.",
+          "locationAlwaysAndWhenInUsePermission": "CrewCue may use your location in the background only if you enable features that require it.",
+          "isIosBackgroundLocationEnabled": false
         }
       ]
     ]

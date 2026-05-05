@@ -13,7 +13,6 @@ export type GuestStackParamList = {
 export type MapStackParamList = {
   MapHome: undefined;
   RacePlanning: { mode?: "create" | "edit" } | undefined;
-  MapWorkspace: undefined;
   Navigate: undefined;
   JoinRoomDetails: { roomCode?: string } | undefined;
   WorkspaceMenu: undefined;

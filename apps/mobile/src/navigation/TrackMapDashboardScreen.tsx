@@ -1,5 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Camera, GeoJSONSource, Layer, Map } from "@maplibre/maplibre-react-native";
+import {
+  Camera,
+  type CameraRef,
+  GeoJSONSource,
+  Layer,
+  Map,
+  type MapRef,
+  type ViewPadding,
+  type ViewStateChangeEvent
+} from "@maplibre/maplibre-react-native";
 import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import {
   elevationSamplesFromWorkspacePolyline,
@@ -9,10 +18,16 @@ import {
   primaryCourseLngLatPolyline,
   remainingGainAndLossMetersAfter
 } from "@crewcue/map-core";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import * as Location from "expo-location";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
+  Alert,
+  Animated,
   Dimensions,
+  Easing,
+  PixelRatio,
   Image,
+  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -27,9 +42,11 @@ import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { createApiClient } from "../api/client";
 import { DSButton } from "../design-system";
-import { useDSTheme } from "../design-system/theme";
-import { mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
+import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
+import type { BasemapPreviewLayout } from "../features/maps/mapStyleUrl";
+import { basemapPreviewLayout, mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
 import type { BasemapPresetId } from "../preferences/basemapPreference";
 import { getBasemapPreset, setBasemapPreset } from "../preferences/basemapPreference";
 import { useAuthedShell } from "../shell/AuthedShellContext";
@@ -38,8 +55,33 @@ import { TOOLTIP_SHEET_SEAM_OVERLAP } from "./racePickerLayoutConstants";
 import type { CrewMainTabParamList, MapStackParamList } from "./types";
 
 const WINDOW = Dimensions.get("window");
+
+/** Scale + offset a square tile bitmap so `layout`’s map center sits at the center of a W×H preview (overflow hidden). */
+function basemapPreviewImageFrame(
+  W: number,
+  H: number,
+  layout: BasemapPreviewLayout
+): { width: number; height: number; left: number; top: number } {
+  const { intrinsicSize, oxPx, oyPx } = layout;
+  const s = Math.max(W / intrinsicSize, H / intrinsicSize);
+  const width = intrinsicSize * s;
+  const height = intrinsicSize * s;
+  return {
+    width,
+    height,
+    left: W / 2 - oxPx * s,
+    top: H / 2 - oyPx * s
+  };
+}
 const RACE_PICKER_WIDTH_RATIO = 0.92;
 const HEADER_INNER = 52;
+/** Matches `badgeRow` offset under header (`top: insets.top + HEADER_INNER + …`). */
+const BADGE_ROW_GAP_BELOW_HEADER = 8;
+/**
+ * Fallback distance from bottom of header to bottom of badge strip (matches `courseFitPadding.top`
+ * until `measureInWindow` runs). Keep in sync with badge layout + typography.
+ */
+const BADGE_STRIP_FALLBACK_BELOW_HEADER = 44;
 const RACE_CARD_TOP_BLOCK = 76;
 const RACE_CARD_FOOTER_BLOCK = 58;
 const RACE_CARD_INNER_PADDING_V = 18;
@@ -80,38 +122,202 @@ function checkpointLabel(room: RaceRoom | undefined, checkpointId: string): stri
   return cp?.id ?? checkpointId;
 }
 
+function mergeWorkspaceFromServer(room: RaceRoom | undefined, server: RaceMapWorkspace | null): RaceMapWorkspace {
+  const base = resolveWorkspaceFromRoom(room);
+  if (!server) {
+    return base;
+  }
+  return {
+    layers: server.layers.length > 0 ? server.layers : base.layers,
+    checkpoints: server.checkpoints.length > 0 ? server.checkpoints : base.checkpoints,
+    selectedLayerId: server.selectedLayerId ?? base.selectedLayerId,
+    drivesProjectionLayerId: server.drivesProjectionLayerId ?? base.drivesProjectionLayerId
+  };
+}
+
+/** West, south, east, north with fractional padding on span. */
+function paddedLngLatBounds(coords: [number, number][], padFrac: number): [number, number, number, number] | null {
+  if (coords.length < 2) {
+    return null;
+  }
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  for (const [lng, lat] of coords) {
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+  }
+  const spanLng = Math.max(maxLng - minLng, 1e-6);
+  const spanLat = Math.max(maxLat - minLat, 1e-6);
+  const padLng = spanLng * padFrac;
+  const padLat = spanLat * padFrac;
+  return [minLng - padLng, minLat - padLat, maxLng + padLng, maxLat + padLat];
+}
+
 export function TrackMapDashboardScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
+  const { activeMode } = useDesignSystemSelection();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
   const room = s.room;
   const inRace = Boolean(room);
   const projection = s.projection;
-  const workspace = useMemo(() => resolveWorkspaceFromRoom(room), [room]);
+  const roomId = room?.id;
+  const token = s.auth.status === "authenticated" ? s.auth.accessToken : undefined;
+
+  const [serverWorkspace, setServerWorkspace] = useState<RaceMapWorkspace | null>(null);
+  const workspace = useMemo(() => mergeWorkspaceFromServer(room, serverWorkspace), [room, serverWorkspace]);
 
   const [basemapPreset, setBasemapPresetState] = useState<BasemapPresetId>("outdoor");
   const [layersOpen, setLayersOpen] = useState(false);
+  const [failedBasemapPreviews, setFailedBasemapPreviews] = useState<string[]>([]);
+  const layerPanelWidth = Math.round((WINDOW.width * 2) / 3);
+  const layerSlideX = useRef(new Animated.Value(layerPanelWidth)).current;
+
   const [followRunner, setFollowRunner] = useState(true);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([-98.5795, 39.8283]);
-  const [mapZoom] = useState(13);
+  const [courseBounds, setCourseBounds] = useState<[number, number, number, number] | null>(null);
+  const cameraRef = useRef<CameraRef>(null);
+  const mapRef = useRef<MapRef>(null);
+  const lastCourseFitKeyRef = useRef<string | null>(null);
   const [showRaceSelectorModal, setShowRaceSelectorModal] = useState(false);
   const [raceTitleRect, setRaceTitleRect] = useState<WindowRect | null>(null);
   const raceTitleRef = useRef<View>(null);
+  const rootRef = useRef<View>(null);
+  const badgeRowRef = useRef<View>(null);
+  const [rootBottomAbs, setRootBottomAbs] = useState<number | null>(null);
+  const [badgeBottomAbs, setBadgeBottomAbs] = useState<number | null>(null);
 
-  const SHEET_H = Math.min(WINDOW.height * 0.9, WINDOW.height - insets.top);
+  /** Tab content is shorter than `Dimensions` window height; anchor sheet + FABs to this view's bottom in window space. */
+  const updateChromeLayoutMetrics = useCallback(() => {
+    requestAnimationFrame(() => {
+      rootRef.current?.measureInWindow((_, y, __, h) => {
+        setRootBottomAbs(Math.round(y + h));
+      });
+      badgeRowRef.current?.measureInWindow((_, y, __, h) => {
+        setBadgeBottomAbs(Math.round(y + h));
+      });
+    });
+  }, []);
+
   const PEEK = 210;
+  const badgeBottomFallbackY = insets.top + HEADER_INNER + BADGE_STRIP_FALLBACK_BELOW_HEADER;
+  /** Fully expanded: top of sheet = bottom of ON TRACK / LAST PING + same gap as under header. */
+  const expandedSheetTopY = (badgeBottomAbs ?? badgeBottomFallbackY) + BADGE_ROW_GAP_BELOW_HEADER;
+  const sheetAnchorBottomY = rootBottomAbs ?? WINDOW.height;
+  /** Sheet uses `bottom: 0` to the tab content root; do not subtract `insets.bottom` here (that was double-counting vs sheet `bottom`). */
+  const SHEET_H = Math.max(220, Math.max(PEEK + 1, sheetAnchorBottomY - expandedSheetTopY));
   const maxSheetTranslate = Math.max(0, SHEET_H - PEEK);
-  const midSheetTranslate = maxSheetTranslate * 0.48;
-  const snapPoints = useMemo(() => [0, midSheetTranslate, maxSheetTranslate], [midSheetTranslate, maxSheetTranslate]);
   const [sheetTranslate, setSheetTranslate] = useState(maxSheetTranslate);
   const sheetDragStart = useRef(maxSheetTranslate);
   const sheetTranslateRef = useRef(sheetTranslate);
   sheetTranslateRef.current = sheetTranslate;
+  const sheetAnimRafRef = useRef<number | null>(null);
+
+  const cancelSheetAnimation = useCallback(() => {
+    if (sheetAnimRafRef.current != null) {
+      cancelAnimationFrame(sheetAnimRafRef.current);
+      sheetAnimRafRef.current = null;
+    }
+  }, []);
+
+  const animateSheetTo = useCallback(
+    (to: number) => {
+      cancelSheetAnimation();
+      const max = maxSheetTranslate;
+      const clamped = Math.max(0, Math.min(max, to));
+      const from = sheetTranslateRef.current;
+      if (Math.abs(from - clamped) < 1) {
+        sheetTranslateRef.current = clamped;
+        setSheetTranslate(clamped);
+        return;
+      }
+      const duration = 320;
+      const t0 = Date.now();
+      const tick = () => {
+        const elapsed = Date.now() - t0;
+        const t = Math.min(1, elapsed / duration);
+        const eased = Easing.out(Easing.cubic)(t);
+        const v = from + (clamped - from) * eased;
+        sheetTranslateRef.current = v;
+        setSheetTranslate(v);
+        if (t < 1) {
+          sheetAnimRafRef.current = requestAnimationFrame(tick);
+        } else {
+          sheetAnimRafRef.current = null;
+          sheetTranslateRef.current = clamped;
+          setSheetTranslate(clamped);
+        }
+      };
+      sheetAnimRafRef.current = requestAnimationFrame(tick);
+    },
+    [cancelSheetAnimation, maxSheetTranslate]
+  );
+
+  useLayoutEffect(() => {
+    cancelSheetAnimation();
+    setSheetTranslate((t) => {
+      const c = Math.min(t, maxSheetTranslate);
+      sheetTranslateRef.current = c;
+      return c;
+    });
+  }, [maxSheetTranslate, cancelSheetAnimation]);
+
+  useEffect(() => () => cancelSheetAnimation(), [cancelSheetAnimation]);
+
+  /** Stable padding for fitBounds so sheet drag does not retrigger camera. */
+  const courseFitPadding = useMemo(
+    (): ViewPadding => ({
+      top: badgeBottomAbs ?? badgeBottomFallbackY,
+      right: 72,
+      bottom: Math.max(insets.bottom + PEEK + 24, 140),
+      left: Math.max(insets.left, 12)
+    }),
+    [badgeBottomAbs, badgeBottomFallbackY, insets.bottom, insets.left]
+  );
 
   useEffect(() => {
     void getBasemapPreset().then(setBasemapPresetState);
   }, []);
+
+  useEffect(() => {
+    const sub = Dimensions.addEventListener("change", updateChromeLayoutMetrics);
+    return () => sub.remove();
+  }, [updateChromeLayoutMetrics]);
+
+  useEffect(() => {
+    Animated.timing(layerSlideX, {
+      toValue: layersOpen ? 0 : layerPanelWidth,
+      duration: layersOpen ? 240 : 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true
+    }).start();
+  }, [layerPanelWidth, layerSlideX, layersOpen]);
+
+  useEffect(() => {
+    if (layersOpen) {
+      setFailedBasemapPreviews([]);
+    }
+  }, [layersOpen]);
+
+  useEffect(() => {
+    if (!roomId || !token) {
+      setServerWorkspace(null);
+      return;
+    }
+    const client = createApiClient({ baseUrl: s.baseUrl, accessToken: token });
+    void client
+      .getMapWorkspace(roomId)
+      .then((res) => {
+        setServerWorkspace(res.mapWorkspace);
+      })
+      .catch(() => {
+        setServerWorkspace(null);
+      });
+  }, [roomId, token, s.baseUrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -172,17 +378,149 @@ export function TrackMapDashboardScreen(): ReactElement {
   }, [athletePos]);
 
   useEffect(() => {
-    if (!followRunner || !athletePos) {
+    const next = paddedLngLatBounds(courseLine, 0.14);
+    setCourseBounds(next);
+  }, [courseLine]);
+
+  useEffect(() => {
+    lastCourseFitKeyRef.current = null;
+  }, [roomId]);
+
+  const mapInitialCenter = useMemo((): [number, number] => {
+    if (courseLine.length >= 1) {
+      const mid = courseLine[Math.floor(courseLine.length / 2)]!;
+      return [mid[0]!, mid[1]!];
+    }
+    return [-98.5795, 39.8283];
+  }, [courseLine]);
+
+  /** Viewport center/zoom for layer-picker previews (synced from map + snapshot when opening layers). */
+  const [mapViewCenter, setMapViewCenter] = useState<[number, number]>([-98.5795, 39.8283]);
+  const [mapViewZoom, setMapViewZoom] = useState(11);
+
+  useEffect(() => {
+    setMapViewCenter(mapInitialCenter);
+  }, [mapInitialCenter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
+        const cam = cameraRef.current;
+        if (!cam) {
+          return;
+        }
+        if (followRunner && athletePos) {
+          cam.easeTo({
+            center: [athletePos.longitude, athletePos.latitude],
+            zoom: 15,
+            duration: 0,
+            easing: "linear"
+          });
+          return;
+        }
+        if (followRunner && courseBounds && !athletePos) {
+          const key = `${roomId ?? ""}:${courseBounds.join(",")}`;
+          if (lastCourseFitKeyRef.current === key) {
+            return;
+          }
+          lastCourseFitKeyRef.current = key;
+          cam.fitBounds(courseBounds, {
+            padding: courseFitPadding,
+            duration: 450,
+            easing: "ease"
+          });
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [followRunner, athletePos, courseBounds, roomId, courseFitPadding]);
+
+  const onPressCenterOnUser = useCallback(async () => {
+    setFollowRunner(false);
+    try {
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        ({ status } = await Location.requestForegroundPermissionsAsync());
+      }
+      if (status !== "granted") {
+        Alert.alert(
+          "Location access",
+          "CrewCue needs location permission to move the map to where you are. You can turn it on in Settings.",
+          [
+            { text: "Not now", style: "cancel" },
+            { text: "Open Settings", onPress: () => void Linking.openSettings() }
+          ]
+        );
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced
+      });
+      const { longitude, latitude } = pos.coords;
+      cameraRef.current?.easeTo({
+        center: [longitude, latitude],
+        zoom: 15,
+        duration: 500,
+        easing: "ease"
+      });
+    } catch {
+      Alert.alert("Location", "Could not read your current location. Check that Location Services are on for this device.");
+    }
+  }, []);
+
+  const onPressCenterOnRunner = useCallback(() => {
+    setFollowRunner(true);
+    if (!athletePos) {
       return;
     }
-    setMapCenter([athletePos.longitude, athletePos.latitude]);
-  }, [followRunner, athletePos?.latitude, athletePos?.longitude]);
+    cameraRef.current?.easeTo({
+      center: [athletePos.longitude, athletePos.latitude],
+      zoom: 15,
+      duration: 400,
+      easing: "ease"
+    });
+  }, [athletePos]);
 
-  const onRegionDidChange = useCallback((e: NativeSyntheticEvent<{ userInteraction?: boolean }>) => {
-    const ui = e.nativeEvent?.userInteraction;
-    if (ui) {
+  const onRegionDidChange = useCallback((e: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+    const ev = e.nativeEvent;
+    if (ev.center && ev.center.length >= 2) {
+      const [lng, lat] = ev.center;
+      if (Number.isFinite(lng) && Number.isFinite(lat)) {
+        setMapViewCenter([lng, lat]);
+      }
+    }
+    if (typeof ev.zoom === "number" && Number.isFinite(ev.zoom)) {
+      setMapViewZoom(ev.zoom);
+    }
+    if (ev.userInteraction) {
       setFollowRunner(false);
     }
+  }, []);
+
+  const openLayersPanel = useCallback(async () => {
+    try {
+      const m = mapRef.current;
+      if (m) {
+        const c = await m.getCenter();
+        const z = await m.getZoom();
+        if (c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+          setMapViewCenter([c[0]!, c[1]!]);
+        }
+        if (Number.isFinite(z)) {
+          setMapViewZoom(z);
+        }
+      }
+    } catch {
+      /* keep last region-derived values */
+    }
+    setLayersOpen(true);
   }, []);
 
   const selectedRace = room;
@@ -339,12 +677,26 @@ export function TrackMapDashboardScreen(): ReactElement {
     setLayersOpen(false);
   };
 
+  const layerPreviewSize = useMemo(() => {
+    const w = Math.max(88, layerPanelWidth - 32);
+    const h = Math.round((w * 9) / 16);
+    return { w, h };
+  }, [layerPanelWidth]);
+
+  /** Snap to fully expanded (`0`) or peek (`maxSheetTranslate`) after drag. */
   const snapSheet = useCallback(
-    (y: number) => {
-      const nearest = snapPoints.reduce((best, p) => (Math.abs(p - y) < Math.abs(best - y) ? p : best), snapPoints[0]!);
-      setSheetTranslate(nearest);
+    (y: number, vy: number) => {
+      const max = maxSheetTranslate;
+      const mid = max / 2;
+      let target: number;
+      if (Math.abs(vy) > 0.65) {
+        target = vy > 0 ? max : 0;
+      } else {
+        target = y < mid ? 0 : max;
+      }
+      animateSheetTo(target);
     },
-    [snapPoints]
+    [maxSheetTranslate, animateSheetTo]
   );
 
   const panResponder = useMemo(
@@ -352,28 +704,26 @@ export function TrackMapDashboardScreen(): ReactElement {
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
         onPanResponderGrant: () => {
+          cancelSheetAnimation();
           sheetDragStart.current = sheetTranslateRef.current;
         },
         onPanResponderMove: (_, g) => {
           const next = Math.max(0, Math.min(maxSheetTranslate, sheetDragStart.current + g.dy));
+          sheetTranslateRef.current = next;
           setSheetTranslate(next);
         },
         onPanResponderRelease: (_, g) => {
           const next = Math.max(0, Math.min(maxSheetTranslate, sheetDragStart.current + g.dy));
-          snapSheet(next + g.vy * 0.08);
+          snapSheet(next + g.vy * 0.08, g.vy);
         }
       }),
-    [maxSheetTranslate, snapSheet]
+    [maxSheetTranslate, snapSheet, cancelSheetAnimation]
   );
 
   const cycleSheet = () => {
-    let bestI = 0;
-    for (let i = 0; i < snapPoints.length; i += 1) {
-      if (Math.abs(snapPoints[i]! - sheetTranslate) < Math.abs(snapPoints[bestI]! - sheetTranslate)) {
-        bestI = i;
-      }
-    }
-    setSheetTranslate(snapPoints[(bestI + 1) % snapPoints.length]!);
+    const max = maxSheetTranslate;
+    const cur = sheetTranslateRef.current;
+    animateSheetTo(cur > max / 2 ? 0 : max);
   };
 
   const onMapDidFailLoading = useCallback(() => {
@@ -406,35 +756,52 @@ export function TrackMapDashboardScreen(): ReactElement {
           justifyContent: "center",
           paddingHorizontal: 8
         },
+        settingsHit: {
+          paddingVertical: 6,
+          paddingHorizontal: 4,
+          justifyContent: "center",
+          alignItems: "center"
+        },
+        raceTitlePill: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 8,
+          paddingHorizontal: 14,
+          borderRadius: 999,
+          backgroundColor: activeMode === "light" ? "rgba(255, 255, 255, 0.94)" : "rgba(28, 30, 36, 0.88)",
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.color.border,
+          maxWidth: WINDOW.width * 0.7
+        },
+        raceTitleText: { color: theme.color.text, fontSize: 17, fontWeight: "800" },
+        raceTitleChevron: { color: theme.color.muted, fontSize: 12, fontWeight: "800" },
         badgeRow: {
           position: "absolute",
-          top: insets.top + HEADER_INNER + 8,
+          top: insets.top + HEADER_INNER + BADGE_ROW_GAP_BELOW_HEADER,
           left: 12,
           right: 12,
           flexDirection: "row",
           justifyContent: "space-between",
           zIndex: 19
         },
-        badgeOnTrack: {
-          backgroundColor: theme.color.primary,
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 999
-        },
-        badgeOnTrackText: { color: theme.color.card, fontWeight: "800", fontSize: 11 },
-        badgePing: {
-          backgroundColor: theme.color.card,
+        badgePill: {
+          backgroundColor: activeMode === "light" ? "rgba(255, 255, 255, 0.94)" : "rgba(28, 30, 36, 0.9)",
           paddingHorizontal: 12,
           paddingVertical: 6,
           borderRadius: 999,
           borderWidth: StyleSheet.hairlineWidth,
-          borderColor: theme.color.border
+          borderColor: theme.color.border,
+          maxWidth: WINDOW.width * 0.48
         },
-        badgePingText: { color: theme.color.primary, fontWeight: "700", fontSize: 11 },
+        badgePillMuted: {
+          backgroundColor: activeMode === "light" ? "rgba(255, 255, 255, 0.88)" : "rgba(28, 30, 36, 0.82)"
+        },
+        badgePillText: { color: theme.color.text, fontWeight: "700", fontSize: 11 },
         fabCol: {
           position: "absolute",
           right: 14,
-          bottom: SHEET_H - sheetTranslate + 16,
+          bottom: insets.bottom + (SHEET_H - sheetTranslate) + 16,
           gap: 12,
           zIndex: 18,
           alignItems: "flex-end"
@@ -494,42 +861,128 @@ export function TrackMapDashboardScreen(): ReactElement {
           paddingBottom: 10,
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: theme.color.divider
-        }
+        },
+        sheetKicker: { fontSize: 11, fontWeight: "700", color: theme.color.muted },
+        etaPill: {
+          marginTop: 6,
+          backgroundColor: theme.color.secondaryButton,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.color.border
+        },
+        etaPillText: { color: theme.color.text, fontWeight: "800", fontSize: 12 },
+        layerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.4)" },
+        layerPanel: {
+          position: "absolute",
+          right: 0,
+          top: 0,
+          bottom: 0,
+          borderTopLeftRadius: 16,
+          borderBottomLeftRadius: 16,
+          shadowColor: "#000",
+          shadowOpacity: 0.2,
+          shadowRadius: 12,
+          shadowOffset: { width: -4, height: 0 },
+          elevation: 8
+        },
+        layerHeaderRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+          marginBottom: 8
+        },
+        layerOptionRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: theme.color.divider
+        },
+        layerPreviewFrame: {
+          borderRadius: 10,
+          overflow: "hidden",
+          backgroundColor: theme.color.secondaryButton,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.color.border,
+          position: "relative"
+        },
+        layerPreviewOverlay: {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingVertical: 8,
+          paddingHorizontal: 10,
+          backgroundColor: "rgba(0, 0, 0, 0.62)"
+        },
+        layerPreviewTitle: {
+          color: "#ffffff",
+          fontSize: 15,
+          fontWeight: "800",
+          textShadowColor: "rgba(0,0,0,0.45)",
+          textShadowOffset: { width: 0, height: 1 },
+          textShadowRadius: 2
+        },
+        layerPreviewPlaceholder: {
+          ...StyleSheet.absoluteFillObject,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.color.secondaryButton
+        },
+        layerSubtitle: { color: theme.color.muted, fontSize: 13, lineHeight: 18 }
       }),
-    [insets.top, SHEET_H, sheetTranslate, theme]
+    [activeMode, insets.top, insets.bottom, SHEET_H, sheetTranslate, theme]
   );
+
+  const sheetExpandProgress =
+    maxSheetTranslate > 0
+      ? Math.min(1, Math.max(0, (maxSheetTranslate - sheetTranslate) / maxSheetTranslate))
+      : 0;
+  const fabOpacity = 1 - sheetExpandProgress;
 
   if (!inRace) {
     return (
       <ScrollView style={s.styles.container} contentContainerStyle={[s.styles.scroll, styles.emptyWrap]}>
         <View style={{ marginBottom: 12 }}>
           <Text style={s.styles.title}>CrewCue</Text>
-          <Text style={s.styles.subtitle}>Select or create a race to open the live map.</Text>
+          <Text style={s.styles.subtitle}>
+            Open settings to create or edit a race, join a room, or manage your workspace.
+          </Text>
         </View>
-        <DSButton preset="primary" onPress={() => navigation.navigate("RacePlanning", { mode: "create" })}>
-          Race setup
-        </DSButton>
-        <View style={{ height: 12 }} />
-        <DSButton preset="secondary" onPress={() => navigation.navigate("WorkspaceMenu")}>
-          Workspace menu
+        <DSButton preset="primary" onPress={() => navigation.navigate("WorkspaceMenu")}>
+          Open settings
         </DSButton>
       </ScrollView>
     );
   }
 
   return (
-    <View style={styles.root}>
+    <View ref={rootRef} style={styles.root} onLayout={updateChromeLayoutMetrics}>
       <Map
+        ref={mapRef}
         key={`dash-${basemapPreset}`}
         style={styles.map}
         mapStyle={mobileMapStyleUrlForPreset(basemapPreset)}
         onRegionDidChange={onRegionDidChange}
         onDidFailLoadingMap={onMapDidFailLoading}
       >
-        <Camera zoom={mapZoom} center={mapCenter} duration={followRunner ? 0 : 200} />
+        <Camera ref={cameraRef} initialViewState={{ center: mapInitialCenter, zoom: 11 }} />
         {routeFeature ? (
           <GeoJSONSource id="dash-route" data={routeFeature}>
-            <Layer id="dash-route-line" type="line" style={{ lineColor: "#ffffff", lineWidth: 5, lineOpacity: 0.95 }} />
+            <Layer
+              id="dash-route-line"
+              type="line"
+              style={{
+                lineColor: "#ea580c",
+                lineWidth: 5,
+                lineOpacity: 0.95
+              }}
+            />
           </GeoJSONSource>
         ) : null}
         {athleteFeature ? (
@@ -539,9 +992,9 @@ export function TrackMapDashboardScreen(): ReactElement {
               type="circle"
               style={{
                 circleRadius: 10,
-                circleColor: theme.color.primary,
+                circleColor: activeMode === "light" ? "rgba(37, 99, 235, 0.95)" : "rgba(147, 197, 253, 0.95)",
                 circleStrokeWidth: 3,
-                circleStrokeColor: "#ffffff"
+                circleStrokeColor: activeMode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(15, 23, 42, 0.9)"
               }}
             />
           </GeoJSONSource>
@@ -549,17 +1002,7 @@ export function TrackMapDashboardScreen(): ReactElement {
       </Map>
 
       <View style={styles.header} pointerEvents="box-none">
-        <Pressable
-          onPress={() => navigation.getParent()?.navigate("Profile")}
-          style={{ padding: 6 }}
-          accessibilityRole="button"
-          accessibilityLabel="Open profile"
-        >
-          <Image
-            source={require("../../assets/onboarding/crew-cue-onboarding-runner.png")}
-            style={{ width: 40, height: 40, borderRadius: 20 }}
-          />
-        </Pressable>
+        <View style={{ width: 40 }} />
         <View ref={raceTitleRef} collapsable={false} style={styles.headerTitleWrap}>
           <Pressable
             onPress={() => {
@@ -571,47 +1014,55 @@ export function TrackMapDashboardScreen(): ReactElement {
                 return next;
               });
             }}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            style={styles.raceTitlePill}
           >
-            <Text style={{ color: theme.color.primary, fontSize: 18, fontWeight: "800" }} numberOfLines={1}>
+            <Text style={styles.raceTitleText} numberOfLines={1}>
               {selectedRace?.name?.trim() ? selectedRace.name : "CrewCue"}
             </Text>
-            <Text style={{ color: theme.color.primary, fontSize: 14, fontWeight: "800" }}>
-              {showRaceSelectorModal ? "▲" : "▼"}
-            </Text>
+            <Text style={styles.raceTitleChevron}>{showRaceSelectorModal ? "▲" : "▼"}</Text>
           </Pressable>
         </View>
-        <Pressable onPress={() => navigation.navigate("WorkspaceMenu")} style={{ padding: 6 }} accessibilityLabel="Workspace menu">
-          <Ionicons name="settings-outline" size={26} color={theme.color.primary} />
+        <Pressable
+          onPress={() => navigation.navigate("WorkspaceMenu")}
+          style={styles.settingsHit}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Workspace menu"
+        >
+          <Ionicons name="settings-outline" size={28} color="#4b5563" />
         </Pressable>
       </View>
 
-      <View style={styles.badgeRow} pointerEvents="none">
-        <View style={styles.badgeOnTrack}>
-          <Text style={styles.badgeOnTrackText}>{onTrackLabel}</Text>
+      <View ref={badgeRowRef} style={styles.badgeRow} onLayout={updateChromeLayoutMetrics} pointerEvents="none">
+        <View style={styles.badgePill}>
+          <Text style={styles.badgePillText}>{onTrackLabel}</Text>
         </View>
-        <View style={styles.badgePing}>
-          <Text style={styles.badgePingText}>
-            ● LAST PING: {formatPingAgo(projection?.secondsSinceLastAcceptedPing)} 
+        <View style={[styles.badgePill, styles.badgePillMuted]}>
+          <Text style={styles.badgePillText}>
+            ● LAST PING: {formatPingAgo(projection?.secondsSinceLastAcceptedPing)}
           </Text>
         </View>
       </View>
 
-      <View style={styles.fabCol} pointerEvents="box-none">
+      <View
+        style={[styles.fabCol, { opacity: fabOpacity }]}
+        pointerEvents={sheetExpandProgress >= 0.995 ? "none" : "box-none"}
+      >
         <Pressable
           style={styles.fab}
-          onPress={() => {
-            setFollowRunner(true);
-            if (athletePos) {
-              setMapCenter([athletePos.longitude, athletePos.latitude]);
-            }
-          }}
-          accessibilityLabel="Follow runner"
+          onPress={() => void onPressCenterOnUser()}
+          accessibilityLabel="Center map on your location"
         >
-          <Ionicons name="locate" size={22} color={theme.color.primary} />
+          <Ionicons name="locate" size={22} color={theme.color.text} />
         </Pressable>
-        <Pressable style={styles.fab} onPress={() => setLayersOpen(true)} accessibilityLabel="Map layers">
-          <Ionicons name="layers-outline" size={22} color={theme.color.primary} />
+        <Pressable style={styles.fab} onPress={onPressCenterOnRunner} accessibilityLabel="Center map on runner">
+          <Image
+            source={require("../../assets/onboarding/crew-cue-onboarding-runner.png")}
+            style={{ width: 36, height: 36, borderRadius: 18 }}
+          />
+        </Pressable>
+        <Pressable style={styles.fab} onPress={() => void openLayersPanel()} accessibilityLabel="Map layers">
+          <Ionicons name="layers-outline" size={22} color={theme.color.text} />
         </Pressable>
       </View>
 
@@ -623,27 +1074,19 @@ export function TrackMapDashboardScreen(): ReactElement {
         </View>
         <ScrollView
           style={{ flex: 1, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 32 + insets.bottom }}
           scrollEnabled={sheetTranslate < maxSheetTranslate - 2}
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={{ color: theme.color.primary, fontSize: 11, fontWeight: "700" }}>NEXT AID STATION</Text>
+              <Text style={styles.sheetKicker}>NEXT AID STATION</Text>
               <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>{nextCheckpointLabel}</Text>
             </View>
             <View style={{ alignItems: "flex-end" }}>
-              <Text style={{ color: theme.color.primary, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
-              <Text style={{ color: theme.color.text, fontSize: 11, marginTop: 2 }}>EST. ARRIVAL</Text>
-              <View
-                style={{
-                  marginTop: 6,
-                  backgroundColor: `${theme.color.primary}22`,
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                  borderRadius: 999
-                }}
-              >
-                <Text style={{ color: theme.color.primary, fontWeight: "800", fontSize: 12 }}>{etaNextLabel.remain}</Text>
+              <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
+              <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>EST. ARRIVAL</Text>
+              <View style={styles.etaPill}>
+                <Text style={styles.etaPillText}>{etaNextLabel.remain}</Text>
               </View>
             </View>
           </View>
@@ -684,54 +1127,97 @@ export function TrackMapDashboardScreen(): ReactElement {
           {projection?.checkpointSplits?.length ? null : (
             <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
           )}
-
-          <View style={{ marginTop: 20, gap: 8 }}>
-            <DSButton preset="secondary" onPress={() => navigation.navigate("MapWorkspace")}>
-              Map workspace
-            </DSButton>
-            <DSButton preset="secondary" onPress={() => navigation.navigate("Navigate")}>
-              Navigate
-            </DSButton>
-            <DSButton preset="secondary" onPress={() => navigation.navigate("RacePlanning", { mode: "edit" })}>
-              Race setup
-            </DSButton>
-          </View>
         </ScrollView>
       </View>
 
       <Modal visible={layersOpen} transparent animationType="fade" onRequestClose={() => setLayersOpen(false)}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setLayersOpen(false)}>
-          <View style={{ flex: 1, backgroundColor: "#0006", justifyContent: "flex-end" }}>
-            <Pressable onPress={(e) => e.stopPropagation()}>
-              <View
-                style={{
-                  backgroundColor: theme.color.card,
-                  padding: 20,
-                  borderTopLeftRadius: 16,
-                  borderTopRightRadius: 16
-                }}
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Pressable style={styles.layerBackdrop} onPress={() => setLayersOpen(false)} />
+          <Animated.View
+            style={[
+              styles.layerPanel,
+              {
+                width: layerPanelWidth,
+                backgroundColor: theme.color.card,
+                paddingTop: insets.top + 12,
+                paddingBottom: insets.bottom + 16,
+                transform: [{ translateX: layerSlideX }]
+              }
+            ]}
+          >
+            <View style={styles.layerHeaderRow}>
+              <Text style={{ fontWeight: "800", color: theme.color.text, fontSize: 18 }}>Map Layers</Text>
+              <Pressable
+                onPress={() => setLayersOpen(false)}
+                hitSlop={14}
+                accessibilityRole="button"
+                accessibilityLabel="Close map layers"
               >
-                <Text style={{ fontWeight: "800", color: theme.color.text, marginBottom: 12 }}>Map layer</Text>
-                {(["outdoor", "streets", "satellite"] as const).map((p) => (
-                  <Pressable
-                    key={p}
-                    onPress={() => void pickBasemap(p)}
-                    style={{
-                      paddingVertical: 14,
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                      borderBottomColor: theme.color.divider
-                    }}
-                  >
-                    <Text style={{ color: theme.color.text, fontWeight: basemapPreset === p ? "800" : "500" }}>
-                      {p[0]!.toUpperCase() + p.slice(1)}
-                      {basemapPreset === p ? " ✓" : ""}
-                    </Text>
+                <Ionicons name="close" size={28} color={theme.color.text} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {(["outdoor", "streets", "satellite"] as const).map((p) => {
+                const layout = basemapPreviewLayout(
+                  p,
+                  mapViewCenter[0]!,
+                  mapViewCenter[1]!,
+                  mapViewZoom,
+                  PixelRatio.get()
+                );
+                const label = `${p[0]!.toUpperCase()}${p.slice(1)}`;
+                const subtitle =
+                  p === "outdoor" ? "Terrain and trails" : p === "streets" ? "Roads and labels" : "Aerial imagery";
+                const showPreview = Boolean(layout) && !failedBasemapPreviews.includes(p);
+                const W = layerPreviewSize.w;
+                const H = layerPreviewSize.h;
+                const imgFrame = layout ? basemapPreviewImageFrame(W, H, layout) : null;
+                return (
+                  <Pressable key={p} onPress={() => void pickBasemap(p)} style={styles.layerOptionRow}>
+                    <View
+                      style={[
+                        styles.layerPreviewFrame,
+                        { width: layerPreviewSize.w, height: layerPreviewSize.h }
+                      ]}
+                    >
+                      {showPreview && layout && imgFrame ? (
+                        <Image
+                          key={`${p}-${mapViewCenter[0]}-${mapViewCenter[1]}-${mapViewZoom}-${layout.intrinsicSize}`}
+                          source={{ uri: layout.uri }}
+                          style={{
+                            position: "absolute",
+                            width: imgFrame.width,
+                            height: imgFrame.height,
+                            left: imgFrame.left,
+                            top: imgFrame.top
+                          }}
+                          onError={() => setFailedBasemapPreviews((prev) => (prev.includes(p) ? prev : [...prev, p]))}
+                        />
+                      ) : (
+                        <View style={styles.layerPreviewPlaceholder}>
+                          <Text style={{ color: theme.color.muted, fontSize: 11, fontWeight: "600" }}>
+                            {layout ? "Could not load preview" : "Add MapTiler key for previews"}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.layerPreviewOverlay} pointerEvents="none">
+                        <Text style={styles.layerPreviewTitle}>{label}</Text>
+                      </View>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
+                      <Text style={styles.layerSubtitle}>{subtitle}</Text>
+                      {basemapPreset === p ? (
+                        <Text style={{ marginTop: 8, fontWeight: "700", color: theme.color.text, fontSize: 12 }}>
+                          Selected ✓
+                        </Text>
+                      ) : null}
+                    </View>
                   </Pressable>
-                ))}
-              </View>
-            </Pressable>
-          </View>
-        </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Animated.View>
+        </View>
       </Modal>
 
       <RacePickerOverlay

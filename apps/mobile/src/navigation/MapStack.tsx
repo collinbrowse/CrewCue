@@ -4,7 +4,6 @@ import { Pressable, Text } from "react-native";
 import { GpxImportScreen } from "./GpxImportScreen";
 import { JoinRoomDetailsScreen } from "./JoinRoomDetailsScreen";
 import { ManageRoomMembersScreen } from "./ManageRoomMembersScreen";
-import { MapWorkspaceScreen } from "./MapWorkspaceScreen";
 import { NavigateScreen } from "./NavigateScreen";
 import { TrackMapDashboardScreen } from "./TrackMapDashboardScreen";
 import { WorkspaceMenuScreen } from "./WorkspaceMenuScreen";
@@ -35,7 +34,6 @@ export function MapStack(): ReactElement {
         component={TrackMapDashboardScreen}
         options={{ title: "Map", headerShown: false }}
       />
-      <Stack.Screen name="MapWorkspace" component={MapWorkspaceScreen} options={{ title: "Map workspace" }} />
       <Stack.Screen name="Navigate" component={NavigateScreen} options={{ title: "Navigate" }} />
       <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Race setup" }} />
       <Stack.Screen name="JoinRoomDetails" component={JoinRoomDetailsScreen} options={{ title: "Join race room" }} />

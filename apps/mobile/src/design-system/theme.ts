@@ -80,18 +80,23 @@ export type DSThemeTokens = {
 function toMobileTokens(definition: DesignSystemDefinition, mode: DesignSystemMode): DSThemeTokens {
   const c = definition.variants[mode].colors;
   const variant = definition.variants[mode];
+  /** Avoid neon primaryContainer as generic "success" on light surfaces (contrast failures). */
+  const successForeground =
+    mode === "light" ? c.primary : c.primaryContainer;
+  /** On light surfaces, `primaryContainer` is often a high-chroma accent (e.g. lime); use core `primary` for legible chrome. */
+  const primaryForeground = mode === "light" ? c.primary : c.primaryContainer;
   return {
     designSystemId: definition.id,
     designSystemName: definition.name,
     color: {
-      primary: c.primaryContainer,
+      primary: primaryForeground,
       background: c.background,
       card: c.surfaceContainer,
       text: c.onSurface,
       border: c.outlineVariant,
       muted: c.onSurfaceVariant,
       body: c.onSurfaceVariant,
-      success: c.primaryContainer,
+      success: successForeground,
       warning: c.secondaryContainer,
       danger: c.error,
       secondaryButton: c.surfaceContainerHigh,
