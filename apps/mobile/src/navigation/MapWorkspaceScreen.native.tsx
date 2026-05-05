@@ -434,11 +434,11 @@ export function MapWorkspaceScreenNative(): ReactElement {
   };
 
   const onMapDidFailLoading = useCallback(() => {
-    if (basemapPreset !== "demo") {
-      setBasemapPresetState("demo");
-      void setBasemapPreset("demo");
+    if (basemapPreset !== "outdoor") {
+      setBasemapPresetState("outdoor");
+      void setBasemapPreset("outdoor");
       setError(
-        "Basemap style failed to load (often an invalid EXPO_PUBLIC_MAPTILER_API_KEY). Switched to demo tiles."
+        "Basemap style failed to load (often an invalid EXPO_PUBLIC_MAPTILER_API_KEY). Switched to outdoor."
       );
     } else {
       setError("Map style failed to load. Check network permissions for this app.");
@@ -509,7 +509,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
 
         <Text style={styles.title}>Basemap</Text>
         <View style={styles.row}>
-          {(["outdoor", "streets", "satellite", "demo"] as const).map((p) => (
+          {(["outdoor", "streets", "satellite"] as const).map((p) => (
             <DSButton key={p} preset={basemapPreset === p ? "primary" : "secondary"} onPress={() => void pickBasemap(p)}>
               {p}
             </DSButton>
@@ -555,3 +555,7 @@ export function MapWorkspaceScreenNative(): ReactElement {
     </View>
   );
 }
+
+// Keep parity with the non-native module export so `import "./MapWorkspaceScreen"`
+// works on native platform resolution.
+export const MapWorkspaceScreen = MapWorkspaceScreenNative;

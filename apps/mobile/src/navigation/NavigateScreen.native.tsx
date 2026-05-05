@@ -531,7 +531,7 @@ export function NavigateScreenNative(): ReactElement {
       <ScrollView style={styles.panel} contentContainerStyle={{ paddingBottom: 32 }}>
         <Text style={styles.title}>Basemap</Text>
         <View style={styles.row}>
-          {(["outdoor", "streets", "satellite", "demo"] as const).map((p) => (
+          {(["outdoor", "streets", "satellite"] as const).map((p) => (
             <DSButton key={p} preset={basemapPreset === p ? "primary" : "secondary"} onPress={() => void pickBasemap(p)}>
               {p}
             </DSButton>
@@ -670,3 +670,7 @@ export function NavigateScreenNative(): ReactElement {
     </View>
   );
 }
+
+// Keep parity with the non-native module export so `import "./NavigateScreen"`
+// works on native platform resolution.
+export const NavigateScreen = NavigateScreenNative;
