@@ -1,66 +1,21 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { Alert, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { useMemo, useState, type ReactElement } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard } from "../design-system";
-import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
+import { useDSTheme } from "../design-system/theme";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { OperateStackParamList } from "./types";
-import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/offlineMaps";
+import type { MapStackParamList } from "./types";
 
 export function WorkspaceMenuScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
-  const {
-    selectedDesignSystemId,
-    setDesignSystemId,
-    designModeOverride,
-    setDesignModeOverride,
-    systemMode,
-    activeMode
-  } = useDesignSystemSelection();
-  const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList>>();
   const [changingRace, setChangingRace] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | undefined>(undefined);
-  const [offlineMapsUnlocked, setOfflineMapsUnlockedState] = useState(false);
 
-  useEffect(() => {
-    void getOfflineMapsUnlocked().then(setOfflineMapsUnlockedState);
-  }, []);
   const isOwner = Boolean(s.room && s.auth.claims?.sub && s.room.athleteId === s.auth.claims.sub);
 
   const selectedRaceName = useMemo(() => s.room?.name?.trim() || "No race selected", [s.room?.name]);
-  const executeSignOut = () => {
-    if (signingOut) {
-      return;
-    }
-    setSignOutError(undefined);
-    setSigningOut(true);
-    void s
-      .onSignOut()
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Unable to sign out right now. Please try again.";
-        setSignOutError(message);
-      })
-      .finally(() => {
-        setSigningOut(false);
-      });
-  };
-
-  const confirmSignOut = () => {
-    if (signingOut) {
-      return;
-    }
-    Alert.alert("Sign out?", "You will need to sign in again to access your races.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out",
-        style: "destructive",
-        onPress: executeSignOut
-      }
-    ]);
-  };
 
   return (
     <ScrollView style={s.styles.container} contentContainerStyle={[s.styles.scroll, { paddingBottom: 28 }]}>
@@ -69,44 +24,8 @@ export function WorkspaceMenuScreen(): ReactElement {
           <Text style={[styles.kicker, { color: theme.color.primary }]}>Selected race</Text>
           <Text style={[styles.heroTitle, { color: theme.color.text }]}>{selectedRaceName}</Text>
           <Text style={[styles.heroBody, { color: theme.color.body }]}>
-            Use this menu to jump into joining a room, member management, or starting a new race setup flow.
+            Join a room, manage members, or start race setup. Appearance, offline maps, and sign out are on the Profile tab.
           </Text>
-        </DSCard>
-
-        <DSCard style={[s.styles.summaryCard, styles.section]}>
-          <Text style={s.styles.summaryTitle}>Design system</Text>
-          <Text style={s.styles.body}>Switch between Kinetic and Performance. Light/dark follows device mode.</Text>
-          <View style={styles.buttonSpacing}>
-            <DSButton
-              preset={selectedDesignSystemId === "kinetic" ? "primary" : "secondary"}
-              onPress={() => void setDesignSystemId("kinetic")}
-            >
-              Kinetic
-            </DSButton>
-            <DSButton
-              preset={selectedDesignSystemId === "performance" ? "primary" : "secondary"}
-              onPress={() => void setDesignSystemId("performance")}
-            >
-              Performance
-            </DSButton>
-          </View>
-          <View style={[styles.buttonSpacing, { marginTop: 12 }]}>
-            <Text style={s.styles.summaryTitle}>Color mode</Text>
-            <DSButton preset={designModeOverride === "auto" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("auto")}>
-              Auto (device)
-            </DSButton>
-            <DSButton preset={designModeOverride === "light" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("light")}>
-              Force Light
-            </DSButton>
-            <DSButton preset={designModeOverride === "dark" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("dark")}>
-              Force Dark
-            </DSButton>
-          </View>
-          {__DEV__ ? (
-            <Text style={[s.styles.body, styles.debugText]}>
-              Debug: system={systemMode} override={designModeOverride} active={activeMode} design={selectedDesignSystemId}
-            </Text>
-          ) : null}
         </DSCard>
 
         <DSCard style={[s.styles.summaryCard, styles.section]}>
@@ -156,42 +75,12 @@ export function WorkspaceMenuScreen(): ReactElement {
                   navigation.goBack();
                   return;
                 }
-                navigation.navigate("OperateHome");
+                navigation.navigate("MapHome");
               }}
             >
-              Back to Operate
+              Back to map
             </DSButton>
           </View>
-        </DSCard>
-
-        <DSCard style={[s.styles.summaryCard, styles.section]}>
-          <Text style={s.styles.summaryTitle}>Offline map downloads</Text>
-          <Text style={s.styles.body}>
-            Placeholder entitlement (future subscription SKU). Unlocking allows creating corridor offline packs around
-            routes from Navigate.
-          </Text>
-          <View style={[styles.rowBetween, styles.buttonSpacing]}>
-            <Text style={[s.styles.body, { flex: 1 }]}>{offlineMapsUnlocked ? "Unlocked" : "Locked"}</Text>
-            <Switch
-              value={offlineMapsUnlocked}
-              onValueChange={(value) => {
-                setOfflineMapsUnlockedState(value);
-                void setOfflineMapsUnlocked(value);
-              }}
-              trackColor={{ false: theme.color.border, true: theme.color.primary }}
-            />
-          </View>
-        </DSCard>
-
-        <DSCard style={[s.styles.summaryCard, styles.section]}>
-          <Text style={s.styles.summaryTitle}>Account</Text>
-          <Text style={s.styles.body}>Sign out of this device and return to the login flow.</Text>
-          <View style={styles.buttonSpacing}>
-            <DSButton preset="danger" onPress={confirmSignOut} disabled={signingOut}>
-              {signingOut ? "Signing out..." : "Sign out"}
-            </DSButton>
-          </View>
-          {signOutError ? <Text style={[s.styles.errorText, styles.errorSpacing]}>{signOutError}</Text> : null}
         </DSCard>
       </DSCard>
     </ScrollView>
@@ -207,7 +96,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(125, 128, 145, 0.12)"
   },
   kicker: {
-    color: "#93c5fd",
     textTransform: "uppercase",
     fontSize: 12,
     fontWeight: "700",
@@ -228,17 +116,5 @@ const styles = StyleSheet.create({
   buttonSpacing: {
     gap: 8,
     marginTop: 10
-  },
-  errorSpacing: {
-    marginTop: 10
-  },
-  debugText: {
-    marginTop: 12,
-    fontSize: 12
-  },
-  rowBetween: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12
   }
 });

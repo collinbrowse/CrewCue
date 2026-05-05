@@ -1,19 +1,19 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Pressable, Text } from "react-native";
-import { AuthenticatedOperateScreen } from "./AuthenticatedOperateScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
-import { MapWorkspaceScreen } from "./MapWorkspaceScreen";
-import { NavigateScreen } from "./NavigateScreen";
 import { JoinRoomDetailsScreen } from "./JoinRoomDetailsScreen";
 import { ManageRoomMembersScreen } from "./ManageRoomMembersScreen";
+import { MapWorkspaceScreen } from "./MapWorkspaceScreen";
+import { NavigateScreen } from "./NavigateScreen";
+import { TrackMapDashboardScreen } from "./TrackMapDashboardScreen";
 import { WorkspaceMenuScreen } from "./WorkspaceMenuScreen";
 import { useNavColors } from "./navigationTheme";
-import type { OperateStackParamList } from "./types";
+import type { MapStackParamList } from "./types";
 
-const Stack = createNativeStackNavigator<OperateStackParamList>();
+const Stack = createNativeStackNavigator<MapStackParamList>();
 
-export function OperateStack(): ReactElement {
+export function MapStack(): ReactElement {
   const navColors = useNavColors();
   return (
     <Stack.Navigator
@@ -30,7 +30,11 @@ export function OperateStack(): ReactElement {
         )
       })}
     >
-      <Stack.Screen name="OperateHome" component={AuthenticatedOperateScreen} options={{ title: "Operate" }} />
+      <Stack.Screen
+        name="MapHome"
+        component={TrackMapDashboardScreen}
+        options={{ title: "Map", headerShown: false }}
+      />
       <Stack.Screen name="MapWorkspace" component={MapWorkspaceScreen} options={{ title: "Map workspace" }} />
       <Stack.Screen name="Navigate" component={NavigateScreen} options={{ title: "Navigate" }} />
       <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Race setup" }} />
@@ -39,7 +43,7 @@ export function OperateStack(): ReactElement {
         name="WorkspaceMenu"
         component={WorkspaceMenuScreen}
         options={{
-          title: "Settings",
+          title: "Workspace",
           headerRight: () => null
         }}
       />

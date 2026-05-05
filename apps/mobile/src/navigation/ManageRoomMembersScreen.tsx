@@ -5,7 +5,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { Role } from "@crewcue/contracts";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { OperateStackParamList } from "./types";
+import type { MapStackParamList } from "./types";
 
 const ROLE_OPTIONS: Role[] = ["athlete", "crew_member", "crew_chief", "team_manager"];
 
@@ -13,7 +13,7 @@ export function ManageRoomMembersScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
   const colorScheme = useColorScheme();
-  const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList, "ManageRoomMembers">>();
+  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList, "ManageRoomMembers">>();
   const [selectedRoles, setSelectedRoles] = useState<Record<string, Role>>({});
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("crew_member");

@@ -15,48 +15,42 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-05 (America/Chicago)
-- **Git:** `main` fast-forwarded to `origin/main` at merge commit **`44fb33a`**. Local `feature/218-two-design-systems` branch deleted after merge.
-- **Merged:** [#219](https://github.com/collinbrowse/CrewCue/pull/219) closed [#218](https://github.com/collinbrowse/CrewCue/issues/218) (dual design systems + light/dark behavior + Android AsyncStorage local-repo patch).
-- **Working tree note:** local user edits still present in `apps/mobile/package.json`, `package-lock.json`, and untracked `tsconfig.json` (left untouched).
+- **Branch:** `feature/220-map-dashboard` (issue [#220](https://github.com/collinbrowse/CrewCue/issues/220)).
+- **Scope:** Map-first mobile dashboard + root tabs Map / Pace / Chat / Profile; map-core course position helpers; explicit projection poll setter.
 
 ## Current objective
 
-Post-merge stabilization and follow-on QA for the redesigned mobile/web theming system now on `main`.
+Open PR for #220, link `Closes #220`, merge after CI green.
 
-## Acceptance criteria (post-merge)
+## Acceptance criteria (this branch)
 
-1. iOS + Android dev workflows remain reliable (`npm run ios -w @crewcue/mobile`, `npx expo run:android`).
-2. System-appearance behavior on iOS/Android is validated manually (Auto mode + forced overrides).
-3. Follow-up docs reflect testing commands and known caveats.
+1. Root tabs: Map, Pace (Readouts stack), Chat (placeholder), Profile (settings + avatar + sign out).
+2. Map home: full-screen map, follow-runner (disabled on user pan/zoom), layers modal, sheet with checklist, race picker, workspace gear.
+3. `onSetProjectionPollEnabled` on shell; map dashboard enables poll on focus, disables on blur.
+4. `npm run verify` passes.
 
-## Delivered on `main` (from #204 / #203)
+## Delivered (feature branch)
 
-- Contracts: `NavigationRouteMeta`, `PostNavigationRouteResponse`, `GeocodeSearchResultItem`.
-- API: [`geocodeRoutes.ts`](services/api/src/routes/geocodeRoutes.ts); routing resolves `checkpointIds` from room workspace; crow-flight detour meta for hike UX.
-- map-core: `summarizeParsedCourseUploadAnalytics`, `parseUploadToWorkspaceLayerWithAnalytics`.
-- Mobile: [`NavigateScreen.native.tsx`](apps/mobile/src/navigation/NavigateScreen.native.tsx), [`MapWorkspaceScreen.native.tsx`](apps/mobile/src/navigation/MapWorkspaceScreen.native.tsx), [`routeProgress.ts`](apps/mobile/src/features/maps/routeProgress.ts), basemap prefs + `expo-location` + AsyncStorage deps.
-- Web: [`MapWorkspace.tsx`](apps/web/src/MapWorkspace.tsx), [`analytics/track.ts`](apps/web/src/analytics/track.ts), API client extensions, [`mapStyleUrl.ts`](apps/web/src/mapStyleUrl.ts).
-- CI/docs: `.github/workflows/ci.yml` adds `MAPTILER_API_KEY` placeholder; `.env.example` documents server MapTiler key.
+- [`MapStack.tsx`](apps/mobile/src/navigation/MapStack.tsx) replaces Operate stack; [`TrackMapDashboardScreen.tsx`](apps/mobile/src/navigation/TrackMapDashboardScreen.tsx) map home.
+- [`ProfileStack.tsx`](apps/mobile/src/navigation/ProfileStack.tsx) + [`ProfileHomeScreen.tsx`](apps/mobile/src/navigation/ProfileHomeScreen.tsx): design system, offline maps toggle, sign out; workspace menu trimmed to race ops.
+- [`packages/map-core/src/coursePosition.ts`](packages/map-core/src/coursePosition.ts) + tests; `npm run build -w @crewcue/map-core` refreshes `dist/` for consumers.
+- [`AuthedShellContext`](apps/mobile/src/shell/AuthedShellContext.tsx) + [`App.tsx`](apps/mobile/App.tsx): `onSetProjectionPollEnabled`.
+- [`linking.ts`](apps/mobile/src/navigation/linking.ts) updated for new tab names.
 
 ## Next 1-3 tasks
 
-1. Run a quick post-merge mobile smoke on iOS + Android appearance switching and map-screen fallback behavior.
-2. Add/refresh runbook notes for reliable simulator/emulator commands (especially env-loading and native build paths).
-3. Pick next roadmap issue from current open backlog after smoke is confirmed.
+1. `gh pr create` with **Linked issues** `Closes #220`; push branch if needed.
+2. Manual iOS/Android smoke: tabs, sheet drag, layers, follow FAB, race picker, Profile → workspace menu link.
+3. Optional: update `mvp-ui-development-spec.md` OperateHome → MapHome table row (docs-only).
 
 ## Validation summary
 
-- #219 merged to `main` with:
-  - shared design registry + `kinetic`/`performance` + light/dark variants
-  - persisted runtime selection on mobile + web
-  - iOS appearance wiring fixes in `apps/mobile/ios/CrewCue/*`
-  - Android AsyncStorage local Maven patch in `patches/@react-native-async-storage+async-storage+3.0.2.patch`
-- Pre-merge validation for #219 included `npm run verify` pass.
+- `npm run verify` passed locally on `feature/220-map-dashboard` (2026-05-05).
 
 ## Open risks/blockers/questions
 
-- iOS simulator appearance behavior should be re-checked after clean rebuilds when Xcode/SDK versions change.
-- Emulator/simulator test instructions should stay explicit to avoid `npx expo run:*` path/env confusion.
+- Map `onRegionDidChange` `userInteraction` must be verified on devices (disable follow only on real user gestures).
+- Elevation row uses GeoJSON Z on workspace tracks when present; otherwise shows "—".
 
 ## Guardrails
 
@@ -66,5 +60,5 @@ Post-merge stabilization and follow-on QA for the redesigned mobile/web theming 
 ## Successor prompt
 
 ```text
-On main after #219 merge: run iOS+Android smoke for theme auto/manual mode behavior, update any runbook gaps for reliable local testing commands, then pick next prioritized backlog issue.
+On branch feature/220-map-dashboard: open PR with Closes #220, fill PR template Linked issues, confirm CI green, then manual iOS/Android smoke for map follow-mode + sheet.
 ```

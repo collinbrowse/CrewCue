@@ -107,6 +107,7 @@ export type AuthedShellContextValue = {
   onRecordOutboxMergeTelemetry: (operationId: string) => Promise<void>;
   onFetchProjection: () => void;
   onToggleProjectionPoll: () => void;
+  onSetProjectionPollEnabled: (enabled: boolean) => void;
   onFetchTaskBoard: () => void;
   onPostProtocolNote: () => void;
   onFetchTimeline: () => void;

@@ -34,7 +34,7 @@ export function ReadoutsIncidentsScreen(): ReactElement {
         <Text style={s.styles.label}>Incident count</Text>
         <Text style={s.styles.code}>{incidents.length}</Text>
         {incidents.length === 0 ? (
-          <Text style={s.styles.body}>No incidents loaded yet. Use Operate actions to post/fetch incidents.</Text>
+          <Text style={s.styles.body}>No incidents loaded yet. Use Map tab actions to post/fetch incidents.</Text>
         ) : (
           incidents
             .slice()

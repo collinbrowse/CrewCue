@@ -5,19 +5,36 @@ export const crewCueLinking: LinkingOptions<any> = {
   config: {
     screens: {
       Home: "guest",
-      Operate: {
-        path: "operate",
+      Map: {
+        path: "map",
         screens: {
-          OperateHome: "",
-          OperateStatus: "status",
-          OperateOutbox: "outbox"
+          MapHome: "",
+          MapWorkspace: "workspace",
+          Navigate: "navigate",
+          RacePlanning: "race-setup",
+          JoinRoomDetails: "join",
+          WorkspaceMenu: "menu",
+          ManageRoomMembers: "members"
         }
       },
-      Readouts: {
-        path: "readouts",
+      Pace: {
+        path: "pace",
         screens: {
           ReadoutsHome: "",
-          ReadoutsIncidents: "incidents"
+          ReadoutsIncidents: "incidents",
+          GpxImport: "gpx"
+        }
+      },
+      Chat: {
+        path: "chat",
+        screens: {
+          ChatHome: ""
+        }
+      },
+      Profile: {
+        path: "profile",
+        screens: {
+          ProfileHome: ""
         }
       }
     }
