@@ -14,7 +14,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-04 (America/Chicago)
+- Last updated: 2026-05-05 (America/Chicago)
 - **Git:** `main` fast-forwarded to `origin/main` (**`9847af6`**). Removed stale locals **`feature/maps-audit-closure`** and **`fix/209-pr-decision-doc-guard-markdown`** (remotes already deleted). Working tree clean; **no open PRs**.
 - **Merged recently:** [#204](https://github.com/collinbrowse/CrewCue/pull/204) (maps audit closure, **#203**), [#213](https://github.com/collinbrowse/CrewCue/pull/213), [#212](https://github.com/collinbrowse/CrewCue/pull/212), [#210](https://github.com/collinbrowse/CrewCue/pull/210) (**#209**). **#206** (GPX parity) **closed**.
 - **Open issues (sample):** [#205](https://github.com/collinbrowse/CrewCue/issues/205) MapTiler key docs/ops; sprint/backlog **#186**, **#185**, **#182** (see GitHub **Open** filter).
@@ -51,6 +51,8 @@ Prove maps audit closure on **staging**: `MAPTILER_API_KEY` on the API service, 
 - **Railway:** [#212](https://github.com/collinbrowse/CrewCue/pull/212) on `main`; keep dashboard **Build Command** aligned with `railway.toml` (`npm run build -w @crewcue/api` only) to avoid **EBUSY** on `.vite`.
 - **Mobile web:** `secureStorage.{web,native}.ts` split — no `expo-secure-store` on web.
 - **PR #204** merged; CI was green pre-merge; re-run **`npm run verify`** locally after large pulls if you touch code.
+- **2026-05-05 local dev unblock:** ran `npx expo install expo-location` in `apps/mobile`; `npm ls expo-location --workspace @crewcue/mobile` now resolves `expo-location@55.1.8`.
+- **2026-05-05 mobile env fix:** added `apps/mobile/app.config.js` to read `apps/mobile/.env` and expose `extra.maptilerApiKey`, plus mobile basemap fallback reads (`process.env` -> `Constants.expoConfig.extra`) in `apps/mobile/src/features/maps/mapStyleUrl.ts`. Validation: `node -e "const cfg=require('./apps/mobile/app.config.js')({config:{}}); console.log(Boolean(cfg.extra?.maptilerApiKey));"` -> `true`, and `npm run typecheck -w @crewcue/mobile` passes.
 
 ## Open risks/blockers/questions
 
