@@ -9,10 +9,10 @@ export type GuestStackParamList = {
   Notifications: undefined;
 };
 
-export type OperateStackParamList = {
-  OperateHome: undefined;
+/** Primary map + race operations stack (Map tab). */
+export type MapStackParamList = {
+  MapHome: undefined;
   RacePlanning: { mode?: "create" | "edit" } | undefined;
-  MapWorkspace: undefined;
   Navigate: undefined;
   JoinRoomDetails: { roomCode?: string } | undefined;
   WorkspaceMenu: undefined;
@@ -25,7 +25,20 @@ export type ReadoutsStackParamList = {
   GpxImport: undefined;
 };
 
-export type CrewMainTabParamList = {
-  Operate: NavigatorScreenParams<OperateStackParamList>;
-  Readouts: NavigatorScreenParams<ReadoutsStackParamList>;
+export type ChatStackParamList = {
+  ChatHome: undefined;
 };
+
+export type ProfileStackParamList = {
+  ProfileHome: undefined;
+};
+
+export type CrewMainTabParamList = {
+  Map: NavigatorScreenParams<MapStackParamList>;
+  Pace: NavigatorScreenParams<ReadoutsStackParamList>;
+  Chat: NavigatorScreenParams<ChatStackParamList>;
+  Profile: NavigatorScreenParams<ProfileStackParamList>;
+};
+
+/** @deprecated Use MapStackParamList */
+export type OperateStackParamList = MapStackParamList;

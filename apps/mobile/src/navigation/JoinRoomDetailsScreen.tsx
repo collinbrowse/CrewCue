@@ -5,14 +5,14 @@ import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard, DSTextInput } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { OperateStackParamList } from "./types";
+import type { MapStackParamList } from "./types";
 
 const ROLE_CHOICES = ["Crew Member", "Crew Chief", "Pacer", "Logistics", "Other"] as const;
 
 export function JoinRoomDetailsScreen(): ReactElement {
   const s = useAuthedShell();
-  const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList>>();
-  const route = useRoute<RouteProp<OperateStackParamList, "JoinRoomDetails">>();
+  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList>>();
+  const route = useRoute<RouteProp<MapStackParamList, "JoinRoomDetails">>();
   const [roomCode, setRoomCode] = useState(route.params?.roomCode ?? "");
   const [displayName, setDisplayName] = useState("");
   const [selectedRole, setSelectedRole] = useState<(typeof ROLE_CHOICES)[number] | "">("");
@@ -125,11 +125,11 @@ export function JoinRoomDetailsScreen(): ReactElement {
             </View>
             <Text style={styles.successTitle}>You are in!</Text>
             <Text style={styles.successBody}>
-              {displayName.trim()} joined as {selectedRole}. Head back to Operate to review race details with your crew.
+              {displayName.trim()} joined as {selectedRole}. Head back to the map to review race details with your crew.
             </Text>
             <View style={styles.actionWrap}>
-              <DSButton preset="primary" onPress={() => navigation.navigate("OperateHome")}>
-                Go to Operate
+              <DSButton preset="primary" onPress={() => navigation.navigate("MapHome")}>
+                Go to map
               </DSButton>
             </View>
           </DSCard>

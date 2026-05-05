@@ -36,7 +36,7 @@ export function OperateStatusScreen(): ReactElement {
           styles={s.styles}
           disableRefresh={!s.room}
           disablePushDiagnostics={!s.room || s.room.status !== "active"}
-          refreshDisabledHint={!s.room ? "Create a room from Operate before refreshing WS5 telemetry." : undefined}
+          refreshDisabledHint={!s.room ? "Create a room from the Map tab before refreshing WS5 telemetry." : undefined}
           pushDisabledHint={
             s.room && s.room.status !== "active"
               ? "Activate the room before pushing queue diagnostics snapshots."

@@ -21,7 +21,7 @@ export function ReadoutsStack(): ReactElement {
         headerShadowVisible: false,
         headerRight: () => (
           <Pressable
-            onPress={() => navigation.getParent()?.navigate("Operate", { screen: "WorkspaceMenu" })}
+            onPress={() => navigation.getParent()?.navigate("Map", { screen: "WorkspaceMenu" })}
             style={{ paddingHorizontal: 8, paddingVertical: 6 }}
           >
             <Text style={{ color: navColors.primary, fontWeight: "700", fontSize: 20 }}>☰</Text>

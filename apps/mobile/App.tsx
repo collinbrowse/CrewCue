@@ -1342,6 +1342,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     [room, auth.claims?.sub, canEditTasks, currentRoomRole, refreshOutbox]
   );
 
+  const setProjectionPollEnabledExplicit = useCallback((enabled: boolean) => {
+    setProjectionPollEnabled(enabled);
+  }, []);
+
   const shellValue: AuthedShellContextValue = {
     styles,
     baseUrl,
@@ -1410,6 +1414,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onToggleProjectionPoll: () => {
       setProjectionPollEnabled((v) => !v);
     },
+    onSetProjectionPollEnabled: setProjectionPollEnabledExplicit,
     onFetchTaskBoard: fetchTaskBoard,
     onPostProtocolNote: postProtocolNote,
     onFetchTimeline: fetchTimeline,
