@@ -15,20 +15,21 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-05 (America/Chicago)
-- **Git:** `main` fast-forwarded to `origin/main` (**`9847af6`**). Removed stale locals **`feature/maps-audit-closure`** and **`fix/209-pr-decision-doc-guard-markdown`** (remotes already deleted). Working tree clean; **no open PRs**.
-- **Merged recently:** [#204](https://github.com/collinbrowse/CrewCue/pull/204) (maps audit closure, **#203**), [#213](https://github.com/collinbrowse/CrewCue/pull/213), [#212](https://github.com/collinbrowse/CrewCue/pull/212), [#210](https://github.com/collinbrowse/CrewCue/pull/210) (**#209**). **#206** (GPX parity) **closed**.
-- **Open issues (sample):** [#205](https://github.com/collinbrowse/CrewCue/issues/205) MapTiler key docs/ops; sprint/backlog **#186**, **#185**, **#182** (see GitHub **Open** filter).
-- Sprint milestone: maps + single-upload GPX parity — **shipped on `main`**; focus shifts to **staging env + QA + docs**.
+- **Git:** working branch `feature/218-two-design-systems` for redesign/toggle implementation tied to [#218](https://github.com/collinbrowse/CrewCue/issues/218).
+- **In progress:** full visual redesign replacement with two global runtime design systems (`kinetic`, `performance`) across mobile + web, each with light/dark variants bound to device setting.
+- **Validation:** local `npm run verify` passed on this branch after design-system integration.
 
 ## Current objective
 
-Prove maps audit closure on **staging**: `MAPTILER_API_KEY` on the API service, geocode + routing + web/mobile map flows; close or advance **#205** once behavior is documented.
+Complete PR for [#218](https://github.com/collinbrowse/CrewCue/issues/218): ship the full redesign migration with an immediate, persisted in-app toggle between `kinetic` and `performance`, with automatic light/dark mode behavior.
 
 ## Acceptance criteria (post-merge)
 
-1. Staging API has **`MAPTILER_API_KEY`**; `GET …/geocode/search` and routing paths succeed for a smoke room.
-2. Web + mobile map workspace / navigate flows match expectations (checkpoints, offline pack lifecycle where applicable).
-3. Root **`npm run verify`** green on latest **`main`** before the next feature branch ships.
+1. Mobile + web expose an in-app design-system selector.
+2. Switching design systems applies globally in the same session (no restart required).
+3. Selection persists across app restart/refresh.
+4. Only `kinetic` and `performance` are selectable.
+5. Root **`npm run verify`** passes.
 
 ## Delivered on `main` (from #204 / #203)
 
@@ -41,24 +42,26 @@ Prove maps audit closure on **staging**: `MAPTILER_API_KEY` on the API service, 
 
 ## Next 1-3 tasks
 
-1. **Staging:** set **`MAPTILER_API_KEY`** on the API service; run maps/geocode QA.
-2. **Docs/Ops:** [#205](https://github.com/collinbrowse/CrewCue/issues/205) — when MapTiler keys are required vs optional.
-3. **Backlog:** pick next **Sprint 1** issue (**#186** / **#185**) or **Epic A** (**#182**) per roadmap priority.
+1. Review feature diff for `feature/218-two-design-systems` and open PR with `Closes #218`.
+2. Verify toggle UX manually on-device/simulator and in web browser.
+3. Merge after green checks, then resume staging/docs follow-up tasks.
 
 ## Validation summary
 
-- **2026-05-04 sync:** `git fetch --prune`, `git checkout main`, `git pull --ff-only`; deleted gone-tracking locals; **`main` == `origin/main`**.
-- **Railway:** [#212](https://github.com/collinbrowse/CrewCue/pull/212) on `main`; keep dashboard **Build Command** aligned with `railway.toml` (`npm run build -w @crewcue/api` only) to avoid **EBUSY** on `.vite`.
-- **Mobile web:** `secureStorage.{web,native}.ts` split — no `expo-secure-store` on web.
-- **PR #204** merged; CI was green pre-merge; re-run **`npm run verify`** locally after large pulls if you touch code.
-- **2026-05-05 local dev unblock:** ran `npx expo install expo-location` in `apps/mobile`; `npm ls expo-location --workspace @crewcue/mobile` now resolves `expo-location@55.1.8`.
-- **2026-05-05 mobile env fix:** added `apps/mobile/app.config.js` to read `apps/mobile/.env` and expose `extra.maptilerApiKey`, plus mobile basemap fallback reads (`process.env` -> `Constants.expoConfig.extra`) in `apps/mobile/src/features/maps/mapStyleUrl.ts`. Validation: `node -e "const cfg=require('./apps/mobile/app.config.js')({config:{}}); console.log(Boolean(cfg.extra?.maptilerApiKey));"` -> `true`, and `npm run typecheck -w @crewcue/mobile` passes.
+- Added shared design registry: `packages/contracts/src/designSystems.ts` (+ export via contracts index).
+- Mobile: root provider + persisted selection + settings toggle + navigation theming/token updates.
+- Web: root provider + persisted selection + CSS token scopes + map workspace design toggle.
+- Added onboarding docs: `docs/design-systems.md`.
+- Validation commands passed:
+  - `npm run build -w @crewcue/contracts`
+  - `npm run typecheck -w @crewcue/web`
+  - `npm run typecheck -w @crewcue/mobile`
+  - `npm run verify`
 
 ## Open risks/blockers/questions
 
-- MapTiler geocode URL shape vs Cloud API (watch **502** / empty features).
-- Offline pack polling: confirm **`OfflinePack.status()`** reaches **`complete`** on hardware.
-- GPX: API stores **parsed** course + simplified geometry, not raw GPX bytes; primary route layer id **`crewcue-primary-course-route`**.
+- Visual parity tuning may still be needed on secondary/less-frequent screens with local hardcoded styles.
+- Font-family fallbacks are defined, but exact custom font loading behavior should be checked on device/web.
 
 ## Guardrails
 
@@ -68,5 +71,5 @@ Prove maps audit closure on **staging**: `MAPTILER_API_KEY` on the API service, 
 ## Successor prompt
 
 ```text
-On latest main: staging MAPTILER_API_KEY + maps/geocode smoke; advance or close #205. Then branch from main for next Sprint 1 / Epic A issue per roadmap.
+On feature/218-two-design-systems, open PR for #218 with Closes #218. Confirm mobile/web runtime toggle behavior manually, then merge after CI.
 ```

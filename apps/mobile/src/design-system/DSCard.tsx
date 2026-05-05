@@ -11,7 +11,16 @@ export function DSCard({ children, style }: Props): ReactElement {
   const theme = useDSTheme();
   return (
     <View
-      style={[styles.base, { backgroundColor: theme.color.card, borderColor: theme.color.divider }, style]}
+      style={[
+        styles.base,
+        {
+          backgroundColor: theme.color.card,
+          borderColor: theme.color.divider,
+          borderRadius: theme.radius.lg,
+          padding: theme.spacing.cardPadding
+        },
+        style
+      ]}
     >
       {children}
     </View>
@@ -20,8 +29,6 @@ export function DSCard({ children, style }: Props): ReactElement {
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: 16,
-    padding: 20,
     gap: 4,
     borderWidth: 1
   }

@@ -12,7 +12,8 @@ export function DSTextInput(props: TextInputProps): ReactElement {
         {
           color: theme.color.authHeading,
           borderColor: theme.color.divider,
-          backgroundColor: "#ffffff"
+          backgroundColor: theme.color.card,
+          borderRadius: theme.radius.lg
         },
         props.style
       ]}

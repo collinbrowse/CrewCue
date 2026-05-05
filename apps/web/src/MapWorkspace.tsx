@@ -1,4 +1,10 @@
-import type { MapWorkspaceLayer, RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
+import {
+  DESIGN_SYSTEMS,
+  type DesignSystemId,
+  type MapWorkspaceLayer,
+  type RaceCourseCheckpoint,
+  type RaceMapWorkspace
+} from "@crewcue/contracts";
 import {
   PRIMARY_COURSE_ROUTE_LAYER_ID,
   buildRaceCourseFromGpx,
@@ -22,6 +28,7 @@ import {
 } from "react";
 import { emitWebAnalytics } from "./analytics/track";
 import { createWebApiClient } from "./api/client";
+import { useWebDesignSystem } from "./designSystem";
 import type { WebBasemapPresetId } from "./mapStyleUrl";
 import { webBasemapAnalyticsId, webMapStyleUrlForPreset } from "./mapStyleUrl";
 
@@ -44,6 +51,7 @@ function readStoredBasemap(): WebBasemapPresetId {
 }
 
 export function MapWorkspace(): ReactElement {
+  const { selectedDesignSystemId, setDesignSystemId } = useWebDesignSystem();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const workspaceRef = useRef<RaceMapWorkspace>({
@@ -415,6 +423,29 @@ export function MapWorkspace(): ReactElement {
     []
   );
 
+  const buttonStyle: CSSProperties = useMemo(
+    () => ({
+      background: "var(--button-secondary-bg)",
+      color: "var(--button-secondary-text)",
+      border: "1px solid var(--accent-border)",
+      borderRadius: "var(--radius-sm)",
+      padding: "8px 12px",
+      fontFamily: "var(--sans)",
+      fontWeight: 600,
+      cursor: "pointer"
+    }),
+    []
+  );
+
+  const primaryButtonStyle: CSSProperties = useMemo(
+    () => ({
+      ...buttonStyle,
+      background: "var(--button-primary-bg)",
+      color: "var(--button-primary-text)"
+    }),
+    [buttonStyle]
+  );
+
   return (
     <div style={shellStyle}>
       <header
@@ -427,6 +458,17 @@ export function MapWorkspace(): ReactElement {
         <strong style={{ color: "var(--text-h)" }}>CrewCue map workspace</strong>
         <div style={{ fontSize: 13, color: "var(--text)" }}>{layerHint}</div>
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <label style={{ fontSize: 14, color: "var(--text-h)" }}>
+            Design{" "}
+            <select
+              value={selectedDesignSystemId}
+              onChange={(e) => setDesignSystemId(e.target.value as DesignSystemId)}
+              style={{ marginLeft: 8 }}
+            >
+              <option value="kinetic">{DESIGN_SYSTEMS.kinetic.name}</option>
+              <option value="performance">{DESIGN_SYSTEMS.performance.name}</option>
+            </select>
+          </label>
           <label style={{ fontSize: 14, color: "var(--text-h)" }}>
             Basemap{" "}
             <select
@@ -445,10 +487,10 @@ export function MapWorkspace(): ReactElement {
           </label>
           {apiConfigured ? (
             <>
-              <button type="button" onClick={() => void loadRemote()}>
+              <button type="button" style={buttonStyle} onClick={() => void loadRemote()}>
                 Load from API
               </button>
-              <button type="button" onClick={() => void persistRemote()}>
+              <button type="button" style={primaryButtonStyle} onClick={() => void persistRemote()}>
                 Save to API
               </button>
             </>

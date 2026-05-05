@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { navColors } from "./navigationTheme";
+import { useNavColors } from "./navigationTheme";
 import { OperateStack } from "./OperateStack";
 import { ReadoutsStack } from "./ReadoutsStack";
 import type { CrewMainTabParamList } from "./types";
@@ -8,6 +8,7 @@ import type { CrewMainTabParamList } from "./types";
 const Tab = createBottomTabNavigator<CrewMainTabParamList>();
 
 export function CrewMainTabs(): ReactElement {
+  const navColors = useNavColors();
   return (
     <Tab.Navigator
       screenOptions={{

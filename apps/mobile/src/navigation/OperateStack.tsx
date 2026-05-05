@@ -8,12 +8,13 @@ import { NavigateScreen } from "./NavigateScreen";
 import { JoinRoomDetailsScreen } from "./JoinRoomDetailsScreen";
 import { ManageRoomMembersScreen } from "./ManageRoomMembersScreen";
 import { WorkspaceMenuScreen } from "./WorkspaceMenuScreen";
-import { navColors } from "./navigationTheme";
+import { useNavColors } from "./navigationTheme";
 import type { OperateStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<OperateStackParamList>();
 
 export function OperateStack(): ReactElement {
+  const navColors = useNavColors();
   return (
     <Stack.Navigator
       screenOptions={({ navigation }) => ({

@@ -3,13 +3,14 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Pressable, Text } from "react-native";
 import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
-import { navColors } from "./navigationTheme";
+import { useNavColors } from "./navigationTheme";
 import { ReadoutsIncidentsScreen } from "./ReadoutsIncidentsScreen";
 import type { ReadoutsStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<ReadoutsStackParamList>();
 
 export function ReadoutsStack(): ReactElement {
+  const navColors = useNavColors();
   return (
     <Stack.Navigator
       screenOptions={({ navigation }) => ({
