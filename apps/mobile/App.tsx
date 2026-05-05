@@ -53,10 +53,11 @@ import {
 import { crewCueLinking } from "./src/navigation/linking";
 import {
   CANVAS_BACKGROUND_COLOR,
+  DSDesignSystemProvider,
   useDSTheme,
   type DSThemeTokens
 } from "./src/design-system";
-import { crewCueNavigationTheme } from "./src/navigation/navigationTheme";
+import { useCrewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
@@ -116,7 +117,11 @@ export default function App(): ReactElement {
     );
   }
 
-  return <AuthedShell baseUrl={configResult.config.apiBaseUrl} auth0={configResult.config} />;
+  return (
+    <DSDesignSystemProvider>
+      <AuthedShell baseUrl={configResult.config.apiBaseUrl} auth0={configResult.config} />
+    </DSDesignSystemProvider>
+  );
 }
 
 type AuthedShellProps = {
@@ -164,6 +169,7 @@ function mergeRaceRoomListSnapshot(prev: RaceRoom, fromList: RaceRoom): RaceRoom
 
 function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const theme = useDSTheme();
+  const navigationTheme = useCrewCueNavigationTheme();
   const styles = useMemo(() => createAuthedStyles(theme), [theme]);
   const auth = useAuth({
     domain: auth0.auth0Domain,
@@ -1451,7 +1457,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   return (
     <AuthedShellProvider value={shellValue}>
-      <NavigationContainer theme={crewCueNavigationTheme} linking={crewCueLinking}>
+      <NavigationContainer theme={navigationTheme} linking={crewCueLinking}>
         {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
       <StatusBar style="dark" />
@@ -1650,9 +1656,9 @@ function createAuthedStyles(theme: DSThemeTokens) {
       padding: 16
     },
     card: {
-      borderRadius: 16,
-      padding: 20,
-      backgroundColor: "#ffffff",
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.cardPadding,
+      backgroundColor: theme.color.card,
       borderWidth: 1,
       borderColor: theme.color.divider,
       gap: 4
@@ -1703,10 +1709,10 @@ function createAuthedStyles(theme: DSThemeTokens) {
     },
     primaryButton: {
       backgroundColor: theme.color.authPrimaryAction,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      borderRadius: 24,
-      minHeight: 48,
+      paddingVertical: theme.spacing.base + 4,
+      paddingHorizontal: theme.spacing.base * 2,
+      borderRadius: theme.radius.full,
+      minHeight: theme.spacing.touchTargetMin,
       alignItems: "center"
     },
     primaryButtonLabel: {
@@ -1716,10 +1722,10 @@ function createAuthedStyles(theme: DSThemeTokens) {
     },
     secondaryButton: {
       backgroundColor: theme.color.authSecondaryAction,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      borderRadius: 24,
-      minHeight: 48,
+      paddingVertical: theme.spacing.base + 4,
+      paddingHorizontal: theme.spacing.base * 2,
+      borderRadius: theme.radius.full,
+      minHeight: theme.spacing.touchTargetMin,
       alignItems: "center"
     },
     secondaryButtonLabel: {
@@ -1733,9 +1739,9 @@ function createAuthedStyles(theme: DSThemeTokens) {
     },
     summaryCard: {
       marginTop: 16,
-      borderRadius: 16,
+      borderRadius: theme.radius.lg,
       padding: 14,
-      backgroundColor: "#ffffff",
+      backgroundColor: theme.color.summaryCard,
       borderWidth: 1,
       borderColor: theme.color.divider
     },
@@ -1748,8 +1754,8 @@ function createAuthedStyles(theme: DSThemeTokens) {
     statusRail: {
       marginTop: 12,
       padding: 12,
-      borderRadius: 10,
-      backgroundColor: "#ffffff",
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.statusRail,
       borderWidth: 1,
       borderColor: theme.color.divider,
       gap: 4

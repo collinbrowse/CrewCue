@@ -3,7 +3,7 @@ import { Alert, ScrollView, StyleSheet, Switch, Text, View } from "react-native"
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard } from "../design-system";
-import { useDSTheme } from "../design-system/theme";
+import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { OperateStackParamList } from "./types";
 import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/offlineMaps";
@@ -11,6 +11,14 @@ import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/o
 export function WorkspaceMenuScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
+  const {
+    selectedDesignSystemId,
+    setDesignSystemId,
+    designModeOverride,
+    setDesignModeOverride,
+    systemMode,
+    activeMode
+  } = useDesignSystemSelection();
   const navigation = useNavigation<NativeStackNavigationProp<OperateStackParamList>>();
   const [changingRace, setChangingRace] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -63,6 +71,42 @@ export function WorkspaceMenuScreen(): ReactElement {
           <Text style={[styles.heroBody, { color: theme.color.body }]}>
             Use this menu to jump into joining a room, member management, or starting a new race setup flow.
           </Text>
+        </DSCard>
+
+        <DSCard style={[s.styles.summaryCard, styles.section]}>
+          <Text style={s.styles.summaryTitle}>Design system</Text>
+          <Text style={s.styles.body}>Switch between Kinetic and Performance. Light/dark follows device mode.</Text>
+          <View style={styles.buttonSpacing}>
+            <DSButton
+              preset={selectedDesignSystemId === "kinetic" ? "primary" : "secondary"}
+              onPress={() => void setDesignSystemId("kinetic")}
+            >
+              Kinetic
+            </DSButton>
+            <DSButton
+              preset={selectedDesignSystemId === "performance" ? "primary" : "secondary"}
+              onPress={() => void setDesignSystemId("performance")}
+            >
+              Performance
+            </DSButton>
+          </View>
+          <View style={[styles.buttonSpacing, { marginTop: 12 }]}>
+            <Text style={s.styles.summaryTitle}>Color mode</Text>
+            <DSButton preset={designModeOverride === "auto" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("auto")}>
+              Auto (device)
+            </DSButton>
+            <DSButton preset={designModeOverride === "light" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("light")}>
+              Force Light
+            </DSButton>
+            <DSButton preset={designModeOverride === "dark" ? "primary" : "secondary"} onPress={() => void setDesignModeOverride("dark")}>
+              Force Dark
+            </DSButton>
+          </View>
+          {__DEV__ ? (
+            <Text style={[s.styles.body, styles.debugText]}>
+              Debug: system={systemMode} override={designModeOverride} active={activeMode} design={selectedDesignSystemId}
+            </Text>
+          ) : null}
         </DSCard>
 
         <DSCard style={[s.styles.summaryCard, styles.section]}>
@@ -134,7 +178,7 @@ export function WorkspaceMenuScreen(): ReactElement {
                 setOfflineMapsUnlockedState(value);
                 void setOfflineMapsUnlocked(value);
               }}
-              trackColor={{ false: "#475569", true: "#22c55e" }}
+              trackColor={{ false: theme.color.border, true: theme.color.primary }}
             />
           </View>
         </DSCard>
@@ -159,8 +203,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#c9b8ed",
-    backgroundColor: "rgba(107,70,193,0.12)"
+    borderColor: "rgba(125, 128, 145, 0.6)",
+    backgroundColor: "rgba(125, 128, 145, 0.12)"
   },
   kicker: {
     color: "#93c5fd",
@@ -187,6 +231,10 @@ const styles = StyleSheet.create({
   },
   errorSpacing: {
     marginTop: 10
+  },
+  debugText: {
+    marginTop: 12,
+    fontSize: 12
   },
   rowBetween: {
     flexDirection: "row",

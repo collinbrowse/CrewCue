@@ -1,25 +1,48 @@
 import { DarkTheme, type Theme } from "@react-navigation/native";
-import { CANVAS_BACKGROUND_COLOR } from "../design-system/theme";
+import { useMemo } from "react";
+import { useDSTheme } from "../design-system/theme";
 
-export const navColors = {
-  primary: "#6B46C1",
-  background: CANVAS_BACKGROUND_COLOR,
-  card: "#f7f2e9",
-  text: "#111827",
-  border: "#d8d1c4",
-  notification: "#6B46C1",
-  muted: "#7a756c"
-} as const;
-
-export const crewCueNavigationTheme: Theme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: navColors.primary,
-    background: navColors.background,
-    card: navColors.card,
-    text: navColors.text,
-    border: navColors.border,
-    notification: navColors.notification
-  }
+export type NavColors = {
+  primary: string;
+  background: string;
+  card: string;
+  text: string;
+  border: string;
+  notification: string;
+  muted: string;
 };
+
+export function useNavColors(): NavColors {
+  const theme = useDSTheme();
+  return useMemo(
+    () => ({
+      primary: theme.color.primary,
+      background: theme.color.background,
+      card: theme.color.card,
+      text: theme.color.text,
+      border: theme.color.border,
+      notification: theme.color.notification,
+      muted: theme.color.muted
+    }),
+    [theme]
+  );
+}
+
+export function useCrewCueNavigationTheme(): Theme {
+  const navColors = useNavColors();
+  return useMemo(
+    () => ({
+      ...DarkTheme,
+      colors: {
+        ...DarkTheme.colors,
+        primary: navColors.primary,
+        background: navColors.background,
+        card: navColors.card,
+        text: navColors.text,
+        border: navColors.border,
+        notification: navColors.notification
+      }
+    }),
+    [navColors]
+  );
+}

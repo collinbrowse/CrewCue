@@ -35,7 +35,9 @@ export function DSButton({
         : theme.color.secondaryButton;
 
   const textColor =
-    preset === "authPrimary"
+    preset === "primary"
+      ? theme.color.authPrimaryActionText
+      : preset === "authPrimary"
       ? theme.color.authPrimaryActionText
       : preset === "authSecondary"
         ? theme.color.authSecondaryActionText
@@ -55,7 +57,12 @@ export function DSButton({
         preset === "authOutline"
           ? { borderWidth: 2, borderColor: theme.color.authOutlineBorder }
           : null,
-        { backgroundColor, opacity: disabled ? 0.6 : 1 },
+        {
+          backgroundColor,
+          borderRadius: theme.radius.md,
+          minHeight: theme.spacing.touchTargetMin,
+          opacity: disabled ? 0.6 : 1
+        },
         fullWidth ? styles.fullWidth : null
       ]}
     >
@@ -78,7 +85,6 @@ const styles = StyleSheet.create({
   base: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 10,
     alignItems: "center"
   },
   authBase: {

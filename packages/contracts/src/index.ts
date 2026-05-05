@@ -619,6 +619,15 @@ export interface TeamCommandBoard {
   cards: AthleteStatusCard[];
 }
 
+export {
+  DESIGN_SYSTEMS,
+  DEFAULT_DESIGN_SYSTEM_ID,
+  type DesignSystemDefinition,
+  type DesignSystemId,
+  type DesignSystemMode,
+  type DesignSystemVariant
+} from "./designSystems.js";
+
 export type StaffingOverlapSeverity = "warning" | "blocking";
 
 /** Same crew identity holds in-progress work across two or more concurrent race rooms. */

@@ -6,12 +6,13 @@ import { JoinCrewPreviewScreen } from "./JoinCrewPreviewScreen";
 import { JoinCrewAccountScreen } from "./JoinCrewAccountScreen";
 import { AthleteSetupWizardScreen } from "./AthleteSetupWizardScreen";
 import { OnboardingNotificationsScreen } from "./OnboardingNotificationsScreen";
-import { navColors } from "./navigationTheme";
+import { useNavColors } from "./navigationTheme";
 import type { GuestStackParamList } from "./types";
 
 const Stack = createNativeStackNavigator<GuestStackParamList>();
 
 export function GuestStack(): ReactElement {
+  const navColors = useNavColors();
   return (
     <Stack.Navigator
       screenOptions={{

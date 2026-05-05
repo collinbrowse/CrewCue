@@ -9,7 +9,13 @@ export function isMapLibreNativeAvailable(): boolean {
     return false;
   }
   try {
-    return TurboModuleRegistry.get("MLRNCameraModule") != null;
+    if (TurboModuleRegistry.get("MLRNCameraModule") == null) {
+      return false;
+    }
+    // Some emulator/dev-client combinations can pass TurboModule presence checks
+    // but still fail when the package initializes. Probe the package directly.
+    const mod = require("@maplibre/maplibre-react-native") as { Camera?: unknown; Map?: unknown };
+    return Boolean(mod.Camera && mod.Map);
   } catch {
     return false;
   }

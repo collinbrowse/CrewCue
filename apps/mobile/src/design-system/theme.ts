@@ -1,9 +1,31 @@
-import { useColorScheme } from "react-native";
+import {
+  DEFAULT_DESIGN_SYSTEM_ID,
+  DESIGN_SYSTEMS,
+  type DesignSystemDefinition,
+  type DesignSystemId,
+  type DesignSystemMode
+} from "@crewcue/contracts";
+import {
+  createContext,
+  createElement,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode
+} from "react";
+import { AppState, Appearance } from "react-native";
+import * as SecureStore from "../storage/secureStorage";
 
-/** App-wide canvas behind navigators and full-bleed screens. Toggle once here — wired to `color.background` in both schemes and React Navigation `colors.background`. */
-export const CANVAS_BACKGROUND_COLOR = "#f3efe6";
+const DESIGN_SYSTEM_STORAGE_KEY = "crewcue.design_system_id";
+const DESIGN_MODE_OVERRIDE_STORAGE_KEY = "crewcue.design_mode_override";
+
+export type DesignModeOverride = "auto" | DesignSystemMode;
 
 export type DSThemeTokens = {
+  designSystemId: DesignSystemId;
+  designSystemName: string;
   color: {
     primary: string;
     background: string;
@@ -35,78 +57,204 @@ export type DSThemeTokens = {
     authErrorBg: string;
     authErrorText: string;
   };
+  radius: {
+    sm: number;
+    default: number;
+    md: number;
+    lg: number;
+    xl: number;
+    full: number;
+  };
+  spacing: {
+    base: number;
+    touchTargetMin: number;
+    marginEdge: number;
+    gutter: number;
+    cardPadding: number;
+    stackSm: number;
+    stackMd: number;
+    stackLg: number;
+  };
 };
 
-const darkTokens: DSThemeTokens = {
-  color: {
-    primary: "#2563eb",
-    background: CANVAS_BACKGROUND_COLOR,
-    card: "#111827",
-    text: "#f9fafb",
-    border: "#1f2937",
-    muted: "#9ca3af",
-    body: "#d1d5db",
-    success: "#86efac",
-    warning: "#fde68a",
-    danger: "#fca5a5",
-    secondaryButton: "#1f2937",
-    secondaryButtonActiveBorder: "#3b82f6",
-    toggleButton: "#374151",
-    summaryCard: "#0b1220",
-    statusRail: "#0b1220",
-    visitBorder: "#374151",
-    divider: "#1f2937",
-    notification: "#3b82f6",
-    authHeading: "#111827",
-    authBody: "#5c5a54",
-    authAccent: "#6B46C1",
-    authPrimaryAction: "#6B46C1",
-    authPrimaryActionText: "#ffffff",
-    authSecondaryAction: "#e7e5de",
-    authSecondaryActionText: "#1f2937",
-    authOutlineBorder: "#64748b",
-    authOutlineText: "#111827",
-    authErrorBg: "#fef2f2",
-    authErrorText: "#991b1b"
-  }
-};
-
-const lightTokens: DSThemeTokens = {
-  color: {
-    primary: "#2563eb",
-    background: CANVAS_BACKGROUND_COLOR,
-    card: "#ffffff",
-    text: "#0f172a",
-    border: "#cbd5e1",
-    muted: "#64748b",
-    body: "#334155",
-    success: "#15803d",
-    warning: "#b45309",
-    danger: "#b91c1c",
-    secondaryButton: "#e2e8f0",
-    secondaryButtonActiveBorder: "#2563eb",
-    toggleButton: "#cbd5e1",
-    summaryCard: "#f1f5f9",
-    statusRail: "#f1f5f9",
-    visitBorder: "#94a3b8",
-    divider: "#cbd5e1",
-    notification: "#2563eb",
-    authHeading: "#111827",
-    authBody: "#5c5a54",
-    authAccent: "#6B46C1",
-    authPrimaryAction: "#6B46C1",
-    authPrimaryActionText: "#ffffff",
-    authSecondaryAction: "#e7e5de",
-    authSecondaryActionText: "#1f2937",
-    authOutlineBorder: "#64748b",
-    authOutlineText: "#111827",
-    authErrorBg: "#fef2f2",
-    authErrorText: "#991b1b"
-  }
-};
-
-export function useDSTheme(): DSThemeTokens {
-  const scheme = useColorScheme();
-  return scheme === "light" ? lightTokens : darkTokens;
+function toMobileTokens(definition: DesignSystemDefinition, mode: DesignSystemMode): DSThemeTokens {
+  const c = definition.variants[mode].colors;
+  const variant = definition.variants[mode];
+  return {
+    designSystemId: definition.id,
+    designSystemName: definition.name,
+    color: {
+      primary: c.primaryContainer,
+      background: c.background,
+      card: c.surfaceContainer,
+      text: c.onSurface,
+      border: c.outlineVariant,
+      muted: c.onSurfaceVariant,
+      body: c.onSurfaceVariant,
+      success: c.primaryContainer,
+      warning: c.secondaryContainer,
+      danger: c.error,
+      secondaryButton: c.surfaceContainerHigh,
+      secondaryButtonActiveBorder: c.surfaceTint,
+      toggleButton: c.surfaceContainerHigh,
+      summaryCard: c.surfaceContainer,
+      statusRail: c.surfaceContainerLow,
+      visitBorder: c.outline,
+      divider: c.outlineVariant,
+      notification: c.surfaceTint,
+      authHeading: c.onSurface,
+      authBody: c.onSurfaceVariant,
+      authAccent: c.surfaceTint,
+      authPrimaryAction: c.primaryContainer,
+      authPrimaryActionText: c.onPrimaryContainer,
+      authSecondaryAction: c.secondaryContainer,
+      authSecondaryActionText: c.onSecondaryContainer,
+      authOutlineBorder: c.outline,
+      authOutlineText: c.onSurface,
+      authErrorBg: c.errorContainer,
+      authErrorText: c.onErrorContainer
+    },
+    radius: variant.radius,
+    spacing: variant.spacing
+  };
 }
 
+const TOKENS_BY_SYSTEM_AND_MODE: Record<DesignSystemId, Record<DesignSystemMode, DSThemeTokens>> = {
+  kinetic: {
+    light: toMobileTokens(DESIGN_SYSTEMS.kinetic, "light"),
+    dark: toMobileTokens(DESIGN_SYSTEMS.kinetic, "dark")
+  },
+  performance: {
+    light: toMobileTokens(DESIGN_SYSTEMS.performance, "light"),
+    dark: toMobileTokens(DESIGN_SYSTEMS.performance, "dark")
+  }
+};
+
+type DesignSystemContextValue = {
+  selectedDesignSystemId: DesignSystemId;
+  setDesignSystemId: (next: DesignSystemId) => Promise<void>;
+  designModeOverride: DesignModeOverride;
+  setDesignModeOverride: (next: DesignModeOverride) => Promise<void>;
+  systemMode: DesignSystemMode;
+  activeMode: DesignSystemMode;
+};
+
+const DesignSystemContext = createContext<DesignSystemContextValue | null>(null);
+
+export function getDefaultDesignSystemId(): DesignSystemId {
+  return DEFAULT_DESIGN_SYSTEM_ID;
+}
+
+export async function getStoredDesignSystemId(): Promise<DesignSystemId> {
+  const raw = await SecureStore.getItemAsync(DESIGN_SYSTEM_STORAGE_KEY);
+  if (raw === "kineticTrail") {
+    return "kinetic";
+  }
+  if (raw === "dayModePerformance") {
+    return "performance";
+  }
+  if (raw === "kinetic" || raw === "performance") {
+    return raw;
+  }
+  return DEFAULT_DESIGN_SYSTEM_ID;
+}
+
+export async function setStoredDesignSystemId(next: DesignSystemId): Promise<void> {
+  await SecureStore.setItemAsync(DESIGN_SYSTEM_STORAGE_KEY, next);
+}
+
+async function getStoredDesignModeOverride(): Promise<DesignModeOverride> {
+  const raw = await SecureStore.getItemAsync(DESIGN_MODE_OVERRIDE_STORAGE_KEY);
+  if (raw === "light" || raw === "dark" || raw === "auto") {
+    return raw;
+  }
+  return "auto";
+}
+
+async function setStoredDesignModeOverride(next: DesignModeOverride): Promise<void> {
+  await SecureStore.setItemAsync(DESIGN_MODE_OVERRIDE_STORAGE_KEY, next);
+}
+
+type DSDesignSystemProviderProps = {
+  children: ReactNode;
+};
+
+export function DSDesignSystemProvider({ children }: DSDesignSystemProviderProps): ReactElement {
+  const [systemMode, setSystemMode] = useState<DesignSystemMode>(
+    Appearance.getColorScheme() === "dark" ? "dark" : "light"
+  );
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<DesignSystemId>(
+    DEFAULT_DESIGN_SYSTEM_ID
+  );
+  const [designModeOverride, setDesignModeOverrideState] = useState<DesignModeOverride>("auto");
+
+  useEffect(() => {
+    const refreshSystemMode = () => {
+      const nextScheme = Appearance.getColorScheme();
+      setSystemMode(nextScheme === "dark" ? "dark" : "light");
+    };
+
+    void getStoredDesignSystemId().then(setSelectedDesignSystemId);
+    void getStoredDesignModeOverride().then(setDesignModeOverrideState);
+    const appearanceSub = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemMode(colorScheme === "dark" ? "dark" : "light");
+    });
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshSystemMode();
+      }
+    });
+
+    return () => {
+      appearanceSub.remove();
+      appStateSub.remove();
+    };
+  }, []);
+
+  const activeMode: DesignSystemMode = designModeOverride === "auto" ? systemMode : designModeOverride;
+
+  const value = useMemo<DesignSystemContextValue>(
+    () => ({
+      selectedDesignSystemId,
+      designModeOverride,
+      systemMode,
+      activeMode,
+      setDesignSystemId: async (next: DesignSystemId) => {
+        setSelectedDesignSystemId(next);
+        await setStoredDesignSystemId(next);
+      },
+      setDesignModeOverride: async (next: DesignModeOverride) => {
+        setDesignModeOverrideState(next);
+        await setStoredDesignModeOverride(next);
+      }
+    }),
+    [activeMode, designModeOverride, selectedDesignSystemId, systemMode]
+  );
+
+  return createElement(DesignSystemContext.Provider, { value }, children);
+}
+
+function useDesignSystemContext(): DesignSystemContextValue {
+  const value = useContext(DesignSystemContext);
+  if (!value) {
+    throw new Error("useDSTheme must be used within DSDesignSystemProvider.");
+  }
+  return value;
+}
+
+export function useDesignSystemSelection(): DesignSystemContextValue {
+  return useDesignSystemContext();
+}
+
+export function useDSTheme(): DSThemeTokens {
+  const { selectedDesignSystemId, activeMode } = useDesignSystemContext();
+  return TOKENS_BY_SYSTEM_AND_MODE[selectedDesignSystemId][activeMode];
+}
+
+export function currentCanvasBackground(designSystemId: DesignSystemId): string {
+  return TOKENS_BY_SYSTEM_AND_MODE[designSystemId].light.color.background;
+}
+
+/** App-wide canvas behind navigators and full-bleed screens. */
+export const CANVAS_BACKGROUND_COLOR =
+  TOKENS_BY_SYSTEM_AND_MODE[DEFAULT_DESIGN_SYSTEM_ID].light.color.background;

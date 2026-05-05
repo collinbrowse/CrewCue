@@ -1,0 +1,2146 @@
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build.gradle b/node_modules/@react-native-async-storage/async-storage/android/build.gradle
+index 4f80202..ece86d5 100644
+--- a/node_modules/@react-native-async-storage/async-storage/android/build.gradle
++++ b/node_modules/@react-native-async-storage/async-storage/android/build.gradle
+@@ -78,6 +78,8 @@ android {
+ }
+ 
+ repositories {
++    // AsyncStorage ships shared_storage artifact in this module's local_repo.
++    maven { url("$projectDir/local_repo") }
+     mavenCentral()
+     google()
+ }
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/results.bin b/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/results.bin
+new file mode 100644
+index 0000000..0d259dd
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/results.bin
+@@ -0,0 +1 @@
++o/classes
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/transformed/classes/classes_dex/classes.dex b/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/transformed/classes/classes_dex/classes.dex
+new file mode 100644
+index 0000000..0ae4048
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/.transforms/ed3e7de98b1abaaec13063b2252d41f4/transformed/classes/classes_dex/classes.dex differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt b/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt
+new file mode 100644
+index 0000000..d5de0e6
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt
+@@ -0,0 +1,150 @@
++package org.asyncstorage.legacy_storage
++
++import androidx.room.EntityInsertAdapter
++import androidx.room.RoomDatabase
++import androidx.room.util.appendPlaceholders
++import androidx.room.util.getColumnIndexOrThrow
++import androidx.room.util.performInTransactionSuspending
++import androidx.room.util.performSuspending
++import androidx.sqlite.SQLiteStatement
++import javax.`annotation`.processing.Generated
++import kotlin.Int
++import kotlin.String
++import kotlin.Suppress
++import kotlin.Unit
++import kotlin.collections.List
++import kotlin.collections.MutableList
++import kotlin.collections.mutableListOf
++import kotlin.reflect.KClass
++import kotlin.text.StringBuilder
++
++@Generated(value = ["androidx.room.RoomProcessor"])
++@Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
++internal class StorageDao_Impl(
++  __db: RoomDatabase,
++) : StorageDao {
++  private val __db: RoomDatabase
++
++  private val __insertAdapterOfEntry: EntityInsertAdapter<Entry>
++  init {
++    this.__db = __db
++    this.__insertAdapterOfEntry = object : EntityInsertAdapter<Entry>() {
++      protected override fun createQuery(): String =
++          "INSERT OR REPLACE INTO `Storage` (`key`,`value`) VALUES (?,?)"
++
++      protected override fun bind(statement: SQLiteStatement, entity: Entry) {
++        statement.bindText(1, entity.key)
++        val _tmpValue: String? = entity.value
++        if (_tmpValue == null) {
++          statement.bindNull(2)
++        } else {
++          statement.bindText(2, _tmpValue)
++        }
++      }
++    }
++  }
++
++  public override suspend fun setValues(entries: List<Entry>): Unit = performSuspending(__db, false,
++      true) { _connection ->
++    __insertAdapterOfEntry.insert(_connection, entries)
++  }
++
++  public override suspend fun mergeValues(entries: List<Entry>): Unit =
++      performInTransactionSuspending(__db) {
++    super@StorageDao_Impl.mergeValues(entries)
++  }
++
++  public override suspend fun getValues(keys: List<String>): List<Entry> {
++    val _stringBuilder: StringBuilder = StringBuilder()
++    _stringBuilder.append("SELECT * FROM Storage WHERE `key` IN (")
++    val _inputSize: Int = keys.size
++    appendPlaceholders(_stringBuilder, _inputSize)
++    _stringBuilder.append(")")
++    val _sql: String = _stringBuilder.toString()
++    return performSuspending(__db, true, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        var _argIndex: Int = 1
++        for (_item: String in keys) {
++          _stmt.bindText(_argIndex, _item)
++          _argIndex++
++        }
++        val _columnIndexOfKey: Int = getColumnIndexOrThrow(_stmt, "key")
++        val _columnIndexOfValue: Int = getColumnIndexOrThrow(_stmt, "value")
++        val _result: MutableList<Entry> = mutableListOf()
++        while (_stmt.step()) {
++          val _item_1: Entry
++          val _tmpKey: String
++          _tmpKey = _stmt.getText(_columnIndexOfKey)
++          val _tmpValue: String?
++          if (_stmt.isNull(_columnIndexOfValue)) {
++            _tmpValue = null
++          } else {
++            _tmpValue = _stmt.getText(_columnIndexOfValue)
++          }
++          _item_1 = Entry(_tmpKey,_tmpValue)
++          _result.add(_item_1)
++        }
++        _result
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun getKeys(): List<String> {
++    val _sql: String = "SELECT `key` FROM Storage"
++    return performSuspending(__db, true, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        val _result: MutableList<String> = mutableListOf()
++        while (_stmt.step()) {
++          val _item: String
++          _item = _stmt.getText(0)
++          _result.add(_item)
++        }
++        _result
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun removeValues(keys: List<String>) {
++    val _stringBuilder: StringBuilder = StringBuilder()
++    _stringBuilder.append("DELETE FROM Storage WHERE `key` in (")
++    val _inputSize: Int = keys.size
++    appendPlaceholders(_stringBuilder, _inputSize)
++    _stringBuilder.append(")")
++    val _sql: String = _stringBuilder.toString()
++    return performSuspending(__db, false, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        var _argIndex: Int = 1
++        for (_item: String in keys) {
++          _stmt.bindText(_argIndex, _item)
++          _argIndex++
++        }
++        _stmt.step()
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun clear() {
++    val _sql: String = "DELETE FROM Storage"
++    return performSuspending(__db, false, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        _stmt.step()
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public companion object {
++    public fun getRequiredConverters(): List<KClass<*>> = emptyList()
++  }
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt b/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt
+new file mode 100644
+index 0000000..3887616
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt
+@@ -0,0 +1,117 @@
++package org.asyncstorage.legacy_storage
++
++import androidx.room.InvalidationTracker
++import androidx.room.RoomOpenDelegate
++import androidx.room.migration.AutoMigrationSpec
++import androidx.room.migration.Migration
++import androidx.room.util.TableInfo
++import androidx.room.util.TableInfo.Companion.read
++import androidx.room.util.dropFtsSyncTriggers
++import androidx.sqlite.SQLiteConnection
++import androidx.sqlite.execSQL
++import javax.`annotation`.processing.Generated
++import kotlin.Lazy
++import kotlin.String
++import kotlin.Suppress
++import kotlin.collections.List
++import kotlin.collections.Map
++import kotlin.collections.MutableList
++import kotlin.collections.MutableMap
++import kotlin.collections.MutableSet
++import kotlin.collections.Set
++import kotlin.collections.mutableListOf
++import kotlin.collections.mutableMapOf
++import kotlin.collections.mutableSetOf
++import kotlin.reflect.KClass
++
++@Generated(value = ["androidx.room.RoomProcessor"])
++@Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
++internal class StorageDb_Impl : StorageDb() {
++  private val _storageDao: Lazy<StorageDao> = lazy {
++    StorageDao_Impl(this)
++  }
++
++  protected override fun createOpenDelegate(): RoomOpenDelegate {
++    val _openDelegate: RoomOpenDelegate = object : RoomOpenDelegate(2,
++        "b956059a88e9dfb420dc5fb101fd3156", "e973d14c97f1c647a41b0aff5c0c1a26") {
++      public override fun createAllTables(connection: SQLiteConnection) {
++        connection.execSQL("CREATE TABLE IF NOT EXISTS `Storage` (`key` TEXT NOT NULL, `value` TEXT, PRIMARY KEY(`key`))")
++        connection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
++        connection.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b956059a88e9dfb420dc5fb101fd3156')")
++      }
++
++      public override fun dropAllTables(connection: SQLiteConnection) {
++        connection.execSQL("DROP TABLE IF EXISTS `Storage`")
++      }
++
++      public override fun onCreate(connection: SQLiteConnection) {
++      }
++
++      public override fun onOpen(connection: SQLiteConnection) {
++        internalInitInvalidationTracker(connection)
++      }
++
++      public override fun onPreMigrate(connection: SQLiteConnection) {
++        dropFtsSyncTriggers(connection)
++      }
++
++      public override fun onPostMigrate(connection: SQLiteConnection) {
++      }
++
++      public override fun onValidateSchema(connection: SQLiteConnection):
++          RoomOpenDelegate.ValidationResult {
++        val _columnsStorage: MutableMap<String, TableInfo.Column> = mutableMapOf()
++        _columnsStorage.put("key", TableInfo.Column("key", "TEXT", true, 1, null,
++            TableInfo.CREATED_FROM_ENTITY))
++        _columnsStorage.put("value", TableInfo.Column("value", "TEXT", false, 0, null,
++            TableInfo.CREATED_FROM_ENTITY))
++        val _foreignKeysStorage: MutableSet<TableInfo.ForeignKey> = mutableSetOf()
++        val _indicesStorage: MutableSet<TableInfo.Index> = mutableSetOf()
++        val _infoStorage: TableInfo = TableInfo("Storage", _columnsStorage, _foreignKeysStorage,
++            _indicesStorage)
++        val _existingStorage: TableInfo = read(connection, "Storage")
++        if (!_infoStorage.equals(_existingStorage)) {
++          return RoomOpenDelegate.ValidationResult(false, """
++              |Storage(org.asyncstorage.legacy_storage.Entry).
++              | Expected:
++              |""".trimMargin() + _infoStorage + """
++              |
++              | Found:
++              |""".trimMargin() + _existingStorage)
++        }
++        return RoomOpenDelegate.ValidationResult(true, null)
++      }
++    }
++    return _openDelegate
++  }
++
++  protected override fun createInvalidationTracker(): InvalidationTracker {
++    val _shadowTablesMap: MutableMap<String, String> = mutableMapOf()
++    val _viewTables: MutableMap<String, Set<String>> = mutableMapOf()
++    return InvalidationTracker(this, _shadowTablesMap, _viewTables, "Storage")
++  }
++
++  public override fun clearAllTables() {
++    super.performClear(false, "Storage")
++  }
++
++  protected override fun getRequiredTypeConverterClasses(): Map<KClass<*>, List<KClass<*>>> {
++    val _typeConvertersMap: MutableMap<KClass<*>, List<KClass<*>>> = mutableMapOf()
++    _typeConvertersMap.put(StorageDao::class, StorageDao_Impl.getRequiredConverters())
++    return _typeConvertersMap
++  }
++
++  public override fun getRequiredAutoMigrationSpecClasses(): Set<KClass<out AutoMigrationSpec>> {
++    val _autoMigrationSpecsSet: MutableSet<KClass<out AutoMigrationSpec>> = mutableSetOf()
++    return _autoMigrationSpecsSet
++  }
++
++  public override
++      fun createAutoMigrations(autoMigrationSpecs: Map<KClass<out AutoMigrationSpec>, AutoMigrationSpec>):
++      List<Migration> {
++    val _autoMigrations: MutableList<Migration> = mutableListOf()
++    return _autoMigrations
++  }
++
++  public override fun storage(): StorageDao = _storageDao.value
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/buildConfig/debug/org/asyncstorage/BuildConfig.java b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/buildConfig/debug/org/asyncstorage/BuildConfig.java
+new file mode 100644
+index 0000000..cb2fe33
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/buildConfig/debug/org/asyncstorage/BuildConfig.java
+@@ -0,0 +1,10 @@
++/**
++ * Automatically generated file. DO NOT MODIFY
++ */
++package org.asyncstorage;
++
++public final class BuildConfig {
++  public static final boolean DEBUG = Boolean.parseBoolean("true");
++  public static final String LIBRARY_PACKAGE_NAME = "org.asyncstorage";
++  public static final String BUILD_TYPE = "debug";
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/java/org/asyncstorage/NativeAsyncStorageSpec.java b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/java/org/asyncstorage/NativeAsyncStorageSpec.java
+new file mode 100644
+index 0000000..2efadf3
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/java/org/asyncstorage/NativeAsyncStorageSpec.java
+@@ -0,0 +1,79 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateModuleJavaSpec.js
++ *
++ * @nolint
++ */
++
++package org.asyncstorage;
++
++import com.facebook.proguard.annotations.DoNotStrip;
++import com.facebook.react.bridge.Promise;
++import com.facebook.react.bridge.ReactApplicationContext;
++import com.facebook.react.bridge.ReactContextBaseJavaModule;
++import com.facebook.react.bridge.ReactMethod;
++import com.facebook.react.bridge.ReadableArray;
++import com.facebook.react.turbomodule.core.interfaces.TurboModule;
++import javax.annotation.Nonnull;
++
++public abstract class NativeAsyncStorageSpec extends ReactContextBaseJavaModule implements TurboModule {
++  public static final String NAME = "RNAsyncStorage";
++
++  public NativeAsyncStorageSpec(ReactApplicationContext reactContext) {
++    super(reactContext);
++  }
++
++  @Override
++  public @Nonnull String getName() {
++    return NAME;
++  }
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void getValues(String dbName, ReadableArray keys, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void setValues(String dbName, ReadableArray values, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void removeValues(String dbName, ReadableArray keys, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void getKeys(String dbName, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void clearStorage(String dbName, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_multiGet(ReadableArray keys, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_multiSet(ReadableArray kvPairs, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_multiRemove(ReadableArray keys, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_multiMerge(ReadableArray kvPairs, Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_getAllKeys(Promise promise);
++
++  @ReactMethod
++  @DoNotStrip
++  public abstract void legacy_clear(Promise promise);
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec-generated.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec-generated.cpp
+new file mode 100644
+index 0000000..37acc5d
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec-generated.cpp
+@@ -0,0 +1,92 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateModuleJniCpp.js
++ */
++
++#include "AsyncStorageSpec.h"
++
++namespace facebook::react {
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_getValues(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "getValues", "(Ljava/lang/String;Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_setValues(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "setValues", "(Ljava/lang/String;Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_removeValues(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "removeValues", "(Ljava/lang/String;Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_getKeys(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "getKeys", "(Ljava/lang/String;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_clearStorage(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "clearStorage", "(Ljava/lang/String;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiGet(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_multiGet", "(Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiSet(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_multiSet", "(Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiRemove(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_multiRemove", "(Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiMerge(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_multiMerge", "(Lcom/facebook/react/bridge/ReadableArray;Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_getAllKeys(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_getAllKeys", "(Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++static facebook::jsi::Value __hostFunction_NativeAsyncStorageSpecJSI_legacy_clear(facebook::jsi::Runtime& rt, TurboModule &turboModule, const facebook::jsi::Value* args, size_t count) {
++  static jmethodID cachedMethodId = nullptr;
++  return static_cast<JavaTurboModule &>(turboModule).invokeJavaMethod(rt, PromiseKind, "legacy_clear", "(Lcom/facebook/react/bridge/Promise;)V", args, count, cachedMethodId);
++}
++
++NativeAsyncStorageSpecJSI::NativeAsyncStorageSpecJSI(const JavaTurboModule::InitParams &params)
++  : JavaTurboModule(params) {
++  methodMap_["getValues"] = MethodMetadata {2, __hostFunction_NativeAsyncStorageSpecJSI_getValues};
++  methodMap_["setValues"] = MethodMetadata {2, __hostFunction_NativeAsyncStorageSpecJSI_setValues};
++  methodMap_["removeValues"] = MethodMetadata {2, __hostFunction_NativeAsyncStorageSpecJSI_removeValues};
++  methodMap_["getKeys"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_getKeys};
++  methodMap_["clearStorage"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_clearStorage};
++  methodMap_["legacy_multiGet"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiGet};
++  methodMap_["legacy_multiSet"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiSet};
++  methodMap_["legacy_multiRemove"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiRemove};
++  methodMap_["legacy_multiMerge"] = MethodMetadata {1, __hostFunction_NativeAsyncStorageSpecJSI_legacy_multiMerge};
++  methodMap_["legacy_getAllKeys"] = MethodMetadata {0, __hostFunction_NativeAsyncStorageSpecJSI_legacy_getAllKeys};
++  methodMap_["legacy_clear"] = MethodMetadata {0, __hostFunction_NativeAsyncStorageSpecJSI_legacy_clear};
++}
++
++std::shared_ptr<TurboModule> AsyncStorageSpec_ModuleProvider(const std::string &moduleName, const JavaTurboModule::InitParams &params) {
++  if (moduleName == "RNAsyncStorage") {
++    return std::make_shared<NativeAsyncStorageSpecJSI>(params);
++  }
++  return nullptr;
++}
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec.h
+new file mode 100644
+index 0000000..b8bfb4c
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/AsyncStorageSpec.h
+@@ -0,0 +1,31 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateModuleJniH.js
++ */
++
++#pragma once
++
++#include <ReactCommon/JavaTurboModule.h>
++#include <ReactCommon/TurboModule.h>
++#include <jsi/jsi.h>
++
++namespace facebook::react {
++
++/**
++ * JNI C++ class for module 'NativeAsyncStorage'
++ */
++class JSI_EXPORT NativeAsyncStorageSpecJSI : public JavaTurboModule {
++public:
++  NativeAsyncStorageSpecJSI(const JavaTurboModule::InitParams &params);
++};
++
++
++JSI_EXPORT
++std::shared_ptr<TurboModule> AsyncStorageSpec_ModuleProvider(const std::string &moduleName, const JavaTurboModule::InitParams &params);
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt
+new file mode 100644
+index 0000000..2fa107f
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt
+@@ -0,0 +1,28 @@
++# Copyright (c) Meta Platforms, Inc. and affiliates.
++#
++# This source code is licensed under the MIT license found in the
++# LICENSE file in the root directory of this source tree.
++
++cmake_minimum_required(VERSION 3.13)
++set(CMAKE_VERBOSE_MAKEFILE on)
++
++file(GLOB react_codegen_SRCS CONFIGURE_DEPENDS *.cpp react/renderer/components/AsyncStorageSpec/*.cpp)
++
++add_library(
++  react_codegen_AsyncStorageSpec
++  OBJECT
++  ${react_codegen_SRCS}
++)
++
++target_include_directories(react_codegen_AsyncStorageSpec PUBLIC . react/renderer/components/AsyncStorageSpec)
++
++target_link_libraries(
++  react_codegen_AsyncStorageSpec
++  fbjni
++  jsi
++  # We need to link different libraries based on whether we are building rncore or not, that's necessary
++  # because we want to break a circular dependency between react_codegen_rncore and reactnative
++  reactnative
++)
++
++target_compile_reactnative_options(react_codegen_AsyncStorageSpec PRIVATE)
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/AsyncStorageSpecJSI.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/AsyncStorageSpecJSI.h
+new file mode 100644
+index 0000000..80745b7
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/AsyncStorageSpecJSI.h
+@@ -0,0 +1,129 @@
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateModuleH.js
++ */
++
++#pragma once
++
++#include <ReactCommon/TurboModule.h>
++#include <react/bridging/Bridging.h>
++
++namespace facebook::react {
++
++
++template <typename T>
++class JSI_EXPORT NativeAsyncStorageCxxSpec : public TurboModule {
++public:
++  static constexpr std::string_view kModuleName = "RNAsyncStorage";
++
++protected:
++  NativeAsyncStorageCxxSpec(std::shared_ptr<CallInvoker> jsInvoker) : TurboModule(std::string{NativeAsyncStorageCxxSpec::kModuleName}, jsInvoker) {
++    methodMap_["getValues"] = MethodMetadata {.argCount = 2, .invoker = __getValues};
++    methodMap_["setValues"] = MethodMetadata {.argCount = 2, .invoker = __setValues};
++    methodMap_["removeValues"] = MethodMetadata {.argCount = 2, .invoker = __removeValues};
++    methodMap_["getKeys"] = MethodMetadata {.argCount = 1, .invoker = __getKeys};
++    methodMap_["clearStorage"] = MethodMetadata {.argCount = 1, .invoker = __clearStorage};
++    methodMap_["legacy_multiGet"] = MethodMetadata {.argCount = 1, .invoker = __legacy_multiGet};
++    methodMap_["legacy_multiSet"] = MethodMetadata {.argCount = 1, .invoker = __legacy_multiSet};
++    methodMap_["legacy_multiRemove"] = MethodMetadata {.argCount = 1, .invoker = __legacy_multiRemove};
++    methodMap_["legacy_multiMerge"] = MethodMetadata {.argCount = 1, .invoker = __legacy_multiMerge};
++    methodMap_["legacy_getAllKeys"] = MethodMetadata {.argCount = 0, .invoker = __legacy_getAllKeys};
++    methodMap_["legacy_clear"] = MethodMetadata {.argCount = 0, .invoker = __legacy_clear};
++  }
++  
++private:
++  static jsi::Value __getValues(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::getValues) == 3,
++      "Expected getValues(...) to have 3 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::getValues,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asString(rt),
++      count <= 1 ? throw jsi::JSError(rt, "Expected argument in position 1 to be passed") : args[1].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __setValues(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::setValues) == 3,
++      "Expected setValues(...) to have 3 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::setValues,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asString(rt),
++      count <= 1 ? throw jsi::JSError(rt, "Expected argument in position 1 to be passed") : args[1].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __removeValues(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::removeValues) == 3,
++      "Expected removeValues(...) to have 3 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::removeValues,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asString(rt),
++      count <= 1 ? throw jsi::JSError(rt, "Expected argument in position 1 to be passed") : args[1].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __getKeys(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::getKeys) == 2,
++      "Expected getKeys(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::getKeys,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asString(rt));
++  }
++
++  static jsi::Value __clearStorage(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::clearStorage) == 2,
++      "Expected clearStorage(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::clearStorage,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asString(rt));
++  }
++
++  static jsi::Value __legacy_multiGet(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_multiGet) == 2,
++      "Expected legacy_multiGet(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_multiGet,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __legacy_multiSet(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_multiSet) == 2,
++      "Expected legacy_multiSet(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_multiSet,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __legacy_multiRemove(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_multiRemove) == 2,
++      "Expected legacy_multiRemove(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_multiRemove,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __legacy_multiMerge(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* args, size_t count) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_multiMerge) == 2,
++      "Expected legacy_multiMerge(...) to have 2 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_multiMerge,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule),
++      count <= 0 ? throw jsi::JSError(rt, "Expected argument in position 0 to be passed") : args[0].asObject(rt).asArray(rt));
++  }
++
++  static jsi::Value __legacy_getAllKeys(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* /*args*/, size_t /*count*/) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_getAllKeys) == 1,
++      "Expected legacy_getAllKeys(...) to have 1 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_getAllKeys,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule));
++  }
++
++  static jsi::Value __legacy_clear(jsi::Runtime &rt, TurboModule &turboModule, const jsi::Value* /*args*/, size_t /*count*/) {
++    static_assert(
++      bridging::getParameterCount(&T::legacy_clear) == 1,
++      "Expected legacy_clear(...) to have 1 parameters");
++    return bridging::callFromJs<jsi::Value>(rt, &T::legacy_clear,  static_cast<NativeAsyncStorageCxxSpec*>(&turboModule)->jsInvoker_, static_cast<T*>(&turboModule));
++  }
++};
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.cpp
+new file mode 100644
+index 0000000..82c1f82
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.cpp
+@@ -0,0 +1,22 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateComponentDescriptorCpp.js
++ */
++
++#include <react/renderer/components/AsyncStorageSpec/ComponentDescriptors.h>
++#include <react/renderer/core/ConcreteComponentDescriptor.h>
++#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
++
++namespace facebook::react {
++
++void AsyncStorageSpec_registerComponentDescriptorsFromCodegen(
++  std::shared_ptr<const ComponentDescriptorProviderRegistry> registry) {
++
++}
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.h
+new file mode 100644
+index 0000000..38ad521
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ComponentDescriptors.h
+@@ -0,0 +1,24 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateComponentDescriptorH.js
++ */
++
++#pragma once
++
++#include <react/renderer/components/AsyncStorageSpec/ShadowNodes.h>
++#include <react/renderer/core/ConcreteComponentDescriptor.h>
++#include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
++
++namespace facebook::react {
++
++
++
++void AsyncStorageSpec_registerComponentDescriptorsFromCodegen(
++  std::shared_ptr<const ComponentDescriptorProviderRegistry> registry);
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.cpp
+new file mode 100644
+index 0000000..8a8bd8c
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.cpp
+@@ -0,0 +1,16 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateEventEmitterCpp.js
++ */
++
++#include <react/renderer/components/AsyncStorageSpec/EventEmitters.h>
++
++
++namespace facebook::react {
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.h
+new file mode 100644
+index 0000000..2845a63
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/EventEmitters.h
+@@ -0,0 +1,17 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateEventEmitterH.js
++ */
++#pragma once
++
++#include <react/renderer/components/view/ViewEventEmitter.h>
++
++
++namespace facebook::react {
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.cpp
+new file mode 100644
+index 0000000..f8ecffb
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.cpp
+@@ -0,0 +1,19 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GeneratePropsCpp.js
++ */
++
++#include <react/renderer/components/AsyncStorageSpec/Props.h>
++#include <react/renderer/core/PropsParserContext.h>
++#include <react/renderer/core/propsConversions.h>
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.h
+new file mode 100644
+index 0000000..870864b
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/Props.h
+@@ -0,0 +1,18 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GeneratePropsH.js
++ */
++#pragma once
++
++
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.cpp
+new file mode 100644
+index 0000000..25560c7
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.cpp
+@@ -0,0 +1,17 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateShadowNodeCpp.js
++ */
++
++#include <react/renderer/components/AsyncStorageSpec/ShadowNodes.h>
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.h
+new file mode 100644
+index 0000000..f76381d
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/ShadowNodes.h
+@@ -0,0 +1,23 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateShadowNodeH.js
++ */
++
++#pragma once
++
++#include <react/renderer/components/AsyncStorageSpec/EventEmitters.h>
++#include <react/renderer/components/AsyncStorageSpec/Props.h>
++#include <react/renderer/components/AsyncStorageSpec/States.h>
++#include <react/renderer/components/view/ConcreteViewShadowNode.h>
++#include <jsi/jsi.h>
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.cpp b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.cpp
+new file mode 100644
+index 0000000..f7fb55f
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.cpp
+@@ -0,0 +1,16 @@
++
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateStateCpp.js
++ */
++#include <react/renderer/components/AsyncStorageSpec/States.h>
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.h b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.h
+new file mode 100644
+index 0000000..2e55bce
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/react/renderer/components/AsyncStorageSpec/States.h
+@@ -0,0 +1,20 @@
++/**
++ * This code was generated by [react-native-codegen](https://www.npmjs.com/package/react-native-codegen).
++ *
++ * Do not edit this file as changes may cause incorrect behavior and will be lost
++ * once the code is regenerated.
++ *
++ * @generated by codegen project: GenerateStateH.js
++ */
++#pragma once
++
++#include <react/renderer/core/StateData.h>
++#ifdef RN_SERIALIZABLE_STATE
++#include <folly/dynamic.h>
++#endif
++
++namespace facebook::react {
++
++
++
++} // namespace facebook::react
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/schema.json b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/schema.json
+new file mode 100644
+index 0000000..b22ee4e
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/schema.json
+@@ -0,0 +1 @@
++{"libraryName":"","modules":{"NativeAsyncStorage":{"type":"NativeModule","aliasMap":{},"enumMap":{},"spec":{"eventEmitters":[],"methods":[{"name":"getValues","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"ArrayTypeAnnotation","elementType":{"type":"ObjectTypeAnnotation","properties":[{"name":"key","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"value","optional":false,"typeAnnotation":{"type":"NullableTypeAnnotation","typeAnnotation":{"type":"StringTypeAnnotation"}}}]}}},"params":[{"name":"dbName","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"keys","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}}]}},{"name":"setValues","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"ArrayTypeAnnotation","elementType":{"type":"ObjectTypeAnnotation","properties":[{"name":"key","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"value","optional":false,"typeAnnotation":{"type":"NullableTypeAnnotation","typeAnnotation":{"type":"StringTypeAnnotation"}}}]}}},"params":[{"name":"dbName","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"values","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"ObjectTypeAnnotation","properties":[{"name":"key","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"value","optional":false,"typeAnnotation":{"type":"NullableTypeAnnotation","typeAnnotation":{"type":"StringTypeAnnotation"}}}]}}}]}},{"name":"removeValues","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[{"name":"dbName","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}},{"name":"keys","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}}]}},{"name":"getKeys","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}},"params":[{"name":"dbName","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}}]}},{"name":"clearStorage","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[{"name":"dbName","optional":false,"typeAnnotation":{"type":"StringTypeAnnotation"}}]}},{"name":"legacy_multiGet","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"ArrayTypeAnnotation","elementType":{"type":"AnyTypeAnnotation"}}},"params":[{"name":"keys","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}}]}},{"name":"legacy_multiSet","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[{"name":"kvPairs","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"AnyTypeAnnotation"}}}]}},{"name":"legacy_multiRemove","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[{"name":"keys","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}}]}},{"name":"legacy_multiMerge","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[{"name":"kvPairs","optional":false,"typeAnnotation":{"type":"ArrayTypeAnnotation","elementType":{"type":"AnyTypeAnnotation"}}}]}},{"name":"legacy_getAllKeys","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"ArrayTypeAnnotation","elementType":{"type":"StringTypeAnnotation"}}},"params":[]}},{"name":"legacy_clear","optional":false,"typeAnnotation":{"type":"FunctionTypeAnnotation","returnTypeAnnotation":{"type":"PromiseTypeAnnotation","elementType":{"type":"VoidTypeAnnotation"}},"params":[]}}]},"moduleName":"RNAsyncStorage"}}}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+new file mode 100644
+index 0000000..a0c1a73
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="org.asyncstorage" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+new file mode 100644
+index 0000000..d7e4d44
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+@@ -0,0 +1,18 @@
++{
++  "version": 3,
++  "artifactType": {
++    "type": "AAPT_FRIENDLY_MERGED_MANIFESTS",
++    "kind": "Directory"
++  },
++  "applicationId": "org.asyncstorage",
++  "variantName": "debug",
++  "elements": [
++    {
++      "type": "SINGLE",
++      "filters": [],
++      "attributes": [],
++      "outputFile": "AndroidManifest.xml"
++    }
++  ],
++  "elementType": "File"
++}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+new file mode 100644
+index 0000000..1211b1e
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+@@ -0,0 +1,6 @@
++aarFormatVersion=1.0
++aarMetadataVersion=1.0
++minCompileSdk=1
++minCompileSdkExtension=0
++minAndroidGradlePluginVersion=1.0.0
++coreLibraryDesugaringEnabled=false
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+new file mode 100644
+index 0000000..b48cb5e
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+@@ -0,0 +1 @@
++{"room-compiler-2.7.2.jar (androidx.room:room-compiler:2.7.2)":"KSP_PROCESSOR"}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar
+new file mode 100644
+index 0000000..085c89b
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_library_classes_jar/debug/bundleLibCompileToJarDebug/classes.jar differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar
+new file mode 100644
+index 0000000..c04a2bb
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+new file mode 100644
+index 0000000..dc944d2
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+@@ -0,0 +1 @@
++#Tue May 05 13:40:36 MDT 2026
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+new file mode 100644
+index 0000000..620ec79
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main" generated-set="main$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug" generated-set="debug$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/debug/res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/build/generated/res/resValues/debug"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated" generated-set="generated$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/build/generated/res/resValues/debug"/></dataSet><mergedItems/></merger>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugAssets/merger.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugAssets/merger.xml
+new file mode 100644
+index 0000000..46eaf07
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugAssets/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/assets"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/debug/assets"/></dataSet><dataSet config="generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/shader_assets/debug/compileDebugShaders/out"/></dataSet></merger>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml
+new file mode 100644
+index 0000000..9589669
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugJniLibFolders/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/jniLibs"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/debug/jniLibs"/></dataSet></merger>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugShaders/merger.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugShaders/merger.xml
+new file mode 100644
+index 0000000..8514e84
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/incremental/mergeDebugShaders/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet config="main" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/shaders"/></dataSet><dataSet config="debug" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="/Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/debug/shaders"/></dataSet></merger>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/java_res/debug/processDebugJavaRes/out/META-INF/react-native-async-storage_async-storage_debug.kotlin_module b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/java_res/debug/processDebugJavaRes/out/META-INF/react-native-async-storage_async-storage_debug.kotlin_module
+new file mode 100644
+index 0000000..3fb9e16
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/java_res/debug/processDebugJavaRes/out/META-INF/react-native-async-storage_async-storage_debug.kotlin_module differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/BuildConfig.class b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/BuildConfig.class
+new file mode 100644
+index 0000000..2146172
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/BuildConfig.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/NativeAsyncStorageSpec.class b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/NativeAsyncStorageSpec.class
+new file mode 100644
+index 0000000..35da5e2
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/org/asyncstorage/NativeAsyncStorageSpec.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+new file mode 100644
+index 0000000..78ac5b8
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+@@ -0,0 +1,2 @@
++R_DEF: Internal format may change without notice
++local
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+new file mode 100644
+index 0000000..9ac8f89
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+@@ -0,0 +1,7 @@
++1<?xml version="1.0" encoding="utf-8"?>
++2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++3    package="org.asyncstorage" >
++4
++5    <uses-sdk android:minSdkVersion="24" />
++6
++7</manifest>
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+new file mode 100644
+index 0000000..a0c1a73
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="org.asyncstorage" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+new file mode 100644
+index 0000000..0637a08
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+@@ -0,0 +1 @@
++[]
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+new file mode 100644
+index 0000000..08f4ebe
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+@@ -0,0 +1 @@
++0 Warning/Error
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar
+new file mode 100644
+index 0000000..ae7dde3
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+new file mode 100644
+index 0000000..f9dbb72
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+@@ -0,0 +1 @@
++org.asyncstorage
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab
+new file mode 100644
+index 0000000..0cdebf2
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream
+new file mode 100644
+index 0000000..75eedc0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream.len
+new file mode 100644
+index 0000000..bef073e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.len
+new file mode 100644
+index 0000000..eb0b8a0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.values.at
+new file mode 100644
+index 0000000..f6d041d
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i
+new file mode 100644
+index 0000000..e2fb961
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/inputs/source-to-output.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab
+new file mode 100644
+index 0000000..ec97afa
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream
+new file mode 100644
+index 0000000..4da8ab8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream.len
+new file mode 100644
+index 0000000..5c4bed8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.len
+new file mode 100644
+index 0000000..09407ef
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.values.at
+new file mode 100644
+index 0000000..791d079
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i
+new file mode 100644
+index 0000000..64de1bc
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-attributes.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab
+new file mode 100644
+index 0000000..c1aa174
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream
+new file mode 100644
+index 0000000..4da8ab8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream.len
+new file mode 100644
+index 0000000..5c4bed8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.len
+new file mode 100644
+index 0000000..09407ef
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.values.at
+new file mode 100644
+index 0000000..1693d84
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i
+new file mode 100644
+index 0000000..64de1bc
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/class-fq-name-to-source.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab
+new file mode 100644
+index 0000000..bdf584a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream
+new file mode 100644
+index 0000000..aaf9816
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream.len
+new file mode 100644
+index 0000000..7f1939e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.len
+new file mode 100644
+index 0000000..2a17e6e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.values.at
+new file mode 100644
+index 0000000..671a6e5
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i
+new file mode 100644
+index 0000000..f4a7bf2
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/constants.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab
+new file mode 100644
+index 0000000..c8869be
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream
+new file mode 100644
+index 0000000..04c6b46
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream.len
+new file mode 100644
+index 0000000..d6b4dfd
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.len
+new file mode 100644
+index 0000000..b287d95
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.values.at
+new file mode 100644
+index 0000000..b767b02
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i
+new file mode 100644
+index 0000000..d3f191c
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/internal-name-to-source.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab
+new file mode 100644
+index 0000000..c838047
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream
+new file mode 100644
+index 0000000..ab62158
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream.len
+new file mode 100644
+index 0000000..7fd5069
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.len
+new file mode 100644
+index 0000000..93a595b
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.values.at
+new file mode 100644
+index 0000000..1d49f50
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i
+new file mode 100644
+index 0000000..3fc0689
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/package-parts.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab
+new file mode 100644
+index 0000000..2556c72
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream
+new file mode 100644
+index 0000000..211b6ce
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream.len
+new file mode 100644
+index 0000000..325477e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.len
+new file mode 100644
+index 0000000..c14ff15
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.values.at
+new file mode 100644
+index 0000000..6f94bc3
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i
+new file mode 100644
+index 0000000..b2dde97
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/proto.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab
+new file mode 100644
+index 0000000..75576c9
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream
+new file mode 100644
+index 0000000..75eedc0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream.len
+new file mode 100644
+index 0000000..bef073e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.len
+new file mode 100644
+index 0000000..eb0b8a0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.values.at
+new file mode 100644
+index 0000000..de212e6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i
+new file mode 100644
+index 0000000..e2fb961
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/source-to-classes.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab
+new file mode 100644
+index 0000000..b230d83
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream
+new file mode 100644
+index 0000000..8b9f6c5
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream.len
+new file mode 100644
+index 0000000..7202a9a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.len
+new file mode 100644
+index 0000000..fa606b6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.values.at
+new file mode 100644
+index 0000000..b5b7e76
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i
+new file mode 100644
+index 0000000..ca5daab
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/subtypes.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab
+new file mode 100644
+index 0000000..befd5e3
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream
+new file mode 100644
+index 0000000..5a8c0e6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream.len
+new file mode 100644
+index 0000000..fa43224
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.len
+new file mode 100644
+index 0000000..fa606b6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.values.at
+new file mode 100644
+index 0000000..d304dcf
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i
+new file mode 100644
+index 0000000..df96f2e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/jvm/kotlin/supertypes.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/counters.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/counters.tab
+new file mode 100644
+index 0000000..9202d67
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/counters.tab
+@@ -0,0 +1,2 @@
++9
++0
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab
+new file mode 100644
+index 0000000..93bad5f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream
+new file mode 100644
+index 0000000..75eedc0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream.len
+new file mode 100644
+index 0000000..bef073e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.len
+new file mode 100644
+index 0000000..eb0b8a0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.values.at
+new file mode 100644
+index 0000000..a30ec1a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i
+new file mode 100644
+index 0000000..e2fb961
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/file-to-id.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab
+new file mode 100644
+index 0000000..3763907
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream
+new file mode 100644
+index 0000000..afd1b6e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream.len
+new file mode 100644
+index 0000000..9a6f654
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.len
+new file mode 100644
+index 0000000..eb0b8a0
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.values.at
+new file mode 100644
+index 0000000..4df026e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i
+new file mode 100644
+index 0000000..cdf4c62
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/id-to-file.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab
+new file mode 100644
+index 0000000..141c294
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream
+new file mode 100644
+index 0000000..c7d650f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream.len
+new file mode 100644
+index 0000000..4cf01ad
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.len
+new file mode 100644
+index 0000000..c9aa99a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.values.at
+new file mode 100644
+index 0000000..79b5c50
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i
+new file mode 100644
+index 0000000..21cc54c
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/caches-jvm/lookups/lookups.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/last-build.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/last-build.bin
+new file mode 100644
+index 0000000..92b1fa5
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/cacheable/last-build.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/classpath-snapshot/shrunk-classpath-snapshot.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/classpath-snapshot/shrunk-classpath-snapshot.bin
+new file mode 100644
+index 0000000..0404b5f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/classpath-snapshot/shrunk-classpath-snapshot.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin
+new file mode 100644
+index 0000000..4a1897d
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/ap-classpath-entries.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/ap-classpath-entries.bin
+new file mode 100644
+index 0000000..8a5421c
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/ap-classpath-entries.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt
+new file mode 100644
+index 0000000..d5de0e6
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt
+@@ -0,0 +1,150 @@
++package org.asyncstorage.legacy_storage
++
++import androidx.room.EntityInsertAdapter
++import androidx.room.RoomDatabase
++import androidx.room.util.appendPlaceholders
++import androidx.room.util.getColumnIndexOrThrow
++import androidx.room.util.performInTransactionSuspending
++import androidx.room.util.performSuspending
++import androidx.sqlite.SQLiteStatement
++import javax.`annotation`.processing.Generated
++import kotlin.Int
++import kotlin.String
++import kotlin.Suppress
++import kotlin.Unit
++import kotlin.collections.List
++import kotlin.collections.MutableList
++import kotlin.collections.mutableListOf
++import kotlin.reflect.KClass
++import kotlin.text.StringBuilder
++
++@Generated(value = ["androidx.room.RoomProcessor"])
++@Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
++internal class StorageDao_Impl(
++  __db: RoomDatabase,
++) : StorageDao {
++  private val __db: RoomDatabase
++
++  private val __insertAdapterOfEntry: EntityInsertAdapter<Entry>
++  init {
++    this.__db = __db
++    this.__insertAdapterOfEntry = object : EntityInsertAdapter<Entry>() {
++      protected override fun createQuery(): String =
++          "INSERT OR REPLACE INTO `Storage` (`key`,`value`) VALUES (?,?)"
++
++      protected override fun bind(statement: SQLiteStatement, entity: Entry) {
++        statement.bindText(1, entity.key)
++        val _tmpValue: String? = entity.value
++        if (_tmpValue == null) {
++          statement.bindNull(2)
++        } else {
++          statement.bindText(2, _tmpValue)
++        }
++      }
++    }
++  }
++
++  public override suspend fun setValues(entries: List<Entry>): Unit = performSuspending(__db, false,
++      true) { _connection ->
++    __insertAdapterOfEntry.insert(_connection, entries)
++  }
++
++  public override suspend fun mergeValues(entries: List<Entry>): Unit =
++      performInTransactionSuspending(__db) {
++    super@StorageDao_Impl.mergeValues(entries)
++  }
++
++  public override suspend fun getValues(keys: List<String>): List<Entry> {
++    val _stringBuilder: StringBuilder = StringBuilder()
++    _stringBuilder.append("SELECT * FROM Storage WHERE `key` IN (")
++    val _inputSize: Int = keys.size
++    appendPlaceholders(_stringBuilder, _inputSize)
++    _stringBuilder.append(")")
++    val _sql: String = _stringBuilder.toString()
++    return performSuspending(__db, true, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        var _argIndex: Int = 1
++        for (_item: String in keys) {
++          _stmt.bindText(_argIndex, _item)
++          _argIndex++
++        }
++        val _columnIndexOfKey: Int = getColumnIndexOrThrow(_stmt, "key")
++        val _columnIndexOfValue: Int = getColumnIndexOrThrow(_stmt, "value")
++        val _result: MutableList<Entry> = mutableListOf()
++        while (_stmt.step()) {
++          val _item_1: Entry
++          val _tmpKey: String
++          _tmpKey = _stmt.getText(_columnIndexOfKey)
++          val _tmpValue: String?
++          if (_stmt.isNull(_columnIndexOfValue)) {
++            _tmpValue = null
++          } else {
++            _tmpValue = _stmt.getText(_columnIndexOfValue)
++          }
++          _item_1 = Entry(_tmpKey,_tmpValue)
++          _result.add(_item_1)
++        }
++        _result
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun getKeys(): List<String> {
++    val _sql: String = "SELECT `key` FROM Storage"
++    return performSuspending(__db, true, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        val _result: MutableList<String> = mutableListOf()
++        while (_stmt.step()) {
++          val _item: String
++          _item = _stmt.getText(0)
++          _result.add(_item)
++        }
++        _result
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun removeValues(keys: List<String>) {
++    val _stringBuilder: StringBuilder = StringBuilder()
++    _stringBuilder.append("DELETE FROM Storage WHERE `key` in (")
++    val _inputSize: Int = keys.size
++    appendPlaceholders(_stringBuilder, _inputSize)
++    _stringBuilder.append(")")
++    val _sql: String = _stringBuilder.toString()
++    return performSuspending(__db, false, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        var _argIndex: Int = 1
++        for (_item: String in keys) {
++          _stmt.bindText(_argIndex, _item)
++          _argIndex++
++        }
++        _stmt.step()
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public override suspend fun clear() {
++    val _sql: String = "DELETE FROM Storage"
++    return performSuspending(__db, false, true) { _connection ->
++      val _stmt: SQLiteStatement = _connection.prepare(_sql)
++      try {
++        _stmt.step()
++      } finally {
++        _stmt.close()
++      }
++    }
++  }
++
++  public companion object {
++    public fun getRequiredConverters(): List<KClass<*>> = emptyList()
++  }
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt
+new file mode 100644
+index 0000000..3887616
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/backups/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt
+@@ -0,0 +1,117 @@
++package org.asyncstorage.legacy_storage
++
++import androidx.room.InvalidationTracker
++import androidx.room.RoomOpenDelegate
++import androidx.room.migration.AutoMigrationSpec
++import androidx.room.migration.Migration
++import androidx.room.util.TableInfo
++import androidx.room.util.TableInfo.Companion.read
++import androidx.room.util.dropFtsSyncTriggers
++import androidx.sqlite.SQLiteConnection
++import androidx.sqlite.execSQL
++import javax.`annotation`.processing.Generated
++import kotlin.Lazy
++import kotlin.String
++import kotlin.Suppress
++import kotlin.collections.List
++import kotlin.collections.Map
++import kotlin.collections.MutableList
++import kotlin.collections.MutableMap
++import kotlin.collections.MutableSet
++import kotlin.collections.Set
++import kotlin.collections.mutableListOf
++import kotlin.collections.mutableMapOf
++import kotlin.collections.mutableSetOf
++import kotlin.reflect.KClass
++
++@Generated(value = ["androidx.room.RoomProcessor"])
++@Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
++internal class StorageDb_Impl : StorageDb() {
++  private val _storageDao: Lazy<StorageDao> = lazy {
++    StorageDao_Impl(this)
++  }
++
++  protected override fun createOpenDelegate(): RoomOpenDelegate {
++    val _openDelegate: RoomOpenDelegate = object : RoomOpenDelegate(2,
++        "b956059a88e9dfb420dc5fb101fd3156", "e973d14c97f1c647a41b0aff5c0c1a26") {
++      public override fun createAllTables(connection: SQLiteConnection) {
++        connection.execSQL("CREATE TABLE IF NOT EXISTS `Storage` (`key` TEXT NOT NULL, `value` TEXT, PRIMARY KEY(`key`))")
++        connection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
++        connection.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b956059a88e9dfb420dc5fb101fd3156')")
++      }
++
++      public override fun dropAllTables(connection: SQLiteConnection) {
++        connection.execSQL("DROP TABLE IF EXISTS `Storage`")
++      }
++
++      public override fun onCreate(connection: SQLiteConnection) {
++      }
++
++      public override fun onOpen(connection: SQLiteConnection) {
++        internalInitInvalidationTracker(connection)
++      }
++
++      public override fun onPreMigrate(connection: SQLiteConnection) {
++        dropFtsSyncTriggers(connection)
++      }
++
++      public override fun onPostMigrate(connection: SQLiteConnection) {
++      }
++
++      public override fun onValidateSchema(connection: SQLiteConnection):
++          RoomOpenDelegate.ValidationResult {
++        val _columnsStorage: MutableMap<String, TableInfo.Column> = mutableMapOf()
++        _columnsStorage.put("key", TableInfo.Column("key", "TEXT", true, 1, null,
++            TableInfo.CREATED_FROM_ENTITY))
++        _columnsStorage.put("value", TableInfo.Column("value", "TEXT", false, 0, null,
++            TableInfo.CREATED_FROM_ENTITY))
++        val _foreignKeysStorage: MutableSet<TableInfo.ForeignKey> = mutableSetOf()
++        val _indicesStorage: MutableSet<TableInfo.Index> = mutableSetOf()
++        val _infoStorage: TableInfo = TableInfo("Storage", _columnsStorage, _foreignKeysStorage,
++            _indicesStorage)
++        val _existingStorage: TableInfo = read(connection, "Storage")
++        if (!_infoStorage.equals(_existingStorage)) {
++          return RoomOpenDelegate.ValidationResult(false, """
++              |Storage(org.asyncstorage.legacy_storage.Entry).
++              | Expected:
++              |""".trimMargin() + _infoStorage + """
++              |
++              | Found:
++              |""".trimMargin() + _existingStorage)
++        }
++        return RoomOpenDelegate.ValidationResult(true, null)
++      }
++    }
++    return _openDelegate
++  }
++
++  protected override fun createInvalidationTracker(): InvalidationTracker {
++    val _shadowTablesMap: MutableMap<String, String> = mutableMapOf()
++    val _viewTables: MutableMap<String, Set<String>> = mutableMapOf()
++    return InvalidationTracker(this, _shadowTablesMap, _viewTables, "Storage")
++  }
++
++  public override fun clearAllTables() {
++    super.performClear(false, "Storage")
++  }
++
++  protected override fun getRequiredTypeConverterClasses(): Map<KClass<*>, List<KClass<*>>> {
++    val _typeConvertersMap: MutableMap<KClass<*>, List<KClass<*>>> = mutableMapOf()
++    _typeConvertersMap.put(StorageDao::class, StorageDao_Impl.getRequiredConverters())
++    return _typeConvertersMap
++  }
++
++  public override fun getRequiredAutoMigrationSpecClasses(): Set<KClass<out AutoMigrationSpec>> {
++    val _autoMigrationSpecsSet: MutableSet<KClass<out AutoMigrationSpec>> = mutableSetOf()
++    return _autoMigrationSpecsSet
++  }
++
++  public override
++      fun createAutoMigrations(autoMigrationSpecs: Map<KClass<out AutoMigrationSpec>, AutoMigrationSpec>):
++      List<Migration> {
++    val _autoMigrations: MutableList<Migration> = mutableListOf()
++    return _autoMigrations
++  }
++
++  public override fun storage(): StorageDao = _storageDao.value
++}
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/caches.uptodate b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/caches.uptodate
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-entries.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-entries.bin
+new file mode 100644
+index 0000000..be2f2d9
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-entries.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-structure.bin b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-structure.bin
+new file mode 100644
+index 0000000..7d15589
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/classpath-structure.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sealed b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sealed
+new file mode 100644
+index 0000000..9e26dfe
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sealed
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sourceToOutputs b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sourceToOutputs
+new file mode 100644
+index 0000000..5fd8756
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/sourceToOutputs
+@@ -0,0 +1 @@
++{"<This is a virtual key for removed outputs; DO NOT USE>":[],"src/main/kotlin/org/asyncstorage/legacy_storage/LegacyStorageSupplier.kt":["build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt","build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt"]}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/counters.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/counters.tab
+new file mode 100644
+index 0000000..f2c67d0
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/counters.tab
+@@ -0,0 +1,2 @@
++8
++0
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab
+new file mode 100644
+index 0000000..a864f2e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream
+new file mode 100644
+index 0000000..abef386
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream.len
+new file mode 100644
+index 0000000..ae5b7e3
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.len
+new file mode 100644
+index 0000000..fa606b6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.values.at
+new file mode 100644
+index 0000000..6a3671f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i
+new file mode 100644
+index 0000000..7eecf4c
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/file-to-id.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab
+new file mode 100644
+index 0000000..1d90974
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream
+new file mode 100644
+index 0000000..ce37c13
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream.len
+new file mode 100644
+index 0000000..d9e6aa6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.len
+new file mode 100644
+index 0000000..fa606b6
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.values.at
+new file mode 100644
+index 0000000..8338c29
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i
+new file mode 100644
+index 0000000..37f0862
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/id-to-file.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab
+new file mode 100644
+index 0000000..aafdadf
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream
+new file mode 100644
+index 0000000..c36e089
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream.len
+new file mode 100644
+index 0000000..c12b95a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.keystream.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.len
+new file mode 100644
+index 0000000..9312c9c
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.values.at b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.values.at
+new file mode 100644
+index 0000000..9e661a8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab.values.at differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i
+new file mode 100644
+index 0000000..fc821ff
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i.len b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i.len
+new file mode 100644
+index 0000000..131e265
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbolLookups/lookups.tab_i.len differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbols b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbols
+new file mode 100644
+index 0000000..45905d5
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/kspCaches/debug/symbols
+@@ -0,0 +1 @@
++{"build/generated/source/codegen/java/org/asyncstorage/NativeAsyncStorageSpec.java":["legacy_getAllKeys:org.asyncstorage.NativeAsyncStorageSpec","legacy_multiGet:org.asyncstorage.NativeAsyncStorageSpec","clearStorage:org.asyncstorage.NativeAsyncStorageSpec","legacy_multiMerge:org.asyncstorage.NativeAsyncStorageSpec","getKeys:org.asyncstorage.NativeAsyncStorageSpec","getValues:org.asyncstorage.NativeAsyncStorageSpec","legacy_clear:org.asyncstorage.NativeAsyncStorageSpec","setValues:org.asyncstorage.NativeAsyncStorageSpec","legacy_multiRemove:org.asyncstorage.NativeAsyncStorageSpec","NAME:org.asyncstorage.NativeAsyncStorageSpec","removeValues:org.asyncstorage.NativeAsyncStorageSpec","NativeAsyncStorageSpec:org.asyncstorage","getName:org.asyncstorage.NativeAsyncStorageSpec","legacy_multiSet:org.asyncstorage.NativeAsyncStorageSpec"],"src/main/kotlin/org/asyncstorage/storage/StorageRegistry.kt":["storages:org.asyncstorage.storage.StorageRegistry","StorageRegistry:org.asyncstorage.storage","getRNStorage:org.asyncstorage.storage.StorageRegistry","getStorage:org.asyncstorage.storage.StorageRegistry","rnStorages:org.asyncstorage.storage.StorageRegistry"],"src/main/kotlin/org/asyncstorage/AsyncStoragePackage.kt":["AsyncStoragePackage:org.asyncstorage","getModule:org.asyncstorage.AsyncStoragePackage","getReactModuleInfoProvider:org.asyncstorage.AsyncStoragePackage"],"src/main/kotlin/org/asyncstorage/legacy_storage/LegacyStorageSupplier.kt":["Entry:org.asyncstorage.legacy_storage","mergeValues:org.asyncstorage.legacy_storage.StorageDao","mergeValues:org.asyncstorage.legacy_storage.StorageSupplier","getValues:org.asyncstorage.legacy_storage.StorageDao","component1:org.asyncstorage.legacy_storage.Entry","getDatabase:org.asyncstorage.legacy_storage.StorageDb.Companion","setValues:org.asyncstorage.legacy_storage.AsyncStorageAccess","toEntryList:org.asyncstorage.legacy_storage","Companion:org.asyncstorage.legacy_storage.StorageSupplier","setValues:org.asyncstorage.legacy_storage.StorageDao","getKeys:org.asyncstorage.legacy_storage.AsyncStorageAccess","clear:org.asyncstorage.legacy_storage.StorageDao","storage:org.asyncstorage.legacy_storage.StorageDb","getValues:org.asyncstorage.legacy_storage.AsyncStorageAccess","isValidJson:org.asyncstorage.legacy_storage","mergeWith:org.asyncstorage.legacy_storage","AsyncStorageAccess:org.asyncstorage.legacy_storage","mergeValues:org.asyncstorage.legacy_storage.AsyncStorageAccess","getInstance:org.asyncstorage.legacy_storage.StorageSupplier.Companion","COLUMN_VALUE:org.asyncstorage.legacy_storage","removeValues:org.asyncstorage.legacy_storage.StorageSupplier","getValues:org.asyncstorage.legacy_storage.StorageSupplier","getKeys:org.asyncstorage.legacy_storage.StorageSupplier","StorageDb:org.asyncstorage.legacy_storage","value:org.asyncstorage.legacy_storage.Entry","key:org.asyncstorage.legacy_storage.Entry","copy:org.asyncstorage.legacy_storage.Entry","toKeyValueArgument:org.asyncstorage.legacy_storage","clear:org.asyncstorage.legacy_storage.AsyncStorageAccess","component2:org.asyncstorage.legacy_storage.Entry","DATABASE_VERSION:org.asyncstorage.legacy_storage","getKeys:org.asyncstorage.legacy_storage.StorageDao","removeValues:org.asyncstorage.legacy_storage.StorageDao","MIGRATION_TO_NEXT:org.asyncstorage.legacy_storage","migrate:org.asyncstorage.legacy_storage.MIGRATION_TO_NEXT","removeValues:org.asyncstorage.legacy_storage.AsyncStorageAccess","StorageSupplier:org.asyncstorage.legacy_storage","clear:org.asyncstorage.legacy_storage.StorageSupplier","COLUMN_KEY:org.asyncstorage.legacy_storage","StorageDao:org.asyncstorage.legacy_storage","TABLE_NAME:org.asyncstorage.legacy_storage","toKeyList:org.asyncstorage.legacy_storage","access:org.asyncstorage.legacy_storage.StorageSupplier","DATABASE_NAME:org.asyncstorage.legacy_storage","setValues:org.asyncstorage.legacy_storage.StorageSupplier","Companion:org.asyncstorage.legacy_storage.StorageDb","instance:org.asyncstorage.legacy_storage.StorageDb.Companion"],"src/main/kotlin/org/asyncstorage/legacy_storage/LegacyStorageModule.kt":["getStorageInstance:org.asyncstorage.legacy_storage.LegacyStorageModule.Companion","multiMerge:org.asyncstorage.legacy_storage.LegacyStorageModule","Companion:org.asyncstorage.legacy_storage.LegacyStorageModule","multiRemove:org.asyncstorage.legacy_storage.LegacyStorageModule","clear:org.asyncstorage.legacy_storage.LegacyStorageModule","createExceptionHandler:org.asyncstorage.legacy_storage","multiSet:org.asyncstorage.legacy_storage.LegacyStorageModule","getAllKeys:org.asyncstorage.legacy_storage.LegacyStorageModule","coroutineContext:org.asyncstorage.legacy_storage.LegacyStorageModule","LegacyStorageModule:org.asyncstorage.legacy_storage","storage:org.asyncstorage.legacy_storage.LegacyStorageModule","multiGet:org.asyncstorage.legacy_storage.LegacyStorageModule"],"src/main/kotlin/org/asyncstorage/storage/EntryExt.kt":["toKeyList:org.asyncstorage.storage","toEntry:org.asyncstorage.storage","toRNKeys:org.asyncstorage.storage","toRNResult:org.asyncstorage.storage","toRNResults:org.asyncstorage.storage","toEntryList:org.asyncstorage.storage"],"build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDb_Impl.kt":["clearAllTables:org.asyncstorage.legacy_storage.StorageDb_Impl","createAutoMigrations:org.asyncstorage.legacy_storage.StorageDb_Impl","getRequiredAutoMigrationSpecClasses:org.asyncstorage.legacy_storage.StorageDb_Impl","createOpenDelegate:org.asyncstorage.legacy_storage.StorageDb_Impl","_storageDao:org.asyncstorage.legacy_storage.StorageDb_Impl","storage:org.asyncstorage.legacy_storage.StorageDb_Impl","StorageDb_Impl:org.asyncstorage.legacy_storage","createInvalidationTracker:org.asyncstorage.legacy_storage.StorageDb_Impl","getRequiredTypeConverterClasses:org.asyncstorage.legacy_storage.StorageDb_Impl"],"src/newarch/org/asyncstorage/AsyncStorageModule.kt":["removeValues:org.asyncstorage.AsyncStorageModule","legacy_multiSet:org.asyncstorage.AsyncStorageModule","setValues:org.asyncstorage.AsyncStorageModule","Companion:org.asyncstorage.AsyncStorageModule","reactContext:org.asyncstorage.AsyncStorageModule","getKeys:org.asyncstorage.AsyncStorageModule","legacy_multiRemove:org.asyncstorage.AsyncStorageModule","legacyStorage:org.asyncstorage.AsyncStorageModule","getValues:org.asyncstorage.AsyncStorageModule","legacy_clear:org.asyncstorage.AsyncStorageModule","legacy_multiGet:org.asyncstorage.AsyncStorageModule","clearStorage:org.asyncstorage.AsyncStorageModule","NAME:org.asyncstorage.AsyncStorageModule.Companion","legacy_getAllKeys:org.asyncstorage.AsyncStorageModule","legacy_multiMerge:org.asyncstorage.AsyncStorageModule","getName:org.asyncstorage.AsyncStorageModule","AsyncStorageModule:org.asyncstorage"],"build/generated/source/buildConfig/debug/org/asyncstorage/BuildConfig.java":["DEBUG:org.asyncstorage.BuildConfig","BuildConfig:org.asyncstorage","LIBRARY_PACKAGE_NAME:org.asyncstorage.BuildConfig","BUILD_TYPE:org.asyncstorage.BuildConfig"],"build/generated/ksp/debug/kotlin/org/asyncstorage/legacy_storage/StorageDao_Impl.kt":["mergeValues:org.asyncstorage.legacy_storage.StorageDao_Impl","getValues:org.asyncstorage.legacy_storage.StorageDao_Impl","__insertAdapterOfEntry:org.asyncstorage.legacy_storage.StorageDao_Impl","clear:org.asyncstorage.legacy_storage.StorageDao_Impl","StorageDao_Impl:org.asyncstorage.legacy_storage","getKeys:org.asyncstorage.legacy_storage.StorageDao_Impl","__db:org.asyncstorage.legacy_storage.StorageDao_Impl","removeValues:org.asyncstorage.legacy_storage.StorageDao_Impl","setValues:org.asyncstorage.legacy_storage.StorageDao_Impl","Companion:org.asyncstorage.legacy_storage.StorageDao_Impl","getRequiredConverters:org.asyncstorage.legacy_storage.StorageDao_Impl.Companion"],"src/main/kotlin/org/asyncstorage/storage/RNStorage.kt":["allKeys:org.asyncstorage.storage.RNStorage","get:org.asyncstorage.storage.RNStorage","createStorageScope:org.asyncstorage.storage","RNStorage:org.asyncstorage.storage","scope:org.asyncstorage.storage.RNStorage","remove:org.asyncstorage.storage.RNStorage","lunchWithRejection:org.asyncstorage.storage","db:org.asyncstorage.storage.RNStorage","set:org.asyncstorage.storage.RNStorage","clear:org.asyncstorage.storage.RNStorage"]}
+\ No newline at end of file
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/outputs/logs/manifest-merger-debug-report.txt b/node_modules/@react-native-async-storage/async-storage/android/build/outputs/logs/manifest-merger-debug-report.txt
+new file mode 100644
+index 0000000..01ace48
+--- /dev/null
++++ b/node_modules/@react-native-async-storage/async-storage/android/build/outputs/logs/manifest-merger-debug-report.txt
+@@ -0,0 +1,16 @@
++-- Merging decision tree log ---
++manifest
++ADDED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml:1:1-2:12
++INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml:1:1-2:12
++	package
++		INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml
++	xmlns:android
++		ADDED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml:1:11-69
++uses-sdk
++INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
++INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml
++INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml
++	android:targetSdkVersion
++		INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml
++	android:minSdkVersion
++		INJECTED from /Users/collinbrowse/Documents/AfterCollege/PersonalDevelopment/CrewCue/node_modules/@react-native-async-storage/async-storage/android/src/main/AndroidManifest.xml
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/compileDebugJavaWithJavac/previous-compilation-data.bin b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/compileDebugJavaWithJavac/previous-compilation-data.bin
+new file mode 100644
+index 0000000..4ce0294
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/compileDebugJavaWithJavac/previous-compilation-data.bin differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/META-INF/react-native-async-storage_async-storage_debug.kotlin_module b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/META-INF/react-native-async-storage_async-storage_debug.kotlin_module
+new file mode 100644
+index 0000000..3fb9e16
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/META-INF/react-native-async-storage_async-storage_debug.kotlin_module differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule$Companion.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule$Companion.class
+new file mode 100644
+index 0000000..c5ff7e8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule$Companion.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule.class
+new file mode 100644
+index 0000000..2c8e70a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStorageModule.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStoragePackage.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStoragePackage.class
+new file mode 100644
+index 0000000..a8aee4e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/AsyncStoragePackage.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/AsyncStorageAccess.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/AsyncStorageAccess.class
+new file mode 100644
+index 0000000..3d911ae
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/AsyncStorageAccess.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/Entry.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/Entry.class
+new file mode 100644
+index 0000000..ca4cd90
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/Entry.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$Companion.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$Companion.class
+new file mode 100644
+index 0000000..2744ce1
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$Companion.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$clear$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$clear$1.class
+new file mode 100644
+index 0000000..771a8e7
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$clear$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$getAllKeys$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$getAllKeys$1.class
+new file mode 100644
+index 0000000..4a89c2b
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$getAllKeys$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiGet$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiGet$1.class
+new file mode 100644
+index 0000000..ff45545
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiGet$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiMerge$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiMerge$1.class
+new file mode 100644
+index 0000000..a00053d
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiMerge$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiRemove$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiRemove$1.class
+new file mode 100644
+index 0000000..d84f975
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiRemove$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiSet$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiSet$1.class
+new file mode 100644
+index 0000000..a5a7efc
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule$multiSet$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule.class
+new file mode 100644
+index 0000000..616f96f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModule.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt$createExceptionHandler$$inlined$CoroutineExceptionHandler$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt$createExceptionHandler$$inlined$CoroutineExceptionHandler$1.class
+new file mode 100644
+index 0000000..fdf4190
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt$createExceptionHandler$$inlined$CoroutineExceptionHandler$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt.class
+new file mode 100644
+index 0000000..4889cfd
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageModuleKt.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageSupplierKt.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageSupplierKt.class
+new file mode 100644
+index 0000000..5c1d178
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/LegacyStorageSupplierKt.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/MIGRATION_TO_NEXT.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/MIGRATION_TO_NEXT.class
+new file mode 100644
+index 0000000..960c9b1
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/MIGRATION_TO_NEXT.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$DefaultImpls.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$DefaultImpls.class
+new file mode 100644
+index 0000000..1b82870
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$DefaultImpls.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$mergeValues$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$mergeValues$1.class
+new file mode 100644
+index 0000000..d22be46
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao$mergeValues$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao.class
+new file mode 100644
+index 0000000..1c19fcd
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$1.class
+new file mode 100644
+index 0000000..8e254a8
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$Companion.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$Companion.class
+new file mode 100644
+index 0000000..52f0a90
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$Companion.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$mergeValues$2.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$mergeValues$2.class
+new file mode 100644
+index 0000000..a8d8200
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl$mergeValues$2.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl.class
+new file mode 100644
+index 0000000..cee3583
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDao_Impl.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb$Companion.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb$Companion.class
+new file mode 100644
+index 0000000..00a71cc
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb$Companion.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb.class
+new file mode 100644
+index 0000000..e2ba509
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl$createOpenDelegate$_openDelegate$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl$createOpenDelegate$_openDelegate$1.class
+new file mode 100644
+index 0000000..ebbb324
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl$createOpenDelegate$_openDelegate$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl.class
+new file mode 100644
+index 0000000..ffb1ed7
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageDb_Impl.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$Companion.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$Companion.class
+new file mode 100644
+index 0000000..ee2025a
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$Companion.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$getValues$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$getValues$1.class
+new file mode 100644
+index 0000000..0a6b604
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier$getValues$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier.class
+new file mode 100644
+index 0000000..f78b267
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/legacy_storage/StorageSupplier.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/EntryExtKt.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/EntryExtKt.class
+new file mode 100644
+index 0000000..84549a4
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/EntryExtKt.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$allKeys$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$allKeys$1.class
+new file mode 100644
+index 0000000..e57ac0e
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$allKeys$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$clear$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$clear$1.class
+new file mode 100644
+index 0000000..2120bed
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$clear$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$get$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$get$1.class
+new file mode 100644
+index 0000000..c0b345b
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$get$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$remove$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$remove$1.class
+new file mode 100644
+index 0000000..12931dc
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$remove$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$set$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$set$1.class
+new file mode 100644
+index 0000000..f49c784
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage$set$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage.class
+new file mode 100644
+index 0000000..730036d
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorage.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt$lunchWithRejection$1.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt$lunchWithRejection$1.class
+new file mode 100644
+index 0000000..b0f1084
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt$lunchWithRejection$1.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt.class
+new file mode 100644
+index 0000000..3e73f52
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/RNStorageKt.class differ
+diff --git a/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/StorageRegistry.class b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/StorageRegistry.class
+new file mode 100644
+index 0000000..049989f
+Binary files /dev/null and b/node_modules/@react-native-async-storage/async-storage/android/build/tmp/kotlin-classes/debug/org/asyncstorage/storage/StorageRegistry.class differ
