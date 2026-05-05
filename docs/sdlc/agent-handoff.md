@@ -15,21 +15,19 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-05 (America/Chicago)
-- **Git:** working branch `feature/218-two-design-systems` for redesign/toggle implementation tied to [#218](https://github.com/collinbrowse/CrewCue/issues/218).
-- **In progress:** full visual redesign replacement with two global runtime design systems (`kinetic`, `performance`) across mobile + web, each with light/dark variants bound to device setting.
-- **Validation:** local `npm run verify` passed on this branch after design-system integration.
+- **Git:** `main` fast-forwarded to `origin/main` at merge commit **`44fb33a`**. Local `feature/218-two-design-systems` branch deleted after merge.
+- **Merged:** [#219](https://github.com/collinbrowse/CrewCue/pull/219) closed [#218](https://github.com/collinbrowse/CrewCue/issues/218) (dual design systems + light/dark behavior + Android AsyncStorage local-repo patch).
+- **Working tree note:** local user edits still present in `apps/mobile/package.json`, `package-lock.json`, and untracked `tsconfig.json` (left untouched).
 
 ## Current objective
 
-Complete PR for [#218](https://github.com/collinbrowse/CrewCue/issues/218): ship the full redesign migration with an immediate, persisted in-app toggle between `kinetic` and `performance`, with automatic light/dark mode behavior.
+Post-merge stabilization and follow-on QA for the redesigned mobile/web theming system now on `main`.
 
 ## Acceptance criteria (post-merge)
 
-1. Mobile + web expose an in-app design-system selector.
-2. Switching design systems applies globally in the same session (no restart required).
-3. Selection persists across app restart/refresh.
-4. Only `kinetic` and `performance` are selectable.
-5. Root **`npm run verify`** passes.
+1. iOS + Android dev workflows remain reliable (`npm run ios -w @crewcue/mobile`, `npx expo run:android`).
+2. System-appearance behavior on iOS/Android is validated manually (Auto mode + forced overrides).
+3. Follow-up docs reflect testing commands and known caveats.
 
 ## Delivered on `main` (from #204 / #203)
 
@@ -42,26 +40,23 @@ Complete PR for [#218](https://github.com/collinbrowse/CrewCue/issues/218): ship
 
 ## Next 1-3 tasks
 
-1. Review feature diff for `feature/218-two-design-systems` and open PR with `Closes #218`.
-2. Verify toggle UX manually on-device/simulator and in web browser.
-3. Merge after green checks, then resume staging/docs follow-up tasks.
+1. Run a quick post-merge mobile smoke on iOS + Android appearance switching and map-screen fallback behavior.
+2. Add/refresh runbook notes for reliable simulator/emulator commands (especially env-loading and native build paths).
+3. Pick next roadmap issue from current open backlog after smoke is confirmed.
 
 ## Validation summary
 
-- Added shared design registry: `packages/contracts/src/designSystems.ts` (+ export via contracts index).
-- Mobile: root provider + persisted selection + settings toggle + navigation theming/token updates.
-- Web: root provider + persisted selection + CSS token scopes + map workspace design toggle.
-- Added onboarding docs: `docs/design-systems.md`.
-- Validation commands passed:
-  - `npm run build -w @crewcue/contracts`
-  - `npm run typecheck -w @crewcue/web`
-  - `npm run typecheck -w @crewcue/mobile`
-  - `npm run verify`
+- #219 merged to `main` with:
+  - shared design registry + `kinetic`/`performance` + light/dark variants
+  - persisted runtime selection on mobile + web
+  - iOS appearance wiring fixes in `apps/mobile/ios/CrewCue/*`
+  - Android AsyncStorage local Maven patch in `patches/@react-native-async-storage+async-storage+3.0.2.patch`
+- Pre-merge validation for #219 included `npm run verify` pass.
 
 ## Open risks/blockers/questions
 
-- Visual parity tuning may still be needed on secondary/less-frequent screens with local hardcoded styles.
-- Font-family fallbacks are defined, but exact custom font loading behavior should be checked on device/web.
+- iOS simulator appearance behavior should be re-checked after clean rebuilds when Xcode/SDK versions change.
+- Emulator/simulator test instructions should stay explicit to avoid `npx expo run:*` path/env confusion.
 
 ## Guardrails
 
@@ -71,5 +66,5 @@ Complete PR for [#218](https://github.com/collinbrowse/CrewCue/issues/218): ship
 ## Successor prompt
 
 ```text
-On feature/218-two-design-systems, open PR for #218 with Closes #218. Confirm mobile/web runtime toggle behavior manually, then merge after CI.
+On main after #219 merge: run iOS+Android smoke for theme auto/manual mode behavior, update any runbook gaps for reliable local testing commands, then pick next prioritized backlog issue.
 ```
