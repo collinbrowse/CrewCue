@@ -15,12 +15,12 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-05 (America/Chicago)
-- **Branch:** `feature/220-map-dashboard` (issue [#220](https://github.com/collinbrowse/CrewCue/issues/220)).
+- **Branch:** `feature/220-map-dashboard` · PR [#221](https://github.com/collinbrowse/CrewCue/pull/221) · issue [#220](https://github.com/collinbrowse/CrewCue/issues/220).
 - **Scope:** Map-first mobile dashboard + root tabs Map / Pace / Chat / Profile; map-core course position helpers; explicit projection poll setter.
 
 ## Current objective
 
-Open PR for #220, link `Closes #220`, merge after CI green.
+Merge [#221](https://github.com/collinbrowse/CrewCue/pull/221) after CI green (`Closes #220` in PR body).
 
 ## Acceptance criteria (this branch)
 
@@ -39,7 +39,7 @@ Open PR for #220, link `Closes #220`, merge after CI green.
 
 ## Next 1-3 tasks
 
-1. `gh pr create` with **Linked issues** `Closes #220`; push branch if needed.
+1. Watch CI on PR #221; fix any failures.
 2. Manual iOS/Android smoke: tabs, sheet drag, layers, follow FAB, race picker, Profile → workspace menu link.
 3. Optional: update `mvp-ui-development-spec.md` OperateHome → MapHome table row (docs-only).
 
