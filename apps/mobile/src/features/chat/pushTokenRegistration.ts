@@ -36,12 +36,18 @@ export async function registerChatPushToken(api: ApiClient, deps: PushRegistrati
 async function defaultFetchDevicePushToken(): Promise<
   { data: string; type: "ios" | "android" } | undefined
 > {
-  const Notifications = await import("expo-notifications");
-  const status = await Notifications.getPermissionsAsync();
-  const granted = status.status === "granted" ? status : await Notifications.requestPermissionsAsync();
-  if (granted.status !== "granted") return undefined;
-  const result = await Notifications.getDevicePushTokenAsync();
-  if (!result?.data) return undefined;
-  const type = result.type === "android" ? "android" : "ios";
-  return { data: String(result.data), type };
+  try {
+    const { getDevicePushTokenAsync, getPermissionsAsync, requestPermissionsAsync } = await import(
+      "../../platform/expoNotificationsShim"
+    );
+    const status = await getPermissionsAsync();
+    const granted = status.status === "granted" ? status : await requestPermissionsAsync();
+    if (granted.status !== "granted") return undefined;
+    const result = await getDevicePushTokenAsync();
+    if (!result?.data) return undefined;
+    const type = result.type === "android" ? "android" : "ios";
+    return { data: String(result.data), type };
+  } catch {
+    return undefined;
+  }
 }

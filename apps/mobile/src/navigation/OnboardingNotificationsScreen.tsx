@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import * as Notifications from "expo-notifications";
+import { getPermissionsAsync, requestPermissionsAsync } from "../platform/expoNotificationsShim";
 import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -28,8 +28,8 @@ export function OnboardingNotificationsScreen(): ReactElement {
   const onEnable = async () => {
     setBusy(true);
     try {
-      const existing = await Notifications.getPermissionsAsync();
-      const final = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
+      const existing = await getPermissionsAsync();
+      const final = existing.status === "granted" ? existing : await requestPermissionsAsync();
       setMessage(
         final.status === "granted"
           ? "Notifications enabled. You will get crew updates and split timing changes."
