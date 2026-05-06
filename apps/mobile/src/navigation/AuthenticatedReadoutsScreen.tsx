@@ -94,7 +94,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       keyboardShouldPersistTaps="handled"
     >
       <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>Pace</Text>
+        <Text style={s.styles.title}>Course</Text>
         <Text style={s.styles.subtitle}>Checkpoint order and ETA plan anchored to your race-day start time.</Text>
         <DSCard style={s.styles.summaryCard}>
           <Text style={s.styles.summaryTitle}>Start time (local)</Text>

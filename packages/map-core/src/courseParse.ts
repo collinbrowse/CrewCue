@@ -31,6 +31,8 @@ const METERS_PER_KILOMETER = 1000;
 const METERS_PER_MILE = 1609.344;
 const DEFAULT_PACE_SECONDS_PER_KM = 360;
 const MAX_BASELINE_POINTS = 220;
+const WAYPOINT_ENCOUNTER_RADIUS_METERS = 80;
+const WAYPOINT_ENCOUNTER_MIN_GAP_METERS = 200;
 
 export function parseCourseTrack(fileContents: string, fileName: string): ParsedGpxTrack {
   const normalizedName = fileName.trim().toLowerCase();
@@ -528,19 +530,19 @@ function dedupeWaypoints(waypoints: GpxWaypoint[]): GpxWaypoint[] {
 
 function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): GpxWaypoint[] {
   if (candidates.length < 2) {
-    return [];
+    const expandedSingle = expandWaypointEncounters(points, candidates);
+    if (expandedSingle.length < 2) {
+      return [];
+    }
+    return expandedSingle.map((entry) => entry.candidate);
   }
   const stationLike = candidates.filter((candidate) => isStationLikeName(candidate.name));
   const pool = stationLike.length > 0 ? stationLike : candidates;
-  if (pool.length < 2) {
+  const expanded = expandWaypointEncounters(points, pool);
+  if (expanded.length < 2) {
     return [];
   }
-
-  const enriched = pool.map((candidate) => ({
-    candidate,
-    distanceMetersFromStart: distanceAlongTrack(points, candidate)
-  }));
-  enriched.sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
+  const enriched = [...expanded].sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
 
   const startAnchor = enriched.find((entry) => isStartName(entry.candidate.name));
   const finishAnchor = [...enriched].reverse().find((entry) => isFinishName(entry.candidate.name));
@@ -567,6 +569,46 @@ function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypo
     ordered.push(resolvedFinishAnchor.candidate);
   }
   return ordered.length >= 2 ? ordered : [];
+}
+
+function expandWaypointEncounters(
+  points: GpxTrackPoint[],
+  candidates: GpxWaypoint[]
+): Array<{ candidate: GpxWaypoint; distanceMetersFromStart: number }> {
+  return candidates.flatMap((candidate) => {
+    const progresses = waypointEncounterProgresses(points, candidate);
+    return progresses.map((distanceMetersFromStart) => ({ candidate, distanceMetersFromStart }));
+  });
+}
+
+function waypointEncounterProgresses(points: GpxTrackPoint[], candidate: GpxWaypoint): number[] {
+  if (points.length < 2) {
+    return [0];
+  }
+  const cumulativeAtPoints: number[] = [0];
+  for (let index = 1; index < points.length; index += 1) {
+    cumulativeAtPoints.push(cumulativeAtPoints[index - 1]! + haversineDistanceMeters(points[index - 1]!, points[index]!));
+  }
+
+  const encounters: number[] = [];
+  let inside = false;
+  let lastEncounter = -Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    const progress = cumulativeAtPoints[index]!;
+    const distanceToWaypoint = haversineDistanceMeters(point, candidate);
+    const isInside = distanceToWaypoint <= WAYPOINT_ENCOUNTER_RADIUS_METERS;
+    if (isInside && !inside && progress - lastEncounter >= WAYPOINT_ENCOUNTER_MIN_GAP_METERS) {
+      encounters.push(progress);
+      lastEncounter = progress;
+    }
+    inside = isInside;
+  }
+
+  if (encounters.length === 0) {
+    encounters.push(distanceAlongTrack(points, candidate));
+  }
+  return encounters;
 }
 
 function isStationLikeName(name: string | undefined): boolean {

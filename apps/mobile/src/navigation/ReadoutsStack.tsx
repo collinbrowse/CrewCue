@@ -1,7 +1,9 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Pressable, Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Pressable } from "react-native";
 import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
+import { CourseSettingsScreen } from "./CourseSettingsScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
 import { useNavColors } from "./navigationTheme";
 import { ReadoutsIncidentsScreen } from "./ReadoutsIncidentsScreen";
@@ -18,24 +20,34 @@ export function ReadoutsStack(): ReactElement {
         headerStyle: { backgroundColor: navColors.card },
         headerTintColor: navColors.text,
         headerTitleStyle: { color: navColors.text },
-        headerShadowVisible: false,
-        headerRight: () => (
-          <Pressable
-            onPress={() => navigation.getParent()?.navigate("Map", { screen: "WorkspaceMenu" })}
-            style={{ paddingHorizontal: 8, paddingVertical: 6 }}
-          >
-            <Text style={{ color: navColors.primary, fontWeight: "700", fontSize: 20 }}>☰</Text>
-          </Pressable>
-        )
+        headerShadowVisible: false
       })}
     >
-      <Stack.Screen name="ReadoutsHome" component={AuthenticatedReadoutsScreen} options={{ title: "Readouts" }} />
+      <Stack.Screen
+        name="ReadoutsHome"
+        component={AuthenticatedReadoutsScreen}
+        options={({ navigation }) => ({
+          title: "Course",
+          headerRight: () => (
+            <Pressable
+              onPress={() => navigation.navigate("CourseRaceSetup", { mode: "edit" })}
+              style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel="Open race setup details"
+            >
+              <Ionicons name="settings-outline" color={navColors.primary} size={20} />
+            </Pressable>
+          )
+        })}
+      />
       <Stack.Screen
         name="ReadoutsIncidents"
         component={ReadoutsIncidentsScreen}
         options={{ title: "Incident Feed Detail" }}
       />
       <Stack.Screen name="GpxImport" component={GpxImportScreen} options={{ title: "GPX Import + Splits" }} />
+      <Stack.Screen name="CourseSettings" component={CourseSettingsScreen} options={{ title: "Course settings" }} />
+      <Stack.Screen name="CourseRaceSetup" component={GpxImportScreen} options={{ title: "Race setup" }} />
     </Stack.Navigator>
   );
 }

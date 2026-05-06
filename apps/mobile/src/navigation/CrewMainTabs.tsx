@@ -36,7 +36,7 @@ export function CrewMainTabs(): ReactElement {
         name="Pace"
         component={ReadoutsStack}
         options={{
-          title: "Pace",
+          title: "Course",
           tabBarIcon: ({ color, size }) => <Ionicons name="stopwatch-outline" size={size} color={color} />
         }}
       />

@@ -28,6 +28,13 @@ export type ReadoutsStackParamList = {
   ReadoutsHome: undefined;
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
+  CourseSettings: undefined;
+  CourseRaceSetup:
+    | {
+        mode?: "create" | "edit";
+        replaceCourseFile?: boolean;
+      }
+    | undefined;
 };
 
 export type ChatStackParamList = {
@@ -36,6 +43,14 @@ export type ChatStackParamList = {
 
 export type ProfileStackParamList = {
   ProfileHome: undefined;
+  ProfileRaceSetup:
+    | {
+        mode?: "create" | "edit";
+        replaceCourseFile?: boolean;
+      }
+    | undefined;
+  ProfileJoinRoomDetails: { roomCode?: string } | undefined;
+  ProfileManageRoomMembers: undefined;
 };
 
 export type CrewMainTabParamList = {

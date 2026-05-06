@@ -258,3 +258,20 @@ test("buildRaceCourseFromGpx deduplicates repeated waypoint names", () => {
   assert.deepEqual(course.checkpoints.map((cp) => cp.id), ["town-park-start-finish", "town-park-start-finish-2"]);
   assert.notEqual(course.checkpoints[0]!.longitude, course.checkpoints[1]!.longitude);
 });
+
+test("buildRaceCourseFromGpx creates multiple checkpoints when one waypoint is encountered multiple times", () => {
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.717700" lon="-74.000900"><name>Aid Station Loop</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"></trkpt>
+    <trkpt lat="40.717700" lon="-74.000900"></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"></trkpt>
+    <trkpt lat="40.717700" lon="-74.000900"></trkpt>
+    <trkpt lat="40.712776" lon="-74.005974"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const parsed = parseGpxTrack(gpx);
+  const { course } = buildRaceCourseFromGpx(parsed);
+  assert.deepEqual(course.checkpoints.map((cp) => cp.id), ["aid-station-loop", "aid-station-loop-2"]);
+});

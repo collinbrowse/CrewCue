@@ -18,7 +18,7 @@ import {
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { MapStackParamList } from "./types";
+import type { MapStackParamList, ProfileStackParamList, ReadoutsStackParamList } from "./types";
 
 type ImportState =
   | { status: "idle" }
@@ -43,7 +43,12 @@ type PendingCourseUpload = {
 export function GpxImportScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
-  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList, "RacePlanning">>();
+  const navigation = useNavigation<
+    NativeStackNavigationProp<
+      MapStackParamList | ReadoutsStackParamList | ProfileStackParamList,
+      "RacePlanning" | "CourseRaceSetup" | "ProfileRaceSetup"
+    >
+  >();
   const route = useRoute();
   const routeParams = route.params as { mode?: "create" | "edit"; replaceCourseFile?: boolean } | undefined;
   const mode = routeParams?.mode ?? "edit";
