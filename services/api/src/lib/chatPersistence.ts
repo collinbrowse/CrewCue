@@ -140,6 +140,19 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
   }
 }
 
+const CHAT_PERSISTENCE_NOOP_LOGGER = {
+  info: () => {
+    // no-op
+  }
+} as unknown as FastifyBaseLogger;
+
+async function ensureChatPersistenceReady(): Promise<void> {
+  if (!pool || initialized) {
+    return;
+  }
+  await initChatPersistence(CHAT_PERSISTENCE_NOOP_LOGGER);
+}
+
 export async function upsertChatDeviceKey(record: ChatDeviceKey): Promise<void> {
   if (!pool) {
     memoryDeviceKeys.set(record.deviceId, structuredClone(record));
@@ -403,6 +416,7 @@ export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionR
       pushTokensPurged: 0
     };
   }
+  await ensureChatPersistenceReady();
   const envs = await pool.query<{ count: string }>(
     "SELECT COUNT(*)::text AS count FROM chat_channel_envelopes WHERE room_id = $1",
     [roomId]
