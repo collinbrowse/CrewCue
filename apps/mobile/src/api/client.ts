@@ -1,6 +1,14 @@
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
+  ChatDeviceKey,
+  ChatKeyEnvelope,
+  ChatNotificationPref,
+  ChatNotificationPrefRecord,
+  ChatPushPlatform,
+  ChatPushTokenRecord,
+  ChatRetentionResult,
+  ChatStreamTokenResponse,
   CheckpointPlan,
   CrewAssignment,
   CrewTask,
@@ -445,7 +453,63 @@ export function createApiClient(options: ApiClientOptions) {
       ),
     postAnalyticsEvents: (
       events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
-    ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events })
+    ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events }),
+
+    // --- Crew chat (E2E) ---
+    getChatStreamToken: () =>
+      request<ChatStreamTokenResponse>(options, "POST", "/chat/stream-token"),
+    registerChatDevice: (input: { deviceId: string; publicKey: string }) =>
+      request<ChatDeviceKey>(options, "POST", "/chat/devices", input),
+    listChatDevicesForUser: (userId: string) =>
+      request<{ devices: ChatDeviceKey[] }>(
+        options,
+        "GET",
+        `/chat/users/${encodeURIComponent(userId)}/devices`
+      ),
+    uploadChatKeyEnvelopes: (
+      roomId: string,
+      envelopes: Array<{
+        recipientUserId: string;
+        recipientDeviceId: string;
+        senderEphemeralPublicKey: string;
+        nonce: string;
+        ciphertext: string;
+        keyVersion: number;
+      }>
+    ) =>
+      request<{ stored: number; envelopes: ChatKeyEnvelope[] }>(
+        options,
+        "POST",
+        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes`,
+        { envelopes }
+      ),
+    listChatKeyEnvelopesForDevice: (roomId: string, deviceId: string) =>
+      request<{ envelopes: ChatKeyEnvelope[] }>(
+        options,
+        "GET",
+        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes?deviceId=${encodeURIComponent(deviceId)}`
+      ),
+    getChatNotificationPref: (roomId: string) =>
+      request<{ preference: ChatNotificationPref; updatedAt?: string }>(
+        options,
+        "GET",
+        `/chat/rooms/${encodeURIComponent(roomId)}/notification-prefs`
+      ),
+    setChatNotificationPref: (roomId: string, preference: ChatNotificationPref) =>
+      request<ChatNotificationPrefRecord>(
+        options,
+        "POST",
+        `/chat/rooms/${encodeURIComponent(roomId)}/notification-prefs`,
+        { preference }
+      ),
+    registerChatPushToken: (input: { deviceId: string; platform: ChatPushPlatform; token: string }) =>
+      request<ChatPushTokenRecord>(options, "POST", "/chat/push/tokens", input),
+    deleteChatRoomMessages: (roomId: string) =>
+      request<ChatRetentionResult>(
+        options,
+        "DELETE",
+        `/chat/rooms/${encodeURIComponent(roomId)}/messages`
+      )
   };
 }
 
