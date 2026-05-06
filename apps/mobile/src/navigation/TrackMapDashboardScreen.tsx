@@ -4,13 +4,15 @@ import {
   type CameraRef,
   GeoJSONSource,
   Layer,
-  Map,
+  Map as MapLibreMap,
+  Marker,
   type MapRef,
   type ViewPadding,
   type ViewStateChangeEvent
 } from "@maplibre/maplibre-react-native";
 import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import {
+  buildExpectedAidStationSplitsFromCourse,
   elevationSamplesFromWorkspacePolyline,
   formatPace,
   latLngAtDistanceAlongCheckpointCourse,
@@ -45,6 +47,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createApiClient } from "../api/client";
 import { DSButton } from "../design-system";
 import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
+import { formatEtaClock, formatRemainingMinutes, secondsForDistance } from "../features/readouts/eta";
 import type { BasemapPreviewLayout } from "../features/maps/mapStyleUrl";
 import { basemapPreviewLayout, mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
 import type { BasemapPresetId } from "../preferences/basemapPreference";
@@ -184,6 +187,7 @@ export function TrackMapDashboardScreen(): ReactElement {
   const mapRef = useRef<MapRef>(null);
   const lastCourseFitKeyRef = useRef<string | null>(null);
   const [showRaceSelectorModal, setShowRaceSelectorModal] = useState(false);
+  const [selectedCheckpointId, setSelectedCheckpointId] = useState<string | null>(null);
   const [raceTitleRect, setRaceTitleRect] = useState<WindowRect | null>(null);
   const raceTitleRef = useRef<View>(null);
   const rootRef = useRef<View>(null);
@@ -384,6 +388,7 @@ export function TrackMapDashboardScreen(): ReactElement {
 
   useEffect(() => {
     lastCourseFitKeyRef.current = null;
+    setSelectedCheckpointId(null);
   }, [roomId]);
 
   const mapInitialCenter = useMemo((): [number, number] => {
@@ -649,6 +654,55 @@ export function TrackMapDashboardScreen(): ReactElement {
     return `${formatPace(projection.plannedPaceSecondsPerKm, "mi")} / MI`;
   }, [projection?.plannedPaceSecondsPerKm]);
 
+  const checkpointDistanceById = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!room?.course) {
+      return map;
+    }
+    const projectionRows = projection?.checkpointSplits ?? [];
+    if (projectionRows.length > 0) {
+      for (const row of projectionRows) {
+        map.set(row.checkpointId, row.distanceMetersFromStart);
+      }
+      return map;
+    }
+    const fallback = buildExpectedAidStationSplitsFromCourse(
+      room.course,
+      projection?.plannedPaceSecondsPerKm ?? room.plannedPaceSecondsPerKm ?? 360,
+      "mi"
+    ).splits;
+    for (let index = 0; index < fallback.length; index += 1) {
+      const checkpointId = room.course.checkpoints[index]?.id;
+      if (!checkpointId) {
+        continue;
+      }
+      map.set(checkpointId, fallback[index]!.distanceKm * 1000);
+    }
+    return map;
+  }, [room?.course, room?.plannedPaceSecondsPerKm, projection?.checkpointSplits, projection?.plannedPaceSecondsPerKm]);
+
+  const selectedCheckpointTooltip = useMemo(() => {
+    if (!selectedCheckpointId) {
+      return null;
+    }
+    const label = checkpointLabel(room, selectedCheckpointId);
+    const checkpointIndex = room?.course?.checkpoints?.findIndex((cp) => cp.id === selectedCheckpointId) ?? -1;
+    if (checkpointIndex === 0) {
+      return { label, etaText: "Start checkpoint" };
+    }
+    const distanceFromStart = checkpointDistanceById.get(selectedCheckpointId);
+    const pace = projection?.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm;
+    if (distanceFromStart === undefined || !pace || !Number.isFinite(pace) || pace <= 0) {
+      return { label, etaText: "ETA unavailable" };
+    }
+    const progressMeters = projection?.progressMeters ?? 0;
+    const secondsToCheckpoint = secondsForDistance(Math.max(0, distanceFromStart - progressMeters), pace);
+    return {
+      label,
+      etaText: `${formatEtaClock(Date.now() + secondsToCheckpoint * 1000)} (${formatRemainingMinutes(secondsToCheckpoint)})`
+    };
+  }, [selectedCheckpointId, room, checkpointDistanceById, projection?.plannedPaceSecondsPerKm, projection?.progressMeters]);
+
   const etaNextLabel = useMemo(() => {
     if (!projection || !nextSplit || remainingDistM === null) {
       return { time: "—", remain: "—" };
@@ -658,15 +712,9 @@ export function TrackMapDashboardScreen(): ReactElement {
       return { time: "—", remain: "—" };
     }
     const distToNext = Math.max(0, nextSplit.distanceMetersFromStart - projection.progressMeters);
-    const secondsToNext = (distToNext / 1000) * pace;
+    const secondsToNext = secondsForDistance(distToNext, pace);
     const etaMs = Date.now() + secondsToNext * 1000;
-    const t = new Date(etaMs);
-    const timeStr = t.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    const remainMin = Math.max(1, Math.round(secondsToNext / 60));
-    const h = Math.floor(remainMin / 60);
-    const m = remainMin % 60;
-    const remainStr = h > 0 ? `${h}H ${m}M` : `${m}M`;
-    return { time: timeStr, remain: remainStr };
+    return { time: formatEtaClock(etaMs), remain: formatRemainingMinutes(secondsToNext) };
   }, [projection, nextSplit, remainingDistM]);
 
   const onTrackLabel = projection?.projectionConfidence === "fresh" ? "ON TRACK" : "DEGRADED";
@@ -798,6 +846,47 @@ export function TrackMapDashboardScreen(): ReactElement {
           backgroundColor: activeMode === "light" ? "rgba(255, 255, 255, 0.88)" : "rgba(28, 30, 36, 0.82)"
         },
         badgePillText: { color: theme.color.text, fontWeight: "700", fontSize: 11 },
+        checkpointTooltip: {
+          position: "absolute",
+          left: 12,
+          right: 12,
+          top: insets.top + HEADER_INNER + BADGE_ROW_GAP_BELOW_HEADER + 42,
+          backgroundColor: theme.color.card,
+          borderRadius: 12,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.color.border,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          zIndex: 21
+        },
+        checkpointTooltipTitle: { color: theme.color.text, fontSize: 14, fontWeight: "800", paddingRight: 20 },
+        checkpointTooltipBody: { color: theme.color.muted, fontSize: 12, marginTop: 3, paddingRight: 20 },
+        checkpointTooltipClose: {
+          position: "absolute",
+          right: 4,
+          top: 4,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center"
+        },
+        checkpointMarkerTouch: {
+          width: 30,
+          height: 30,
+          borderRadius: 15,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "transparent"
+        },
+        checkpointMarkerDot: {
+          width: 12,
+          height: 12,
+          borderRadius: 6,
+          backgroundColor: activeMode === "light" ? "rgba(234, 88, 12, 0.98)" : "rgba(251, 146, 60, 0.95)",
+          borderWidth: 2,
+          borderColor: activeMode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(15, 23, 42, 0.9)"
+        },
         fabCol: {
           position: "absolute",
           right: 14,
@@ -963,7 +1052,7 @@ export function TrackMapDashboardScreen(): ReactElement {
 
   return (
     <View ref={rootRef} style={styles.root} onLayout={updateChromeLayoutMetrics}>
-      <Map
+      <MapLibreMap
         ref={mapRef}
         key={`dash-${basemapPreset}`}
         style={styles.map}
@@ -999,7 +1088,19 @@ export function TrackMapDashboardScreen(): ReactElement {
             />
           </GeoJSONSource>
         ) : null}
-      </Map>
+        {(room?.course?.checkpoints ?? []).map((checkpoint, index) => (
+          <Marker
+            key={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
+            id={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
+            lngLat={[checkpoint.longitude, checkpoint.latitude]}
+            onPress={() => setSelectedCheckpointId(checkpoint.id)}
+          >
+            <View style={styles.checkpointMarkerTouch}>
+              <View style={styles.checkpointMarkerDot} />
+            </View>
+          </Marker>
+        ))}
+      </MapLibreMap>
 
       <View style={styles.header} pointerEvents="box-none">
         <View style={{ width: 40 }} />
@@ -1043,6 +1144,16 @@ export function TrackMapDashboardScreen(): ReactElement {
           </Text>
         </View>
       </View>
+
+      {selectedCheckpointTooltip ? (
+        <View style={styles.checkpointTooltip}>
+          <Text style={styles.checkpointTooltipTitle}>{selectedCheckpointTooltip.label}</Text>
+          <Text style={styles.checkpointTooltipBody}>ETA {selectedCheckpointTooltip.etaText}</Text>
+          <Pressable onPress={() => setSelectedCheckpointId(null)} style={styles.checkpointTooltipClose}>
+            <Ionicons name="close" size={20} color={theme.color.text} />
+          </Pressable>
+        </View>
+      ) : null}
 
       <View
         style={[styles.fabCol, { opacity: fabOpacity }]}
@@ -1112,11 +1223,11 @@ export function TrackMapDashboardScreen(): ReactElement {
           </View>
 
           <Text style={styles.checklistTitle}>Aid station checklist</Text>
-          {(projection?.checkpointSplits ?? []).map((row) => {
+          {(projection?.checkpointSplits ?? []).map((row, index) => {
             const label = checkpointLabel(room, row.checkpointId);
             const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
             return (
-              <View key={row.checkpointId} style={styles.checklistRow}>
+              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
                 <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
                 <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
                   {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m

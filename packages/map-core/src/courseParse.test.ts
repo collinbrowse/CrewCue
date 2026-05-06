@@ -137,12 +137,28 @@ test("parseCourseTrack supports JSON/GeoJSON routes", () => {
             [-73.995974, 40.722776]
           ]
         }
+      },
+      {
+        type: "Feature",
+        properties: { name: "Start" },
+        geometry: { type: "Point", coordinates: [-74.005974, 40.712776] }
+      },
+      {
+        type: "Feature",
+        properties: { name: "Aid 1" },
+        geometry: { type: "Point", coordinates: [-74.000974, 40.717776] }
+      },
+      {
+        type: "Feature",
+        properties: { name: "Finish" },
+        geometry: { type: "Point", coordinates: [-73.995974, 40.722776] }
       }
     ]
   });
   const parsed = parseCourseTrack(geojson, "route.json");
   assert.ok(parsed.points.length >= 3);
   assert.ok(parsed.totalDistanceMeters > 1000);
+  assert.equal(parsed.waypoints.length, 3);
 });
 
 test("parseCourseTrack supports nested JSON coordinate arrays", () => {
@@ -184,4 +200,61 @@ test("format helpers stay presenter friendly", () => {
   assert.equal(formatDistance(3218.688, "mi"), "2.00 mi");
   assert.equal(formatPace(345), "5:45/km");
   assert.equal(formatPace(345, "mi"), "9:15/mi");
+});
+
+test("buildRaceCourseFromGpx prefers station-like waypoints when present", () => {
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.712776" lon="-74.005974"><name>Start</name></wpt>
+  <wpt lat="40.716000" lon="-74.002000"><name>Scenic turnout</name></wpt>
+  <wpt lat="40.719000" lon="-73.999000"><name>Aid Station 1</name></wpt>
+  <wpt lat="40.722776" lon="-73.995974"><name>Finish</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"></trkpt>
+    <trkpt lat="40.716000" lon="-74.002000"></trkpt>
+    <trkpt lat="40.719000" lon="-73.999000"></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const parsed = parseGpxTrack(gpx);
+  const { course } = buildRaceCourseFromGpx(parsed);
+  assert.deepEqual(
+    course.checkpoints.map((cp) => cp.id),
+    ["start", "aid-station-1", "finish"]
+  );
+});
+
+test("buildRaceCourseFromGpx keeps all waypoints when none are station-like", () => {
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.712776" lon="-74.005974"><name>Oak tree</name></wpt>
+  <wpt lat="40.717776" lon="-74.000974"><name>River bend</name></wpt>
+  <wpt lat="40.722776" lon="-73.995974"><name>Lookout</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"></trkpt>
+    <trkpt lat="40.717776" lon="-74.000974"></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const parsed = parseGpxTrack(gpx);
+  const { course } = buildRaceCourseFromGpx(parsed);
+  assert.equal(course.checkpoints.length, 3);
+  assert.deepEqual(course.checkpoints.map((cp) => cp.id), ["oak-tree", "river-bend", "lookout"]);
+});
+
+test("buildRaceCourseFromGpx deduplicates repeated waypoint names", () => {
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.712776" lon="-74.005974"><name>Town Park Start Finish</name></wpt>
+  <wpt lat="40.717776" lon="-74.000974"><name>Town Park Start Finish</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"></trkpt>
+    <trkpt lat="40.717776" lon="-74.000974"></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const parsed = parseGpxTrack(gpx);
+  const { course } = buildRaceCourseFromGpx(parsed);
+  assert.deepEqual(course.checkpoints.map((cp) => cp.id), ["town-park-start-finish", "town-park-start-finish-2"]);
+  assert.notEqual(course.checkpoints[0]!.longitude, course.checkpoints[1]!.longitude);
 });

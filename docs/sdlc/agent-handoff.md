@@ -14,48 +14,53 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-05 (America/Chicago)
-- **Merged:** PR [#221](https://github.com/collinbrowse/CrewCue/pull/221) → `main` (merge commit `f12a28c` on origin); closes [#220](https://github.com/collinbrowse/CrewCue/issues/220).
-- **Active branch for new work:** `main` (pull latest before branching).
+- Last updated: 2026-05-06 (America/Chicago)
+- **Active issue:** [#222](https://github.com/collinbrowse/CrewCue/issues/222)
+- **Active branch:** `feature/222-pace-checkpoint-parser`
 
 ## Current objective
 
-Continue MVP mobile from **`main`**: device QA on map follow / `onRegionDidChange` `userInteraction`, optional docs alignment (`mvp-ui-development-spec.md` MapHome row), then pick the next GitHub issue from the UI roadmap.
+Deliver end-to-end parser waypoint extraction/filtering/order updates plus Pace tab checkpoint/ETA editing UX, persist through existing course update API, and keep import/projection flows intact.
 
-## Acceptance criteria (delivered on main via #221)
+## Acceptance criteria (issue #222)
 
-1. Root tabs: Map, Pace (Readouts stack), Chat (placeholder), Profile (settings + avatar + sign out).
-2. Map home: full-screen map; course line + padded `fitBounds` when not following a runner position; follow-runner via projection (disabled on user pan); **layers** slide-over from the right; sheet respects vertical safe area; map chrome uses high-contrast tokens (not neon-on-white); user-location FAB (permission + `easeTo`); runner-avatar FAB centers runner; profile entry is **person** icon (not runner art). No mobile Map workspace screen (removed); **Race setup** under Workspace settings when a race is selected.
-3. `onSetProjectionPollEnabled` on shell; map dashboard enables poll on focus, disables on blur.
-4. `npm run verify` passes (CI on merge expected green).
+1. Parser (`packages/map-core/src/courseParse.ts`) extracts waypoint candidates from GPX/KML/JSON.
+2. Filtering policy: if notable station-like naming exists, retain station-like markers only; else keep all candidates.
+3. `start` and `finish` are accepted as station-like markers and are ordering anchors.
+4. Anchor ordering: start first, finish last, remainder by course-progress distance.
+5. Pace tab replaces placeholder with checkpoint list + ETA list anchored to user-entered start time, with checkpoint edit/save affordance.
+6. Shared ETA helper reused from map dashboard and readouts to avoid duplicated math.
+7. Tests expanded for parser + ETA helper; local `npm run verify` passes.
 
-## Delivered (now on `main`, PR #221)
+## Delivered (feature/222-pace-checkpoint-parser)
 
-- [`MapStack.tsx`](apps/mobile/src/navigation/MapStack.tsx) replaces Operate stack; [`TrackMapDashboardScreen.tsx`](apps/mobile/src/navigation/TrackMapDashboardScreen.tsx) map home.
-- [`ProfileStack.tsx`](apps/mobile/src/navigation/ProfileStack.tsx) + [`ProfileHomeScreen.tsx`](apps/mobile/src/navigation/ProfileHomeScreen.tsx): design system, offline maps toggle, sign out; workspace menu trimmed to race ops.
-- [`packages/map-core/src/coursePosition.ts`](packages/map-core/src/coursePosition.ts) + tests; `npm run build -w @crewcue/map-core` refreshes `dist/` for consumers.
-- [`AuthedShellContext`](apps/mobile/src/shell/AuthedShellContext.tsx) + [`App.tsx`](apps/mobile/App.tsx): `onSetProjectionPollEnabled`.
-- [`linking.ts`](apps/mobile/src/navigation/linking.ts) updated for new tab names.
-- Map sheet: removed Map workspace, Navigate, and Race setup buttons; [`WorkspaceMenuScreen.tsx`](apps/mobile/src/navigation/WorkspaceMenuScreen.tsx) adds **Race setup** (edit) when `s.room` is set; empty map uses **Open settings** only.
-- Map polish: [`TrackMapDashboardScreen.tsx`](apps/mobile/src/navigation/TrackMapDashboardScreen.tsx) — `Camera` ref + `fitBounds`/`easeTo`, right layers panel, GPX line colors by mode, theme-safe pills; deleted unused [`MapWorkspaceScreen`](apps/mobile/src/navigation/) native/web entry files.
-- Sheet UX (same file): **peek vs fully expanded only** (no middle snap); **cubic-out ~320ms** animation on grabber tap and after drag release; sheet height from **measured tab content bottom** + **badge row `measureInWindow`** for expanded top; sheet **`bottom: 0`** to root so the card fills above the tab bar (scroll `paddingBottom` keeps content off the home indicator); FAB opacity still `1 −` expansion progress.
-- Mercator helpers: [`mercatorTileMath.ts`](apps/mobile/src/features/maps/mercatorTileMath.ts) + test; [`mapStyleUrl.ts`](apps/mobile/src/features/maps/mapStyleUrl.ts) extended.
-- [`theme.ts`](apps/mobile/src/design-system/theme.ts): light mode `color.primary` maps to contract `primary` (not `primaryContainer`) so chrome is legible across design systems.
+- `packages/map-core/src/courseParse.ts`: added JSON waypoint extraction, station-like filtering policy, start/finish anchor handling, progress-distance ordering, and waypoint selection integration in `buildRaceCourseFromGpx`.
+- `packages/map-core/src/courseParse.test.ts`: added parser/ordering/filtering coverage for JSON point markers and station-like selection behavior.
+- `apps/mobile/src/features/readouts/eta.ts`: new shared ETA math/format helper (`secondsForDistance`, `formatEtaClock`, `formatRemainingMinutes`).
+- `apps/mobile/src/navigation/TrackMapDashboardScreen.tsx`: switched next-checkpoint ETA math to shared helper.
+- `apps/mobile/src/navigation/AuthenticatedReadoutsScreen.tsx`: replaced placeholder with Pace UX:
+  - start-time anchor input (`HH:MM`);
+  - checkpoint editor (rename/reorder/remove/add);
+  - save via `updateRaceCourse`;
+  - ETA list derived from projection checkpoint distances and anchor start time.
+- `apps/mobile/src/features/readouts/eta.test.ts` + `apps/mobile/package.json`: added ETA helper tests and wired into mobile test script.
 
 ## Next 1-3 tasks
 
-1. `git checkout main && git pull` — confirm post-merge CI green on `main`.
-2. Manual iOS/Android smoke on **production build or dev client**: sheet two-state + animation, badges, FAB fade, layers, follow-runner vs pan, race picker, Profile → workspace.
-3. Optional: update `mvp-ui-development-spec.md` OperateHome → MapHome table row (docs-only).
+1. Run manual mobile UX smoke (device/simulator): Pace edit/save flows and start-time ETA presentation.
+2. Confirm behavior for newly added checkpoints with placeholder lat/lon in backend validation (if rejected, follow-up UI should request coordinates).
+3. Open PR from `feature/222-pace-checkpoint-parser` to `main` with `Closes #222` once manual smoke is complete.
 
 ## Validation summary
 
-- `npm run verify` passed locally before merge (2026-05-05). Re-run on latest `main` after pull if you touch code.
+- `npm test --workspace @crewcue/map-core` ✅
+- `npm test --workspace @crewcue/mobile -- src/features/gpx/gpxImport.test.ts src/features/readouts/eta.test.ts` ✅
+- `npm run verify` ✅
 
 ## Open risks/blockers/questions
 
-- Map `onRegionDidChange` `userInteraction` must be verified on devices (disable follow only on real user gestures).
-- Elevation row uses GeoJSON Z on workspace tracks when present; otherwise shows "—".
+- Pace “Add checkpoint” currently inserts placeholder coordinates (`0,0`) because existing edit surface does not yet capture lat/lon; backend acceptance may vary by validation rules.
+- ETA list is currently keyed to projection checkpoint IDs; if user renames IDs and projection is stale, labels may reflect previous checkpoint IDs until projection refresh completes.
 
 ## Guardrails
 
@@ -65,5 +70,5 @@ Continue MVP mobile from **`main`**: device QA on map follow / `onRegionDidChang
 ## Successor prompt
 
 ```text
-#221 merged to main. Pull main, confirm CI green, device-smoke map dashboard; then open the next scoped issue from the UI roadmap (or docs-only spec row for MapHome).
+Continue #222 on branch feature/222-pace-checkpoint-parser. Run simulator/device smoke for Pace tab checkpoint editing and ETA anchoring. If add-checkpoint placeholder coordinates cause API rejection, implement coordinate capture UI (or block add until coords provided), rerun npm run verify, then prepare PR body with Closes #222.
 ```

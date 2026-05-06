@@ -12,7 +12,12 @@ export type GuestStackParamList = {
 /** Primary map + race operations stack (Map tab). */
 export type MapStackParamList = {
   MapHome: undefined;
-  RacePlanning: { mode?: "create" | "edit" } | undefined;
+  RacePlanning:
+    | {
+        mode?: "create" | "edit";
+        replaceCourseFile?: boolean;
+      }
+    | undefined;
   Navigate: undefined;
   JoinRoomDetails: { roomCode?: string } | undefined;
   WorkspaceMenu: undefined;

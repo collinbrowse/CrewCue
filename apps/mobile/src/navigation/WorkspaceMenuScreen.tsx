@@ -69,9 +69,17 @@ export function WorkspaceMenuScreen(): ReactElement {
               Create new race
             </DSButton>
             {s.room ? (
-              <DSButton preset="secondary" onPress={() => navigation.navigate("RacePlanning", { mode: "edit" })}>
-                Race setup
-              </DSButton>
+              <>
+                <DSButton preset="secondary" onPress={() => navigation.navigate("RacePlanning", { mode: "edit" })}>
+                  Race setup
+                </DSButton>
+                <DSButton
+                  preset="secondary"
+                  onPress={() => navigation.navigate("RacePlanning", { mode: "edit", replaceCourseFile: true })}
+                >
+                  Replace course file
+                </DSButton>
+              </>
             ) : null}
             <DSButton
               preset="secondary"
