@@ -59,6 +59,8 @@ import {
   removeEntry,
   type ChatOutboxEntry
 } from "../features/chat/messageQueue";
+import { ensureDeviceIdentity } from "../features/chat/keyStore";
+import { registerChatPushToken } from "../features/chat/pushTokenRegistration";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
 import type { ChatStackParamList } from "./types";
 
@@ -143,6 +145,16 @@ export function CrewChatScreen(): ReactElement {
         const key = await bootstrapChannelKey(api, room.id, memberDevices);
         if (cancelled) return;
         setChannelKey(key);
+
+        // Register push token (best-effort; permission may be denied)
+        try {
+          const identity = await ensureDeviceIdentity();
+          await registerChatPushToken(api, { deviceId: identity.deviceId });
+        } catch {
+          // user declined permissions; Phase 6 NSE/FCM still won't fire but
+          // chat continues to work — silent failure is intentional.
+        }
+
         const initial = await ch.query({ messages: { limit: 50 } });
         if (cancelled) return;
         setMessages(toViewMessages(initial.messages, key, myUserId, userIdToDisplayName));

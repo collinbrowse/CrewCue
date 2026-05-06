@@ -43,6 +43,11 @@ import {
   upsertChatKeyEnvelope,
   upsertChatPushToken
 } from "../lib/chatPersistence.js";
+import {
+  GENERIC_CHAT_PUSH_BODY,
+  dispatchChatPush,
+  tokensToTargets
+} from "../lib/chatPushDispatch.js";
 import { mintStreamUserToken, readStreamCredentials } from "../lib/streamChat.js";
 
 const deviceRegistrationSchema = z.object({
@@ -281,14 +286,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return true;
     });
     const tokens = await listChatPushTokensForUsers(eligibleUserIds);
+    const dispatch = await dispatchChatPush({
+      channelId: payload.channelId,
+      roomId: payload.roomId,
+      encryptedPreview: payload.encryptedPreview,
+      targets: tokensToTargets(tokens)
+    });
     return reply.send({
-      delivered: tokens.length,
+      delivered: dispatch.delivered,
+      attempts: dispatch.attempts,
+      failures: dispatch.failures,
       tokens: tokens.map((t) => ({
         userId: t.userId,
         deviceId: t.deviceId,
         platform: t.platform as ChatPushPlatform
       })),
-      genericFallbackBody: "New Message in Crew Chat",
+      genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
       encryptedPreview: payload.encryptedPreview,
       channelId: payload.channelId
     });
