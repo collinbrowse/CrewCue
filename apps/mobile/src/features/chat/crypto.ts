@@ -17,6 +17,42 @@
 import nacl from "tweetnacl";
 import { decodeBase64, decodeUTF8, encodeBase64, encodeUTF8 } from "tweetnacl-util";
 
+/**
+ * TweetNaCl defaults to Web Crypto or Node `crypto.randomBytes`. Hermes/RN
+ * often has neither, which yields `Error: no PRNG` on first `keyPair` or
+ * `randomBytes` call. Prefer Web Crypto when present, then Node, then Expo's
+ * native CSPRNG (sync `getRandomBytes`, max 1024 bytes per call — sufficient
+ * for all TweetNaCl uses here).
+ */
+function installTweetnaclPrng(): void {
+  const g = globalThis as typeof globalThis & { crypto?: Crypto };
+  if (typeof g.crypto?.getRandomValues === "function") {
+    nacl.setPRNG((x, n) => {
+      const v = new Uint8Array(n);
+      g.crypto!.getRandomValues(v);
+      x.set(v);
+    });
+    return;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { randomBytes } = require("node:crypto") as typeof import("node:crypto");
+    nacl.setPRNG((x, n) => {
+      x.set(randomBytes(n));
+    });
+    return;
+  } catch {
+    // Metro / RN bundle may not resolve `node:crypto`.
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getRandomBytes } = require("expo-crypto") as typeof import("expo-crypto");
+  nacl.setPRNG((x, n) => {
+    x.set(getRandomBytes(n));
+  });
+}
+
+installTweetnaclPrng();
+
 export type DeviceKeyPair = {
   publicKeyB64: string;
   secretKeyB64: string;
