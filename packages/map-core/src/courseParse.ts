@@ -31,6 +31,8 @@ const METERS_PER_KILOMETER = 1000;
 const METERS_PER_MILE = 1609.344;
 const DEFAULT_PACE_SECONDS_PER_KM = 360;
 const MAX_BASELINE_POINTS = 220;
+const WAYPOINT_ENCOUNTER_RADIUS_METERS = 80;
+const WAYPOINT_ENCOUNTER_MIN_GAP_METERS = 200;
 
 export function parseCourseTrack(fileContents: string, fileName: string): ParsedGpxTrack {
   const normalizedName = fileName.trim().toLowerCase();
@@ -116,7 +118,7 @@ function parseJsonTrack(jsonText: string): ParsedGpxTrack {
     throw new Error("JSON route must include at least two coordinates.");
   }
 
-  return buildParsedTrackFromPoints(points, []);
+  return buildParsedTrackFromPoints(points, extractJsonWaypoints(parsedJson));
 }
 
 export function buildExpectedSplits(
@@ -173,10 +175,12 @@ export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
 } {
+  const selectedWaypoints = selectCheckpointWaypoints(parsedTrack.points, parsedTrack.waypoints);
+  const seenIds = new Set<string>();
   const checkpoints =
-    parsedTrack.waypoints.length >= 2
-      ? parsedTrack.waypoints.map((waypoint, index) => ({
-          id: sanitizeCheckpointId(waypoint.name, index + 1),
+    selectedWaypoints.length >= 2
+      ? selectedWaypoints.map((waypoint, index) => ({
+          id: uniqueCheckpointId(sanitizeCheckpointId(waypoint.name, index + 1), seenIds),
           latitude: waypoint.latitude,
           longitude: waypoint.longitude,
           plannedStopSeconds: 120
@@ -431,6 +435,256 @@ function extractKmlWaypoints(kml: string): GpxWaypoint[] {
   return waypoints;
 }
 
+function extractJsonWaypoints(input: unknown): GpxWaypoint[] {
+  const candidates: GpxWaypoint[] = [];
+  if (!input || typeof input !== "object") {
+    return candidates;
+  }
+  const root = input as Record<string, unknown>;
+  candidates.push(...extractPointFeaturesFromGeoJson(root));
+  for (const key of ["waypoints", "markers", "checkpoints", "aidStations", "aid_stations"] as const) {
+    const list = root[key];
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const entry of list) {
+      const waypoint = toWaypoint(entry);
+      if (waypoint) {
+        candidates.push(waypoint);
+      }
+    }
+  }
+  return dedupeWaypoints(candidates);
+}
+
+function extractPointFeaturesFromGeoJson(node: Record<string, unknown>): GpxWaypoint[] {
+  const type = typeof node.type === "string" ? node.type : "";
+  if (type === "FeatureCollection" && Array.isArray(node.features)) {
+    return node.features.flatMap((feature) =>
+      feature && typeof feature === "object" ? extractPointFeaturesFromGeoJson(feature as Record<string, unknown>) : []
+    );
+  }
+  if (type === "Feature") {
+    const props = node.properties && typeof node.properties === "object" ? (node.properties as Record<string, unknown>) : {};
+    const name =
+      (typeof props.name === "string" && props.name) ||
+      (typeof props.title === "string" && props.title) ||
+      (typeof props.id === "string" && props.id) ||
+      undefined;
+    const geometry = node.geometry && typeof node.geometry === "object" ? (node.geometry as Record<string, unknown>) : null;
+    if (!geometry) {
+      return [];
+    }
+    const point = toWaypointFromGeometry(geometry, name);
+    return point ? [point] : [];
+  }
+  return [];
+}
+
+function toWaypointFromGeometry(geometry: Record<string, unknown>, name?: string): GpxWaypoint | null {
+  const type = typeof geometry.type === "string" ? geometry.type : "";
+  if (type !== "Point" || !Array.isArray(geometry.coordinates)) {
+    return null;
+  }
+  return toWaypoint({ coordinates: geometry.coordinates, name });
+}
+
+function toWaypoint(value: unknown): GpxWaypoint | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const coords = record.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const longitude = Number.parseFloat(String(coords[0]));
+    const latitude = Number.parseFloat(String(coords[1]));
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+    const name = typeof record.name === "string" ? record.name.trim() : undefined;
+    return { latitude, longitude, ...(name ? { name } : {}) };
+  }
+  const latitude = Number.parseFloat(String(record.latitude ?? record.lat ?? ""));
+  const longitude = Number.parseFloat(String(record.longitude ?? record.lon ?? record.lng ?? ""));
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  const nameRaw = record.name ?? record.title ?? record.label ?? record.id;
+  const name = typeof nameRaw === "string" ? nameRaw.trim() : undefined;
+  return { latitude, longitude, ...(name ? { name } : {}) };
+}
+
+function dedupeWaypoints(waypoints: GpxWaypoint[]): GpxWaypoint[] {
+  const seen = new Set<string>();
+  const deduped: GpxWaypoint[] = [];
+  for (const waypoint of waypoints) {
+    const key = `${waypoint.latitude.toFixed(6)}|${waypoint.longitude.toFixed(6)}|${(waypoint.name ?? "").toLowerCase()}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(waypoint);
+  }
+  return deduped;
+}
+
+function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): GpxWaypoint[] {
+  if (candidates.length < 2) {
+    const expandedSingle = expandWaypointEncounters(points, candidates);
+    if (expandedSingle.length < 2) {
+      return [];
+    }
+    return expandedSingle.map((entry) => entry.candidate);
+  }
+  const stationLike = candidates.filter((candidate) => isStationLikeName(candidate.name));
+  const pool = stationLike.length > 0 ? stationLike : candidates;
+  const expanded = expandWaypointEncounters(points, pool);
+  if (expanded.length < 2) {
+    return [];
+  }
+  const enriched = [...expanded].sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
+
+  const startAnchor = enriched.find((entry) => isStartName(entry.candidate.name));
+  const finishAnchor = [...enriched].reverse().find((entry) => isFinishName(entry.candidate.name));
+  const resolvedFinishAnchor =
+    startAnchor && finishAnchor && startAnchor === finishAnchor
+      ? {
+          candidate: {
+            latitude: points[points.length - 1]!.latitude,
+            longitude: points[points.length - 1]!.longitude,
+            name: "Finish"
+          },
+          distanceMetersFromStart: points.length
+        }
+      : finishAnchor;
+  const body = enriched
+    .filter((entry) => entry !== startAnchor && entry !== finishAnchor)
+    .map((entry) => entry.candidate);
+  const ordered: GpxWaypoint[] = [];
+  if (startAnchor) {
+    ordered.push(startAnchor.candidate);
+  }
+  ordered.push(...body);
+  if (resolvedFinishAnchor) {
+    ordered.push(resolvedFinishAnchor.candidate);
+  }
+  return ordered.length >= 2 ? ordered : [];
+}
+
+function expandWaypointEncounters(
+  points: GpxTrackPoint[],
+  candidates: GpxWaypoint[]
+): Array<{ candidate: GpxWaypoint; distanceMetersFromStart: number }> {
+  return candidates.flatMap((candidate) => {
+    const progresses = waypointEncounterProgresses(points, candidate);
+    return progresses.map((distanceMetersFromStart) => ({ candidate, distanceMetersFromStart }));
+  });
+}
+
+function waypointEncounterProgresses(points: GpxTrackPoint[], candidate: GpxWaypoint): number[] {
+  if (points.length < 2) {
+    return [0];
+  }
+  const cumulativeAtPoints: number[] = [0];
+  for (let index = 1; index < points.length; index += 1) {
+    cumulativeAtPoints.push(cumulativeAtPoints[index - 1]! + haversineDistanceMeters(points[index - 1]!, points[index]!));
+  }
+
+  const encounters: number[] = [];
+  let inside = false;
+  let lastEncounter = -Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    const progress = cumulativeAtPoints[index]!;
+    const distanceToWaypoint = haversineDistanceMeters(point, candidate);
+    const isInside = distanceToWaypoint <= WAYPOINT_ENCOUNTER_RADIUS_METERS;
+    if (isInside && !inside && progress - lastEncounter >= WAYPOINT_ENCOUNTER_MIN_GAP_METERS) {
+      encounters.push(progress);
+      lastEncounter = progress;
+    }
+    inside = isInside;
+  }
+
+  if (encounters.length === 0) {
+    encounters.push(distanceAlongTrack(points, candidate));
+  }
+  return encounters;
+}
+
+function isStationLikeName(name: string | undefined): boolean {
+  if (!name) {
+    return false;
+  }
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return /\b(aid|station|checkpoint|cp|water|crew|start|finish)\b/.test(normalized);
+}
+
+function isStartName(name: string | undefined): boolean {
+  if (!name) {
+    return false;
+  }
+  return /\b(start|begin)\b/i.test(name);
+}
+
+function isFinishName(name: string | undefined): boolean {
+  if (!name) {
+    return false;
+  }
+  return /\b(finish|end)\b/i.test(name);
+}
+
+function distanceAlongTrack(points: GpxTrackPoint[], candidate: GpxWaypoint): number {
+  if (points.length < 2) {
+    return 0;
+  }
+  let cumulative = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestProgress = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const segmentLength = haversineDistanceMeters(previous, current);
+    const projectionRatio = projectionRatioOnSegment(previous, current, candidate);
+    const projected = {
+      latitude: previous.latitude + (current.latitude - previous.latitude) * projectionRatio,
+      longitude: previous.longitude + (current.longitude - previous.longitude) * projectionRatio
+    };
+    const candidateDistance = haversineDistanceMeters(projected, candidate);
+    if (candidateDistance < bestDistance) {
+      bestDistance = candidateDistance;
+      bestProgress = cumulative + segmentLength * projectionRatio;
+    }
+    cumulative += segmentLength;
+  }
+  return bestProgress;
+}
+
+function projectionRatioOnSegment(
+  start: Pick<GpxTrackPoint, "latitude" | "longitude">,
+  end: Pick<GpxTrackPoint, "latitude" | "longitude">,
+  point: Pick<GpxWaypoint, "latitude" | "longitude">
+): number {
+  const ax = start.longitude;
+  const ay = start.latitude;
+  const bx = end.longitude;
+  const by = end.latitude;
+  const px = point.longitude;
+  const py = point.latitude;
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const denom = abx * abx + aby * aby;
+  if (denom <= 0) {
+    return 0;
+  }
+  const t = (apx * abx + apy * aby) / denom;
+  return Math.max(0, Math.min(1, t));
+}
+
 function buildFallbackCheckpoints(points: GpxTrackPoint[]): RaceCourse["checkpoints"] {
   const count = Math.min(6, Math.max(2, Math.floor(points.length / 20)));
   if (count <= 2) {
@@ -468,6 +722,21 @@ function sanitizeCheckpointId(name: string | undefined, index: number): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized.length > 0 ? normalized : `aid-${index}`;
+}
+
+function uniqueCheckpointId(baseId: string, seen: Set<string>): string {
+  if (!seen.has(baseId)) {
+    seen.add(baseId);
+    return baseId;
+  }
+  let suffix = 2;
+  let candidate = `${baseId}-${suffix}`;
+  while (seen.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseId}-${suffix}`;
+  }
+  seen.add(candidate);
+  return candidate;
 }
 
 function buildCheckpointCumulativeDistances(course: RaceCourse): number[] {

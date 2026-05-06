@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useColorScheme, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { Role } from "@crewcue/contracts";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { MapStackParamList } from "./types";
 
 const ROLE_OPTIONS: Role[] = ["athlete", "crew_member", "crew_chief", "team_manager"];
 
@@ -13,7 +11,7 @@ export function ManageRoomMembersScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
   const colorScheme = useColorScheme();
-  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList, "ManageRoomMembers">>();
+  const navigation = useNavigation<any>();
   const [selectedRoles, setSelectedRoles] = useState<Record<string, Role>>({});
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("crew_member");

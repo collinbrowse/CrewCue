@@ -38,6 +38,8 @@ export function ProfileHomeScreen(): ReactElement {
   }, []);
 
   const emailLabel = useMemo(() => s.auth.claims?.email?.trim() || "Signed in", [s.auth.claims?.email]);
+  const isOwner = Boolean(s.room && s.auth.claims?.sub && s.room.athleteId === s.auth.claims.sub);
+  const selectedRaceName = useMemo(() => s.room?.name?.trim() || "No race selected", [s.room?.name]);
 
   const executeSignOut = () => {
     if (signingOut) {
@@ -80,18 +82,33 @@ export function ProfileHomeScreen(): ReactElement {
         </DSCard>
 
         <DSCard style={[s.styles.summaryCard, styles.section]}>
-          <Text style={s.styles.summaryTitle}>Race & workspace</Text>
-          <Text style={s.styles.body}>Join codes, members, map workspace, and race setup live on the Map tab menu.</Text>
+          <Text style={s.styles.summaryTitle}>Add a race</Text>
+          <Text style={s.styles.body}>
+            Start a brand new race or join an existing room from Profile.
+          </Text>
           <View style={styles.gap}>
             <DSButton
               preset="secondary"
-              onPress={() =>
-                navigation.navigate("Map", {
-                  screen: "WorkspaceMenu"
-                })
-              }
+              onPress={() => navigation.navigate("ProfileRaceSetup", { mode: "create" })}
             >
-              Open workspace menu
+              Create new race
+            </DSButton>
+            <DSButton preset="secondary" onPress={() => navigation.navigate("ProfileJoinRoomDetails")}>
+              Join race room
+            </DSButton>
+          </View>
+        </DSCard>
+
+        <DSCard style={[s.styles.summaryCard, styles.section]}>
+          <Text style={s.styles.summaryTitle}>Race & workspace</Text>
+          <Text style={s.styles.body}>Manage members and room controls for your current race.</Text>
+          <Text style={[s.styles.code, { marginTop: 8 }]}>{selectedRaceName}</Text>
+          <View style={styles.gap}>
+            <DSButton
+              preset="secondary"
+              onPress={() => navigation.navigate("ProfileManageRoomMembers")}
+            >
+              {isOwner ? "Manage room members" : "View room members"}
             </DSButton>
           </View>
         </DSCard>

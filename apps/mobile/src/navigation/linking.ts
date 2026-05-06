@@ -17,9 +17,10 @@ export const crewCueLinking: LinkingOptions<any> = {
         }
       },
       Pace: {
-        path: "pace",
+        path: "course",
         screens: {
           ReadoutsHome: "",
+          CourseSettings: "settings",
           ReadoutsIncidents: "incidents",
           GpxImport: "gpx"
         }

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
@@ -18,7 +17,6 @@ import {
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { MapStackParamList } from "./types";
 
 type ImportState =
   | { status: "idle" }
@@ -43,10 +41,12 @@ type PendingCourseUpload = {
 export function GpxImportScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
-  const navigation = useNavigation<NativeStackNavigationProp<MapStackParamList, "RacePlanning">>();
+  const navigation = useNavigation<any>();
   const route = useRoute();
-  const mode = (route.params as { mode?: "create" | "edit" } | undefined)?.mode ?? "edit";
+  const routeParams = route.params as { mode?: "create" | "edit"; replaceCourseFile?: boolean } | undefined;
+  const mode = routeParams?.mode ?? "edit";
   const isCreateMode = mode === "create";
+  const replaceCourseFileMode = routeParams?.replaceCourseFile === true && !isCreateMode;
   const [importState, setImportState] = useState<ImportState>({ status: "idle" });
   const [raceName, setRaceName] = useState("");
   const [creatorName, setCreatorName] = useState("");
@@ -221,6 +221,7 @@ export function GpxImportScreen(): ReactElement {
       }
 
       await s.onFetchRoomDetails(room.id);
+      await s.onFetchProjection();
       await s.onFetchMyRaceRooms();
       navigation.goBack();
     } catch (error) {
@@ -247,8 +248,12 @@ export function GpxImportScreen(): ReactElement {
       keyboardShouldPersistTaps="handled"
     >
       <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>Race setup</Text>
-        <Text style={s.styles.subtitle}>Add race details, optionally upload GPX, and share your crew link</Text>
+        <Text style={s.styles.title}>{replaceCourseFileMode ? "Replace course file" : "Race setup"}</Text>
+        <Text style={s.styles.subtitle}>
+          {replaceCourseFileMode
+            ? "Upload a new GPX, KML, or JSON file to replace this race course."
+            : "Add race details, optionally upload GPX, and share your crew link"}
+        </Text>
 
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Race name (required)</Text>
         <DSTextInput
@@ -319,7 +324,13 @@ export function GpxImportScreen(): ReactElement {
 
         <View style={{ marginTop: 14 }}>
           <DSButton preset="primary" disabled={!canFinishSetup} onPress={() => void onFinishSetup()}>
-            {finishingSetup ? "Finishing setup..." : "Finish race setup"}
+            {finishingSetup
+              ? replaceCourseFileMode
+                ? "Saving new course..."
+                : "Finishing setup..."
+              : replaceCourseFileMode
+                ? "Save replacement course"
+                : "Finish race setup"}
           </DSButton>
         </View>
       </DSCard>

@@ -29,15 +29,19 @@ export function CrewMainTabs(): ReactElement {
         component={MapStack}
         options={{
           title: "Map",
-          tabBarIcon: ({ color, size }) => <Ionicons name="compass" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "compass" : "compass-outline"} size={size} color={color} />
+          )
         }}
       />
       <Tab.Screen
         name="Pace"
         component={ReadoutsStack}
         options={{
-          title: "Pace",
-          tabBarIcon: ({ color, size }) => <Ionicons name="stopwatch-outline" size={size} color={color} />
+          title: "Course",
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "stopwatch" : "stopwatch-outline"} size={size} color={color} />
+          )
         }}
       />
       <Tab.Screen
@@ -45,7 +49,9 @@ export function CrewMainTabs(): ReactElement {
         component={ChatStack}
         options={{
           title: "Chat",
-          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "chatbubble" : "chatbubble-outline"} size={size} color={color} />
+          )
         }}
       />
       <Tab.Screen
@@ -53,7 +59,9 @@ export function CrewMainTabs(): ReactElement {
         component={ProfileStack}
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={size} color={color} />
+          )
         }}
       />
     </Tab.Navigator>
