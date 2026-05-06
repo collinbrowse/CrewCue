@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildExpectedAidStationSplitsFromCourse,
   buildExpectedSplits,
@@ -9,6 +12,12 @@ import {
   formatPace,
   parseGpxTrack
 } from "./courseParse.js";
+
+const fixtureDir = dirname(fileURLToPath(import.meta.url));
+const tmrAidStationsJson = readFileSync(
+  resolve(fixtureDir, "__fixtures__", "2026_TMR_100k_AidStations.json"),
+  "utf8"
+);
 
 const validGpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="crewcue-test">
@@ -274,4 +283,70 @@ test("buildRaceCourseFromGpx creates multiple checkpoints when one waypoint is e
   const parsed = parseGpxTrack(gpx);
   const { course } = buildRaceCourseFromGpx(parsed);
   assert.deepEqual(course.checkpoints.map((cp) => cp.id), ["aid-station-loop", "aid-station-loop-2"]);
+});
+
+test("TMR 100K fixture preserves screenshot-truth station order including duplicate station encounter", () => {
+  const parsed = parseCourseTrack(tmrAidStationsJson, "2026_TMR_100k_AidStations.json");
+  const { course } = buildRaceCourseFromGpx(parsed);
+
+  assert.deepEqual(course.checkpoints.map((cp) => cp.id), [
+    "town-park-start-finish",
+    "bridal-veil-aid-station",
+    "tomboy-aid-station",
+    "oak-street-aid-station",
+    "prospect-aid-station",
+    "gold-hill-aid-station",
+    "bridal-veil-aid-station-2",
+    "red-mtn-pass-aid-station",
+    "burro-bridge-aid-station",
+    "ophir-aid-station",
+    "town-park-start-finish-2"
+  ]);
+});
+
+test("TMR 100K fixture keeps start first, finish last, and duplicates repeated stations", () => {
+  const parsed = parseCourseTrack(tmrAidStationsJson, "2026_TMR_100k_AidStations.json");
+  const { course } = buildRaceCourseFromGpx(parsed);
+  const checkpointIds = course.checkpoints.map((cp) => cp.id);
+
+  assert.equal(checkpointIds[0], "town-park-start-finish");
+  assert.equal(checkpointIds[checkpointIds.length - 1], "town-park-start-finish-2");
+  assert.equal(checkpointIds.filter((id) => id.startsWith("bridal-veil-aid-station")).length, 2);
+});
+
+test("TMR 100K fixture order is deterministic by route progress, not source point feature order", () => {
+  const fixture = JSON.parse(tmrAidStationsJson) as {
+    type: string;
+    features: Array<Record<string, unknown>>;
+  };
+  const lineFeatures = fixture.features.filter((feature) => {
+    const geometry = feature.geometry as Record<string, unknown> | undefined;
+    return geometry?.type === "LineString";
+  });
+  const pointFeatures = fixture.features.filter((feature) => {
+    const geometry = feature.geometry as Record<string, unknown> | undefined;
+    return geometry?.type === "Point";
+  });
+
+  const reorderedFixture = {
+    ...fixture,
+    features: [...lineFeatures, ...[...pointFeatures].reverse()]
+  };
+
+  const parsed = parseCourseTrack(JSON.stringify(reorderedFixture), "2026_TMR_100k_AidStations.json");
+  const { course } = buildRaceCourseFromGpx(parsed);
+
+  assert.deepEqual(course.checkpoints.map((cp) => cp.id), [
+    "town-park-start-finish",
+    "bridal-veil-aid-station",
+    "tomboy-aid-station",
+    "oak-street-aid-station",
+    "prospect-aid-station",
+    "gold-hill-aid-station",
+    "bridal-veil-aid-station-2",
+    "red-mtn-pass-aid-station",
+    "burro-bridge-aid-station",
+    "ophir-aid-station",
+    "town-park-start-finish-2"
+  ]);
 });

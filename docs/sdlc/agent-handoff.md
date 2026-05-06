@@ -15,52 +15,45 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-06 (America/Chicago)
-- **Active issue:** [#222](https://github.com/collinbrowse/CrewCue/issues/222)
-- **Active branch:** `feature/222-pace-checkpoint-parser`
+- **Active issue:** [#224](https://github.com/collinbrowse/CrewCue/issues/224)
+- **Active branch:** `feature/224-tmr-aid-station-parser-tests`
 
 ## Current objective
 
-Deliver end-to-end parser waypoint extraction/filtering/order updates plus Pace tab checkpoint/ETA editing UX, persist through existing course update API, and keep import/projection flows intact.
+Deliver regression coverage for TMR 100K JSON aid-station parsing so waypoint extraction, ordering, duplicate encounters, and start/finish anchors stay stable.
 
-## Acceptance criteria (issue #222)
+## Acceptance criteria (issue #224)
 
-1. Parser (`packages/map-core/src/courseParse.ts`) extracts waypoint candidates from GPX/KML/JSON.
-2. Filtering policy: if notable station-like naming exists, retain station-like markers only; else keep all candidates.
-3. `start` and `finish` are accepted as station-like markers and are ordering anchors.
-4. Anchor ordering: start first, finish last, remainder by course-progress distance.
-5. Pace tab replaces placeholder with checkpoint list + ETA list anchored to user-entered start time, with checkpoint edit/save affordance.
-6. Shared ETA helper reused from map dashboard and readouts to avoid duplicated math.
-7. Tests expanded for parser + ETA helper; local `npm run verify` passes.
+1. Check in real TMR 100K JSON as a stable map-core test fixture.
+2. Add regression test asserting screenshot-truth checkpoint sequence with duplicate Bridal Veil encounter.
+3. Ensure tests cover start-first/finish-last anchoring and deterministic ordering by route progress.
+4. Preserve parser behavior for duplicate checkpoint IDs via suffixing.
+5. Run `npm test --workspace @crewcue/map-core` and `npm run verify` successfully.
 
-## Delivered (feature/222-pace-checkpoint-parser)
+## Delivered (feature/224-tmr-aid-station-parser-tests)
 
-- `packages/map-core/src/courseParse.ts`: added JSON waypoint extraction, station-like filtering policy, start/finish anchor handling, progress-distance ordering, and waypoint selection integration in `buildRaceCourseFromGpx`.
-- `packages/map-core/src/courseParse.test.ts`: added parser/ordering/filtering coverage for JSON point markers and station-like selection behavior.
-- `apps/mobile/src/features/readouts/eta.ts`: new shared ETA math/format helper (`secondsForDistance`, `formatEtaClock`, `formatRemainingMinutes`).
-- `apps/mobile/src/navigation/TrackMapDashboardScreen.tsx`: switched next-checkpoint ETA math to shared helper.
-- `apps/mobile/src/navigation/AuthenticatedReadoutsScreen.tsx`: replaced placeholder with Pace UX:
-  - start-time anchor input (`HH:MM`);
-  - checkpoint editor (rename/reorder/remove/add);
-  - save via `updateRaceCourse`;
-  - ETA list derived from projection checkpoint distances and anchor start time.
-- `apps/mobile/src/features/readouts/eta.test.ts` + `apps/mobile/package.json`: added ETA helper tests and wired into mobile test script.
+- `packages/map-core/src/__fixtures__/2026_TMR_100k_AidStations.json`: added real-race fixture with one LineString and point aid-station markers.
+- `packages/map-core/src/courseParse.test.ts`: added fixture-backed regression tests covering:
+  - expected TMR checkpoint order matching screenshot truth;
+  - start-first / finish-last anchoring and duplicate Bridal Veil encounter;
+  - deterministic ordering by route progress even when source point features are reversed.
+- Parser code required no changes; current behavior already satisfies fixture-based expectations.
 
 ## Next 1-3 tasks
 
-1. Run manual mobile UX smoke (device/simulator): Pace edit/save flows and start-time ETA presentation.
-2. Confirm behavior for newly added checkpoints with placeholder lat/lon in backend validation (if rejected, follow-up UI should request coordinates).
-3. Open PR from `feature/222-pace-checkpoint-parser` to `main` with `Closes #222` once manual smoke is complete.
+1. Monitor import UX expectations around `Town Park Start/ Finish` being represented as `town-park-start-finish` and `town-park-start-finish-2` (single source marker, dual encounter expansion).
+2. If product wants distinct semantic labels for start vs finish IDs, add a follow-up parser normalization test and implementation.
+3. Merge PR for issue #224 after review and green checks.
 
 ## Validation summary
 
 - `npm test --workspace @crewcue/map-core` ✅
-- `npm test --workspace @crewcue/mobile -- src/features/gpx/gpxImport.test.ts src/features/readouts/eta.test.ts` ✅
 - `npm run verify` ✅
 
 ## Open risks/blockers/questions
 
-- Pace “Add checkpoint” currently inserts placeholder coordinates (`0,0`) because existing edit surface does not yet capture lat/lon; backend acceptance may vary by validation rules.
-- ETA list is currently keyed to projection checkpoint IDs; if user renames IDs and projection is stale, labels may reflect previous checkpoint IDs until projection refresh completes.
+- TMR source file uses a single `Town Park Start/ Finish` marker; parser emits first and last checkpoints from repeated encounters with numeric suffix on the final one.
+- Screenshot text says `Finish Line (Town Park)` while fixture marker title is `Town Park Start/ Finish`; if naming parity is required, parser naming rules need explicit transformation.
 
 ## Guardrails
 
@@ -70,5 +63,5 @@ Deliver end-to-end parser waypoint extraction/filtering/order updates plus Pace 
 ## Successor prompt
 
 ```text
-Continue #222 on branch feature/222-pace-checkpoint-parser. Run simulator/device smoke for Pace tab checkpoint editing and ETA anchoring. If add-checkpoint placeholder coordinates cause API rejection, implement coordinate capture UI (or block add until coords provided), rerun npm run verify, then prepare PR body with Closes #222.
+Continue #224 on branch feature/224-tmr-aid-station-parser-tests. If review requests stricter start/finish naming semantics for the TMR fixture, add a dedicated normalization rule and targeted tests without changing checkpoint progress ordering. Re-run npm test --workspace @crewcue/map-core and npm run verify, then update PR.
 ```
