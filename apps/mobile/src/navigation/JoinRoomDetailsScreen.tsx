@@ -1,21 +1,16 @@
 import { useState, type ReactElement } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import type { RouteProp } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { DSButton, DSCard, DSTextInput } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { MapStackParamList, ProfileStackParamList } from "./types";
 
 const ROLE_CHOICES = ["Crew Member", "Crew Chief", "Pacer", "Logistics", "Other"] as const;
 
 export function JoinRoomDetailsScreen(): ReactElement {
   const s = useAuthedShell();
-  const navigation = useNavigation<
-    NativeStackNavigationProp<MapStackParamList | ProfileStackParamList, "JoinRoomDetails" | "ProfileJoinRoomDetails">
-  >();
-  const route = useRoute<RouteProp<MapStackParamList | ProfileStackParamList, "JoinRoomDetails" | "ProfileJoinRoomDetails">>();
-  const [roomCode, setRoomCode] = useState(route.params?.roomCode ?? "");
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const [roomCode, setRoomCode] = useState((route.params as { roomCode?: string } | undefined)?.roomCode ?? "");
   const [displayName, setDisplayName] = useState("");
   const [selectedRole, setSelectedRole] = useState<(typeof ROLE_CHOICES)[number] | "">("");
   const [helpFocus, setHelpFocus] = useState("");

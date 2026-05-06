@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
@@ -18,7 +17,6 @@ import {
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { MapStackParamList, ProfileStackParamList, ReadoutsStackParamList } from "./types";
 
 type ImportState =
   | { status: "idle" }
@@ -43,12 +41,7 @@ type PendingCourseUpload = {
 export function GpxImportScreen(): ReactElement {
   const s = useAuthedShell();
   const theme = useDSTheme();
-  const navigation = useNavigation<
-    NativeStackNavigationProp<
-      MapStackParamList | ReadoutsStackParamList | ProfileStackParamList,
-      "RacePlanning" | "CourseRaceSetup" | "ProfileRaceSetup"
-    >
-  >();
+  const navigation = useNavigation<any>();
   const route = useRoute();
   const routeParams = route.params as { mode?: "create" | "edit"; replaceCourseFile?: boolean } | undefined;
   const mode = routeParams?.mode ?? "edit";
