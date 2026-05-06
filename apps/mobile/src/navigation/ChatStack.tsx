@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ChatPlaceholderScreen } from "./ChatPlaceholderScreen";
+import { ChatNotificationPrefsScreen } from "./ChatNotificationPrefsScreen";
+import { CrewChatScreen } from "./CrewChatScreen";
 import { useNavColors } from "./navigationTheme";
 import type { ChatStackParamList } from "./types";
 
@@ -18,7 +19,12 @@ export function ChatStack(): ReactElement {
         headerShadowVisible: false
       }}
     >
-      <Stack.Screen name="ChatHome" component={ChatPlaceholderScreen} options={{ title: "Chat" }} />
+      <Stack.Screen name="ChatHome" component={CrewChatScreen} options={{ title: "Chat" }} />
+      <Stack.Screen
+        name="ChatNotificationPrefs"
+        component={ChatNotificationPrefsScreen}
+        options={{ title: "Notifications" }}
+      />
     </Stack.Navigator>
   );
 }

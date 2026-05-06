@@ -32,7 +32,16 @@
           "locationAlwaysAndWhenInUsePermission": "CrewCue may use your location in the background only if you enable features that require it.",
           "isIosBackgroundLocationEnabled": false
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CrewCue uses your photo library so you can attach images to crew chat messages.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "./plugins/withChatPushDecryption.js"
     ]
   }
 }

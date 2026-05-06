@@ -259,6 +259,32 @@ export async function listPersistedRaceRoomsForMember(userId: string): Promise<R
   return result.rows.map((r) => r.payload);
 }
 
+/**
+ * List all rooms that have a non-null `eventEndsAt` field. Used by the chat
+ * retention scheduler. Returns a minimal projection so callers don't pay for
+ * full payload deserialization on a daily cron.
+ */
+export async function listPersistedRoomsForRetention(): Promise<
+  Array<Pick<RaceRoom, "id" | "eventEndsAt" | "status">>
+> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ id: string; ends_at: string; status: RaceRoom["status"] }>(
+    `
+      SELECT
+        id,
+        payload->>'eventEndsAt' AS ends_at,
+        (payload->>'status')::text AS status
+      FROM race_rooms_json
+      WHERE payload->>'eventEndsAt' IS NOT NULL
+    `
+  );
+  return result.rows
+    .filter((r) => typeof r.ends_at === "string" && r.ends_at.length > 0)
+    .map((r) => ({ id: r.id, eventEndsAt: r.ends_at, status: r.status }));
+}
+
 export async function isJoinCodeTakenInDb(joinCode: string): Promise<boolean> {
   if (!pool) {
     return false;

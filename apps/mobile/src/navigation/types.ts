@@ -39,6 +39,7 @@ export type ReadoutsStackParamList = {
 
 export type ChatStackParamList = {
   ChatHome: undefined;
+  ChatNotificationPrefs: undefined;
 };
 
 export type ProfileStackParamList = {

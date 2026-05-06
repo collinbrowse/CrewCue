@@ -22,6 +22,7 @@ type MobileConfig = {
   auth0ConnectionApple: string;
   auth0ConnectionEmail: string;
   apiBaseUrl: string;
+  streamApiKey?: string;
 };
 
 type MobileConfigResult =
@@ -41,6 +42,7 @@ export function loadMobileConfig(): MobileConfigResult {
   const auth0ConnectionApple = readEnv("EXPO_PUBLIC_AUTH0_CONNECTION_APPLE");
   const auth0ConnectionEmail = readEnv("EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL");
   const apiBaseUrl = readEnv("EXPO_PUBLIC_API_BASE_URL");
+  const streamApiKey = readEnv("EXPO_PUBLIC_STREAM_API_KEY");
 
   const missing: string[] = [];
   if (!auth0Domain) missing.push("EXPO_PUBLIC_AUTH0_DOMAIN");
@@ -63,7 +65,8 @@ export function loadMobileConfig(): MobileConfigResult {
       auth0ConnectionGoogle: auth0ConnectionGoogle!,
       auth0ConnectionApple: auth0ConnectionApple!,
       auth0ConnectionEmail: auth0ConnectionEmail!,
-      apiBaseUrl: apiBaseUrl!.replace(/\/$/, "")
+      apiBaseUrl: apiBaseUrl!.replace(/\/$/, ""),
+      streamApiKey
     }
   };
 }

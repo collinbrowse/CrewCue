@@ -5,6 +5,7 @@ import { ChatStack } from "./ChatStack";
 import { MapStack } from "./MapStack";
 import { ProfileStack } from "./ProfileStack";
 import { ReadoutsStack } from "./ReadoutsStack";
+import { useChatUnreadBadge } from "../features/chat/unreadBadge";
 import { useNavColors } from "./navigationTheme";
 import type { CrewMainTabParamList } from "./types";
 
@@ -12,6 +13,7 @@ const Tab = createBottomTabNavigator<CrewMainTabParamList>();
 
 export function CrewMainTabs(): ReactElement {
   const navColors = useNavColors();
+  const chatBadge = useChatUnreadBadge();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -49,6 +51,7 @@ export function CrewMainTabs(): ReactElement {
         component={ChatStack}
         options={{
           title: "Chat",
+          tabBarBadge: chatBadge,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? "chatbubble" : "chatbubble-outline"} size={size} color={color} />
           )
