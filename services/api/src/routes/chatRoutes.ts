@@ -48,7 +48,7 @@ import {
   dispatchChatPush,
   tokensToTargets
 } from "../lib/chatPushDispatch.js";
-import { mintStreamUserToken, readStreamCredentials } from "../lib/streamChat.js";
+import { deriveStreamUserId, mintStreamUserToken, readStreamCredentials } from "../lib/streamChat.js";
 
 const deviceRegistrationSchema = z.object({
   deviceId: z.string().trim().min(1).max(200),
@@ -115,13 +115,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!creds) {
       return reply.code(503).send({ error: "Stream Chat is not configured on this deployment" });
     }
-    const userId = request.identity.sub;
-    const token = mintStreamUserToken(userId, creds.apiSecret, {
+    const streamUserId = deriveStreamUserId(request.identity.sub);
+    const token = mintStreamUserToken(streamUserId, creds.apiSecret, {
       expiresInSeconds: 60 * 60
     });
     const response: ChatStreamTokenResponse = {
       token,
-      streamUserId: userId,
+      streamUserId,
       streamApiKey: creds.apiKey
     };
     return reply.send(response);

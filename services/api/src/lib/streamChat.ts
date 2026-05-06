@@ -9,7 +9,7 @@
  *
  * Reference: https://getstream.io/chat/docs/javascript/tokens_and_authentication/
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 function base64UrlEncode(input: string | Buffer): string {
   const buf = typeof input === "string" ? Buffer.from(input, "utf8") : input;
@@ -20,6 +20,20 @@ export type StreamCredentials = {
   apiKey: string;
   apiSecret: string;
 };
+
+/**
+ * Stream restricts user ids to a narrower character set than Auth0 `sub`.
+ * We derive a deterministic, stream-safe id from the identity subject.
+ */
+export function deriveStreamUserId(identitySub: string): string {
+  const trimmed = identitySub.trim();
+  if (!trimmed) {
+    throw new Error("deriveStreamUserId: identitySub is required");
+  }
+  const digest = createHash("sha256").update(trimmed, "utf8").digest("hex");
+  // lower-case hex plus `u-` prefix fits Stream's allowed user-id charset.
+  return `u-${digest.slice(0, 32)}`;
+}
 
 export function readStreamCredentials(): StreamCredentials | undefined {
   const apiKey = process.env.STREAM_API_KEY?.trim();

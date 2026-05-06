@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
+import { deriveStreamUserId } from "../lib/streamChat.js";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
@@ -106,7 +107,8 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
   const app = buildApp();
   await app.ready();
   try {
-    const token = app.jwt.sign(buildClaims("user-y"));
+    const identitySub = "google-oauth2|user-y";
+    const token = app.jwt.sign(buildClaims(identitySub));
     const res = await app.inject({
       method: "POST",
       url: "/chat/stream-token",
@@ -114,12 +116,12 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
     });
     assert.equal(res.statusCode, 200);
     const body = res.json() as { token: string; streamUserId: string; streamApiKey: string };
-    assert.equal(body.streamUserId, "user-y");
+    assert.equal(body.streamUserId, deriveStreamUserId(identitySub));
     assert.equal(body.streamApiKey, "test-key");
     const parts = body.token.split(".");
     assert.equal(parts.length, 3);
     const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
-    assert.equal(payload.user_id, "user-y");
+    assert.equal(payload.user_id, deriveStreamUserId(identitySub));
     assert.equal(typeof payload.exp, "number");
   } finally {
     delete process.env.STREAM_API_KEY;
