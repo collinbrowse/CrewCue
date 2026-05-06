@@ -10,6 +10,7 @@
  */
 import { deleteItemAsync, getItemAsync, setItemAsync } from "../../storage/secureStorage";
 import { generateDeviceKeyPair, type DeviceKeyPair } from "./crypto";
+import { removeChannelKeyFromExtension, shareChannelKeyWithExtension } from "./nativeKeyBridge";
 
 const DEVICE_ID_KEY = "crewcue.chat.deviceId";
 const DEVICE_PUBLIC_KEY = "crewcue.chat.devicePublicKey";
@@ -67,6 +68,10 @@ export async function saveChannelKey(
     setItemAsync(channelKeyStorageKey(roomId), keyB64),
     setItemAsync(channelKeyVersionStorageKey(roomId), String(keyVersion))
   ]);
+  // Mirror into the native shared store so the iOS NSE / Android FCM service
+  // can decrypt push previews. Best-effort: missing native module is a no-op
+  // and the OS displays the generic fallback body.
+  await shareChannelKeyWithExtension(roomId, keyB64);
 }
 
 export async function loadChannelKey(
@@ -87,4 +92,5 @@ export async function clearChannelKey(roomId: string): Promise<void> {
     deleteItemAsync(channelKeyStorageKey(roomId)),
     deleteItemAsync(channelKeyVersionStorageKey(roomId))
   ]);
+  await removeChannelKeyFromExtension(roomId);
 }

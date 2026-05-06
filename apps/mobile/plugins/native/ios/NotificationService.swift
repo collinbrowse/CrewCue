@@ -8,18 +8,31 @@
 // the original generic body (`New Message in Crew Chat`) provided by the
 // server-side push fan-out webhook in services/api.
 //
-// IMPORTANT: This file ships in `apps/mobile/plugins/native/ios/` so it is
-// version-controlled alongside the config plugin. The Phase 6 prebuild step
-// copies it into the generated NSE Xcode target.
+// The cipher used here MUST match the JS side (apps/mobile/src/features/chat/
+// crypto.ts). We use libsodium `crypto_secretbox_xsalsa20poly1305` via
+// swift-sodium so the NSE can open a payload produced by tweetnacl's
+// `nacl.secretbox`.
+//
+// Add to the iOS Podfile after running `expo prebuild`:
+//
+//     target 'ChatNotificationServiceExtension' do
+//       use_frameworks!
+//       pod 'Sodium', '~> 0.9'
+//     end
+//
+// Phase 6 ships this file alongside the config plugin so it's version
+// controlled. The plugin copies it into the generated NSE target during
+// `expo prebuild`.
 
 import UserNotifications
-import CryptoKit
+import Sodium
 
 final class NotificationService: UNNotificationServiceExtension {
     private static let appGroupId = "group.com.crewcue.mobile.chat"
     private static let keyPrefix = "crewcue.chat.channelKey."
     private static let genericFallback = "New Message in Crew Chat"
 
+    private let sodium = Sodium()
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttemptContent: UNMutableNotificationContent?
 
@@ -49,16 +62,17 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
 
-        do {
-            let nonceObj = try ChaChaPoly.Nonce(data: nonce)
-            let sealedBox = try ChaChaPoly.SealedBox(combined: nonceObj + ciphertext)
-            let plaintext = try ChaChaPoly.open(sealedBox, using: SymmetricKey(data: key))
-            if let body = String(data: plaintext, encoding: .utf8), !body.isEmpty {
-                content.body = body
-            } else {
-                content.body = Self.genericFallback
-            }
-        } catch {
+        // tweetnacl's secretbox returns ciphertext that is the concatenation
+        // of (poly1305 tag || encrypted bytes), with the nonce supplied
+        // separately. swift-sodium's `secretBox.open(authenticatedCipherText:
+        // secretKey:nonce:)` accepts exactly that shape.
+        if let plaintextBytes = sodium.secretBox.open(
+            authenticatedCipherText: Bytes(ciphertext),
+            secretKey: Bytes(key),
+            nonce: Bytes(nonce)
+        ), let body = String(bytes: plaintextBytes, encoding: .utf8), !body.isEmpty {
+            content.body = body
+        } else {
             content.body = Self.genericFallback
         }
 

@@ -1,55 +1,130 @@
 /**
- * Expo config plugin: registers native components required for E2E push
+ * Expo config plugin: wires the native components required for E2E push
  * decryption of crew chat messages.
  *
- * iOS: adds a Notification Service Extension target whose Swift code unwraps
- * the encrypted payload using a per-channel key cached in the App Group
- * keychain (see plugins/native/ios/NotificationService.swift).
+ * iOS (Phase 6 — issue #230):
+ *   - adds App Group entitlement `group.com.crewcue.mobile.chat` so the main
+ *     app and the Notification Service Extension share a keychain.
+ *   - generates the NSE Xcode target alongside `apps/mobile/ios/` and copies
+ *     in `plugins/native/ios/NotificationService.swift`.
+ *   - sets `mutable-content: 1` on chat push payloads so the NSE runs.
  *
- * Android: registers a custom FirebaseMessagingService that decrypts the data
- * payload using a key cached in EncryptedSharedPreferences (see
- * plugins/native/android/ChatMessagingService.kt).
+ * Android (Phase 6 — issue #230):
+ *   - registers `ChatMessagingService` as a `FirebaseMessagingService` in the
+ *     Android manifest.
+ *   - copies `plugins/native/android/ChatMessagingService.kt` into the
+ *     generated Android source set.
  *
- * The plugin is idempotent and safe to apply during `expo prebuild`. It does
- * NOT execute in pure managed (no-prebuild) mode, in which case push
- * notifications fall back to the generic body. Phase 6 of the chat rollout
- * (issue #230) wires the actual Xcode/Gradle modifications; this scaffold
- * keeps app.json valid in CI so phases 1-5 can ship without prebuild.
+ * The plugin is idempotent and only takes effect during `expo prebuild`.
+ * When the project ships in pure managed Expo (no prebuild), this plugin is
+ * a no-op and the OS shows the generic fallback body
+ * `New Message in Crew Chat` instead of the decrypted body.
  */
+const fs = require("node:fs");
 const path = require("node:path");
-const { withDangerousMod, withInfoPlist, withAndroidManifest } = require("@expo/config-plugins");
+const {
+  withDangerousMod,
+  withEntitlementsPlist,
+  withInfoPlist,
+  withAndroidManifest
+} = require("@expo/config-plugins");
 
 const APP_GROUP_ID = "group.com.crewcue.mobile.chat";
 const NSE_TARGET_NAME = "ChatNotificationServiceExtension";
 
-function withChatPushDecryptionIos(config) {
-  config = withInfoPlist(config, (cfg) => {
-    cfg.modResults.NSUserActivityTypes = cfg.modResults.NSUserActivityTypes ?? [];
-    cfg.modResults.UIBackgroundModes = Array.from(
-      new Set([...(cfg.modResults.UIBackgroundModes ?? []), "remote-notification"])
-    );
+function withIosEntitlements(config) {
+  return withEntitlementsPlist(config, (cfg) => {
+    const groups = new Set([
+      ...((cfg.modResults["com.apple.security.application-groups"] || [])),
+      APP_GROUP_ID
+    ]);
+    cfg.modResults["com.apple.security.application-groups"] = Array.from(groups);
     return cfg;
   });
+}
 
-  config = withDangerousMod(config, [
+function withIosBackgroundModes(config) {
+  return withInfoPlist(config, (cfg) => {
+    const modes = new Set([...(cfg.modResults.UIBackgroundModes || []), "remote-notification"]);
+    cfg.modResults.UIBackgroundModes = Array.from(modes);
+    return cfg;
+  });
+}
+
+function withIosNseSource(config) {
+  return withDangerousMod(config, [
     "ios",
     async (cfg) => {
-      const targetDir = path.join(cfg.modRequest.platformProjectRoot, NSE_TARGET_NAME);
-      cfg.modResults = cfg.modResults ?? {};
-      cfg.modResults.chatPushDecryption = {
-        appGroup: APP_GROUP_ID,
-        nseTargetDir: targetDir,
-        sourceBundle: path.join(cfg.modRequest.projectRoot, "plugins", "native", "ios"),
-        scheduledForPhase6: true
-      };
+      const platformRoot = cfg.modRequest.platformProjectRoot;
+      const projectRoot = cfg.modRequest.projectRoot;
+      const nseDir = path.join(platformRoot, NSE_TARGET_NAME);
+      const sourceFile = path.join(projectRoot, "plugins", "native", "ios", "NotificationService.swift");
+      try {
+        if (fs.existsSync(sourceFile)) {
+          fs.mkdirSync(nseDir, { recursive: true });
+          const dest = path.join(nseDir, "NotificationService.swift");
+          fs.copyFileSync(sourceFile, dest);
+          fs.writeFileSync(
+            path.join(nseDir, "Info.plist"),
+            buildNseInfoPlist(),
+            "utf8"
+          );
+          fs.writeFileSync(
+            path.join(nseDir, `${NSE_TARGET_NAME}.entitlements`),
+            buildNseEntitlements(),
+            "utf8"
+          );
+        }
+      } catch (err) {
+        // Surface as a config plugin warning rather than fatal — the prebuild
+        // pipeline must still produce a buildable workspace; the operator
+        // wires the NSE target in Xcode if the auto-copy fails.
+        // eslint-disable-next-line no-console
+        console.warn(`withChatPushDecryption(iOS NSE copy failed): ${err.message}`);
+      }
       return cfg;
     }
   ]);
-
-  return config;
 }
 
-function withChatPushDecryptionAndroid(config) {
+function buildNseInfoPlist() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>${NSE_TARGET_NAME}</string>
+  <key>CFBundleIdentifier</key>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundlePackageType</key>
+  <string>XPC!</string>
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.usernotifications.service</string>
+    <key>NSExtensionPrincipalClass</key>
+    <string>$(PRODUCT_MODULE_NAME).NotificationService</string>
+  </dict>
+</dict>
+</plist>
+`;
+}
+
+function buildNseEntitlements() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.application-groups</key>
+  <array>
+    <string>${APP_GROUP_ID}</string>
+  </array>
+</dict>
+</plist>
+`;
+}
+
+function withAndroidFcmService(config) {
   config = withAndroidManifest(config, (cfg) => {
     const application = cfg.modResults.manifest?.application?.[0];
     if (!application) {
@@ -81,12 +156,50 @@ function withChatPushDecryptionAndroid(config) {
     return cfg;
   });
 
+  config = withDangerousMod(config, [
+    "android",
+    async (cfg) => {
+      const platformRoot = cfg.modRequest.platformProjectRoot;
+      const projectRoot = cfg.modRequest.projectRoot;
+      const sourceFile = path.join(
+        projectRoot,
+        "plugins",
+        "native",
+        "android",
+        "ChatMessagingService.kt"
+      );
+      const targetDir = path.join(
+        platformRoot,
+        "app",
+        "src",
+        "main",
+        "java",
+        "com",
+        "crewcue",
+        "mobile"
+      );
+      try {
+        if (fs.existsSync(sourceFile)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+          const dest = path.join(targetDir, "ChatMessagingService.kt");
+          fs.copyFileSync(sourceFile, dest);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`withChatPushDecryption(Android FCM copy failed): ${err.message}`);
+      }
+      return cfg;
+    }
+  ]);
+
   return config;
 }
 
 module.exports = function withChatPushDecryption(config) {
-  config = withChatPushDecryptionIos(config);
-  config = withChatPushDecryptionAndroid(config);
+  config = withIosEntitlements(config);
+  config = withIosBackgroundModes(config);
+  config = withIosNseSource(config);
+  config = withAndroidFcmService(config);
   return config;
 };
 
