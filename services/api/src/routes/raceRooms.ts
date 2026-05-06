@@ -44,6 +44,7 @@ import {
   listPersistedRaceRoomsByTeamId,
   listPersistedRaceRoomsForMember,
   isJoinCodeTakenInDb,
+  listPersistedRoomsForRetention,
   loadRoomIdByJoinCode,
   loadRaceRoom,
   loadRaceRoomInvite,
@@ -874,6 +875,22 @@ export async function listRaceRoomsForMember(userId: string): Promise<RaceRoom[]
   }
   const sorted = [...merged.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
+}
+
+/**
+ * All rooms that have an `eventEndsAt` set. Used by the chat retention
+ * scheduler to find rooms whose chat data should be purged after the
+ * 30-day retention window. Returns a minimal projection.
+ */
+export async function listRaceRoomsForRetention(): Promise<
+  Array<Pick<RaceRoom, "id" | "eventEndsAt" | "status">>
+> {
+  if (!isRoomPersistenceEnabled()) {
+    return [...raceRooms.values()]
+      .filter((r) => typeof r.eventEndsAt === "string" && r.eventEndsAt.length > 0)
+      .map((r) => ({ id: r.id, eventEndsAt: r.eventEndsAt, status: r.status }));
+  }
+  return listPersistedRoomsForRetention();
 }
 
 /** Latest projection view with timeliness, when ping history produced a stored core projection. */
