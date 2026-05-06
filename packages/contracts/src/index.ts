@@ -788,3 +788,124 @@ export interface ReplayedRaceRoomAggregate {
   lastPlanVersion?: number;
   lastActivatedEventEndsAt?: string;
 }
+
+// --- Crew chat (E2E) contracts ---
+// Server stores ciphertext (via Stream Chat) and per-recipient wrapped channel
+// keys; it never sees plaintext message content. Notification preferences and
+// push tokens live here so the API can fan out push without seeing plaintext.
+
+/** Mints a short-lived Stream Chat user token bound to the authenticated user. */
+export interface ChatStreamTokenResponse {
+  /** Stream Chat user token (JWT signed with the server-side Stream secret). */
+  token: string;
+  /** The Stream user id used for this client session (matches the auth subject). */
+  streamUserId: string;
+  /** Stream Chat API key (public, safe to embed in clients). */
+  streamApiKey: string;
+}
+
+/** Returns the deterministic Stream channel id for a CrewCue race room. */
+export function chatChannelIdForRoom(roomId: string): string {
+  return `crew-${roomId}`;
+}
+
+/** A device public key registered for E2E key wrapping. */
+export interface ChatDeviceKey {
+  /** Stable per-install device id chosen by the client. */
+  deviceId: string;
+  /** Owning user id (auth `sub`). */
+  userId: string;
+  /** Curve25519 public key (base64). */
+  publicKey: string;
+  /** Last time this device renewed its registration. */
+  registeredAt: string;
+}
+
+export interface ChatDeviceKeyRegistration {
+  deviceId: string;
+  publicKey: string;
+}
+
+/**
+ * Per-recipient envelope: the symmetric channel key wrapped to a single device
+ * public key using libsodium `crypto_box`. Multiple envelopes (one per member
+ * device) are stored per room, allowing any device to unwrap the channel key.
+ */
+export interface ChatKeyEnvelope {
+  roomId: string;
+  recipientUserId: string;
+  recipientDeviceId: string;
+  /** Author's ephemeral public key used to wrap (base64). */
+  senderEphemeralPublicKey: string;
+  /** Box nonce (base64). */
+  nonce: string;
+  /** Encrypted channel key bytes (base64). */
+  ciphertext: string;
+  /** Monotonic version counter; incremented on every key rotation. */
+  keyVersion: number;
+  createdAt: string;
+}
+
+export interface ChatKeyEnvelopeUpload {
+  recipientUserId: string;
+  recipientDeviceId: string;
+  senderEphemeralPublicKey: string;
+  nonce: string;
+  ciphertext: string;
+  keyVersion: number;
+}
+
+export type ChatNotificationPref = "all" | "mentions" | "none";
+
+export interface ChatNotificationPrefRecord {
+  userId: string;
+  roomId: string;
+  preference: ChatNotificationPref;
+  updatedAt: string;
+}
+
+export type ChatPushPlatform = "ios" | "android" | "web";
+
+export interface ChatPushTokenRegistration {
+  deviceId: string;
+  platform: ChatPushPlatform;
+  /** APNs device token or FCM registration id. */
+  token: string;
+}
+
+export interface ChatPushTokenRecord extends ChatPushTokenRegistration {
+  userId: string;
+  registeredAt: string;
+}
+
+/**
+ * Stream Chat push webhook payload (subset). The server uses this to fan out
+ * APNS/FCM with the encrypted preview blob. Field names mirror Stream's
+ * webhook contract; we only consume what we need.
+ */
+export interface ChatPushWebhookPayload {
+  channelId: string;
+  /** Stream user id of the sender. */
+  senderUserId: string;
+  /** Recipient user ids excluding the sender. */
+  recipientUserIds: string[];
+  /** Crew room id this channel maps to. */
+  roomId: string;
+  /** Mentioned user ids inside the encrypted message body. */
+  mentionedUserIds?: string[];
+  /** Encrypted preview blob: base64 ciphertext + base64 nonce. */
+  encryptedPreview: {
+    ciphertext: string;
+    nonce: string;
+    keyVersion: number;
+  };
+}
+
+/** Result of a retention deletion job run for a single room. */
+export interface ChatRetentionResult {
+  roomId: string;
+  deletedAt: string;
+  envelopesPurged: number;
+  prefsPurged: number;
+  pushTokensPurged: number;
+}
