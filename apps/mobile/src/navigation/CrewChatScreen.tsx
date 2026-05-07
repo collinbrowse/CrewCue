@@ -89,8 +89,8 @@ type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
  * - `SCROLLBAR_CONTENT_GAP`: padding inside the FlatList so right-aligned bubbles never reach the indicator.
  * - `SCROLLBAR_OUTSIDE_STRIP`: empty sibling column so the OS scrollbar sits in margin, not over bubble chrome.
  */
-const SCROLLBAR_CONTENT_GAP = 16;
-const SCROLLBAR_OUTSIDE_STRIP = 12;
+const SCROLLBAR_CONTENT_GAP = 12;
+const SCROLLBAR_OUTSIDE_STRIP = 8;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
