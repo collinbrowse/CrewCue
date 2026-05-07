@@ -16,7 +16,7 @@ Use this as the minimal continuity file between sessions.
 
 - Last updated: 2026-05-07 (America/Chicago)
 - **Active issues:** #236 (Auth0 account-switch prompt), #237 (Stream member sync), #238 (Android dev-build stability); **chat UI polish** tracked in [#240](https://github.com/collinbrowse/CrewCue/issues/240).
-- **Active branch:** `feature/chat-screen-ui-polish-240` (PR to `main` pending) — merge when green.
+- **Active branch:** `feature/chat-screen-ui-polish-240` — PR [#241](https://github.com/collinbrowse/CrewCue/pull/241) (**Closes #240**).
 - **Plan:** chat UI plan (bundled header, scroll, scrollbar gutter, reaction overlay, avatars) delivered in this branch; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
 ## Current objective
@@ -82,7 +82,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. Merge PR for `feature/chat-screen-ui-polish-240` (closes #240); manual iOS/Android pass on composer alignment, scrollbar gutter, reaction modal, unseen chip, avatars (`expo prebuild`/dev client if native blur needs refresh).
+1. Merge PR [#241](https://github.com/collinbrowse/CrewCue/pull/241) (closes #240); manual iOS/Android pass on composer alignment, scrollbar gutter, reaction modal, unseen chip, avatars (`expo prebuild`/dev client if native blur needs refresh).
 2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
 3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
