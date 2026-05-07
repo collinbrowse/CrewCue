@@ -84,13 +84,13 @@ import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
 
-/** Insets transcript content from the scroll view’s right edge so bubbles never sit under the bar. */
-const SCROLL_END_CONTENT_PADDING = 20;
 /**
- * Narrows the `FlatList` within `listWrap` so the OS scroll indicator draws in visible empty space
- * to the right of the list (padding alone is not always enough on iOS).
+ * Scroll layout (matches “row content + outer indicator margin” pattern):
+ * - `SCROLLBAR_CONTENT_GAP`: padding inside the FlatList so right-aligned bubbles never reach the indicator.
+ * - `SCROLLBAR_OUTSIDE_STRIP`: empty sibling column so the OS scrollbar sits in margin, not over bubble chrome.
  */
-const SCROLL_END_OUTER_MARGIN = 8;
+const SCROLLBAR_CONTENT_GAP = 16;
+const SCROLLBAR_OUTSIDE_STRIP = 12;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
@@ -573,21 +573,21 @@ export function CrewChatScreen(): ReactElement {
       <View style={styles.listWrap}>
         <FlatList
           ref={listRef}
-          style={[styles.listFlatList, { marginEnd: SCROLL_END_OUTER_MARGIN }]}
+          style={styles.listFlatList}
           data={messages}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(m) => m.id}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingEnd: SCROLL_END_CONTENT_PADDING }
-          ]}
+          contentContainerStyle={[styles.listContent, { paddingRight: SCROLLBAR_CONTENT_GAP }]}
           onScroll={onListScroll}
           scrollEventThrottle={16}
           onContentSizeChange={onMessagesContentSizeChange}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           onScrollToIndexFailed={handleScrollIndexFailed}
-          scrollIndicatorInsets={{ right: SCROLL_END_CONTENT_PADDING }}
+          scrollIndicatorInsets={{ right: 0 }}
+          {...(Platform.OS === "ios"
+            ? ({ automaticallyAdjustsScrollIndicatorInsets: false } as const)
+            : {})}
           renderItem={(info) => {
             const nextRow = messages[info.index + 1];
             const showAvatarTail =
@@ -621,6 +621,12 @@ export function CrewChatScreen(): ReactElement {
               </View>
             ) : null
           }
+        />
+        <View
+          pointerEvents="none"
+          style={[styles.scrollGutterStrip, { width: SCROLLBAR_OUTSIDE_STRIP, backgroundColor: theme.color.background }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         />
         {minUnseenAboveIndex !== undefined ? (
           <Animated.View
@@ -1287,9 +1293,10 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     title: { color: theme.color.text, fontSize: 18, fontWeight: "700" },
     body: { color: theme.color.body, fontSize: 14 },
     iconButton: { padding: 8 },
-    listWrap: { flex: 1, position: "relative", minHeight: 0 },
-    /** `marginEnd` applied inline so the scroll bar sits in the gap beside the list. */
-    listFlatList: { flex: 1, minHeight: 0 },
+    /** Row: scrollable transcript + fixed-width strip so the indicator reads as outside bubble alignment (see SCROLLBAR_*). */
+    listWrap: { flex: 1, flexDirection: "row", position: "relative", minHeight: 0 },
+    listFlatList: { flex: 1, minWidth: 0 },
+    scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
     unseenChipWrap: {
       position: "absolute",
