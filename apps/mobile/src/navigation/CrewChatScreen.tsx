@@ -592,6 +592,13 @@ export function CrewChatScreen(): ReactElement {
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
           }
+          ListFooterComponent={
+            readByEveryone ? (
+              <View style={styles.readByListFooter} accessibilityRole="text">
+                <Text style={styles.readByListFooterText}>Read by everyone</Text>
+              </View>
+            ) : null
+          }
         />
         {minUnseenAboveIndex !== undefined ? (
           <Animated.View
@@ -612,7 +619,6 @@ export function CrewChatScreen(): ReactElement {
           </Animated.View>
         ) : null}
       </View>
-      {readByEveryone ? <Text style={styles.readBy}>Read by everyone</Text> : null}
       {typingUserIds.length > 0 ? (
         <Text style={styles.typing}>
           {typingNames(typingUserIds, streamIdToDisplayName)} typing…
@@ -1385,6 +1391,13 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     attachmentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     attachmentThumb: { width: 64, height: 64, borderRadius: 8 },
     typing: { color: theme.color.muted, fontSize: 12, paddingHorizontal: 4 },
-    readBy: { color: theme.color.muted, fontSize: 11, alignSelf: "flex-end" }
+    /** In-list footer: sits under the last bubble inside `FlatList`, right-aligned (LTR). */
+    readByListFooter: {
+      alignSelf: "stretch",
+      alignItems: "flex-end",
+      paddingTop: 4,
+      paddingBottom: 2
+    },
+    readByListFooterText: { color: theme.color.muted, fontSize: 11 }
   });
 }
