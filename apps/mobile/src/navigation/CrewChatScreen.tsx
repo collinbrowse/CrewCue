@@ -18,7 +18,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement
+} from "react";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import {
   ActivityIndicator,
@@ -76,8 +84,8 @@ import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
 
-/** Reserves trailing space so the vertical scroll indicator reads as outside sent bubbles (see listContent padding + ownBubbleTrail). */
-const SCROLLBAR_GUTTER = 14;
+/** Trailing inset for the vertical scroll indicator; list `paddingRight` only (no per-row duplicate). */
+const SCROLLBAR_GUTTER = 6;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
@@ -572,7 +580,6 @@ export function CrewChatScreen(): ReactElement {
                 revealed={revealedMessageId === info.item.id}
                 reactionHighlight={reactionOverlay?.messageId === info.item.id}
                 showAvatarTail={showAvatarTail}
-                ownBubbleTrail={SCROLLBAR_GUTTER}
                 onRevealLongPress={(id) => setRevealedMessageId(id)}
                 onReleaseReveal={() => setRevealedMessageId(undefined)}
                 onOpenReactionPicker={(id, frame) => openReactionPickerForMessage(id, frame)}
@@ -652,13 +659,30 @@ function Composer(props: ComposerProps): ReactElement {
   const theme = useDSTheme();
   const styles = makeStyles(theme);
   const [caretIndex, setCaretIndex] = useState(props.value.length);
+  /** Remount multiline `TextInput` when cleared so native height returns to single-line (RN quirk). */
+  const [composerFieldKey, setComposerFieldKey] = useState(0);
+  const prevValueLenRef = useRef(props.value.length);
   const suggestions = useMemo(
     () => suggestMentions(props.value, caretIndex, props.memberships),
     [props.value, caretIndex, props.memberships]
   );
 
+  useEffect(() => {
+    const len = props.value.length;
+    if (len === 0 && prevValueLenRef.current > 0) {
+      setComposerFieldKey((k) => k + 1);
+      setCaretIndex(0);
+    }
+    prevValueLenRef.current = len;
+  }, [props.value]);
+
   const androidInputExtras =
-    Platform.OS === "android" ? ({ textAlignVertical: "center" as const } satisfies object) : undefined;
+    Platform.OS === "android"
+      ? ({
+          textAlignVertical: "center" as const,
+          includeFontPadding: false
+        } satisfies object)
+      : undefined;
 
   const handleSelectMention = (member: MentionMember) => {
     const head = props.value.slice(0, caretIndex);
@@ -702,6 +726,7 @@ function Composer(props: ComposerProps): ReactElement {
           <Ionicons name="image-outline" size={22} color={theme.color.text} />
         </Pressable>
         <DSTextInput
+          key={`composer-field-${composerFieldKey}`}
           value={props.value}
           onChangeText={(v) => {
             props.onChange(v);
@@ -712,11 +737,9 @@ function Composer(props: ComposerProps): ReactElement {
           multiline
           style={[styles.composerInput, androidInputExtras]}
         />
-        <View style={styles.sendButtonWrap}>
-          <DSButton preset="primary" onPress={() => void props.onSend()}>
-            Send
-          </DSButton>
-        </View>
+        <DSButton preset="primary" onPress={() => void props.onSend()}>
+          Send
+        </DSButton>
       </View>
     </View>
   );
@@ -812,8 +835,6 @@ type MessageBubbleProps = {
   revealed: boolean;
   reactionHighlight: boolean;
   showAvatarTail: boolean;
-  /** Extra trailing inset only for bubbles you sent — keeps scrollbar in the gutter. */
-  ownBubbleTrail: number;
   onRevealLongPress: (id: string) => void;
   onReleaseReveal: () => void;
   onOpenReactionPicker: (id: string, frame: { x: number; y: number; width: number; height: number }) => void;
@@ -827,7 +848,6 @@ function MessageBubble({
   revealed,
   reactionHighlight,
   showAvatarTail,
-  ownBubbleTrail,
   onRevealLongPress,
   onReleaseReveal,
   onOpenReactionPicker,
@@ -895,7 +915,7 @@ function MessageBubble({
 
   if (message.isOwn) {
     return (
-      <View style={[styles.messageRowOwn, { marginRight: ownBubbleTrail }]}>
+      <View style={styles.messageRowOwn}>
         {bubbleBody}
         {revealed ? (
           <View style={styles.timestampReveal}>
@@ -1345,8 +1365,14 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     reactionPillEmojiTouch: { paddingHorizontal: 6, paddingVertical: 2 },
     composer: { gap: 6, paddingBottom: 8 },
     composerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-    composerInput: { flex: 1 },
-    sendButtonWrap: { height: 48, justifyContent: "center", overflow: "hidden" },
+    composerInput: {
+      flex: 1,
+      minHeight: 48,
+      maxHeight: 160,
+      paddingVertical: Platform.OS === "ios" ? 13 : 10,
+      lineHeight: 22,
+      fontSize: 16
+    },
     suggestionList: {
       borderColor: theme.color.divider,
       borderWidth: 1,

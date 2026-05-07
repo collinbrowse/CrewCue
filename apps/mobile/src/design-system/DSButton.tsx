@@ -85,7 +85,8 @@ const styles = StyleSheet.create({
   base: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    alignItems: "center"
+    alignItems: "center",
+    justifyContent: "center"
   },
   authBase: {
     minHeight: 48,
