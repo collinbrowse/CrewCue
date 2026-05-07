@@ -84,8 +84,8 @@ import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
 
-/** Trailing inset for the vertical scroll indicator; list `paddingRight` only (no per-row duplicate). */
-const SCROLLBAR_GUTTER = 6;
+/** Trailing inset so message bubbles clear the vertical scroll indicator (`paddingRight` + `scrollIndicatorInsets`). */
+const SCROLLBAR_GUTTER = 12;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
@@ -150,6 +150,8 @@ export function CrewChatScreen(): ReactElement {
   messagesRef.current = messages;
 
   const scrollEndAfterOutgoingRef = useRef(false);
+  /** Debounce clearing `scrollEndAfterOutgoingRef` so multiline bubble layout can finish before we stop scrolling. */
+  const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchoredInitialScrollRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
@@ -400,17 +402,27 @@ export function CrewChatScreen(): ReactElement {
     setChatUnreadCount(0);
   }, [channel, messages.length]);
 
-  useEffect(() => {
-    if (!scrollEndAfterOutgoingRef.current) return;
-    scrollEndAfterOutgoingRef.current = false;
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-  }, [messages]);
-
   const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
     if (messagesRef.current.length === 0) return;
-    if (anchoredInitialScrollRef.current) return;
-    anchoredInitialScrollRef.current = true;
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+
+    if (!anchoredInitialScrollRef.current) {
+      anchoredInitialScrollRef.current = true;
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+    }
+
+    if (scrollEndAfterOutgoingRef.current) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToEnd({ animated: true });
+        });
+      });
+      if (scrollEndIdleTimerRef.current) clearTimeout(scrollEndIdleTimerRef.current);
+      scrollEndIdleTimerRef.current = setTimeout(() => {
+        scrollEndAfterOutgoingRef.current = false;
+        scrollEndIdleTimerRef.current = null;
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      }, 240);
+    }
   }, []);
 
   const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -419,6 +431,7 @@ export function CrewChatScreen(): ReactElement {
 
   useEffect(() => {
     return () => {
+      if (scrollEndIdleTimerRef.current) clearTimeout(scrollEndIdleTimerRef.current);
       void disconnectStreamClient();
     };
   }, []);
