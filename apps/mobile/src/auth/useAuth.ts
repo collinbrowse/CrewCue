@@ -62,6 +62,8 @@ export function useAuth(settings: Auth0Settings): AuthState {
     return "crewcue://auth";
   }, []);
 
+  // `prompt=login` stops Auth0 from silently reusing an SSO cookie in the system / in-app browser,
+  // which otherwise skips the email/password form and jumps straight to consent for the last user.
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
       clientId: settings.clientId,
@@ -70,7 +72,8 @@ export function useAuth(settings: Auth0Settings): AuthState {
       scopes: ["openid", "profile", "email", "offline_access"],
       usePKCE: true,
       extraParams: {
-        audience: settings.audience
+        audience: settings.audience,
+        prompt: "login"
       }
     },
     discovery
@@ -85,6 +88,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         connection: settings.connections.google
       }
     },
@@ -100,6 +104,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         connection: settings.connections.apple
       }
     },
@@ -115,6 +120,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         connection: settings.connections.email
       }
     },
@@ -130,6 +136,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         screen_hint: "signup"
       }
     },
@@ -145,6 +152,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         screen_hint: "signup",
         connection: settings.connections.google
       }
@@ -161,6 +169,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         screen_hint: "signup",
         connection: settings.connections.apple
       }
@@ -177,6 +186,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
       usePKCE: true,
       extraParams: {
         audience: settings.audience,
+        prompt: "login",
         screen_hint: "signup",
         connection: settings.connections.email
       }

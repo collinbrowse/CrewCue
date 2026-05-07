@@ -36,14 +36,12 @@ The custom plugin `plugins/withChatPushDecryption.js` will:
 3. Set the deployment target to match the main app.
 4. Open the target's **Signing & Capabilities** tab, add **App Groups**, and check `group.com.crewcue.mobile.chat`. Do the same for the main app target if not already present.
 5. Add to the iOS Podfile so the NSE can use libsodium-compatible decryption:
-
-   ```ruby
+  ```ruby
    target 'ChatNotificationServiceExtension' do
      use_frameworks!
      pod 'Sodium', '~> 0.9'
    end
-   ```
-
+  ```
 6. `cd apps/mobile/ios && pod install`.
 7. Build the dev client through EAS Build (`eas build --profile development --platform ios`).
 
@@ -52,13 +50,11 @@ The custom plugin `plugins/withChatPushDecryption.js` will:
 After prebuild:
 
 1. Add to `apps/mobile/android/app/build.gradle` under `dependencies`:
-
-   ```groovy
+  ```groovy
    implementation "com.goterl:lazysodium-android:5.1.0@aar"
    implementation "net.java.dev.jna:jna:5.13.0@aar"
    implementation "androidx.security:security-crypto:1.1.0-alpha06"
-   ```
-
+  ```
 2. Make sure `google-services.json` is in place at `apps/mobile/android/app/`.
 3. `eas build --profile development --platform android`.
 

@@ -13,7 +13,10 @@ import { chatChannelIdForRoom, type ChatStreamTokenResponse } from "@crewcue/con
 let cachedClient: StreamChat | undefined;
 let connectedUserId: string | undefined;
 
-export async function getOrConnectStreamClient(token: ChatStreamTokenResponse): Promise<StreamChat> {
+export async function getOrConnectStreamClient(
+  token: ChatStreamTokenResponse,
+  opts?: { displayName?: string }
+): Promise<StreamChat> {
   if (cachedClient && connectedUserId === token.streamUserId) {
     return cachedClient;
   }
@@ -23,7 +26,14 @@ export async function getOrConnectStreamClient(token: ChatStreamTokenResponse): 
     connectedUserId = undefined;
   }
   const client = StreamChat.getInstance(token.streamApiKey);
-  await client.connectUser({ id: token.streamUserId }, token.token);
+  const name = opts?.displayName?.trim();
+  await client.connectUser(
+    {
+      id: token.streamUserId,
+      ...(name ? { name } : {})
+    },
+    token.token
+  );
   cachedClient = client;
   connectedUserId = token.streamUserId;
   return client;

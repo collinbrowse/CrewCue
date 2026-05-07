@@ -5,8 +5,9 @@
  * iOS (Phase 6 — issue #230):
  *   - adds App Group entitlement `group.com.crewcue.mobile.chat` so the main
  *     app and the Notification Service Extension share a keychain.
- *   - generates the NSE Xcode target alongside `apps/mobile/ios/` and copies
- *     in `plugins/native/ios/NotificationService.swift`.
+ *   - copies NSE source files into `apps/mobile/ios/ChatNotificationServiceExtension`.
+ *     (Xcode target creation is a one-time manual step; the plugin now warns
+ *     when the target is missing from `project.pbxproj`.)
  *   - sets `mutable-content: 1` on chat push payloads so the NSE runs.
  *
  * Android (Phase 6 — issue #230):
@@ -26,7 +27,8 @@ const {
   withDangerousMod,
   withEntitlementsPlist,
   withInfoPlist,
-  withAndroidManifest
+  withAndroidManifest,
+  withAppBuildGradle
 } = require("@expo/config-plugins");
 
 const APP_GROUP_ID = "group.com.crewcue.mobile.chat";
@@ -59,6 +61,7 @@ function withIosNseSource(config) {
       const projectRoot = cfg.modRequest.projectRoot;
       const nseDir = path.join(platformRoot, NSE_TARGET_NAME);
       const sourceFile = path.join(projectRoot, "plugins", "native", "ios", "NotificationService.swift");
+      const pbxprojPath = path.join(platformRoot, "CrewCue.xcodeproj", "project.pbxproj");
       try {
         if (fs.existsSync(sourceFile)) {
           fs.mkdirSync(nseDir, { recursive: true });
@@ -74,6 +77,16 @@ function withIosNseSource(config) {
             buildNseEntitlements(),
             "utf8"
           );
+          if (fs.existsSync(pbxprojPath)) {
+            const pbxproj = fs.readFileSync(pbxprojPath, "utf8");
+            if (!pbxproj.includes(NSE_TARGET_NAME)) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                `withChatPushDecryption(iOS): '${NSE_TARGET_NAME}' target is not in Xcode project yet. ` +
+                  "Create it once in Xcode (Notification Service Extension), then rerun prebuild."
+              );
+            }
+          }
         }
       } catch (err) {
         // Surface as a config plugin warning rather than fatal — the prebuild
@@ -125,6 +138,11 @@ function buildNseEntitlements() {
 }
 
 function withAndroidFcmService(config) {
+  const androidPackage = config?.android?.package || "com.crewcue.mobile";
+  const packagePath = androidPackage.split(".").join(path.sep);
+  const fullServiceClassName = `${androidPackage}.ChatMessagingService`;
+  const shortServiceClassName = ".ChatMessagingService";
+
   config = withAndroidManifest(config, (cfg) => {
     const application = cfg.modResults.manifest?.application?.[0];
     if (!application) {
@@ -132,12 +150,15 @@ function withAndroidFcmService(config) {
     }
     application.service = application.service ?? [];
     const exists = application.service.some(
-      (svc) => svc?.$?.["android:name"] === ".ChatMessagingService"
+      (svc) => {
+        const serviceName = svc?.$?.["android:name"];
+        return serviceName === shortServiceClassName || serviceName === fullServiceClassName;
+      }
     );
     if (!exists) {
       application.service.push({
         $: {
-          "android:name": ".ChatMessagingService",
+          "android:name": fullServiceClassName,
           "android:exported": "false"
         },
         "intent-filter": [
@@ -174,15 +195,27 @@ function withAndroidFcmService(config) {
         "src",
         "main",
         "java",
-        "com",
-        "crewcue",
-        "mobile"
+        packagePath
       );
       try {
         if (fs.existsSync(sourceFile)) {
           fs.mkdirSync(targetDir, { recursive: true });
           const dest = path.join(targetDir, "ChatMessagingService.kt");
           fs.copyFileSync(sourceFile, dest);
+          // Ensure we never compile duplicate class declarations from both
+          // src/main/java and src/main/kotlin.
+          const duplicateKotlin = path.join(
+            platformRoot,
+            "app",
+            "src",
+            "main",
+            "kotlin",
+            packagePath,
+            "ChatMessagingService.kt"
+          );
+          if (fs.existsSync(duplicateKotlin)) {
+            fs.unlinkSync(duplicateKotlin);
+          }
         }
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -195,11 +228,36 @@ function withAndroidFcmService(config) {
   return config;
 }
 
+function withAndroidFcmDependencies(config) {
+  return withAppBuildGradle(config, (cfg) => {
+    const anchor = 'implementation("com.facebook.react:react-android")';
+    const deps = [
+      '    implementation("com.google.firebase:firebase-messaging:24.1.0")',
+      '    implementation("com.goterl:lazysodium-android:5.1.0@aar")',
+      '    implementation("net.java.dev.jna:jna:5.13.0@aar")',
+      '    implementation("androidx.security:security-crypto:1.1.0-alpha06")'
+    ];
+    let content = cfg.modResults.contents;
+    if (content.includes(deps[0])) {
+      return cfg;
+    }
+    if (content.includes(anchor)) {
+      content = content.replace(anchor, `${anchor}\n${deps.join("\n")}`);
+      cfg.modResults.contents = content;
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn("withChatPushDecryption(Android deps): could not find react-android dependency anchor.");
+    }
+    return cfg;
+  });
+}
+
 module.exports = function withChatPushDecryption(config) {
   config = withIosEntitlements(config);
   config = withIosBackgroundModes(config);
   config = withIosNseSource(config);
   config = withAndroidFcmService(config);
+  config = withAndroidFcmDependencies(config);
   return config;
 };
 

@@ -102,14 +102,21 @@ export async function enqueueChatMessage(
   return entry;
 }
 
-export async function markSending(roomId: string, entryId: string): Promise<void> {
+/**
+ * Marks an entry as sending. Returns false if the entry is missing, already
+ * sending, or already sent — avoids duplicate Stream sends when React Strict
+ * Mode or overlapping effects invoke the outbox drain twice.
+ */
+export async function markSending(roomId: string, entryId: string): Promise<boolean> {
   const box = await loadOutbox(roomId);
   const target = box.entries.find((e) => e.id === entryId);
-  if (!target) return;
+  if (!target) return false;
+  if (target.status === "sending" || target.status === "sent") return false;
   target.status = "sending";
   target.attempts += 1;
   delete target.lastError;
   await saveOutbox(box);
+  return true;
 }
 
 export async function markSent(

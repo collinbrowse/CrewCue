@@ -16,7 +16,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://staging.api.crewcue.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging.api.crewcue.app", 
+	"EXPO_PUBLIC_STREAM_API_KEY": "z62rarfnagbt"
       }
     },
     "preview": {
@@ -29,7 +30,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://staging.api.crewcue.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging.api.crewcue.app",
+	"EXPO_PUBLIC_STREAM_API_KEY": "z62rarfnagbt"
       }
     },
     "production": {
@@ -42,8 +44,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.crewcue.app"
-      }
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.crewcue.app",
+      	"EXPO_PUBLIC_STREAM_API_KEY": "z62rarfnagbt"
+	}
     }
   },
   "submit": {

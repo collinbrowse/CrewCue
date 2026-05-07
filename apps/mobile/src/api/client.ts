@@ -456,8 +456,13 @@ export function createApiClient(options: ApiClientOptions) {
     ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events }),
 
     // --- Crew chat (E2E) ---
-    getChatStreamToken: () =>
-      request<ChatStreamTokenResponse>(options, "POST", "/chat/stream-token"),
+    getChatStreamToken: (input?: { roomId?: string }) =>
+      request<ChatStreamTokenResponse>(
+        options,
+        "POST",
+        "/chat/stream-token",
+        input?.roomId ? { roomId: input.roomId } : undefined
+      ),
     registerChatDevice: (input: { deviceId: string; publicKey: string }) =>
       request<ChatDeviceKey>(options, "POST", "/chat/devices", input),
     listChatDevicesForUser: (userId: string) =>
@@ -484,7 +489,7 @@ export function createApiClient(options: ApiClientOptions) {
         { envelopes }
       ),
     listChatKeyEnvelopesForDevice: (roomId: string, deviceId: string) =>
-      request<{ envelopes: ChatKeyEnvelope[] }>(
+      request<{ envelopes: ChatKeyEnvelope[]; latestRoomKeyVersion?: number }>(
         options,
         "GET",
         `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes?deviceId=${encodeURIComponent(deviceId)}`

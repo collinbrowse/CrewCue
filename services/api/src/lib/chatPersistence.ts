@@ -287,6 +287,20 @@ export async function listChatKeyEnvelopesForDevice(
   }));
 }
 
+export async function getLatestChatKeyVersionForRoom(roomId: string): Promise<number | undefined> {
+  if (!pool) {
+    const envs = memoryEnvelopes.get(roomId) ?? [];
+    if (envs.length === 0) return undefined;
+    return envs.reduce((max, e) => (e.keyVersion > max ? e.keyVersion : max), envs[0]!.keyVersion);
+  }
+  const result = await pool.query<{ max_key_version: number | null }>(
+    "SELECT MAX(key_version) AS max_key_version FROM chat_channel_envelopes WHERE room_id = $1",
+    [roomId]
+  );
+  const max = result.rows[0]?.max_key_version;
+  return typeof max === "number" ? max : undefined;
+}
+
 export async function setChatNotificationPref(record: ChatNotificationPrefRecord): Promise<void> {
   if (!pool) {
     memoryPrefs.set(prefKey(record.userId, record.roomId), structuredClone(record));

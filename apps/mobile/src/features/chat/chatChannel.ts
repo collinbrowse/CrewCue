@@ -28,6 +28,35 @@ export type ChannelMember = {
   devices: { deviceId: string; publicKey: string }[];
 };
 
+async function uploadKeyEnvelopesForMembers(
+  api: ApiClient,
+  roomId: string,
+  members: ChannelMember[],
+  keyB64: string,
+  keyVersion: number
+): Promise<void> {
+  const keyBytes = decodeChannelKey(keyB64);
+  const envelopes = [];
+  for (const member of members) {
+    for (const device of member.devices) {
+      const wrapped = wrapChannelKeyForDevice(keyBytes, device.publicKey, keyVersion);
+      envelopes.push({
+        recipientUserId: member.userId,
+        recipientDeviceId: device.deviceId,
+        senderEphemeralPublicKey: wrapped.senderEphemeralPublicKeyB64,
+        nonce: wrapped.nonceB64,
+        ciphertext: wrapped.ciphertextB64,
+        keyVersion
+      });
+    }
+  }
+  if (envelopes.length > 0) {
+    // Persistence layer upserts by (room, recipient, device, version), so this
+    // is safe to call repeatedly and naturally backfills newly added devices.
+    await api.uploadChatKeyEnvelopes(roomId, envelopes);
+  }
+}
+
 /**
  * Produce a channel key for `roomId`:
  *   1) try local SecureStore cache;
@@ -40,13 +69,17 @@ export async function bootstrapChannelKey(
   members: ChannelMember[]
 ): Promise<{ keyB64: string; keyVersion: number }> {
   const cached = await loadChannelKey(roomId);
-  if (cached) return cached;
 
   const identity = await ensureDeviceIdentity();
   await api.registerChatDevice({
     deviceId: identity.deviceId,
     publicKey: identity.keyPair.publicKeyB64
   });
+
+  if (cached) {
+    await uploadKeyEnvelopesForMembers(api, roomId, members, cached.keyB64, cached.keyVersion);
+    return cached;
+  }
 
   const fromServer = await api.listChatKeyEnvelopesForDevice(roomId, identity.deviceId);
   if (fromServer.envelopes.length > 0) {
@@ -61,30 +94,21 @@ export async function bootstrapChannelKey(
     if (unwrapped) {
       const keyB64 = encodeChannelKey(unwrapped);
       await saveChannelKey(roomId, keyB64, latest.keyVersion);
+      await uploadKeyEnvelopesForMembers(api, roomId, members, keyB64, latest.keyVersion);
       return { keyB64, keyVersion: latest.keyVersion };
     }
   }
 
+  if (typeof fromServer.latestRoomKeyVersion === "number" && fromServer.latestRoomKeyVersion > 0) {
+    throw new Error(
+      "This device is missing the room key. Open this chat on a device that can already read messages, then retry here."
+    );
+  }
+
   const newKey = generateChannelKey();
   const keyVersion = 1;
-  const envelopes = [];
-  for (const member of members) {
-    for (const device of member.devices) {
-      const wrapped = wrapChannelKeyForDevice(newKey, device.publicKey, keyVersion);
-      envelopes.push({
-        recipientUserId: member.userId,
-        recipientDeviceId: device.deviceId,
-        senderEphemeralPublicKey: wrapped.senderEphemeralPublicKeyB64,
-        nonce: wrapped.nonceB64,
-        ciphertext: wrapped.ciphertextB64,
-        keyVersion
-      });
-    }
-  }
-  if (envelopes.length > 0) {
-    await api.uploadChatKeyEnvelopes(roomId, envelopes);
-  }
   const keyB64 = encodeChannelKey(newKey);
+  await uploadKeyEnvelopesForMembers(api, roomId, members, keyB64, keyVersion);
   await saveChannelKey(roomId, keyB64, keyVersion);
   return { keyB64, keyVersion };
 }
