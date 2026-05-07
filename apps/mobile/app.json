@@ -6,6 +6,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
     "platforms": [
       "ios",
       "android",
@@ -14,13 +15,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.crewcue.mobile",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true, 
+      "deploymentTarget": "18.0"
     },
     "android": {
       "package": "com.crewcue.mobile"
     },
     "plugins": [
       "expo-dev-client",
+      "expo-notifications",
       "expo-secure-store",
       "expo-web-browser",
       "expo-apple-authentication",

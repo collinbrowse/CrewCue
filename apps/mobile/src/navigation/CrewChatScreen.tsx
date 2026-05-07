@@ -61,6 +61,7 @@ import {
 } from "../features/chat/messageQueue";
 import { ensureDeviceIdentity } from "../features/chat/keyStore";
 import { registerChatPushToken } from "../features/chat/pushTokenRegistration";
+import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "../features/chat/streamUserId";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
 import type { ChatStackParamList } from "./types";
 
@@ -87,7 +88,12 @@ export function CrewChatScreen(): ReactElement {
   const shell = useAuthedShell();
   const styles = makeStyles(theme);
   const room = shell.room;
-  const myUserId = shell.auth.claims?.sub;
+  /** Auth0 subject — crew memberships, API device registry, mention metadata. */
+  const authSub = shell.auth.claims?.sub;
+  /** Stream `user.id` for the signed-in user (derived on the server from `authSub`). */
+  const [myStreamUserId, setMyStreamUserId] = useState<string | undefined>();
+  /** `message.user.id` (Stream) → display name for bubbles and typing. */
+  const [streamIdToDisplayName, setStreamIdToDisplayName] = useState<Map<string, string>>(() => new Map());
   const accessToken = shell.auth.accessToken;
   const baseUrl = shell.baseUrl;
 
@@ -110,6 +116,15 @@ export function CrewChatScreen(): ReactElement {
 
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
+  /** Content-based key so Stream connect does not churn on new `memberships` array references. */
+  const chatMembershipKey = useMemo(() => {
+    const list = room?.memberships ?? [];
+    return list
+      .map((m) => `${m.userId}:${(m.displayName ?? "").trim()}`)
+      .sort()
+      .join("|");
+  }, [room?.memberships]);
+
   const userIdToDisplayName = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of memberships) {
@@ -119,15 +134,37 @@ export function CrewChatScreen(): ReactElement {
     return map;
   }, [memberships]);
 
+  // Keep Stream id → display name in sync when roster changes (no Stream reconnect required).
+  useEffect(() => {
+    if (!authSub) return;
+    let cancelled = false;
+    void (async () => {
+      const map = await buildStreamIdDisplayNameMap(memberships);
+      if (!cancelled) setStreamIdToDisplayName(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatMembershipKey, authSub]);
+
   // Connect to Stream + bootstrap channel when an active room is available.
   useEffect(() => {
     let cancelled = false;
-    if (!room || !myUserId || !api) return undefined;
+    if (!room || !authSub || !api) return undefined;
     (async () => {
       try {
-        const tokenResp = await api.getChatStreamToken();
+        const tokenResp = await api.getChatStreamToken({ roomId: room.id });
         if (cancelled) return;
-        const sc = await getOrConnectStreamClient(tokenResp);
+        rememberStreamUserIdForAuthSub(authSub, tokenResp.streamUserId);
+        setMyStreamUserId(tokenResp.streamUserId);
+        if (cancelled) return;
+        const selfMember = memberships.find((m) => m.userId === authSub);
+        const selfLabel = selfMember
+          ? resolveRosterDisplayName(selfMember, room.athleteId, room.creatorName)
+          : "";
+        const sc = await getOrConnectStreamClient(tokenResp, {
+          displayName: selfLabel || undefined
+        });
         if (cancelled) return;
         setClient(sc);
         const ch = await joinCrewChannel(sc, room.id);
@@ -146,6 +183,15 @@ export function CrewChatScreen(): ReactElement {
         if (cancelled) return;
         setChannelKey(key);
 
+        const streamNames = await buildStreamIdDisplayNameMap(
+          memberships,
+          room.athleteId,
+          room.creatorName
+        );
+        streamNames.set(tokenResp.streamUserId, selfLabel || "You");
+        if (cancelled) return;
+        setStreamIdToDisplayName(streamNames);
+
         // Register push token (best-effort; permission may be denied)
         try {
           const identity = await ensureDeviceIdentity();
@@ -157,28 +203,32 @@ export function CrewChatScreen(): ReactElement {
 
         const initial = await ch.query({ messages: { limit: 50 } });
         if (cancelled) return;
-        setMessages(toViewMessages(initial.messages, key, myUserId, userIdToDisplayName));
+        setMessages(toViewMessages(initial.messages, key, tokenResp.streamUserId, streamNames));
       } catch (e) {
         if (!cancelled) setError(humanizeError(e));
       }
     })();
     return () => {
       cancelled = true;
+      setMyStreamUserId(undefined);
     };
-  }, [room, myUserId, api, userIdToDisplayName]);
+  }, [room?.id, authSub, api, chatMembershipKey]);
 
   // Realtime event wiring: incoming messages, typing, reactions, read state.
   useEffect(() => {
-    if (!channel || !channelKey || !myUserId) return undefined;
+    if (!channel || !channelKey || !myStreamUserId) return undefined;
     const handleNewMessage = (event: StreamEvent) => {
       if (!event.message) return;
-      const view = toViewMessage(event.message, channelKey, myUserId, userIdToDisplayName);
+      const view = toViewMessage(event.message, channelKey, myStreamUserId, streamIdToDisplayName);
       if (!view) return;
+      // Local send path already merges the server message; ingesting `message.new`
+      // for the same id duplicates rows and breaks FlatList keys.
+      if (view.isOwn) return;
       setMessages((prev) => upsertMessage(prev, view));
     };
     const handleTyping = (event: StreamEvent) => {
       const id = event.user?.id;
-      if (!id || id === myUserId) return;
+      if (!id || id === myStreamUserId) return;
       setTypingUserIds((prev) => Array.from(new Set([...prev, id])));
     };
     const handleStopTyping = (event: StreamEvent) => {
@@ -218,13 +268,22 @@ export function CrewChatScreen(): ReactElement {
     return () => {
       for (const sub of subs) sub.unsubscribe();
     };
-  }, [channel, channelKey, myUserId, userIdToDisplayName]);
+  }, [channel, channelKey, myStreamUserId, streamIdToDisplayName]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
-    if (!room || !channel || !channelKey || !myUserId) return;
-    void retryOutbox(room.id, channel, channelKey, myUserId, userIdToDisplayName, setMessages);
-  }, [room, channel, channelKey, myUserId, userIdToDisplayName]);
+    if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
+    void retryOutbox(
+      room.id,
+      channel,
+      channelKey,
+      myStreamUserId,
+      streamIdToDisplayName,
+      userIdToDisplayName,
+      authSub,
+      setMessages
+    );
+  }, [room?.id, channel, channelKey, authSub, myStreamUserId, streamIdToDisplayName, userIdToDisplayName]);
 
   // Viewing the screen counts as reading. Reset the tab badge.
   useEffect(() => {
@@ -241,7 +300,7 @@ export function CrewChatScreen(): ReactElement {
   }, []);
 
   const handleSend = async () => {
-    if (!room || !channel || !channelKey || !myUserId) return;
+    if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
     const trimmed = composer.trim();
     if (!trimmed && !pendingImage) return;
     const mentioned = extractMentionedUserIds(trimmed, memberships);
@@ -256,17 +315,29 @@ export function CrewChatScreen(): ReactElement {
     setPendingImage(undefined);
     setMessages((prev) => [
       ...prev,
-      pendingEntryToView(entry, myUserId, userIdToDisplayName.get(myUserId) ?? "You", new Date())
+      pendingEntryToView(
+        entry,
+        myStreamUserId,
+        streamIdToDisplayName.get(myStreamUserId) ?? userIdToDisplayName.get(authSub) ?? "You",
+        new Date()
+      )
     ]);
-    await sendOutboxEntry(entry, channel, channelKey, myUserId, userIdToDisplayName, setMessages);
+    await sendOutboxEntry(
+      entry,
+      channel,
+      channelKey,
+      myStreamUserId,
+      streamIdToDisplayName,
+      setMessages
+    );
   };
 
   const handleRetry = async (entryId: string) => {
-    if (!room || !channel || !channelKey || !myUserId) return;
+    if (!room || !channel || !channelKey || !myStreamUserId) return;
     const box = await loadOutbox(room.id);
     const entry = box.entries.find((e) => e.id === entryId);
     if (!entry) return;
-    await sendOutboxEntry(entry, channel, channelKey, myUserId, userIdToDisplayName, setMessages);
+    await sendOutboxEntry(entry, channel, channelKey, myStreamUserId, streamIdToDisplayName, setMessages);
   };
 
   const handlePickImage = async () => {
@@ -348,9 +419,9 @@ export function CrewChatScreen(): ReactElement {
         }
       />
       {readByEveryone ? <Text style={styles.readBy}>Read by everyone</Text> : null}
-      {typingUserIds.length > 0 ? (
+          {typingUserIds.length > 0 ? (
         <Text style={styles.typing}>
-          {typingNames(typingUserIds, userIdToDisplayName)} typing…
+          {typingNames(typingUserIds, streamIdToDisplayName)} typing…
         </Text>
       ) : null}
       <Composer
@@ -557,42 +628,78 @@ function MessageBubble({
 function toViewMessages(
   raw: MessageResponse[],
   key: { keyB64: string; keyVersion: number },
-  myUserId: string,
-  names: Map<string, string>
+  viewerStreamUserId: string,
+  streamIdToDisplayName: Map<string, string>
 ): ChatViewMessage[] {
   const out: ChatViewMessage[] = [];
   for (const m of raw) {
-    const v = toViewMessage(m, key, myUserId, names);
+    const v = toViewMessage(m, key, viewerStreamUserId, streamIdToDisplayName);
     if (v) out.push(v);
   }
-  return out;
+  return normalizeMessageList(out);
 }
+
+const UNLOCK_BODY_PLACEHOLDER =
+  "[Could not decrypt on this device. Another member may need to open chat once so your device receives the room key.]";
 
 type RawMessage = MessageResponse & {
   ciphertext?: string;
   nonce?: string;
   key_version?: number;
+  keyVersion?: number;
   custom_sent_at?: string;
+  user_id?: string;
 };
+
+function resolveAuthorStreamId(raw: MessageResponse): string {
+  const m = raw as RawMessage;
+  const fromUser = m.user?.id?.trim();
+  if (fromUser) return fromUser;
+  const flat = m.user_id?.trim();
+  if (flat) return flat;
+  return "unknown";
+}
+
+function parseKeyVersion(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
 
 function toViewMessage(
   raw: MessageResponse,
   key: { keyB64: string; keyVersion: number },
-  myUserId: string,
-  names: Map<string, string>
+  viewerStreamUserId: string,
+  streamIdToDisplayName: Map<string, string>
 ): ChatViewMessage | undefined {
   if (!raw.id) return undefined;
   const message = raw as RawMessage;
   const cipher = readEncryptedFields(message);
-  const body = cipher ? decryptIncoming(key.keyB64, cipher) : message.text ?? null;
+  let body: string | null;
+  if (cipher) {
+    const decrypted = decryptIncoming(key.keyB64, cipher);
+    body = decrypted ?? UNLOCK_BODY_PLACEHOLDER;
+  } else {
+    body = message.text ?? null;
+  }
   const sentAtIso = message.custom_sent_at ?? message.created_at ?? new Date().toISOString();
   const arrivedAtIso = message.created_at ?? sentAtIso;
-  const authorId = message.user?.id ?? "unknown";
+  const authorId = resolveAuthorStreamId(message);
+  const streamName = (message.user?.name ?? "").trim();
+  const normalizedStreamName =
+    streamName && !/^u-[a-f0-9]{8,}$/i.test(streamName) ? streamName : "";
+  const authorDisplayName =
+    streamIdToDisplayName.get(authorId) ||
+    (normalizedStreamName && normalizedStreamName !== authorId ? normalizedStreamName : "") ||
+    authorId;
   return {
     id: message.id!,
-    isOwn: authorId === myUserId,
+    isOwn: authorId === viewerStreamUserId,
     authorUserId: authorId,
-    authorDisplayName: names.get(authorId) ?? authorId,
+    authorDisplayName,
     body,
     imageUrl: (message.attachments?.[0]?.image_url as string | undefined) ?? undefined,
     sentAt: new Date(sentAtIso),
@@ -604,20 +711,21 @@ function toViewMessage(
 function readEncryptedFields(
   raw: RawMessage
 ): { ciphertextB64: string; nonceB64: string; keyVersion: number } | undefined {
-  if (!raw.ciphertext || !raw.nonce || typeof raw.key_version !== "number") return undefined;
-  return { ciphertextB64: raw.ciphertext, nonceB64: raw.nonce, keyVersion: raw.key_version };
+  const keyVersion = parseKeyVersion(raw.key_version ?? raw.keyVersion);
+  if (!raw.ciphertext || !raw.nonce || keyVersion === undefined) return undefined;
+  return { ciphertextB64: raw.ciphertext, nonceB64: raw.nonce, keyVersion };
 }
 
 function pendingEntryToView(
   entry: ChatOutboxEntry,
-  myUserId: string,
+  viewerStreamUserId: string,
   myName: string,
   now: Date
 ): ChatViewMessage {
   return {
     id: `outbox-${entry.id}`,
     isOwn: true,
-    authorUserId: myUserId,
+    authorUserId: viewerStreamUserId,
     authorDisplayName: myName,
     body: entry.body,
     imageUrl: entry.attachmentUri,
@@ -630,15 +738,71 @@ function pendingEntryToView(
 }
 
 function upsertMessage(prev: ChatViewMessage[], next: ChatViewMessage): ChatViewMessage[] {
-  const idx = prev.findIndex((m) => m.id === next.id);
-  if (idx < 0) return [...prev, next];
-  const copy = [...prev];
-  copy[idx] = next;
-  return copy;
+  return normalizeMessageList([...prev.filter((m) => m.id !== next.id), next]);
 }
 
-function typingNames(userIds: string[], names: Map<string, string>): string {
-  const display = userIds.map((id) => names.get(id) ?? "Someone");
+/** Collapse duplicate `id` rows (e.g. race between outbox replace and `message.new`). */
+function normalizeMessageList(rows: ChatViewMessage[]): ChatViewMessage[] {
+  const byId = new Map<string, ChatViewMessage>();
+  for (const m of rows) {
+    const ex = byId.get(m.id);
+    if (!ex) {
+      byId.set(m.id, m);
+      continue;
+    }
+    byId.set(m.id, preferChatViewRow(ex, m));
+  }
+  return Array.from(byId.values()).sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+}
+
+function preferChatViewRow(a: ChatViewMessage, b: ChatViewMessage): ChatViewMessage {
+  if (a.isPending !== b.isPending) return a.isPending ? b : a;
+  if (a.isFailed !== b.isFailed) return a.isFailed ? b : a;
+  const aHas = Boolean((a.body ?? "").trim());
+  const bHas = Boolean((b.body ?? "").trim());
+  if (aHas !== bHas) return aHas ? a : b;
+  return b;
+}
+
+function resolveRosterDisplayName(
+  member: MentionMember,
+  athleteId: string | undefined,
+  creatorName: string | undefined
+): string {
+  const direct = (member.displayName ?? "").trim();
+  if (direct) return direct;
+  if (athleteId && member.userId === athleteId) {
+    const creator = (creatorName ?? "").trim();
+    if (creator) return creator;
+  }
+  return "Crew member";
+}
+
+async function buildStreamIdDisplayNameMap(
+  memberships: MentionMember[],
+  athleteId?: string,
+  creatorName?: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  for (const m of memberships) {
+    const name = resolveRosterDisplayName(m, athleteId, creatorName);
+    if (!name) continue;
+    const memberUserId = m.userId.trim();
+    // Defensive mapping: some roster payloads carry Auth0 `sub`, others may
+    // already carry Stream ids (`u-...`). Populate both to avoid raw-id UI.
+    if (memberUserId) {
+      map.set(memberUserId, name);
+    }
+    try {
+      const sid = await streamUserIdForAuthSub(memberUserId);
+      map.set(sid, name);
+    } catch {}
+  }
+  return map;
+}
+
+function typingNames(userIds: string[], streamIdToDisplayName: Map<string, string>): string {
+  const display = userIds.map((id) => streamIdToDisplayName.get(id) ?? "Someone");
   if (display.length === 1) return display[0]!;
   if (display.length === 2) return `${display[0]} and ${display[1]}`;
   return `${display.slice(0, 2).join(", ")} and ${display.length - 2} more`;
@@ -648,11 +812,12 @@ async function sendOutboxEntry(
   entry: ChatOutboxEntry,
   channel: Channel,
   key: { keyB64: string; keyVersion: number },
-  myUserId: string,
-  names: Map<string, string>,
+  myStreamUserId: string,
+  streamIdToDisplayName: Map<string, string>,
   setMessages: React.Dispatch<React.SetStateAction<ChatViewMessage[]>>
 ): Promise<void> {
-  await markSending(entry.roomId, entry.id);
+  const marked = await markSending(entry.roomId, entry.id);
+  if (!marked) return;
   setMessages((prev) =>
     prev.map((m) =>
       m.outboxId === entry.id ? { ...m, isPending: true, isFailed: false } : m
@@ -676,13 +841,14 @@ async function sendOutboxEntry(
     const remoteId = sent.message?.id ?? entry.id;
     await markSent(entry.roomId, entry.id, remoteId);
     await removeEntry(entry.roomId, entry.id);
-    setMessages((prev) =>
-      prev.map((m) =>
+    setMessages((prev) => {
+      const mapped = prev.map((m) =>
         m.outboxId === entry.id
-          ? toViewMessage(sent.message as MessageResponse, key, myUserId, names) ?? m
+          ? toViewMessage(sent.message as MessageResponse, key, myStreamUserId, streamIdToDisplayName) ?? m
           : m
-      )
-    );
+      );
+      return normalizeMessageList(mapped);
+    });
   } catch (e) {
     await markFailed(entry.roomId, entry.id, humanizeError(e));
     setMessages((prev) =>
@@ -695,17 +861,21 @@ async function retryOutbox(
   roomId: string,
   channel: Channel,
   key: { keyB64: string; keyVersion: number },
-  myUserId: string,
-  names: Map<string, string>,
+  myStreamUserId: string,
+  streamIdToDisplayName: Map<string, string>,
+  authDisplayBySub: Map<string, string>,
+  authSub: string,
   setMessages: React.Dispatch<React.SetStateAction<ChatViewMessage[]>>
 ): Promise<void> {
   const box = await loadOutbox(roomId);
   for (const entry of box.entries) {
     if (entry.status === "sent") continue;
+    const myName =
+      streamIdToDisplayName.get(myStreamUserId) ?? authDisplayBySub.get(authSub) ?? "You";
     setMessages((prev) =>
-      upsertMessage(prev, pendingEntryToView(entry, myUserId, names.get(myUserId) ?? "You", new Date(entry.createdAtMs)))
+      upsertMessage(prev, pendingEntryToView(entry, myStreamUserId, myName, new Date(entry.createdAtMs)))
     );
-    await sendOutboxEntry(entry, channel, key, myUserId, names, setMessages);
+    await sendOutboxEntry(entry, channel, key, myStreamUserId, streamIdToDisplayName, setMessages);
   }
 }
 

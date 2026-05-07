@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
@@ -58,6 +58,13 @@ import {
   persistTaskBoardSnapshot,
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
+import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
+
+function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
+  void syncRaceRoomStreamChannelMembers(room, log).catch((err) =>
+    log.warn({ err, roomId: room.id }, "stream channel membership sync failed (non-fatal)")
+  );
+}
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -1124,6 +1131,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     };
 
     await saveRaceRoom(room);
+    scheduleStreamChannelMembershipSync(room, request.log);
     return reply.code(201).send(room);
   });
 
@@ -1504,6 +1512,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       acceptedBy: request.identity.sub,
       acceptedAt: new Date().toISOString()
     });
+    scheduleStreamChannelMembershipSync(updatedRoom, request.log);
 
     const membership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
     if (!membership) {
@@ -1551,6 +1560,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     if (!existingMembership) {
       await saveRaceRoom(updatedRoom);
+      scheduleStreamChannelMembershipSync(updatedRoom, request.log);
     }
 
     const assignedMembership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
@@ -1658,6 +1668,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       memberships: room.memberships.filter((member) => member.userId !== memberUserId)
     };
     await saveRaceRoom(updatedRoom);
+    scheduleStreamChannelMembershipSync(updatedRoom, request.log);
     return reply.send({ room: updatedRoom });
   });
 

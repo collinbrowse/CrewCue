@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
+import { deriveStreamUserId } from "../lib/streamChat.js";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
@@ -106,7 +108,8 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
   const app = buildApp();
   await app.ready();
   try {
-    const token = app.jwt.sign(buildClaims("user-y"));
+    const identitySub = "google-oauth2|user-y";
+    const token = app.jwt.sign(buildClaims(identitySub));
     const res = await app.inject({
       method: "POST",
       url: "/chat/stream-token",
@@ -114,13 +117,93 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
     });
     assert.equal(res.statusCode, 200);
     const body = res.json() as { token: string; streamUserId: string; streamApiKey: string };
-    assert.equal(body.streamUserId, "user-y");
+    assert.equal(body.streamUserId, deriveStreamUserId(identitySub));
     assert.equal(body.streamApiKey, "test-key");
     const parts = body.token.split(".");
     assert.equal(parts.length, 3);
     const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
-    assert.equal(payload.user_id, "user-y");
+    assert.equal(payload.user_id, deriveStreamUserId(identitySub));
     assert.equal(typeof payload.exp, "number");
+  } finally {
+    delete process.env.STREAM_API_KEY;
+    delete process.env.STREAM_API_SECRET;
+    await app.close();
+  }
+});
+
+test("chat: stream-token with roomId attempts channel sync before JWT (200 or 502)", async () => {
+  _resetChatPersistenceForTests();
+  process.env.STREAM_API_KEY = "test-key";
+  process.env.STREAM_API_SECRET = "test-secret";
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-token-room"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-token-room");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/chat/stream-token",
+      headers: { authorization: `Bearer ${athleteToken}`, "content-type": "application/json" },
+      payload: { roomId }
+    });
+    assert.ok(res.statusCode === 200 || res.statusCode === 502, "sync may 502 without real Stream");
+    if (res.statusCode === 200) {
+      const body = res.json() as { token: string };
+      assert.ok(body.token.length > 10);
+    }
+  } finally {
+    delete process.env.STREAM_API_KEY;
+    delete process.env.STREAM_API_SECRET;
+    await app.close();
+  }
+});
+
+test("chat: sync-stream-channel requires auth, membership, room, and Stream config", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const anon = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${randomUUID()}/sync-stream-channel`
+    });
+    assert.equal(anon.statusCode, 401);
+
+    const athleteToken = app.jwt.sign(buildClaims("athlete-sync"));
+    const outsiderToken = app.jwt.sign(buildClaims("outsider-sync"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-sync");
+
+    const noStream = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(noStream.statusCode, 503);
+
+    process.env.STREAM_API_KEY = "test-key";
+    process.env.STREAM_API_SECRET = "test-secret";
+
+    const outsider = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${outsiderToken}` }
+    });
+    assert.equal(outsider.statusCode, 403);
+
+    const missingRoom = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${randomUUID()}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(missingRoom.statusCode, 404);
+
+    const memberHit = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.ok(memberHit.statusCode === 200 || memberHit.statusCode === 502, "sync may 502 without real Stream");
   } finally {
     delete process.env.STREAM_API_KEY;
     delete process.env.STREAM_API_SECRET;
