@@ -84,8 +84,13 @@ import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
 
-/** Right padding on list content so bubbles clear the vertical scroll indicator. */
+/**
+ * Scroll layout (matches “row content + outer indicator margin” pattern):
+ * - `SCROLLBAR_CONTENT_GAP`: padding inside the FlatList so right-aligned bubbles never reach the indicator.
+ * - `SCROLLBAR_OUTSIDE_STRIP`: empty sibling column so the OS scrollbar sits in margin, not over bubble chrome.
+ */
 const SCROLLBAR_CONTENT_GAP = 12;
+const SCROLLBAR_OUTSIDE_STRIP = 5;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
@@ -616,6 +621,12 @@ export function CrewChatScreen(): ReactElement {
               </View>
             ) : null
           }
+        />
+        <View
+          pointerEvents="none"
+          style={[styles.scrollGutterStrip, { width: SCROLLBAR_OUTSIDE_STRIP, backgroundColor: theme.color.background }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         />
         {minUnseenAboveIndex !== undefined ? (
           <Animated.View
@@ -1282,8 +1293,10 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     title: { color: theme.color.text, fontSize: 18, fontWeight: "700" },
     body: { color: theme.color.body, fontSize: 14 },
     iconButton: { padding: 8 },
-    listWrap: { flex: 1, position: "relative", minHeight: 0 },
+    /** Row: scrollable transcript + fixed-width strip so the indicator reads as outside bubble alignment (see SCROLLBAR_*). */
+    listWrap: { flex: 1, flexDirection: "row", position: "relative", minHeight: 0 },
     listFlatList: { flex: 1, minWidth: 0 },
+    scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
     unseenChipWrap: {
       position: "absolute",
