@@ -14,10 +14,10 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-06 (America/Chicago)
-- **Active issues:** Crew Chat E2E rollout (#226 prebuild, #227 backend, #228 mobile module, #229 UI, #232 prefs/push, #233 NSE/FCM scaffolding, #234 retention).
-- **Active branch:** `feature/crew-chat-e2e`
-- **Plan:** [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
+- Last updated: 2026-05-07 (America/Chicago)
+- **Active issues:** #236 (Auth0 account-switch prompt), #237 (Stream member sync), #238 (Android dev-build stability); **chat UI polish** tracked in [#240](https://github.com/collinbrowse/CrewCue/issues/240).
+- **Active branch:** `feature/chat-screen-ui-polish-240` (PR to `main` pending) — merge when green.
+- **Plan:** chat UI plan (bundled header, scroll, scrollbar gutter, reaction overlay, avatars) delivered in this branch; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
 ## Current objective
 
@@ -36,8 +36,21 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Recent fix (2026-05-07): Android dev build crash on launch (Fabric mount)
 
 - **Symptoms:** Development build opens error screen with `com.facebook.react.uimanager.IllegalViewOperationException` / Fabric mounting stack.
-- **Fix:** Disabled React Native New Architecture for mobile (`apps/mobile/app.json` `expo.newArchEnabled=false`, `apps/mobile/android/gradle.properties` `newArchEnabled=false`) to stabilize dev-client runtime. Also tracked in issue #238.
-- **Action:** Requires a fresh Android dev-client rebuild/install; JS/OTA update alone will not apply native architecture changes.
+- **Fix:** Resolved build-time/native blockers by cleaning duplicated Android service generation and aligning native dependencies (AsyncStorage, FCM/lazysodium/security-crypto). Tracked in issue #238.
+- **Action:** Fresh Android dev-client rebuild/install still required after native changes.
+
+## Merge status (2026-05-07)
+
+- PR [#239](https://github.com/collinbrowse/CrewCue/pull/239) merged to `main`.
+- Branch cleanup complete: local `feature/crew-chat-e2e` deleted; remote branch already absent.
+
+## Delivered (2026-05-07): mobile chat screen UI polish (#240)
+
+- Native stack header: two-line **race name** (`raceProfile.raceName` → `room.name`), **notifications** in `headerRight`; removed in-screen duplicate header row (`CrewChatScreen`).
+- Composer: centered row, fixed-height **Send** shell, Android `textAlignVertical` on composer field.
+- List: `scrollToEnd` on initial content + animated after local send; **New messages** chip when unseen indices exist above the viewport; trailing **scrollbar gutter** plus extra trailing inset on **own** rows (`SCROLLBAR_GUTTER` in `CrewChatScreen`).
+- Long-press reactions: transparent **Modal** + `expo-blur` pill (iOS) / translucent Android fallback; bubble highlight; corrective scroll toward top edge; clearing on send (`expo-blur` dependency in `apps/mobile`).
+- Others’ messages: Stream `user.image` as **28px** avatar on **group tail** rows only (`showAvatarTail`).
 
 ## Recent fix (2026-05-06): Stream error 17 — second crew member cannot read channel
 
@@ -69,16 +82,14 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. Open the consolidated PR for `feature/crew-chat-e2e` (closes #226, #227, #228, #229, #232, #233, #234) and watch CI.
-2. Implement the `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` actually pushes channel keys to the NSE / FCM service. Tracked in the Phase 6 follow-up section of `docs/runbooks/chat-push-decryption.md`.
-3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured in the API tier.
+1. Merge PR for `feature/chat-screen-ui-polish-240` (closes #240); manual iOS/Android pass on composer alignment, scrollbar gutter, reaction modal, unseen chip, avatars (`expo prebuild`/dev client if native blur needs refresh).
+2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
+3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
 ## Validation summary
 
-- `npm test` in `apps/mobile/` ✅ (94 passing, includes `crypto.test`, `mentions.test`, `imagePipeline.test`, `messageQueue.test`, `notificationPrefs.test`, `timestamps.test`, `unreadBadge.test`).
-- `npm test` in `services/api/` ✅ (94 passing, includes `chatRoutes.test`, `chatRetention.test`, `chatPushDispatch.test`, `chatRetentionScheduler.test`).
-- `npx tsc --noEmit` in `apps/mobile/` ✅.
-- Native iOS NSE / Android FCM service builds: deferred to runbook (`docs/runbooks/chat-push-decryption.md`) — out of scope for this branch's CI.
+- Repo root **`npm run verify`** on `feature/chat-screen-ui-polish-240` ✅ (includes mobile `expo export`, dual-client guard, lint, typecheck, tests).
+- `npx tsc --noEmit` in `apps/mobile/` ✅ after chat UI edits.
 
 ## Open risks/blockers/questions
 
@@ -96,5 +107,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-Rebuild the dev client and smoke-test Crew Chat: one bubble per send, own messages on the right, display names (not u-…), no duplicate-key warnings. On feature/crew-chat-e2e, open the consolidated PR closing #226–#234 if not already open; after CI passes, continue with CrewCueChatNativeBridge (chat-push-decryption.md §5) and production push/retention wiring. Re-run npm run verify between steps.
+Merge the open PR from feature/chat-screen-ui-polish-240 (Closes #240). Rebuild dev clients if expo-blur needs a native sync. Manually sanity-check Crew Chat on iOS+Android (header/title+bell, send scroll-to-end, unseen chip tap, scrollbar gutter vs sent bubbles, blurred reaction modal + dismiss, grouped avatars). Then continue CrewCueChatNativeBridge (chat-push-decryption.md) and push/retention wiring; run npm run verify before each push.
 ```
