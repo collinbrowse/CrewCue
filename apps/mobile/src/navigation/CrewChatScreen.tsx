@@ -84,8 +84,13 @@ import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
 
-/** Trailing inset so message bubbles clear the vertical scroll indicator (`paddingRight` + `scrollIndicatorInsets`). */
-const SCROLLBAR_GUTTER = 12;
+/** Insets transcript content from the scroll view’s right edge so bubbles never sit under the bar. */
+const SCROLL_END_CONTENT_PADDING = 20;
+/**
+ * Narrows the `FlatList` within `listWrap` so the OS scroll indicator draws in visible empty space
+ * to the right of the list (padding alone is not always enough on iOS).
+ */
+const SCROLL_END_OUTER_MARGIN = 8;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
@@ -568,17 +573,21 @@ export function CrewChatScreen(): ReactElement {
       <View style={styles.listWrap}>
         <FlatList
           ref={listRef}
+          style={[styles.listFlatList, { marginEnd: SCROLL_END_OUTER_MARGIN }]}
           data={messages}
           keyboardShouldPersistTaps="handled"
           keyExtractor={(m) => m.id}
-          contentContainerStyle={[styles.listContent, { paddingRight: SCROLLBAR_GUTTER }]}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingEnd: SCROLL_END_CONTENT_PADDING }
+          ]}
           onScroll={onListScroll}
           scrollEventThrottle={16}
           onContentSizeChange={onMessagesContentSizeChange}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           onScrollToIndexFailed={handleScrollIndexFailed}
-          scrollIndicatorInsets={{ right: SCROLLBAR_GUTTER }}
+          scrollIndicatorInsets={{ right: SCROLL_END_CONTENT_PADDING }}
           renderItem={(info) => {
             const nextRow = messages[info.index + 1];
             const showAvatarTail =
@@ -1279,6 +1288,8 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     body: { color: theme.color.body, fontSize: 14 },
     iconButton: { padding: 8 },
     listWrap: { flex: 1, position: "relative", minHeight: 0 },
+    /** `marginEnd` applied inline so the scroll bar sits in the gap beside the list. */
+    listFlatList: { flex: 1, minHeight: 0 },
     listContent: { gap: 6, paddingVertical: 12 },
     unseenChipWrap: {
       position: "absolute",
