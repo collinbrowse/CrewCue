@@ -147,7 +147,7 @@ export function CrewChatScreen(): ReactElement {
   const [readByEveryone, setReadByEveryone] = useState(false);
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
-  /** True until the first \`query\` for the current bootstrap finishes (or errors). */
+  /** True until Stream bootstrap (watch + keys) finishes for the current room (or errors). */
   const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);

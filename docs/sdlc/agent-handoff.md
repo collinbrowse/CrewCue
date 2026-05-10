@@ -58,6 +58,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 - **Static imports:** `messageQueue`, `notificationPrefs`, `pushTokenRegistration` no longer dynamic-import native modules; pure helpers split to `messageQueueCore` / `notificationPrefsValidation` for Node tests.
 - **Prefetch:** `RaceChatPrefetcher` + `raceChatBootstrap` / `raceChatPrefetch` warm Stream while other tabs focused; chat screen consumes in-flight work with **90s** max reuse age.
 - **Cache:** `chatTranscriptCache` (AsyncStorage) hydrates last thread per room before network; debounced save on updates.
+- **Paging:** initial Stream watch loads **10** newest messages (`chatMessageLimits.ts`); scrolling near the top loads older pages (40 at a time via `id_lt`); transcript cache keeps the same 10-message tail.
 
 ## Delivered (2026-05-07): mobile chat screen UI polish (#240)
 
