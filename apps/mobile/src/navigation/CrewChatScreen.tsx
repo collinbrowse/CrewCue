@@ -90,7 +90,7 @@ type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
  * - `SCROLLBAR_OUTSIDE_STRIP`: empty sibling column so the OS scrollbar sits in margin, not over bubble chrome.
  */
 const SCROLLBAR_CONTENT_GAP = 12;
-const SCROLLBAR_OUTSIDE_STRIP = 5;
+const SCROLLBAR_OUTSIDE_STRIP = 0;
 /** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
 const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
