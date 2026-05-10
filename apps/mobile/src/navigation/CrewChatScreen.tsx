@@ -15,21 +15,37 @@
  *   - retention banner once the event has ended
  */
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement
+} from "react";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
-  type ListRenderItemInfo
+  useWindowDimensions,
+  type ListRenderItemInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type ViewToken
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Channel, Event as StreamEvent, MessageResponse, StreamChat } from "stream-chat";
 import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
@@ -64,14 +80,27 @@ import { registerChatPushToken } from "../features/chat/pushTokenRegistration";
 import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "../features/chat/streamUserId";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
 import type { ChatStackParamList } from "./types";
+import { useNavColors } from "./navigationTheme";
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, "ChatHome">;
+
+/**
+ * Scroll layout (matches “row content + outer indicator margin” pattern):
+ * - `SCROLLBAR_CONTENT_GAP`: padding inside the FlatList so right-aligned bubbles never reach the indicator.
+ * - `SCROLLBAR_OUTSIDE_STRIP`: empty sibling column so the OS scrollbar sits in margin, not over bubble chrome.
+ */
+const SCROLLBAR_CONTENT_GAP = 12;
+const SCROLLBAR_OUTSIDE_STRIP = 0;
+/** Rough row estimate for FlatList fallback scroll when scrollToIndex needs a synthetic offset */
+const ESTIMATED_MESSAGE_ROW_HEIGHT = 92;
 
 type ChatViewMessage = {
   id: string;
   isOwn: boolean;
   authorUserId: string;
   authorDisplayName: string;
+  /** Sender photo from Stream `user.image` when present. */
+  authorAvatarUrl?: string;
   body: string | null;
   imageUrl?: string;
   sentAt: Date;
@@ -85,8 +114,11 @@ type ChatViewMessage = {
 export function CrewChatScreen(): ReactElement {
   const navigation = useNavigation<Nav>();
   const theme = useDSTheme();
+  const navColors = useNavColors();
   const shell = useAuthedShell();
   const styles = makeStyles(theme);
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const room = shell.room;
   /** Auth0 subject — crew memberships, API device registry, mention metadata. */
   const authSub = shell.auth.claims?.sub;
@@ -112,8 +144,21 @@ export function CrewChatScreen(): ReactElement {
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [readByEveryone, setReadByEveryone] = useState(false);
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
-  const composerRef = useRef<TextInput | null>(null);
+  const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
+  const [reactionOverlay, setReactionOverlay] = useState<
+    { messageId: string; bubbleFrame: { x: number; y: number; width: number; height: number }; pillApproxWidth: number } | undefined
+  >(undefined);
 
+  const listRef = useRef<FlatList<ChatViewMessage>>(null);
+  const seenMessageIndicesRef = useRef<Set<number>>(new Set());
+  const messagesRef = useRef<ChatViewMessage[]>([]);
+  messagesRef.current = messages;
+
+  const scrollEndAfterOutgoingRef = useRef(false);
+  /** Debounce clearing `scrollEndAfterOutgoingRef` so multiline bubble layout can finish before we stop scrolling. */
+  const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchoredInitialScrollRef = useRef(false);
+  const scrollOffsetYRef = useRef(0);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
   /** Content-based key so Stream connect does not churn on new `memberships` array references. */
@@ -133,6 +178,76 @@ export function CrewChatScreen(): ReactElement {
     }
     return map;
   }, [memberships]);
+
+  const raceNavTitle =
+    shell.raceProfile?.raceName?.trim() || room?.name?.trim() || "Chat";
+
+  useLayoutEffect(() => {
+    if (!room) return;
+    navigation.setOptions({
+      headerTitleAlign: "center",
+      headerTitle: () => (
+        <Text
+          accessibilityRole="header"
+          numberOfLines={2}
+          style={{
+            color: navColors.text,
+            fontSize: 17,
+            fontWeight: "600",
+            textAlign: "center",
+            maxWidth: Math.min(260, window.width - 140)
+          }}
+        >
+          {raceNavTitle}
+        </Text>
+      ),
+      headerRight: () => (
+        <Pressable
+          onPress={() => navigation.navigate("ChatNotificationPrefs")}
+          accessibilityRole="button"
+          accessibilityLabel="Chat notification preferences"
+          style={{ paddingHorizontal: 10, paddingVertical: 8 }}
+        >
+          <Ionicons name="notifications-outline" size={22} color={navColors.text} />
+        </Pressable>
+      )
+    });
+  }, [navigation, navColors.text, raceNavTitle, room, window.width]);
+
+  useEffect(() => {
+    anchoredInitialScrollRef.current = false;
+    seenMessageIndicesRef.current.clear();
+    setMinUnseenAboveIndex(undefined);
+  }, [room?.id]);
+
+  const viewabilityConfig = useMemo(
+    () => ({
+      itemVisiblePercentThreshold: 18,
+      minimumViewTime: 80
+    }),
+    []
+  );
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const len = messagesRef.current.length;
+    if (!len) {
+      setMinUnseenAboveIndex(undefined);
+      return;
+    }
+    const visible = viewableItems
+      .map((v) => v.index)
+      .filter((i): i is number => typeof i === "number" && i >= 0);
+    if (visible.length === 0) return;
+    const lowestVisible = Math.min(...visible);
+    for (const i of visible) seenMessageIndicesRef.current.add(i);
+    let oldestUnseen: number | undefined;
+    for (let i = 0; i < lowestVisible; i++) {
+      if (!seenMessageIndicesRef.current.has(i)) {
+        oldestUnseen = oldestUnseen === undefined ? i : Math.min(oldestUnseen, i);
+      }
+    }
+    setMinUnseenAboveIndex(oldestUnseen);
+  }, []);
 
   // Keep Stream id → display name in sync when roster changes (no Stream reconnect required).
   useEffect(() => {
@@ -292,9 +407,36 @@ export function CrewChatScreen(): ReactElement {
     setChatUnreadCount(0);
   }, [channel, messages.length]);
 
-  // Cleanup on unmount: disconnect from Stream so background app stops paying.
+  const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
+    if (messagesRef.current.length === 0) return;
+
+    if (!anchoredInitialScrollRef.current) {
+      anchoredInitialScrollRef.current = true;
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+    }
+
+    if (scrollEndAfterOutgoingRef.current) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToEnd({ animated: true });
+        });
+      });
+      if (scrollEndIdleTimerRef.current) clearTimeout(scrollEndIdleTimerRef.current);
+      scrollEndIdleTimerRef.current = setTimeout(() => {
+        scrollEndAfterOutgoingRef.current = false;
+        scrollEndIdleTimerRef.current = null;
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      }, 240);
+    }
+  }, []);
+
+  const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetYRef.current = event.nativeEvent.contentOffset.y;
+  }, []);
+
   useEffect(() => {
     return () => {
+      if (scrollEndIdleTimerRef.current) clearTimeout(scrollEndIdleTimerRef.current);
       void disconnectStreamClient();
     };
   }, []);
@@ -303,6 +445,8 @@ export function CrewChatScreen(): ReactElement {
     if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
     const trimmed = composer.trim();
     if (!trimmed && !pendingImage) return;
+    setReactionOverlay(undefined);
+    scrollEndAfterOutgoingRef.current = true;
     const mentioned = extractMentionedUserIds(trimmed, memberships);
     const entry = await enqueueChatMessage({
       roomId: room.id,
@@ -351,12 +495,52 @@ export function CrewChatScreen(): ReactElement {
 
   const handleReact = async (messageId: string, type: ChatReactionType) => {
     if (!channel) return;
+    setReactionOverlay(undefined);
     try {
       await channel.sendReaction(messageId, { type });
     } catch (e) {
       Alert.alert("Reaction failed", humanizeError(e));
     }
   };
+
+  const scrollToOldestUnseenAbove = useCallback(() => {
+    if (minUnseenAboveIndex === undefined) return;
+    requestAnimationFrame(() =>
+      listRef.current?.scrollToIndex({
+        index: minUnseenAboveIndex,
+        viewPosition: 0,
+        animated: true
+      })
+    );
+  }, [minUnseenAboveIndex]);
+
+  const handleScrollIndexFailed = useCallback((info: { index: number; averageItemLength?: number }) => {
+    listRef.current?.scrollToOffset({
+      offset: Math.max(0, info.index * ESTIMATED_MESSAGE_ROW_HEIGHT),
+      animated: true
+    });
+  }, []);
+
+  const openReactionPickerForMessage = useCallback(
+    (messageId: string, bubbleFrame: { x: number; y: number; width: number; height: number }) => {
+      const pillItem = 40;
+      const pillPad = 16;
+      const pillW = CHAT_REACTIONS.length * pillItem + pillPad;
+      const pillH = 44;
+      const topSpace = 8;
+      const plannedTop = bubbleFrame.y - pillH - topSpace;
+      const minTop = insets.top + 6;
+      let frame = bubbleFrame;
+      if (plannedTop < minTop) {
+        const fix = minTop - plannedTop;
+        const next = Math.max(0, scrollOffsetYRef.current - fix);
+        listRef.current?.scrollToOffset({ offset: next, animated: true });
+        frame = { ...bubbleFrame, y: bubbleFrame.y + fix * 0.9 };
+      }
+      setReactionOverlay({ messageId, bubbleFrame: frame, pillApproxWidth: pillW });
+    },
+    [insets.top]
+  );
 
   if (!room) {
     return (
@@ -374,16 +558,6 @@ export function CrewChatScreen(): ReactElement {
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>{room.crewName ?? room.name}</Text>
-        <Pressable
-          onPress={() => navigation.navigate("ChatNotificationPrefs")}
-          accessibilityRole="button"
-          style={styles.iconButton}
-        >
-          <Ionicons name="notifications-outline" size={20} color={theme.color.text} />
-        </Pressable>
-      </View>
       {error ? (
         <DSCard style={styles.errorCard}>
           <Text style={[styles.body, { color: theme.color.danger }]}>{error}</Text>
@@ -396,30 +570,84 @@ export function CrewChatScreen(): ReactElement {
           </Text>
         </DSCard>
       ) : null}
-      <FlatList
-        data={messages}
-        keyExtractor={(m) => m.id}
-        contentContainerStyle={styles.listContent}
-        renderItem={(info) => (
-          <MessageBubble
-            info={info}
-            theme={theme}
-            memberships={memberships}
-            revealed={revealedMessageId === info.item.id}
-            onLongPress={(id) => setRevealedMessageId(id)}
-            onReleaseReveal={() => setRevealedMessageId(undefined)}
-            onReact={handleReact}
-            onRetry={handleRetry}
-          />
-        )}
-        ListEmptyComponent={
-          <DSCard style={styles.emptyCard}>
-            <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
-          </DSCard>
-        }
-      />
-      {readByEveryone ? <Text style={styles.readBy}>Read by everyone</Text> : null}
-          {typingUserIds.length > 0 ? (
+      <View style={styles.listWrap}>
+        <FlatList
+          ref={listRef}
+          style={styles.listFlatList}
+          data={messages}
+          keyboardShouldPersistTaps="handled"
+          keyExtractor={(m) => m.id}
+          contentContainerStyle={[styles.listContent, { paddingRight: SCROLLBAR_CONTENT_GAP }]}
+          onScroll={onListScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={onMessagesContentSizeChange}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          onScrollToIndexFailed={handleScrollIndexFailed}
+          scrollIndicatorInsets={{ right: 0 }}
+          {...(Platform.OS === "ios"
+            ? ({ automaticallyAdjustsScrollIndicatorInsets: false } as const)
+            : {})}
+          renderItem={(info) => {
+            const nextRow = messages[info.index + 1];
+            const showAvatarTail =
+              !info.item.isOwn &&
+              (info.index >= messages.length - 1 ||
+                info.item.authorUserId !== nextRow?.authorUserId);
+            return (
+              <MessageBubble
+                info={info}
+                theme={theme}
+                memberships={memberships}
+                revealed={revealedMessageId === info.item.id}
+                reactionHighlight={reactionOverlay?.messageId === info.item.id}
+                showAvatarTail={showAvatarTail}
+                onRevealLongPress={(id) => setRevealedMessageId(id)}
+                onReleaseReveal={() => setRevealedMessageId(undefined)}
+                onOpenReactionPicker={(id, frame) => openReactionPickerForMessage(id, frame)}
+                onRetry={handleRetry}
+              />
+            );
+          }}
+          ListEmptyComponent={
+            <DSCard style={styles.emptyCard}>
+              <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
+            </DSCard>
+          }
+          ListFooterComponent={
+            readByEveryone ? (
+              <View style={styles.readByListFooter} accessibilityRole="text">
+                <Text style={styles.readByListFooterText}>Read by everyone</Text>
+              </View>
+            ) : null
+          }
+        />
+        <View
+          pointerEvents="none"
+          style={[styles.scrollGutterStrip, { width: SCROLLBAR_OUTSIDE_STRIP, backgroundColor: theme.color.background }]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+        {minUnseenAboveIndex !== undefined ? (
+          <Animated.View
+            entering={FadeInDown.springify().damping(16).stiffness(260)}
+            exiting={FadeOutDown.duration(170)}
+            style={styles.unseenChipWrap}
+            pointerEvents="box-none"
+          >
+            <Pressable
+              onPress={scrollToOldestUnseenAbove}
+              style={({ pressed }) => [styles.unseenChip, pressed ? { opacity: 0.88 } : null]}
+              accessibilityRole="button"
+              accessibilityLabel="New messages above, scroll to oldest unseen"
+            >
+              <Text style={styles.unseenChipText}>New messages</Text>
+              <Ionicons name="arrow-up" size={16} color={theme.color.authPrimaryActionText} />
+            </Pressable>
+          </Animated.View>
+        ) : null}
+      </View>
+      {typingUserIds.length > 0 ? (
         <Text style={styles.typing}>
           {typingNames(typingUserIds, streamIdToDisplayName)} typing…
         </Text>
@@ -433,6 +661,18 @@ export function CrewChatScreen(): ReactElement {
         onPickImage={handlePickImage}
         onSend={handleSend}
         onTyping={() => channel?.keystroke()}
+      />
+      <ReactionOverlayModal
+        visible={reactionOverlay !== undefined}
+        overlay={reactionOverlay}
+        windowWidth={window.width}
+        insetsTop={insets.top}
+        theme={theme}
+        onPick={(type) => {
+          if (!reactionOverlay) return;
+          void handleReact(reactionOverlay.messageId, type);
+        }}
+        onDismiss={() => setReactionOverlay(undefined)}
       />
     </View>
   );
@@ -453,10 +693,30 @@ function Composer(props: ComposerProps): ReactElement {
   const theme = useDSTheme();
   const styles = makeStyles(theme);
   const [caretIndex, setCaretIndex] = useState(props.value.length);
+  /** Remount multiline `TextInput` when cleared so native height returns to single-line (RN quirk). */
+  const [composerFieldKey, setComposerFieldKey] = useState(0);
+  const prevValueLenRef = useRef(props.value.length);
   const suggestions = useMemo(
     () => suggestMentions(props.value, caretIndex, props.memberships),
     [props.value, caretIndex, props.memberships]
   );
+
+  useEffect(() => {
+    const len = props.value.length;
+    if (len === 0 && prevValueLenRef.current > 0) {
+      setComposerFieldKey((k) => k + 1);
+      setCaretIndex(0);
+    }
+    prevValueLenRef.current = len;
+  }, [props.value]);
+
+  const androidInputExtras =
+    Platform.OS === "android"
+      ? ({
+          textAlignVertical: "center" as const,
+          includeFontPadding: false
+        } satisfies object)
+      : undefined;
 
   const handleSelectMention = (member: MentionMember) => {
     const head = props.value.slice(0, caretIndex);
@@ -500,6 +760,7 @@ function Composer(props: ComposerProps): ReactElement {
           <Ionicons name="image-outline" size={22} color={theme.color.text} />
         </Pressable>
         <DSTextInput
+          key={`composer-field-${composerFieldKey}`}
           value={props.value}
           onChangeText={(v) => {
             props.onChange(v);
@@ -508,7 +769,7 @@ function Composer(props: ComposerProps): ReactElement {
           onSelectionChange={(e) => setCaretIndex(e.nativeEvent.selection.end)}
           placeholder="Message your crew"
           multiline
-          style={styles.composerInput}
+          style={[styles.composerInput, androidInputExtras]}
         />
         <DSButton preset="primary" onPress={() => void props.onSend()}>
           Send
@@ -518,14 +779,99 @@ function Composer(props: ComposerProps): ReactElement {
   );
 }
 
+type ReactionOverlayModalProps = {
+  visible: boolean;
+  overlay:
+    | {
+        messageId: string;
+        bubbleFrame: { x: number; y: number; width: number; height: number };
+        pillApproxWidth: number;
+      }
+    | undefined;
+  windowWidth: number;
+  insetsTop: number;
+  theme: ReturnType<typeof useDSTheme>;
+  onPick: (type: ChatReactionType) => void;
+  onDismiss: () => void;
+};
+
+function ReactionOverlayModal(props: ReactionOverlayModalProps): ReactElement | null {
+  const { visible, overlay, windowWidth, insetsTop, theme, onPick, onDismiss } = props;
+  const pillH = 48;
+  const styles = makeStyles(theme);
+  const open = Boolean(overlay && visible);
+  if (!open || !overlay) {
+    return null;
+  }
+
+  const pillTopRaw = overlay.bubbleFrame.y - pillH - 12;
+  const pillTop = Math.max(insetsTop + 8, pillTopRaw);
+  const leftRaw =
+    overlay.bubbleFrame.x + overlay.bubbleFrame.width / 2 - overlay.pillApproxWidth / 2;
+  const gutter = 10;
+  const left = Math.max(gutter, Math.min(leftRaw, windowWidth - overlay.pillApproxWidth - gutter));
+
+  return (
+    <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={onDismiss}>
+      <View style={styles.reactionOverlayRoot} pointerEvents="box-none">
+        <Pressable style={StyleSheet.absoluteFill} accessibilityLabel="Dismiss reactions" onPress={onDismiss} />
+        <View
+          style={[
+            styles.reactionPillOuter,
+            { top: pillTop, left, width: overlay.pillApproxWidth, overflow: "hidden" }
+          ]}
+          accessibilityRole="toolbar"
+        >
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={56} tint="dark" style={styles.reactionPillBlur}>
+              <ReactionPillInner onPick={onPick} theme={theme} />
+            </BlurView>
+          ) : (
+            <View style={styles.reactionPillAndroidBg}>
+              <ReactionPillInner onPick={onPick} theme={theme} />
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ReactionPillInner({
+  onPick,
+  theme
+}: {
+  onPick: (type: ChatReactionType) => void;
+  theme: ReturnType<typeof useDSTheme>;
+}): ReactElement {
+  const styles = makeStyles(theme);
+  return (
+    <View style={styles.reactionPillInnerRow}>
+      {CHAT_REACTIONS.map((r) => (
+        <Pressable
+          key={r}
+          accessibilityRole="button"
+          accessibilityLabel={`React ${r}`}
+          onPress={() => onPick(r)}
+          style={styles.reactionPillEmojiTouch}
+        >
+          <Text style={styles.reactionGlyph}>{r}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 type MessageBubbleProps = {
   info: ListRenderItemInfo<ChatViewMessage>;
   theme: ReturnType<typeof useDSTheme>;
   memberships: MentionMember[];
   revealed: boolean;
-  onLongPress: (id: string) => void;
+  reactionHighlight: boolean;
+  showAvatarTail: boolean;
+  onRevealLongPress: (id: string) => void;
   onReleaseReveal: () => void;
-  onReact: (id: string, type: ChatReactionType) => void;
+  onOpenReactionPicker: (id: string, frame: { x: number; y: number; width: number; height: number }) => void;
   onRetry: (entryId: string) => void;
 };
 
@@ -534,93 +880,132 @@ function MessageBubble({
   theme,
   memberships,
   revealed,
-  onLongPress,
+  reactionHighlight,
+  showAvatarTail,
+  onRevealLongPress,
   onReleaseReveal,
-  onReact,
+  onOpenReactionPicker,
   onRetry
 }: MessageBubbleProps): ReactElement {
   const message = info.item;
   const styles = makeStyles(theme);
-  const align = message.isOwn ? styles.alignRight : styles.alignLeft;
+  const bubbleRef = useRef<View | null>(null);
   const bubbleColor = message.isOwn ? theme.color.primary : theme.color.card;
   const textColor = message.isOwn ? theme.color.authPrimaryActionText : theme.color.text;
   const ts = formatChatTimestamp(message.sentAt, message.arrivedAt);
   const tokens = parseMentions(message.body ?? "", memberships);
-  const [picker, setPicker] = useState(false);
 
-  return (
-    <View style={[styles.messageRow, align]}>
-      {!message.isOwn ? <Text style={styles.author}>{message.authorDisplayName}</Text> : null}
+  const bubbleBody = (
+    <View
+      ref={bubbleRef}
+      collapsable={false}
+      style={{ alignSelf: message.isOwn ? "flex-end" : "flex-start" }}
+    >
       <Pressable
         onLongPress={() => {
-          onLongPress(message.id);
-          setPicker(true);
+          onRevealLongPress(message.id);
+          bubbleRef.current?.measureInWindow((x, y, width, height) => {
+            onOpenReactionPicker(message.id, { x, y, width, height });
+          });
         }}
         onPressOut={() => onReleaseReveal()}
-        style={[styles.bubble, { backgroundColor: bubbleColor }]}
+        style={[
+          styles.bubble,
+          { backgroundColor: bubbleColor },
+          reactionHighlight ? styles.bubbleReactionGlow : null
+        ]}
         accessibilityRole="text"
       >
-        {message.imageUrl ? (
-          <Image source={{ uri: message.imageUrl }} style={styles.bubbleImage} />
-        ) : null}
-        {message.body ? (
-          <Text style={{ color: textColor }}>
-            {tokens.map((t, i) => {
-              if (t.kind === "mention") {
-                return (
-                  <Text key={`${i}-m`} style={{ fontWeight: "700", color: textColor }}>
-                    @{t.displayName}
-                  </Text>
-                );
-              }
-              return <Text key={`${i}-t`}>{t.text}</Text>;
-            })}
-          </Text>
-        ) : null}
-        {message.isPending ? (
-          <View style={styles.progressBar}>
-            <ActivityIndicator size="small" color={textColor} />
+      {message.imageUrl ? (
+        <Image source={{ uri: message.imageUrl }} style={styles.bubbleImage} />
+      ) : null}
+      {message.body ? (
+        <Text style={{ color: textColor }}>
+          {tokens.map((t, i) => {
+            if (t.kind === "mention") {
+              return (
+                <Text key={`${i}-m`} style={{ fontWeight: "700", color: textColor }}>
+                  @{t.displayName}
+                </Text>
+              );
+            }
+            return <Text key={`${i}-t`}>{t.text}</Text>;
+          })}
+        </Text>
+      ) : null}
+      {message.isPending ? (
+        <View style={styles.progressBar}>
+          <ActivityIndicator size="small" color={textColor} />
+        </View>
+      ) : null}
+      {message.isFailed && message.outboxId ? (
+        <Pressable onPress={() => onRetry(message.outboxId!)}>
+          <Text style={[styles.retry, { color: theme.color.danger }]}>Failed — tap to retry</Text>
+        </Pressable>
+      ) : null}
+    </Pressable>
+    </View>
+  );
+
+  if (message.isOwn) {
+    return (
+      <View style={styles.messageRowOwn}>
+        {bubbleBody}
+        {revealed ? (
+          <View style={styles.timestampReveal}>
+            <Text style={styles.timestampText}>sent {ts.sent}</Text>
+            {ts.arrived ? <Text style={styles.timestampText}>arrived {ts.arrived}</Text> : null}
           </View>
         ) : null}
-        {message.isFailed && message.outboxId ? (
-          <Pressable onPress={() => onRetry(message.outboxId!)}>
-            <Text style={[styles.retry, { color: theme.color.danger }]}>Failed — tap to retry</Text>
-          </Pressable>
+        {Object.entries(message.reactionCounts).filter(([, n]) => n > 0).length > 0 ? (
+          <View style={styles.reactionsRow}>
+            {Object.entries(message.reactionCounts)
+              .filter(([, n]) => n > 0)
+              .map(([type, count]) => (
+                <Text key={type} style={styles.reactionChip}>
+                  {type} {count}
+                </Text>
+              ))}
+          </View>
         ) : null}
-      </Pressable>
-      {revealed ? (
-        <View style={styles.timestampReveal}>
-          <Text style={styles.timestampText}>sent {ts.sent}</Text>
-          {ts.arrived ? <Text style={styles.timestampText}>arrived {ts.arrived}</Text> : null}
-        </View>
-      ) : null}
-      {Object.entries(message.reactionCounts).filter(([, n]) => n > 0).length > 0 ? (
-        <View style={styles.reactionsRow}>
-          {Object.entries(message.reactionCounts)
-            .filter(([, n]) => n > 0)
-            .map(([type, count]) => (
-              <Text key={type} style={styles.reactionChip}>
-                {type} {count}
-              </Text>
-            ))}
-        </View>
-      ) : null}
-      {picker ? (
-        <View style={styles.reactionPicker}>
-          {CHAT_REACTIONS.map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => {
-                setPicker(false);
-                onReact(message.id, r);
-              }}
-              style={styles.reactionPickerItem}
-            >
-              <Text style={styles.reactionGlyph}>{r}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.peerMessageOuter}>
+      <View style={styles.avatarColumn}>
+        {showAvatarTail ? (
+          message.authorAvatarUrl ? (
+            <Image source={{ uri: message.authorAvatarUrl }} style={styles.peerAvatarImg} />
+          ) : (
+            <View style={styles.peerAvatarPlaceholder}>
+              <Ionicons name="person" size={16} color={theme.color.muted} />
+            </View>
+          )
+        ) : null}
+      </View>
+      <View style={styles.peerTextColumn}>
+        <Text style={styles.author}>{message.authorDisplayName}</Text>
+        {bubbleBody}
+        {revealed ? (
+          <View style={styles.timestampReveal}>
+            <Text style={styles.timestampText}>sent {ts.sent}</Text>
+            {ts.arrived ? <Text style={styles.timestampText}>arrived {ts.arrived}</Text> : null}
+          </View>
+        ) : null}
+        {Object.entries(message.reactionCounts).filter(([, n]) => n > 0).length > 0 ? (
+          <View style={styles.reactionsRow}>
+            {Object.entries(message.reactionCounts)
+              .filter(([, n]) => n > 0)
+              .map(([type, count]) => (
+                <Text key={type} style={styles.reactionChip}>
+                  {type} {count}
+                </Text>
+              ))}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -669,6 +1054,12 @@ function parseKeyVersion(v: unknown): number | undefined {
   return undefined;
 }
 
+function streamUserImage(user: MessageResponse["user"]): string | undefined {
+  if (!user || typeof user !== "object") return undefined;
+  const img = (user as { image?: string }).image;
+  return typeof img === "string" && img.trim() !== "" ? img.trim() : undefined;
+}
+
 function toViewMessage(
   raw: MessageResponse,
   key: { keyB64: string; keyVersion: number },
@@ -695,11 +1086,13 @@ function toViewMessage(
     streamIdToDisplayName.get(authorId) ||
     (normalizedStreamName && normalizedStreamName !== authorId ? normalizedStreamName : "") ||
     authorId;
+  const authorAvatarUrl = streamUserImage(message.user);
   return {
     id: message.id!,
     isOwn: authorId === viewerStreamUserId,
     authorUserId: authorId,
     authorDisplayName,
+    authorAvatarUrl,
     body,
     imageUrl: (message.attachments?.[0]?.image_url as string | undefined) ?? undefined,
     sentAt: new Date(sentAtIso),
@@ -756,12 +1149,14 @@ function normalizeMessageList(rows: ChatViewMessage[]): ChatViewMessage[] {
 }
 
 function preferChatViewRow(a: ChatViewMessage, b: ChatViewMessage): ChatViewMessage {
-  if (a.isPending !== b.isPending) return a.isPending ? b : a;
-  if (a.isFailed !== b.isFailed) return a.isFailed ? b : a;
-  const aHas = Boolean((a.body ?? "").trim());
-  const bHas = Boolean((b.body ?? "").trim());
-  if (aHas !== bHas) return aHas ? a : b;
-  return b;
+  let winner: ChatViewMessage;
+  if (a.isPending !== b.isPending) winner = a.isPending ? b : a;
+  else if (a.isFailed !== b.isFailed) winner = a.isFailed ? b : a;
+  else if (Boolean((a.body ?? "").trim()) !== Boolean((b.body ?? "").trim())) {
+    winner = Boolean((a.body ?? "").trim()) ? a : b;
+  } else winner = b;
+  const other = winner === a ? b : a;
+  return { ...winner, authorAvatarUrl: winner.authorAvatarUrl ?? other.authorAvatarUrl };
 }
 
 function resolveRosterDisplayName(
@@ -891,37 +1286,130 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
       flex: 1,
       backgroundColor: theme.color.background,
       paddingHorizontal: theme.spacing.gutter ?? 12,
-      paddingTop: 8,
+      paddingTop: 4,
       gap: 8
     },
     center: { justifyContent: "center", alignItems: "center" },
     title: { color: theme.color.text, fontSize: 18, fontWeight: "700" },
     body: { color: theme.color.body, fontSize: 14 },
-    headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     iconButton: { padding: 8 },
+    /** Row: scrollable transcript + fixed-width strip so the indicator reads as outside bubble alignment (see SCROLLBAR_*). */
+    listWrap: { flex: 1, flexDirection: "row", position: "relative", minHeight: 0 },
+    listFlatList: { flex: 1, minWidth: 0 },
+    scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
+    unseenChipWrap: {
+      position: "absolute",
+      bottom: 10,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    unseenChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 999,
+      backgroundColor: theme.color.primary
+    },
+    unseenChipText: {
+      color: theme.color.authPrimaryActionText,
+      fontWeight: "600",
+      fontSize: 13
+    },
     emptyCard: { padding: 16 },
     errorCard: { padding: 12, borderColor: theme.color.danger, borderWidth: 1 },
     banner: { backgroundColor: theme.color.warning, padding: 12 },
     bannerText: { color: theme.color.text, fontSize: 13 },
-    messageRow: { gap: 4, marginVertical: 2 },
-    alignLeft: { alignSelf: "flex-start", maxWidth: "85%" },
-    alignRight: { alignSelf: "flex-end", maxWidth: "85%" },
+    messageRowOwn: {
+      alignSelf: "flex-end",
+      maxWidth: "88%",
+      alignItems: "flex-end",
+      marginVertical: 2,
+      gap: 4
+    },
+    peerMessageOuter: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      alignSelf: "flex-start",
+      maxWidth: "88%",
+      marginVertical: 2
+    },
+    avatarColumn: {
+      width: 28,
+      marginRight: 8,
+      justifyContent: "flex-end",
+      alignItems: "center",
+      alignSelf: "flex-end"
+    },
+    peerAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+    peerAvatarPlaceholder: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: theme.color.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.divider,
+      alignItems: "center",
+      justifyContent: "center"
+    },
+    peerTextColumn: { flexShrink: 1, gap: 4, maxWidth: "100%" },
     bubble: { padding: 10, borderRadius: 14 },
+    bubbleReactionGlow: Platform.select({
+      ios: {
+        shadowColor: theme.color.primary,
+        shadowOpacity: 0.72,
+        shadowRadius: 11,
+        shadowOffset: { width: 0, height: 0 }
+      },
+      default: {
+        elevation: 10,
+        shadowColor: theme.color.primary
+      }
+    }),
     bubbleImage: { width: 200, height: 200, borderRadius: 8, marginBottom: 6 },
     author: { color: theme.color.muted, fontSize: 12 },
     progressBar: { marginTop: 4 },
     retry: { fontSize: 12, marginTop: 4 },
     timestampReveal: { padding: 4 },
     timestampText: { color: theme.color.muted, fontSize: 11 },
-    reactionsRow: { flexDirection: "row", gap: 6, paddingHorizontal: 4 },
+    reactionsRow: { flexDirection: "row", gap: 6, paddingHorizontal: 4, flexWrap: "wrap" },
     reactionChip: { color: theme.color.text, fontSize: 12 },
-    reactionPicker: { flexDirection: "row", gap: 4, padding: 6 },
-    reactionPickerItem: { padding: 4 },
     reactionGlyph: { fontSize: 22 },
+    reactionOverlayRoot: { flex: 1 },
+    reactionPillOuter: {
+      position: "absolute",
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "rgba(255,255,255,0.22)"
+    },
+    reactionPillBlur: {
+      borderRadius: 999,
+      overflow: "hidden",
+      paddingHorizontal: 2,
+      paddingVertical: 4
+    },
+    reactionPillAndroidBg: {
+      backgroundColor: "rgba(36,36,40,0.94)",
+      borderRadius: 999,
+      paddingHorizontal: 2,
+      paddingVertical: 4
+    },
+    reactionPillInnerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
+    reactionPillEmojiTouch: { paddingHorizontal: 6, paddingVertical: 2 },
     composer: { gap: 6, paddingBottom: 8 },
-    composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
-    composerInput: { flex: 1 },
+    composerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    composerInput: {
+      flex: 1,
+      minHeight: 48,
+      maxHeight: 160,
+      paddingVertical: Platform.OS === "ios" ? 13 : 10,
+      lineHeight: 22,
+      fontSize: 16
+    },
     suggestionList: {
       borderColor: theme.color.divider,
       borderWidth: 1,
@@ -934,6 +1422,13 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     attachmentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     attachmentThumb: { width: 64, height: 64, borderRadius: 8 },
     typing: { color: theme.color.muted, fontSize: 12, paddingHorizontal: 4 },
-    readBy: { color: theme.color.muted, fontSize: 11, alignSelf: "flex-end" }
+    /** In-list footer: sits under the last bubble inside `FlatList`, right-aligned (LTR). */
+    readByListFooter: {
+      alignSelf: "stretch",
+      alignItems: "flex-end",
+      paddingTop: 4,
+      paddingBottom: 2
+    },
+    readByListFooterText: { color: theme.color.muted, fontSize: 11 }
   });
 }

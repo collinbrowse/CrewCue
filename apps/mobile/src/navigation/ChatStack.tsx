@@ -19,7 +19,11 @@ export function ChatStack(): ReactElement {
         headerShadowVisible: false
       }}
     >
-      <Stack.Screen name="ChatHome" component={CrewChatScreen} options={{ title: "Chat" }} />
+      <Stack.Screen
+        name="ChatHome"
+        component={CrewChatScreen}
+        options={{ title: "", headerShown: true }}
+      />
       <Stack.Screen
         name="ChatNotificationPrefs"
         component={ChatNotificationPrefsScreen}
