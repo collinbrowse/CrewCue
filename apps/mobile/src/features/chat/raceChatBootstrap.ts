@@ -9,6 +9,7 @@ import { bootstrapChannelKey, type ChannelMember } from "./chatChannel";
 import { registerChatPushToken } from "./pushTokenRegistration";
 import { ensureDeviceIdentity } from "./keyStore";
 import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "./streamUserId";
+import { CHAT_INITIAL_MESSAGE_COUNT } from "./chatMessageLimits";
 import { getOrConnectStreamClient, joinCrewChannel } from "./streamClient";
 import type { MentionMember } from "./mentions";
 
@@ -80,7 +81,9 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
   const client = await getOrConnectStreamClient(tokenResp, {
     displayName: selfLabel || undefined
   });
-  const channel = await joinCrewChannel(client, room.id);
+  const channel = await joinCrewChannel(client, room.id, {
+    messages: { limit: CHAT_INITIAL_MESSAGE_COUNT }
+  });
 
   const memberDevices: ChannelMember[] = [];
   for (const m of room.memberships) {
@@ -102,7 +105,7 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
     // permission denied / no token — chat still works
   }
 
-  const initial = await channel.query({ messages: { limit: 50 } });
+  const rawInitialMessages = [...channel.state.messages] as unknown as MessageResponse[];
 
   return {
     roomId: room.id,
@@ -111,6 +114,6 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
     channel,
     channelKey,
     streamIdToDisplayName: streamNames,
-    rawInitialMessages: initial.messages
+    rawInitialMessages
   };
 }

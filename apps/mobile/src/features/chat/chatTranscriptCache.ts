@@ -3,6 +3,7 @@
  * paint immediately from the prior session while Stream/bootstrap catches up.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { CHAT_INITIAL_MESSAGE_COUNT } from "./chatMessageLimits";
 
 const PREFIX = "crewcue.chat.transcript.v1.";
 
@@ -44,9 +45,17 @@ export async function loadTranscriptCache(roomId: string): Promise<CachedChatTra
   }
 }
 
+function takeLastBySentAt(rows: CachedChatTranscriptRow[], max: number): CachedChatTranscriptRow[] {
+  if (rows.length <= max) return rows;
+  return [...rows]
+    .sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime())
+    .slice(-max);
+}
+
 export async function saveTranscriptCache(roomId: string, messages: CachedChatTranscriptRow[]): Promise<void> {
   try {
-    const env: StoredEnvelope = { v: 1, savedAtMs: Date.now(), messages };
+    const trimmed = takeLastBySentAt(messages, CHAT_INITIAL_MESSAGE_COUNT);
+    const env: StoredEnvelope = { v: 1, savedAtMs: Date.now(), messages: trimmed };
     await AsyncStorage.setItem(key(roomId), JSON.stringify(env));
   } catch {
     // best-effort cache

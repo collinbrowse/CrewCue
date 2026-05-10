@@ -72,6 +72,12 @@ import {
   loadTranscriptCache,
   saveTranscriptCache
 } from "../features/chat/chatTranscriptCache";
+import { queryOlderMessagesBefore } from "../features/chat/chatHistoryPaging";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  CHAT_INITIAL_MESSAGE_COUNT,
+  CHAT_SCROLL_LOAD_MORE_PX
+} from "../features/chat/chatMessageLimits";
 import { buildStreamIdDisplayNameMap, resolveRosterDisplayName } from "../features/chat/raceChatBootstrap";
 import { consumeOrBootstrapRaceChat } from "../features/chat/raceChatPrefetch";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
@@ -143,6 +149,8 @@ export function CrewChatScreen(): ReactElement {
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
   /** True until the first \`query\` for the current bootstrap finishes (or errors). */
   const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [reactionOverlay, setReactionOverlay] = useState<
     { messageId: string; bubbleFrame: { x: number; y: number; width: number; height: number }; pillApproxWidth: number } | undefined
   >(undefined);
@@ -157,6 +165,7 @@ export function CrewChatScreen(): ReactElement {
   const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchoredInitialScrollRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
   /** Content-based key so Stream connect does not churn on new `memberships` array references. */
@@ -216,6 +225,9 @@ export function CrewChatScreen(): ReactElement {
     anchoredInitialScrollRef.current = false;
     seenMessageIndicesRef.current.clear();
     setMinUnseenAboveIndex(undefined);
+    setHasMoreHistory(false);
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     if (!room?.id) {
       setMessages([]);
       setIsChatHistoryLoading(false);
@@ -276,6 +288,7 @@ export function CrewChatScreen(): ReactElement {
     setIsChatHistoryLoading(true);
     void (async () => {
       try {
+        setHasMoreHistory(false);
         const cachedRows = await loadTranscriptCache(room.id);
         if (!cancelled && cachedRows.length > 0) {
           setMessages(cacheRowsToChatViewMessages(cachedRows) as ChatViewMessage[]);
@@ -304,6 +317,7 @@ export function CrewChatScreen(): ReactElement {
           result.streamIdToDisplayName
         );
         setMessages(view);
+        setHasMoreHistory(result.rawInitialMessages.length >= CHAT_INITIAL_MESSAGE_COUNT);
         void saveTranscriptCache(room.id, chatViewMessagesToCacheRows(view));
       } catch (e) {
         if (!cancelled) setError(humanizeError(e));
@@ -437,9 +451,61 @@ export function CrewChatScreen(): ReactElement {
     }
   }, []);
 
-  const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollOffsetYRef.current = event.nativeEvent.contentOffset.y;
-  }, []);
+  const loadOlderMessages = useCallback(async () => {
+    if (!channel || !channelKey || !myStreamUserId) return;
+    if (loadingOlderRef.current || !hasMoreHistory) return;
+    const sorted = [...messagesRef.current].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+    const oldestReal = sorted.find((m) => !m.id.startsWith("outbox-"));
+    if (!oldestReal) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const rawOlder = await queryOlderMessagesBefore(channel, oldestReal.id);
+      if (rawOlder.length === 0) {
+        setHasMoreHistory(false);
+        return;
+      }
+      const olderViews = toViewMessages(rawOlder, channelKey, myStreamUserId, streamIdToDisplayName);
+      const added = olderViews.length;
+      setMessages((prev) => {
+        const merged = normalizeMessageList([...olderViews, ...prev]);
+        if (added > 0) {
+          const shifted = new Set<number>();
+          for (const i of seenMessageIndicesRef.current) shifted.add(i + added);
+          seenMessageIndicesRef.current = shifted;
+        }
+        return merged;
+      });
+      if (rawOlder.length < CHAT_HISTORY_PAGE_SIZE) {
+        setHasMoreHistory(false);
+      }
+    } catch {
+      // leave hasMoreHistory; user can scroll again to retry
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [channel, channelKey, myStreamUserId, streamIdToDisplayName, hasMoreHistory]);
+
+  const onListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = event.nativeEvent.contentOffset.y;
+      scrollOffsetYRef.current = y;
+      if (
+        y <= CHAT_SCROLL_LOAD_MORE_PX &&
+        hasMoreHistory &&
+        anchoredInitialScrollRef.current &&
+        !loadingOlderRef.current &&
+        channel &&
+        channelKey &&
+        myStreamUserId
+      ) {
+        void loadOlderMessages();
+      }
+    },
+    [hasMoreHistory, channel, channelKey, myStreamUserId, loadOlderMessages]
+  );
 
   useEffect(() => {
     return () => {
@@ -593,6 +659,14 @@ export function CrewChatScreen(): ReactElement {
           contentContainerStyle={[styles.listContent, { paddingRight: SCROLLBAR_CONTENT_GAP }]}
           onScroll={onListScroll}
           scrollEventThrottle={16}
+          {...(messages.length > 0
+            ? ({
+                maintainVisibleContentPosition: {
+                  minIndexForVisible: 0,
+                  autoscrollToTopThreshold: 24
+                }
+              } as const)
+            : {})}
           onContentSizeChange={onMessagesContentSizeChange}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
@@ -626,6 +700,13 @@ export function CrewChatScreen(): ReactElement {
             <DSCard style={styles.emptyCard}>
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
+          }
+          ListHeaderComponent={
+            loadingOlder ? (
+              <View style={styles.oldPageLoading} accessibilityRole="progressbar" accessibilityLabel="Loading older messages">
+                <ActivityIndicator size="small" color={theme.color.muted} />
+              </View>
+            ) : null
           }
           ListFooterComponent={
             readByEveryone ? (
@@ -1283,6 +1364,7 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     listFlatList: { flex: 1, minWidth: 0 },
     scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
+    oldPageLoading: { paddingVertical: 10, alignItems: "center", justifyContent: "center" },
     unseenChipWrap: {
       position: "absolute",
       bottom: 10,

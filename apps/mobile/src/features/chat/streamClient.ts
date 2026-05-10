@@ -7,8 +7,9 @@
  * Server stores ciphertext only — we encrypt on this device before calling
  * `channel.sendMessage` and decrypt incoming events before rendering.
  */
-import { StreamChat, type Channel } from "stream-chat";
+import { StreamChat, type Channel, type ChannelQueryOptions } from "stream-chat";
 import { chatChannelIdForRoom, type ChatStreamTokenResponse } from "@crewcue/contracts";
+import { CHAT_INITIAL_MESSAGE_COUNT } from "./chatMessageLimits";
 
 let cachedClient: StreamChat | undefined;
 let connectedUserId: string | undefined;
@@ -46,8 +47,16 @@ export async function disconnectStreamClient(): Promise<void> {
   connectedUserId = undefined;
 }
 
-export async function joinCrewChannel(client: StreamChat, roomId: string): Promise<Channel> {
+export async function joinCrewChannel(
+  client: StreamChat,
+  roomId: string,
+  watchOptions?: ChannelQueryOptions
+): Promise<Channel> {
   const channel = client.channel("messaging", chatChannelIdForRoom(roomId));
-  await channel.watch();
+  await channel.watch(
+    watchOptions ?? {
+      messages: { limit: CHAT_INITIAL_MESSAGE_COUNT }
+    }
+  );
   return channel;
 }
