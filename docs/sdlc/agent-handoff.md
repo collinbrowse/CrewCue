@@ -43,7 +43,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 - PR [#239](https://github.com/collinbrowse/CrewCue/pull/239) merged to `main`.
 - PR [#241](https://github.com/collinbrowse/CrewCue/pull/241) merged to `main` (**Closes #240** — mobile chat UI polish: header, composer, scroll, scrollbar strip, reactions, avatars, `expo-blur`).
-- Branch cleanup: delete local/remote `feature/chat-screen-ui-polish-240` when no longer needed.
+- Branch cleanup: local + remote `feature/chat-screen-ui-polish-240` deleted after merge.
 - Branch cleanup complete: local `feature/crew-chat-e2e` deleted; remote branch already absent.
 
 ## Delivered (2026-05-07): mobile chat screen UI polish (#240)
