@@ -245,6 +245,10 @@ export function CrewChatScreen(): ReactElement {
   );
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    if (loadingOlderRef.current) {
+      setMinUnseenAboveIndex(undefined);
+      return;
+    }
     const len = messagesRef.current.length;
     if (!len) {
       setMinUnseenAboveIndex(undefined);
@@ -460,6 +464,7 @@ export function CrewChatScreen(): ReactElement {
 
     loadingOlderRef.current = true;
     setLoadingOlder(true);
+    setMinUnseenAboveIndex(undefined);
     try {
       const rawOlder = await queryOlderMessagesBefore(channel, oldestReal.id);
       if (rawOlder.length === 0) {
@@ -471,9 +476,13 @@ export function CrewChatScreen(): ReactElement {
       setMessages((prev) => {
         const merged = normalizeMessageList([...olderViews, ...prev]);
         if (added > 0) {
-          const shifted = new Set<number>();
-          for (const i of seenMessageIndicesRef.current) shifted.add(i + added);
-          seenMessageIndicesRef.current = shifted;
+          const prevLen = prev.length;
+          const oldSeen = [...seenMessageIndicesRef.current];
+          seenMessageIndicesRef.current.clear();
+          for (const i of oldSeen) {
+            if (i >= 0 && i < prevLen) seenMessageIndicesRef.current.add(i + added);
+          }
+          for (let i = 0; i < added; i++) seenMessageIndicesRef.current.add(i);
         }
         return merged;
       });
@@ -485,6 +494,7 @@ export function CrewChatScreen(): ReactElement {
     } finally {
       loadingOlderRef.current = false;
       setLoadingOlder(false);
+      setMinUnseenAboveIndex(undefined);
     }
   }, [channel, channelKey, myStreamUserId, streamIdToDisplayName, hasMoreHistory]);
 
