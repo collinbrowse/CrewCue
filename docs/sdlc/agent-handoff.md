@@ -15,7 +15,7 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-10 (America/Chicago)
-- **Active issues:** #236, #237, #238; **#242** (chat load + false “New messages” chip) addressed in PR **#243**. **#240** closed via **#241**.
+- **Active issues:** #236, #237, #238; **#242** + **#244** (chat UX: load chip, Metro prewarm, prefetch, transcript cache) on PR **#243**. **#240** closed via **#241**.
 - **Active branch:** PR [#243](https://github.com/collinbrowse/CrewCue/pull/243) (`fix/chat-load-and-unseen-chip-242`).
 - **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
@@ -51,6 +51,13 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 - **Loading:** `CrewChatScreen` shows a blocking “Loading messages…” state until the first `query` completes when the transcript is still empty (avoids “No messages yet” during bootstrap).
 - **New messages chip:** After initial `scrollToEnd`, all indices in the loaded history are marked viewability-seen so rows above the viewport are not treated as unseen (fixes false chip when scrolled to latest).
 - **Room change:** Clearing transcript + loading flags when `room?.id` changes avoids stale rows while switching rooms.
+
+## Delivered (2026-05-10): chat Metro prewarm + prefetch + transcript cache (#244 / PR #243)
+
+- **`index.tsx`:** native-only `require` of `expoNotificationsShim` + `secureStorage` at startup (avoids Android “Bundled …ms” on first Chat open from lazy chat imports).
+- **Static imports:** `messageQueue`, `notificationPrefs`, `pushTokenRegistration` no longer dynamic-import native modules; pure helpers split to `messageQueueCore` / `notificationPrefsValidation` for Node tests.
+- **Prefetch:** `RaceChatPrefetcher` + `raceChatBootstrap` / `raceChatPrefetch` warm Stream while other tabs focused; chat screen consumes in-flight work with **90s** max reuse age.
+- **Cache:** `chatTranscriptCache` (AsyncStorage) hydrates last thread per room before network; debounced save on updates.
 
 ## Delivered (2026-05-07): mobile chat screen UI polish (#240)
 
