@@ -50,22 +50,13 @@ import type { Channel, Event as StreamEvent, MessageResponse, StreamChat } from 
 import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import {
-  bootstrapChannelKey,
-  decryptIncoming,
-  encryptOutgoing,
-  type ChannelMember
-} from "../features/chat/chatChannel";
+import { decryptIncoming, encryptOutgoing } from "../features/chat/chatChannel";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
 import { CHAT_REACTIONS, type ChatReactionType } from "../features/chat/reactions";
 import { extractMentionedUserIds, parseMentions, suggestMentions, type MentionMember } from "../features/chat/mentions";
 import { pickGalleryImage, type PickedImage } from "../features/chat/imagePipeline";
 import { formatChatTimestamp } from "../features/chat/timestamps";
-import {
-  disconnectStreamClient,
-  getOrConnectStreamClient,
-  joinCrewChannel
-} from "../features/chat/streamClient";
+import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
   enqueueChatMessage,
   loadOutbox,
@@ -75,9 +66,14 @@ import {
   removeEntry,
   type ChatOutboxEntry
 } from "../features/chat/messageQueue";
-import { ensureDeviceIdentity } from "../features/chat/keyStore";
-import { registerChatPushToken } from "../features/chat/pushTokenRegistration";
-import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "../features/chat/streamUserId";
+import {
+  cacheRowsToChatViewMessages,
+  chatViewMessagesToCacheRows,
+  loadTranscriptCache,
+  saveTranscriptCache
+} from "../features/chat/chatTranscriptCache";
+import { buildStreamIdDisplayNameMap, resolveRosterDisplayName } from "../features/chat/raceChatBootstrap";
+import { consumeOrBootstrapRaceChat } from "../features/chat/raceChatPrefetch";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
 import type { ChatStackParamList } from "./types";
 import { useNavColors } from "./navigationTheme";
@@ -278,59 +274,37 @@ export function CrewChatScreen(): ReactElement {
       return undefined;
     }
     setIsChatHistoryLoading(true);
-    (async () => {
+    void (async () => {
       try {
-        const tokenResp = await api.getChatStreamToken({ roomId: room.id });
-        if (cancelled) return;
-        rememberStreamUserIdForAuthSub(authSub, tokenResp.streamUserId);
-        setMyStreamUserId(tokenResp.streamUserId);
-        if (cancelled) return;
-        const selfMember = memberships.find((m) => m.userId === authSub);
-        const selfLabel = selfMember
-          ? resolveRosterDisplayName(selfMember, room.athleteId, room.creatorName)
-          : "";
-        const sc = await getOrConnectStreamClient(tokenResp, {
-          displayName: selfLabel || undefined
+        const cachedRows = await loadTranscriptCache(room.id);
+        if (!cancelled && cachedRows.length > 0) {
+          setMessages(cacheRowsToChatViewMessages(cachedRows) as ChatViewMessage[]);
+          setIsChatHistoryLoading(false);
+        }
+
+        const result = await consumeOrBootstrapRaceChat({
+          room,
+          authSub,
+          api,
+          memberships,
+          chatMembershipKey
         });
         if (cancelled) return;
-        setClient(sc);
-        const ch = await joinCrewChannel(sc, room.id);
-        if (cancelled) return;
-        setChannel(ch);
 
-        const memberDevices: ChannelMember[] = [];
-        for (const m of room.memberships) {
-          const lookup = await api.listChatDevicesForUser(m.userId);
-          memberDevices.push({
-            userId: m.userId,
-            devices: lookup.devices.map((d) => ({ deviceId: d.deviceId, publicKey: d.publicKey }))
-          });
-        }
-        const key = await bootstrapChannelKey(api, room.id, memberDevices);
-        if (cancelled) return;
-        setChannelKey(key);
+        setMyStreamUserId(result.streamUserId);
+        setClient(result.client);
+        setChannel(result.channel);
+        setChannelKey(result.channelKey);
+        setStreamIdToDisplayName(result.streamIdToDisplayName);
 
-        const streamNames = await buildStreamIdDisplayNameMap(
-          memberships,
-          room.athleteId,
-          room.creatorName
+        const view = toViewMessages(
+          result.rawInitialMessages,
+          result.channelKey,
+          result.streamUserId,
+          result.streamIdToDisplayName
         );
-        streamNames.set(tokenResp.streamUserId, selfLabel || "You");
-        if (cancelled) return;
-        setStreamIdToDisplayName(streamNames);
-
-        // Register push token (best-effort; permission may be denied)
-        try {
-          const identity = await ensureDeviceIdentity();
-          await registerChatPushToken(api, { deviceId: identity.deviceId });
-        } catch {
-          // user declined permissions; Phase 6 NSE/FCM still won't fire but
-          // chat continues to work — silent failure is intentional.
-        }
-
-        const initial = await ch.query({ messages: { limit: 50 } });
-        if (cancelled) return;
-        setMessages(toViewMessages(initial.messages, key, tokenResp.streamUserId, streamNames));
+        setMessages(view);
+        void saveTranscriptCache(room.id, chatViewMessagesToCacheRows(view));
       } catch (e) {
         if (!cancelled) setError(humanizeError(e));
       } finally {
@@ -420,6 +394,16 @@ export function CrewChatScreen(): ReactElement {
     void channel.markRead();
     setChatUnreadCount(0);
   }, [channel, messages.length]);
+
+  // Persist last transcript for instant paint on next visit (best-effort).
+  useEffect(() => {
+    if (!room?.id || messages.length === 0) return;
+    const roomId = room.id;
+    const handle = setTimeout(() => {
+      void saveTranscriptCache(roomId, chatViewMessagesToCacheRows(messagesRef.current));
+    }, 900);
+    return () => clearTimeout(handle);
+  }, [room?.id, messages]);
 
   const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
     if (messagesRef.current.length === 0) return;
@@ -1186,43 +1170,6 @@ function preferChatViewRow(a: ChatViewMessage, b: ChatViewMessage): ChatViewMess
   } else winner = b;
   const other = winner === a ? b : a;
   return { ...winner, authorAvatarUrl: winner.authorAvatarUrl ?? other.authorAvatarUrl };
-}
-
-function resolveRosterDisplayName(
-  member: MentionMember,
-  athleteId: string | undefined,
-  creatorName: string | undefined
-): string {
-  const direct = (member.displayName ?? "").trim();
-  if (direct) return direct;
-  if (athleteId && member.userId === athleteId) {
-    const creator = (creatorName ?? "").trim();
-    if (creator) return creator;
-  }
-  return "Crew member";
-}
-
-async function buildStreamIdDisplayNameMap(
-  memberships: MentionMember[],
-  athleteId?: string,
-  creatorName?: string
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  for (const m of memberships) {
-    const name = resolveRosterDisplayName(m, athleteId, creatorName);
-    if (!name) continue;
-    const memberUserId = m.userId.trim();
-    // Defensive mapping: some roster payloads carry Auth0 `sub`, others may
-    // already carry Stream ids (`u-...`). Populate both to avoid raw-id UI.
-    if (memberUserId) {
-      map.set(memberUserId, name);
-    }
-    try {
-      const sid = await streamUserIdForAuthSub(memberUserId);
-      map.set(sid, name);
-    } catch {}
-  }
-  return map;
 }
 
 function typingNames(userIds: string[], streamIdToDisplayName: Map<string, string>): string {

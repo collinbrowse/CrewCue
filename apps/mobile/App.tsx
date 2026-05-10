@@ -61,6 +61,7 @@ import { useCrewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
+import { RaceChatPrefetcher } from "./src/navigation/RaceChatPrefetcher";
 import * as SecureStore from "./src/storage/secureStorage";
 import {
   ONBOARDING_INTENT_KEY,
@@ -1462,6 +1463,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   return (
     <AuthedShellProvider value={shellValue}>
+      {showAuthedTabs ? <RaceChatPrefetcher /> : null}
       <NavigationContainer theme={navigationTheme} linking={crewCueLinking}>
         {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>

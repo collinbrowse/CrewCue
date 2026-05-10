@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isValidPref } from "./notificationPrefs";
+import { isValidPref } from "./notificationPrefsValidation";
 
 test("notificationPrefs: accepts canonical values", () => {
   assert.equal(isValidPref("all"), true);

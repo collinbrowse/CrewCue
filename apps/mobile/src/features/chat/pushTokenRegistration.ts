@@ -9,6 +9,11 @@
  */
 import type { ChatPushPlatform } from "@crewcue/contracts";
 import type { ApiClient } from "../../api/client";
+import {
+  getDevicePushTokenAsync,
+  getPermissionsAsync,
+  requestPermissionsAsync
+} from "../../platform/expoNotificationsShim";
 
 export type PushRegistrationDeps = {
   /** Returns the per-device id; call site usually passes ensureDeviceIdentity().deviceId. */
@@ -37,9 +42,6 @@ async function defaultFetchDevicePushToken(): Promise<
   { data: string; type: "ios" | "android" } | undefined
 > {
   try {
-    const { getDevicePushTokenAsync, getPermissionsAsync, requestPermissionsAsync } = await import(
-      "../../platform/expoNotificationsShim"
-    );
     const status = await getPermissionsAsync();
     const granted = status.status === "granted" ? status : await requestPermissionsAsync();
     if (granted.status !== "granted") return undefined;
