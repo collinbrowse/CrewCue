@@ -145,6 +145,8 @@ export function CrewChatScreen(): ReactElement {
   const [readByEveryone, setReadByEveryone] = useState(false);
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
+  /** True until the first \`query\` for the current bootstrap finishes (or errors). */
+  const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
   const [reactionOverlay, setReactionOverlay] = useState<
     { messageId: string; bubbleFrame: { x: number; y: number; width: number; height: number }; pillApproxWidth: number } | undefined
   >(undefined);
@@ -218,6 +220,12 @@ export function CrewChatScreen(): ReactElement {
     anchoredInitialScrollRef.current = false;
     seenMessageIndicesRef.current.clear();
     setMinUnseenAboveIndex(undefined);
+    if (!room?.id) {
+      setMessages([]);
+      setIsChatHistoryLoading(false);
+      return;
+    }
+    setMessages([]);
   }, [room?.id]);
 
   const viewabilityConfig = useMemo(
@@ -265,7 +273,11 @@ export function CrewChatScreen(): ReactElement {
   // Connect to Stream + bootstrap channel when an active room is available.
   useEffect(() => {
     let cancelled = false;
-    if (!room || !authSub || !api) return undefined;
+    if (!room || !authSub || !api) {
+      setIsChatHistoryLoading(false);
+      return undefined;
+    }
+    setIsChatHistoryLoading(true);
     (async () => {
       try {
         const tokenResp = await api.getChatStreamToken({ roomId: room.id });
@@ -321,6 +333,8 @@ export function CrewChatScreen(): ReactElement {
         setMessages(toViewMessages(initial.messages, key, tokenResp.streamUserId, streamNames));
       } catch (e) {
         if (!cancelled) setError(humanizeError(e));
+      } finally {
+        if (!cancelled) setIsChatHistoryLoading(false);
       }
     })();
     return () => {
@@ -412,7 +426,16 @@ export function CrewChatScreen(): ReactElement {
 
     if (!anchoredInitialScrollRef.current) {
       anchoredInitialScrollRef.current = true;
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      const lenAtAnchor = messagesRef.current.length;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated: false });
+        // Viewability only marks rows that are on-screen; at the bottom every index above
+        // the viewport would otherwise look "unseen" and flash the New messages chip.
+        requestAnimationFrame(() => {
+          for (let i = 0; i < lenAtAnchor; i++) seenMessageIndicesRef.current.add(i);
+          setMinUnseenAboveIndex(undefined);
+        });
+      });
     }
 
     if (scrollEndAfterOutgoingRef.current) {
@@ -571,6 +594,12 @@ export function CrewChatScreen(): ReactElement {
         </DSCard>
       ) : null}
       <View style={styles.listWrap}>
+        {isChatHistoryLoading && messages.length === 0 ? (
+          <View style={styles.historyLoading} accessibilityRole="progressbar" accessibilityLabel="Loading chat">
+            <ActivityIndicator size="large" color={theme.color.primary} />
+            <Text style={styles.historyLoadingText}>Loading messages…</Text>
+          </View>
+        ) : null}
         <FlatList
           ref={listRef}
           style={styles.listFlatList}
@@ -1295,6 +1324,15 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     iconButton: { padding: 8 },
     /** Row: scrollable transcript + fixed-width strip so the indicator reads as outside bubble alignment (see SCROLLBAR_*). */
     listWrap: { flex: 1, flexDirection: "row", position: "relative", minHeight: 0 },
+    historyLoading: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+      zIndex: 2,
+      backgroundColor: theme.color.background
+    },
+    historyLoadingText: { color: theme.color.muted, fontSize: 14 },
     listFlatList: { flex: 1, minWidth: 0 },
     scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
