@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeEntry, transitionEntry, type ChatOutboxEntry } from "./messageQueue";
+import { makeEntry, transitionEntry, type ChatOutboxEntry } from "./messageQueueCore";
 
 test("messageQueue: makeEntry builds a pending entry with stable shape", () => {
   const entry = makeEntry(

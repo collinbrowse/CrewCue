@@ -14,9 +14,9 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-07 (America/Chicago)
-- **Active issues:** #236 (Auth0 account-switch prompt), #237 (Stream member sync), #238 (Android dev-build stability). **#240** closed via merged PR **#241** (chat UI polish).
-- **Active branch:** `main` (includes [#241](https://github.com/collinbrowse/CrewCue/pull/241)).
+- Last updated: 2026-05-10 (America/Chicago)
+- **Active issues:** #236, #237, #238; **#242** + **#244** (chat UX: load chip, Metro prewarm, prefetch, transcript cache) on PR **#243**. **#240** closed via **#241**.
+- **Active branch:** PR [#243](https://github.com/collinbrowse/CrewCue/pull/243) (`fix/chat-load-and-unseen-chip-242`).
 - **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
 ## Current objective
@@ -45,6 +45,20 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 - PR [#241](https://github.com/collinbrowse/CrewCue/pull/241) merged to `main` (**Closes #240** — mobile chat UI polish: header, composer, scroll, scrollbar strip, reactions, avatars, `expo-blur`).
 - Branch cleanup: local + remote `feature/chat-screen-ui-polish-240` deleted after merge.
 - Branch cleanup complete: local `feature/crew-chat-e2e` deleted; remote branch already absent.
+
+## Delivered (2026-05-10): chat first-load UX + New messages chip (#242 / PR #243)
+
+- **Loading:** `CrewChatScreen` shows a blocking “Loading messages…” state until the first `query` completes when the transcript is still empty (avoids “No messages yet” during bootstrap).
+- **New messages chip:** After initial `scrollToEnd`, all indices in the loaded history are marked viewability-seen so rows above the viewport are not treated as unseen (fixes false chip when scrolled to latest).
+- **Room change:** Clearing transcript + loading flags when `room?.id` changes avoids stale rows while switching rooms.
+
+## Delivered (2026-05-10): chat Metro prewarm + prefetch + transcript cache (#244 / PR #243)
+
+- **`index.tsx`:** native-only `require` of `expoNotificationsShim` + `secureStorage` at startup (avoids Android “Bundled …ms” on first Chat open from lazy chat imports).
+- **Static imports:** `messageQueue`, `notificationPrefs`, `pushTokenRegistration` no longer dynamic-import native modules; pure helpers split to `messageQueueCore` / `notificationPrefsValidation` for Node tests.
+- **Prefetch:** `RaceChatPrefetcher` + `raceChatBootstrap` / `raceChatPrefetch` warm Stream while other tabs focused; chat screen consumes in-flight work with **90s** max reuse age.
+- **Cache:** `chatTranscriptCache` (AsyncStorage) hydrates last thread per room before network; debounced save on updates.
+- **Paging:** initial Stream watch loads **10** newest messages (`chatMessageLimits.ts`); scrolling near the top loads older pages (40 at a time via `id_lt`); transcript cache keeps the same 10-message tail.
 
 ## Delivered (2026-05-07): mobile chat screen UI polish (#240)
 
@@ -84,7 +98,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. On `main`: `npm run verify` + manual iOS/Android chat smoke after **#241** (especially `expo-blur` / dev-client rebuild if needed).
+1. Merge **#243** after CI green; `npm run verify` + chat smoke (loading overlay + no spurious New messages chip at bottom).
 2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
 3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
@@ -108,5 +122,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-On main after PR #241: run npm run verify; smoke Crew Chat on iOS+Android (rebuild dev client if expo-blur native sync needed). Delete stale branch feature/chat-screen-ui-polish-240 locally/remotely if desired. Next: CrewCueChatNativeBridge (chat-push-decryption.md) and production push/retention wiring.
+Merge PR #243 (Closes #242); npm run verify; smoke chat: loading overlay, open thread at bottom without false “New messages”. Optional follow-up: persist last transcript per room for true instant paint. Next: CrewCueChatNativeBridge + production push/retention.
 ```

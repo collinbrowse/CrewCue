@@ -50,22 +50,13 @@ import type { Channel, Event as StreamEvent, MessageResponse, StreamChat } from 
 import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import {
-  bootstrapChannelKey,
-  decryptIncoming,
-  encryptOutgoing,
-  type ChannelMember
-} from "../features/chat/chatChannel";
+import { decryptIncoming, encryptOutgoing } from "../features/chat/chatChannel";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
 import { CHAT_REACTIONS, type ChatReactionType } from "../features/chat/reactions";
 import { extractMentionedUserIds, parseMentions, suggestMentions, type MentionMember } from "../features/chat/mentions";
 import { pickGalleryImage, type PickedImage } from "../features/chat/imagePipeline";
 import { formatChatTimestamp } from "../features/chat/timestamps";
-import {
-  disconnectStreamClient,
-  getOrConnectStreamClient,
-  joinCrewChannel
-} from "../features/chat/streamClient";
+import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
   enqueueChatMessage,
   loadOutbox,
@@ -75,9 +66,20 @@ import {
   removeEntry,
   type ChatOutboxEntry
 } from "../features/chat/messageQueue";
-import { ensureDeviceIdentity } from "../features/chat/keyStore";
-import { registerChatPushToken } from "../features/chat/pushTokenRegistration";
-import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "../features/chat/streamUserId";
+import {
+  cacheRowsToChatViewMessages,
+  chatViewMessagesToCacheRows,
+  loadTranscriptCache,
+  saveTranscriptCache
+} from "../features/chat/chatTranscriptCache";
+import { queryOlderMessagesBefore } from "../features/chat/chatHistoryPaging";
+import {
+  CHAT_HISTORY_PAGE_SIZE,
+  CHAT_INITIAL_MESSAGE_COUNT,
+  CHAT_SCROLL_LOAD_MORE_PX
+} from "../features/chat/chatMessageLimits";
+import { buildStreamIdDisplayNameMap, resolveRosterDisplayName } from "../features/chat/raceChatBootstrap";
+import { consumeOrBootstrapRaceChat } from "../features/chat/raceChatPrefetch";
 import { setChatUnreadCount } from "../features/chat/unreadBadge";
 import type { ChatStackParamList } from "./types";
 import { useNavColors } from "./navigationTheme";
@@ -145,6 +147,10 @@ export function CrewChatScreen(): ReactElement {
   const [readByEveryone, setReadByEveryone] = useState(false);
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
+  /** True until Stream bootstrap (watch + keys) finishes for the current room (or errors). */
+  const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [reactionOverlay, setReactionOverlay] = useState<
     { messageId: string; bubbleFrame: { x: number; y: number; width: number; height: number }; pillApproxWidth: number } | undefined
   >(undefined);
@@ -159,6 +165,7 @@ export function CrewChatScreen(): ReactElement {
   const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchoredInitialScrollRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
   /** Content-based key so Stream connect does not churn on new `memberships` array references. */
@@ -218,6 +225,15 @@ export function CrewChatScreen(): ReactElement {
     anchoredInitialScrollRef.current = false;
     seenMessageIndicesRef.current.clear();
     setMinUnseenAboveIndex(undefined);
+    setHasMoreHistory(false);
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+    if (!room?.id) {
+      setMessages([]);
+      setIsChatHistoryLoading(false);
+      return;
+    }
+    setMessages([]);
   }, [room?.id]);
 
   const viewabilityConfig = useMemo(
@@ -229,6 +245,10 @@ export function CrewChatScreen(): ReactElement {
   );
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    if (loadingOlderRef.current) {
+      setMinUnseenAboveIndex(undefined);
+      return;
+    }
     const len = messagesRef.current.length;
     if (!len) {
       setMinUnseenAboveIndex(undefined);
@@ -265,62 +285,48 @@ export function CrewChatScreen(): ReactElement {
   // Connect to Stream + bootstrap channel when an active room is available.
   useEffect(() => {
     let cancelled = false;
-    if (!room || !authSub || !api) return undefined;
-    (async () => {
+    if (!room || !authSub || !api) {
+      setIsChatHistoryLoading(false);
+      return undefined;
+    }
+    setIsChatHistoryLoading(true);
+    void (async () => {
       try {
-        const tokenResp = await api.getChatStreamToken({ roomId: room.id });
-        if (cancelled) return;
-        rememberStreamUserIdForAuthSub(authSub, tokenResp.streamUserId);
-        setMyStreamUserId(tokenResp.streamUserId);
-        if (cancelled) return;
-        const selfMember = memberships.find((m) => m.userId === authSub);
-        const selfLabel = selfMember
-          ? resolveRosterDisplayName(selfMember, room.athleteId, room.creatorName)
-          : "";
-        const sc = await getOrConnectStreamClient(tokenResp, {
-          displayName: selfLabel || undefined
+        setHasMoreHistory(false);
+        const cachedRows = await loadTranscriptCache(room.id);
+        if (!cancelled && cachedRows.length > 0) {
+          setMessages(cacheRowsToChatViewMessages(cachedRows) as ChatViewMessage[]);
+          setIsChatHistoryLoading(false);
+        }
+
+        const result = await consumeOrBootstrapRaceChat({
+          room,
+          authSub,
+          api,
+          memberships,
+          chatMembershipKey
         });
         if (cancelled) return;
-        setClient(sc);
-        const ch = await joinCrewChannel(sc, room.id);
-        if (cancelled) return;
-        setChannel(ch);
 
-        const memberDevices: ChannelMember[] = [];
-        for (const m of room.memberships) {
-          const lookup = await api.listChatDevicesForUser(m.userId);
-          memberDevices.push({
-            userId: m.userId,
-            devices: lookup.devices.map((d) => ({ deviceId: d.deviceId, publicKey: d.publicKey }))
-          });
-        }
-        const key = await bootstrapChannelKey(api, room.id, memberDevices);
-        if (cancelled) return;
-        setChannelKey(key);
+        setMyStreamUserId(result.streamUserId);
+        setClient(result.client);
+        setChannel(result.channel);
+        setChannelKey(result.channelKey);
+        setStreamIdToDisplayName(result.streamIdToDisplayName);
 
-        const streamNames = await buildStreamIdDisplayNameMap(
-          memberships,
-          room.athleteId,
-          room.creatorName
+        const view = toViewMessages(
+          result.rawInitialMessages,
+          result.channelKey,
+          result.streamUserId,
+          result.streamIdToDisplayName
         );
-        streamNames.set(tokenResp.streamUserId, selfLabel || "You");
-        if (cancelled) return;
-        setStreamIdToDisplayName(streamNames);
-
-        // Register push token (best-effort; permission may be denied)
-        try {
-          const identity = await ensureDeviceIdentity();
-          await registerChatPushToken(api, { deviceId: identity.deviceId });
-        } catch {
-          // user declined permissions; Phase 6 NSE/FCM still won't fire but
-          // chat continues to work — silent failure is intentional.
-        }
-
-        const initial = await ch.query({ messages: { limit: 50 } });
-        if (cancelled) return;
-        setMessages(toViewMessages(initial.messages, key, tokenResp.streamUserId, streamNames));
+        setMessages(view);
+        setHasMoreHistory(result.rawInitialMessages.length >= CHAT_INITIAL_MESSAGE_COUNT);
+        void saveTranscriptCache(room.id, chatViewMessagesToCacheRows(view));
       } catch (e) {
         if (!cancelled) setError(humanizeError(e));
+      } finally {
+        if (!cancelled) setIsChatHistoryLoading(false);
       }
     })();
     return () => {
@@ -407,12 +413,31 @@ export function CrewChatScreen(): ReactElement {
     setChatUnreadCount(0);
   }, [channel, messages.length]);
 
+  // Persist last transcript for instant paint on next visit (best-effort).
+  useEffect(() => {
+    if (!room?.id || messages.length === 0) return;
+    const roomId = room.id;
+    const handle = setTimeout(() => {
+      void saveTranscriptCache(roomId, chatViewMessagesToCacheRows(messagesRef.current));
+    }, 900);
+    return () => clearTimeout(handle);
+  }, [room?.id, messages]);
+
   const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
     if (messagesRef.current.length === 0) return;
 
     if (!anchoredInitialScrollRef.current) {
       anchoredInitialScrollRef.current = true;
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      const lenAtAnchor = messagesRef.current.length;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated: false });
+        // Viewability only marks rows that are on-screen; at the bottom every index above
+        // the viewport would otherwise look "unseen" and flash the New messages chip.
+        requestAnimationFrame(() => {
+          for (let i = 0; i < lenAtAnchor; i++) seenMessageIndicesRef.current.add(i);
+          setMinUnseenAboveIndex(undefined);
+        });
+      });
     }
 
     if (scrollEndAfterOutgoingRef.current) {
@@ -430,9 +455,67 @@ export function CrewChatScreen(): ReactElement {
     }
   }, []);
 
-  const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollOffsetYRef.current = event.nativeEvent.contentOffset.y;
-  }, []);
+  const loadOlderMessages = useCallback(async () => {
+    if (!channel || !channelKey || !myStreamUserId) return;
+    if (loadingOlderRef.current || !hasMoreHistory) return;
+    const sorted = [...messagesRef.current].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+    const oldestReal = sorted.find((m) => !m.id.startsWith("outbox-"));
+    if (!oldestReal) return;
+
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    setMinUnseenAboveIndex(undefined);
+    try {
+      const rawOlder = await queryOlderMessagesBefore(channel, oldestReal.id);
+      if (rawOlder.length === 0) {
+        setHasMoreHistory(false);
+        return;
+      }
+      const olderViews = toViewMessages(rawOlder, channelKey, myStreamUserId, streamIdToDisplayName);
+      const added = olderViews.length;
+      setMessages((prev) => {
+        const merged = normalizeMessageList([...olderViews, ...prev]);
+        if (added > 0) {
+          const prevLen = prev.length;
+          const oldSeen = [...seenMessageIndicesRef.current];
+          seenMessageIndicesRef.current.clear();
+          for (const i of oldSeen) {
+            if (i >= 0 && i < prevLen) seenMessageIndicesRef.current.add(i + added);
+          }
+          for (let i = 0; i < added; i++) seenMessageIndicesRef.current.add(i);
+        }
+        return merged;
+      });
+      if (rawOlder.length < CHAT_HISTORY_PAGE_SIZE) {
+        setHasMoreHistory(false);
+      }
+    } catch {
+      // leave hasMoreHistory; user can scroll again to retry
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+      setMinUnseenAboveIndex(undefined);
+    }
+  }, [channel, channelKey, myStreamUserId, streamIdToDisplayName, hasMoreHistory]);
+
+  const onListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = event.nativeEvent.contentOffset.y;
+      scrollOffsetYRef.current = y;
+      if (
+        y <= CHAT_SCROLL_LOAD_MORE_PX &&
+        hasMoreHistory &&
+        anchoredInitialScrollRef.current &&
+        !loadingOlderRef.current &&
+        channel &&
+        channelKey &&
+        myStreamUserId
+      ) {
+        void loadOlderMessages();
+      }
+    },
+    [hasMoreHistory, channel, channelKey, myStreamUserId, loadOlderMessages]
+  );
 
   useEffect(() => {
     return () => {
@@ -571,6 +654,12 @@ export function CrewChatScreen(): ReactElement {
         </DSCard>
       ) : null}
       <View style={styles.listWrap}>
+        {isChatHistoryLoading && messages.length === 0 ? (
+          <View style={styles.historyLoading} accessibilityRole="progressbar" accessibilityLabel="Loading chat">
+            <ActivityIndicator size="large" color={theme.color.primary} />
+            <Text style={styles.historyLoadingText}>Loading messages…</Text>
+          </View>
+        ) : null}
         <FlatList
           ref={listRef}
           style={styles.listFlatList}
@@ -580,6 +669,14 @@ export function CrewChatScreen(): ReactElement {
           contentContainerStyle={[styles.listContent, { paddingRight: SCROLLBAR_CONTENT_GAP }]}
           onScroll={onListScroll}
           scrollEventThrottle={16}
+          {...(messages.length > 0
+            ? ({
+                maintainVisibleContentPosition: {
+                  minIndexForVisible: 0,
+                  autoscrollToTopThreshold: 24
+                }
+              } as const)
+            : {})}
           onContentSizeChange={onMessagesContentSizeChange}
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
@@ -613,6 +710,13 @@ export function CrewChatScreen(): ReactElement {
             <DSCard style={styles.emptyCard}>
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
+          }
+          ListHeaderComponent={
+            loadingOlder ? (
+              <View style={styles.oldPageLoading} accessibilityRole="progressbar" accessibilityLabel="Loading older messages">
+                <ActivityIndicator size="small" color={theme.color.muted} />
+              </View>
+            ) : null
           }
           ListFooterComponent={
             readByEveryone ? (
@@ -1159,43 +1263,6 @@ function preferChatViewRow(a: ChatViewMessage, b: ChatViewMessage): ChatViewMess
   return { ...winner, authorAvatarUrl: winner.authorAvatarUrl ?? other.authorAvatarUrl };
 }
 
-function resolveRosterDisplayName(
-  member: MentionMember,
-  athleteId: string | undefined,
-  creatorName: string | undefined
-): string {
-  const direct = (member.displayName ?? "").trim();
-  if (direct) return direct;
-  if (athleteId && member.userId === athleteId) {
-    const creator = (creatorName ?? "").trim();
-    if (creator) return creator;
-  }
-  return "Crew member";
-}
-
-async function buildStreamIdDisplayNameMap(
-  memberships: MentionMember[],
-  athleteId?: string,
-  creatorName?: string
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  for (const m of memberships) {
-    const name = resolveRosterDisplayName(m, athleteId, creatorName);
-    if (!name) continue;
-    const memberUserId = m.userId.trim();
-    // Defensive mapping: some roster payloads carry Auth0 `sub`, others may
-    // already carry Stream ids (`u-...`). Populate both to avoid raw-id UI.
-    if (memberUserId) {
-      map.set(memberUserId, name);
-    }
-    try {
-      const sid = await streamUserIdForAuthSub(memberUserId);
-      map.set(sid, name);
-    } catch {}
-  }
-  return map;
-}
-
 function typingNames(userIds: string[], streamIdToDisplayName: Map<string, string>): string {
   const display = userIds.map((id) => streamIdToDisplayName.get(id) ?? "Someone");
   if (display.length === 1) return display[0]!;
@@ -1295,9 +1362,19 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     iconButton: { padding: 8 },
     /** Row: scrollable transcript + fixed-width strip so the indicator reads as outside bubble alignment (see SCROLLBAR_*). */
     listWrap: { flex: 1, flexDirection: "row", position: "relative", minHeight: 0 },
+    historyLoading: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 12,
+      zIndex: 2,
+      backgroundColor: theme.color.background
+    },
+    historyLoadingText: { color: theme.color.muted, fontSize: 14 },
     listFlatList: { flex: 1, minWidth: 0 },
     scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
+    oldPageLoading: { paddingVertical: 10, alignItems: "center", justifyContent: "center" },
     unseenChipWrap: {
       position: "absolute",
       bottom: 10,
