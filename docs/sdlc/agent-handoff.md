@@ -15,8 +15,8 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-10 (America/Chicago)
-- **Active issues:** #236, #237, #238; **#242** + **#244** (chat UX: load chip, Metro prewarm, prefetch, transcript cache) on PR **#243**. **#240** closed via **#241**.
-- **Active branch:** PR [#243](https://github.com/collinbrowse/CrewCue/pull/243) (`fix/chat-load-and-unseen-chip-242`).
+- **Active issues:** #236, #237, #238. **#242** and **#244** closed via merged PR **#243** (confirm on GitHub if auto-close missed a line). **#240** closed via **#241**.
+- **Active branch:** `main` (includes [#243](https://github.com/collinbrowse/CrewCue/pull/243) — chat load UX, prefetch, 10-message window, paging, chip flash fix).
 - **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
 ## Current objective
@@ -45,6 +45,11 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 - PR [#241](https://github.com/collinbrowse/CrewCue/pull/241) merged to `main` (**Closes #240** — mobile chat UI polish: header, composer, scroll, scrollbar strip, reactions, avatars, `expo-blur`).
 - Branch cleanup: local + remote `feature/chat-screen-ui-polish-240` deleted after merge.
 - Branch cleanup complete: local `feature/crew-chat-e2e` deleted; remote branch already absent.
+
+## Merge status (2026-05-10)
+
+- PR [#243](https://github.com/collinbrowse/CrewCue/pull/243) merged to `main` (**Closes #242**, **Closes #244** — chat loading, New messages chip, Metro prewarm, prefetch, transcript cache, 10-message initial + scroll pagination, chip flash on prepend fix).
+- Delete stale branch `fix/chat-load-and-unseen-chip-242` locally/remotely when convenient.
 
 ## Delivered (2026-05-10): chat first-load UX + New messages chip (#242 / PR #243)
 
@@ -98,13 +103,13 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. Merge **#243** after CI green; `npm run verify` + chat smoke (loading overlay + no spurious New messages chip at bottom).
+1. On current `main`: `npm run verify` + manual chat smoke (cache hydrate, scroll-up pagination, no chip flash).
 2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
 3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
 ## Validation summary
 
-- PR **#241** merged to `main`; re-run **`npm run verify`** on current `main` after pull for parity with CI.
+- PR **#243** merged to `main`; run **`npm run verify`** after pull for CI parity.
 
 ## Open risks/blockers/questions
 
@@ -122,5 +127,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-Merge PR #243 (Closes #242); npm run verify; smoke chat: loading overlay, open thread at bottom without false “New messages”. Optional follow-up: persist last transcript per room for true instant paint. Next: CrewCueChatNativeBridge + production push/retention.
+On main (post-#243): npm run verify; smoke Crew Chat (prefetch, 10-msg window, scroll load older, chip). Delete branch fix/chat-load-and-unseen-chip-242 if still present. Next: CrewCueChatNativeBridge + production push/retention (#236–#238 as applicable).
 ```
