@@ -12,17 +12,18 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Recent fix (2026-05-11): Pace Edit + timeline rail
+## Recent fix (2026-05-11): Pace Edit + timeline rail (**merged** PR [#246](https://github.com/collinbrowse/CrewCue/pull/246), **Closes** [#245](https://github.com/collinbrowse/CrewCue/issues/245))
 
-- **Edit:** `GET /race-rooms/:id` permissions now include `canEditCheckpointStops` (server mirrors `canEditCheckpointStoppage`). Pace enables Edit using `(roomDetail.permissions ?? JWT current-room role mirror)` for both course (`canActivateRoom`) and stops so **crew_member** works when token omits `room_roles`. Pace focus still refetches detail when missing/stale room id.
-- **Timeline rail:** `PaceTimelineRail` + `paceRailCheckpointRowModel` / `paceRailFinishRowModel` — active leg uses a **purple** trunk and an animated marker that moves down the row by **along-course progress** toward that checkpoint (or **dwell / planned stop** when an auto visit is in progress). Other rows: **gray** trunk, hollow marker at top; completed: filled check at top.
+- **Edit:** `GET /race-rooms/:id` permissions include `canEditCheckpointStops`; Pace uses `(roomDetail.permissions ?? JWT current-room role mirror)` for course + stops; Pace focus refetches room detail when missing/stale room id.
+- **Timeline rail:** `PaceTimelineRail` + `paceRailCheckpointRowModel` / `paceRailFinishRowModel` — active leg **purple** trunk; marker **opaque** (`card` fill); approach/dwell/finish fractions; **past legs pin marker bottom** after focus advances or checkpoint completed; **dwell** uses `statusRail` card tint + primary left bar and **“At station”** badge vs **“In progress”** en route.
+- **Also on `main` from #246:** `CheckpointPickMapScreen`, course/map/linking, projection timeliness tests/docs, `slugToTitle` / course helpers in `@crewcue/map-core`, `AuthenticatedReadoutsScreen` Pace surface (stale banner, course PUT path, etc.).
 
 ## Session status snapshot
 
 - Last updated: 2026-05-11 (America/Chicago)
-- **Pace tab (merged locally / pending PR):** Timeline `AuthenticatedReadoutsScreen`, `features/pace/timeline.ts`, stale banner from `projectionConfidence`, `PUT /race-rooms/:roomId/course` preserves ping + projection + recomputes + blocks removing visited CPs (`manualEntry` or auto departure), staleness tests + docs updated, `CheckpointPickMapScreen` + tab/stack/linking, `onEnqueueManualStop(..., departureAt?)`, `UpdateRaceCourseInput.raceStartAt`. **Validate:** `npm run verify` at repo root; open issue + PR with `Closes #…` per workflow.
-- **Active issues:** #236, #237, #238. **#242** and **#244** closed via merged PR **#243** (confirm on GitHub if auto-close missed a line). **#240** closed via **#241**.
-- **Active branch:** `main` (includes [#243](https://github.com/collinbrowse/CrewCue/pull/243) — chat load UX, prefetch, 10-message window, paging, chip flash fix).
+- **Pace tab:** Delivered on `main` via **PR #246** (issue **#245**).
+- **Active issues:** #236, #237, #238. **#242** / **#244** closed via **#243**; **#240** via **#241**; **#245** via **#246** (confirm auto-close on GitHub if needed).
+- **Active branch:** `main` (includes **#243** chat UX + **#246** Pace).
 - **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
 
 ## Current objective
@@ -56,6 +57,10 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 - PR [#243](https://github.com/collinbrowse/CrewCue/pull/243) merged to `main` (**Closes #242**, **Closes #244** — chat loading, New messages chip, Metro prewarm, prefetch, transcript cache, 10-message initial + scroll pagination, chip flash on prepend fix).
 - Delete stale branch `fix/chat-load-and-unseen-chip-242` locally/remotely when convenient.
+
+## Merge status (2026-05-11)
+
+- PR [#246](https://github.com/collinbrowse/CrewCue/pull/246) merged to `main` (**Closes #245** — Pace permissions, animated timeline rail + dwell/at-station UX, `canEditCheckpointStops` on race room permissions, checkpoint map picker, projection/course/linking touchpoints). Delete local/remote `feature/pace-edit-permissions-timeline-245` when convenient.
 
 ## Delivered (2026-05-10): chat first-load UX + New messages chip (#242 / PR #243)
 
@@ -109,13 +114,13 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. On current `main`: `npm run verify` + manual chat smoke (cache hydrate, scroll-up pagination, no chip flash).
+1. On current `main` (post-#246): `npm run verify` after pull; optional Pace smoke (Edit as crew_member, rail progress, at-station card on dwell).
 2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
 3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
 ## Validation summary
 
-- PR **#243** merged to `main`; run **`npm run verify`** after pull for CI parity.
+- PR **#243** and **#246** merged to `main`; run **`npm run verify`** after pull for CI parity.
 
 ## Open risks/blockers/questions
 
@@ -133,5 +138,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-On main (post-#243): npm run verify; smoke Crew Chat (prefetch, 10-msg window, scroll load older, chip). Delete branch fix/chat-load-and-unseen-chip-242 if still present. Next: CrewCueChatNativeBridge + production push/retention (#236–#238 as applicable).
+On main (post-#246): git pull; npm run verify. Optional: Pace smoke + delete branch feature/pace-edit-permissions-timeline-245. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
 ```
