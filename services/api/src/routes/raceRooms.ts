@@ -21,9 +21,14 @@ import type {
   RaceRoomJoinPreview,
   RaceRoomProjection,
   RaceRoomProjectionCore,
+  RaceCourse,
   Role
 } from "@crewcue/contracts";
 import {
+  buildDerivedMetricsFromPolyline,
+  buildPlanBaselineFromModel,
+  checkpointsWithProjectedDistances,
+  flattenWorkspaceGeometry,
   mergePrimaryCourseRouteLayer,
   normalizeRaceMapWorkspace,
   workspaceGeometryToBaseline
@@ -93,6 +98,7 @@ const raceCourseCheckpointInput = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
+  distanceMetersFromStart: z.number().finite().nonnegative().optional(),
   plannedStopSeconds: z.number().nonnegative().optional(),
   stoppageRadiusMeters: z.number().positive().optional(),
   slowdownThresholdRatio: z.number().positive().max(1).optional(),
@@ -101,19 +107,32 @@ const raceCourseCheckpointInput = z.object({
 
 const raceCourseBaselinePointInput = z.object({
   distanceMetersFromStart: z.number().finite().gte(0),
-  referenceElapsedSeconds: z.number().finite().gte(0)
+  referenceElapsedSeconds: z.number().finite().gte(0),
+  elevationMeters: z.number().finite().optional()
 });
 
 const raceCourseBaselineTrackInput = z.object({
   points: z.array(raceCourseBaselinePointInput).min(2)
 });
 
-const raceCourseInput = z.object({
-  checkpoints: z.array(raceCourseCheckpointInput).min(2),
-  baselineTrack: raceCourseBaselineTrackInput.optional()
+const raceCourseDerivedMetricsInput = z.object({
+  canonicalDistanceMeters: z.number().finite().nonnegative(),
+  elevationGainMeters: z.number().finite().nonnegative(),
+  elevationLossMeters: z.number().finite().nonnegative(),
+  elevationSource: z.enum(["gpx_smoothed", "dem", "none"]),
+  metricsVersion: z.number().int().positive()
 });
 
-const mapWorkspacePosition = z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90)]);
+const raceCourseInput = z.object({
+  checkpoints: z.array(raceCourseCheckpointInput).min(2),
+  baselineTrack: raceCourseBaselineTrackInput.optional(),
+  derivedMetrics: raceCourseDerivedMetricsInput.optional()
+});
+
+const mapWorkspacePosition = z.union([
+  z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90)]),
+  z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90), z.number().finite()])
+]);
 
 const mapWorkspaceLineStringGeometryInput = z.object({
   type: z.literal("LineString"),
@@ -990,6 +1009,11 @@ export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoom
   if (!stored) {
     return undefined;
   }
+  const room = await getRaceRoom(roomId);
+  const anchor = room ? resolveRaceAnchorIso(room) : undefined;
+  if (anchor) {
+    fillPlannedAidStationClocks(stored.lastProjectionCore, anchor);
+  }
   const pingState = getOrInitPingState(roomId);
   return attachProjectionTimeliness(
     stored.lastProjectionCore,
@@ -997,6 +1021,16 @@ export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoom
     Date.now(),
     pingState.lastUploadIntervalSeconds
   );
+}
+
+function fillPlannedAidStationClocks(core: RaceRoomProjectionCore, raceAnchorIso: string): void {
+  const anchorMs = Date.parse(raceAnchorIso);
+  if (Number.isNaN(anchorMs)) {
+    return;
+  }
+  for (const row of core.checkpointSplits) {
+    row.plannedAidStationClockIso = new Date(anchorMs + row.plannedElapsedSecondsAtCross * 1000).toISOString();
+  }
 }
 
 function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
@@ -1206,6 +1240,55 @@ function resolveMapWorkspace(room: RaceRoom): RaceMapWorkspace {
   };
 }
 
+function courseMetricPointsFromGeometry(geometry: MapWorkspaceLayer["geometry"]): Array<{
+  latitude: number;
+  longitude: number;
+  elevationMeters?: number | null;
+}> {
+  return flattenWorkspaceGeometry(geometry).map((coord) => {
+    const tuple = coord as [number, number, number?];
+    return {
+      longitude: tuple[0],
+      latitude: tuple[1],
+      elevationMeters: typeof tuple[2] === "number" && Number.isFinite(tuple[2]) ? tuple[2] : null
+    };
+  });
+}
+
+function courseMetricPointsFromCheckpoints(course: Pick<RaceCourse, "checkpoints">): Array<{
+  latitude: number;
+  longitude: number;
+  elevationMeters?: number | null;
+}> {
+  return course.checkpoints.map((checkpoint) => ({
+    latitude: checkpoint.latitude,
+    longitude: checkpoint.longitude
+  }));
+}
+
+function recomputeCourseMetricsForSave(input: {
+  course: RaceCourse;
+  plannedPaceSecondsPerKm: number;
+  routeOverlayLayer?: MapWorkspaceLayer;
+}): RaceCourse {
+  const routePoints =
+    input.routeOverlayLayer !== undefined
+      ? courseMetricPointsFromGeometry(input.routeOverlayLayer.geometry)
+      : courseMetricPointsFromCheckpoints(input.course);
+  const fallbackPoints = routePoints.length >= 2 ? routePoints : courseMetricPointsFromCheckpoints(input.course);
+  const checkpoints = checkpointsWithProjectedDistances(input.course.checkpoints, fallbackPoints);
+  const baselineTrack =
+    input.routeOverlayLayer !== undefined
+      ? (buildPlanBaselineFromModel(fallbackPoints, input.plannedPaceSecondsPerKm) ?? input.course.baselineTrack)
+      : (input.course.baselineTrack ?? buildPlanBaselineFromModel(fallbackPoints, input.plannedPaceSecondsPerKm));
+  return {
+    ...input.course,
+    checkpoints,
+    ...(baselineTrack ? { baselineTrack } : {}),
+    derivedMetrics: buildDerivedMetricsFromPolyline(fallbackPoints)
+  };
+}
+
 function applyRaceMapWorkspacePut(
   room: RaceRoom,
   input: z.infer<typeof putRaceMapWorkspaceInput>
@@ -1221,21 +1304,33 @@ function applyRaceMapWorkspacePut(
 
   if (normalized.checkpoints.length >= 2) {
     let baselineTrack = room.course?.baselineTrack;
+    let derivedMetrics = room.course?.derivedMetrics;
+    let checkpoints = normalized.checkpoints;
     if (input.syncBaselineFromLayer && normalized.drivesProjectionLayerId) {
       const layer = normalized.layers.find((entry: MapWorkspaceLayer) => entry.id === normalized.drivesProjectionLayerId);
       if (layer) {
-        const computed = workspaceGeometryToBaseline(layer.geometry);
+        const routePoints = courseMetricPointsFromGeometry(layer.geometry);
+        const computed = workspaceGeometryToBaseline(layer.geometry, room.plannedPaceSecondsPerKm);
         if (computed) {
           baselineTrack = computed;
         }
+        checkpoints = checkpointsWithProjectedDistances(normalized.checkpoints, routePoints);
+        derivedMetrics = buildDerivedMetricsFromPolyline(routePoints);
       }
     }
     next = {
       ...next,
       course: {
-        checkpoints: normalized.checkpoints,
-        ...(baselineTrack ? { baselineTrack } : {})
-      }
+        checkpoints,
+        ...(baselineTrack ? { baselineTrack } : {}),
+        ...(derivedMetrics ? { derivedMetrics } : {})
+      },
+      ...(derivedMetrics
+        ? {
+            courseDistanceMeters: derivedMetrics.canonicalDistanceMeters,
+            courseElevationGainMeters: derivedMetrics.elevationGainMeters
+          }
+        : {})
     };
   } else if (room.course && normalized.checkpoints.length > 0) {
     next = {
@@ -1248,8 +1343,11 @@ function applyRaceMapWorkspacePut(
 }
 
 export async function setRaceRoomStatusForTests(roomId: string, status: RaceRoom["status"]): Promise<void> {
-  if (process.env.PERSISTENCE_MODE !== "memory") {
-    throw new Error("setRaceRoomStatusForTests requires PERSISTENCE_MODE=memory (API test harness)");
+  const mode = process.env.PERSISTENCE_MODE;
+  if (mode !== "memory" && mode !== "postgres") {
+    throw new Error(
+      `setRaceRoomStatusForTests is test-only; use PERSISTENCE_MODE=memory or postgres (got ${mode ?? "unset"})`
+    );
   }
   const room = await getRaceRoom(roomId);
   if (!room) {
@@ -1392,12 +1490,18 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    let updatedRoom: RaceRoom = {
-      ...room,
+    const recomputedCourse = recomputeCourseMetricsForSave({
       course: parsed.data.course,
       plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      courseDistanceMeters: parsed.data.courseDistanceMeters ?? room.courseDistanceMeters,
-      courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
+      routeOverlayLayer: parsed.data.routeOverlayLayer
+    });
+
+    let updatedRoom: RaceRoom = {
+      ...room,
+      course: recomputedCourse,
+      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
+      courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters,
+      courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
       raceStartAt: parsed.data.raceStartAt,
       activatedAt: parsed.data.raceStartAt
@@ -1407,7 +1511,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       const mergedWorkspace = mergePrimaryCourseRouteLayer(
         resolveMapWorkspace(updatedRoom),
         parsed.data.routeOverlayLayer,
-        parsed.data.course.checkpoints
+        recomputedCourse.checkpoints
       );
       updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
     }
@@ -1423,6 +1527,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     clearWs5RoomLocalState(roomId);
 
     await saveRaceRoom(updatedRoom);
+    if (!getOrInitPingState(roomId).lastAccepted) {
+      roomProjectionState.delete(roomId);
+    }
     try {
       await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
     } catch (err) {
