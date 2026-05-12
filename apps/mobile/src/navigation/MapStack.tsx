@@ -5,6 +5,7 @@ import { GpxImportScreen } from "./GpxImportScreen";
 import { JoinRoomDetailsScreen } from "./JoinRoomDetailsScreen";
 import { ManageRoomMembersScreen } from "./ManageRoomMembersScreen";
 import { NavigateScreen } from "./NavigateScreen";
+import { CheckpointPickMapScreen } from "./CheckpointPickMapScreen";
 import { TrackMapDashboardScreen } from "./TrackMapDashboardScreen";
 import { WorkspaceMenuScreen } from "./WorkspaceMenuScreen";
 import { useNavColors } from "./navigationTheme";
@@ -33,6 +34,11 @@ export function MapStack(): ReactElement {
         name="MapHome"
         component={TrackMapDashboardScreen}
         options={{ title: "Map", headerShown: false }}
+      />
+      <Stack.Screen
+        name="CheckpointPickMap"
+        component={CheckpointPickMapScreen}
+        options={{ title: "Pick location", headerRight: () => null }}
       />
       <Stack.Screen name="Navigate" component={NavigateScreen} options={{ title: "Navigate" }} />
       <Stack.Screen name="RacePlanning" component={GpxImportScreen} options={{ title: "Race setup" }} />

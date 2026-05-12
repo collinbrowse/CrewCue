@@ -17,6 +17,7 @@ import type {
   RaceMapWorkspace,
   RaceRoom,
   RaceRoomInvite,
+  RaceCheckpointSplitRow,
   RaceRoomJoinPreview,
   RaceRoomProjection,
   RaceRoomProjectionCore,
@@ -30,6 +31,7 @@ import {
 import {
   DEFAULT_PLANNED_PACE_SECONDS_PER_KM,
   DEFAULT_RACE_COURSE,
+  type ProjectionPing,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
@@ -76,13 +78,27 @@ const createRaceRoomInput = z.object({
   creatorRole: z.enum(["athlete", "crew_member", "crew_chief", "team_manager"]).default("athlete")
 });
 
+const raceCourseCheckpointCutoffInput = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("time_of_day"),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59)
+  }),
+  z.object({
+    mode: z.literal("elapsed_from_start"),
+    seconds: z.number().int().min(0).max(864_000)
+  })
+]);
+
 const raceCourseCheckpointInput = z.object({
   id: z.string().min(1),
+  title: z.string().trim().min(1).max(200).optional(),
   latitude: z.number().gte(-90).lte(90),
   longitude: z.number().gte(-180).lte(180),
   plannedStopSeconds: z.number().nonnegative().optional(),
   stoppageRadiusMeters: z.number().positive().optional(),
-  slowdownThresholdRatio: z.number().positive().max(1).optional()
+  slowdownThresholdRatio: z.number().positive().max(1).optional(),
+  cutoff: raceCourseCheckpointCutoffInput.optional()
 });
 
 const raceCourseBaselinePointInput = z.object({
@@ -137,7 +153,9 @@ const updateRaceCourseInput = z.object({
   courseDistanceMeters: z.number().finite().nonnegative().optional(),
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
   courseFileName: z.string().trim().min(1).optional(),
-  routeOverlayLayer: mapWorkspaceLayerInput.optional()
+  routeOverlayLayer: mapWorkspaceLayerInput.optional(),
+  /** Optional: shift race-day anchor used for projection elapsed math (same role as activation time). */
+  raceStartAt: z.iso.datetime().optional()
 });
 
 const putRaceMapWorkspaceInput = z.object({
@@ -337,7 +355,8 @@ function toJoinPreview(room: RaceRoom): RaceRoomJoinPreview {
     checkpoints: room.course?.checkpoints.map((cp) => ({
       id: cp.id,
       latitude: cp.latitude,
-      longitude: cp.longitude
+      longitude: cp.longitude,
+      ...(cp.title ? { title: cp.title } : {})
     }))
   };
 }
@@ -780,6 +799,8 @@ type PermissionSet = {
   canViewRoom: boolean;
   canActivateRoom: boolean;
   canIssueInvite: boolean;
+  /** Crew stop edits (manual arrival/departure); aligned with `canEditCheckpointStoppage`. */
+  canEditCheckpointStops: boolean;
 };
 
 function getPermissions(role: Role): PermissionSet {
@@ -788,7 +809,8 @@ function getPermissions(role: Role): PermissionSet {
   return {
     canViewRoom: true,
     canActivateRoom,
-    canIssueInvite
+    canIssueInvite,
+    canEditCheckpointStops: canEditCheckpointStoppage(role)
   };
 }
 
@@ -914,6 +936,80 @@ export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoom
     Date.now(),
     pingState.lastUploadIntervalSeconds
   );
+}
+
+function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
+  return split.visits.some((visit) => {
+    if (visit.manualEntry) {
+      return true;
+    }
+    return Boolean(visit.autoDetected?.departureRecordedAt);
+  });
+}
+
+function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): Set<string> {
+  const ids = new Set<string>();
+  for (const row of stored.lastProjectionCore.checkpointSplits) {
+    if (checkpointSplitHasVisitLog(row)) {
+      ids.add(row.checkpointId);
+    }
+  }
+  return ids;
+}
+
+function pruneProjectionStateMaps(
+  state: Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps">,
+  allowedCheckpointIds: Set<string>
+): Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps"> {
+  return {
+    lastProgressMeters: state.lastProgressMeters,
+    rollingMovingSpeedMps: state.rollingMovingSpeedMps,
+    splitCrossedAt: Object.fromEntries(Object.entries(state.splitCrossedAt).filter(([id]) => allowedCheckpointIds.has(id))),
+    visitStates: Object.fromEntries(Object.entries(state.visitStates).filter(([id]) => allowedCheckpointIds.has(id))),
+    visitMeta: Object.fromEntries(Object.entries(state.visitMeta).filter(([id]) => allowedCheckpointIds.has(id)))
+  };
+}
+
+async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: RaceRoom): Promise<void> {
+  if (!room.activatedAt || !room.course || room.plannedPaceSecondsPerKm === undefined) {
+    return;
+  }
+  const pingState = getOrInitPingState(roomId);
+  if (!pingState.lastAccepted) {
+    return;
+  }
+  const prev = roomProjectionState.get(roomId);
+  const last = pingState.lastAccepted;
+  const ping: ProjectionPing = {
+    pingId: last.pingId,
+    latitude: last.latitude,
+    longitude: last.longitude,
+    recordedAt: new Date(last.recordedAtMs).toISOString()
+  };
+  const previous = prev
+    ? {
+        lastProgressMeters: prev.lastProgressMeters,
+        splitCrossedAt: { ...prev.splitCrossedAt },
+        visitStates: structuredClone(prev.visitStates),
+        visitMeta: structuredClone(prev.visitMeta),
+        rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+      }
+    : null;
+  const { projection: nextProjectionCore, state: nextStateRaw } = recomputeRaceProjection({
+    roomId,
+    activatedAt: room.activatedAt,
+    course: room.course,
+    plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+    ping,
+    previousPing: null,
+    previous
+  });
+  const allowed = new Set(room.course.checkpoints.map((c) => c.id));
+  const prunedBase = pruneProjectionStateMaps(nextStateRaw, allowed);
+  roomProjectionState.set(roomId, {
+    ...prunedBase,
+    lastProjectionCore: nextProjectionCore
+  });
 }
 
 /** Task status counts for manager-style boards (not role-filtered). */
@@ -1272,13 +1368,26 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid course payload" });
     }
 
+    await loadWs2RuntimeIfNeeded(roomId);
+    const prevProjection = roomProjectionState.get(roomId);
+    if (prevProjection) {
+      const visitedIds = visitedCheckpointIdsFromStoredProjection(prevProjection);
+      const nextIds = new Set(parsed.data.course.checkpoints.map((c) => c.id));
+      for (const id of visitedIds) {
+        if (!nextIds.has(id)) {
+          return reply.code(400).send({ error: `Cannot remove visited checkpoint: ${id}` });
+        }
+      }
+    }
+
     let updatedRoom: RaceRoom = {
       ...room,
       course: parsed.data.course,
       plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
       courseDistanceMeters: parsed.data.courseDistanceMeters ?? room.courseDistanceMeters,
       courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
-      courseFileName: parsed.data.courseFileName ?? room.courseFileName
+      courseFileName: parsed.data.courseFileName ?? room.courseFileName,
+      ...(parsed.data.raceStartAt ? { activatedAt: parsed.data.raceStartAt } : {})
     };
 
     if (parsed.data.routeOverlayLayer) {
@@ -1290,11 +1399,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
     }
 
-    roomPingState.delete(roomId);
-    roomProjectionState.delete(roomId);
-    ws2RuntimeHydratedFromDb.delete(roomId);
     clearTaskBoardLocalState(roomId);
-    await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
     await deleteTaskBoardSnapshot(roomId);
     await deleteWs4AdaptivePayload(roomId);
@@ -1305,6 +1410,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     clearWs5RoomLocalState(roomId);
 
     await saveRaceRoom(updatedRoom);
+    try {
+      await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
+    } catch (err) {
+      app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
+    }
+    await saveWs2RuntimeSnapshot(roomId);
     return reply.send(updatedRoom);
   });
 

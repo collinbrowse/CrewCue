@@ -27,7 +27,7 @@ export function ReadoutsStack(): ReactElement {
         name="ReadoutsHome"
         component={AuthenticatedReadoutsScreen}
         options={({ navigation }) => ({
-          title: "Course",
+          title: "Pace",
           headerRight: () => (
             <Pressable
               onPress={() => navigation.navigate("CourseRaceSetup", { mode: "edit" })}

@@ -76,7 +76,7 @@ test("returns projection after accepted ping and from GET", async () => {
   assert.ok(pingBody.projection.weatherStub);
   assert.equal(pingBody.projection.weatherStub?.source, "stub");
   assert.equal(pingBody.projection.projectionConfidence, "fresh");
-  assert.equal(pingBody.projection.stalenessThresholdSeconds, 120);
+  assert.equal(pingBody.projection.stalenessThresholdSeconds, 900);
   assert.ok(pingBody.projection.secondsSinceLastAcceptedPing >= 0);
 
   const getResponse = await app.inject({
@@ -151,7 +151,7 @@ test("GET projection exposes derived staleness threshold from uploadIntervalSeco
   });
   assert.equal(getResponse.statusCode, 200);
   const body = getResponse.json() as RaceRoomProjection;
-  assert.equal(body.stalenessThresholdSeconds, 100);
+  assert.equal(body.stalenessThresholdSeconds, 120);
   assert.equal(body.projectionConfidence, "fresh");
 
   await app.close();

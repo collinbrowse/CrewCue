@@ -1,6 +1,19 @@
 import type { Role } from "@crewcue/contracts";
 import type { AuthState } from "./useAuth";
 
+/** Mirrors API `getPermissions` course activation / course PUT until `roomDetail` is loaded. */
+export function canEditRaceCourseFromRoomRole(role: Role | undefined): boolean {
+  return role === "athlete" || role === "crew_chief" || role === "team_manager";
+}
+
+/** Mirrors server `canEditCheckpointStoppage` (membership role on the room). */
+export function canEditCheckpointStopsFromRoomRole(role: Role | undefined): boolean {
+  if (!role) {
+    return false;
+  }
+  return role === "crew_member" || role === "crew_chief" || role === "team_manager";
+}
+
 export function canMutateCheckpointStoppage(auth: AuthState): boolean {
   if (auth.status !== "authenticated" || !auth.claims?.sub) {
     return false;

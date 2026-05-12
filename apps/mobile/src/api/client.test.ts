@@ -351,7 +351,12 @@ test("joinRaceRoomByCode targets join-by-code endpoint", async () => {
           JSON.stringify({
             room: minimalRoom,
             assignedRole: "crew_member",
-            permissions: { canViewRoom: true, canActivateRoom: false, canIssueInvite: false }
+            permissions: {
+              canViewRoom: true,
+              canActivateRoom: false,
+              canIssueInvite: false,
+              canEditCheckpointStops: true
+            }
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         );

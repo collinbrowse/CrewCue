@@ -12,6 +12,8 @@ export type GuestStackParamList = {
 /** Primary map + race operations stack (Map tab). */
 export type MapStackParamList = {
   MapHome: undefined;
+  /** Pace edit flow: pan map so crosshair is the new aid location, then confirm. */
+  CheckpointPickMap: { initialLatitude?: number; initialLongitude?: number } | undefined;
   RacePlanning:
     | {
         mode?: "create" | "edit";
@@ -25,7 +27,7 @@ export type MapStackParamList = {
 };
 
 export type ReadoutsStackParamList = {
-  ReadoutsHome: undefined;
+  ReadoutsHome: { pacePickResult?: { latitude: number; longitude: number } } | undefined;
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
   CourseSettings: undefined;

@@ -1,10 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  STALENESS_INTERVAL_MULTIPLIER,
-  getStalenessThresholdSeconds,
-  attachProjectionTimeliness
-} from "./projectionTimeliness.js";
+import { STALENESS_MAX_SECONDS, getStalenessThresholdSeconds, attachProjectionTimeliness } from "./projectionTimeliness.js";
 
 test("getStalenessThresholdSeconds uses env fallback when no client interval", async (t) => {
   const prev = process.env.PROJECTION_STALE_AFTER_SECONDS;
@@ -16,15 +12,15 @@ test("getStalenessThresholdSeconds uses env fallback when no client interval", a
     }
   });
   delete process.env.PROJECTION_STALE_AFTER_SECONDS;
-  assert.equal(getStalenessThresholdSeconds(undefined), 120);
+  assert.equal(getStalenessThresholdSeconds(undefined), STALENESS_MAX_SECONDS);
   process.env.PROJECTION_STALE_AFTER_SECONDS = "90";
   assert.equal(getStalenessThresholdSeconds(undefined), 90);
 });
 
 test("getStalenessThresholdSeconds derives from upload interval with bounds", () => {
-  assert.equal(getStalenessThresholdSeconds(60), Math.round(STALENESS_INTERVAL_MULTIPLIER * 60));
-  assert.equal(getStalenessThresholdSeconds(10), 45);
-  assert.equal(getStalenessThresholdSeconds(900), 600);
+  assert.equal(getStalenessThresholdSeconds(60), 180);
+  assert.equal(getStalenessThresholdSeconds(10), 30);
+  assert.equal(getStalenessThresholdSeconds(900), STALENESS_MAX_SECONDS);
 });
 
 test("attachProjectionTimeliness respects derived threshold", () => {
@@ -46,8 +42,8 @@ test("attachProjectionTimeliness respects derived threshold", () => {
     }
   };
   const recordedAtMs = Date.parse("2026-04-16T12:00:00.000Z");
-  const evaluatedAtMs = recordedAtMs + 160_000;
+  const evaluatedAtMs = recordedAtMs + 181_000;
   const view = attachProjectionTimeliness(core, recordedAtMs, evaluatedAtMs, 60);
-  assert.equal(view.stalenessThresholdSeconds, 150);
+  assert.equal(view.stalenessThresholdSeconds, 180);
   assert.equal(view.projectionConfidence, "degraded");
 });
