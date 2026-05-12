@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceRoomProjection } from "@crewcue/contracts";
+import { checkpointsWithProjectedDistances } from "@crewcue/map-core";
 import { buildApp } from "../app.js";
+import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { cumulativeDistanceAtCheckpoints } from "../lib/raceProjection.js";
 
 function buildClaims(sub: string) {
@@ -49,6 +51,10 @@ test("returns projection after accepted ping and from GET", async () => {
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -125,6 +131,10 @@ test("GET projection exposes derived staleness threshold from uploadIntervalSeco
           { id: "cp1", latitude: 45.01, longitude: -67.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 45.0, longitude: -67.0 },
+        { latitude: 45.01, longitude: -67.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -199,6 +209,10 @@ test("GET projection becomes degraded after silence beyond threshold", async (t)
           { id: "cp1", latitude: 43.01, longitude: -69.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 43.0, longitude: -69.0 },
+        { latitude: 43.01, longitude: -69.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -238,7 +252,9 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     { id: "cp1", latitude: 42.01, longitude: -70.0 },
     { id: "cp2", latitude: 42.02, longitude: -70.0 }
   ];
-  const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+  const routeMetricPoints = checkpoints.map((c) => ({ latitude: c.latitude, longitude: c.longitude }));
+  const projectedCheckpoints = checkpointsWithProjectedDistances(checkpoints, routeMetricPoints);
+  const cum = cumulativeDistanceAtCheckpoints(projectedCheckpoints);
 
   const raceStartMs = Date.now() - 115_000;
   const raceStartAt = new Date(raceStartMs).toISOString();
@@ -279,6 +295,11 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
           ]
         }
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 },
+        { latitude: 42.02, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 1200,
       raceStartAt
     },
@@ -376,6 +397,10 @@ test("GET projection returns 403 for non-member", async () => {
           { id: "cp1", latitude: 44.01, longitude: -68.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 44.0, longitude: -68.0 },
+        { latitude: 44.01, longitude: -68.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -435,6 +460,10 @@ test("GET projection returns checkpointSplits after course save without any ping
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -486,6 +515,10 @@ test("manual checkpoint stop and resolved source toggle update projection split"
           { id: "cp1", latitude: 40.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 40.0, longitude: -70.0 },
+        { latitude: 40.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -578,6 +611,10 @@ test("athlete cannot mutate checkpoint stoppage timing endpoints", async () => {
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -673,6 +710,10 @@ test("crew member can mutate checkpoint stoppage timing after invite acceptance"
           { id: "cp1", latitude: 50.01, longitude: -60.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 50.0, longitude: -60.0 },
+        { latitude: 50.01, longitude: -60.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -738,6 +779,10 @@ test("resolved source toggle rejects impossible selections", async () => {
           { id: "cp1", latitude: 39.01, longitude: -75.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 39.0, longitude: -75.0 },
+        { latitude: 39.01, longitude: -75.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },

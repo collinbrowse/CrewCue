@@ -1,38 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceCourse } from "@crewcue/contracts";
+import { buildDerivedMetricsFromPolyline, checkpointsWithProjectedDistances } from "@crewcue/map-core";
+import type { CourseMetricPoint } from "@crewcue/map-core";
 import {
   cumulativeDistanceAtCheckpoints,
   polylineCourseLengthAndProgress,
   recomputeRaceProjection
 } from "./raceProjection.js";
 
+function withProjectedCheckpoints(course: RaceCourse): { course: RaceCourse; routeMetricPoints: CourseMetricPoint[] } {
+  if (course.checkpoints.length < 2) {
+    return { course, routeMetricPoints: [] };
+  }
+  const routeMetricPoints = course.checkpoints.map((c) => ({
+    latitude: c.latitude,
+    longitude: c.longitude
+  }));
+  const checkpoints = checkpointsWithProjectedDistances(course.checkpoints, routeMetricPoints);
+  const derivedMetrics = buildDerivedMetricsFromPolyline(routeMetricPoints);
+  return { course: { ...course, checkpoints, derivedMetrics }, routeMetricPoints };
+}
+
 test("polyline progress is near midpoint on straight two-segment course", () => {
-  const course: RaceCourse = {
+  const base: RaceCourse = {
     checkpoints: [
       { id: "a", latitude: 41.0, longitude: -71.0 },
       { id: "b", latitude: 41.002, longitude: -71.0 },
       { id: "c", latitude: 41.004, longitude: -71.0 }
     ]
   };
+  const { course, routeMetricPoints } = withProjectedCheckpoints(base);
   const { courseLengthMeters, progressMeters } = polylineCourseLengthAndProgress(
     course.checkpoints,
     41.001,
     -71.0
   );
   const cum = cumulativeDistanceAtCheckpoints(course.checkpoints);
-  const expectedMid = cum[1] / 2;
+  const expectedMid = cum[1]! / 2;
   assert.ok(Math.abs(progressMeters - expectedMid) < 3, `progress ${progressMeters} vs ${expectedMid}`);
-  assert.ok(Math.abs(courseLengthMeters - cum[cum.length - 1]) < 0.01);
+  assert.ok(Math.abs(courseLengthMeters - cum[cum.length - 1]!) < 0.01);
+  assert.ok(routeMetricPoints.length >= 2);
 });
 
 test("recompute is deterministic for fixed inputs", () => {
-  const course: RaceCourse = {
+  const base: RaceCourse = {
     checkpoints: [
       { id: "a", latitude: 10.0, longitude: 20.0 },
       { id: "b", latitude: 10.01, longitude: 20.0 }
     ]
   };
+  const { course, routeMetricPoints } = withProjectedCheckpoints(base);
   const activatedAt = "2026-04-16T12:00:00.000Z";
   const ping = {
     pingId: "ping-1",
@@ -46,7 +64,8 @@ test("recompute is deterministic for fixed inputs", () => {
     course,
     plannedPaceSecondsPerKm: 600,
     ping,
-    previous: null
+    previous: null,
+    routeMetricPoints
   });
   const second = recomputeRaceProjection({
     roomId: "room-1",
@@ -54,7 +73,8 @@ test("recompute is deterministic for fixed inputs", () => {
     course,
     plannedPaceSecondsPerKm: 600,
     ping,
-    previous: null
+    previous: null,
+    routeMetricPoints
   });
   assert.deepEqual(first.projection, second.projection);
   assert.ok(first.projection.weatherStub);
@@ -63,23 +83,27 @@ test("recompute is deterministic for fixed inputs", () => {
 });
 
 test("baseline track drives planned splits and anchors ETA to the last crossed checkpoint", () => {
-  const checkpoints = [
+  const raw = [
     { id: "a", latitude: 10.0, longitude: 20.0 },
     { id: "b", latitude: 10.01, longitude: 20.0 },
     { id: "c", latitude: 10.02, longitude: 20.0 }
   ];
-  const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+  const routeMetricPoints = raw.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+  const checkpoints = checkpointsWithProjectedDistances(raw, routeMetricPoints);
+  const cum = checkpoints.map((c) => c.distanceMetersFromStart!);
   const course: RaceCourse = {
     checkpoints,
+    derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints),
     baselineTrack: {
       points: [
         { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
         { distanceMetersFromStart: cum[1]!, referenceElapsedSeconds: 300 },
-        { distanceMetersFromStart: cum[2]!, referenceElapsedSeconds: 720 }
+        { distanceMetersFromStart: cum[2]!, referenceElapsedSeconds: 600 }
       ]
     }
   };
-  const flatCourse: RaceCourse = { checkpoints };
+  const flatCourse: RaceCourse = { checkpoints: raw };
+  const { course: flatWithArc, routeMetricPoints: flatRoute } = withProjectedCheckpoints(flatCourse);
   const activatedAt = "2026-04-16T12:00:00.000Z";
   const checkpointPing = {
     pingId: "ping-cp1",
@@ -100,7 +124,8 @@ test("baseline track drives planned splits and anchors ETA to the last crossed c
     course,
     plannedPaceSecondsPerKm: 600,
     ping: checkpointPing,
-    previous: null
+    previous: null,
+    routeMetricPoints
   });
   const baselineMidSegment = recomputeRaceProjection({
     roomId: "room-1",
@@ -108,29 +133,32 @@ test("baseline track drives planned splits and anchors ETA to the last crossed c
     course,
     plannedPaceSecondsPerKm: 600,
     ping: midSegmentPing,
-    previous: baselineCheckpoint.state
+    previous: baselineCheckpoint.state,
+    routeMetricPoints
   });
   const flatCheckpoint = recomputeRaceProjection({
     roomId: "room-1",
     activatedAt,
-    course: flatCourse,
+    course: flatWithArc,
     plannedPaceSecondsPerKm: 600,
     ping: checkpointPing,
-    previous: null
+    previous: null,
+    routeMetricPoints: flatRoute
   });
   const flatMidSegment = recomputeRaceProjection({
     roomId: "room-1",
     activatedAt,
-    course: flatCourse,
+    course: flatWithArc,
     plannedPaceSecondsPerKm: 600,
     ping: midSegmentPing,
-    previous: flatCheckpoint.state
+    previous: flatCheckpoint.state,
+    routeMetricPoints: flatRoute
   });
 
   assert.equal(baselineMidSegment.projection.checkpointSplits[1]?.plannedElapsedSecondsAtCross, 300);
-  assert.equal(baselineMidSegment.projection.checkpointSplits[2]?.plannedElapsedSecondsAtCross, 720);
+  assert.equal(baselineMidSegment.projection.checkpointSplits[2]?.plannedElapsedSecondsAtCross, 600);
   assert.equal(baselineMidSegment.projection.checkpointSplits[1]?.actualElapsedSecondsAtCross, 360);
-  assert.equal(baselineMidSegment.projection.etaFinishPlanIso, "2026-04-16T12:13:00.000Z");
+  assert.equal(baselineMidSegment.projection.etaFinishPlanIso, "2026-04-16T12:11:00.000Z");
   assert.notEqual(flatMidSegment.projection.etaFinishPlanIso, baselineMidSegment.projection.etaFinishPlanIso);
   assert.ok(
     baselineMidSegment.projection.progressMeters > baselineCheckpoint.projection.progressMeters,
@@ -139,11 +167,11 @@ test("baseline track drives planned splits and anchors ETA to the last crossed c
 });
 
 test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
-  const checkpoints = [
+  const raw = [
     { id: "a", latitude: 10.0, longitude: 20.0, plannedStopSeconds: 120, stoppageRadiusMeters: 800 },
     { id: "b", latitude: 10.02, longitude: 20.0 }
   ];
-  const course: RaceCourse = { checkpoints };
+  const { course, routeMetricPoints } = withProjectedCheckpoints({ checkpoints: raw });
   const activatedAt = "2026-04-16T12:00:00.000Z";
   const first = recomputeRaceProjection({
     roomId: "room-stop",
@@ -156,7 +184,8 @@ test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
       longitude: 20.0,
       recordedAt: "2026-04-16T12:01:00.000Z"
     },
-    previous: null
+    previous: null,
+    routeMetricPoints
   });
   const second = recomputeRaceProjection({
     roomId: "room-stop",
@@ -175,7 +204,8 @@ test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
       longitude: 20.0,
       recordedAt: "2026-04-16T12:01:00.000Z"
     },
-    previous: first.state
+    previous: first.state,
+    routeMetricPoints
   });
   const third = recomputeRaceProjection({
     roomId: "room-stop",
@@ -194,7 +224,8 @@ test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
       longitude: 20.0,
       recordedAt: "2026-04-16T12:01:30.000Z"
     },
-    previous: second.state
+    previous: second.state,
+    routeMetricPoints
   });
   const split = third.projection.checkpointSplits[0]!;
   assert.equal(split.plannedStopSeconds, 120);

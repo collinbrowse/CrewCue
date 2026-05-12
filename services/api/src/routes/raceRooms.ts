@@ -31,9 +31,12 @@ import {
   flattenWorkspaceGeometry,
   mergePrimaryCourseRouteLayer,
   normalizeRaceMapWorkspace,
-  workspaceGeometryToBaseline
+  PRIMARY_COURSE_ROUTE_LAYER_ID,
+  workspaceGeometryToBaseline,
+  type CourseMetricPoint
 } from "@crewcue/map-core";
 import {
+  hasUsableBaselineTrack,
   type ProjectionPing,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
@@ -564,6 +567,10 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
     longitude: origin.longitude,
     recordedAt
   };
+  const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
+  if (!routeMetricPoints) {
+    return false;
+  }
   try {
     const { projection: nextProjectionCore, state } = recomputeRaceProjection({
       roomId,
@@ -572,7 +579,9 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
       plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
       ping,
       previousPing: null,
-      previous: null
+      previous: null,
+      routeMetricPoints,
+      canonicalCourseLengthMeters: room.courseDistanceMeters
     });
     roomProjectionState.set(roomId, {
       lastProgressMeters: state.lastProgressMeters,
@@ -1059,6 +1068,11 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
   if (!pingState.lastAccepted) {
     return;
   }
+  const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
+  if (!routeMetricPoints) {
+    roomProjectionState.delete(roomId);
+    return;
+  }
   const prev = roomProjectionState.get(roomId);
   const last = pingState.lastAccepted;
   const ping: ProjectionPing = {
@@ -1083,7 +1097,9 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
     ping,
     previousPing: null,
-    previous
+    previous,
+    routeMetricPoints,
+    canonicalCourseLengthMeters: room.courseDistanceMeters
   });
   const allowed = new Set(room.course.checkpoints.map((c) => c.id));
   const prunedBase = pruneProjectionStateMaps(nextStateRaw, allowed);
@@ -1225,6 +1241,30 @@ function resolveMapWorkspace(room: RaceRoom): RaceMapWorkspace {
   };
 }
 
+/** Full route polyline for projection / course metrics; null if missing or degenerate. */
+function resolveRouteMetricPointsFromRaceRoom(room: RaceRoom): CourseMetricPoint[] | null {
+  const ws = resolveMapWorkspace(room);
+  const id = ws.drivesProjectionLayerId ?? PRIMARY_COURSE_ROUTE_LAYER_ID;
+  const layer = ws.layers.find((l) => l.id === id);
+  if (!layer) {
+    return null;
+  }
+  const pts = courseMetricPointsFromGeometry(layer.geometry);
+  return pts.length >= 2 ? pts : null;
+}
+
+/** Route for PUT /course: prefer new overlay, else existing workspace driving layer. */
+function resolveRouteMetricPointsForCoursePut(
+  room: RaceRoom,
+  routeOverlayLayer: MapWorkspaceLayer | undefined
+): CourseMetricPoint[] | null {
+  if (routeOverlayLayer) {
+    const pts = courseMetricPointsFromGeometry(routeOverlayLayer.geometry);
+    return pts.length >= 2 ? pts : null;
+  }
+  return resolveRouteMetricPointsFromRaceRoom(room);
+}
+
 function courseMetricPointsFromGeometry(geometry: MapWorkspaceLayer["geometry"]): Array<{
   latitude: number;
   longitude: number;
@@ -1240,37 +1280,30 @@ function courseMetricPointsFromGeometry(geometry: MapWorkspaceLayer["geometry"])
   });
 }
 
-function courseMetricPointsFromCheckpoints(course: Pick<RaceCourse, "checkpoints">): Array<{
-  latitude: number;
-  longitude: number;
-  elevationMeters?: number | null;
-}> {
-  return course.checkpoints.map((checkpoint) => ({
-    latitude: checkpoint.latitude,
-    longitude: checkpoint.longitude
-  }));
-}
-
 function recomputeCourseMetricsForSave(input: {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
-  routeOverlayLayer?: MapWorkspaceLayer;
+  routeMetricPoints?: CourseMetricPoint[];
 }): RaceCourse {
-  const routePoints =
-    input.routeOverlayLayer !== undefined
-      ? courseMetricPointsFromGeometry(input.routeOverlayLayer.geometry)
-      : courseMetricPointsFromCheckpoints(input.course);
-  const fallbackPoints = routePoints.length >= 2 ? routePoints : courseMetricPointsFromCheckpoints(input.course);
-  const checkpoints = checkpointsWithProjectedDistances(input.course.checkpoints, fallbackPoints);
+  if (input.course.checkpoints.length < 2) {
+    return { ...input.course };
+  }
+  if (!input.routeMetricPoints || input.routeMetricPoints.length < 2) {
+    throw new Error("route_metric_points_required");
+  }
+  const checkpoints = checkpointsWithProjectedDistances(input.course.checkpoints, input.routeMetricPoints);
+  const derivedMetrics = buildDerivedMetricsFromPolyline(input.routeMetricPoints);
+  const canonicalLen = derivedMetrics.canonicalDistanceMeters;
+  const fromModel = buildPlanBaselineFromModel(input.routeMetricPoints, input.plannedPaceSecondsPerKm);
   const baselineTrack =
-    input.routeOverlayLayer !== undefined
-      ? (buildPlanBaselineFromModel(fallbackPoints, input.plannedPaceSecondsPerKm) ?? input.course.baselineTrack)
-      : (input.course.baselineTrack ?? buildPlanBaselineFromModel(fallbackPoints, input.plannedPaceSecondsPerKm));
+    input.course.baselineTrack && hasUsableBaselineTrack(input.course.baselineTrack, canonicalLen)
+      ? input.course.baselineTrack
+      : fromModel ?? input.course.baselineTrack;
   return {
     ...input.course,
     checkpoints,
     ...(baselineTrack ? { baselineTrack } : {}),
-    derivedMetrics: buildDerivedMetricsFromPolyline(fallbackPoints)
+    derivedMetrics
   };
 }
 
@@ -1291,18 +1324,24 @@ function applyRaceMapWorkspacePut(
     let baselineTrack = room.course?.baselineTrack;
     let derivedMetrics = room.course?.derivedMetrics;
     let checkpoints = normalized.checkpoints;
-    if (input.syncBaselineFromLayer && normalized.drivesProjectionLayerId) {
-      const layer = normalized.layers.find((entry: MapWorkspaceLayer) => entry.id === normalized.drivesProjectionLayerId);
-      if (layer) {
-        const routePoints = courseMetricPointsFromGeometry(layer.geometry);
-        const computed = workspaceGeometryToBaseline(layer.geometry, room.plannedPaceSecondsPerKm);
-        if (computed) {
-          baselineTrack = computed;
-        }
-        checkpoints = checkpointsWithProjectedDistances(normalized.checkpoints, routePoints);
-        derivedMetrics = buildDerivedMetricsFromPolyline(routePoints);
-      }
+    const drivingId = normalized.drivesProjectionLayerId;
+    if (!drivingId) {
+      throw new Error("course_route_driver_layer_required");
     }
+    const layer = normalized.layers.find((entry: MapWorkspaceLayer) => entry.id === drivingId);
+    if (!layer) {
+      throw new Error("course_route_driver_layer_not_found");
+    }
+    const routePoints = courseMetricPointsFromGeometry(layer.geometry);
+    if (routePoints.length < 2) {
+      throw new Error("course_route_geometry_insufficient");
+    }
+    const computed = workspaceGeometryToBaseline(layer.geometry, room.plannedPaceSecondsPerKm);
+    if (computed) {
+      baselineTrack = computed;
+    }
+    checkpoints = checkpointsWithProjectedDistances(normalized.checkpoints, routePoints);
+    derivedMetrics = buildDerivedMetricsFromPolyline(routePoints);
     next = {
       ...next,
       course: {
@@ -1476,19 +1515,38 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const recomputedCourse = recomputeCourseMetricsForSave({
-      course: parsed.data.course,
-      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      routeOverlayLayer: parsed.data.routeOverlayLayer
-    });
+    let recomputedCourse: RaceCourse;
+    if (parsed.data.course.checkpoints.length >= 2) {
+      const routePts = resolveRouteMetricPointsForCoursePut(room, parsed.data.routeOverlayLayer);
+      if (!routePts) {
+        return reply.code(400).send({
+          error:
+            "Upload a GPX, JSON, or KML track with a full route line, or save the map workspace with a projection driving layer on a layer that contains the course polyline. Checkpoint-only courses are not supported."
+        });
+      }
+      try {
+        recomputedCourse = recomputeCourseMetricsForSave({
+          course: parsed.data.course,
+          plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
+          routeMetricPoints: routePts
+        });
+      } catch {
+        return reply.code(400).send({ error: "Course route data is invalid or could not be processed." });
+      }
+    } else {
+      recomputedCourse = recomputeCourseMetricsForSave({
+        course: parsed.data.course,
+        plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm
+      });
+    }
 
     let updatedRoom: RaceRoom = {
       ...room,
       course: recomputedCourse,
       plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters,
-      courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters,
-      courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters,
+      courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters,
+      courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
+      courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
       raceStartAt: parsed.data.raceStartAt,
       activatedAt: parsed.data.raceStartAt
@@ -1572,7 +1630,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid map workspace payload" });
     }
 
-    const updatedRoom = applyRaceMapWorkspacePut(room, parsed.data);
+    let updatedRoom: RaceRoom;
+    try {
+      updatedRoom = applyRaceMapWorkspacePut(room, parsed.data);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "";
+      if (
+        code === "course_route_driver_layer_required" ||
+        code === "course_route_driver_layer_not_found" ||
+        code === "course_route_geometry_insufficient"
+      ) {
+        return reply.code(400).send({
+          error:
+            "With two or more checkpoints, set drivesProjectionLayerId to a layer whose geometry is a full course line (at least two vertices)."
+        });
+      }
+      throw err;
+    }
 
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
@@ -2064,37 +2138,44 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     let projection: RaceRoomProjection | undefined;
     const raceAnchor = resolveRaceAnchorIso(room);
     if (room.course && room.plannedPaceSecondsPerKm !== undefined && raceAnchor) {
-      const prev = roomProjectionState.get(roomId);
-      try {
-        const { projection: nextProjectionCore, state } = recomputeRaceProjection({
-          roomId,
-          activatedAt: raceAnchor,
-          course: room.course,
-          plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
-          ping: {
-            pingId,
-            latitude: body.latitude,
-            longitude: body.longitude,
-            recordedAt: body.recordedAt
-          },
-          previousPing: previousAccepted
-            ? {
-                pingId: previousAccepted.pingId,
-                latitude: previousAccepted.latitude,
-                longitude: previousAccepted.longitude,
-                recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
-              }
-            : null,
-          previous: prev
-            ? {
-                lastProgressMeters: prev.lastProgressMeters,
-                splitCrossedAt: { ...prev.splitCrossedAt },
-                visitStates: structuredClone(prev.visitStates),
-                visitMeta: structuredClone(prev.visitMeta),
-                rollingMovingSpeedMps: prev.rollingMovingSpeedMps
-              }
-            : null
-        });
+      const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
+      if (!routeMetricPoints) {
+        roomProjectionState.delete(roomId);
+        app.log.warn({ roomId }, "projection_skipped_missing_route_layer");
+      } else {
+        const prev = roomProjectionState.get(roomId);
+        try {
+          const { projection: nextProjectionCore, state } = recomputeRaceProjection({
+            roomId,
+            activatedAt: raceAnchor,
+            course: room.course,
+            plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+            ping: {
+              pingId,
+              latitude: body.latitude,
+              longitude: body.longitude,
+              recordedAt: body.recordedAt
+            },
+            previousPing: previousAccepted
+              ? {
+                  pingId: previousAccepted.pingId,
+                  latitude: previousAccepted.latitude,
+                  longitude: previousAccepted.longitude,
+                  recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
+                }
+              : null,
+            previous: prev
+              ? {
+                  lastProgressMeters: prev.lastProgressMeters,
+                  splitCrossedAt: { ...prev.splitCrossedAt },
+                  visitStates: structuredClone(prev.visitStates),
+                  visitMeta: structuredClone(prev.visitMeta),
+                  rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+                }
+              : null,
+            routeMetricPoints,
+            canonicalCourseLengthMeters: room.courseDistanceMeters
+          });
         const evaluatedAtMs = Date.now();
         projection = attachProjectionTimeliness(
           nextProjectionCore,
@@ -2123,6 +2204,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         );
       } catch (err) {
         app.log.warn({ err, roomId }, "projection_recompute_failed");
+      }
       }
     }
 

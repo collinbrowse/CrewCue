@@ -17,12 +17,12 @@ import {
   finishDeviationSeconds,
   formatClockFromElapsed,
   formatCutoffClockOnly,
-  formatCutoffLabel,
+  formatElapsedHoursMinutes,
+  formatSignedHoursMinutesDelta,
   formatSignedMinutesDelta,
   isCheckpointCompletedUi,
   isAutoDwellAtCheckpoint,
   milesFromMeters,
-  milesRemainingToCheckpoint,
   paceRailCheckpointRowModel,
   paceRailFinishRowModel,
   projectedElapsedSecondsAtSplit,
@@ -101,11 +101,18 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   );
 
   const cumMetersAtCp = useMemo(() => {
-    if (!room?.course?.checkpoints?.length) {
+    const cps = room?.course?.checkpoints;
+    if (!cps?.length) {
       return [] as number[];
     }
-    return cumulativeDistancesAlongCheckpoints(room.course.checkpoints);
-  }, [room?.course?.checkpoints]);
+    if (splits.length === cps.length) {
+      return splits.map((row) => row.distanceMetersFromStart);
+    }
+    if (cps.every((c) => typeof c.distanceMetersFromStart === "number" && Number.isFinite(c.distanceMetersFromStart))) {
+      return cps.map((c) => c.distanceMetersFromStart!);
+    }
+    return cumulativeDistancesAlongCheckpoints(cps);
+  }, [room?.course?.checkpoints, splits]);
 
   useFocusEffect(
     useCallback(() => {
@@ -376,9 +383,18 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   }
 
   const progressMeters = projection?.progressMeters ?? 0;
+  const canonicalLenM =
+    typeof room.course?.derivedMetrics?.canonicalDistanceMeters === "number" &&
+    Number.isFinite(room.course.derivedMetrics.canonicalDistanceMeters) &&
+    room.course.derivedMetrics.canonicalDistanceMeters > 0
+      ? room.course.derivedMetrics.canonicalDistanceMeters
+      : typeof room.courseDistanceMeters === "number" && Number.isFinite(room.courseDistanceMeters) && room.courseDistanceMeters > 0
+        ? room.courseDistanceMeters
+        : null;
   const fallbackCourseLengthM = cumMetersAtCp.length > 0 ? cumMetersAtCp[cumMetersAtCp.length - 1]! : 0;
   const effectiveCourseLenM =
-    projection && projection.courseLengthMeters > 0 ? projection.courseLengthMeters : fallbackCourseLengthM;
+    canonicalLenM ??
+    (projection && projection.courseLengthMeters > 0 ? projection.courseLengthMeters : fallbackCourseLengthM);
   const progressRatio =
     effectiveCourseLenM > 0 ? Math.min(1, Math.max(0, progressMeters / effectiveCourseLenM)) : 0;
   const coveredMi = effectiveCourseLenM > 0 ? milesFromMeters(progressMeters) : 0;
@@ -476,11 +492,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               : plannedElapsed;
           const delta = split ? projElapsed - plannedElapsed : 0;
           const deltaColor = deltaColorFor(delta);
-          const cutoffText = formatCutoffLabel(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const clock =
             !Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, projElapsed) : "—";
-          const distTo = milesRemainingToCheckpoint(progressMeters, distMetersAtCp);
           const plannedStopForDwell = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
           const dwellHere = Boolean(split && isAutoDwellAtCheckpoint(split) && isCurrent && !completed);
           const railModel = paceRailCheckpointRowModel(
@@ -494,6 +508,19 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             segmentClockMs,
             completed
           );
+
+          const displayElapsedSeconds =
+            completed && split?.actualElapsedSecondsAtCross != null
+              ? split.actualElapsedSecondsAtCross
+              : projElapsed;
+          const elapsedPrimaryLabel = formatElapsedHoursMinutes(displayElapsedSeconds);
+          const deltaVsPlanShort = formatSignedHoursMinutesDelta(displayElapsedSeconds - plannedElapsed);
+          const etaMs =
+            !Number.isNaN(raceAnchorMs) && Number.isFinite(projElapsed) ? raceAnchorMs + projElapsed * 1000 : NaN;
+          const secondsUntilEta =
+            !Number.isNaN(etaMs) && Number.isFinite(etaMs) ? Math.max(0, (etaMs - segmentClockMs) / 1000) : null;
+          const timeRemainLabel =
+            secondsUntilEta != null && Number.isFinite(secondsUntilEta) ? formatElapsedHoursMinutes(secondsUntilEta) : "—";
 
           return (
             <View key={cp.id} style={paceStyles.timelineRow} onLayout={onRowLayout(cp.id)}>
@@ -577,10 +604,57 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                     </View>
                   </View>
                 ) : inProgressHere ? (
+                  index === 0 ? (
+                    <View style={paceStyles.triWrap}>
+                      <View style={paceStyles.triCol}>
+                        <Text style={paceStyles.microLabel}>Race start</Text>
+                        <Text style={paceStyles.timePrimary}>{formatElapsedHoursMinutes(projElapsed)}</Text>
+                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{deltaVsPlanShort}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={paceStyles.triWrap}>
+                      <View style={paceStyles.triCol}>
+                        <Text style={paceStyles.microLabel}>Est. arrival</Text>
+                        <Text style={paceStyles.timePrimary}>{clock}</Text>
+                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{elapsedPrimaryLabel}</Text>
+                      </View>
+                      <View style={paceStyles.triCol}>
+                        {cutoffClock ? (
+                          <>
+                            <Text style={paceStyles.microLabel}>Cutoff</Text>
+                            <Text style={paceStyles.cutoffRed}>{cutoffClock}</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={paceStyles.microLabel}>Cutoff</Text>
+                            <Text style={paceStyles.timeMuted}>—</Text>
+                          </>
+                        )}
+                      </View>
+                      <View style={paceStyles.triCol}>
+                        <Text style={paceStyles.microLabel}>Time remaining</Text>
+                        <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
+                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: deltaColor }]}>
+                          {deltaVsPlanShort}
+                        </Text>
+                      </View>
+                    </View>
+                  )
+                ) : index === 0 ? (
+                  <View style={paceStyles.triWrap}>
+                    <View style={paceStyles.triCol}>
+                      <Text style={paceStyles.microLabel}>Race start</Text>
+                      <Text style={[paceStyles.timePrimary, completed && paceStyles.mainTimePast]}>{elapsedPrimaryLabel}</Text>
+                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{deltaVsPlanShort}</Text>
+                    </View>
+                  </View>
+                ) : (
                   <View style={paceStyles.triWrap}>
                     <View style={paceStyles.triCol}>
                       <Text style={paceStyles.microLabel}>Est. arrival</Text>
-                      <Text style={paceStyles.timePrimary}>{clock}</Text>
+                      <Text style={[paceStyles.timePrimary, completed && paceStyles.mainTimePast]}>{clock}</Text>
+                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{elapsedPrimaryLabel}</Text>
                     </View>
                     <View style={paceStyles.triCol}>
                       {cutoffClock ? (
@@ -596,17 +670,13 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                       )}
                     </View>
                     <View style={paceStyles.triCol}>
-                      <Text style={paceStyles.microLabel}>Dist. to</Text>
-                      <Text style={paceStyles.timeSecondary}>{distTo}</Text>
+                      <Text style={paceStyles.microLabel}>Time remaining</Text>
+                      <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
+                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: deltaColor }]}>
+                        {deltaVsPlanShort}
+                      </Text>
                     </View>
                   </View>
-                ) : (
-                  <Text style={paceStyles.oneLineOuter} numberOfLines={1} ellipsizeMode="tail">
-                    <Text style={[paceStyles.oneLineClock, completed && paceStyles.mainTimePast]}>{clock}</Text>
-                    <Text style={paceStyles.oneLineTag}> {completed ? "Actual" : "Projected"} </Text>
-                    <Text style={[paceStyles.oneLineDelta, { color: deltaColor }]}>{formatSignedMinutesDelta(delta)}</Text>
-                    {cutoffText ? <Text style={paceStyles.oneLineExtra}> · {cutoffText}</Text> : null}
-                  </Text>
                 )}
               </View>
             </View>

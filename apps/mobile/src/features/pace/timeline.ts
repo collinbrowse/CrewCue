@@ -167,6 +167,42 @@ export function formatSignedMinutesDelta(deltaSeconds: number): string {
   return "0m";
 }
 
+/** Elapsed from race start, e.g. "9h 23m" or "45m" (no trailing suffix). */
+export function formatElapsedHoursMinutes(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {
+    return "—";
+  }
+  const sec = Math.floor(totalSeconds);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) {
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  if (m > 0 || sec === 0) {
+    return `${m}m`;
+  }
+  const s = sec % 60;
+  return `${s}s`;
+}
+
+/** Signed delta vs plan using hours/minutes when large, e.g. "+2h 5m", "-45m". */
+export function formatSignedHoursMinutesDelta(deltaSeconds: number): string {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) {
+    return "0m";
+  }
+  const sign = deltaSeconds > 0 ? "+" : "-";
+  const abs = Math.abs(Math.round(deltaSeconds));
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  if (h > 0 && m > 0) {
+    return `${sign}${h}h ${m}m`;
+  }
+  if (h > 0) {
+    return `${sign}${h}h`;
+  }
+  return `${sign}${m}m`;
+}
+
 export function deltaTone(deltaSeconds: number): "ahead" | "behind" | "neutral" {
   if (deltaSeconds > 30) {
     return "ahead";
