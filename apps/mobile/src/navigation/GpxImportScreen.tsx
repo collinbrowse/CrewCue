@@ -6,7 +6,6 @@ import * as FileSystemLegacy from "expo-file-system/legacy";
 import * as Localization from "expo-localization";
 import type { RaceCourse } from "@crewcue/contracts";
 import { ApiError, createApiClient } from "../api/client";
-import { canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { RaceStartSchedulePicker } from "../features/raceStart/RaceStartSchedulePicker";
 import { defaultSuggestedRaceStartIso, normalizeRaceStartIso } from "../features/raceStart/raceStartSchedule";
@@ -155,10 +154,6 @@ export function GpxImportScreen(): ReactElement {
 
   const normalizedRaceStart = useMemo(() => normalizeRaceStartIso(raceStartIso), [raceStartIso]);
 
-  const canEditRaceStart =
-    isCreateMode ||
-    ((s.roomDetail?.permissions?.canEditRaceSetup ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) === true);
-
   const canFinishSetup =
     raceName.trim().length > 0 &&
     creatorName.trim().length > 0 &&
@@ -266,7 +261,6 @@ export function GpxImportScreen(): ReactElement {
         !isCreateMode &&
         room.course &&
         room.course.checkpoints.length >= 2 &&
-        canEditRaceStart &&
         s.auth.accessToken
       ) {
         const prev = normalizeRaceStartIso(room.raceStartAt ?? room.activatedAt ?? "");
@@ -363,16 +357,7 @@ export function GpxImportScreen(): ReactElement {
             Required with a new course file so Pace and projections use the correct start.
           </Text>
         ) : null}
-        <RaceStartSchedulePicker
-          valueIso={raceStartIso}
-          onChange={setRaceStartIso}
-          disabled={!canEditRaceStart}
-        />
-        {!canEditRaceStart && s.room ? (
-          <Text style={[s.styles.body, { color: theme.color.muted }]}>
-            Only the athlete, crew chief, or team manager can change the race start.
-          </Text>
-        ) : null}
+        <RaceStartSchedulePicker valueIso={raceStartIso} onChange={setRaceStartIso} />
 
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Upload route file (optional)</Text>
         <Text style={s.styles.body}>
