@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
+import * as Localization from "expo-localization";
 import type { RaceCourse } from "@crewcue/contracts";
 import { ApiError, createApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
+import { RaceStartSchedulePicker } from "../features/raceStart/RaceStartSchedulePicker";
+import { defaultSuggestedRaceStartIso, normalizeRaceStartIso } from "../features/raceStart/raceStartSchedule";
 import {
   buildRaceCourseFromGpx,
   computeElevationGainMeters,
@@ -54,9 +57,19 @@ export function GpxImportScreen(): ReactElement {
   const [crewName, setCrewName] = useState("");
   const [finishingSetup, setFinishingSetup] = useState(false);
   const [pendingCourseUpload, setPendingCourseUpload] = useState<PendingCourseUpload | undefined>(undefined);
-  const [raceStartAt, setRaceStartAt] = useState("");
+  const [raceStartIso, setRaceStartIso] = useState(() =>
+    defaultSuggestedRaceStartIso(Localization.getCalendars()[0]?.timeZone ?? "UTC")
+  );
 
   const activeUnit: DistanceUnit = "mi";
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isCreateMode && s.room?.id && s.auth.accessToken) {
+        void s.onFetchRoomDetails(s.room.id);
+      }
+    }, [isCreateMode, s.room?.id, s.auth.accessToken, s.onFetchRoomDetails])
+  );
   useEffect(() => {
     if (isCreateMode) {
       setRaceName("");
@@ -65,6 +78,7 @@ export function GpxImportScreen(): ReactElement {
       setCrewName("");
       setPendingCourseUpload(undefined);
       setImportState({ status: "idle" });
+      setRaceStartIso(defaultSuggestedRaceStartIso(Localization.getCalendars()[0]?.timeZone ?? "UTC"));
       return;
     }
     if (s.room) {
@@ -81,6 +95,17 @@ export function GpxImportScreen(): ReactElement {
       setCrewName(s.raceProfile.crewName);
     }
   }, [isCreateMode, s.raceProfile, s.room?.id, s.room?.name, s.room?.creatorName, s.room?.description, s.room?.crewName]);
+
+  useEffect(() => {
+    if (isCreateMode) {
+      return;
+    }
+    const anchor = s.room?.raceStartAt ?? s.room?.activatedAt;
+    const normalized = anchor?.trim() ? normalizeRaceStartIso(anchor) : null;
+    if (normalized) {
+      setRaceStartIso(normalized);
+    }
+  }, [isCreateMode, s.room?.id, s.room?.raceStartAt, s.room?.activatedAt]);
 
   useEffect(() => {
     if (isCreateMode) {
@@ -126,15 +151,14 @@ export function GpxImportScreen(): ReactElement {
     }
     return undefined;
   }, [importState]);
-  const raceStartMs = useMemo(() => {
-    const t = Date.parse(raceStartAt.trim());
-    return Number.isNaN(t) ? null : t;
-  }, [raceStartAt]);
+
+  const normalizedRaceStart = useMemo(() => normalizeRaceStartIso(raceStartIso), [raceStartIso]);
+
   const canFinishSetup =
     raceName.trim().length > 0 &&
     creatorName.trim().length > 0 &&
     !finishingSetup &&
-    (!pendingCourseUpload || raceStartMs != null);
+    normalizedRaceStart !== null;
 
   const onImportGpx = async (): Promise<void> => {
     setImportState({ status: "loading" });
@@ -169,7 +193,6 @@ export function GpxImportScreen(): ReactElement {
         elevationGainMeters: computeElevationGainMeters(parsed.points),
         routeOverlayLayer: parsedTrackToWorkspaceLayer(selectedFile.name, parsed)
       });
-      setRaceStartAt((prev) => (prev.trim().length > 0 ? prev : new Date().toISOString()));
       setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
     } catch (error) {
       setPendingCourseUpload(undefined);
@@ -184,6 +207,11 @@ export function GpxImportScreen(): ReactElement {
   const onFinishSetup = async (): Promise<void> => {
     if (!raceName.trim() || !creatorName.trim()) {
       setImportState({ status: "error", message: "Race name and your name are required to finish setup." });
+      return;
+    }
+
+    if (!normalizedRaceStart) {
+      setImportState({ status: "error", message: "Choose a valid race start date and time before saving." });
       return;
     }
 
@@ -213,10 +241,6 @@ export function GpxImportScreen(): ReactElement {
       });
 
       if (pendingCourseUpload) {
-        if (raceStartMs == null) {
-          setImportState({ status: "error", message: "Enter a valid race start time (ISO 8601) before saving the course." });
-          return;
-        }
         if (!s.auth.accessToken) {
           setImportState({ status: "error", message: "Sign in again before finishing route upload." });
           return;
@@ -225,7 +249,7 @@ export function GpxImportScreen(): ReactElement {
         const updatedRoom = await client.updateRaceCourse(room.id, {
           course: pendingCourseUpload.course,
           plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
-          raceStartAt: new Date(raceStartMs).toISOString(),
+          raceStartAt: normalizedRaceStart,
           courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
           courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
           courseFileName: pendingCourseUpload.fileName,
@@ -233,6 +257,36 @@ export function GpxImportScreen(): ReactElement {
         });
         s.onApplyRaceRoomFromServer(updatedRoom);
         setPendingCourseUpload(undefined);
+      } else if (
+        !isCreateMode &&
+        room.course &&
+        room.course.checkpoints.length >= 2 &&
+        s.auth.accessToken
+      ) {
+        const prev = normalizeRaceStartIso(room.raceStartAt ?? room.activatedAt ?? "");
+        if (prev !== normalizedRaceStart) {
+          const pace = room.plannedPaceSecondsPerKm;
+          if (typeof pace !== "number" || !Number.isFinite(pace) || pace <= 0) {
+            setImportState({
+              status: "error",
+              message: "This race is missing planned pace. Re-upload the course file once, then set the race start."
+            });
+            return;
+          }
+          const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
+          const updatedRoom = await client.updateRaceCourse(room.id, {
+            course: {
+              checkpoints: room.course.checkpoints,
+              baselineTrack: room.course.baselineTrack
+            },
+            plannedPaceSecondsPerKm: pace,
+            raceStartAt: normalizedRaceStart,
+            courseDistanceMeters: room.courseDistanceMeters,
+            courseElevationGainMeters: room.courseElevationGainMeters,
+            courseFileName: room.courseFileName
+          });
+          s.onApplyRaceRoomFromServer(updatedRoom);
+        }
       }
 
       await s.onFetchRoomDetails(room.id);
@@ -297,6 +351,14 @@ export function GpxImportScreen(): ReactElement {
           autoCapitalize="words"
         />
 
+        <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Race start (official clock)</Text>
+        {pendingCourseUpload ? (
+          <Text style={[s.styles.body, { marginBottom: 4 }]}>
+            Required with a new course file so Pace and projections use the correct start.
+          </Text>
+        ) : null}
+        <RaceStartSchedulePicker valueIso={raceStartIso} onChange={setRaceStartIso} />
+
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Upload route file (optional)</Text>
         <Text style={s.styles.body}>
           Uploading GPX, KML, or JSON generates shared course distance, aid-station split timing, and pacing metadata for your crew.
@@ -335,24 +397,6 @@ export function GpxImportScreen(): ReactElement {
               {uploadFeedback.message}
             </Text>
           </DSCard>
-        ) : null}
-
-        {pendingCourseUpload ? (
-          <>
-            <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>
-              Race start time (required for course upload)
-            </Text>
-            <Text style={s.styles.body}>
-              ISO 8601 UTC, e.g. 2026-05-12T14:00:00.000Z. This anchors projection and Pace on the official start.
-            </Text>
-            <DSTextInput
-              value={raceStartAt}
-              onChangeText={setRaceStartAt}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="2026-05-12T14:00:00.000Z"
-            />
-          </>
         ) : null}
 
         <View style={{ marginTop: 14 }}>

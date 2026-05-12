@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
+import * as Localization from "expo-localization";
 import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DSButton, DSTextInput, useDSTheme } from "../design-system";
@@ -22,6 +23,8 @@ import {
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
 import { createApiClient } from "../api/client";
+import { RaceStartSchedulePicker } from "../features/raceStart/RaceStartSchedulePicker";
+import { defaultSuggestedRaceStartIso, normalizeRaceStartIso } from "../features/raceStart/raceStartSchedule";
 import { ONBOARDING_INTENT_KEY } from "./onboardingState";
 
 export function AthleteSetupWizardScreen(): ReactElement {
@@ -36,7 +39,9 @@ export function AthleteSetupWizardScreen(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [pickingFile, setPickingFile] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [raceStartAt, setRaceStartAt] = useState("");
+  const [raceStartIso, setRaceStartIso] = useState(() =>
+    defaultSuggestedRaceStartIso(Localization.getCalendars()[0]?.timeZone ?? "UTC")
+  );
 
   const onPick = async () => {
     setPickingFile(true);
@@ -51,7 +56,6 @@ export function AthleteSetupWizardScreen(): ReactElement {
       const parsedTrack = parseCourseTrack(raw, selected.name);
       setParsed(parsedTrack);
       setFileName(selected.name);
-      setRaceStartAt((prev) => (prev.trim().length > 0 ? prev : new Date().toISOString()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that file.");
     } finally {
@@ -77,9 +81,9 @@ export function AthleteSetupWizardScreen(): ReactElement {
         setupComplete: true
       });
     if (parsed && fileName) {
-      const startMs = Date.parse(raceStartAt.trim());
-      if (Number.isNaN(startMs)) {
-        setError("Enter a valid race start time (ISO 8601) before finishing with a GPX course.");
+      const normalized = normalizeRaceStartIso(raceStartIso);
+      if (!normalized) {
+        setError("Choose a valid race start date and time before finishing with a GPX course.");
         return;
       }
       const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
@@ -87,7 +91,7 @@ export function AthleteSetupWizardScreen(): ReactElement {
       const updatedRoom = await client.updateRaceCourse(room.id, {
         course,
         plannedPaceSecondsPerKm,
-        raceStartAt: new Date(startMs).toISOString(),
+        raceStartAt: normalized,
         courseDistanceMeters: parsed.totalDistanceMeters,
           courseElevationGainMeters: computeElevationGainMeters(parsed.points),
           courseFileName: fileName,
@@ -108,7 +112,7 @@ export function AthleteSetupWizardScreen(): ReactElement {
 
   const canAdvanceFromPage0 = name.trim().length > 0;
   const canAdvanceFromPage1 = raceName.trim().length > 0;
-  const raceStartOk = !parsed || !Number.isNaN(Date.parse(raceStartAt.trim()));
+  const raceStartOk = !parsed || normalizeRaceStartIso(raceStartIso) !== null;
   const canFinish = name.trim().length > 0 && raceName.trim().length > 0 && raceStartOk;
 
   const primaryNavDisabled =
@@ -162,16 +166,8 @@ export function AthleteSetupWizardScreen(): ReactElement {
           <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 3: Splits preview</Text>
           {parsed ? (
             <>
-              <Text style={[styles.body, { color: theme.color.authBody }]}>
-                Race start (ISO 8601, required with GPX)
-              </Text>
-              <DSTextInput
-                value={raceStartAt}
-                onChangeText={setRaceStartAt}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="2026-05-12T14:00:00.000Z"
-              />
+              <Text style={[styles.body, { color: theme.color.authBody }]}>Race start (required with GPX)</Text>
+              <RaceStartSchedulePicker valueIso={raceStartIso} onChange={setRaceStartIso} />
             </>
           ) : null}
           {splits.length ? (

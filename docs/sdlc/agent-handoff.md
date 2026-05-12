@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-12): Race setup — native race start + time zone (**open** PR [#254](https://github.com/collinbrowse/CrewCue/pull/254), **Closes** [#253](https://github.com/collinbrowse/CrewCue/issues/253))
+
+- **Mobile:** `GpxImportScreen` always shows **Race start** with OS date/time pickers (`@react-native-community/datetimepicker`, `timeZoneName`) and searchable **IANA** list; `luxon` + `normalizeRaceStartIso` for API; **Finish race setup** PATCHes `raceStartAt` when course exists and start changed; **Course settings** removes ISO field (links to Race setup); **Athlete setup** wizard uses same picker; **expo-localization** + config plugins in `apps/mobile/app.json`; **`@types/luxon`** dev dep.
+- **Validation:** `npm run verify` green on branch `feature/race-start-native-picker-253`.
+
 ## Recent (2026-05-12): Unified course metrics + projection alignment (**merged** PR [#249](https://github.com/collinbrowse/CrewCue/pull/249) → `main`, merge `9e0d028`)
 
 - **On `main`:** Contracts/map-core/API course pipeline (geodesic-derived metrics, pace-aware baselines, `PUT .../course` recompute + room distance/gain/loss); clients consume server-derived metrics; aligns with **#248** race start / projection bootstrap work.
@@ -20,7 +25,7 @@ Use this as the minimal continuity file between sessions.
 ## Recent (2026-05-12): Race start anchor, projection bootstrap, map sheet (**merged** PR [#248](https://github.com/collinbrowse/CrewCue/pull/248), **Closes** [#247](https://github.com/collinbrowse/CrewCue/issues/247))
 
 - **API (on `main`):** New rooms default **active**; removed **`POST /race-rooms/:id/activate`**; **`PUT .../course`** requires **`raceStartAt`** when saving a course; permissions key **`canEditRaceSetup`**; bootstrap projection on eligible **GET /projection** / after course save; pings use **`raceStartAt ?? activatedAt`** anchor; **`setRaceRoomStatusForTests`** allowed under **postgres** for integration tests.
-- **Clients:** Mobile + web `updateRaceCourse` require **`raceStartAt`**; GPX import + athlete setup collect ISO start; Pace **Course settings** can edit/save race start; projection background poll without `room.status === "active"` gate; quiet **404** clears projection; Pace tab uses **`raceStartAt ?? activatedAt`**; map sheet peek shows **next aid + stats** first, checklist when expanded.
+- **Clients:** Mobile + web `updateRaceCourse` require **`raceStartAt`**; GPX import + athlete setup collect start time; Pace **Race setup** (`GpxImportScreen`) edits start with native pickers + time zone; projection background poll without `room.status === "active"` gate; quiet **404** clears projection; Pace tab uses **`raceStartAt ?? activatedAt`**; map sheet peek shows **next aid + stats** first, checklist when expanded.
 - **Docs:** `docs/api/ws2-task2-projection.md` describes bootstrap + `raceStartAt` (no activate).
 
 ## Recent fix (2026-05-11): Pace Edit + timeline rail (**merged** PR [#246](https://github.com/collinbrowse/CrewCue/pull/246), **Closes** [#245](https://github.com/collinbrowse/CrewCue/issues/245))
@@ -32,10 +37,11 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-12 (America/Chicago)
+- **Open PR:** [#254](https://github.com/collinbrowse/CrewCue/pull/254) — native race start UX (**Closes [#253](https://github.com/collinbrowse/CrewCue/issues/253)**).
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, and **#249** (race start + projection bootstrap + map sheet + unified server course metrics / readouts).
-- **Active branch:** **`main`** for new work; branch from **`git pull origin main`** after `9e0d028`.
+- **Active branch:** **`feature/race-start-native-picker-253`** until PR **#253** merges; then **`main`** for new work.
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
@@ -126,7 +132,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. On current `main` (post-#246): `npm run verify` after pull; optional Pace smoke (Edit as crew_member, rail progress, at-station card on dwell).
+1. Merge **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** when CI green; **rebuild iOS/Android dev clients** after native modules (`datetimepicker`, `expo-localization`).
 2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
 3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
 
