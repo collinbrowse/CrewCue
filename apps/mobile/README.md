@@ -41,3 +41,16 @@ The Expo config plugin **`withNativeDevBuildSpeed.js`** runs during **`expo preb
 If you run **`expo prebuild`** on your machine and then ship a **Play Store** or **production** Android binary **outside EAS**, you must **not** leave a single ABI in `gradle.properties`. Restore the default list (typically `armeabi-v7a,arm64-v8a,x86,x86_64`) or match what your release process requires. See [Speeding up your Build phase (React Native)](https://reactnative.dev/docs/build-speed).
 
 **Intel Mac + x86 Android emulator:** change the pinned value to **`x86_64`** in `plugins/withNativeDevBuildSpeed.js` (`DEV_ONLY_ANDROID_ABI`) or override from the CLI when running Gradle: `./gradlew :app:assembleDebug -PreactNativeArchitectures=x86_64`.
+
+## Android dev client: `App react context shouldn't be created before`
+
+If the app crashes on launch with `java.lang.IllegalArgumentException: App react context shouldn't be created before` (stack includes `DevLauncherAppLoader.kt`), the **Expo dev launcher** is starting `MainActivity` while the process’s shared **`ReactHost` already has a `ReactContext`** (leftover from a previous load, a Metro-driven relaunch, or opening the app before Metro is ready). This is a **known class of dev-client timing issues**, not the single-ABI Gradle setting.
+
+Try, in order:
+
+1. **Wait for Metro** to finish bundling, then open the app from the emulator (or press `a` once). Avoid hammering `r` / `a` while the app is still starting ([related discussion](https://github.com/expo/expo/issues/35385)).
+2. **Force stop** the app: Android Settings → Apps → CrewCue → **Force stop**, or `adb shell am force-stop com.crewcue.mobile`, then launch again.
+3. **Cold boot** the emulator (AVD dropdown → **Cold Boot Now**) or uninstall the dev client and reinstall (`npx expo run:android`).
+4. **Regenerate native projects** so `android/gradle.properties` matches `app.json` (for example `newArchEnabled`): from `apps/mobile`, run `rm -rf android ios` then `npx expo prebuild` and rebuild the dev client.
+
+If it keeps happening after a clean prebuild and reinstall, capture **logcat** from a single cold start and open an Expo issue with SDK and `expo-dev-client` versions.
