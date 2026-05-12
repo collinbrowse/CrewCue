@@ -12,13 +12,13 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## In flight (2026-05-12): Canonical course length + route-based projection (**#257**, branch `feature/canonical-pace-projection-257`)
+## In flight (2026-05-12): Canonical course length + route-based projection (**#257**, PR [#258](https://github.com/collinbrowse/CrewCue/pull/258), branch `feature/canonical-pace-projection-257`)
 
 - **API:** `recomputeRaceProjection` requires `routeMetricPoints` (≥ 2); canonical length via `resolveCanonicalCourseLengthMeters`; checkpoint rows require `distanceMetersFromStart` (no chord fallback). `raceRooms` resolves route from workspace overlay / driving layer; course save + map-workspace validate route when ≥ 2 checkpoints; ping/bootstrap paths pass route + canonical length.
 - **Mobile:** Pace readouts tri-column UI (race start row, est. arrival / cutoff / time remaining with `formatElapsedHoursMinutes` + `formatSignedHoursMinutesDelta`); `TrackMapDashboardScreen` uses same canonical length preference chain for remaining distance + vertical summary. `timeline.test.ts` covers new formatters.
 - **Docs:** `docs/api/ws2-task2-projection.md` notes mandatory route geometry + canonical `courseLengthMeters`.
 - **Validation:** `npm run verify` green on branch before PR.
-- **Next:** Open PR to `main` with **Closes #257**; fill PR template decision guard; optional web client parity if any projection/course-length display still assumes chord-only course.
+- **Next:** Monitor CI on **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)**; merge to `main` when green. Optional: web client parity if any projection length UI still assumes chords-only.
 
 ## Recent (2026-05-12): Race setup — native race start + time zone (**merged** PR [#254](https://github.com/collinbrowse/CrewCue/pull/254) → `main`, merge `5b1a791`, **Closes** [#253](https://github.com/collinbrowse/CrewCue/issues/253))
 
