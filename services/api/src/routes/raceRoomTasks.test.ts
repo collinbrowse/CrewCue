@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { deleteTaskBoardSnapshot } from "../lib/roomPersistence.js";
 import { clearTaskBoardLocalState } from "./raceRooms.js";
 
@@ -56,6 +57,10 @@ test("returns role-scoped task board for authorized crew members", async () => {
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -218,6 +223,10 @@ test("task board snapshot path matches canonical replay path", async () => {
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },

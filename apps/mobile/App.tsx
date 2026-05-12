@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import {
   AppState,
+  InteractionManager,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -62,6 +63,7 @@ import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
 import { RaceChatPrefetcher } from "./src/navigation/RaceChatPrefetcher";
+import { runNativeDependencyPrewarm } from "./src/chat/nativeDependencyPrewarm";
 import * as SecureStore from "./src/storage/secureStorage";
 import {
   ONBOARDING_INTENT_KEY,
@@ -94,6 +96,16 @@ function describeOutboxStatus(status: OutboxOperation["status"]): string {
 
 export default function App(): ReactElement {
   const configResult = useMemo(() => loadMobileConfig(), []);
+
+  useEffect(() => {
+    if (!configResult.ok) {
+      return;
+    }
+    const task = InteractionManager.runAfterInteractions(() => {
+      runNativeDependencyPrewarm();
+    });
+    return () => task.cancel();
+  }, [configResult.ok]);
 
   if (!configResult.ok) {
     return (

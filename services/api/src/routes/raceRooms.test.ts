@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
   return {
@@ -207,14 +208,12 @@ test("updates room course for shared GPX usage", async () => {
         checkpoints: [
           { id: "aid-1", latitude: 40.7128, longitude: -74.006, plannedStopSeconds: 120 },
           { id: "aid-2", latitude: 40.7228, longitude: -73.996, plannedStopSeconds: 120 }
-        ],
-        baselineTrack: {
-          points: [
-            { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
-            { distanceMetersFromStart: 1500, referenceElapsedSeconds: 540 }
-          ]
-        }
+        ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 40.7128, longitude: -74.006 },
+        { latitude: 40.7228, longitude: -73.996 }
+      ]),
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: {
@@ -703,6 +702,10 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ]),
       plannedPaceSecondsPerKm: 600,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -745,6 +748,10 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp-new", latitude: 41.02, longitude: -71.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.01, longitude: -71.0 },
+        { latitude: 41.02, longitude: -71.0 }
+      ]),
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
@@ -762,6 +769,10 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ]),
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }

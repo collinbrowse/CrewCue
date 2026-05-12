@@ -34,6 +34,8 @@ export type DSThemeTokens = {
     border: string;
     muted: string;
     body: string;
+    /** True green for ahead / on-pace time deltas (not brand `success`, which follows primary/lime). */
+    paceDeltaAhead: string;
     success: string;
     warning: string;
     danger: string;
@@ -96,6 +98,7 @@ function toMobileTokens(definition: DesignSystemDefinition, mode: DesignSystemMo
       border: c.outlineVariant,
       muted: c.onSurfaceVariant,
       body: c.onSurfaceVariant,
+      paceDeltaAhead: mode === "light" ? "#15803d" : "#4ade80",
       success: successForeground,
       warning: c.secondaryContainer,
       danger: c.error,

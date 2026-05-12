@@ -12,8 +12,8 @@ import type {
 } from "@crewcue/contracts";
 import {
   type CourseMetricPoint,
-  geodesicCumulativeAtVertices,
   geodesicDistanceMeters,
+  geodesicPolylineLength,
   geodesicProjectPointToPolyline
 } from "@crewcue/map-core";
 
@@ -48,22 +48,25 @@ function checkpointsAsMetricPoints(checkpoints: RaceCourseCheckpoint[]): CourseM
   return checkpoints.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
 }
 
-/** Cumulative distance at each checkpoint along the geodesic polyline (matches progress math). */
+/**
+ * Cumulative arc length at each checkpoint along the canonical route (from `distanceMetersFromStart`
+ * on each checkpoint, computed at course save). Chord-only fallback is not supported.
+ */
 export function cumulativeDistanceAtCheckpoints(checkpoints: RaceCourseCheckpoint[]): number[] {
   if (checkpoints.length === 0) {
     return [];
   }
   if (
-    checkpoints.every(
+    !checkpoints.every(
       (c) => typeof c.distanceMetersFromStart === "number" && Number.isFinite(c.distanceMetersFromStart)
     )
   ) {
-    return checkpoints.map((c) => c.distanceMetersFromStart!);
+    throw new Error("checkpoint_distance_meters_from_start_required");
   }
-  return geodesicCumulativeAtVertices(checkpointsAsMetricPoints(checkpoints));
+  return checkpoints.map((c) => c.distanceMetersFromStart!);
 }
 
-function hasUsableBaselineTrack(
+export function hasUsableBaselineTrack(
   baselineTrack: RaceCourseBaselineTrack | undefined,
   courseLengthMeters: number
 ): baselineTrack is RaceCourseBaselineTrack {
@@ -222,6 +225,29 @@ export function buildProjectionWeatherStub(input: {
   };
 }
 
+function resolveCanonicalCourseLengthMeters(input: {
+  course: RaceCourse;
+  routeMetricPoints: CourseMetricPoint[];
+  canonicalCourseLengthMeters?: number;
+}): number {
+  const routeLen = geodesicPolylineLength(input.routeMetricPoints);
+  const derived = input.course.derivedMetrics?.canonicalDistanceMeters;
+  const fromRoom =
+    typeof input.canonicalCourseLengthMeters === "number" &&
+    Number.isFinite(input.canonicalCourseLengthMeters) &&
+    input.canonicalCourseLengthMeters > 0
+      ? input.canonicalCourseLengthMeters
+      : undefined;
+  const canonical =
+    typeof derived === "number" && Number.isFinite(derived) && derived > 0
+      ? derived
+      : fromRoom ?? routeLen;
+  if (!Number.isFinite(canonical) || canonical <= 0) {
+    throw new Error("canonical_course_length_unresolved");
+  }
+  return canonical;
+}
+
 export function recomputeRaceProjection(params: {
   roomId: string;
   activatedAt: string;
@@ -230,18 +256,43 @@ export function recomputeRaceProjection(params: {
   ping: ProjectionPing;
   previousPing?: ProjectionPing | null;
   previous: ProjectionPreviousState | null;
+  /** Dense route polyline (GPX / workspace); required for along-track progress. */
+  routeMetricPoints: CourseMetricPoint[];
+  /** Denormalized room distance when `derivedMetrics` is absent (tests / transitional payloads). */
+  canonicalCourseLengthMeters?: number;
 }): { projection: RaceRoomProjectionCore; state: ProjectionPreviousState } {
-  const { roomId, activatedAt, course, plannedPaceSecondsPerKm, ping, previous, previousPing } = params;
+  const {
+    roomId,
+    activatedAt,
+    course,
+    plannedPaceSecondsPerKm,
+    ping,
+    previous,
+    previousPing,
+    routeMetricPoints,
+    canonicalCourseLengthMeters
+  } = params;
   const activatedAtMs = Date.parse(activatedAt);
   const recordedAtMs = Date.parse(ping.recordedAt);
   if (Number.isNaN(activatedAtMs) || Number.isNaN(recordedAtMs)) {
     throw new Error("Invalid ISO timestamps for projection");
   }
+  if (!Array.isArray(routeMetricPoints) || routeMetricPoints.length < 2) {
+    throw new Error("route_metric_points_required");
+  }
 
-  const { courseLengthMeters, progressMeters } = polylineCourseLengthAndProgress(
-    course.checkpoints,
-    ping.latitude,
-    ping.longitude
+  const courseLengthMeters = resolveCanonicalCourseLengthMeters({
+    course,
+    routeMetricPoints,
+    canonicalCourseLengthMeters
+  });
+  const alongRoute = geodesicProjectPointToPolyline(routeMetricPoints, {
+    latitude: ping.latitude,
+    longitude: ping.longitude
+  });
+  const progressMeters = Math.min(
+    courseLengthMeters,
+    Math.max(0, Math.min(alongRoute.progressMeters, alongRoute.courseLengthMeters))
   );
 
   const cumAt = cumulativeDistanceAtCheckpoints(course.checkpoints);

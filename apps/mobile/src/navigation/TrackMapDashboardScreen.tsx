@@ -626,12 +626,48 @@ export function TrackMapDashboardScreen(): ReactElement {
     return checkpointLabel(room, nextSplit.checkpointId);
   }, [nextSplit, room]);
 
+  /** Prefer server-derived canonical length, then room course distance, then projection / last split cumulative. */
+  const effectiveCourseLengthMeters = useMemo(() => {
+    const canonical =
+      room?.course &&
+      typeof room.course.derivedMetrics?.canonicalDistanceMeters === "number" &&
+      Number.isFinite(room.course.derivedMetrics.canonicalDistanceMeters) &&
+      room.course.derivedMetrics.canonicalDistanceMeters > 0
+        ? room.course.derivedMetrics.canonicalDistanceMeters
+        : null;
+    if (canonical != null) {
+      return canonical;
+    }
+    const roomStored =
+      typeof room?.courseDistanceMeters === "number" &&
+      Number.isFinite(room.courseDistanceMeters) &&
+      room.courseDistanceMeters > 0
+        ? room.courseDistanceMeters
+        : null;
+    if (roomStored != null) {
+      return roomStored;
+    }
+    if (projection && projection.courseLengthMeters > 0) {
+      return projection.courseLengthMeters;
+    }
+    const splits = projection?.checkpointSplits ?? [];
+    const last = splits[splits.length - 1];
+    if (last && typeof last.distanceMetersFromStart === "number" && last.distanceMetersFromStart > 0) {
+      return last.distanceMetersFromStart;
+    }
+    return null;
+  }, [room?.course, room?.courseDistanceMeters, projection]);
+
   const remainingDistM = useMemo(() => {
     if (!projection) {
       return null;
     }
-    return Math.max(0, projection.courseLengthMeters - projection.progressMeters);
-  }, [projection]);
+    const len = effectiveCourseLengthMeters ?? (projection.courseLengthMeters > 0 ? projection.courseLengthMeters : null);
+    if (len == null || len <= 0) {
+      return null;
+    }
+    return Math.max(0, len - projection.progressMeters);
+  }, [projection, effectiveCourseLengthMeters]);
 
   const remainingMi = remainingDistM !== null ? remainingDistM / 1609.344 : null;
 
@@ -644,11 +680,16 @@ export function TrackMapDashboardScreen(): ReactElement {
       return null;
     }
     const sampleEnd = samples[samples.length - 1]!.distanceMetersFromStart;
-    const courseLen = projection.courseLengthMeters > 0 ? projection.courseLengthMeters : sampleEnd;
+    const courseLen =
+      effectiveCourseLengthMeters != null && effectiveCourseLengthMeters > 0
+        ? effectiveCourseLengthMeters
+        : projection.courseLengthMeters > 0
+          ? projection.courseLengthMeters
+          : sampleEnd;
     const ratio = courseLen > 0 ? sampleEnd / courseLen : 1;
     const dAlong = projection.progressMeters * ratio;
     return remainingGainAndLossMetersAfter(samples, dAlong);
-  }, [projection, room, workspace]);
+  }, [projection, room, workspace, effectiveCourseLengthMeters]);
 
   const vertDisplay = useMemo(() => {
     if (!vertSummary) {

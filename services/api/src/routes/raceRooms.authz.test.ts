@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
   return {
@@ -116,6 +117,10 @@ test("returns 403 when caller is not a room member", async () => {
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -211,6 +216,10 @@ test("returns 403 when crew_member lacks privileged actions", async () => {
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
       plannedPaceSecondsPerKm: 720,
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },

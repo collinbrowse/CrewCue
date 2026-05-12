@@ -18,6 +18,8 @@ New race rooms are created **`status: "active"`** (no separate activation step).
 
 Checkpoints form an ordered **polyline**. Distances use a local equirectangular projection anchored at the first checkpoint (consistent for progress and cumulative split distances).
 
+**Route geometry (mandatory for multi-checkpoint rooms):** progress and `courseLengthMeters` are driven by the **uploaded course route** (map workspace driving layer / route overlay), not by straight-line chords between checkpoints. Saving a course with **≥ 2** checkpoints requires usable route polyline geometry; per-checkpoint rows use **`distanceMetersFromStart`** from the route projection (no checkpoint-only fallback). **`courseLengthMeters`** in projection responses is the **canonical** course length when the server can resolve it (else derived from room + route).
+
 ## Bootstrap projection (no ping yet)
 
 When the room has **course**, **planned pace**, and **race anchor** (`raceStartAt` / `activatedAt`), but no stored projection state, **`GET /race-rooms/:roomId/projection`** seeds a **bootstrap** projection (synthetic checkpoint-0 ping) so clients receive **200** with `checkpointSplits` before the first real ping. `PUT .../course` also ensures bootstrap after a successful save.
