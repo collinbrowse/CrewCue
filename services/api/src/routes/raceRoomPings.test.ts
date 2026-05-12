@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { setRaceRoomStatusForTests } from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -40,11 +41,19 @@ async function createPaidActiveRoom(
   });
   assert.equal(entitlementResponse.statusCode, 200);
 
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
-    payload: { eventEndsAt: ends },
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
     headers: {
       authorization: `Bearer ${ownerToken}`
     }
@@ -108,7 +117,7 @@ test("rejects ping when room is not active", async () => {
     payload: {
       teamId: "team-1",
       athleteId: "athlete-1",
-      name: "Draft Room",
+      name: "Completed Room",
       creatorRole: "team_manager"
     },
     headers: {
@@ -125,6 +134,8 @@ test("rejects ping when room is not active", async () => {
       authorization: `Bearer ${ownerToken}`
     }
   });
+
+  await setRaceRoomStatusForTests(roomId, "completed");
 
   const pingResponse = await app.inject({
     method: "POST",

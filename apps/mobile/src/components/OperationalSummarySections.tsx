@@ -137,8 +137,8 @@ export function OperationalSummarySections({
         <Phase1SectionCard styles={styles} title="Projection">
           {!projection ? (
             <Text style={styles.body}>
-              No projection loaded. Activate the room, send a ping, then fetch projection from Checkpoints and room
-              actions.
+              No projection loaded yet. After the course is saved with a race start and planned pace, open Pace or enable
+              projection auto-refresh; pings still refine live state.
             </Text>
           ) : (
             <>

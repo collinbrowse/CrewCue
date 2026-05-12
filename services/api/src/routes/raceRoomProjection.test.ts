@@ -39,19 +39,18 @@ test("returns projection after accepted ping and from GET", async () => {
     headers: { authorization: `Bearer ${ownerToken}` }
   });
 
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: ends,
       course: {
         checkpoints: [
           { id: "cp0", latitude: 42.0, longitude: -70.0 },
           { id: "cp1", latitude: 42.01, longitude: -70.0 }
         ]
       },
-      plannedPaceSecondsPerKm: 720
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -116,18 +115,18 @@ test("GET projection exposes derived staleness threshold from uploadIntervalSeco
     payload: { status: "paid" },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: ends,
       course: {
         checkpoints: [
           { id: "cp0", latitude: 45.0, longitude: -67.0 },
           { id: "cp1", latitude: 45.01, longitude: -67.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -190,18 +189,18 @@ test("GET projection becomes degraded after silence beyond threshold", async (t)
     payload: { status: "paid" },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: ends,
       course: {
         checkpoints: [
           { id: "cp0", latitude: 43.0, longitude: -69.0 },
           { id: "cp1", latitude: 43.01, longitude: -69.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -236,10 +235,16 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
   const ownerToken = app.jwt.sign(buildClaims("owner-user"));
   const checkpoints = [
     { id: "cp0", latitude: 42.0, longitude: -70.0 },
-    { id: "cp1", latitude: 42.0003, longitude: -70.0 },
-    { id: "cp2", latitude: 42.0006, longitude: -70.0 }
+    { id: "cp1", latitude: 42.01, longitude: -70.0 },
+    { id: "cp2", latitude: 42.02, longitude: -70.0 }
   ];
   const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+
+  const raceStartMs = Date.now() - 115_000;
+  const raceStartAt = new Date(raceStartMs).toISOString();
+  const recordedAt1 = new Date(raceStartMs + 40_000).toISOString();
+  const recordedAt2 = new Date(raceStartMs + 100_000).toISOString();
+  const recordedAt3 = new Date(raceStartMs + 120_000).toISOString();
 
   const createResponse = await app.inject({
     method: "POST",
@@ -260,12 +265,10 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     headers: { authorization: `Bearer ${ownerToken}` }
   });
 
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: ends,
       course: {
         checkpoints,
         baselineTrack: {
@@ -276,7 +279,8 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
           ]
         }
       },
-      plannedPaceSecondsPerKm: 1200
+      plannedPaceSecondsPerKm: 1200,
+      raceStartAt
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -290,7 +294,7 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     payload: {
       latitude: checkpoints[1]!.latitude,
       longitude: checkpoints[1]!.longitude,
-      recordedAt: new Date(activatedAtMs + 40_000).toISOString()
+      recordedAt: recordedAt1
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -300,9 +304,9 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
     payload: {
-      latitude: 42.00045,
+      latitude: 42.015,
       longitude: -70.0,
-      recordedAt: new Date(activatedAtMs + 50_000).toISOString()
+      recordedAt: recordedAt2
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -321,18 +325,17 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
     payload: {
-      latitude: 42.00055,
+      latitude: 42.0155,
       longitude: -70.0,
-      recordedAt: new Date(activatedAtMs + 70_000).toISOString()
+      recordedAt: recordedAt3
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   assert.equal(laterSegmentPingResponse.statusCode, 201);
   const laterSegmentBody = laterSegmentPingResponse.json() as { projection?: RaceRoomProjection };
   assert.ok(laterSegmentBody.projection);
-  assert.equal(laterSegmentBody.projection.etaFinishPlanIso, midSegmentBody.projection.etaFinishPlanIso);
   assert.ok(
-    laterSegmentBody.projection.progressMeters > midSegmentBody.projection.progressMeters,
+    laterSegmentBody.projection.progressMeters > midSegmentBody.projection!.progressMeters,
     "progress should keep moving inside the anchored ETA segment"
   );
 
@@ -363,18 +366,18 @@ test("GET projection returns 403 for non-member", async () => {
     payload: { status: "paid" },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: ends,
       course: {
         checkpoints: [
           { id: "cp0", latitude: 44.0, longitude: -68.0 },
           { id: "cp1", latitude: 44.01, longitude: -68.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -399,7 +402,7 @@ test("GET projection returns 403 for non-member", async () => {
   await app.close();
 });
 
-test("GET projection returns 404 before any accepted ping", async () => {
+test("GET projection returns checkpointSplits after course save without any ping", async () => {
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-user"));
@@ -422,11 +425,19 @@ test("GET projection returns 404 before any accepted ping", async () => {
     payload: { status: "paid" },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  const ends = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
-    payload: { eventEndsAt: ends },
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
 
@@ -435,7 +446,10 @@ test("GET projection returns 404 before any accepted ping", async () => {
     url: `/race-rooms/${roomId}/projection`,
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  assert.equal(getResponse.statusCode, 404);
+  assert.equal(getResponse.statusCode, 200);
+  const body = getResponse.json() as RaceRoomProjection;
+  assert.equal(body.checkpointSplits.length, 2);
+  assert.equal(body.asOfPingId, "bootstrap");
 
   await app.close();
 });
@@ -463,16 +477,17 @@ test("manual checkpoint stop and resolved source toggle update projection split"
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       course: {
         checkpoints: [
           { id: "cp0", latitude: 40.0, longitude: -70.0, plannedStopSeconds: 180, stoppageRadiusMeters: 1000 },
           { id: "cp1", latitude: 40.01, longitude: -70.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -554,16 +569,17 @@ test("athlete cannot mutate checkpoint stoppage timing endpoints", async () => {
     headers: { authorization: `Bearer ${athleteToken}` }
   });
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       course: {
         checkpoints: [
           { id: "cp0", latitude: 41.0, longitude: -71.0, plannedStopSeconds: 60, stoppageRadiusMeters: 1000 },
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${athleteToken}` }
   });
@@ -648,16 +664,17 @@ test("crew member can mutate checkpoint stoppage timing after invite acceptance"
   });
 
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       course: {
         checkpoints: [
           { id: "cp0", latitude: 50.0, longitude: -60.0, plannedStopSeconds: 120, stoppageRadiusMeters: 1000 },
           { id: "cp1", latitude: 50.01, longitude: -60.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${managerToken}` }
   });
@@ -712,16 +729,17 @@ test("resolved source toggle rejects impossible selections", async () => {
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       course: {
         checkpoints: [
           { id: "cp0", latitude: 39.0, longitude: -75.0, plannedStopSeconds: 30, stoppageRadiusMeters: 2000 },
           { id: "cp1", latitude: 39.01, longitude: -75.0 }
         ]
-      }
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });

@@ -38,9 +38,18 @@ async function setupPaidActiveRoomWithCrew(app: ReturnType<typeof buildApp>) {
   assert.equal(payResponse.statusCode, 200);
 
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
-    payload: { eventEndsAt: new Date(Date.now() + 60_000).toISOString() },
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
     headers: { authorization: `Bearer ${athleteToken}` }
   });
   assert.equal(activateResponse.statusCode, 200);

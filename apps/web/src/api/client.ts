@@ -33,6 +33,7 @@ export type PutRaceMapWorkspaceInput = {
 export type UpdateRaceCourseWebInput = {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
+  raceStartAt: string;
   courseDistanceMeters?: number;
   courseElevationGainMeters?: number;
   courseFileName?: string;

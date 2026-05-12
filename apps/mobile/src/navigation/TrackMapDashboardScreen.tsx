@@ -29,6 +29,7 @@ import {
   Easing,
   PixelRatio,
   Image,
+  LayoutChangeEvent,
   Linking,
   Modal,
   PanResponder,
@@ -207,19 +208,34 @@ export function TrackMapDashboardScreen(): ReactElement {
     });
   }, []);
 
-  const PEEK = 210;
+  /** Handle row: `styles.sheet` paddingTop + `styles.handle` + handle marginBottom, plus a little gap before body. */
+  const SHEET_HANDLE_STACK_PX = 31;
+  const [sheetPeekPx, setSheetPeekPx] = useState(210);
   const badgeBottomFallbackY = insets.top + HEADER_INNER + BADGE_STRIP_FALLBACK_BELOW_HEADER;
   /** Fully expanded: top of sheet = bottom of ON TRACK / LAST PING + same gap as under header. */
   const expandedSheetTopY = (badgeBottomAbs ?? badgeBottomFallbackY) + BADGE_ROW_GAP_BELOW_HEADER;
   const sheetAnchorBottomY = rootBottomAbs ?? WINDOW.height;
   /** Sheet uses `bottom: 0` to the tab content root; do not subtract `insets.bottom` here (that was double-counting vs sheet `bottom`). */
-  const SHEET_H = Math.max(220, Math.max(PEEK + 1, sheetAnchorBottomY - expandedSheetTopY));
-  const maxSheetTranslate = Math.max(0, SHEET_H - PEEK);
+  const SHEET_H = Math.max(220, Math.max(sheetPeekPx + 1, sheetAnchorBottomY - expandedSheetTopY));
+  const maxSheetTranslate = Math.max(0, SHEET_H - sheetPeekPx);
   const [sheetTranslate, setSheetTranslate] = useState(maxSheetTranslate);
   const sheetDragStart = useRef(maxSheetTranslate);
   const sheetTranslateRef = useRef(sheetTranslate);
   sheetTranslateRef.current = sheetTranslate;
   const sheetAnimRafRef = useRef<number | null>(null);
+
+  const onSheetFooterLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      const fh = e.nativeEvent.layout.height;
+      const raw = Math.round(SHEET_HANDLE_STACK_PX + fh);
+      const span = sheetAnchorBottomY - expandedSheetTopY;
+      const maxPeek = Math.min(480, Math.max(120, span - 48));
+      const minPeek = 120;
+      const next = Math.max(minPeek, Math.min(maxPeek, raw));
+      setSheetPeekPx((prev) => (Math.abs(prev - next) < 3 ? prev : next));
+    },
+    [insets.bottom, sheetAnchorBottomY, expandedSheetTopY]
+  );
 
   const cancelSheetAnimation = useCallback(() => {
     if (sheetAnimRafRef.current != null) {
@@ -277,10 +293,10 @@ export function TrackMapDashboardScreen(): ReactElement {
     (): ViewPadding => ({
       top: badgeBottomAbs ?? badgeBottomFallbackY,
       right: 72,
-      bottom: Math.max(insets.bottom + PEEK + 24, 140),
+      bottom: Math.max(insets.bottom + sheetPeekPx + 24, 140),
       left: Math.max(insets.left, 12)
     }),
-    [badgeBottomAbs, badgeBottomFallbackY, insets.bottom, insets.left]
+    [badgeBottomAbs, badgeBottomFallbackY, insets.bottom, insets.left, sheetPeekPx]
   );
 
   useEffect(() => {
@@ -922,7 +938,8 @@ export function TrackMapDashboardScreen(): ReactElement {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderColor: theme.color.border,
           zIndex: 25,
-          transform: [{ translateY: sheetTranslate }]
+          transform: [{ translateY: sheetTranslate }],
+          flexDirection: "column"
         },
         handle: {
           alignSelf: "center",
@@ -944,7 +961,7 @@ export function TrackMapDashboardScreen(): ReactElement {
         statDivider: { width: StyleSheet.hairlineWidth, backgroundColor: theme.color.divider },
         statLabel: { fontSize: 11, color: theme.color.muted, marginBottom: 4 },
         statValue: { fontSize: 16, fontWeight: "800", color: theme.color.text },
-        checklistTitle: { marginTop: 16, fontWeight: "700", color: theme.color.text },
+        checklistTitle: { marginTop: 4, fontWeight: "700", color: theme.color.text },
         checklistRow: {
           marginTop: 10,
           paddingBottom: 10,
@@ -1025,7 +1042,7 @@ export function TrackMapDashboardScreen(): ReactElement {
         },
         layerSubtitle: { color: theme.color.muted, fontSize: 13, lineHeight: 18 }
       }),
-    [activeMode, insets.top, insets.bottom, SHEET_H, sheetTranslate, theme]
+    [activeMode, insets.top, insets.bottom, SHEET_H, sheetPeekPx, sheetTranslate, theme]
   );
 
   const sheetExpandProgress =
@@ -1185,13 +1202,43 @@ export function TrackMapDashboardScreen(): ReactElement {
         </View>
         <ScrollView
           style={{ flex: 1, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 32 + insets.bottom }}
+          contentContainerStyle={{ paddingBottom: 16 }}
           scrollEnabled={sheetTranslate < maxSheetTranslate - 2}
+        >
+          <Text style={styles.checklistTitle}>Aid station checklist</Text>
+          {(projection?.checkpointSplits ?? []).map((row, index) => {
+            const label = checkpointLabel(room, row.checkpointId);
+            const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
+            return (
+              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
+                <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
+                <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
+                  {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
+                </Text>
+              </View>
+            );
+          })}
+          {projection?.checkpointSplits?.length ? null : (
+            <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
+          )}
+        </ScrollView>
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingTop: 8,
+            paddingBottom: insets.bottom + 10,
+            flexShrink: 0,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: theme.color.divider
+          }}
+          onLayout={onSheetFooterLayout}
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.sheetKicker}>NEXT AID STATION</Text>
-              <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>{nextCheckpointLabel}</Text>
+              <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
+                {nextCheckpointLabel}
+              </Text>
             </View>
             <View style={{ alignItems: "flex-end" }}>
               <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
@@ -1221,24 +1268,7 @@ export function TrackMapDashboardScreen(): ReactElement {
               </Text>
             </View>
           </View>
-
-          <Text style={styles.checklistTitle}>Aid station checklist</Text>
-          {(projection?.checkpointSplits ?? []).map((row, index) => {
-            const label = checkpointLabel(room, row.checkpointId);
-            const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
-            return (
-              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
-                <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
-                <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
-                  {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
-                </Text>
-              </View>
-            );
-          })}
-          {projection?.checkpointSplits?.length ? null : (
-            <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
-          )}
-        </ScrollView>
+        </View>
       </View>
 
       <Modal visible={layersOpen} transparent animationType="fade" onRequestClose={() => setLayersOpen(false)}>

@@ -65,12 +65,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
 
   const paceSecondsPerKm = projection?.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm ?? 480;
   const perms = s.roomDetail?.permissions;
-  const canEditCourse = (perms?.canActivateRoom ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) === true;
+  const canEditCourse = (perms?.canEditRaceSetup ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) === true;
   const canEditStops = (perms?.canEditCheckpointStops ?? canEditCheckpointStopsFromRoomRole(s.currentRoomRole)) === true;
 
   const [segmentClockMs, setSegmentClockMs] = useState(() => Date.now());
   useEffect(() => {
-    if (room?.status !== "active") {
+    if (room?.status === "completed") {
       return undefined;
     }
     const id = setInterval(() => setSegmentClockMs(Date.now()), 1000);
@@ -81,17 +81,18 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   const splits = projection?.checkpointSplits ?? [];
   const splitById = useMemo(() => new Map(splits.map((r) => [r.checkpointId, r])), [splits]);
 
-  const activatedAtMs = useMemo(() => {
-    if (!room?.activatedAt) {
+  const raceAnchorIso = room?.raceStartAt ?? room?.activatedAt;
+  const raceAnchorMs = useMemo(() => {
+    if (!raceAnchorIso) {
       return NaN;
     }
-    const t = Date.parse(room.activatedAt);
+    const t = Date.parse(raceAnchorIso);
     return Number.isNaN(t) ? NaN : t;
-  }, [room?.activatedAt]);
+  }, [raceAnchorIso]);
 
   const anchor = useMemo(
-    () => (!Number.isNaN(activatedAtMs) ? resolvePaceAnchor(splits, activatedAtMs) : null),
-    [splits, activatedAtMs]
+    () => (!Number.isNaN(raceAnchorMs) ? resolvePaceAnchor(splits, raceAnchorMs) : null),
+    [splits, raceAnchorMs]
   );
 
   const currentIx = useMemo(
@@ -115,7 +116,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       if (!s.roomDetail || s.roomDetail.room.id !== room.id) {
         void s.onFetchRoomDetails(room.id);
       }
-      if (room.status !== "active") {
+      if (room.status === "completed") {
         return undefined;
       }
       s.onRefreshProjectionQuiet();
@@ -273,6 +274,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       let checkpointIdsForStops = draftCp.map((c) => c.id);
 
       if (courseDirty && canEditCourse) {
+        const anchorIso = room.raceStartAt ?? room.activatedAt;
+        if (!anchorIso) {
+          setSaveError("Race start time is missing. Save the course from GPX import with a race start before editing checkpoints here.");
+          setSaving(false);
+          return;
+        }
         const staged = draftCp.map((cp) => ({
           ...cp,
           cutoff: parseCutoffFields(cp.id, cutoffTod[cp.id], cutoffElapsedMin[cp.id])
@@ -285,6 +292,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             baselineTrack: room.course?.baselineTrack
           },
           plannedPaceSecondsPerKm: paceSecondsPerKm,
+          raceStartAt: anchorIso,
           courseDistanceMeters: room.courseDistanceMeters,
           courseElevationGainMeters: room.courseElevationGainMeters,
           courseFileName: room.courseFileName
@@ -386,7 +394,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
 
   const lastCpMetersForFinish = cumMetersAtCp.length > 0 ? cumMetersAtCp[cumMetersAtCp.length - 1]! : 0;
   const finishRailModel =
-    projection && !Number.isNaN(activatedAtMs)
+    projection && !Number.isNaN(raceAnchorMs)
       ? paceRailFinishRowModel(currentIx, checkpoints.length, lastCpMetersForFinish, effectiveCourseLenM, progressMeters)
       : { isActiveLeg: false, fraction01: 0 };
 
@@ -446,8 +454,10 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           </View>
         )}
 
-        {Number.isNaN(activatedAtMs) ? (
-          <Text style={[paceStyles.activateHint, s.styles.warningText]}>Activate the room to anchor times on race start.</Text>
+        {Number.isNaN(raceAnchorMs) ? (
+          <Text style={[paceStyles.activateHint, s.styles.warningText]}>
+            Set a race start time when saving the course (GPX setup) so Pace can anchor on the official clock.
+          </Text>
         ) : null}
 
         {checkpoints.map((cp, index) => {
@@ -461,15 +471,15 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           const plannedElapsed =
             split?.plannedElapsedSecondsAtCross ?? secondsForDistance(distMetersAtCp, paceSecondsPerKm);
           const projElapsed =
-            split && !Number.isNaN(activatedAtMs)
-              ? projectedElapsedSecondsAtSplit(split, index, anchor, activatedAtMs)
+            split && !Number.isNaN(raceAnchorMs)
+              ? projectedElapsedSecondsAtSplit(split, index, anchor, raceAnchorMs)
               : plannedElapsed;
           const delta = split ? projElapsed - plannedElapsed : 0;
           const deltaColor = deltaColorFor(delta);
-          const cutoffText = formatCutoffLabel(cp.cutoff, Number.isNaN(activatedAtMs) ? null : activatedAtMs);
-          const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(activatedAtMs) ? null : activatedAtMs);
+          const cutoffText = formatCutoffLabel(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
+          const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const clock =
-            !Number.isNaN(activatedAtMs) ? formatClockFromElapsed(activatedAtMs, projElapsed) : "—";
+            !Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, projElapsed) : "—";
           const distTo = milesRemainingToCheckpoint(progressMeters, distMetersAtCp);
           const plannedStopForDwell = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
           const dwellHere = Boolean(split && isAutoDwellAtCheckpoint(split) && isCurrent && !completed);
@@ -603,7 +613,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           );
         })}
 
-        {projection && !Number.isNaN(activatedAtMs) ? (
+        {projection && !Number.isNaN(raceAnchorMs) ? (
           <View style={paceStyles.timelineRow} onLayout={onRowLayout("__finish__")}>
             <PaceTimelineRail
               theme={theme}
@@ -629,10 +639,10 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                 <Text
                   style={[
                     paceStyles.oneLineDelta,
-                    { color: deltaColorFor(finishDeviationSeconds(projection, activatedAtMs)) }
+                    { color: deltaColorFor(finishDeviationSeconds(projection, raceAnchorMs)) }
                   ]}
                 >
-                  {formatSignedMinutesDelta(finishDeviationSeconds(projection, activatedAtMs))}
+                  {formatSignedMinutesDelta(finishDeviationSeconds(projection, raceAnchorMs))}
                 </Text>
               </Text>
             </View>

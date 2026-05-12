@@ -275,9 +275,11 @@ test("updateRaceCourse sends room course payload", async () => {
       assert.equal(init?.method, "PUT");
       const body = JSON.parse(String(init?.body)) as {
         plannedPaceSecondsPerKm: number;
+        raceStartAt: string;
         course: { checkpoints: Array<{ id: string }> };
       };
       assert.equal(body.plannedPaceSecondsPerKm, 360);
+      assert.equal(body.raceStartAt, "2026-01-01T12:00:00.000Z");
       assert.equal(body.course.checkpoints[0]?.id, "aid-1");
       return new Response(JSON.stringify(minimalRoom), {
         status: 200,
@@ -288,6 +290,7 @@ test("updateRaceCourse sends room course payload", async () => {
     const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
     await client.updateRaceCourse("room-1", {
       plannedPaceSecondsPerKm: 360,
+      raceStartAt: "2026-01-01T12:00:00.000Z",
       course: {
         checkpoints: [
           { id: "aid-1", latitude: 40.7, longitude: -74.0 },
@@ -353,7 +356,7 @@ test("joinRaceRoomByCode targets join-by-code endpoint", async () => {
             assignedRole: "crew_member",
             permissions: {
               canViewRoom: true,
-              canActivateRoom: false,
+              canEditRaceSetup: false,
               canIssueInvite: false,
               canEditCheckpointStops: true
             }

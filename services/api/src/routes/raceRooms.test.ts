@@ -214,7 +214,8 @@ test("updates room course for shared GPX usage", async () => {
             { distanceMetersFromStart: 1500, referenceElapsedSeconds: 540 }
           ]
         }
-      }
+      },
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -274,7 +275,8 @@ test("updates course with routeOverlayLayer merges canonical map workspace layer
             [-73.996, 40.7228]
           ]
         }
-      }
+      },
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -692,17 +694,17 @@ test("PUT course rejects removing a visited checkpoint", async () => {
   });
 
   const activateResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       course: {
         checkpoints: [
           { id: "cp0", latitude: 41.0, longitude: -71.0 },
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
       },
-      plannedPaceSecondsPerKm: 600
+      plannedPaceSecondsPerKm: 600,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -742,7 +744,8 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp1", latitude: 41.01, longitude: -71.0 },
           { id: "cp-new", latitude: 41.02, longitude: -71.0 }
         ]
-      }
+      },
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -758,7 +761,8 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp0", latitude: 41.0, longitude: -71.0, title: "Renamed" },
           { id: "cp1", latitude: 41.01, longitude: -71.0 }
         ]
-      }
+      },
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });

@@ -151,19 +151,15 @@ export type CreateRaceRoomInput = {
   creatorRole?: "athlete" | "crew_member" | "crew_chief" | "team_manager";
 };
 
-export type ActivateRaceRoomInput = {
-  eventEndsAt: string;
-};
-
 export type UpdateRaceCourseInput = {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
+  /** Required when saving a course: official race clock anchor (ISO 8601). */
+  raceStartAt: string;
   courseDistanceMeters?: number;
   courseElevationGainMeters?: number;
   courseFileName?: string;
   routeOverlayLayer?: MapWorkspaceLayer;
-  /** Optional: shift activation anchor used for projection elapsed math (ISO datetime). */
-  raceStartAt?: string;
 };
 
 export type PostPingInput = {
@@ -331,8 +327,6 @@ export function createApiClient(options: ApiClientOptions) {
     listMyRaceRooms: () => request<{ rooms: RaceRoom[] }>(options, "GET", "/race-rooms/mine"),
     listTeamRaceRooms: (teamId: string) =>
       request<{ rooms: RaceRoom[] }>(options, "GET", `/teams/${encodeURIComponent(teamId)}/race-rooms`),
-    activateRaceRoom: (roomId: string, input: ActivateRaceRoomInput) =>
-      request<RaceRoom>(options, "POST", `/race-rooms/${roomId}/activate`, input),
     updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput) =>
       request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input),
     postPing: (roomId: string, input: PostPingInput) =>

@@ -107,10 +107,17 @@ test("returns 403 when caller is not a room member", async () => {
   assert.equal(getForbidden.statusCode, 403);
 
   const activateForbidden = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60_000).toISOString()
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${strangerToken}`
@@ -195,10 +202,17 @@ test("returns 403 when crew_member lacks privileged actions", async () => {
   assert.equal(acceptResponse.statusCode, 200);
 
   const activateDenied = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/activate`,
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
     payload: {
-      eventEndsAt: new Date(Date.now() + 60_000).toISOString()
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${crewToken}`

@@ -98,7 +98,6 @@ export type AuthedShellContextValue = {
   onRemoveMember: (memberUserId: string) => Promise<void>;
   onFetchMyRaceRooms: () => Promise<void>;
   onSelectRaceRoom: (room: RaceRoom) => Promise<void>;
-  onActivateRoom: () => void;
   onSendPing: () => void;
   onPostSyncHeartbeat: () => void;
   onFetchSyncHealth: () => void;

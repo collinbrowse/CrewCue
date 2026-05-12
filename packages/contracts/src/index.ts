@@ -249,11 +249,14 @@ export interface RaceRoom {
   name: string;
   status: RaceRoomStatus;
   createdAt: string;
+  /** Official race clock anchor (ISO). Preferred over legacy `activatedAt` for new clients. */
+  raceStartAt?: string;
+  /** Legacy anchor for projection elapsed math; mirrors `raceStartAt` when set via course save. */
   activatedAt?: string;
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
   entitlement: RaceRoomEntitlement;
-  /** Set on activation; drives WS2 split / ETA projection. */
+  /** Set when a course is saved; drives WS2 split / ETA projection. */
   course?: RaceCourse;
   /** Persisted at upload time for fast UI reads without recomputation. */
   courseDistanceMeters?: number;
