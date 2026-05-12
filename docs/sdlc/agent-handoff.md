@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## In flight (2026-05-12): Local native build speed — **PR** (issue [#255](https://github.com/collinbrowse/CrewCue/issues/255))
+
+- **Branch:** `feature/native-dev-build-speed-255` — Expo plugin `apps/mobile/plugins/withNativeDevBuildSpeed.js`: local `expo prebuild` pins Android `reactNativeArchitectures=arm64-v8a` (Apple Silicon + ARM emulator) with banner in `gradle.properties`; enables `apple.ccacheEnabled` for iOS; **skips** ABI pin when `EAS_BUILD` is set. README documents Play Store / manual release restore.
+- **Validation:** `npm run verify` green on branch before push.
+
 ## Recent (2026-05-12): Race setup — native race start + time zone (**merged** PR [#254](https://github.com/collinbrowse/CrewCue/pull/254) → `main`, merge `5b1a791`, **Closes** [#253](https://github.com/collinbrowse/CrewCue/issues/253))
 
 - **On `main`:** `GpxImportScreen` always shows **Race start** with OS date/time pickers (`@react-native-community/datetimepicker`, `timeZoneName`) and searchable **IANA** list; `luxon` normalizes wire `raceStartAt`; **Finish race setup** PATCHes start when course exists and it changed; **Course settings** drops ISO field (points to Race setup); **Athlete setup** uses same picker; race start UI is **not** client-gated by role (API authz unchanged); **expo-localization** + datetimepicker plugins in `apps/mobile/app.json`.
@@ -41,7 +46,7 @@ Use this as the minimal continuity file between sessions.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, **#249**, and **#253/#254** (projection anchor, map sheet, unified course metrics, native race start schedule).
-- **Active branch:** **`main`** for new work; `git pull origin main` (at or after `5b1a791`).
+- **Active branch:** **`feature/native-dev-build-speed-255`** for **#255**; otherwise **`main`** for new work; `git pull origin main` (at or after `5b1a791`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective

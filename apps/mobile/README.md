@@ -26,3 +26,18 @@ This matches upstream reports (e.g. [expo#42647](https://github.com/expo/expo/is
    - `npx expo run:ios`
 
 MapLibre and other native modules require a **development build** (not Expo Go); use `expo-dev-client` after a successful native compile.
+
+## Native build speed (local dev)
+
+The Expo config plugin **`withNativeDevBuildSpeed.js`** runs during **`expo prebuild`**:
+
+- **Android:** sets `reactNativeArchitectures` to **`arm64-v8a`** for faster local Gradle builds (matches **Apple Silicon Macs** + **ARM64 Android emulator** system images). A large comment block is injected into **`android/gradle.properties`** above that property so it is hard to miss.
+- **iOS:** sets **`apple.ccacheEnabled`** in **`ios/Podfile.properties.json`**. Install **`ccache`** once on macOS: `brew install ccache`.
+
+**EAS Build:** when `EAS_BUILD` is set (cloud or `eas build --local`), the plugin **does not** pin a single Android ABI, so store/EAS artifacts keep the default multi-ABI configuration.
+
+### Release and store builds (Android)
+
+If you run **`expo prebuild`** on your machine and then ship a **Play Store** or **production** Android binary **outside EAS**, you must **not** leave a single ABI in `gradle.properties`. Restore the default list (typically `armeabi-v7a,arm64-v8a,x86,x86_64`) or match what your release process requires. See [Speeding up your Build phase (React Native)](https://reactnative.dev/docs/build-speed).
+
+**Intel Mac + x86 Android emulator:** change the pinned value to **`x86_64`** in `plugins/withNativeDevBuildSpeed.js` (`DEV_ONLY_ANDROID_ABI`) or override from the CLI when running Gradle: `./gradlew :app:assembleDebug -PreactNativeArchitectures=x86_64`.

@@ -46,7 +46,8 @@
           "microphonePermission": false
         }
       ],
-      "./plugins/withChatPushDecryption.js"
+      "./plugins/withChatPushDecryption.js",
+      "./plugins/withNativeDevBuildSpeed.js"
     ]
   }
 }
