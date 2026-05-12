@@ -10,7 +10,7 @@ import {
   type ViewPadding,
   type ViewStateChangeEvent
 } from "@maplibre/maplibre-react-native";
-import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
+import type { RaceMapWorkspace, RaceRoom, RaceRoomProjection } from "@crewcue/contracts";
 import {
   buildExpectedAidStationSplitsFromCourse,
   elevationSamplesFromWorkspacePolyline,
@@ -49,6 +49,7 @@ import { createApiClient } from "../api/client";
 import { DSButton } from "../design-system";
 import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
 import { formatEtaClock, formatRemainingMinutes, secondsForDistance } from "../features/readouts/eta";
+import { formatElapsedHoursMinutes } from "../features/pace/timeline";
 import type { BasemapPreviewLayout } from "../features/maps/mapStyleUrl";
 import { basemapPreviewLayout, mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
 import type { BasemapPresetId } from "../preferences/basemapPreference";
@@ -123,7 +124,57 @@ function formatPingAgo(seconds: number | undefined): string {
 
 function checkpointLabel(room: RaceRoom | undefined, checkpointId: string): string {
   const cp = room?.course?.checkpoints?.find((c) => c.id === checkpointId);
+  const t = cp?.title?.trim();
+  if (t) {
+    return t;
+  }
   return cp?.id ?? checkpointId;
+}
+
+function parseRaceAnchorMs(room: RaceRoom | undefined): number | null {
+  const raw = room?.raceStartAt ?? room?.activatedAt;
+  if (!raw) {
+    return null;
+  }
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Next aid along the course: prefer WS2 split rows; otherwise infer from checkpoint arc distances + progress. */
+function resolveNextCheckpointForMapSheet(
+  room: RaceRoom | undefined,
+  projection: RaceRoomProjection | undefined,
+  checkpointDistanceById: Map<string, number>
+): { checkpointId: string; distanceMetersFromStart: number; crossedAtRecordedAt: string | null } | null {
+  const cps = room?.course?.checkpoints;
+  if (!cps?.length) {
+    return null;
+  }
+  const splits = projection?.checkpointSplits ?? [];
+  if (splits.length > 0) {
+    const row = splits.find((r) => r.crossedAtRecordedAt === null) ?? splits[splits.length - 1];
+    if (!row) {
+      return null;
+    }
+    return {
+      checkpointId: row.checkpointId,
+      distanceMetersFromStart: row.distanceMetersFromStart,
+      crossedAtRecordedAt: row.crossedAtRecordedAt
+    };
+  }
+  const progressMeters = projection?.progressMeters ?? 0;
+  for (const cp of cps) {
+    const d = checkpointDistanceById.get(cp.id);
+    if (d === undefined || !Number.isFinite(d)) {
+      continue;
+    }
+    if (d > progressMeters + 5) {
+      return { checkpointId: cp.id, distanceMetersFromStart: d, crossedAtRecordedAt: null };
+    }
+  }
+  const lastCp = cps[cps.length - 1]!;
+  const lastD = checkpointDistanceById.get(lastCp.id) ?? progressMeters;
+  return { checkpointId: lastCp.id, distanceMetersFromStart: lastD, crossedAtRecordedAt: null };
 }
 
 function mergeWorkspaceFromServer(room: RaceRoom | undefined, server: RaceMapWorkspace | null): RaceMapWorkspace {
@@ -170,6 +221,8 @@ export function TrackMapDashboardScreen(): ReactElement {
   const room = s.room;
   const inRace = Boolean(room);
   const projection = s.projection;
+  const lastPing = s.lastPing;
+  const projectionPolledAt = s.projectionPolledAt;
   const roomId = room?.id;
   const token = s.auth.status === "authenticated" ? s.auth.accessToken : undefined;
 
@@ -374,21 +427,26 @@ export function TrackMapDashboardScreen(): ReactElement {
   }, [courseLine]);
 
   const athletePos = useMemo(() => {
-    if (!room?.course || projection === undefined) {
+    if (!room?.course) {
       return null;
     }
-    const fromCp = latLngAtDistanceAlongCheckpointCourse(room.course, projection.progressMeters);
-    if (fromCp) {
-      return fromCp;
-    }
-    if (courseLine.length >= 2) {
-      const ll = lngLatAtDistanceAlongPolyline(courseLine, projection.progressMeters);
-      if (ll) {
-        return { latitude: ll[1], longitude: ll[0] };
+    if (projection !== undefined) {
+      const fromCp = latLngAtDistanceAlongCheckpointCourse(room.course, projection.progressMeters);
+      if (fromCp) {
+        return fromCp;
+      }
+      if (courseLine.length >= 2) {
+        const ll = lngLatAtDistanceAlongPolyline(courseLine, projection.progressMeters);
+        if (ll) {
+          return { latitude: ll[1], longitude: ll[0] };
+        }
       }
     }
+    if (lastPing?.decision === "accepted") {
+      return { latitude: lastPing.latitude, longitude: lastPing.longitude };
+    }
     return null;
-  }, [room?.course, projection, courseLine]);
+  }, [room?.course, projection, courseLine, lastPing]);
 
   const athleteFeature = useMemo(() => {
     if (!athletePos) {
@@ -614,18 +672,6 @@ export function TrackMapDashboardScreen(): ReactElement {
     };
   }, [headerBottomY]);
 
-  const nextSplit = useMemo(() => {
-    const splits = projection?.checkpointSplits ?? [];
-    return splits.find((row) => row.crossedAtRecordedAt === null) ?? splits[splits.length - 1];
-  }, [projection?.checkpointSplits]);
-
-  const nextCheckpointLabel = useMemo(() => {
-    if (!nextSplit || !room) {
-      return "—";
-    }
-    return checkpointLabel(room, nextSplit.checkpointId);
-  }, [nextSplit, room]);
-
   /** Prefer server-derived canonical length, then room course distance, then projection / last split cumulative. */
   const effectiveCourseLengthMeters = useMemo(() => {
     const canonical =
@@ -657,6 +703,35 @@ export function TrackMapDashboardScreen(): ReactElement {
     }
     return null;
   }, [room?.course, room?.courseDistanceMeters, projection]);
+
+  const mapSheetPhase = useMemo((): "preStart" | "finish" | "race" => {
+    const anchorMs = parseRaceAnchorMs(room);
+    if (anchorMs != null && Date.now() < anchorMs) {
+      return "preStart";
+    }
+    const splits = projection?.checkpointSplits ?? [];
+    const allCrossed = splits.length > 0 && splits.every((r) => r.crossedAtRecordedAt != null);
+    const len = effectiveCourseLengthMeters;
+    const courseLenFromProjection =
+      projection != null && projection.courseLengthMeters > 40 ? projection.courseLengthMeters : null;
+    const effectiveLen = len ?? courseLenFromProjection;
+    const pastEnd =
+      projection != null &&
+      effectiveLen != null &&
+      effectiveLen > 40 &&
+      projection.progressMeters >= effectiveLen - 75;
+    if (allCrossed || pastEnd) {
+      return "finish";
+    }
+    return "race";
+  }, [
+    room?.raceStartAt,
+    room?.activatedAt,
+    projection?.checkpointSplits,
+    projection?.progressMeters,
+    effectiveCourseLengthMeters,
+    projectionPolledAt
+  ]);
 
   const remainingDistM = useMemo(() => {
     if (!projection) {
@@ -742,6 +817,18 @@ export function TrackMapDashboardScreen(): ReactElement {
     return map;
   }, [room?.course, room?.plannedPaceSecondsPerKm, projection?.checkpointSplits, projection?.plannedPaceSecondsPerKm]);
 
+  const resolvedNextCheckpoint = useMemo(
+    () => resolveNextCheckpointForMapSheet(room, projection, checkpointDistanceById),
+    [room, projection, checkpointDistanceById]
+  );
+
+  const nextCheckpointLabel = useMemo(() => {
+    if (!resolvedNextCheckpoint || !room) {
+      return "—";
+    }
+    return checkpointLabel(room, resolvedNextCheckpoint.checkpointId);
+  }, [resolvedNextCheckpoint, room]);
+
   const selectedCheckpointTooltip = useMemo(() => {
     if (!selectedCheckpointId) {
       return null;
@@ -765,18 +852,92 @@ export function TrackMapDashboardScreen(): ReactElement {
   }, [selectedCheckpointId, room, checkpointDistanceById, projection?.plannedPaceSecondsPerKm, projection?.progressMeters]);
 
   const etaNextLabel = useMemo(() => {
-    if (!projection || !nextSplit || remainingDistM === null) {
+    if (mapSheetPhase !== "race") {
       return { time: "—", remain: "—" };
     }
-    const pace = projection.plannedPaceSecondsPerKm;
-    if (!Number.isFinite(pace) || pace <= 0) {
+    if (!projection || !resolvedNextCheckpoint) {
       return { time: "—", remain: "—" };
     }
-    const distToNext = Math.max(0, nextSplit.distanceMetersFromStart - projection.progressMeters);
+    const pace = projection.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm;
+    if (!pace || !Number.isFinite(pace) || pace <= 0) {
+      return { time: "—", remain: "—" };
+    }
+    const distToNext = Math.max(0, resolvedNextCheckpoint.distanceMetersFromStart - projection.progressMeters);
     const secondsToNext = secondsForDistance(distToNext, pace);
     const etaMs = Date.now() + secondsToNext * 1000;
     return { time: formatEtaClock(etaMs), remain: formatRemainingMinutes(secondsToNext) };
-  }, [projection, nextSplit, remainingDistM]);
+  }, [mapSheetPhase, projection, resolvedNextCheckpoint, room?.plannedPaceSecondsPerKm]);
+
+  const preStartSheetDetails = useMemo(() => {
+    if (mapSheetPhase !== "preStart") {
+      return null;
+    }
+    const anchorMs = parseRaceAnchorMs(room);
+    if (anchorMs == null) {
+      return null;
+    }
+    const startsInSec = Math.max(0, (anchorMs - Date.now()) / 1000);
+    return {
+      startsAtLine: new Date(anchorMs).toLocaleString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      }),
+      startsInRemain: startsInSec >= 60 ? formatRemainingMinutes(startsInSec) : startsInSec > 0 ? "< 1 min" : "Starting",
+      startsAtClock: formatEtaClock(anchorMs)
+    };
+  }, [mapSheetPhase, room?.raceStartAt, room?.activatedAt, projectionPolledAt]);
+
+  const finishSheetDetails = useMemo(() => {
+    if (mapSheetPhase !== "finish" || !room?.course?.checkpoints?.length) {
+      return null;
+    }
+    const cps = room.course.checkpoints;
+    const lastCp = cps[cps.length - 1]!;
+    const splits = projection?.checkpointSplits ?? [];
+    const lastSplit = splits.length > 0 ? splits[splits.length - 1] : undefined;
+    const crossedIso = lastSplit?.crossedAtRecordedAt ?? projection?.asOfRecordedAt ?? null;
+    const anchorMs = parseRaceAnchorMs(room);
+    let wallClockStr = "—";
+    let totalElapsedStr = "—";
+    if (crossedIso) {
+      const crossedMs = Date.parse(crossedIso);
+      if (Number.isFinite(crossedMs)) {
+        wallClockStr = new Date(crossedMs).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit"
+        });
+        const elapsedSec =
+          lastSplit?.actualElapsedSecondsAtCross != null && Number.isFinite(lastSplit.actualElapsedSecondsAtCross)
+            ? lastSplit.actualElapsedSecondsAtCross
+            : anchorMs != null
+              ? Math.max(0, (crossedMs - anchorMs) / 1000)
+              : Number.NaN;
+        totalElapsedStr = Number.isFinite(elapsedSec) ? formatElapsedHoursMinutes(elapsedSec) : "—";
+      }
+    }
+    const locationLine = `${checkpointLabel(room, lastCp.id)} · ${lastCp.latitude.toFixed(4)}°, ${lastCp.longitude.toFixed(4)}°`;
+    return { wallClockStr, totalElapsedStr, locationLine, stationTitle: checkpointLabel(room, lastCp.id) };
+  }, [mapSheetPhase, room, projection?.checkpointSplits, projection?.asOfRecordedAt]);
+
+  const runnerLocationCaption = useMemo(() => {
+    if (!room) {
+      return null;
+    }
+    if (projection && room.course) {
+      const mi = projection.progressMeters / 1609.344;
+      return `Runner ~${mi.toFixed(1)} mi along course`;
+    }
+    if (lastPing?.decision === "accepted") {
+      const t = Date.parse(lastPing.recordedAt);
+      const clock = Number.isFinite(t) ? formatEtaClock(t) : "";
+      return `Last ping${clock ? ` ${clock}` : ""} · ${lastPing.latitude.toFixed(3)}°, ${lastPing.longitude.toFixed(3)}°`;
+    }
+    return "Waiting for runner location…";
+  }, [room, projection, lastPing]);
 
   const onTrackLabel = projection?.projectionConfidence === "fresh" ? "ON TRACK" : "DEGRADED";
 
@@ -1258,39 +1419,90 @@ export function TrackMapDashboardScreen(): ReactElement {
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.sheetKicker}>NEXT AID STATION</Text>
-              <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
-                {nextCheckpointLabel}
-              </Text>
+              {mapSheetPhase === "preStart" ? (
+                <>
+                  <Text style={styles.sheetKicker}>RACE START</Text>
+                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
+                    {preStartSheetDetails?.startsAtLine ?? "Set a race start time in Race setup."}
+                  </Text>
+                </>
+              ) : mapSheetPhase === "finish" ? (
+                <>
+                  <Text style={styles.sheetKicker}>FINISHED</Text>
+                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
+                    {finishSheetDetails?.stationTitle ?? nextCheckpointLabel}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.sheetKicker}>NEXT AID STATION</Text>
+                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
+                    {nextCheckpointLabel}
+                  </Text>
+                </>
+              )}
             </View>
             <View style={{ alignItems: "flex-end" }}>
-              <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
-              <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>EST. ARRIVAL</Text>
-              <View style={styles.etaPill}>
-                <Text style={styles.etaPillText}>{etaNextLabel.remain}</Text>
+              {mapSheetPhase === "preStart" ? (
+                <>
+                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>
+                    {preStartSheetDetails?.startsAtClock ?? "—"}
+                  </Text>
+                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>STARTS AT</Text>
+                  <View style={styles.etaPill}>
+                    <Text style={styles.etaPillText}>{preStartSheetDetails?.startsInRemain ?? "—"}</Text>
+                  </View>
+                </>
+              ) : mapSheetPhase === "finish" ? (
+                <>
+                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>
+                    {finishSheetDetails?.wallClockStr ?? "—"}
+                  </Text>
+                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>LOCAL TIME</Text>
+                  <View style={styles.etaPill}>
+                    <Text style={styles.etaPillText}>{finishSheetDetails?.totalElapsedStr ?? "—"}</Text>
+                  </View>
+                  <Text style={{ color: theme.color.muted, fontSize: 10, marginTop: 4 }}>TOTAL ELAPSED</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
+                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>EST. ARRIVAL</Text>
+                  <View style={styles.etaPill}>
+                    <Text style={styles.etaPillText}>{etaNextLabel.remain}</Text>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+          {runnerLocationCaption ? (
+            <Text style={{ color: theme.color.muted, fontSize: 13, marginTop: 10 }}>{runnerLocationCaption}</Text>
+          ) : null}
+          {mapSheetPhase === "finish" && finishSheetDetails ? (
+            <Text style={{ color: theme.color.muted, fontSize: 13, marginTop: 6 }}>{finishSheetDetails.locationLine}</Text>
+          ) : null}
+
+          {mapSheetPhase === "race" ? (
+            <View style={styles.statsRow}>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>DISTANCE</Text>
+                <Text style={styles.statValue}>{remainingMi !== null ? `${remainingMi.toFixed(1)} MI` : "—"}</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>ELEVATION</Text>
+                <Text style={styles.statValue}>{vertDisplay.text}</Text>
+                {vertDisplay.sub ? <Text style={{ fontSize: 10, color: theme.color.muted }}>{vertDisplay.sub}</Text> : null}
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>PACE</Text>
+                <Text style={styles.statValue} numberOfLines={2}>
+                  {paceLabel}
+                </Text>
               </View>
             </View>
-          </View>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>DISTANCE</Text>
-              <Text style={styles.statValue}>{remainingMi !== null ? `${remainingMi.toFixed(1)} MI` : "—"}</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>ELEVATION</Text>
-              <Text style={styles.statValue}>{vertDisplay.text}</Text>
-              {vertDisplay.sub ? <Text style={{ fontSize: 10, color: theme.color.muted }}>{vertDisplay.sub}</Text> : null}
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>PACE</Text>
-              <Text style={styles.statValue} numberOfLines={2}>
-                {paceLabel}
-              </Text>
-            </View>
-          </View>
+          ) : null}
         </View>
         <ScrollView
           style={{
