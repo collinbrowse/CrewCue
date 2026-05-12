@@ -12,6 +12,10 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-12): Pace tab gear opens Course settings (**open** PR [#252](https://github.com/collinbrowse/CrewCue/pull/252), **Closes** [#251](https://github.com/collinbrowse/CrewCue/issues/251))
+
+- **Mobile:** Pace header settings navigated to Race setup (GPX) only, bypassing **Course settings** where **race start** is edited. Gear now opens **Course settings** (race start + buttons to Race setup / replace course).
+
 ## Recent (2026-05-12): Unified course metrics + projection alignment (**merged** PR [#249](https://github.com/collinbrowse/CrewCue/pull/249) → `main`, merge `9e0d028`)
 
 - **On `main`:** Contracts/map-core/API course pipeline (geodesic-derived metrics, pace-aware baselines, `PUT .../course` recompute + room distance/gain/loss); clients consume server-derived metrics; aligns with **#248** race start / projection bootstrap work.
@@ -35,7 +39,8 @@ Use this as the minimal continuity file between sessions.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, and **#249** (race start + projection bootstrap + map sheet + unified server course metrics / readouts).
-- **Active branch:** **`main`** for new work; branch from **`git pull origin main`** after `9e0d028`.
+- **Open PR:** [#252](https://github.com/collinbrowse/CrewCue/pull/252) (**Closes #251** — Pace gear → Course settings). Merge when green; then delete branch `fix/pace-settings-opens-course-settings-251`.
+- **Active branch:** **`main`** for unrelated new work; branch from **`git pull origin main`** after `9e0d028` (or post-#252 merge).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
@@ -150,5 +155,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-On main (post-#246): git pull; npm run verify. Optional: Pace smoke + delete branch feature/pace-edit-permissions-timeline-245. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
+Merge PR #252 when CI green (Closes #251). Then git pull main; npm run verify. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
 ```
