@@ -12,7 +12,7 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## In flight (2026-05-12): Local native build speed — **PR** (issue [#255](https://github.com/collinbrowse/CrewCue/issues/255))
+## In flight (2026-05-12): Local native build speed — **PR [#256](https://github.com/collinbrowse/CrewCue/pull/256)** (**Closes** [#255](https://github.com/collinbrowse/CrewCue/issues/255))
 
 - **Branch:** `feature/native-dev-build-speed-255` — Expo plugin `apps/mobile/plugins/withNativeDevBuildSpeed.js`: local `expo prebuild` pins Android `reactNativeArchitectures=arm64-v8a` (Apple Silicon + ARM emulator) with banner in `gradle.properties`; enables `apple.ccacheEnabled` for iOS; **skips** ABI pin when `EAS_BUILD` is set. README documents Play Store / manual release restore.
 - **Validation:** `npm run verify` green on branch before push.
