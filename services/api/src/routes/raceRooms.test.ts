@@ -664,3 +664,107 @@ test("returns anonymous join preview with allowlisted room details", async () =>
 
   await app.close();
 });
+
+test("PUT course rejects removing a visited checkpoint", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Visited CP room",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const activateResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/activate`,
+    payload: {
+      eventEndsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 41.0, longitude: -71.0 },
+          { id: "cp1", latitude: 41.01, longitude: -71.0 }
+        ]
+      },
+      plannedPaceSecondsPerKm: 600
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
+  const activatedAtMs = Date.parse(activatedAt);
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 41.0,
+      longitude: -71.0,
+      recordedAt: new Date(activatedAtMs + 30_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const manual = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload: {
+      arrivalAt: new Date(activatedAtMs + 40_000).toISOString(),
+      departureAt: new Date(activatedAtMs + 200_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(manual.statusCode, 200);
+
+  const badUpdate = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: 600,
+      course: {
+        checkpoints: [
+          { id: "cp1", latitude: 41.01, longitude: -71.0 },
+          { id: "cp-new", latitude: 41.02, longitude: -71.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(badUpdate.statusCode, 400);
+
+  const goodUpdate = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: 600,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 41.0, longitude: -71.0, title: "Renamed" },
+          { id: "cp1", latitude: 41.01, longitude: -71.0 }
+        ]
+      }
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(goodUpdate.statusCode, 200);
+  const body = goodUpdate.json() as { course: { checkpoints: Array<{ id: string; title?: string }> } };
+  assert.equal(body.course.checkpoints[0]?.title, "Renamed");
+
+  await app.close();
+});

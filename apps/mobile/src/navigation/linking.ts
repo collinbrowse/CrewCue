@@ -9,6 +9,7 @@ export const crewCueLinking: LinkingOptions<any> = {
         path: "map",
         screens: {
           MapHome: "",
+          CheckpointPickMap: "pick-checkpoint",
           Navigate: "navigate",
           RacePlanning: "race-setup",
           JoinRoomDetails: "join",

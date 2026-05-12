@@ -1,191 +1,717 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
-import type { RaceCourseCheckpoint } from "@crewcue/contracts";
-import { ScrollView, Text, View } from "react-native";
+import type { RaceCheckpointSplitRow, RaceCourseCheckpoint, RaceCourseCheckpointCutoff } from "@crewcue/contracts";
+import type { CompositeNavigationProp, RouteProp } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { ActivityIndicator, LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from "react-native";
+import { cumulativeDistancesAlongCheckpoints } from "@crewcue/map-core";
 import { createApiClient } from "../api/client";
-import { DSButton, DSCard, DSTextInput } from "../design-system";
-import { buildExpectedAidStationSplitsFromCourse } from "../features/gpx/gpxImport";
-import { formatEtaClock, formatRemainingMinutes, secondsForDistance } from "../features/readouts/eta";
+import { canEditCheckpointStopsFromRoomRole, canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
+import { DSButton, DSCard, DSTextInput, useDSTheme, type DSThemeTokens } from "../design-system";
+import { secondsForDistance } from "../features/readouts/eta";
+import {
+  checkpointDisplayTitle,
+  currentCheckpointOrFinishIndex,
+  deltaTone,
+  finishDeviationSeconds,
+  formatClockFromElapsed,
+  formatCutoffClockOnly,
+  formatCutoffLabel,
+  formatSignedMinutesDelta,
+  isCheckpointCompletedUi,
+  isAutoDwellAtCheckpoint,
+  milesFromMeters,
+  milesRemainingToCheckpoint,
+  paceRailCheckpointRowModel,
+  paceRailFinishRowModel,
+  projectedElapsedSecondsAtSplit,
+  resolvePaceAnchor
+} from "../features/pace/timeline";
+import { PaceTimelineRail } from "../features/pace/PaceTimelineRail";
 import { useAuthedShell } from "../shell/AuthedShellContext";
+import type { CrewMainTabParamList, ReadoutsStackParamList } from "./types";
+
+type ReadoutsNav = CompositeNavigationProp<
+  NativeStackNavigationProp<ReadoutsStackParamList, "ReadoutsHome">,
+  BottomTabNavigationProp<CrewMainTabParamList>
+>;
+
+const DEFAULT_PLANNED_STOP = 600;
+const EST_ROW_HEIGHT = 132;
 
 export function AuthenticatedReadoutsScreen(): ReactElement {
   const s = useAuthedShell();
+  const navigation = useNavigation<ReadoutsNav>();
+  const route = useRoute<RouteProp<ReadoutsStackParamList, "ReadoutsHome">>();
   const room = s.room;
-  const paceSecondsPerKm = s.projection?.plannedPaceSecondsPerKm ?? 360;
-  const [startTimeInput, setStartTimeInput] = useState("07:00");
-  const [draftCheckpoints, setDraftCheckpoints] = useState<RaceCourseCheckpoint[]>(room?.course?.checkpoints ?? []);
+  const projection = s.projection;
+  const scrollRef = useRef<ScrollView>(null);
+  const rowYRef = useRef<Record<string, number>>({});
+  const didAutoScrollRef = useRef(false);
+
+  const [editing, setEditing] = useState(false);
+  const [draftCp, setDraftCp] = useState<RaceCourseCheckpoint[]>(room?.course?.checkpoints ?? []);
+  const [draftStops, setDraftStops] = useState<Record<string, { arrival: string; departure: string }>>({});
+  const [cutoffTod, setCutoffTod] = useState<Record<string, string>>({});
+  const [cutoffElapsedMin, setCutoffElapsedMin] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    setDraftCheckpoints(room?.course?.checkpoints ?? []);
-  }, [room?.id, room?.course?.checkpoints]);
+  const editBaselineRef = useRef<{ stagedJson: string; stopsJson: string } | null>(null);
 
-  const startAnchorMs = useMemo(() => parseStartAnchor(startTimeInput), [startTimeInput]);
-  const hasUnsavedChanges = useMemo(
-    () => JSON.stringify(draftCheckpoints) !== JSON.stringify(room?.course?.checkpoints ?? []),
-    [draftCheckpoints, room?.course?.checkpoints]
+  const theme = useDSTheme();
+  const paceStyles = useMemo(() => createPaceStyles(theme), [theme]);
+
+  const paceSecondsPerKm = projection?.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm ?? 480;
+  const perms = s.roomDetail?.permissions;
+  const canEditCourse = (perms?.canActivateRoom ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) === true;
+  const canEditStops = (perms?.canEditCheckpointStops ?? canEditCheckpointStopsFromRoomRole(s.currentRoomRole)) === true;
+
+  const [segmentClockMs, setSegmentClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (room?.status !== "active") {
+      return undefined;
+    }
+    const id = setInterval(() => setSegmentClockMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [room?.status]);
+
+  const checkpoints = room?.course?.checkpoints ?? [];
+  const splits = projection?.checkpointSplits ?? [];
+  const splitById = useMemo(() => new Map(splits.map((r) => [r.checkpointId, r])), [splits]);
+
+  const activatedAtMs = useMemo(() => {
+    if (!room?.activatedAt) {
+      return NaN;
+    }
+    const t = Date.parse(room.activatedAt);
+    return Number.isNaN(t) ? NaN : t;
+  }, [room?.activatedAt]);
+
+  const anchor = useMemo(
+    () => (!Number.isNaN(activatedAtMs) ? resolvePaceAnchor(splits, activatedAtMs) : null),
+    [splits, activatedAtMs]
   );
 
-  const etaRows = useMemo(() => {
-    if (startAnchorMs === null || !room?.course) {
-      return [];
+  const currentIx = useMemo(
+    () => (checkpoints.length > 0 ? currentCheckpointOrFinishIndex(checkpoints, splits) : 0),
+    [checkpoints, splits]
+  );
+
+  const cumMetersAtCp = useMemo(() => {
+    if (!room?.course?.checkpoints?.length) {
+      return [] as number[];
     }
+    return cumulativeDistancesAlongCheckpoints(room.course.checkpoints);
+  }, [room?.course?.checkpoints]);
 
-    const projectionRows = s.projection?.checkpointSplits ?? [];
-    const rows =
-      projectionRows.length > 0
-        ? projectionRows.map((row) => ({ checkpointId: row.checkpointId, distanceMetersFromStart: row.distanceMetersFromStart }))
-        : buildExpectedAidStationSplitsFromCourse(room.course, paceSecondsPerKm, "mi").splits.map((split, index) => ({
-            checkpointId: room.course?.checkpoints[index]?.id ?? `aid-${index + 1}`,
-            distanceMetersFromStart: split.distanceKm * 1000
-          }));
-
-    return rows.map((row) => {
-      const seconds = secondsForDistance(row.distanceMetersFromStart, paceSecondsPerKm);
-      return {
-        checkpointId: row.checkpointId,
-        etaText: formatEtaClock(startAnchorMs + seconds * 1000),
-        elapsedText: formatRemainingMinutes(seconds)
+  useFocusEffect(
+    useCallback(() => {
+      if (!s.auth.accessToken || !room?.id) {
+        return undefined;
+      }
+      // List snapshots set `room` but not `roomDetail`; permissions for Edit live on the detail payload.
+      if (!s.roomDetail || s.roomDetail.room.id !== room.id) {
+        void s.onFetchRoomDetails(room.id);
+      }
+      if (room.status !== "active") {
+        return undefined;
+      }
+      s.onRefreshProjectionQuiet();
+      s.onSetProjectionPollEnabled(true);
+      return () => {
+        s.onSetProjectionPollEnabled(false);
       };
-    });
-  }, [startAnchorMs, room?.course, s.projection?.checkpointSplits, paceSecondsPerKm]);
+    }, [
+      room?.id,
+      room?.status,
+      s.auth.accessToken,
+      s.roomDetail,
+      s.onFetchRoomDetails,
+      s.onRefreshProjectionQuiet,
+      s.onSetProjectionPollEnabled
+    ])
+  );
 
-  const onSaveCheckpointEdits = async (): Promise<void> => {
+  useEffect(() => {
+    if (!editing) {
+      setDraftCp(room?.course?.checkpoints ?? []);
+    }
+  }, [room?.id, room?.course?.checkpoints, editing]);
+
+  const beginEdit = useCallback(() => {
+    if (!room?.course?.checkpoints) {
+      return;
+    }
+    const nextCp = structuredClone(room.course.checkpoints);
+    const stops: Record<string, { arrival: string; departure: string }> = {};
+    const tod: Record<string, string> = {};
+    const el: Record<string, string> = {};
+    for (const cp of nextCp) {
+      const sp = splitById.get(cp.id);
+      const ex = sp ? extractStopDraft(sp) : null;
+      if (ex) {
+        stops[cp.id] = ex;
+      } else {
+        stops[cp.id] = { arrival: "", departure: "" };
+      }
+      if (cp.cutoff?.mode === "time_of_day") {
+        tod[cp.id] = `${String(cp.cutoff.hour).padStart(2, "0")}:${String(cp.cutoff.minute).padStart(2, "0")}`;
+      } else {
+        tod[cp.id] = "";
+      }
+      if (cp.cutoff?.mode === "elapsed_from_start") {
+        el[cp.id] = String(Math.round(cp.cutoff.seconds / 60));
+      } else {
+        el[cp.id] = "";
+      }
+    }
+    setDraftCp(nextCp);
+    setDraftStops(stops);
+    setCutoffTod(tod);
+    setCutoffElapsedMin(el);
+    const staged = nextCp.map((c) => ({
+      ...c,
+      cutoff: parseCutoffFields(c.id, tod[c.id], el[c.id])
+    }));
+    editBaselineRef.current = {
+      stagedJson: JSON.stringify(staged),
+      stopsJson: JSON.stringify(stops)
+    };
+    setEditing(true);
+    setSaveError(undefined);
+  }, [room?.course?.checkpoints, splitById]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+    setDraftCp(room?.course?.checkpoints ?? []);
+    setDraftStops({});
+    setCutoffTod({});
+    setCutoffElapsedMin({});
+    editBaselineRef.current = null;
+    setSaveError(undefined);
+  }, [room?.course?.checkpoints]);
+
+  const courseDirty = useMemo(() => {
+    if (!editing || !editBaselineRef.current) {
+      return false;
+    }
+    const staged = draftCp.map((c) => ({
+      ...c,
+      cutoff: parseCutoffFields(c.id, cutoffTod[c.id], cutoffElapsedMin[c.id])
+    }));
+    return JSON.stringify(staged) !== editBaselineRef.current.stagedJson;
+  }, [draftCp, cutoffTod, cutoffElapsedMin, editing]);
+
+  const stopsDirty = useMemo(() => {
+    if (!editing || !editBaselineRef.current) {
+      return false;
+    }
+    return JSON.stringify(draftStops) !== editBaselineRef.current.stopsJson;
+  }, [draftStops, editing]);
+
+  const hasEditChanges = courseDirty || stopsDirty;
+
+  useFocusEffect(
+    useCallback(() => {
+      const pick = route.params?.pacePickResult;
+      if (!pick) {
+        return;
+      }
+      if (!editing) {
+        navigation.setParams({ pacePickResult: undefined });
+        return;
+      }
+      const id = `aid-${Date.now()}`;
+      setDraftCp((prev) => {
+        const n = prev.length + 1;
+        return [
+          ...prev,
+          {
+            id,
+            title: `Station ${n}`,
+            latitude: pick.latitude,
+            longitude: pick.longitude,
+            plannedStopSeconds: DEFAULT_PLANNED_STOP
+          }
+        ];
+      });
+      setDraftStops((prev) => ({ ...prev, [id]: { arrival: "", departure: "" } }));
+      setCutoffTod((prev) => ({ ...prev, [id]: "" }));
+      setCutoffElapsedMin((prev) => ({ ...prev, [id]: "" }));
+      navigation.setParams({ pacePickResult: undefined });
+    }, [route.params?.pacePickResult, navigation, editing])
+  );
+
+  useEffect(() => {
+    if (editing || didAutoScrollRef.current || !scrollRef.current || checkpoints.length === 0) {
+      return;
+    }
+    const targetId = currentIx >= checkpoints.length ? "__finish__" : checkpoints[currentIx]?.id;
+    if (!targetId) {
+      return;
+    }
+    const y = rowYRef.current[targetId];
+    if (y === undefined) {
+      return;
+    }
+    const estimatedCenter = Math.max(0, y - EST_ROW_HEIGHT * 2);
+    scrollRef.current.scrollTo({ y: estimatedCenter, animated: true });
+    didAutoScrollRef.current = true;
+  }, [editing, currentIx, checkpoints, splits.length]);
+
+  const onSave = async (): Promise<void> => {
     if (!room?.id || !s.auth.accessToken) {
-      setSaveError("Sign in again before saving checkpoints.");
+      setSaveError("Sign in again before saving.");
       return;
     }
     setSaving(true);
     setSaveError(undefined);
     try {
       const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-      const updatedRoom = await client.updateRaceCourse(room.id, {
-        course: {
-          checkpoints: normalizeCheckpointDraft(draftCheckpoints),
-          baselineTrack: room.course?.baselineTrack
-        },
-        plannedPaceSecondsPerKm: paceSecondsPerKm,
-        courseDistanceMeters: room.courseDistanceMeters,
-        courseElevationGainMeters: room.courseElevationGainMeters,
-        courseFileName: room.courseFileName
-      });
-      s.onApplyRaceRoomFromServer(updatedRoom);
+      let checkpointIdsForStops = draftCp.map((c) => c.id);
+
+      if (courseDirty && canEditCourse) {
+        const staged = draftCp.map((cp) => ({
+          ...cp,
+          cutoff: parseCutoffFields(cp.id, cutoffTod[cp.id], cutoffElapsedMin[cp.id])
+        }));
+        const normalizedCheckpoints = normalizeCheckpointDraft(staged);
+        checkpointIdsForStops = normalizedCheckpoints.map((c) => c.id);
+        const updatedRoom = await client.updateRaceCourse(room.id, {
+          course: {
+            checkpoints: normalizedCheckpoints,
+            baselineTrack: room.course?.baselineTrack
+          },
+          plannedPaceSecondsPerKm: paceSecondsPerKm,
+          courseDistanceMeters: room.courseDistanceMeters,
+          courseElevationGainMeters: room.courseElevationGainMeters,
+          courseFileName: room.courseFileName
+        });
+        s.onApplyRaceRoomFromServer(updatedRoom);
+      } else if (courseDirty && !canEditCourse) {
+        setSaveError("You do not have permission to edit the course.");
+        setSaving(false);
+        return;
+      }
+
+      if (stopsDirty && canEditStops) {
+        const baseline = editBaselineRef.current
+          ? (JSON.parse(editBaselineRef.current.stopsJson) as Record<string, { arrival: string; departure: string }>)
+          : {};
+        for (let i = 0; i < draftCp.length; i++) {
+          const oldId = draftCp[i]!.id;
+          const cpId = checkpointIdsForStops[i] ?? oldId;
+          const next = draftStops[oldId];
+          const prev = baseline[oldId];
+          if (!next?.arrival || !next.departure) {
+            continue;
+          }
+          if (!prev || prev.arrival !== next.arrival || prev.departure !== next.departure) {
+            s.onEnqueueManualStop(cpId, next.arrival, next.departure);
+          }
+        }
+      } else if (stopsDirty && !canEditStops) {
+        setSaveError("You do not have permission to edit station times.");
+        setSaving(false);
+        return;
+      }
+
       await s.onFetchRoomDetails(room.id);
       s.onFetchProjection();
+      setEditing(false);
+      editBaselineRef.current = null;
+      didAutoScrollRef.current = false;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Could not save checkpoints.");
+      setSaveError(error instanceof Error ? error.message : "Save failed.");
     } finally {
       setSaving(false);
     }
   };
 
-  const etaByCheckpointId = useMemo(() => {
-    const map = new Map<string, { etaText: string; elapsedText: string }>();
-    for (const row of etaRows) {
-      map.set(row.checkpointId, { etaText: row.etaText, elapsedText: row.elapsedText });
-    }
-    return map;
-  }, [etaRows]);
+  const openMapPicker = useCallback(() => {
+    const last = draftCp[draftCp.length - 1];
+    navigation.navigate("Map", {
+      screen: "CheckpointPickMap",
+      params: {
+        initialLatitude: last?.latitude,
+        initialLongitude: last?.longitude
+      }
+    });
+  }, [navigation, draftCp]);
+
+  const onRowLayout = (id: string) => (e: LayoutChangeEvent) => {
+    rowYRef.current[id] = e.nativeEvent.layout.y;
+  };
+
+  if (!room) {
+    return (
+      <ScrollView style={s.styles.container} contentContainerStyle={s.styles.scroll}>
+        <Text style={s.styles.body}>Select a race room to view Pace.</Text>
+      </ScrollView>
+    );
+  }
+
+  if (!room.course || room.course.checkpoints.length < 2) {
+    return (
+      <ScrollView style={s.styles.container} contentContainerStyle={[s.styles.scroll, paceStyles.empty]}>
+        <Text style={s.styles.title}>Pace</Text>
+        <Text style={[s.styles.subtitle, { marginBottom: 16 }]}>
+          Upload a course file to see checkpoint times, cutoffs, and projections.
+        </Text>
+        <DSButton preset="primary" onPress={() => navigation.navigate("GpxImport")}>
+          Upload a course file
+        </DSButton>
+      </ScrollView>
+    );
+  }
+
+  const progressMeters = projection?.progressMeters ?? 0;
+  const fallbackCourseLengthM = cumMetersAtCp.length > 0 ? cumMetersAtCp[cumMetersAtCp.length - 1]! : 0;
+  const effectiveCourseLenM =
+    projection && projection.courseLengthMeters > 0 ? projection.courseLengthMeters : fallbackCourseLengthM;
+  const progressRatio =
+    effectiveCourseLenM > 0 ? Math.min(1, Math.max(0, progressMeters / effectiveCourseLenM)) : 0;
+  const coveredMi = effectiveCourseLenM > 0 ? milesFromMeters(progressMeters) : 0;
+  const courseMi = effectiveCourseLenM > 0 ? milesFromMeters(effectiveCourseLenM) : 0;
+  const courseMiLabel = effectiveCourseLenM > 0 ? courseMi.toFixed(1) : "—";
+  const coveredLabel = effectiveCourseLenM > 0 ? coveredMi.toFixed(1) : "—";
+
+  const stale = projection?.projectionConfidence === "degraded";
+  const staleSec = projection?.secondsSinceLastAcceptedPing;
+
+  const deltaColorFor = (delta: number) =>
+    deltaTone(delta) === "ahead" ? theme.color.success : deltaTone(delta) === "behind" ? theme.color.danger : theme.color.muted;
+
+  const lastCpMetersForFinish = cumMetersAtCp.length > 0 ? cumMetersAtCp[cumMetersAtCp.length - 1]! : 0;
+  const finishRailModel =
+    projection && !Number.isNaN(activatedAtMs)
+      ? paceRailFinishRowModel(currentIx, checkpoints.length, lastCpMetersForFinish, effectiveCourseLenM, progressMeters)
+      : { isActiveLeg: false, fraction01: 0 };
 
   return (
-    <ScrollView
-      style={s.styles.container}
-      contentContainerStyle={s.styles.scroll}
-      keyboardShouldPersistTaps="handled"
-    >
-      <DSCard style={s.styles.card}>
-        <Text style={s.styles.title}>Course</Text>
-        <Text style={s.styles.subtitle}>Checkpoint order and ETA plan anchored to your race-day start time.</Text>
-        <DSCard style={s.styles.summaryCard}>
-          <Text style={s.styles.summaryTitle}>Start time (local)</Text>
-          <DSTextInput value={startTimeInput} onChangeText={setStartTimeInput} placeholder="07:00" />
-          <Text style={[s.styles.body, { marginTop: 8 }]}>
-            {startAnchorMs === null ? "Enter start as HH:MM (24-hour)." : `Anchored to ${formatEtaClock(startAnchorMs)}.`}
-          </Text>
-        </DSCard>
-
-        <Text style={[s.styles.summaryTitle, { marginTop: 12 }]}>Checkpoint editor</Text>
-        {(draftCheckpoints ?? []).map((checkpoint, index) => (
-          <DSCard key={`${checkpoint.id}-${index}`} style={[s.styles.summaryCard, { marginTop: 8 }]}>
-            <Text style={s.styles.body}>Checkpoint {index + 1}</Text>
-            <DSTextInput
-              value={checkpoint.id}
-              onChangeText={(next) =>
-                setDraftCheckpoints((prev) =>
-                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, id: next } : row))
-                )
-              }
-              placeholder={`Checkpoint ${index + 1}`}
-            />
-            <Text style={[s.styles.body, { marginTop: 6 }]}>
-              {index === 0
-                ? "Start checkpoint"
-                : (() => {
-                const eta = etaByCheckpointId.get(checkpoint.id);
-                return eta ? `ETA ${eta.etaText} (${eta.elapsedText} from start)` : "ETA unavailable";
-              })()}
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        ref={scrollRef}
+        style={s.styles.container}
+        contentContainerStyle={[s.styles.scroll, { paddingBottom: editing ? 100 : 24 }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        {stale ? (
+          <View style={paceStyles.staleBanner}>
+            <Text style={paceStyles.staleTitle}>Live data may be stale</Text>
+            <Text style={paceStyles.staleBody}>
+              Last accepted ping{" "}
+              {typeof staleSec === "number" ? `≈ ${Math.round(staleSec / 60)} min ago` : "is unknown"}.
             </Text>
-            <View style={{ marginTop: 8, flexDirection: "row", gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <DSButton
-                  preset="secondary"
-                  onPress={() => setDraftCheckpoints((prev) => moveCheckpoint(prev, index, -1))}
-                  disabled={index === 0}
-                >
-                  Up
-                </DSButton>
-              </View>
-              <View style={{ flex: 1 }}>
-                <DSButton
-                  preset="secondary"
-                  onPress={() => setDraftCheckpoints((prev) => moveCheckpoint(prev, index, 1))}
-                  disabled={index === draftCheckpoints.length - 1}
-                >
-                  Down
-                </DSButton>
-              </View>
-              <View style={{ flex: 1 }}>
-                <DSButton preset="secondary" onPress={() => setDraftCheckpoints((prev) => prev.filter((_, i) => i !== index))}>
-                  Remove
-                </DSButton>
+          </View>
+        ) : null}
+
+        <View style={paceStyles.headerBlock}>
+          <Text style={paceStyles.kicker}>Course progress</Text>
+          <View style={paceStyles.headerTitleRow}>
+            <Text style={paceStyles.raceName} numberOfLines={2}>
+              {room.name}
+            </Text>
+            <Text style={paceStyles.totalMiles}>
+              {courseMiLabel}
+              {"\n"}
+              <Text style={paceStyles.totalMilesLabel}>total mi</Text>
+            </Text>
+          </View>
+          <Text style={paceStyles.progressCaption}>
+            {coveredLabel} mi covered
+            {effectiveCourseLenM > 0 ? ` · ${Math.round(progressRatio * 100)}%` : ""}
+          </Text>
+          <View style={paceStyles.progressTrack}>
+            <View style={[paceStyles.progressFill, { width: `${Math.round(progressRatio * 100)}%` }]} />
+          </View>
+        </View>
+
+        {!editing ? (
+          <View style={paceStyles.editRow}>
+            <DSButton preset="secondary" onPress={beginEdit} disabled={!canEditCourse && !canEditStops}>
+              Edit
+            </DSButton>
+          </View>
+        ) : (
+          <View style={paceStyles.editRowSplit}>
+            <DSButton preset="secondary" onPress={cancelEdit}>
+              Cancel
+            </DSButton>
+            <DSButton preset="secondary" onPress={openMapPicker} disabled={!canEditCourse}>
+              Add from map
+            </DSButton>
+          </View>
+        )}
+
+        {Number.isNaN(activatedAtMs) ? (
+          <Text style={[paceStyles.activateHint, s.styles.warningText]}>Activate the room to anchor times on race start.</Text>
+        ) : null}
+
+        {checkpoints.map((cp, index) => {
+          const split = splitById.get(cp.id);
+          const isCurrent = index === currentIx;
+          const completed = split ? isCheckpointCompletedUi(split) : false;
+          const inProgressHere = isCurrent && !completed && index < checkpoints.length;
+          const stationLabel = checkpointDisplayTitle(cp);
+          const distMetersAtCp = split?.distanceMetersFromStart ?? cumMetersAtCp[index] ?? 0;
+          const distMi = milesFromMeters(distMetersAtCp);
+          const plannedElapsed =
+            split?.plannedElapsedSecondsAtCross ?? secondsForDistance(distMetersAtCp, paceSecondsPerKm);
+          const projElapsed =
+            split && !Number.isNaN(activatedAtMs)
+              ? projectedElapsedSecondsAtSplit(split, index, anchor, activatedAtMs)
+              : plannedElapsed;
+          const delta = split ? projElapsed - plannedElapsed : 0;
+          const deltaColor = deltaColorFor(delta);
+          const cutoffText = formatCutoffLabel(cp.cutoff, Number.isNaN(activatedAtMs) ? null : activatedAtMs);
+          const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(activatedAtMs) ? null : activatedAtMs);
+          const clock =
+            !Number.isNaN(activatedAtMs) ? formatClockFromElapsed(activatedAtMs, projElapsed) : "—";
+          const distTo = milesRemainingToCheckpoint(progressMeters, distMetersAtCp);
+          const plannedStopForDwell = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
+          const dwellHere = Boolean(split && isAutoDwellAtCheckpoint(split) && isCurrent && !completed);
+          const railModel = paceRailCheckpointRowModel(
+            index,
+            currentIx,
+            checkpoints.length,
+            cumMetersAtCp,
+            progressMeters,
+            split,
+            plannedStopForDwell,
+            segmentClockMs,
+            completed
+          );
+
+          return (
+            <View key={cp.id} style={paceStyles.timelineRow} onLayout={onRowLayout(cp.id)}>
+              <PaceTimelineRail
+                theme={theme}
+                isActiveLeg={railModel.isActiveLeg}
+                completed={completed}
+                fraction01={railModel.fraction01}
+              />
+
+              <View
+                style={[
+                  paceStyles.cpCardShell,
+                  dwellHere && paceStyles.cpCardAtStation,
+                  isCurrent && !dwellHere && paceStyles.cpCardCurrent,
+                  completed && paceStyles.cpCardPast
+                ]}
+              >
+                <View style={paceStyles.cpHeaderRow}>
+                  <Text style={paceStyles.cpIndexDist}>
+                    CP{index + 1} — {distMi.toFixed(1)} MI
+                  </Text>
+                  {inProgressHere ? (
+                    <View style={paceStyles.inProgressBadge}>
+                      <Text style={paceStyles.inProgressBadgeText}>{dwellHere ? "At station" : "In progress"}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={[paceStyles.cpStationName, completed && paceStyles.cpStationNamePast]} numberOfLines={2}>
+                  {stationLabel}
+                </Text>
+                <View style={paceStyles.cpDivider} />
+                {editing ? (
+                  <View style={{ gap: 8 }}>
+                    <DSTextInput
+                      value={cp.title ?? ""}
+                      onChangeText={(t) => setDraftCp((p) => p.map((c) => (c.id === cp.id ? { ...c, title: t } : c)))}
+                      placeholder="Station name"
+                    />
+                    <Text style={s.styles.label}>Cutoff (optional)</Text>
+                    <DSTextInput
+                      value={cutoffTod[cp.id] ?? ""}
+                      onChangeText={(t) => setCutoffTod((prev) => ({ ...prev, [cp.id]: t }))}
+                      placeholder="HH:MM time of day"
+                    />
+                    <DSTextInput
+                      value={cutoffElapsedMin[cp.id] ?? ""}
+                      onChangeText={(t) => setCutoffElapsedMin((prev) => ({ ...prev, [cp.id]: t }))}
+                      placeholder="Or minutes from start"
+                      keyboardType="number-pad"
+                    />
+                    <Text style={s.styles.label}>Arrival / departure (ISO)</Text>
+                    <DSTextInput
+                      value={draftStops[cp.id]?.arrival ?? ""}
+                      onChangeText={(t) =>
+                        setDraftStops((prev) => ({ ...prev, [cp.id]: { arrival: t, departure: prev[cp.id]?.departure ?? "" } }))
+                      }
+                      placeholder="2026-05-11T12:00:00.000Z"
+                    />
+                    <DSTextInput
+                      value={draftStops[cp.id]?.departure ?? ""}
+                      onChangeText={(t) =>
+                        setDraftStops((prev) => ({ ...prev, [cp.id]: { arrival: prev[cp.id]?.arrival ?? "", departure: t } }))
+                      }
+                      placeholder="2026-05-11T12:10:00.000Z"
+                    />
+                    <View style={paceStyles.row}>
+                      <DSButton preset="secondary" onPress={() => setDraftCp((p) => moveCheckpoint(p, index, -1))} disabled={index === 0}>
+                        Up
+                      </DSButton>
+                      <DSButton
+                        preset="secondary"
+                        onPress={() => setDraftCp((p) => moveCheckpoint(p, index, 1))}
+                        disabled={index === draftCp.length - 1}
+                      >
+                        Down
+                      </DSButton>
+                      <DSButton preset="secondary" onPress={() => setDraftCp((p) => p.filter((_, i) => i !== index))} disabled={completed}>
+                        Remove
+                      </DSButton>
+                    </View>
+                  </View>
+                ) : inProgressHere ? (
+                  <View style={paceStyles.triWrap}>
+                    <View style={paceStyles.triCol}>
+                      <Text style={paceStyles.microLabel}>Est. arrival</Text>
+                      <Text style={paceStyles.timePrimary}>{clock}</Text>
+                    </View>
+                    <View style={paceStyles.triCol}>
+                      {cutoffClock ? (
+                        <>
+                          <Text style={paceStyles.microLabel}>Cutoff</Text>
+                          <Text style={paceStyles.cutoffRed}>{cutoffClock}</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={paceStyles.microLabel}>Cutoff</Text>
+                          <Text style={paceStyles.timeMuted}>—</Text>
+                        </>
+                      )}
+                    </View>
+                    <View style={paceStyles.triCol}>
+                      <Text style={paceStyles.microLabel}>Dist. to</Text>
+                      <Text style={paceStyles.timeSecondary}>{distTo}</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={paceStyles.oneLineOuter} numberOfLines={1} ellipsizeMode="tail">
+                    <Text style={[paceStyles.oneLineClock, completed && paceStyles.mainTimePast]}>{clock}</Text>
+                    <Text style={paceStyles.oneLineTag}> {completed ? "Actual" : "Projected"} </Text>
+                    <Text style={[paceStyles.oneLineDelta, { color: deltaColor }]}>{formatSignedMinutesDelta(delta)}</Text>
+                    {cutoffText ? <Text style={paceStyles.oneLineExtra}> · {cutoffText}</Text> : null}
+                  </Text>
+                )}
               </View>
             </View>
-          </DSCard>
-        ))}
-        <View style={{ marginTop: 10 }}>
-          <DSButton
-            preset="secondary"
-            onPress={() =>
-              setDraftCheckpoints((prev) => [...prev, { id: `aid-${prev.length + 1}`, latitude: 0, longitude: 0, plannedStopSeconds: 120 }])
-            }
-          >
-            Add checkpoint
+          );
+        })}
+
+        {projection && !Number.isNaN(activatedAtMs) ? (
+          <View style={paceStyles.timelineRow} onLayout={onRowLayout("__finish__")}>
+            <PaceTimelineRail
+              theme={theme}
+              isActiveLeg={finishRailModel.isActiveLeg}
+              completed={false}
+              fraction01={finishRailModel.fraction01}
+              variant="finish"
+            />
+            <View style={[paceStyles.cpCardShell, currentIx >= checkpoints.length ? paceStyles.cpCardCurrent : null]}>
+              <View style={paceStyles.cpHeaderRow}>
+                <Text style={paceStyles.cpIndexDist}>Finish</Text>
+              </View>
+              <Text style={paceStyles.cpStationName}>FINISH LINE</Text>
+              <View style={paceStyles.cpDivider} />
+              <Text style={paceStyles.oneLineOuter} numberOfLines={1} ellipsizeMode="tail">
+                <Text style={paceStyles.oneLineClock}>
+                  {new Date(projection.etaFinishPlanIso).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit"
+                  })}
+                </Text>
+                <Text style={paceStyles.oneLineTag}> Target </Text>
+                <Text
+                  style={[
+                    paceStyles.oneLineDelta,
+                    { color: deltaColorFor(finishDeviationSeconds(projection, activatedAtMs)) }
+                  ]}
+                >
+                  {formatSignedMinutesDelta(finishDeviationSeconds(projection, activatedAtMs))}
+                </Text>
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {editing ? (
+          <View style={{ marginTop: 12 }}>
+            <DSButton
+              preset="secondary"
+              onPress={() =>
+                setDraftCp((prev) => [
+                  ...prev,
+                  {
+                    id: `aid-${prev.length + 1}`,
+                    title: `Station ${prev.length + 1}`,
+                    latitude: prev[prev.length - 1]?.latitude ?? 0,
+                    longitude: prev[prev.length - 1]?.longitude ?? 0,
+                    plannedStopSeconds: DEFAULT_PLANNED_STOP
+                  }
+                ])
+              }
+              disabled={!canEditCourse}
+            >
+              Add checkpoint
+            </DSButton>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {editing ? (
+        <View style={paceStyles.saveBar}>
+          {saveError ? <Text style={s.styles.errorText}>{saveError}</Text> : null}
+          <DSButton preset="primary" onPress={() => void onSave()} disabled={!hasEditChanges || saving}>
+            {saving ? <ActivityIndicator color={theme.color.authPrimaryActionText} /> : "Save"}
           </DSButton>
         </View>
-        <View style={{ marginTop: 10 }}>
-          <DSButton preset="primary" onPress={() => void onSaveCheckpointEdits()} disabled={!hasUnsavedChanges || saving}>
-            {saving ? "Saving..." : "Save checkpoint edits"}
-          </DSButton>
-          {saveError ? <Text style={[s.styles.errorText, { marginTop: 8 }]}>{saveError}</Text> : null}
-        </View>
-      </DSCard>
-    </ScrollView>
+      ) : null}
+    </View>
   );
 }
 
-function parseStartAnchor(input: string): number | null {
-  const match = input.trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) {
-    return null;
+function extractStopDraft(split: RaceCheckpointSplitRow): { arrival: string; departure: string } | null {
+  for (let i = split.visits.length - 1; i >= 0; i--) {
+    const v = split.visits[i]!;
+    if (v.manualEntry) {
+      return { arrival: v.manualEntry.arrivalAt, departure: v.manualEntry.departureAt };
+    }
+    if (v.autoDetected?.arrivalRecordedAt && v.autoDetected.departureRecordedAt) {
+      return { arrival: v.autoDetected.arrivalRecordedAt, departure: v.autoDetected.departureRecordedAt };
+    }
   }
-  const hour = Number.parseInt(match[1], 10);
-  const minute = Number.parseInt(match[2], 10);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return null;
+  return null;
+}
+
+function parseCutoffFields(
+  _cpId: string,
+  tod: string | undefined,
+  elapsedMin: string | undefined
+): RaceCourseCheckpointCutoff | undefined {
+  const todTrim = tod?.trim() ?? "";
+  const elTrim = elapsedMin?.trim() ?? "";
+  if (elTrim.length > 0) {
+    const n = Number.parseInt(elTrim, 10);
+    if (Number.isFinite(n) && n >= 0) {
+      return { mode: "elapsed_from_start", seconds: n * 60 };
+    }
   }
-  const now = new Date();
-  now.setHours(hour, minute, 0, 0);
-  return now.getTime();
+  if (todTrim.length > 0) {
+    const m = todTrim.match(/^(\d{1,2}):(\d{2})$/);
+    if (m) {
+      const hour = Number.parseInt(m[1]!, 10);
+      const minute = Number.parseInt(m[2]!, 10);
+      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return { mode: "time_of_day", hour, minute };
+      }
+    }
+  }
+  return undefined;
 }
 
 function moveCheckpoint(checkpoints: RaceCourseCheckpoint[], index: number, delta: -1 | 1): RaceCourseCheckpoint[] {
@@ -210,6 +736,152 @@ function normalizeCheckpointDraft(draft: RaceCourseCheckpoint[]): RaceCourseChec
       suffix += 1;
     }
     seen.add(id);
-    return { ...checkpoint, id, plannedStopSeconds: checkpoint.plannedStopSeconds ?? 120 };
+    return { ...checkpoint, id, plannedStopSeconds: checkpoint.plannedStopSeconds ?? DEFAULT_PLANNED_STOP };
+  });
+}
+
+function createPaceStyles(t: DSThemeTokens) {
+  const { color, radius, spacing } = t;
+  return StyleSheet.create({
+    empty: { flexGrow: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24 },
+    staleBanner: {
+      backgroundColor: color.statusRail,
+      borderRadius: radius.lg,
+      padding: spacing.cardPadding,
+      marginBottom: spacing.stackMd,
+      borderWidth: 1,
+      borderColor: color.divider
+    },
+    staleTitle: { fontWeight: "700", color: color.authHeading, fontSize: 14 },
+    staleBody: { color: color.authBody, marginTop: 4, fontSize: 13 },
+    activateHint: { marginBottom: 12, fontSize: 14, fontWeight: "600" },
+    headerBlock: { marginBottom: spacing.stackMd },
+    kicker: {
+      color: color.primary,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 1.2,
+      textTransform: "uppercase",
+      marginBottom: 4
+    },
+    headerTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+    raceName: { flex: 1, color: color.text, fontSize: 24, fontWeight: "800", lineHeight: 28 },
+    totalMiles: { color: color.primary, fontSize: 18, fontWeight: "800", textAlign: "right" },
+    totalMilesLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" },
+    progressCaption: { color: color.body, fontSize: 13, marginTop: 6 },
+    progressTrack: {
+      height: 8,
+      borderRadius: radius.full,
+      backgroundColor: color.divider,
+      marginTop: 10,
+      overflow: "hidden"
+    },
+    progressFill: {
+      height: 8,
+      backgroundColor: color.primary,
+      borderRadius: radius.full
+    },
+    editRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: spacing.stackSm },
+    editRowSplit: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: spacing.stackSm,
+      gap: spacing.stackSm
+    },
+    timelineRow: { flexDirection: "row", alignItems: "stretch", marginBottom: spacing.stackSm },
+    cpCardShell: {
+      flex: 1,
+      borderRadius: radius.lg,
+      padding: spacing.cardPadding,
+      backgroundColor: color.card,
+      borderWidth: 1,
+      borderColor: color.divider
+    },
+    cpCardCurrent: {
+      borderColor: color.primary,
+      borderWidth: 2,
+      shadowColor: color.primary,
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 3
+    },
+    cpCardPast: { opacity: 0.72 },
+    cpCardAtStation: {
+      backgroundColor: color.statusRail,
+      borderLeftWidth: 3,
+      borderLeftColor: color.primary
+    },
+    cpHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+    cpIndexDist: {
+      color: color.primary,
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 0.6,
+      textTransform: "uppercase"
+    },
+    inProgressBadge: {
+      backgroundColor: color.primary,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radius.full
+    },
+    inProgressBadgeText: {
+      color: color.authPrimaryActionText,
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      textTransform: "uppercase"
+    },
+    cpStationName: {
+      color: color.text,
+      fontSize: 17,
+      fontWeight: "800",
+      letterSpacing: 0.4,
+      marginTop: 6
+    },
+    cpStationNamePast: { color: color.muted },
+    cpDivider: {
+      height: 1,
+      backgroundColor: color.divider,
+      marginVertical: 10
+    },
+    triWrap: { flexDirection: "row", justifyContent: "space-between", gap: 6, marginTop: 2 },
+    triCol: { flex: 1, minWidth: 0, alignItems: "flex-start" },
+    microLabel: {
+      color: color.muted,
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      marginBottom: 4
+    },
+    timePrimary: { color: color.primary, fontSize: 16, fontWeight: "800" },
+    timeSecondary: { color: color.text, fontSize: 15, fontWeight: "700" },
+    timeMuted: { color: color.muted, fontSize: 15, fontWeight: "600" },
+    cutoffRed: { color: color.danger, fontSize: 15, fontWeight: "900" },
+    mainTimePast: { color: color.muted },
+    oneLineOuter: { marginTop: 4 },
+    oneLineClock: { color: color.text, fontSize: 17, fontWeight: "800" },
+    oneLineTag: {
+      color: color.muted,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+      textTransform: "uppercase"
+    },
+    oneLineDelta: { fontSize: 14, fontWeight: "700" },
+    oneLineExtra: { color: color.body, fontSize: 12 },
+    row: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+    saveBar: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: 16,
+      backgroundColor: color.card,
+      borderTopWidth: 1,
+      borderTopColor: color.divider
+    }
   });
 }

@@ -537,6 +537,10 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
   }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
+  const refreshProjectionQuiet = useCallback(() => {
+    void pollProjectionQuiet();
+  }, [pollProjectionQuiet]);
+
   const postSyncHeartbeat = useCallback(async () => {
     if (!auth.accessToken || !room) return;
     setBusy(true);
@@ -1412,6 +1416,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onPushQueueDiagnosticsSnapshot: pushQueueDiagnosticsSnapshot,
     onRecordOutboxMergeTelemetry: recordOutboxMergeTelemetry,
     onFetchProjection: fetchProjection,
+    onRefreshProjectionQuiet: refreshProjectionQuiet,
     onToggleProjectionPoll: () => {
       setProjectionPollEnabled((v) => !v);
     },
@@ -1434,8 +1439,8 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         [checkpointId]: new Date().toISOString()
       }));
     },
-    onEnqueueManualStop: (checkpointId, arrivalAt) => {
-      void enqueueManualStop(checkpointId, arrivalAt, new Date().toISOString());
+    onEnqueueManualStop: (checkpointId, arrivalAt, departureAt) => {
+      void enqueueManualStop(checkpointId, arrivalAt, departureAt ?? new Date().toISOString());
     },
     onSignOut: auth.signOut,
     onToggleResolvedSource: enqueueSourceToggle,

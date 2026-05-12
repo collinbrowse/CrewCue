@@ -162,6 +162,8 @@ export type UpdateRaceCourseInput = {
   courseElevationGainMeters?: number;
   courseFileName?: string;
   routeOverlayLayer?: MapWorkspaceLayer;
+  /** Optional: shift activation anchor used for projection elapsed math (ISO datetime). */
+  raceStartAt?: string;
 };
 
 export type PostPingInput = {

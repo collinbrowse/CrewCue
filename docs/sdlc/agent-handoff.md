@@ -12,9 +12,15 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent fix (2026-05-11): Pace Edit + timeline rail
+
+- **Edit:** `GET /race-rooms/:id` permissions now include `canEditCheckpointStops` (server mirrors `canEditCheckpointStoppage`). Pace enables Edit using `(roomDetail.permissions ?? JWT current-room role mirror)` for both course (`canActivateRoom`) and stops so **crew_member** works when token omits `room_roles`. Pace focus still refetches detail when missing/stale room id.
+- **Timeline rail:** `PaceTimelineRail` + `paceRailCheckpointRowModel` / `paceRailFinishRowModel` — active leg uses a **purple** trunk and an animated marker that moves down the row by **along-course progress** toward that checkpoint (or **dwell / planned stop** when an auto visit is in progress). Other rows: **gray** trunk, hollow marker at top; completed: filled check at top.
+
 ## Session status snapshot
 
-- Last updated: 2026-05-10 (America/Chicago)
+- Last updated: 2026-05-11 (America/Chicago)
+- **Pace tab (merged locally / pending PR):** Timeline `AuthenticatedReadoutsScreen`, `features/pace/timeline.ts`, stale banner from `projectionConfidence`, `PUT /race-rooms/:roomId/course` preserves ping + projection + recomputes + blocks removing visited CPs (`manualEntry` or auto departure), staleness tests + docs updated, `CheckpointPickMapScreen` + tab/stack/linking, `onEnqueueManualStop(..., departureAt?)`, `UpdateRaceCourseInput.raceStartAt`. **Validate:** `npm run verify` at repo root; open issue + PR with `Closes #…` per workflow.
 - **Active issues:** #236, #237, #238. **#242** and **#244** closed via merged PR **#243** (confirm on GitHub if auto-close missed a line). **#240** closed via **#241**.
 - **Active branch:** `main` (includes [#243](https://github.com/collinbrowse/CrewCue/pull/243) — chat load UX, prefetch, 10-message window, paging, chip flash fix).
 - **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)

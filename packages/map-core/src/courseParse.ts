@@ -1,4 +1,4 @@
-import type { RaceCourse, RaceCourseBaselineTrack } from "@crewcue/contracts";
+import type { RaceCourse, RaceCourseBaselineTrack, RaceCourseCheckpointCutoff } from "@crewcue/contracts";
 
 export type GpxTrackPoint = {
   latitude: number;
@@ -33,6 +33,11 @@ const DEFAULT_PACE_SECONDS_PER_KM = 360;
 const MAX_BASELINE_POINTS = 220;
 const WAYPOINT_ENCOUNTER_RADIUS_METERS = 80;
 const WAYPOINT_ENCOUNTER_MIN_GAP_METERS = 200;
+/** Default planned aid stop when importing or synthesizing checkpoints (10 minutes). */
+export const DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS = 600;
+
+const CUTOFF_HINT_RE =
+  /(cutoff|cut-off|\bcut\b|deadline|time\s*limit|must\s*leave|closes\s*at|close\s*at)/i;
 
 export function parseCourseTrack(fileContents: string, fileName: string): ParsedGpxTrack {
   const normalizedName = fileName.trim().toLowerCase();
@@ -179,12 +184,19 @@ export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
   const seenIds = new Set<string>();
   const checkpoints =
     selectedWaypoints.length >= 2
-      ? selectedWaypoints.map((waypoint, index) => ({
-          id: uniqueCheckpointId(sanitizeCheckpointId(waypoint.name, index + 1), seenIds),
-          latitude: waypoint.latitude,
-          longitude: waypoint.longitude,
-          plannedStopSeconds: 120
-        }))
+      ? selectedWaypoints.map((waypoint, index) => {
+          const id = uniqueCheckpointId(sanitizeCheckpointId(waypoint.name, index + 1), seenIds);
+          const cutoff = tryParseCheckpointCutoffFromDescription(waypoint.description);
+          const title = waypoint.name?.trim() ? waypoint.name.trim() : slugToTitle(id);
+          return {
+            id,
+            title,
+            latitude: waypoint.latitude,
+            longitude: waypoint.longitude,
+            plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS,
+            ...(cutoff ? { cutoff } : {})
+          };
+        })
       : buildFallbackCheckpoints(parsedTrack.points);
 
   const baselinePoints = buildBaselinePoints(parsedTrack.points);
@@ -393,7 +405,109 @@ export type GpxWaypoint = {
   latitude: number;
   longitude: number;
   name?: string;
+  /** GPX/KML/JSON description text; used for best-effort cutoff parsing. */
+  description?: string;
 };
+
+/**
+ * Best-effort parse of a cutoff from free-form marker description text.
+ * Returns undefined when no cutoff-like hint is found or parsing fails.
+ */
+export function tryParseCheckpointCutoffFromDescription(raw: string | undefined): RaceCourseCheckpointCutoff | undefined {
+  if (!raw?.trim()) {
+    return undefined;
+  }
+  const text = raw.trim();
+  if (!CUTOFF_HINT_RE.test(text)) {
+    return undefined;
+  }
+
+  const lower = text.toLowerCase();
+  const fromStartHint = /(from\s*start|after\s*start|elapsed|time\s*in)/i.test(lower);
+
+  const ampm = text.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)\b/i);
+  if (ampm) {
+    let hour = Number.parseInt(ampm[1]!, 10);
+    const minute = Number.parseInt(ampm[2]!, 10);
+    const mer = ampm[3]!.toLowerCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+      return undefined;
+    }
+    if (mer === "pm" && hour < 12) {
+      hour += 12;
+    }
+    if (mer === "am" && hour === 12) {
+      hour = 0;
+    }
+    if (hour < 0 || hour > 23) {
+      return undefined;
+    }
+    return { mode: "time_of_day", hour, minute };
+  }
+
+  const hms = text.match(/\b(\d{1,3}):(\d{2}):(\d{2})\b/);
+  if (hms) {
+    const h = Number.parseInt(hms[1]!, 10);
+    const m = Number.parseInt(hms[2]!, 10);
+    const s = Number.parseInt(hms[3]!, 10);
+    if (!Number.isFinite(h) || !Number.isFinite(m) || !Number.isFinite(s) || m > 59 || s > 59) {
+      return undefined;
+    }
+    if (h > 23 || fromStartHint) {
+      const seconds = h * 3600 + m * 60 + s;
+      return { mode: "elapsed_from_start", seconds };
+    }
+    return { mode: "time_of_day", hour: h, minute: m };
+  }
+
+  const hm = text.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (hm) {
+    const h = Number.parseInt(hm[1]!, 10);
+    const m = Number.parseInt(hm[2]!, 10);
+    if (!Number.isFinite(h) || !Number.isFinite(m) || m > 59) {
+      return undefined;
+    }
+    if (fromStartHint || h > 23) {
+      const seconds = h * 3600 + m * 60;
+      return { mode: "elapsed_from_start", seconds };
+    }
+    return { mode: "time_of_day", hour: h, minute: m };
+  }
+
+  const hoursMinutes = text.match(/\b(\d+)\s*h(?:\s*(\d+)\s*m)?\b/i);
+  if (hoursMinutes) {
+    const h = Number.parseInt(hoursMinutes[1]!, 10);
+    const mPart = hoursMinutes[2];
+    const m = mPart ? Number.parseInt(mPart, 10) : 0;
+    if (!Number.isFinite(h) || !Number.isFinite(m) || m > 59) {
+      return undefined;
+    }
+    return { mode: "elapsed_from_start", seconds: h * 3600 + m * 60 };
+  }
+
+  return undefined;
+}
+
+/** Turn a stable checkpoint id slug into Title Case words (for UI when `title` is missing). */
+export function slugToTitle(slug: string): string {
+  const t = slug.replace(/-/g, " ").trim();
+  if (!t) {
+    return slug;
+  }
+  return t.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function extractWaypointDescription(body: string): string | undefined {
+  const desc = body.match(/<(?:[\w-]+:)?desc>\s*([^<]*)\s*<\/(?:[\w-]+:)?desc>/i);
+  if (desc?.[1]?.trim()) {
+    return desc[1].trim();
+  }
+  const description = body.match(/<(?:[\w-]+:)?description>\s*([^<]*)\s*<\/(?:[\w-]+:)?description>/i);
+  if (description?.[1]?.trim()) {
+    return description[1].trim();
+  }
+  return undefined;
+}
 
 function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
   const waypointPattern = /<(?:[\w-]+:)?wpt\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?wpt>/gi;
@@ -408,10 +522,12 @@ function extractWaypointsFromXml(gpxXml: string): GpxWaypoint[] {
       continue;
     }
     const nameMatch = body.match(/<(?:[\w-]+:)?name>\s*([^<]+)\s*<\/(?:[\w-]+:)?name>/i);
+    const description = extractWaypointDescription(body);
     waypoints.push({
       latitude,
       longitude,
-      ...(nameMatch ? { name: nameMatch[1].trim() } : {})
+      ...(nameMatch ? { name: nameMatch[1].trim() } : {}),
+      ...(description ? { description } : {})
     });
   }
 
@@ -423,6 +539,7 @@ function extractKmlWaypoints(kml: string): GpxWaypoint[] {
     /<Placemark[\s\S]*?<name>\s*([^<]+)\s*<\/name>[\s\S]*?<Point>[\s\S]*?<coordinates>\s*([^<]+)\s*<\/coordinates>[\s\S]*?<\/Point>[\s\S]*?<\/Placemark>/gi;
   const waypoints: GpxWaypoint[] = [];
   for (const match of kml.matchAll(waypointPattern)) {
+    const block = match[0] ?? "";
     const name = (match[1] ?? "").trim();
     const [lonRaw, latRaw] = (match[2] ?? "").trim().split(",");
     const latitude = Number.parseFloat(latRaw ?? "");
@@ -430,7 +547,8 @@ function extractKmlWaypoints(kml: string): GpxWaypoint[] {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       continue;
     }
-    waypoints.push({ latitude, longitude, name });
+    const description = extractWaypointDescription(block);
+    waypoints.push({ latitude, longitude, name, ...(description ? { description } : {}) });
   }
   return waypoints;
 }
@@ -471,12 +589,17 @@ function extractPointFeaturesFromGeoJson(node: Record<string, unknown>): GpxWayp
       (typeof props.title === "string" && props.title) ||
       (typeof props.id === "string" && props.id) ||
       undefined;
+    const descRaw = props.description ?? props.desc;
+    const description = typeof descRaw === "string" ? descRaw.trim() : undefined;
     const geometry = node.geometry && typeof node.geometry === "object" ? (node.geometry as Record<string, unknown>) : null;
     if (!geometry) {
       return [];
     }
     const point = toWaypointFromGeometry(geometry, name);
-    return point ? [point] : [];
+    if (!point) {
+      return [];
+    }
+    return description ? [{ ...point, description }] : [point];
   }
   return [];
 }
@@ -502,7 +625,9 @@ function toWaypoint(value: unknown): GpxWaypoint | null {
       return null;
     }
     const name = typeof record.name === "string" ? record.name.trim() : undefined;
-    return { latitude, longitude, ...(name ? { name } : {}) };
+    const descRaw = record.description ?? record.desc;
+    const description = typeof descRaw === "string" ? descRaw.trim() : undefined;
+    return { latitude, longitude, ...(name ? { name } : {}), ...(description ? { description } : {}) };
   }
   const latitude = Number.parseFloat(String(record.latitude ?? record.lat ?? ""));
   const longitude = Number.parseFloat(String(record.longitude ?? record.lon ?? record.lng ?? ""));
@@ -511,14 +636,16 @@ function toWaypoint(value: unknown): GpxWaypoint | null {
   }
   const nameRaw = record.name ?? record.title ?? record.label ?? record.id;
   const name = typeof nameRaw === "string" ? nameRaw.trim() : undefined;
-  return { latitude, longitude, ...(name ? { name } : {}) };
+  const descRaw = record.description ?? record.desc;
+  const description = typeof descRaw === "string" ? descRaw.trim() : undefined;
+  return { latitude, longitude, ...(name ? { name } : {}), ...(description ? { description } : {}) };
 }
 
 function dedupeWaypoints(waypoints: GpxWaypoint[]): GpxWaypoint[] {
   const seen = new Set<string>();
   const deduped: GpxWaypoint[] = [];
   for (const waypoint of waypoints) {
-    const key = `${waypoint.latitude.toFixed(6)}|${waypoint.longitude.toFixed(6)}|${(waypoint.name ?? "").toLowerCase()}`;
+    const key = `${waypoint.latitude.toFixed(6)}|${waypoint.longitude.toFixed(6)}|${(waypoint.name ?? "").toLowerCase()}|${(waypoint.description ?? "").toLowerCase()}`;
     if (seen.has(key)) {
       continue;
     }
@@ -689,12 +816,19 @@ function buildFallbackCheckpoints(points: GpxTrackPoint[]): RaceCourse["checkpoi
   const count = Math.min(6, Math.max(2, Math.floor(points.length / 20)));
   if (count <= 2) {
     return [
-      { id: "aid-1", latitude: points[0]!.latitude, longitude: points[0]!.longitude, plannedStopSeconds: 120 },
+      {
+        id: "aid-1",
+        title: "Aid 1",
+        latitude: points[0]!.latitude,
+        longitude: points[0]!.longitude,
+        plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS
+      },
       {
         id: "aid-2",
+        title: "Aid 2",
         latitude: points[points.length - 1]!.latitude,
         longitude: points[points.length - 1]!.longitude,
-        plannedStopSeconds: 120
+        plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS
       }
     ];
   }
@@ -705,9 +839,10 @@ function buildFallbackCheckpoints(points: GpxTrackPoint[]): RaceCourse["checkpoi
     const point = points[pointIndex]!;
     return {
       id: `aid-${index + 1}`,
+      title: `Aid ${index + 1}`,
       latitude: point.latitude,
       longitude: point.longitude,
-      plannedStopSeconds: 120
+      plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS
     };
   });
 }

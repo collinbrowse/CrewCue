@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  canEditCheckpointStopsFromRoomRole,
+  canEditRaceCourseFromRoomRole,
   canMutateCheckpointStoppage,
   canMutateTaskBoard,
   canRecordMergeTelemetry,
@@ -72,4 +74,20 @@ test("canRecordMergeTelemetry allows athlete, crew chief, and team manager", () 
   assert.equal(canRecordMergeTelemetry("team_manager"), true);
   assert.equal(canRecordMergeTelemetry("crew_member"), false);
   assert.equal(canRecordMergeTelemetry(undefined), false);
+});
+
+test("canEditRaceCourseFromRoomRole matches server course editors", () => {
+  assert.equal(canEditRaceCourseFromRoomRole("athlete"), true);
+  assert.equal(canEditRaceCourseFromRoomRole("crew_chief"), true);
+  assert.equal(canEditRaceCourseFromRoomRole("team_manager"), true);
+  assert.equal(canEditRaceCourseFromRoomRole("crew_member"), false);
+  assert.equal(canEditRaceCourseFromRoomRole(undefined), false);
+});
+
+test("canEditCheckpointStopsFromRoomRole matches server stop editors", () => {
+  assert.equal(canEditCheckpointStopsFromRoomRole("crew_member"), true);
+  assert.equal(canEditCheckpointStopsFromRoomRole("crew_chief"), true);
+  assert.equal(canEditCheckpointStopsFromRoomRole("team_manager"), true);
+  assert.equal(canEditCheckpointStopsFromRoomRole("athlete"), false);
+  assert.equal(canEditCheckpointStopsFromRoomRole(undefined), false);
 });

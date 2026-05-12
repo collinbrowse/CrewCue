@@ -106,6 +106,8 @@ export type AuthedShellContextValue = {
   onPushQueueDiagnosticsSnapshot: () => Promise<void>;
   onRecordOutboxMergeTelemetry: (operationId: string) => Promise<void>;
   onFetchProjection: () => void;
+  /** Refresh projection without toggling global `busy` (for tab focus / background poll). */
+  onRefreshProjectionQuiet: () => void;
   onToggleProjectionPoll: () => void;
   onSetProjectionPollEnabled: (enabled: boolean) => void;
   onFetchTaskBoard: () => void;
@@ -117,7 +119,7 @@ export type AuthedShellContextValue = {
   onAcceptRecommendation: () => void;
   onRejectRecommendation: () => void;
   onRecordStationArrival: (checkpointId: string) => void;
-  onEnqueueManualStop: (checkpointId: string, arrivalAt: string) => void;
+  onEnqueueManualStop: (checkpointId: string, arrivalAt: string, departureAt?: string) => void;
   onSignOut: () => Promise<void>;
   onToggleResolvedSource: (
     checkpointId: string,

@@ -34,7 +34,7 @@ type Props = {
   onAcceptRecommendation: () => void;
   onRejectRecommendation: () => void;
   onRecordStationArrival: (checkpointId: string) => void;
-  onEnqueueManualStop: (checkpointId: string, arrivalAt: string) => void;
+  onEnqueueManualStop: (checkpointId: string, arrivalAt: string, departureAt?: string) => void;
   onSignOut: () => void;
 };
 

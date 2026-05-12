@@ -34,14 +34,27 @@ export interface RaceRoomMembership {
   displayName?: string;
 }
 
+/**
+ * Optional per-checkpoint cutoff. Persisted shape supports both entry modes in the Pace UI.
+ * - `time_of_day`: wall-clock cutoff (hour/minute in local race-day interpretation).
+ * - `elapsed_from_start`: seconds from race activation (`room.activatedAt`) anchor.
+ */
+export type RaceCourseCheckpointCutoff =
+  | { mode: "time_of_day"; hour: number; minute: number }
+  | { mode: "elapsed_from_start"; seconds: number };
+
 /** Ordered polyline for WS2 projection (local XY projection between consecutive points). */
 export interface RaceCourseCheckpoint {
   id: string;
+  /** Human-readable station label (separate from stable `id` slug). */
+  title?: string;
   latitude: number;
   longitude: number;
   plannedStopSeconds?: number;
   stoppageRadiusMeters?: number;
   slowdownThresholdRatio?: number;
+  /** Parsed from course file description or set manually in Pace edit mode. */
+  cutoff?: RaceCourseCheckpointCutoff;
 }
 
 /** Optional non-linear baseline profile used for WS2 planned split / ETA projections. */
@@ -212,8 +225,8 @@ export type ProjectionConfidence = "fresh" | "degraded";
 export interface ProjectionTimeliness {
   projectionConfidence: ProjectionConfidence;
   /**
-   * Effective threshold: `PROJECTION_STALE_AFTER_SECONDS` (default 120), or when the client declares
-   * `uploadIntervalSeconds` on accepted pings, `clamp(round(2.5 × interval), 45, 600)`.
+   * Effective threshold: `min(PROJECTION_STALE_AFTER_SECONDS or 15m, 15m)` when no client interval is set,
+   * or `min(3 × uploadIntervalSeconds, 15 minutes)` when `uploadIntervalSeconds` is declared on pings (capped at 15m).
    */
   stalenessThresholdSeconds: number;
   /** Seconds between last accepted ping `recordedAt` and when this payload was evaluated (≥ 0). */
@@ -265,6 +278,7 @@ export interface RaceRoomJoinPreviewCheckpoint {
   id: string;
   latitude: number;
   longitude: number;
+  title?: string;
 }
 
 export interface RaceRoomJoinPreview {
@@ -313,7 +327,7 @@ export interface AthletePingIngestPayload {
   horizontalAccuracyMeters?: number;
   /**
    * Target seconds between pings from the athlete app (battery + race-length policy).
-   * When set, the server derives projection staleness threshold ≈ 2.5× this value (bounded).
+   * When set, the server derives projection staleness threshold as `min(3 × this value, 15 minutes)`.
    * @see docs/sdlc/mobile-athlete-ping-battery-deferred.md
    */
   uploadIntervalSeconds?: number;

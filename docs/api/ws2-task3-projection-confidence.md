@@ -18,10 +18,9 @@ Built from **`RaceRoomProjectionCore`** (deterministic math) plus **`ProjectionT
 ## How `stalenessThresholdSeconds` is chosen
 
 1. **Client-declared interval (preferred):** If the room has a stored **`uploadIntervalSeconds`** from the latest accepted ping that included this field, the threshold is  
-   **`round(2.5 × uploadIntervalSeconds)`**, clamped to **45…600** seconds.  
-   This follows the “~2.5× target ping interval” jitter tolerance described in product discussions.
+   **`min(3 × uploadIntervalSeconds, 15 minutes)`** (900 seconds max).
 
-2. **Fallback:** If no interval has been declared yet, use **`PROJECTION_STALE_AFTER_SECONDS`** (default **120**). Invalid or non-positive env values fall back to **120**.
+2. **Fallback:** If no interval has been declared yet, use **`min(PROJECTION_STALE_AFTER_SECONDS, 15 minutes)`** (defaults to **900** when env is unset). Invalid or non-positive env values fall back to the same **15m** cap.
 
 The athlete app is expected to derive **`uploadIntervalSeconds`** from **battery mode** (e.g. high performance vs battery saver) and **expected race duration** (shorter races → lower interval). Server-side mapping of modes to seconds is **not** implemented here — see [mobile-athlete-ping-battery-deferred.md](../sdlc/mobile-athlete-ping-battery-deferred.md).
 
@@ -32,8 +31,8 @@ The athlete app is expected to derive **`uploadIntervalSeconds`** from **battery
 
 ## Manual smoke
 
-1. Send a ping **with** `uploadIntervalSeconds: 40` → `GET .../projection` → `stalenessThresholdSeconds` should be **100**, usually **`fresh`** right away.
-2. Omit the field → threshold **120** (unless env overridden).
+1. Send a ping **with** `uploadIntervalSeconds: 40` → `GET .../projection` → `stalenessThresholdSeconds` should be **120**, usually **`fresh`** right away.
+2. Omit the field → threshold **900** (unless env overridden below 15m).
 3. Wait longer than the effective threshold without a new accepted ping → **`degraded`**.
 
 ## Notes

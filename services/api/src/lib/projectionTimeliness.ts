@@ -1,11 +1,9 @@
 import type { ProjectionConfidence, RaceRoomProjection, RaceRoomProjectionCore } from "@crewcue/contracts";
 
-/** Multiplier from client-declared ping interval → staleness threshold (see docs). */
-export const STALENESS_INTERVAL_MULTIPLIER = 2.5;
-export const STALENESS_DERIVED_MIN_SECONDS = 45;
-export const STALENESS_DERIVED_MAX_SECONDS = 600;
+/** Maximum seconds without an accepted ping before projection is considered stale (15 minutes). */
+export const STALENESS_MAX_SECONDS = 15 * 60;
 
-const DEFAULT_STALE_AFTER_SECONDS = 120;
+const DEFAULT_STALE_AFTER_SECONDS = STALENESS_MAX_SECONDS;
 
 function readEnvFallbackSeconds(): number {
   const raw = process.env.PROJECTION_STALE_AFTER_SECONDS;
@@ -16,13 +14,12 @@ function readEnvFallbackSeconds(): number {
   if (!Number.isFinite(n) || n <= 0) {
     return DEFAULT_STALE_AFTER_SECONDS;
   }
-  return Math.floor(n);
+  return Math.min(STALENESS_MAX_SECONDS, Math.floor(n));
 }
 
 /**
- * Effective staleness threshold: when the athlete app declares `uploadIntervalSeconds`,
- * use `clamp(round(multiplier × interval), min, max)` so the UI tolerates jitter without
- * lying about “fresh” after a long outage. Otherwise use `PROJECTION_STALE_AFTER_SECONDS` (default 120).
+ * Staleness threshold: `min(3 × uploadIntervalSeconds, 15 minutes)` when the client declares an interval.
+ * Otherwise `min(PROJECTION_STALE_AFTER_SECONDS or 15m, 15m)` for tests / legacy override.
  */
 export function getStalenessThresholdSeconds(lastDeclaredUploadIntervalSeconds?: number): number {
   if (
@@ -30,11 +27,7 @@ export function getStalenessThresholdSeconds(lastDeclaredUploadIntervalSeconds?:
     Number.isFinite(lastDeclaredUploadIntervalSeconds) &&
     lastDeclaredUploadIntervalSeconds > 0
   ) {
-    const derived = Math.round(STALENESS_INTERVAL_MULTIPLIER * lastDeclaredUploadIntervalSeconds);
-    return Math.min(
-      STALENESS_DERIVED_MAX_SECONDS,
-      Math.max(STALENESS_DERIVED_MIN_SECONDS, derived)
-    );
+    return Math.min(3 * lastDeclaredUploadIntervalSeconds, STALENESS_MAX_SECONDS);
   }
   return readEnvFallbackSeconds();
 }
