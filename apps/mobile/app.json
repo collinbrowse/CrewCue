@@ -23,6 +23,8 @@
     },
     "plugins": [
       "expo-dev-client",
+      "@react-native-community/datetimepicker",
+      "expo-localization",
       "expo-notifications",
       "expo-secure-store",
       "expo-web-browser",

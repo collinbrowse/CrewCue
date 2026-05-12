@@ -11,7 +11,7 @@
     "build": "expo export --platform all",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/auth/roleGuards.test.ts src/auth/useAuth.test.ts src/api/client.test.ts src/features/gpx/gpxImport.test.ts src/features/maps/mercatorTileMath.test.ts src/features/readouts/eta.test.ts src/features/pace/timeline.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts src/features/chat/crypto.test.ts src/features/chat/mentions.test.ts src/features/chat/imagePipeline.test.ts src/features/chat/messageQueue.test.ts src/features/chat/notificationPrefs.test.ts src/features/chat/timestamps.test.ts src/features/chat/unreadBadge.test.ts"
+    "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/auth/roleGuards.test.ts src/auth/useAuth.test.ts src/api/client.test.ts src/features/gpx/gpxImport.test.ts src/features/maps/mercatorTileMath.test.ts src/features/readouts/eta.test.ts src/features/pace/timeline.test.ts src/features/raceStart/raceStartSchedule.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts src/features/chat/crypto.test.ts src/features/chat/mentions.test.ts src/features/chat/imagePipeline.test.ts src/features/chat/messageQueue.test.ts src/features/chat/notificationPrefs.test.ts src/features/chat/timestamps.test.ts src/features/chat/unreadBadge.test.ts"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
@@ -19,6 +19,7 @@
     "@expo/vector-icons": "^15.0.2",
     "@maplibre/maplibre-react-native": "^11.0.2",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/bottom-tabs": "^7.15.10",
     "@react-navigation/native": "^7.2.2",
@@ -35,12 +36,14 @@
     "expo-file-system": "~55.0.17",
     "expo-image-manipulator": "~55.0.16",
     "expo-image-picker": "~55.0.20",
+    "expo-localization": "~55.0.13",
     "expo-location": "~55.1.8",
     "expo-modules-core": "~55.0.25",
     "expo-notifications": "^55.0.21",
     "expo-secure-store": "~55.0.13",
     "expo-status-bar": "~55.0.5",
     "expo-web-browser": "~55.0.14",
+    "luxon": "^3.7.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.6",
@@ -55,6 +58,7 @@
   },
   "devDependencies": {
     "@expo/config-plugins": "^55.0.8",
+    "@types/luxon": "^3.7.1",
     "@types/react": "^19.2.2",
     "eas-cli": "^16.32.0",
     "tsx": "^4.20.0",
