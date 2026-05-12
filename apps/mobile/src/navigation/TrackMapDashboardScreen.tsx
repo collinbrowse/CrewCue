@@ -224,7 +224,11 @@ export function TrackMapDashboardScreen(): ReactElement {
   sheetTranslateRef.current = sheetTranslate;
   const sheetAnimRafRef = useRef<number | null>(null);
 
-  const onSheetFooterLayout = useCallback(
+  /** Collapsed sheet uses positive `translateY`, so the **top** of the panel stays on-screen — stats must sit above the checklist. */
+  const hideChecklistInPeek =
+    maxSheetTranslate < 6 ? false : sheetTranslate > maxSheetTranslate * 0.82;
+
+  const onSheetPeekSectionLayout = useCallback(
     (e: LayoutChangeEvent) => {
       const fh = e.nativeEvent.layout.height;
       const raw = Math.round(SHEET_HANDLE_STACK_PX + fh);
@@ -234,7 +238,7 @@ export function TrackMapDashboardScreen(): ReactElement {
       const next = Math.max(minPeek, Math.min(maxPeek, raw));
       setSheetPeekPx((prev) => (Math.abs(prev - next) < 3 ? prev : next));
     },
-    [insets.bottom, sheetAnchorBottomY, expandedSheetTopY]
+    [sheetAnchorBottomY, expandedSheetTopY]
   );
 
   const cancelSheetAnimation = useCallback(() => {
@@ -1200,38 +1204,16 @@ export function TrackMapDashboardScreen(): ReactElement {
             <View style={styles.handle} />
           </Pressable>
         </View>
-        <ScrollView
-          style={{ flex: 1, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 16 }}
-          scrollEnabled={sheetTranslate < maxSheetTranslate - 2}
-        >
-          <Text style={styles.checklistTitle}>Aid station checklist</Text>
-          {(projection?.checkpointSplits ?? []).map((row, index) => {
-            const label = checkpointLabel(room, row.checkpointId);
-            const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
-            return (
-              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
-                <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
-                <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
-                  {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
-                </Text>
-              </View>
-            );
-          })}
-          {projection?.checkpointSplits?.length ? null : (
-            <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
-          )}
-        </ScrollView>
         <View
           style={{
             paddingHorizontal: 16,
-            paddingTop: 8,
+            paddingTop: 4,
             paddingBottom: insets.bottom + 10,
             flexShrink: 0,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: theme.color.divider
+            borderBottomWidth: hideChecklistInPeek ? 0 : StyleSheet.hairlineWidth,
+            borderBottomColor: theme.color.divider
           }}
-          onLayout={onSheetFooterLayout}
+          onLayout={onSheetPeekSectionLayout}
         >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
@@ -1269,6 +1251,34 @@ export function TrackMapDashboardScreen(): ReactElement {
             </View>
           </View>
         </View>
+        <ScrollView
+          style={{
+            flex: hideChecklistInPeek ? 0 : 1,
+            maxHeight: hideChecklistInPeek ? 0 : undefined,
+            opacity: hideChecklistInPeek ? 0 : 1,
+            paddingHorizontal: 16
+          }}
+          contentContainerStyle={{ paddingBottom: 16 + insets.bottom }}
+          scrollEnabled={!hideChecklistInPeek && sheetTranslate < maxSheetTranslate - 2}
+          pointerEvents={hideChecklistInPeek ? "none" : "auto"}
+        >
+          <Text style={styles.checklistTitle}>Aid station checklist</Text>
+          {(projection?.checkpointSplits ?? []).map((row, index) => {
+            const label = checkpointLabel(room, row.checkpointId);
+            const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
+            return (
+              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
+                <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
+                <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
+                  {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
+                </Text>
+              </View>
+            );
+          })}
+          {projection?.checkpointSplits?.length ? null : (
+            <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
+          )}
+        </ScrollView>
       </View>
 
       <Modal visible={layersOpen} transparent animationType="fade" onRequestClose={() => setLayersOpen(false)}>
