@@ -5,7 +5,8 @@ import {
   formatElapsedHoursMinutes,
   formatSignedHoursMinutesDelta,
   paceRailCheckpointRowModel,
-  paceRailFinishRowModel
+  paceRailFinishRowModel,
+  paceRemainingVsPlanDisplay
 } from "./timeline";
 
 test("paceRailCheckpointRowModel: upcoming inactive row keeps marker at top", () => {
@@ -89,4 +90,17 @@ test("formatSignedHoursMinutesDelta: sign and rounding", () => {
   assert.equal(formatSignedHoursMinutesDelta(-2700), "-45m");
   assert.equal(formatSignedHoursMinutesDelta(-7200), "-2h");
   assert.equal(formatSignedHoursMinutesDelta(0), "0m");
+});
+
+test("paceRemainingVsPlanDisplay: slower plus, faster minus, on plan +- 0min within 1m", () => {
+  assert.deepEqual(paceRemainingVsPlanDisplay(90), { kind: "slower", label: "+2m" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(-120), { kind: "faster", label: "-2m" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(20), { kind: "on", label: "+- 0min" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(0), { kind: "on", label: "+- 0min" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(60), { kind: "on", label: "+- 0min" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(-60), { kind: "on", label: "+- 0min" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(61), { kind: "slower", label: "+1m" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(-61), { kind: "faster", label: "-1m" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(3600), { kind: "slower", label: "+1h" });
+  assert.deepEqual(paceRemainingVsPlanDisplay(-3900), { kind: "faster", label: "-1h 5m" });
 });

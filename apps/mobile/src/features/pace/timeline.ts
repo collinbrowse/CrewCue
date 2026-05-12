@@ -203,6 +203,46 @@ export function formatSignedHoursMinutesDelta(deltaSeconds: number): string {
   return `${sign}${m}m`;
 }
 
+/** Magnitude only (no sign), for pace vs plan under "Time remaining". */
+function formatAbsDeltaHmOrM(absSeconds: number): string {
+  const abs = Math.max(0, Math.round(absSeconds));
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  if (h > 0 && m > 0) {
+    return `${h}h ${m}m`;
+  }
+  if (h > 0) {
+    return `${h}h`;
+  }
+  return `${m}m`;
+}
+
+export type PaceRemainingVsPlanKind = "slower" | "faster" | "on";
+
+const PACE_REMAINING_ON_PLAN_LABEL = "+- 0min";
+
+/**
+ * Copy for the line under **Time remaining**: vs plan at this checkpoint (elapsed − planned), rounded to whole minutes.
+ * Slower (more elapsed than planned) → `+…` (show red in UI). Faster → `-…` (green). On plan (≤ 1 min off) → `+- 0min` (green).
+ */
+export function paceRemainingVsPlanDisplay(deltaElapsedSeconds: number): { kind: PaceRemainingVsPlanKind; label: string } {
+  if (!Number.isFinite(deltaElapsedSeconds)) {
+    return { kind: "on", label: PACE_REMAINING_ON_PLAN_LABEL };
+  }
+  /** Within one minute of plan (elapsed − planned). */
+  const withinOneMinuteSec = 60;
+  if (Math.abs(deltaElapsedSeconds) <= withinOneMinuteSec) {
+    return { kind: "on", label: PACE_REMAINING_ON_PLAN_LABEL };
+  }
+  const roundedMin = Math.round(deltaElapsedSeconds / 60);
+  const absSec = Math.abs(roundedMin) * 60;
+  const mag = formatAbsDeltaHmOrM(absSec);
+  if (roundedMin > 0) {
+    return { kind: "slower", label: `+${mag}` };
+  }
+  return { kind: "faster", label: `-${mag}` };
+}
+
 export function deltaTone(deltaSeconds: number): "ahead" | "behind" | "neutral" {
   if (deltaSeconds > 30) {
     return "ahead";

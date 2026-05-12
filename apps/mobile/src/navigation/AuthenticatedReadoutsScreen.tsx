@@ -13,13 +13,12 @@ import { secondsForDistance } from "../features/readouts/eta";
 import {
   checkpointDisplayTitle,
   currentCheckpointOrFinishIndex,
-  deltaTone,
   finishDeviationSeconds,
   formatClockFromElapsed,
   formatCutoffClockOnly,
   formatElapsedHoursMinutes,
-  formatSignedHoursMinutesDelta,
   formatSignedMinutesDelta,
+  paceRemainingVsPlanDisplay,
   isCheckpointCompletedUi,
   isAutoDwellAtCheckpoint,
   milesFromMeters,
@@ -405,8 +404,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   const stale = projection?.projectionConfidence === "degraded";
   const staleSec = projection?.secondsSinceLastAcceptedPing;
 
-  const deltaColorFor = (delta: number) =>
-    deltaTone(delta) === "ahead" ? theme.color.success : deltaTone(delta) === "behind" ? theme.color.danger : theme.color.muted;
+  const finishPaceDeltaColor = (deltaSec: number) =>
+    Math.abs(deltaSec) <= 60 ? theme.color.paceDeltaAhead : deltaSec > 0 ? theme.color.danger : theme.color.paceDeltaAhead;
 
   const lastCpMetersForFinish = cumMetersAtCp.length > 0 ? cumMetersAtCp[cumMetersAtCp.length - 1]! : 0;
   const finishRailModel =
@@ -490,8 +489,6 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             split && !Number.isNaN(raceAnchorMs)
               ? projectedElapsedSecondsAtSplit(split, index, anchor, raceAnchorMs)
               : plannedElapsed;
-          const delta = split ? projElapsed - plannedElapsed : 0;
-          const deltaColor = deltaColorFor(delta);
           const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const clock =
             !Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, projElapsed) : "—";
@@ -514,7 +511,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               ? split.actualElapsedSecondsAtCross
               : projElapsed;
           const elapsedPrimaryLabel = formatElapsedHoursMinutes(displayElapsedSeconds);
-          const deltaVsPlanShort = formatSignedHoursMinutesDelta(displayElapsedSeconds - plannedElapsed);
+          const vsPlanUnderTimeRemain = paceRemainingVsPlanDisplay(displayElapsedSeconds - plannedElapsed);
+          const vsPlanUnderTimeRemainColor =
+            vsPlanUnderTimeRemain.kind === "slower" ? theme.color.danger : theme.color.paceDeltaAhead;
           const etaMs =
             !Number.isNaN(raceAnchorMs) && Number.isFinite(projElapsed) ? raceAnchorMs + projElapsed * 1000 : NaN;
           const secondsUntilEta =
@@ -608,8 +607,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                     <View style={paceStyles.triWrap}>
                       <View style={paceStyles.triCol}>
                         <Text style={paceStyles.microLabel}>Race start</Text>
-                        <Text style={paceStyles.timePrimary}>{formatElapsedHoursMinutes(projElapsed)}</Text>
-                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{deltaVsPlanShort}</Text>
+                        <Text style={paceStyles.timePrimary}>
+                          {!Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, 0) : "—"}
+                        </Text>
                       </View>
                     </View>
                   ) : (
@@ -635,8 +635,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                       <View style={paceStyles.triCol}>
                         <Text style={paceStyles.microLabel}>Time remaining</Text>
                         <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
-                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: deltaColor }]}>
-                          {deltaVsPlanShort}
+                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: vsPlanUnderTimeRemainColor }]}>
+                          {vsPlanUnderTimeRemain.label}
                         </Text>
                       </View>
                     </View>
@@ -645,8 +645,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                   <View style={paceStyles.triWrap}>
                     <View style={paceStyles.triCol}>
                       <Text style={paceStyles.microLabel}>Race start</Text>
-                      <Text style={[paceStyles.timePrimary, completed && paceStyles.mainTimePast]}>{elapsedPrimaryLabel}</Text>
-                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{deltaVsPlanShort}</Text>
+                      <Text style={[paceStyles.timePrimary, completed && paceStyles.mainTimePast]}>
+                        {!Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, 0) : "—"}
+                      </Text>
                     </View>
                   </View>
                 ) : (
@@ -672,8 +673,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                     <View style={paceStyles.triCol}>
                       <Text style={paceStyles.microLabel}>Time remaining</Text>
                       <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
-                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: deltaColor }]}>
-                        {deltaVsPlanShort}
+                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: vsPlanUnderTimeRemainColor }]}>
+                        {vsPlanUnderTimeRemain.label}
                       </Text>
                     </View>
                   </View>
@@ -709,7 +710,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                 <Text
                   style={[
                     paceStyles.oneLineDelta,
-                    { color: deltaColorFor(finishDeviationSeconds(projection, raceAnchorMs)) }
+                    { color: finishPaceDeltaColor(finishDeviationSeconds(projection, raceAnchorMs)) }
                   ]}
                 >
                   {formatSignedMinutesDelta(finishDeviationSeconds(projection, raceAnchorMs))}
