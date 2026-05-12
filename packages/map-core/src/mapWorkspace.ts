@@ -6,6 +6,7 @@ import type {
   RaceCourseCheckpoint,
   RaceMapWorkspace
 } from "@crewcue/contracts";
+import { buildPlanBaselineFromModel, type CourseMetricPoint } from "./courseMetrics.js";
 import {
   buildBaselineTrackFromGpxPoints,
   type GpxTrackPoint,
@@ -34,18 +35,18 @@ function stripExtension(fileName: string): string {
   return dot > 0 ? trimmed.slice(0, dot) : trimmed;
 }
 
-export function flattenWorkspaceGeometry(geometry: MapWorkspaceTrackGeometry): [number, number][] {
+export function flattenWorkspaceGeometry(geometry: MapWorkspaceTrackGeometry): MapWorkspacePosition[] {
   if (geometry.type === "LineString") {
     return geometry.coordinates;
   }
   return geometry.coordinates.flat();
 }
 
-export function simplifyPositions(ring: [number, number][], maxPoints: number): [number, number][] {
+export function simplifyPositions(ring: MapWorkspacePosition[], maxPoints: number): MapWorkspacePosition[] {
   if (ring.length <= maxPoints) {
     return ring;
   }
-  const out: [number, number][] = [];
+  const out: MapWorkspacePosition[] = [];
   out.push(ring[0]!);
   const interior = Math.max(0, maxPoints - 2);
   for (let i = 1; i <= interior; i += 1) {
@@ -105,7 +106,12 @@ export function mergePrimaryCourseRouteLayer(
 
 export function parsedTrackToWorkspaceLayer(fileName: string, parsed: ParsedGpxTrack): MapWorkspaceLayer {
   const coordinates = simplifyPositions(
-    parsed.points.map((p) => [p.longitude, p.latitude] as [number, number]),
+    parsed.points.map((p) => {
+      const base: [number, number] = [p.longitude, p.latitude];
+      return typeof p.elevationMeters === "number" && Number.isFinite(p.elevationMeters)
+        ? ([...base, p.elevationMeters] as [number, number, number])
+        : base;
+    }),
     MAX_LAYER_VERTICES
   );
   return {
@@ -137,17 +143,31 @@ export function parseUploadToWorkspaceLayerWithAnalytics(
 }
 
 export function workspaceGeometryToBaseline(
-  geometry: MapWorkspaceTrackGeometry
+  geometry: MapWorkspaceTrackGeometry,
+  plannedPaceSecondsPerKm?: number
 ): RaceCourseBaselineTrack | undefined {
   const coords = flattenWorkspaceGeometry(geometry);
   if (coords.length < 2) {
     return undefined;
   }
-  const points: GpxTrackPoint[] = coords.map(([lng, lat]) => ({
-    latitude: lat,
-    longitude: lng,
-    elevationMeters: null,
+  const points: CourseMetricPoint[] = coords.map((coord) => {
+    const lng = coord[0]!;
+    const lat = coord[1]!;
+    const ele = coord.length >= 3 ? coord[2] : undefined;
+    return {
+      latitude: lat,
+      longitude: lng,
+      elevationMeters: typeof ele === "number" && Number.isFinite(ele) ? ele : null
+    };
+  });
+  if (typeof plannedPaceSecondsPerKm === "number" && plannedPaceSecondsPerKm > 0) {
+    return buildPlanBaselineFromModel(points, plannedPaceSecondsPerKm);
+  }
+  const legacy: GpxTrackPoint[] = points.map((p) => ({
+    latitude: p.latitude,
+    longitude: p.longitude,
+    elevationMeters: p.elevationMeters ?? null,
     timestampMs: null
   }));
-  return buildBaselineTrackFromGpxPoints(points);
+  return buildBaselineTrackFromGpxPoints(legacy);
 }

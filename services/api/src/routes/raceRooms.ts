@@ -1328,7 +1328,8 @@ function applyRaceMapWorkspacePut(
       ...(derivedMetrics
         ? {
             courseDistanceMeters: derivedMetrics.canonicalDistanceMeters,
-            courseElevationGainMeters: derivedMetrics.elevationGainMeters
+            courseElevationGainMeters: derivedMetrics.elevationGainMeters,
+            courseElevationLossMeters: derivedMetrics.elevationLossMeters
           }
         : {})
     };
@@ -1502,6 +1503,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
       courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters,
       courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters,
+      courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
       raceStartAt: parsed.data.raceStartAt,
       activatedAt: parsed.data.raceStartAt

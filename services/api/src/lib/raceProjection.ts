@@ -10,8 +10,13 @@ import type {
   RaceRoomProjectionCore,
   RaceCheckpointSplitRow
 } from "@crewcue/contracts";
+import {
+  type CourseMetricPoint,
+  geodesicCumulativeAtVertices,
+  geodesicDistanceMeters,
+  geodesicProjectPointToPolyline
+} from "@crewcue/map-core";
 
-const EARTH_RADIUS_M = 6_371_000;
 const EPS_M = 0.05;
 
 export const DEFAULT_PLANNED_PACE_SECONDS_PER_KM = 480;
@@ -25,7 +30,6 @@ export const DEFAULT_RACE_COURSE: RaceCourse = {
   ]
 };
 
-type XY = { x: number; y: number };
 type VisitAccumulator = {
   arrivalRecordedAt: string | null;
   departureRecordedAt: string | null;
@@ -40,25 +44,23 @@ type ProjectionPreviousCheckpointVisit = {
   note?: string;
 };
 
-function toLocalXY(originLat: number, originLon: number, lat: number, lon: number): XY {
-  const φ = ((lat - originLat) * Math.PI) / 180;
-  const λ = ((lon - originLon) * Math.PI) / 180;
-  const φ0 = (originLat * Math.PI) / 180;
-  return { x: EARTH_RADIUS_M * Math.cos(φ0) * λ, y: EARTH_RADIUS_M * φ };
+function checkpointsAsMetricPoints(checkpoints: RaceCourseCheckpoint[]): CourseMetricPoint[] {
+  return checkpoints.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
 }
 
-/** Cumulative distance at each checkpoint along the polyline in local XY space (matches progress math). */
+/** Cumulative distance at each checkpoint along the geodesic polyline (matches progress math). */
 export function cumulativeDistanceAtCheckpoints(checkpoints: RaceCourseCheckpoint[]): number[] {
-  const lat0 = checkpoints[0].latitude;
-  const lon0 = checkpoints[0].longitude;
-  const xy = checkpoints.map((p) => toLocalXY(lat0, lon0, p.latitude, p.longitude));
-  const cum: number[] = [0];
-  for (let i = 0; i < xy.length - 1; i++) {
-    const dx = xy[i + 1].x - xy[i].x;
-    const dy = xy[i + 1].y - xy[i].y;
-    cum.push(cum[cum.length - 1] + Math.sqrt(dx * dx + dy * dy));
+  if (checkpoints.length === 0) {
+    return [];
   }
-  return cum;
+  if (
+    checkpoints.every(
+      (c) => typeof c.distanceMetersFromStart === "number" && Number.isFinite(c.distanceMetersFromStart)
+    )
+  ) {
+    return checkpoints.map((c) => c.distanceMetersFromStart!);
+  }
+  return geodesicCumulativeAtVertices(checkpointsAsMetricPoints(checkpoints));
 }
 
 function hasUsableBaselineTrack(
@@ -81,7 +83,7 @@ function hasUsableBaselineTrack(
     if (prevDistance >= 0 && point.distanceMetersFromStart <= prevDistance + EPS_M) {
       return false;
     }
-    if (prevElapsed >= 0 && point.referenceElapsedSeconds < prevElapsed) {
+    if (prevElapsed >= 0 && point.referenceElapsedSeconds <= prevElapsed + 1e-9) {
       return false;
     }
     prevDistance = point.distanceMetersFromStart;
@@ -143,24 +145,22 @@ function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): num
   return checkpoint.slowdownThresholdRatio ?? 0.5;
 }
 
-function pingDistanceMeters(origin: RaceCourseCheckpoint, a: ProjectionPing, b: ProjectionPing): number {
-  const axy = toLocalXY(origin.latitude, origin.longitude, a.latitude, a.longitude);
-  const bxy = toLocalXY(origin.latitude, origin.longitude, b.latitude, b.longitude);
-  const dx = bxy.x - axy.x;
-  const dy = bxy.y - axy.y;
-  return Math.sqrt(dx * dx + dy * dy);
+function pingDistanceMeters(_origin: RaceCourseCheckpoint, a: ProjectionPing, b: ProjectionPing): number {
+  return geodesicDistanceMeters(
+    { latitude: a.latitude, longitude: a.longitude },
+    { latitude: b.latitude, longitude: b.longitude }
+  );
 }
 
 function pingToCheckpointDistanceMeters(
-  origin: RaceCourseCheckpoint,
+  _origin: RaceCourseCheckpoint,
   ping: ProjectionPing,
   checkpoint: RaceCourseCheckpoint
 ): number {
-  const pxy = toLocalXY(origin.latitude, origin.longitude, ping.latitude, ping.longitude);
-  const cxy = toLocalXY(origin.latitude, origin.longitude, checkpoint.latitude, checkpoint.longitude);
-  const dx = pxy.x - cxy.x;
-  const dy = pxy.y - cxy.y;
-  return Math.sqrt(dx * dx + dy * dy);
+  return geodesicDistanceMeters(
+    { latitude: ping.latitude, longitude: ping.longitude },
+    { latitude: checkpoint.latitude, longitude: checkpoint.longitude }
+  );
 }
 
 function isPingInsideRadius(
@@ -171,68 +171,22 @@ function isPingInsideRadius(
   return pingToCheckpointDistanceMeters(origin, ping, checkpoint) <= checkpointRadiusMeters(checkpoint);
 }
 
-type Candidate = { distSq: number; segIndex: number; t: number; progress: number };
-
-function betterCandidate(a: Candidate, b: Candidate): boolean {
-  if (a.distSq < b.distSq - 1e-12) return true;
-  if (Math.abs(a.distSq - b.distSq) > 1e-12) return false;
-  if (a.segIndex < b.segIndex) return true;
-  if (a.segIndex > b.segIndex) return false;
-  return a.t < b.t - 1e-15;
-}
-
 /**
- * Closest point on polyline (local equirectangular space) and distance along the path to that point.
- * Tie-break: lower segment index, then lower clamped projection parameter `t`.
+ * Closest point on the checkpoint geodesic polyline and distance along the path to that point.
  */
 export function polylineCourseLengthAndProgress(
   checkpoints: RaceCourseCheckpoint[],
   pingLat: number,
   pingLon: number
 ): { courseLengthMeters: number; progressMeters: number } {
-  const lat0 = checkpoints[0].latitude;
-  const lon0 = checkpoints[0].longitude;
-  const xy = checkpoints.map((p) => toLocalXY(lat0, lon0, p.latitude, p.longitude));
-  const pxy = toLocalXY(lat0, lon0, pingLat, pingLon);
-
-  let courseLength = 0;
-  const segLens: number[] = [];
-  for (let i = 0; i < xy.length - 1; i++) {
-    const dx = xy[i + 1].x - xy[i].x;
-    const dy = xy[i + 1].y - xy[i].y;
-    segLens.push(Math.sqrt(dx * dx + dy * dy));
-    courseLength += segLens[i];
-  }
-
-  let best: Candidate = { distSq: Number.POSITIVE_INFINITY, segIndex: 999999, t: 1, progress: courseLength };
-  let cumBefore = 0;
-
-  for (let i = 0; i < xy.length - 1; i++) {
-    const A = xy[i];
-    const B = xy[i + 1];
-    const abx = B.x - A.x;
-    const aby = B.y - A.y;
-    const apx = pxy.x - A.x;
-    const apy = pxy.y - A.y;
-    const ab2 = abx * abx + aby * aby;
-    const tRaw = ab2 < 1e-18 ? 0 : (apx * abx + apy * aby) / ab2;
-    const t = Math.min(1, Math.max(0, tRaw));
-    const cx = A.x + t * abx;
-    const cy = A.y + t * aby;
-    const dx = pxy.x - cx;
-    const dy = pxy.y - cy;
-    const distSq = dx * dx + dy * dy;
-    const segLen = segLens[i];
-    const progress = cumBefore + t * segLen;
-    const cand: Candidate = { distSq, segIndex: i, t, progress };
-    if (betterCandidate(cand, best)) {
-      best = cand;
-    }
-    cumBefore += segLen;
-  }
-
-  const progressMeters = Math.min(courseLength, Math.max(0, best.progress));
-  return { courseLengthMeters: courseLength, progressMeters };
+  const projected = geodesicProjectPointToPolyline(checkpointsAsMetricPoints(checkpoints), {
+    latitude: pingLat,
+    longitude: pingLon
+  });
+  return {
+    courseLengthMeters: projected.courseLengthMeters,
+    progressMeters: projected.progressMeters
+  };
 }
 
 export type ProjectionPing = {
