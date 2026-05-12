@@ -12,13 +12,9 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## In flight (2026-05-12): Canonical course length + route-based projection (**#257**, PR [#258](https://github.com/collinbrowse/CrewCue/pull/258), branch `feature/canonical-pace-projection-257`)
+## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
-- **API:** `recomputeRaceProjection` requires `routeMetricPoints` (≥ 2); canonical length via `resolveCanonicalCourseLengthMeters`; checkpoint rows require `distanceMetersFromStart` (no chord fallback). `raceRooms` resolves route from workspace overlay / driving layer; course save + map-workspace validate route when ≥ 2 checkpoints; ping/bootstrap paths pass route + canonical length.
-- **Mobile:** Pace readouts tri-column UI (race start row, est. arrival / cutoff / time remaining with `formatElapsedHoursMinutes` + `formatSignedHoursMinutesDelta`); `TrackMapDashboardScreen` uses same canonical length preference chain for remaining distance + vertical summary. `timeline.test.ts` covers new formatters.
-- **Docs:** `docs/api/ws2-task2-projection.md` notes mandatory route geometry + canonical `courseLengthMeters`.
-- **Validation:** `npm run verify` green on branch before PR.
-- **Next:** Monitor CI on **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)**; merge to `main` when green. Optional: web client parity if any projection length UI still assumes chords-only.
+- **On `main`:** `recomputeRaceProjection` requires `routeMetricPoints` (≥ 2); canonical length; checkpoint splits require projected `distanceMetersFromStart` (no chord fallback). `raceRooms` resolves route from workspace; course + map-workspace gates when ≥ 2 checkpoints. Mobile Pace tri-column readouts, race start clock row, `paceDeltaAhead` vs `danger` for vs-plan line, `+- 0min` within 1m of plan; `TrackMapDashboardScreen` canonical length chain; `docs/api/ws2-task2-projection.md` updated.
 
 ## Recent (2026-05-12): Race setup — native race start + time zone (**merged** PR [#254](https://github.com/collinbrowse/CrewCue/pull/254) → `main`, merge `5b1a791`, **Closes** [#253](https://github.com/collinbrowse/CrewCue/issues/253))
 
@@ -45,12 +41,12 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-12 (America/Chicago)
-- **Active branch for projection work:** `feature/canonical-pace-projection-257` (**#257**). Open PR when ready; do not push feature commits to `main`.
+- **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
-- **Pace tab:** Includes **#246**, **#248**, **#249**, and **#253/#254** (projection anchor, map sheet, unified course metrics, native race start schedule).
-- **Default branch:** **`main`** for unrelated new work; `git pull origin main` (at or after `5b1a791`). Use **`feature/canonical-pace-projection-257`** only for **#257** until merged.
+- **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, and **#257/#258** (projection anchor, map sheet, unified course metrics, native race start, canonical route projection + Pace readouts).
+- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a880d44`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
