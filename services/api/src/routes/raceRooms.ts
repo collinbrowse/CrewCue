@@ -1009,11 +1009,6 @@ export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoom
   if (!stored) {
     return undefined;
   }
-  const room = await getRaceRoom(roomId);
-  const anchor = room ? resolveRaceAnchorIso(room) : undefined;
-  if (anchor) {
-    fillPlannedAidStationClocks(stored.lastProjectionCore, anchor);
-  }
   const pingState = getOrInitPingState(roomId);
   return attachProjectionTimeliness(
     stored.lastProjectionCore,
@@ -1021,16 +1016,6 @@ export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoom
     Date.now(),
     pingState.lastUploadIntervalSeconds
   );
-}
-
-function fillPlannedAidStationClocks(core: RaceRoomProjectionCore, raceAnchorIso: string): void {
-  const anchorMs = Date.parse(raceAnchorIso);
-  if (Number.isNaN(anchorMs)) {
-    return;
-  }
-  for (const row of core.checkpointSplits) {
-    row.plannedAidStationClockIso = new Date(anchorMs + row.plannedElapsedSecondsAtCross * 1000).toISOString();
-  }
 }
 
 function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
