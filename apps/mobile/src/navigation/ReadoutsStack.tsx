@@ -30,10 +30,10 @@ export function ReadoutsStack(): ReactElement {
           title: "Pace",
           headerRight: () => (
             <Pressable
-              onPress={() => navigation.navigate("CourseRaceSetup", { mode: "edit" })}
+              onPress={() => navigation.navigate("CourseSettings")}
               style={{ paddingHorizontal: 8, paddingVertical: 6 }}
               accessibilityRole="button"
-              accessibilityLabel="Open race setup details"
+              accessibilityLabel="Open course settings"
             >
               <Ionicons name="settings-outline" color={navColors.primary} size={20} />
             </Pressable>
