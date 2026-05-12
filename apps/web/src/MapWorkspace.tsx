@@ -262,6 +262,7 @@ export function MapWorkspace(): ReactElement {
         const updatedRoom = await client.updateRaceCourse(roomId, {
           course,
           plannedPaceSecondsPerKm,
+          raceStartAt: new Date().toISOString(),
           courseDistanceMeters: parsed.totalDistanceMeters,
           courseElevationGainMeters: computeElevationGainMeters(parsed.points),
           courseFileName: file.name,

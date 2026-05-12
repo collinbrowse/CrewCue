@@ -54,6 +54,7 @@ export function GpxImportScreen(): ReactElement {
   const [crewName, setCrewName] = useState("");
   const [finishingSetup, setFinishingSetup] = useState(false);
   const [pendingCourseUpload, setPendingCourseUpload] = useState<PendingCourseUpload | undefined>(undefined);
+  const [raceStartAt, setRaceStartAt] = useState("");
 
   const activeUnit: DistanceUnit = "mi";
   useEffect(() => {
@@ -125,7 +126,15 @@ export function GpxImportScreen(): ReactElement {
     }
     return undefined;
   }, [importState]);
-  const canFinishSetup = raceName.trim().length > 0 && creatorName.trim().length > 0 && !finishingSetup;
+  const raceStartMs = useMemo(() => {
+    const t = Date.parse(raceStartAt.trim());
+    return Number.isNaN(t) ? null : t;
+  }, [raceStartAt]);
+  const canFinishSetup =
+    raceName.trim().length > 0 &&
+    creatorName.trim().length > 0 &&
+    !finishingSetup &&
+    (!pendingCourseUpload || raceStartMs != null);
 
   const onImportGpx = async (): Promise<void> => {
     setImportState({ status: "loading" });
@@ -160,6 +169,7 @@ export function GpxImportScreen(): ReactElement {
         elevationGainMeters: computeElevationGainMeters(parsed.points),
         routeOverlayLayer: parsedTrackToWorkspaceLayer(selectedFile.name, parsed)
       });
+      setRaceStartAt((prev) => (prev.trim().length > 0 ? prev : new Date().toISOString()));
       setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
     } catch (error) {
       setPendingCourseUpload(undefined);
@@ -203,6 +213,10 @@ export function GpxImportScreen(): ReactElement {
       });
 
       if (pendingCourseUpload) {
+        if (raceStartMs == null) {
+          setImportState({ status: "error", message: "Enter a valid race start time (ISO 8601) before saving the course." });
+          return;
+        }
         if (!s.auth.accessToken) {
           setImportState({ status: "error", message: "Sign in again before finishing route upload." });
           return;
@@ -211,6 +225,7 @@ export function GpxImportScreen(): ReactElement {
         const updatedRoom = await client.updateRaceCourse(room.id, {
           course: pendingCourseUpload.course,
           plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
+          raceStartAt: new Date(raceStartMs).toISOString(),
           courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
           courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
           courseFileName: pendingCourseUpload.fileName,
@@ -320,6 +335,24 @@ export function GpxImportScreen(): ReactElement {
               {uploadFeedback.message}
             </Text>
           </DSCard>
+        ) : null}
+
+        {pendingCourseUpload ? (
+          <>
+            <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>
+              Race start time (required for course upload)
+            </Text>
+            <Text style={s.styles.body}>
+              ISO 8601 UTC, e.g. 2026-05-12T14:00:00.000Z. This anchors projection and Pace on the official start.
+            </Text>
+            <DSTextInput
+              value={raceStartAt}
+              onChangeText={setRaceStartAt}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="2026-05-12T14:00:00.000Z"
+            />
+          </>
         ) : null}
 
         <View style={{ marginTop: 14 }}>

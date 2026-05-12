@@ -36,6 +36,7 @@ export function AthleteSetupWizardScreen(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [pickingFile, setPickingFile] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [raceStartAt, setRaceStartAt] = useState("");
 
   const onPick = async () => {
     setPickingFile(true);
@@ -50,6 +51,7 @@ export function AthleteSetupWizardScreen(): ReactElement {
       const parsedTrack = parseCourseTrack(raw, selected.name);
       setParsed(parsedTrack);
       setFileName(selected.name);
+      setRaceStartAt((prev) => (prev.trim().length > 0 ? prev : new Date().toISOString()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that file.");
     } finally {
@@ -74,13 +76,19 @@ export function AthleteSetupWizardScreen(): ReactElement {
         crewName: "",
         setupComplete: true
       });
-      if (parsed && fileName) {
-        const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
-        const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-        const updatedRoom = await client.updateRaceCourse(room.id, {
-          course,
-          plannedPaceSecondsPerKm,
-          courseDistanceMeters: parsed.totalDistanceMeters,
+    if (parsed && fileName) {
+      const startMs = Date.parse(raceStartAt.trim());
+      if (Number.isNaN(startMs)) {
+        setError("Enter a valid race start time (ISO 8601) before finishing with a GPX course.");
+        return;
+      }
+      const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
+      const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
+      const updatedRoom = await client.updateRaceCourse(room.id, {
+        course,
+        plannedPaceSecondsPerKm,
+        raceStartAt: new Date(startMs).toISOString(),
+        courseDistanceMeters: parsed.totalDistanceMeters,
           courseElevationGainMeters: computeElevationGainMeters(parsed.points),
           courseFileName: fileName,
           routeOverlayLayer: parsedTrackToWorkspaceLayer(fileName, parsed)
@@ -100,7 +108,8 @@ export function AthleteSetupWizardScreen(): ReactElement {
 
   const canAdvanceFromPage0 = name.trim().length > 0;
   const canAdvanceFromPage1 = raceName.trim().length > 0;
-  const canFinish = name.trim().length > 0 && raceName.trim().length > 0;
+  const raceStartOk = !parsed || !Number.isNaN(Date.parse(raceStartAt.trim()));
+  const canFinish = name.trim().length > 0 && raceName.trim().length > 0 && raceStartOk;
 
   const primaryNavDisabled =
     page === 2 ? busy || !canFinish : page === 0 ? !canAdvanceFromPage0 : !canAdvanceFromPage1;
@@ -151,6 +160,20 @@ export function AthleteSetupWizardScreen(): ReactElement {
       {page === 2 ? (
         <View style={styles.page}>
           <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 3: Splits preview</Text>
+          {parsed ? (
+            <>
+              <Text style={[styles.body, { color: theme.color.authBody }]}>
+                Race start (ISO 8601, required with GPX)
+              </Text>
+              <DSTextInput
+                value={raceStartAt}
+                onChangeText={setRaceStartAt}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="2026-05-12T14:00:00.000Z"
+              />
+            </>
+          ) : null}
           {splits.length ? (
             splits.map((split) => (
               <Text key={split.splitIndex} style={[styles.splitRow, { color: theme.color.authHeading }]}>

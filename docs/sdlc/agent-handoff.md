@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-12): Race start anchor, projection bootstrap, map sheet (issue [#247](https://github.com/collinbrowse/CrewCue/issues/247), **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)**)
+
+- **API (on branch):** New rooms default **active**; removed **`POST /race-rooms/:id/activate`**; **`PUT .../course`** requires **`raceStartAt`** when saving a course; permissions key **`canEditRaceSetup`**; bootstrap projection on eligible **GET /projection** / after course save; pings use **`raceStartAt ?? activatedAt`** anchor.
+- **Clients:** Mobile + web `updateRaceCourse` require **`raceStartAt`**; GPX import + athlete setup collect ISO start; projection background poll no longer gated on `room.status === "active"`; quiet **404** clears projection; Pace tab uses **`raceStartAt ?? activatedAt`** and course save sends anchor; map track sheet: **next aid + stats** in bottom footer, checklist in **ScrollView**, **measured peek** drives `SHEET_H` / `courseFitPadding`.
+- **Docs:** `docs/api/ws2-task2-projection.md` describes bootstrap + `raceStartAt` (no activate).
+
 ## Recent fix (2026-05-11): Pace Edit + timeline rail (**merged** PR [#246](https://github.com/collinbrowse/CrewCue/pull/246), **Closes** [#245](https://github.com/collinbrowse/CrewCue/issues/245))
 
 - **Edit:** `GET /race-rooms/:id` permissions include `canEditCheckpointStops`; Pace uses `(roomDetail.permissions ?? JWT current-room role mirror)` for course + stops; Pace focus refetches room detail when missing/stale room id.
@@ -20,11 +26,11 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-11 (America/Chicago)
-- **Pace tab:** Delivered on `main` via **PR #246** (issue **#245**).
-- **Active issues:** #236, #237, #238. **#242** / **#244** closed via **#243**; **#240** via **#241**; **#245** via **#246** (confirm auto-close on GitHub if needed).
-- **Active branch:** `main` (includes **#243** chat UX + **#246** Pace).
-- **Plan:** chat UI bundled work is on `main`; historical E2E reference: [`.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md`](../../.cursor/plans/crew_chat_e2e_implementation_2a141adb.plan.md)
+- Last updated: 2026-05-12 (America/Chicago)
+- **Open:** [#247](https://github.com/collinbrowse/CrewCue/issues/247) — race anchor, projection bootstrap, map sheet (**PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)**).
+- **Pace tab:** On `main` via **PR #246** (issue **#245**).
+- **Active branch:** use `feature/race-start-projection-bootstrap-247` until PR merges.
+- **Plan:** chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
 

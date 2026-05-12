@@ -29,8 +29,6 @@ import {
   workspaceGeometryToBaseline
 } from "@crewcue/map-core";
 import {
-  DEFAULT_PLANNED_PACE_SECONDS_PER_KM,
-  DEFAULT_RACE_COURSE,
   type ProjectionPing,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
@@ -115,12 +113,6 @@ const raceCourseInput = z.object({
   baselineTrack: raceCourseBaselineTrackInput.optional()
 });
 
-const activateRaceRoomInput = z.object({
-  eventEndsAt: z.iso.datetime(),
-  course: raceCourseInput.optional(),
-  plannedPaceSecondsPerKm: z.number().positive().optional()
-});
-
 const mapWorkspacePosition = z.tuple([z.number().gte(-180).lte(180), z.number().gte(-90).lte(90)]);
 
 const mapWorkspaceLineStringGeometryInput = z.object({
@@ -154,8 +146,8 @@ const updateRaceCourseInput = z.object({
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
   courseFileName: z.string().trim().min(1).optional(),
   routeOverlayLayer: mapWorkspaceLayerInput.optional(),
-  /** Optional: shift race-day anchor used for projection elapsed math (same role as activation time). */
-  raceStartAt: z.iso.datetime().optional()
+  /** Required: official race clock anchor for projection / Pace (ISO datetime). */
+  raceStartAt: z.iso.datetime()
 });
 
 const putRaceMapWorkspaceInput = z.object({
@@ -519,6 +511,67 @@ async function saveWs2RuntimeSnapshot(roomId: string): Promise<void> {
   });
 }
 
+/** Race clock anchor: prefer `raceStartAt`, fall back to legacy `activatedAt`. */
+export function resolveRaceAnchorIso(room: RaceRoom): string | undefined {
+  const fromRaceStart = room.raceStartAt?.trim();
+  if (fromRaceStart) {
+    return fromRaceStart;
+  }
+  const fromActivated = room.activatedAt?.trim();
+  return fromActivated || undefined;
+}
+
+/**
+ * When course + pace + anchor exist but no projection state yet (no accepted ping),
+ * seed in-memory (and persisted) projection at the course start.
+ */
+async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persistSnapshot: boolean): Promise<boolean> {
+  const anchor = resolveRaceAnchorIso(room);
+  if (!room.course || room.plannedPaceSecondsPerKm === undefined || !anchor) {
+    return false;
+  }
+  if (roomProjectionState.has(roomId)) {
+    return true;
+  }
+  const origin = room.course.checkpoints[0];
+  if (!origin) {
+    return false;
+  }
+  const pingId = "bootstrap";
+  const recordedAt = new Date().toISOString();
+  const ping: ProjectionPing = {
+    pingId,
+    latitude: origin.latitude,
+    longitude: origin.longitude,
+    recordedAt
+  };
+  try {
+    const { projection: nextProjectionCore, state } = recomputeRaceProjection({
+      roomId,
+      activatedAt: anchor,
+      course: room.course,
+      plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+      ping,
+      previousPing: null,
+      previous: null
+    });
+    roomProjectionState.set(roomId, {
+      lastProgressMeters: state.lastProgressMeters,
+      splitCrossedAt: { ...state.splitCrossedAt },
+      visitStates: structuredClone(state.visitStates),
+      visitMeta: structuredClone(state.visitMeta),
+      rollingMovingSpeedMps: state.rollingMovingSpeedMps,
+      lastProjectionCore: nextProjectionCore
+    });
+    if (persistSnapshot) {
+      await saveWs2RuntimeSnapshot(roomId);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 type TaskBoardMaterializedPayload = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
@@ -797,18 +850,19 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 
 type PermissionSet = {
   canViewRoom: boolean;
-  canActivateRoom: boolean;
+  /** Course upload, race start anchor, entitlement updates (replaces legacy activate permission). */
+  canEditRaceSetup: boolean;
   canIssueInvite: boolean;
   /** Crew stop edits (manual arrival/departure); aligned with `canEditCheckpointStoppage`. */
   canEditCheckpointStops: boolean;
 };
 
 function getPermissions(role: Role): PermissionSet {
-  const canActivateRoom = role === "athlete" || role === "crew_chief" || role === "team_manager";
+  const canEditRaceSetup = role === "athlete" || role === "crew_chief" || role === "team_manager";
   const canIssueInvite = role === "athlete" || role === "crew_chief" || role === "team_manager";
   return {
     canViewRoom: true,
-    canActivateRoom,
+    canEditRaceSetup,
     canIssueInvite,
     canEditCheckpointStops: canEditCheckpointStoppage(role)
   };
@@ -922,10 +976,17 @@ export async function listRaceRoomsForRetention(): Promise<
   return listPersistedRoomsForRetention();
 }
 
-/** Latest projection view with timeliness, when ping history produced a stored core projection. */
+/** Latest projection view with timeliness, when ping history produced a stored core projection or bootstrap filled state. */
 export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoomProjection | undefined> {
   await loadWs2RuntimeIfNeeded(roomId);
-  const stored = roomProjectionState.get(roomId);
+  let stored = roomProjectionState.get(roomId);
+  if (!stored) {
+    const room = await getRaceRoom(roomId);
+    if (room) {
+      await ensureBootstrapProjection(roomId, room, true);
+      stored = roomProjectionState.get(roomId);
+    }
+  }
   if (!stored) {
     return undefined;
   }
@@ -971,7 +1032,8 @@ function pruneProjectionStateMaps(
 }
 
 async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: RaceRoom): Promise<void> {
-  if (!room.activatedAt || !room.course || room.plannedPaceSecondsPerKm === undefined) {
+  const anchor = resolveRaceAnchorIso(room);
+  if (!anchor || !room.course || room.plannedPaceSecondsPerKm === undefined) {
     return;
   }
   const pingState = getOrInitPingState(roomId);
@@ -997,7 +1059,7 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     : null;
   const { projection: nextProjectionCore, state: nextStateRaw } = recomputeRaceProjection({
     roomId,
-    activatedAt: room.activatedAt,
+    activatedAt: anchor,
     course: room.course,
     plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
     ping,
@@ -1185,6 +1247,20 @@ function applyRaceMapWorkspacePut(
   return next;
 }
 
+export async function setRaceRoomStatusForTests(roomId: string, status: RaceRoom["status"]): Promise<void> {
+  const mode = process.env.PERSISTENCE_MODE;
+  if (mode !== "memory" && mode !== "postgres") {
+    throw new Error(
+      `setRaceRoomStatusForTests is test-only; use PERSISTENCE_MODE=memory or postgres (got ${mode ?? "unset"})`
+    );
+  }
+  const room = await getRaceRoom(roomId);
+  if (!room) {
+    return;
+  }
+  await saveRaceRoom({ ...room, status });
+}
+
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   await initRoomPersistence(app.log);
 
@@ -1210,7 +1286,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       teamId: parsed.data.teamId,
       athleteId: parsed.data.athleteId,
       name: parsed.data.name,
-      status: "draft",
+      status: "active",
       createdAt: now,
       entitlement: {
         status: "unpaid",
@@ -1281,67 +1357,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ room, permissions });
   });
 
-  app.post("/race-rooms/:roomId/activate", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-
-    const roomId = (request.params as { roomId: string }).roomId;
-    const room = await getRaceRoom(roomId);
-    if (!room) {
-      return reply.code(404).send({ error: "Race room not found" });
-    }
-
-    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
-    if (!membership) {
-      return reply.code(403).send({ error: "Forbidden" });
-    }
-
-    const permissions = getPermissions(membership.role);
-    if (!permissions.canActivateRoom) {
-      return reply.code(403).send({ error: "Insufficient permissions" });
-    }
-
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
-    if (!entitlement.allowed) {
-      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
-    }
-
-    const parsed = activateRaceRoomInput.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid activation payload" });
-    }
-
-    const activatedAt = new Date().toISOString();
-    const course = parsed.data.course ?? DEFAULT_RACE_COURSE;
-    const plannedPaceSecondsPerKm = parsed.data.plannedPaceSecondsPerKm ?? DEFAULT_PLANNED_PACE_SECONDS_PER_KM;
-
-    const activated: RaceRoom = {
-      ...room,
-      status: "active",
-      activatedAt,
-      eventEndsAt: parsed.data.eventEndsAt,
-      course,
-      plannedPaceSecondsPerKm
-    };
-
-    roomPingState.delete(roomId);
-    roomProjectionState.delete(roomId);
-    ws2RuntimeHydratedFromDb.delete(roomId);
-    clearTaskBoardLocalState(roomId);
-    await deleteWs2RuntimePayload(roomId);
-    await deleteTaskBoardPayload(roomId);
-    await deleteTaskBoardSnapshot(roomId);
-    await deleteWs4AdaptivePayload(roomId);
-    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-    clearWs4RoomLocalState(roomId);
-    await deleteWs5SyncPayload(roomId);
-    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-    clearWs5RoomLocalState(roomId);
-    await saveRaceRoom(activated);
-    return reply.send(activated);
-  });
-
   app.put("/race-rooms/:roomId/course", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -1359,7 +1374,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    if (!permissions.canActivateRoom) {
+    if (!permissions.canEditRaceSetup) {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
@@ -1387,7 +1402,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       courseDistanceMeters: parsed.data.courseDistanceMeters ?? room.courseDistanceMeters,
       courseElevationGainMeters: parsed.data.courseElevationGainMeters ?? room.courseElevationGainMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
-      ...(parsed.data.raceStartAt ? { activatedAt: parsed.data.raceStartAt } : {})
+      raceStartAt: parsed.data.raceStartAt,
+      activatedAt: parsed.data.raceStartAt
     };
 
     if (parsed.data.routeOverlayLayer) {
@@ -1415,6 +1431,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
     }
+    await ensureBootstrapProjection(roomId, updatedRoom, true);
     await saveWs2RuntimeSnapshot(roomId);
     return reply.send(updatedRoom);
   });
@@ -1455,7 +1472,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    if (!permissions.canActivateRoom) {
+    if (!permissions.canEditRaceSetup) {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
@@ -1822,7 +1839,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    if (!permissions.canActivateRoom) {
+    if (!permissions.canEditRaceSetup) {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
@@ -1954,12 +1971,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     );
 
     let projection: RaceRoomProjection | undefined;
-    if (room.course && room.plannedPaceSecondsPerKm !== undefined && room.activatedAt) {
+    const raceAnchor = resolveRaceAnchorIso(room);
+    if (room.course && room.plannedPaceSecondsPerKm !== undefined && raceAnchor) {
       const prev = roomProjectionState.get(roomId);
       try {
         const { projection: nextProjectionCore, state } = recomputeRaceProjection({
           roomId,
-          activatedAt: room.activatedAt,
+          activatedAt: raceAnchor,
           course: room.course,
           plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
           ping: {
@@ -2057,7 +2075,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await loadWs2RuntimeIfNeeded(roomId);
 
-    const stored = roomProjectionState.get(roomId);
+    let stored = roomProjectionState.get(roomId);
+    if (!stored) {
+      await ensureBootstrapProjection(roomId, room, true);
+      stored = roomProjectionState.get(roomId);
+    }
     if (!stored) {
       return reply.code(404).send({ error: "Projection not available" });
     }
@@ -2105,7 +2127,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     await loadWs2RuntimeIfNeeded(roomId);
     const projectionState = roomProjectionState.get(roomId);
-    if (!projectionState || !room.activatedAt) {
+    const raceAnchor = resolveRaceAnchorIso(room);
+    if (!projectionState || !raceAnchor) {
       return reply.code(409).send({ error: "Projection state unavailable" });
     }
     const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
@@ -2150,7 +2173,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     refreshCheckpointSplitStoppageDerivedFields(split);
-    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
+    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
     return reply.send({ checkpointSplit: split });
@@ -2194,7 +2217,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     await loadWs2RuntimeIfNeeded(roomId);
     const projectionState = roomProjectionState.get(roomId);
-    if (!projectionState || !room.activatedAt) {
+    const raceAnchor = resolveRaceAnchorIso(room);
+    if (!projectionState || !raceAnchor) {
       return reply.code(409).send({ error: "Projection state unavailable" });
     }
     const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
@@ -2213,7 +2237,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     visit.resolvedSource = parsed.data.resolvedSource;
     refreshCheckpointSplitStoppageDerivedFields(split);
-    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, room.activatedAt);
+    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
     return reply.send({ checkpointSplit: split });

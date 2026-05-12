@@ -19,7 +19,6 @@ type Props = {
   onProcessOutbox: () => void;
   onMarkEntitlementPaid: () => void;
   onFetchRoomDetails: (roomId?: string) => void | Promise<void>;
-  onActivateRoom: () => void;
   onSendPing: () => void;
   onPostSyncHeartbeat: () => void;
   onFetchSyncHealth: () => void;
@@ -54,7 +53,6 @@ export function AuthenticatedActionPanel({
   onProcessOutbox,
   onMarkEntitlementPaid,
   onFetchRoomDetails,
-  onActivateRoom,
   onSendPing,
   onPostSyncHeartbeat,
   onFetchSyncHealth,
@@ -72,7 +70,7 @@ export function AuthenticatedActionPanel({
   onEnqueueManualStop,
   onSignOut
 }: Props): ReactElement {
-  const roomInactive = room?.status !== "active";
+  const roomCompleted = room?.status === "completed";
   const noIncidents = !incidents || incidents.length === 0;
   const recommendationPending = latestRecommendation?.status === "pending";
 
@@ -101,11 +99,6 @@ export function AuthenticatedActionPanel({
             <DSButton preset="secondary" onPress={onFetchRoomDetails} disabled={busy}>
               Refresh room details
             </DSButton>
-            {room.entitlement.status === "paid" && room.status === "draft" ? (
-              <DSButton preset="primary" onPress={onActivateRoom} disabled={busy}>
-                {busy ? "Working..." : "Activate room"}
-              </DSButton>
-            ) : null}
           </DSCard>
           {room.status === "active" ? (
             <>
@@ -211,8 +204,8 @@ export function AuthenticatedActionPanel({
               ) : null}
             </>
           ) : null}
-          {roomInactive ? (
-            <Text style={styles.body}>Checkpoint, recommendation, and task controls unlock after the room is active.</Text>
+          {roomCompleted ? (
+            <Text style={styles.body}>This race is completed; live ping and checkpoint controls are read-only.</Text>
           ) : null}
         </>
       ) : null}

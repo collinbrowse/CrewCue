@@ -353,13 +353,17 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       setProjection(await client.getProjection(room.id));
       setProjectionPolledAt(new Date().toISOString());
-    } catch {
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setProjection(undefined);
+        setProjectionPolledAt(undefined);
+      }
       /* background poll — avoid spamming apiError */
     }
   }, [auth.accessToken, room, baseUrl]);
 
   useEffect(() => {
-    if (!projectionPollEnabled || room?.status !== "active" || !auth.accessToken) {
+    if (!projectionPollEnabled || !room?.id || !auth.accessToken) {
       return;
     }
     void pollProjectionQuiet();
@@ -367,7 +371,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       void pollProjectionQuiet();
     }, 8000);
     return () => clearInterval(id);
-  }, [projectionPollEnabled, room?.status, room?.id, auth.accessToken, pollProjectionQuiet]);
+  }, [projectionPollEnabled, room?.id, auth.accessToken, pollProjectionQuiet]);
 
   const fetchMyRaceRooms = useCallback(async () => {
     if (!auth.accessToken) return;
@@ -476,23 +480,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       const entitlement = await client.updateEntitlement(room.id, "paid");
       setRoom((r) => (r ? { ...r, entitlement } : r));
       setStatusSuccess("Entitlement updated to paid.");
-    } catch (err) {
-      setStatusError(err);
-    } finally {
-      setBusy(false);
-    }
-  }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
-
-  const activateRoom = useCallback(async () => {
-    if (!auth.accessToken || !room) return;
-    setBusy(true);
-    setApiError(undefined);
-    try {
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      const eventEndsAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
-      const activated = await client.activateRaceRoom(room.id, { eventEndsAt });
-      setRoom(activated);
-      setStatusSuccess("Room activated.");
     } catch (err) {
       setStatusError(err);
     } finally {
@@ -1408,7 +1395,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     onRemoveMember: removeMember,
     onFetchMyRaceRooms: fetchMyRaceRooms,
     onSelectRaceRoom: selectRaceRoom,
-    onActivateRoom: activateRoom,
     onSendPing: sendPing,
     onPostSyncHeartbeat: postSyncHeartbeat,
     onFetchSyncHealth: fetchSyncHealth,
