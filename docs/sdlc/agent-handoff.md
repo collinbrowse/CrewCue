@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-12): PR [#249](https://github.com/collinbrowse/CrewCue/pull/249) merge conflicts vs `main`
+
+- **Cause:** `main` (post-#248) simplified `services/api/src/routes/raceRooms.ts` course/map-workspace path; #249 branch had unified **course derived metrics** + pace-aware baselines.
+- **Resolution:** Merged `origin/main` into **`feature/race-start-projection-isolated`**, resolved **`raceRooms.ts`** by keeping #249 behavior (derived metrics Zod/helpers, `recomputeCourseMetricsForSave`, `workspaceGeometryToBaseline(..., plannedPace)`, room distance/gain/loss, projection cache clear before recompute). **Pushed** merge commit `d52ca98`.
+- **Validation:** `services/api` build + `raceRooms.test.js` + `raceRoomProjection.test.js` (24 tests) pass under `PERSISTENCE_MODE=memory`.
+
 ## Recent (2026-05-12): Race start anchor, projection bootstrap, map sheet (**merged** PR [#248](https://github.com/collinbrowse/CrewCue/pull/248), **Closes** [#247](https://github.com/collinbrowse/CrewCue/issues/247))
 
 - **API (on `main`):** New rooms default **active**; removed **`POST /race-rooms/:id/activate`**; **`PUT .../course`** requires **`raceStartAt`** when saving a course; permissions key **`canEditRaceSetup`**; bootstrap projection on eligible **GET /projection** / after course save; pings use **`raceStartAt ?? activatedAt`** anchor; **`setRaceRoomStatusForTests`** allowed under **postgres** for integration tests.
@@ -28,8 +34,9 @@ Use this as the minimal continuity file between sessions.
 
 - Last updated: 2026-05-12 (America/Chicago)
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient; follow-up work may continue on **`feature/race-start-projection-isolated`** or new branches from **`main`**.
+- **PR #249:** Conflicts with `main` resolved on **`feature/race-start-projection-isolated`** (`d52ca98`); branch pushed — watch CI on **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)**; run **`npm run verify`** at repo root if not already green locally.
 - **Pace tab:** Includes **#246** plus **#248** (race start + projection bootstrap + map sheet + Course settings race start).
-- **Active branch:** Prefer **`main`** for new work; use **`feature/race-start-projection-isolated`** only if that split still has unmerged commits.
+- **Active branch:** Prefer **`main`** for new work; **`feature/race-start-projection-isolated`** carries #249 until merged.
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective

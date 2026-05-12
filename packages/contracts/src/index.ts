@@ -43,13 +43,15 @@ export type RaceCourseCheckpointCutoff =
   | { mode: "time_of_day"; hour: number; minute: number }
   | { mode: "elapsed_from_start"; seconds: number };
 
-/** Ordered polyline for WS2 projection (local XY projection between consecutive points). */
+/** Ordered polyline for WS2 projection (geodesic math in API; legacy docs may mention local XY). */
 export interface RaceCourseCheckpoint {
   id: string;
   /** Human-readable station label (separate from stable `id` slug). */
   title?: string;
   latitude: number;
   longitude: number;
+  /** Arc length along the canonical route polyline when known (server-computed on course save). */
+  distanceMetersFromStart?: number;
   plannedStopSeconds?: number;
   stoppageRadiusMeters?: number;
   slowdownThresholdRatio?: number;
@@ -61,20 +63,37 @@ export interface RaceCourseCheckpoint {
 export interface RaceCourseBaselinePoint {
   distanceMetersFromStart: number;
   referenceElapsedSeconds: number;
+  /** Sampled elevation (meters) at this baseline sample when available. */
+  elevationMeters?: number;
 }
 
 export interface RaceCourseBaselineTrack {
   points: RaceCourseBaselinePoint[];
 }
 
+/** Source for `elevationGainMeters` / `elevationLossMeters` on the canonical polyline. */
+export type RaceCourseElevationSource = "gpx_smoothed" | "dem" | "none";
+
+/** Server-derived stats so clients and projection share one definition of distance and climb. */
+export interface RaceCourseDerivedMetrics {
+  canonicalDistanceMeters: number;
+  elevationGainMeters: number;
+  elevationLossMeters: number;
+  elevationSource: RaceCourseElevationSource;
+  /** Bump when smoothing or geodesic algorithms change. */
+  metricsVersion: number;
+}
+
 export interface RaceCourse {
   checkpoints: RaceCourseCheckpoint[];
   /** Optional high-density reference track; older clients can omit this and retain flat pace behavior. */
   baselineTrack?: RaceCourseBaselineTrack;
+  /** Populated when course metrics are computed (e.g. on PUT course / map workspace sync). */
+  derivedMetrics?: RaceCourseDerivedMetrics;
 }
 
-/** GeoJSON position [longitude, latitude]. */
-export type MapWorkspacePosition = [number, number];
+/** GeoJSON position [longitude, latitude] or [longitude, latitude, elevationMeters]. */
+export type MapWorkspacePosition = [number, number] | [number, number, number];
 
 export interface MapWorkspaceLineStringGeometry {
   type: "LineString";
@@ -154,6 +173,8 @@ export interface RaceCheckpointSplitRow {
   distanceMetersFromStart: number;
   crossedAtRecordedAt: string | null;
   plannedElapsedSecondsAtCross: number;
+  /** Planned wall-clock at this checkpoint crossing (`raceStartAt` + planned elapsed). Filled on projection reads when anchor exists. */
+  plannedAidStationClockIso?: string;
   actualElapsedSecondsAtCross: number | null;
   deltaSecondsAtCross: number | null;
   plannedStopSeconds: number;
@@ -262,6 +283,8 @@ export interface RaceRoom {
   courseDistanceMeters?: number;
   /** Persisted at upload time for fast UI reads without recomputation. */
   courseElevationGainMeters?: number;
+  /** When derived metrics include loss (smoothed GPX profile). */
+  courseElevationLossMeters?: number;
   /** Original uploaded filename for route metadata display. */
   courseFileName?: string;
   /** Seconds per kilometre for plan baseline (smaller = faster plan). */
