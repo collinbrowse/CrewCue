@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
 import { registerRootComponent } from "expo";
-import "./src/chat/nativeDependencyPrewarm";
 import { ActivityIndicator, LogBox, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
