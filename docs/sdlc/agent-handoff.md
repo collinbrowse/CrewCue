@@ -12,10 +12,10 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Recent (2026-05-12): Race start anchor, projection bootstrap, map sheet (issue [#247](https://github.com/collinbrowse/CrewCue/issues/247), **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)**)
+## Recent (2026-05-12): Race start anchor, projection bootstrap, map sheet (**merged** PR [#248](https://github.com/collinbrowse/CrewCue/pull/248), **Closes** [#247](https://github.com/collinbrowse/CrewCue/issues/247))
 
-- **API (on branch):** New rooms default **active**; removed **`POST /race-rooms/:id/activate`**; **`PUT .../course`** requires **`raceStartAt`** when saving a course; permissions key **`canEditRaceSetup`**; bootstrap projection on eligible **GET /projection** / after course save; pings use **`raceStartAt ?? activatedAt`** anchor.
-- **Clients:** Mobile + web `updateRaceCourse` require **`raceStartAt`**; GPX import + athlete setup collect ISO start; projection background poll no longer gated on `room.status === "active"`; quiet **404** clears projection; Pace tab uses **`raceStartAt ?? activatedAt`** and course save sends anchor; map track sheet: **next aid + stats** in bottom footer, checklist in **ScrollView**, **measured peek** drives `SHEET_H` / `courseFitPadding`.
+- **API (on `main`):** New rooms default **active**; removed **`POST /race-rooms/:id/activate`**; **`PUT .../course`** requires **`raceStartAt`** when saving a course; permissions key **`canEditRaceSetup`**; bootstrap projection on eligible **GET /projection** / after course save; pings use **`raceStartAt ?? activatedAt`** anchor; **`setRaceRoomStatusForTests`** allowed under **postgres** for integration tests.
+- **Clients:** Mobile + web `updateRaceCourse` require **`raceStartAt`**; GPX import + athlete setup collect ISO start; Pace **Course settings** can edit/save race start; projection background poll without `room.status === "active"` gate; quiet **404** clears projection; Pace tab uses **`raceStartAt ?? activatedAt`**; map sheet peek shows **next aid + stats** first, checklist when expanded.
 - **Docs:** `docs/api/ws2-task2-projection.md` describes bootstrap + `raceStartAt` (no activate).
 
 ## Recent fix (2026-05-11): Pace Edit + timeline rail (**merged** PR [#246](https://github.com/collinbrowse/CrewCue/pull/246), **Closes** [#245](https://github.com/collinbrowse/CrewCue/issues/245))
@@ -27,10 +27,10 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-12 (America/Chicago)
-- **Open:** [#247](https://github.com/collinbrowse/CrewCue/issues/247) — race anchor, projection bootstrap, map sheet (**PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)**).
-- **Pace tab:** On `main` via **PR #246** (issue **#245**).
-- **Active branch:** use `feature/race-start-projection-bootstrap-247` until PR merges.
-- **Plan:** chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
+- **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient; follow-up work may continue on **`feature/race-start-projection-isolated`** or new branches from **`main`**.
+- **Pace tab:** Includes **#246** plus **#248** (race start + projection bootstrap + map sheet + Course settings race start).
+- **Active branch:** Prefer **`main`** for new work; use **`feature/race-start-projection-isolated`** only if that split still has unmerged commits.
+- **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
 
