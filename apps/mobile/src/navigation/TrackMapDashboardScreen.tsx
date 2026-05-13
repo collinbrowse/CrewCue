@@ -226,6 +226,35 @@ export function TrackMapDashboardScreen(): ReactElement {
   const roomId = room?.id;
   const token = s.auth.status === "authenticated" ? s.auth.accessToken : undefined;
 
+  /**
+   * `listMyRaceRooms` snapshots often omit `raceStartAt`; GET room detail includes it.
+   * Schedule-sensitive map UI must read the anchor from detail when the ids match.
+   */
+  const scheduleRoom = useMemo((): RaceRoom | undefined => {
+    if (!room) {
+      return undefined;
+    }
+    const dRoom = s.roomDetail?.room;
+    if (dRoom && dRoom.id === room.id) {
+      return {
+        ...room,
+        raceStartAt: dRoom.raceStartAt ?? room.raceStartAt,
+        activatedAt: dRoom.activatedAt ?? room.activatedAt,
+        eventEndsAt: dRoom.eventEndsAt ?? room.eventEndsAt
+      };
+    }
+    return room;
+  }, [room, s.roomDetail?.room]);
+
+  const startCheckpointTitle = useMemo(() => {
+    const r = scheduleRoom;
+    const first = r?.course?.checkpoints?.[0];
+    if (!first) {
+      return "Start";
+    }
+    return checkpointLabel(r, first.id);
+  }, [scheduleRoom]);
+
   const [serverWorkspace, setServerWorkspace] = useState<RaceMapWorkspace | null>(null);
   const workspace = useMemo(() => mergeWorkspaceFromServer(room, serverWorkspace), [room, serverWorkspace]);
 
@@ -400,10 +429,13 @@ export function TrackMapDashboardScreen(): ReactElement {
     useCallback(() => {
       s.onSetProjectionPollEnabled(true);
       s.onFetchProjection();
+      if (room?.id) {
+        void s.onFetchRoomDetails(room.id);
+      }
       return () => {
         s.onSetProjectionPollEnabled(false);
       };
-    }, [s.onFetchProjection, s.onSetProjectionPollEnabled])
+    }, [s.onFetchProjection, s.onSetProjectionPollEnabled, s.onFetchRoomDetails, room?.id])
   );
 
   useEffect(() => {
@@ -705,7 +737,7 @@ export function TrackMapDashboardScreen(): ReactElement {
   }, [room?.course, room?.courseDistanceMeters, projection]);
 
   const mapSheetPhase = useMemo((): "preStart" | "finish" | "race" => {
-    const anchorMs = parseRaceAnchorMs(room);
+    const anchorMs = parseRaceAnchorMs(scheduleRoom);
     if (anchorMs != null && Date.now() < anchorMs) {
       return "preStart";
     }
@@ -725,8 +757,8 @@ export function TrackMapDashboardScreen(): ReactElement {
     }
     return "race";
   }, [
-    room?.raceStartAt,
-    room?.activatedAt,
+    scheduleRoom?.raceStartAt,
+    scheduleRoom?.activatedAt,
     projection?.checkpointSplits,
     projection?.progressMeters,
     effectiveCourseLengthMeters,
@@ -872,7 +904,7 @@ export function TrackMapDashboardScreen(): ReactElement {
     if (mapSheetPhase !== "preStart") {
       return null;
     }
-    const anchorMs = parseRaceAnchorMs(room);
+    const anchorMs = parseRaceAnchorMs(scheduleRoom);
     if (anchorMs == null) {
       return null;
     }
@@ -885,10 +917,15 @@ export function TrackMapDashboardScreen(): ReactElement {
         hour: "numeric",
         minute: "2-digit"
       }),
+      startsAtTimeOfDay: new Date(anchorMs).toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit"
+      }),
       startsInRemain: startsInSec >= 60 ? formatRemainingMinutes(startsInSec) : startsInSec > 0 ? "< 1 min" : "Starting",
       startsAtClock: formatEtaClock(anchorMs)
     };
-  }, [mapSheetPhase, room?.raceStartAt, room?.activatedAt, projectionPolledAt]);
+  }, [mapSheetPhase, scheduleRoom?.raceStartAt, scheduleRoom?.activatedAt, projectionPolledAt]);
 
   const finishSheetDetails = useMemo(() => {
     if (mapSheetPhase !== "finish" || !room?.course?.checkpoints?.length) {
@@ -899,7 +936,7 @@ export function TrackMapDashboardScreen(): ReactElement {
     const splits = projection?.checkpointSplits ?? [];
     const lastSplit = splits.length > 0 ? splits[splits.length - 1] : undefined;
     const crossedIso = lastSplit?.crossedAtRecordedAt ?? projection?.asOfRecordedAt ?? null;
-    const anchorMs = parseRaceAnchorMs(room);
+    const anchorMs = parseRaceAnchorMs(scheduleRoom);
     let wallClockStr = "—";
     let totalElapsedStr = "—";
     if (crossedIso) {
@@ -921,7 +958,7 @@ export function TrackMapDashboardScreen(): ReactElement {
     }
     const locationLine = `${checkpointLabel(room, lastCp.id)} · ${lastCp.latitude.toFixed(4)}°, ${lastCp.longitude.toFixed(4)}°`;
     return { wallClockStr, totalElapsedStr, locationLine, stationTitle: checkpointLabel(room, lastCp.id) };
-  }, [mapSheetPhase, room, projection?.checkpointSplits, projection?.asOfRecordedAt]);
+  }, [mapSheetPhase, room, projection?.checkpointSplits, projection?.asOfRecordedAt, scheduleRoom?.raceStartAt, scheduleRoom?.activatedAt]);
 
   const runnerLocationCaption = useMemo(() => {
     if (!room) {
@@ -1423,6 +1460,9 @@ export function TrackMapDashboardScreen(): ReactElement {
                 <>
                   <Text style={styles.sheetKicker}>RACE START</Text>
                   <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
+                    {startCheckpointTitle}
+                  </Text>
+                  <Text style={{ color: theme.color.muted, fontSize: 14, fontWeight: "600", marginTop: 6 }}>
                     {preStartSheetDetails?.startsAtLine ?? "Set a race start time in Race setup."}
                   </Text>
                 </>
@@ -1446,12 +1486,13 @@ export function TrackMapDashboardScreen(): ReactElement {
               {mapSheetPhase === "preStart" ? (
                 <>
                   <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>
-                    {preStartSheetDetails?.startsAtClock ?? "—"}
+                    {preStartSheetDetails?.startsAtTimeOfDay ?? preStartSheetDetails?.startsAtClock ?? "—"}
                   </Text>
-                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>STARTS AT</Text>
+                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>START TIME</Text>
                   <View style={styles.etaPill}>
                     <Text style={styles.etaPillText}>{preStartSheetDetails?.startsInRemain ?? "—"}</Text>
                   </View>
+                  <Text style={{ color: theme.color.muted, fontSize: 10, marginTop: 4 }}>UNTIL START</Text>
                 </>
               ) : mapSheetPhase === "finish" ? (
                 <>
