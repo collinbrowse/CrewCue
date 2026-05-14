@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Before implementation
 
-1. **Create a GitHub issue** for every new scoped task (use `gh issue create` or the *Workstream Task* issue template). Do not treat “local only” work as exempt unless the user explicitly says so for a one-off.
+1. **Create a GitHub issue** for every new scoped task (use `gh issue create` or the *Implementation task* issue template). Do not treat “local only” work as exempt unless the user explicitly says so for a one-off.
 2. Note the **issue number** (e.g. `#9`).
 
 ## Delivery

@@ -10,4 +10,4 @@ WS0 decisions are captured as ADRs and considered approved for the initial found
 
 ## Related operational docs
 
-- [MVP delivery chunks and cloud strategy](../sdlc/mvp-delivery-chunks-and-cloud-strategy.md) — post–WS7 sequencing (chunks A–D), staging vs production, and task pickup guidance aligned with ADR 0003/0004.
+- [Staging-first cloud delivery](../sdlc/staging-first-cloud-delivery.md) — named rollout phases after the initial API/contract baseline, staging vs production, and task pickup guidance aligned with ADR 0003/0004.

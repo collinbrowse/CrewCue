@@ -1,0 +1,46 @@
+name: Implementation task
+description: Create a scoped task with objective, scope, and acceptance criteria.
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What outcome should this task deliver?
+      placeholder: e.g. Fix projection staleness when the course updates mid-race.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: In-scope changes
+      description: List concrete behaviors or files to touch.
+      placeholder: "- add endpoint …\n- update mobile screen …\n- adjust contract …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable conditions for "done."
+      placeholder: "- unauthorized users cannot …\n- UI shows … when …"
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: Explicitly list what this task will not include.
+      placeholder: Optional.
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Commands or manual checks required before merge.
+      value: |
+        - npm run verify (repo root)
+    validations:
+      required: true

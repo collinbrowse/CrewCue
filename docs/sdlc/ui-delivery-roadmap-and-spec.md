@@ -33,7 +33,7 @@ This is deliberate. Building polished visuals before flow reliability creates re
 
 ## 2) Current baseline (as of this spec)
 
-- Auth + staging integration is working (Chunk B/C)
+- Auth + staging integration is working (**Auth & payments (staging)** and **Clients prove staging** phases in [`staging-first-cloud-delivery.md`](./staging-first-cloud-delivery.md))
 - Mobile single-screen shell exists in `apps/mobile/App.tsx`
 - WS2 stoppage endpoints + UI controls exist (manual stop, source toggle)
 - Outbox foundation exists and supports checkpoint operations
@@ -122,7 +122,7 @@ This roadmap now targets a customer-ready **demo build** as the top priority.
 New terminology:
 
 - **Epic** = a large delivery stage (replaces "phase")
-- **Sprint** = a focused execution stream inside an epic (replaces "slice/chunk" language for UI planning)
+- **Sprint** = a focused execution stream inside an epic (finer-grained than an epic; avoids vague "slice-only" planning labels).
 - **Backlog** = deferred or non-demo work that stays tracked
 
 Delivery rule: complete Epic A before Epic B unless an issue explicitly documents an exception.
@@ -227,7 +227,7 @@ Use this order across the entire monorepo so UI, API, sync, and ops work stay al
    - add/adjust screens/components using existing client/outbox primitives
    - avoid inline network logic in view components
 4. **Operational docs and smoke updates**
-   - update chunk/runbook docs
+   - update cloud rollout / runbook docs when staging or operator steps change
    - update smoke scripts/checklists if the operator flow changed
 5. **Staging verification before merge**
    - verify health/runtime on staging for cloud-touching changes
@@ -258,7 +258,7 @@ If a task would duplicate existing logic, refactor shared modules first, then ad
 Each merged epic or sprint should update:
 
 1. this file (`ui-delivery-roadmap-and-spec.md`) revision history
-2. relevant chunk doc(s) (Chunk C for shell changes, Chunk D stream doc for depth changes)
+2. relevant rollout docs ([`staging-first-cloud-delivery.md`](./staging-first-cloud-delivery.md): **Clients prove staging** for shell/navigation changes; **Projection & sync hardening** for projection/outbox depth)
 3. smoke/runbook docs if operator steps change
 
 No "silent UI architecture changes" in PRs without doc updates.
@@ -287,6 +287,7 @@ CI gate note:
 
 | Date | Change |
 | --- | --- |
+| 2026-05-14 | Cloud rollout guidance now uses named phases in [`staging-first-cloud-delivery.md`](./staging-first-cloud-delivery.md) (links + doc-update guidance). |
 | 2026-04-29 | Added PR decision-rationale and CI guard requirements (`pr-decision-doc-guard`) to align roadmap delivery with current repo workflow gates. |
 | 2026-04-29 | Reframed roadmap to demo-first execution using **Epic / Sprint / Backlog** terminology; moved non-demo unfinished work into explicit backlog tracking without deleting scope. |
 | 2026-04-28 | Clarified Phase 2 WS5 safe-retry scope as **pending ping only** in roadmap text to match current UI/sync behavior and guard against retry-path drift. |

@@ -1,12 +1,14 @@
-## Workstream
+## Change surface (check all that apply)
 
-- WS1
-- WS2
-- WS3
-- WS4
-- WS5
-- WS6
-- WS7
+Use this for quick triage. Finer grouping (epic, milestone, cloud rollout phase from `docs/sdlc/staging-first-cloud-delivery.md`) lives in **linked issues** and GitHub labels.
+
+- [ ] Mobile (`apps/mobile`)
+- [ ] Web (`apps/web`)
+- [ ] API (`services/api`)
+- [ ] Contracts / shared packages (`packages/*`)
+- [ ] Docs / runbooks (`docs/`)
+- [ ] CI / tooling (`.github/`, `scripts/`)
+- [ ] Cross-cutting (touches multiple areas above)
 
 ## Linked issues (required for auto-close on merge)
 

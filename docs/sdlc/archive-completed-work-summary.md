@@ -4,7 +4,7 @@ Purpose: keep one short record of already-finished delivery so active docs stay 
 
 ## Completed foundation
 
-- Cloud foundation delivered through Chunk A-D track (persistence, auth/entitlement, staging E2E, domain depth groundwork).
+- Cloud foundation delivered through the staging-first rollout (Postgres/event log, auth and payments on staging, staging client proof, projection/sync groundwork).
 - Mobile app has authenticated shell and core operational scaffolding in place.
 - API/contracts/client layering and anti-duplication guardrails are established and enforced in SDLC docs.
 

@@ -1,15 +1,17 @@
 ---
-description: Post-WS7 MVP delivery chunks (A–D) and staging-first cloud; read before persistence, Auth0, payments, deploy, or mobile-staging integration
+description: Staging-first cloud rollout (four named phases); read before Postgres/events, Auth0/payments, staging clients, or projection/sync hardening
 alwaysApply: true
 ---
 
-# MVP chunks and cloud strategy
+# Staging-first cloud delivery
 
-When work goes **beyond WS1–WS7 API slices** (durable Postgres, Auth0, real payments, staging/prod behavior, or mobile proving the cloud stack), read **`docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md`** first.
+When work goes **beyond the current API/contract baseline** (durable Postgres, Auth0, real payments, staging/prod behavior, or mobile proving the cloud stack), read **`docs/sdlc/staging-first-cloud-delivery.md`** first.
 
-- **Chunk A:** persistence spine (staging Postgres, migrations, event log path per ADR 0003).
-- **Chunk B:** identity + entitlement (Auth0, payments on staging per ADR 0004).
-- **Chunk C:** client E2E against **staging** (not production).
-- **Chunk D:** depth streams (WS2/WS5/WS7 projections); do not reintroduce in-memory as source of truth after Chunk A exits.
+Phases (same names as in that doc):
 
-Label GitHub issues with **`chunk-a`** … **`chunk-d`** when applicable. Staging-first: no new cloud-only behavior in production before staging soak.
+- **Postgres & event log** — staging Postgres, migrations, event-log path per ADR 0003.
+- **Auth & payments (staging)** — Auth0, payments on staging per ADR 0004.
+- **Clients prove staging** — mobile + web E2E against **staging** (not production).
+- **Projection & sync hardening** — live projection, sync health, contract-backed reads; do not reintroduce in-memory as source of truth after **Postgres & event log** is authoritative.
+
+Optional GitHub labels when tagging issues: **`postgres-event-log`**, **`auth-payments-staging`**, **`staging-client-e2e`**, **`projection-sync-hardening`**. Staging-first: no new cloud-only behavior in production before staging soak.

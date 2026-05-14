@@ -19,11 +19,11 @@
 - **Phase 1 (MVP):** WS0, WS1, WS2, WS3, WS4 (v1), WS5, WS6 essentials, WS7 foundations
 - **Phase 2+:** deeper AI adaptation, advanced staffing optimization, external race/watch integrations, multi-sport templates
 
-## Post–WS7 MVP execution (chunks + cloud)
+## Post–WS7 MVP execution (staging-first cloud)
 
-After WS1–WS7 **API/contract sprints**, delivery is organized by **four chunks (A–D)** and a **staging-first cloud** path (Postgres, Auth0, payments, then client proof on staging). That strategy is the **official handoff** for what to build next and where it runs:
+After WS1–WS7 **API/contract sprints**, delivery follows a **staging-first cloud** path: Postgres and event-log persistence, Auth0 and payments on staging, clients proven against staging, then projection/sync hardening. The **official handoff** for what to build next and where it runs:
 
-- **[MVP delivery chunks and cloud strategy](./docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md)** — chunk goals, environment ladder, gates, risks, and a **pickup checklist** for humans and AI agents.
+- **[Staging-first cloud delivery](./docs/sdlc/staging-first-cloud-delivery.md)** — named phases, environment ladder, staging-first rule, and a **pickup checklist** for humans and AI agents. (Legacy filename [`mvp-delivery-chunks-and-cloud-strategy.md`](./docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md) redirects here.)
 - **[UI delivery roadmap and specification](./docs/sdlc/ui-delivery-roadmap-and-spec.md)** — explicit phased UI build order, reuse rules, and anti-duplication guidance for agents/humans.
 
 ## WS0 Status (Completed)
