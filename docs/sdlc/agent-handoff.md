@@ -12,16 +12,14 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Recent (2026-05-14): Android Gradle + `node` on PATH (Homebrew)
+## Recent (**merged** PR [#264](https://github.com/collinbrowse/CrewCue/pull/264) → `main`, merge `a041ad0`, **Closes** [#263](https://github.com/collinbrowse/CrewCue/issues/263)): Android dev tooling + Metro + native compatibility
 
-- **Cause:** Gradle settings use `commandLine("node", …)`; daemons started from Android Studio often have no `/opt/homebrew/bin` on PATH → ENOENT for `node`.
-- **Quick fix:** `cd apps/mobile/android && ./gradlew --stop`, then `npm run android -w @crewcue/mobile` from a terminal where `which node` works.
-- **Persistent:** Expo config plugin `apps/mobile/plugins/withAndroidGradleNodeExecutable.js` (first in `app.json` `plugins`) patches generated `settings.gradle` / `app/build.gradle` on prebuild. Override with **`NODE_BINARY`** if Node is not under Homebrew defaults.
-
-## Recent (2026-05-14): Android dev client + Metro monorepo (local tooling)
-
-- **`apps/mobile/metro.config.js`:** `watchFolders` + `resolver.nodeModulesPaths` for the repo root workspace (stable Metro resolution with hoisted dependencies).
-- **`scripts/mobile-expo-start.mjs`:** For `run:android`, runs `adb reverse tcp:8081 tcp:8081` and sets `REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2` when `adb shell getprop ro.kernel.qemu` is `1` (Android emulator). Prefer **`npm run android -w @crewcue/mobile`** over bare `npx expo run:android` so this runs. See `apps/mobile/README.md` (Android emulator section).
+- **Metro / monorepo:** `apps/mobile/metro.config.js` (`watchFolders`, `resolver.nodeModulesPaths`); root **`npm run setup:macos-silicon`**, **`npm run pod:ios`**, **`scripts/ios-pod-install.mjs`**, **`scripts/setup-apple-silicon-toolchain.sh`**.
+- **Android dev client:** `scripts/mobile-expo-start.mjs` — `adb reverse tcp:8081 tcp:8081`, **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** on QEMU emulator. Prefer **`npm run android -w @crewcue/mobile`**. See `apps/mobile/README.md`.
+- **Gradle `node`:** `apps/mobile/plugins/withAndroidGradleNodeExecutable.js` patches generated `settings.gradle` / `app/build.gradle` on prebuild (`NODE_BINARY`, Homebrew paths). Quick workaround: `cd apps/mobile/android && ./gradlew --stop`.
+- **New Architecture / device boot:** `newArchEnabled: true` in `app.json` + pinned in `app.config.js`; `import "react-native-gesture-handler"` in `index.ts`; README troubleshooting for **`RNCSafeAreaProvider`** / 16 KB dialog; **`lazysodium-android` 5.2.0** (16 KB–aligned `libsodium.so`) via `withChatPushDecryption.js`.
+- **Tests:** Deterministic chat crypto tamper fix in `crypto.test.ts`.
+- **Branch cleanup:** Local **`feature/mobile-metro-android-dev-tooling`** deleted after merge; remote already removed by GitHub.
 
 ## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
@@ -52,13 +50,13 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-14 (America/Chicago)
-- **CI / PR #261:** `crypto.test.ts` tamper test was flaky: `ciphertextB64.replace(/A|B|C/, "Z")` is a no-op when the random base64 has no `A`/`B`/`C`, so decrypt still succeeds. Fixed by XORing the first decoded ciphertext byte before re-encoding (deterministic tamper).
+- **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, and **#257/#258** (projection anchor, map sheet, unified course metrics, native race start, canonical route projection + Pace readouts).
-- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a880d44`).
+- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a041ad0`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
@@ -155,6 +153,7 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Validation summary
 
+- **#264** merged to `main` (`a041ad0`); run **`npm run verify`** after `git pull` for CI parity; rebuild mobile dev clients (native alignment + lazysodium).
 - **#254** merged to `main` (`5b1a791`); run **`npm run verify`** after `git pull` for CI parity.
 
 ## Open risks/blockers/questions
@@ -173,5 +172,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-On main (post-#254): git pull; rebuild mobile dev clients; npm run verify. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
+On main (post-#264, merge a041ad0): git pull; npm run verify. Rebuild Android/iOS dev clients after pull (Metro + newArch + lazysodium 5.2.0). Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
 ```
