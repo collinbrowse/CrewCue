@@ -42,3 +42,10 @@ Usually means the **native dev client is out of date** vs your JS dependencies, 
 3. **`npm run android -w @crewcue/mobile`** (or your EAS development profile) so the APK is rebuilt with current autolinking (`react-native-safe-area-context` ships `RNCSafeAreaProvider` on Fabric).
 
 The app keeps **`newArchEnabled: true`** in Expo config so Metro and Gradle stay aligned with React Native 0.83 / Expo SDK 55.
+
+## Android 15+: “16 KB compatible” / ELF alignment popup
+
+Some devices show **Android App Compatibility** because a bundled `.so` was built for 4KB page alignment. The OS still runs the app in **compatibility mode**; tap **OK** (or **Don’t show again**) to dismiss.
+
+- **CrewCue-specific:** Chat push decryption uses **`lazysodium-android` 5.2.0+**, which ships **16KB-aligned `libsodium.so`**. If you still see **`libsodium.so` / LOAD segment not aligned**, run **`npx expo prebuild --clean --platform android`** (or bump the dependency in `app/build.gradle` to **5.2.0**) and reinstall the dev client.
+- **Other listed libraries** (`libreactnative.so`, `libexpo-modules-core.so`, etc.) come from **Expo / React Native**; clear the warning by staying on current **Expo SDK 55** patch releases and rebuilding after upgrades. See [Expo FYI: 16KB page sizes](https://github.com/expo/fyi/blob/main/android-16kb-page-sizes.md) and [Android docs](https://developer.android.com/guide/practices/page-sizes).
