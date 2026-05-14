@@ -199,6 +199,18 @@ test("updates room course for shared GPX usage", async () => {
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string };
 
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
   const updateResponse = await app.inject({
     method: "PUT",
     url: `/race-rooms/${room.id}/course`,
@@ -250,6 +262,18 @@ test("updates course with routeOverlayLayer merges canonical map workspace layer
   });
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string };
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
 
   const updateResponse = await app.inject({
     method: "PUT",
