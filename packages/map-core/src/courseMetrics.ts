@@ -16,6 +16,8 @@ const DEFAULT_MAX_BASELINE_POINTS = 220;
 const MIN_REFERENCE_STEP_SECONDS = 0.1;
 /** Keeps checkpoint arc lengths strictly increasing for downstream projection (matches `EPS_M` in race projection). */
 const CHECKPOINT_FORWARD_EPS_M = 0.05;
+/** When first and last course checkpoints are this close (m), treat the course as a loop for finish anchoring. */
+const LOOP_START_FINISH_MAX_SEPARATION_M = 150;
 
 export type CourseMetricPoint = {
   latitude: number;
@@ -321,17 +323,46 @@ export function checkpointsWithProjectedDistances(
   let minProgressMeters = 0;
   const result: RaceCourseCheckpoint[] = [];
 
-  for (const checkpoint of checkpoints) {
-    const progress = geodesicProjectPointToPolylineWithMinProgress(
-      canonical,
-      cumulative,
-      courseLengthMeters,
-      checkpoint,
-      minProgressMeters
-    );
-    const clamped = Math.min(courseLengthMeters, Math.max(minProgressMeters, progress));
+  for (let index = 0; index < checkpoints.length; index += 1) {
+    const checkpoint = checkpoints[index]!;
+    let clamped: number;
+    if (index === 0) {
+      /** Pace and race clocks anchor at mile 0 at the official start, even when the polyline also closes there. */
+      clamped = 0;
+    } else {
+      const progress = geodesicProjectPointToPolylineWithMinProgress(
+        canonical,
+        cumulative,
+        courseLengthMeters,
+        checkpoint,
+        minProgressMeters
+      );
+      clamped = Math.min(courseLengthMeters, Math.max(minProgressMeters, progress));
+    }
     result.push({ ...checkpoint, distanceMetersFromStart: clamped });
     minProgressMeters = clamped + CHECKPOINT_FORWARD_EPS_M;
+  }
+
+  for (let index = 1; index < result.length; index += 1) {
+    const prevD = result[index - 1]!.distanceMetersFromStart!;
+    const row = result[index]!;
+    const repaired = Math.min(
+      courseLengthMeters,
+      Math.max(prevD + CHECKPOINT_FORWARD_EPS_M, row.distanceMetersFromStart ?? 0)
+    );
+    result[index] = { ...row, distanceMetersFromStart: repaired };
+  }
+
+  if (result.length >= 2) {
+    const firstCp = checkpoints[0]!;
+    const lastCp = checkpoints[checkpoints.length - 1]!;
+    if (geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M) {
+      const lastIx = result.length - 1;
+      result[lastIx] = {
+        ...result[lastIx]!,
+        distanceMetersFromStart: courseLengthMeters
+      };
+    }
   }
 
   return result;
