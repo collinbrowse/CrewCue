@@ -1307,6 +1307,55 @@ function recomputeCourseMetricsForSave(input: {
   };
 }
 
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, inner) => {
+    if (!inner || typeof inner !== "object" || Array.isArray(inner)) {
+      return inner;
+    }
+    return Object.keys(inner)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = (inner as Record<string, unknown>)[key];
+        return acc;
+      }, {});
+  });
+}
+
+function courseDependentStateFingerprint(input: {
+  course: RaceCourse | undefined;
+  plannedPaceSecondsPerKm: number | undefined;
+  courseFileName: string | undefined;
+}): string {
+  return stableStringify({
+    course: input.course ?? null,
+    plannedPaceSecondsPerKm: input.plannedPaceSecondsPerKm ?? null,
+    courseFileName: input.courseFileName ?? null
+  });
+}
+
+function courseDependentStateNeedsReset(input: {
+  previousRoom: RaceRoom;
+  nextCourse: RaceCourse;
+  nextPlannedPaceSecondsPerKm: number;
+  nextCourseFileName: string | undefined;
+  routeOverlayLayer: MapWorkspaceLayer | undefined;
+}): boolean {
+  if (input.routeOverlayLayer) {
+    return true;
+  }
+  const previous = courseDependentStateFingerprint({
+    course: input.previousRoom.course,
+    plannedPaceSecondsPerKm: input.previousRoom.plannedPaceSecondsPerKm,
+    courseFileName: input.previousRoom.courseFileName
+  });
+  const next = courseDependentStateFingerprint({
+    course: input.nextCourse,
+    plannedPaceSecondsPerKm: input.nextPlannedPaceSecondsPerKm,
+    courseFileName: input.nextCourseFileName
+  });
+  return previous !== next;
+}
+
 function applyRaceMapWorkspacePut(
   room: RaceRoom,
   input: z.infer<typeof putRaceMapWorkspaceInput>
@@ -1498,6 +1547,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
     const parsed = updateRaceCourseInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid course payload" });
@@ -1561,15 +1615,24 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
     }
 
-    clearTaskBoardLocalState(roomId);
-    await deleteTaskBoardPayload(roomId);
-    await deleteTaskBoardSnapshot(roomId);
-    await deleteWs4AdaptivePayload(roomId);
-    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-    clearWs4RoomLocalState(roomId);
-    await deleteWs5SyncPayload(roomId);
-    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-    clearWs5RoomLocalState(roomId);
+    const shouldResetCourseDependentState = courseDependentStateNeedsReset({
+      previousRoom: room,
+      nextCourse: recomputedCourse,
+      nextPlannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
+      nextCourseFileName: updatedRoom.courseFileName,
+      routeOverlayLayer: parsed.data.routeOverlayLayer
+    });
+    if (shouldResetCourseDependentState) {
+      clearTaskBoardLocalState(roomId);
+      await deleteTaskBoardPayload(roomId);
+      await deleteTaskBoardSnapshot(roomId);
+      await deleteWs4AdaptivePayload(roomId);
+      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+      clearWs4RoomLocalState(roomId);
+      await deleteWs5SyncPayload(roomId);
+      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+      clearWs5RoomLocalState(roomId);
+    }
 
     await saveRaceRoom(updatedRoom);
     if (!getOrInitPingState(roomId).lastAccepted) {
@@ -1601,6 +1664,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
     return reply.send({ mapWorkspace: resolveMapWorkspace(room) });
   });
 
@@ -1623,6 +1691,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const permissions = getPermissions(membership.role);
     if (!permissions.canEditRaceSetup) {
       return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
     const parsed = putRaceMapWorkspaceInput.safeParse(request.body);
