@@ -14,6 +14,8 @@ export const COURSE_METRICS_VERSION = 1;
 const METERS_PER_KILOMETER = 1000;
 const DEFAULT_MAX_BASELINE_POINTS = 220;
 const MIN_REFERENCE_STEP_SECONDS = 0.1;
+/** Keeps checkpoint arc lengths strictly increasing for downstream projection (matches `EPS_M` in race projection). */
+const CHECKPOINT_FORWARD_EPS_M = 0.05;
 
 export type CourseMetricPoint = {
   latitude: number;
@@ -115,6 +117,82 @@ export function geodesicProjectPointToPolyline(
   );
   const distanceMetersFromRoute = Math.max(0, (projected.properties?.dist ?? 0) * METERS_PER_KILOMETER);
   return { progressMeters, courseLengthMeters, distanceMetersFromRoute };
+}
+
+function projectionRatioOnSegment(
+  start: Pick<CourseMetricPoint, "latitude" | "longitude">,
+  end: Pick<CourseMetricPoint, "latitude" | "longitude">,
+  point: Pick<CourseMetricPoint, "latitude" | "longitude">
+): number {
+  const ax = start.longitude;
+  const ay = start.latitude;
+  const bx = end.longitude;
+  const by = end.latitude;
+  const px = point.longitude;
+  const py = point.latitude;
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const denom = abx * abx + aby * aby;
+  if (denom <= 0) {
+    return 0;
+  }
+  const t = (apx * abx + apy * aby) / denom;
+  return Math.max(0, Math.min(1, t));
+}
+
+/**
+ * Closest point on the polyline at arc length ≥ `minProgressMeters` (forward-only),
+ * so repeated visits to the same coordinates resolve to distinct race-mile positions.
+ */
+function geodesicProjectPointToPolylineWithMinProgress(
+  canonical: CourseMetricPoint[],
+  cumulative: number[],
+  courseLengthMeters: number,
+  target: Pick<CourseMetricPoint, "latitude" | "longitude">,
+  minProgressMeters: number
+): number {
+  let bestDist = Number.POSITIVE_INFINITY;
+  let bestProgress = Math.min(courseLengthMeters, Math.max(0, minProgressMeters));
+
+  for (let i = 0; i < canonical.length - 1; i += 1) {
+    const prev = canonical[i]!;
+    const curr = canonical[i + 1]!;
+    const cumA = cumulative[i] ?? 0;
+    const segLen = geodesicDistanceMeters(prev, curr);
+    if (segLen < 1e-6) {
+      continue;
+    }
+
+    const tRaw = projectionRatioOnSegment(prev, curr, target);
+    const tMinRaw = (minProgressMeters - cumA) / segLen;
+    if (tMinRaw > 1 + 1e-9) {
+      continue;
+    }
+    const tMin = Math.max(0, tMinRaw);
+    const tStar = Math.max(tMin, Math.min(1, tRaw));
+    const lat = prev.latitude + tStar * (curr.latitude - prev.latitude);
+    const lon = prev.longitude + tStar * (curr.longitude - prev.longitude);
+    const progress = Math.min(courseLengthMeters, cumA + tStar * segLen);
+    const dist = geodesicDistanceMeters({ latitude: lat, longitude: lon }, target);
+
+    if (dist < bestDist - 1e-6 || (Math.abs(dist - bestDist) <= 1e-6 && progress < bestProgress)) {
+      bestDist = dist;
+      bestProgress = progress;
+    }
+  }
+
+  if (!Number.isFinite(bestDist) || bestDist === Number.POSITIVE_INFINITY) {
+    const global = geodesicProjectPointToPolyline(canonical, target);
+    const gProg = Math.min(courseLengthMeters, Math.max(0, global.progressMeters));
+    if (gProg + CHECKPOINT_FORWARD_EPS_M >= minProgressMeters) {
+      return gProg;
+    }
+    return Math.min(courseLengthMeters, Math.max(minProgressMeters, gProg));
+  }
+
+  return Math.min(courseLengthMeters, Math.max(minProgressMeters, bestProgress));
 }
 
 export function smoothElevations(
@@ -230,8 +308,31 @@ export function checkpointsWithProjectedDistances(
   checkpoints: RaceCourseCheckpoint[],
   routePoints: CourseMetricPoint[]
 ): RaceCourseCheckpoint[] {
-  return checkpoints.map((checkpoint) => ({
-    ...checkpoint,
-    distanceMetersFromStart: geodesicProjectPointToPolyline(routePoints, checkpoint).progressMeters
-  }));
+  const canonical = validPolyline(routePoints);
+  if (canonical.length < 2 || checkpoints.length === 0) {
+    return checkpoints.map((checkpoint) => ({
+      ...checkpoint,
+      distanceMetersFromStart: geodesicProjectPointToPolyline(routePoints, checkpoint).progressMeters
+    }));
+  }
+
+  const cumulative = geodesicCumulativeAtVertices(canonical);
+  const courseLengthMeters = cumulative[cumulative.length - 1] ?? 0;
+  let minProgressMeters = 0;
+  const result: RaceCourseCheckpoint[] = [];
+
+  for (const checkpoint of checkpoints) {
+    const progress = geodesicProjectPointToPolylineWithMinProgress(
+      canonical,
+      cumulative,
+      courseLengthMeters,
+      checkpoint,
+      minProgressMeters
+    );
+    const clamped = Math.min(courseLengthMeters, Math.max(minProgressMeters, progress));
+    result.push({ ...checkpoint, distanceMetersFromStart: clamped });
+    minProgressMeters = clamped + CHECKPOINT_FORWARD_EPS_M;
+  }
+
+  return result;
 }

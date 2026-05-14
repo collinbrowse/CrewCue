@@ -47,6 +47,36 @@ test("projects checkpoints onto route arc length", () => {
   assert.ok((checkpoints[2]?.distanceMetersFromStart ?? 0) > (checkpoints[1]?.distanceMetersFromStart ?? 0));
 });
 
+test("sequential projection assigns distinct arc positions for two checkpoints at identical coordinates on a loop", () => {
+  const loopRoute = [
+    { latitude: 40.0, longitude: -105.0 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -104.84 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -105.0 }
+  ];
+  const sharedAid = { latitude: 40.0, longitude: -104.92 };
+  const projected = checkpointsWithProjectedDistances(
+    [
+      { id: "start", latitude: 40.0, longitude: -105.0 },
+      { id: "aid-first", ...sharedAid },
+      { id: "aid-second", ...sharedAid },
+      { id: "finish", latitude: 40.0, longitude: -105.0 }
+    ],
+    loopRoute
+  );
+  const d0 = projected[0]!.distanceMetersFromStart!;
+  const d1 = projected[1]!.distanceMetersFromStart!;
+  const d2 = projected[2]!.distanceMetersFromStart!;
+  const d3 = projected[3]!.distanceMetersFromStart!;
+  const total = geodesicPolylineLength(loopRoute);
+  assert.ok(d0 <= d1);
+  assert.ok(d1 < d2);
+  assert.ok(d2 < d3);
+  assert.ok(d3 <= total);
+  assert.ok(d2 - d1 > 500, "second visit should be materially farther along the course than the first");
+});
+
 test("smoothed elevation computes gain and loss", () => {
   const smoothed = smoothElevations(route, { windowSize: 1 });
   const vertical = gainLossFromSmoothed(smoothed, { minimumDeltaMeters: 1 });
