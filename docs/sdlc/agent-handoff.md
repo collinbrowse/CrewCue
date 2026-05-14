@@ -12,6 +12,13 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-14): Critical correctness fix — entitlement gate + race-start data preservation (branch `cursor/critical-correctness-bugs-5c10`, commits `094d116`, `01d768f`)
+
+- **Completed:** `PUT /race-rooms/:roomId/course` and `GET/PUT /race-rooms/:roomId/map-workspace` now enforce the same `evaluateEntitlement` gate as `GET /race-rooms/:roomId`, preventing unpaid/expired rooms from reading or mutating race setup/map data via side routes.
+- **Completed:** `PUT /course` now clears TaskBoard/WS4/WS5 course-dependent state only when material course data changes. Race-start-only saves preserve crew task status/assignments/snapshots.
+- **Validation:** focused API route tests green (21/21), full API memory suite green (98/98), and root `npm run verify` green.
+- **Residual audit leads not fixed here:** mobile map may still render route/dot from a different polyline than server projection in multi-layer/non-straight routes; chat prefetch may need stale-session cancellation. Track separately if product accepts severity/scope.
+
 ## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
 - **On `main`:** `recomputeRaceProjection` requires `routeMetricPoints` (≥ 2); canonical length; checkpoint splits require projected `distanceMetersFromStart` (no chord fallback). `raceRooms` resolves route from workspace; course + map-workspace gates when ≥ 2 checkpoints. Mobile Pace tri-column readouts, race start clock row, `paceDeltaAhead` vs `danger` for vs-plan line, `+- 0min` within 1m of plan; `TrackMapDashboardScreen` canonical length chain; `docs/api/ws2-task2-projection.md` updated.
@@ -40,7 +47,8 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-12 (America/Chicago)
+- Last updated: 2026-05-14 (UTC)
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
@@ -51,7 +59,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Current objective
 
-Replace the Chat tab placeholder with a fully functional, end-to-end encrypted crew chat: realtime messaging via Stream, libsodium-style E2E (tweetnacl on JS, swift-sodium / lazysodium-android on native), mentions, fixed reactions, image attachments, send progress + retry, dual `sentAt`/`arrivedAt` timestamps, swipe-to-reveal, unread tab badge, retention banner, push previews decrypted on-device, and a 30-day retention scheduler.
+Daily high-severity correctness audit completed with a narrowly scoped API fix for entitlement bypass and race-start-only task-board data loss.
 
 ## Phases delivered (feature/crew-chat-e2e)
 
@@ -137,16 +145,20 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 
 ## Next 1-3 tasks
 
-1. On **`main`** (post-**#254**): `git pull`; **rebuild iOS/Android dev clients** (`datetimepicker`, `expo-localization`); optional Pace smoke (Race setup → date/time/zone → finish).
-2. Implement `CrewCueChatNativeBridge` Expo Module (iOS keychain + Android EncryptedSharedPreferences) so `nativeKeyBridge.ts` can sync channel keys to NSE/FCM service paths.
-3. Wire production push transport in `chatPushDispatch.ts` (APNS HTTP/2 + FCM HTTP v1) and extend `chatRetentionScheduler.ts` to call `StreamChat.deleteChannel` once `STREAM_API_KEY` / `STREAM_API_SECRET` are configured.
+1. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
+2. Open a separate scoped issue/PR if fixing mobile map projection/rendering polyline mismatch.
+3. Open a separate scoped issue/PR if fixing chat prefetch stale-session cancellation.
 
 ## Validation summary
 
-- **#254** merged to `main` (`5b1a791`); run **`npm run verify`** after `git pull` for CI parity.
+- `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
+- `npm run test:memory -w @crewcue/api` — **pass** (98/98).
+- `npm run verify` — **pass**.
 
 ## Open risks/blockers/questions
 
+- Existing dependency audit warnings surfaced during `npm ci`; no dependency changes were made.
+- Remaining audit leads (mobile map polyline mismatch, chat stale prefetch) were not changed in this PR to keep the critical API fix narrow.
 - Real APNS / FCM transports are not yet wired; staging push uses the logging transport. The encrypted preview is already piped through, so flipping in real credentials is a localized change.
 - The `CrewCueChatNativeBridge` Expo Module does not exist yet; until it's shipped, push previews fall back to `New Message in Crew Chat`. The chat itself works fully and the cipher / payload layout is pinned so the module can be added without breaking changes.
 - App-reinstall recovery flow: a device that loses its keypair must be re-enveloped from another device. Documented in the plan's Risks section; UX work tracked in a follow-up issue.
@@ -161,5 +173,5 @@ Replace the Chat tab placeholder with a fully functional, end-to-end encrypted c
 ## Successor prompt
 
 ```text
-On main (post-#254): git pull; rebuild mobile dev clients; npm run verify. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
+Review PR for cursor/critical-correctness-bugs-5c10; verify CI. If continuing bug audit, separately investigate mobile map polyline mismatch and chat prefetch stale-session cancellation.
 ```
