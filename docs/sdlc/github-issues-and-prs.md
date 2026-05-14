@@ -10,28 +10,28 @@ You can treat **GitHub as the full tracker** for what is planned, in progress, a
 | --- | --- |
 | **Issues** | One card per task; scope and acceptance live here (same as today). |
 | **Pull requests** | The actual code change; link to the issue so merge **closes** the task (see below). |
-| **GitHub Projects** | A **board or table** of issues: columns like *Backlog / Ready / In progress / Done*, filters by label (e.g. `ws3`), and optional **dates** so you see the whole workstream at a glance. |
-| **Iterations** (in Projects) | **Sprint-style timeboxes** (e.g. “WS3 Sprint 1 — two weeks”): assign each issue to an iteration to answer “what are we shipping this sprint?” |
+| **GitHub Projects** | A **board or table** of issues: columns like *Backlog / Ready / In progress / Done*, filters by label (e.g. `mobile`, `api`, `chunk-a`), and optional **dates** so you see the slice of work at a glance. |
+| **Iterations** (in Projects) | **Sprint-style timeboxes** (e.g. “Sprint 2026-W20 — two weeks”): assign each issue to an iteration to answer “what are we shipping this sprint?” |
 | **Milestones** (optional) | Another way to group issues by release or sprint if you prefer not to use Project iterations; some teams use both. |
-| **Labels** | Quick tags: `workstream-task`, `ws3`, `blocked`, `docs`, etc., so views stay readable. |
-| **Parent / sub-issues** | Optional: one **epic** issue for “WS3 first sprint” with **child issues** per task, so status rolls up visually. |
+| **Labels** | Quick tags: `mobile`, `api`, `contracts`, `blocked`, `docs`, `chunk-a`–`chunk-d`, etc., so views stay readable. |
+| **Parent / sub-issues** | Optional: one **epic** issue with **child issues** per task, so status rolls up visually. |
 
 **Links you care about:** PR bodies already support `Closes #123`. Issues can link to other issues or PRs with `#number` or full URLs. Project views simply **pull in those same issues**, so status, sprint, and code stay connected.
 
-**Suggested split:** keep **sign-off and deep sequencing** in `docs/sdlc/` (like WS2), and use **GitHub for live status**—every sprint gets a **Milestone or Project iteration** plus a short **tracking issue** that lists child issue numbers and links to the execution doc when you add one.
+**Suggested split:** keep **sign-off and deep sequencing** in `docs/sdlc/` when you need narrative, and use **GitHub for live status**—every sprint gets a **Milestone or Project iteration** plus a short **tracking issue** that lists child issue numbers and links to the execution doc when you add one.
 
 ## 1. Create a GitHub issue first
 
 When you (or the agent) start a **new task**—a slice of work with clear acceptance criteria—**open an issue before writing implementation code**.
 
-- Prefer the **Workstream Task** template: *New issue* → **Workstream Task** ([`../../.github/ISSUE_TEMPLATE/ws-task.yml`](../../.github/ISSUE_TEMPLATE/ws-task.yml)).
-- Title pattern: `[WSx] Short description` (or `[Repo]` for cross-cutting work).
+- Prefer the **Implementation task** template: *New issue* → **Implementation task** ([`../../.github/ISSUE_TEMPLATE/implementation-task.yml`](../../.github/ISSUE_TEMPLATE/implementation-task.yml)).
+- Title pattern: short imperative or outcome phrase (optional prefix like `[mobile]` or `[api]` if helpful).
 - The issue is the **single source of truth** for scope and acceptance.
 
 CLI example:
 
 ```bash
-gh issue create --label workstream-task --title "[WS2] Task 3 projection staleness" --body "$(cat <<'EOF'
+gh issue create --title "Projection staleness after course update" --body "$(cat <<'EOF'
 ## Objective
 …
 EOF
@@ -44,10 +44,10 @@ Note the issue number from the URL (e.g. `#9`).
 
 ```bash
 git checkout main && git pull origin main
-git checkout -b feature/ws2-task3-projection-staleness
+git checkout -b feature/projection-staleness-123
 ```
 
-Use a branch name that matches the issue when helpful (not required by Git).
+Use a branch name that matches the issue number or slug when helpful (not required by Git).
 
 ## 3. Open a pull request
 

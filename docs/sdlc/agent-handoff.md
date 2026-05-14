@@ -55,6 +55,7 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-14 (America/Chicago)
+- **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Workflow: `docs/sdlc/github-issues-and-prs.md`.
 - **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
 - **#260 / #261:** Merged to **`main`** via **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (merge `8f3f3e8`). Issue **#260** closed. Local branches **`feature/map-sheet-phases-260`** and **`pr-261`** deleted; remote **`origin/feature/map-sheet-phases-260`** removed after merge.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
