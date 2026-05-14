@@ -21,10 +21,10 @@ Use this as the minimal continuity file between sessions.
 - **Tests:** Deterministic chat crypto tamper fix in `crypto.test.ts`.
 - **Branch cleanup:** Local **`feature/mobile-metro-android-dev-tooling`** deleted after merge; remote already removed by GitHub.
 
-## In flight (2026-05-12): Map sheet phases + resilient next-aid — **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (**Closes** [#260](https://github.com/collinbrowse/CrewCue/issues/260))
+## Recent (**merged** PR [#261](https://github.com/collinbrowse/CrewCue/pull/261) → `main`, merge `8f3f3e8`, **Closes** [#260](https://github.com/collinbrowse/CrewCue/issues/260)): Map sheet phases + resilient next-aid
 
-- **Branch:** `feature/map-sheet-phases-260` — `TrackMapDashboardScreen` pre-start / finish / race sheet modes; next-aid + ETA without empty splits; runner marker from last accepted ping when projection missing; checkpoint labels use `title`.
-- **Validation:** `npm run verify` green before PR push.
+- **On `main`:** `TrackMapDashboardScreen` pre-start / finish / race sheet modes; next-aid + ETA without empty splits; runner marker from last accepted ping when projection missing; checkpoint labels use `title`; map pre-start uses room detail race anchor and start checkpoint; `apps/mobile/README.md` ExpoWebBrowser troubleshooting.
+- **Validation:** `npm run verify` green before merge.
 
 ## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
@@ -56,13 +56,13 @@ Use this as the minimal continuity file between sessions.
 
 - Last updated: 2026-05-14 (America/Chicago)
 - **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
-- **#260 / PR #261:** Map tab sheet pre-start + finish modes and resilient next-aid (`feature/map-sheet-phases-260`); merge when green.
+- **#260 / #261:** Merged to **`main`** via **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (merge `8f3f3e8`). Issue **#260** closed. Local branches **`feature/map-sheet-phases-260`** and **`pr-261`** deleted; remote **`origin/feature/map-sheet-phases-260`** removed after merge.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
-- **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, and **#257/#258** (projection anchor, map sheet, unified course metrics, native race start, canonical route projection + Pace readouts).
-- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a041ad0`).
+- **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, **#257/#258**, and **#260/#261** (projection anchor, map sheet peek + sheet phases, unified course metrics, native race start, canonical route projection + Pace readouts).
+- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `8f3f3e8`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
