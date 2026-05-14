@@ -18,6 +18,19 @@ Use this as the minimal continuity file between sessions.
 - **Completed:** `PUT /course` now clears TaskBoard/WS4/WS5 course-dependent state only when material course data changes. Race-start-only saves preserve crew task status/assignments/snapshots.
 - **Validation:** focused API route tests green (21/21), full API memory suite green (98/98), and root `npm run verify` green.
 - **Residual audit leads not fixed here:** mobile map may still render route/dot from a different polyline than server projection in multi-layer/non-straight routes; chat prefetch may need stale-session cancellation. Track separately if product accepts severity/scope.
+## Recent (**merged** PR [#264](https://github.com/collinbrowse/CrewCue/pull/264) → `main`, merge `a041ad0`, **Closes** [#263](https://github.com/collinbrowse/CrewCue/issues/263)): Android dev tooling + Metro + native compatibility
+
+- **Metro / monorepo:** `apps/mobile/metro.config.js` (`watchFolders`, `resolver.nodeModulesPaths`); root **`npm run setup:macos-silicon`**, **`npm run pod:ios`**, **`scripts/ios-pod-install.mjs`**, **`scripts/setup-apple-silicon-toolchain.sh`**.
+- **Android dev client:** `scripts/mobile-expo-start.mjs` — `adb reverse tcp:8081 tcp:8081`, **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** on QEMU emulator. Prefer **`npm run android -w @crewcue/mobile`**. See `apps/mobile/README.md`.
+- **Gradle `node`:** `apps/mobile/plugins/withAndroidGradleNodeExecutable.js` patches generated `settings.gradle` / `app/build.gradle` on prebuild (`NODE_BINARY`, Homebrew paths). Quick workaround: `cd apps/mobile/android && ./gradlew --stop`.
+- **New Architecture / device boot:** `newArchEnabled: true` in `app.json` + pinned in `app.config.js`; `import "react-native-gesture-handler"` in `index.ts`; README troubleshooting for **`RNCSafeAreaProvider`** / 16 KB dialog; **`lazysodium-android` 5.2.0** (16 KB–aligned `libsodium.so`) via `withChatPushDecryption.js`.
+- **Tests:** Deterministic chat crypto tamper fix in `crypto.test.ts`.
+- **Branch cleanup:** Local **`feature/mobile-metro-android-dev-tooling`** deleted after merge; remote already removed by GitHub.
+
+## In flight (2026-05-12): Map sheet phases + resilient next-aid — **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (**Closes** [#260](https://github.com/collinbrowse/CrewCue/issues/260))
+
+- **Branch:** `feature/map-sheet-phases-260` — `TrackMapDashboardScreen` pre-start / finish / race sheet modes; next-aid + ETA without empty splits; runner marker from last accepted ping when projection missing; checkpoint labels use `title`.
+- **Validation:** `npm run verify` green before PR push.
 
 ## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
@@ -49,12 +62,15 @@ Use this as the minimal continuity file between sessions.
 
 - Last updated: 2026-05-14 (UTC)
 - **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
+- Last updated: 2026-05-14 (America/Chicago)
+- **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
+- **#260 / PR #261:** Map tab sheet pre-start + finish modes and resilient next-aid (`feature/map-sheet-phases-260`); merge when green.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, and **#257/#258** (projection anchor, map sheet, unified course metrics, native race start, canonical route projection + Pace readouts).
-- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a880d44`).
+- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `a041ad0`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
@@ -154,6 +170,8 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 - `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
 - `npm run test:memory -w @crewcue/api` — **pass** (98/98).
 - `npm run verify` — **pass**.
+- **#264** merged to `main` (`a041ad0`); run **`npm run verify`** after `git pull` for CI parity; rebuild mobile dev clients (native alignment + lazysodium).
+- **#254** merged to `main` (`5b1a791`); run **`npm run verify`** after `git pull` for CI parity.
 
 ## Open risks/blockers/questions
 
@@ -174,4 +192,5 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ```text
 Review PR for cursor/critical-correctness-bugs-5c10; verify CI. If continuing bug audit, separately investigate mobile map polyline mismatch and chat prefetch stale-session cancellation.
+On main (post-#264, merge a041ad0): git pull; npm run verify. Rebuild Android/iOS dev clients after pull (Metro + newArch + lazysodium 5.2.0). Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
 ```

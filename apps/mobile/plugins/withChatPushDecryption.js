@@ -233,12 +233,19 @@ function withAndroidFcmDependencies(config) {
     const anchor = 'implementation("com.facebook.react:react-android")';
     const deps = [
       '    implementation("com.google.firebase:firebase-messaging:24.1.0")',
-      '    implementation("com.goterl:lazysodium-android:5.1.0@aar")',
+      // 5.2.0+ ships libsodium.so with 16KB page ELF alignment (Android 15+ / Play policy).
+      '    implementation("com.goterl:lazysodium-android:5.2.0@aar")',
       '    implementation("net.java.dev.jna:jna:5.13.0@aar")',
       '    implementation("androidx.security:security-crypto:1.1.0-alpha06")'
     ];
     let content = cfg.modResults.contents;
+    // Upgrade older prebuilds that pinned 5.1.0 (misaligned libsodium.so on 16KB devices).
+    content = content.replace(
+      /com\.goterl:lazysodium-android:5\.1\.0@aar/g,
+      "com.goterl:lazysodium-android:5.2.0@aar"
+    );
     if (content.includes(deps[0])) {
+      cfg.modResults.contents = content;
       return cfg;
     }
     if (content.includes(anchor)) {

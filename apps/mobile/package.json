@@ -7,6 +7,7 @@
     "dev": "node ../../scripts/mobile-expo-start.mjs",
     "android": "node ../../scripts/mobile-expo-start.mjs run:android",
     "ios": "node ../../scripts/mobile-expo-start.mjs run:ios",
+    "pod-install": "node ../../scripts/ios-pod-install.mjs",
     "eas:android:local": "eas build --platform android --profile development --local",
     "build": "expo export --platform all",
     "lint": "tsc -p tsconfig.json --noEmit",
