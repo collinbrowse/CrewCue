@@ -39,7 +39,7 @@ module.exports = ({ config }) => {
   const maptilerApiKey = resolveMaptilerApiKey();
   const baseExpo = appJson.expo ?? {};
 
-  return {
+  const merged = {
     ...baseExpo,
     ...config,
     extra: {
@@ -48,4 +48,11 @@ module.exports = ({ config }) => {
       ...(maptilerApiKey ? { maptilerApiKey } : {})
     }
   };
+
+  // Expo merges can override app.json. SDK 55 + RN 0.83 ship the new architecture in
+  // native Gradle; keep this flag true so Metro/native agree (avoids missing Fabric
+  // views such as RNCSafeAreaProvider at runtime).
+  merged.newArchEnabled = true;
+
+  return merged;
 };

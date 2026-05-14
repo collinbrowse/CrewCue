@@ -32,3 +32,13 @@ MapLibre and other native modules require a **development build** (not Expo Go);
 The monorepo uses **`npm run android -w @crewcue/mobile`** (wrapper `scripts/mobile-expo-start.mjs`) so Metro resolves workspace packages via `metro.config.js`, runs **`adb reverse tcp:8081 tcp:8081`**, and (when ADB reports a QEMU emulator) sets **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** so the dev client does not rely on LAN routing to the host.
 
 If you run **`npx expo run:android` without the wrapper**, you skip that logic. Physical device on Wi‑Fi may need **`REACT_NATIVE_PACKAGER_HOSTNAME`** set to your computer’s LAN address.
+
+## Android: `IllegalViewOperationException` / missing `RNCSafeAreaProvider`
+
+Usually means the **native dev client is out of date** vs your JS dependencies, or **New Architecture** flags disagreed between Expo config and `android/gradle.properties`.
+
+1. From the repo root: **`npx expo prebuild --clean --platform android`** (or delete `apps/mobile/android` and run **`npx expo prebuild --platform android`**).
+2. Uninstall the old app from the device/emulator.
+3. **`npm run android -w @crewcue/mobile`** (or your EAS development profile) so the APK is rebuilt with current autolinking (`react-native-safe-area-context` ships `RNCSafeAreaProvider` on Fabric).
+
+The app keeps **`newArchEnabled: true`** in Expo config so Metro and Gradle stay aligned with React Native 0.83 / Expo SDK 55.
