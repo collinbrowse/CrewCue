@@ -45,3 +45,26 @@ Auth0 uses **`expo-auth-session`**, which depends on **`expo-web-browser`** nati
 3. Start Metro (`npm run dev:mobile`), then open **that** CrewCue build (not an unrelated Expo Go session).
 
 After any change to `app.json` **plugins** or native dependencies, assume you need a **rebuild**, not only a JS reload.
+
+## Android emulator: dev client shows `Connection reset` / cannot load Metro
+
+The monorepo uses **`npm run android -w @crewcue/mobile`** (wrapper `scripts/mobile-expo-start.mjs`) so Metro resolves workspace packages via `metro.config.js`, runs **`adb reverse tcp:8081 tcp:8081`**, and (when ADB reports a QEMU emulator) sets **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** so the dev client does not rely on LAN routing to the host.
+
+If you run **`npx expo run:android` without the wrapper**, you skip that logic. Physical device on Wi‑Fi may need **`REACT_NATIVE_PACKAGER_HOSTNAME`** set to your computer’s LAN address.
+
+## Android: `IllegalViewOperationException` / missing `RNCSafeAreaProvider`
+
+Usually means the **native dev client is out of date** vs your JS dependencies, or **New Architecture** flags disagreed between Expo config and `android/gradle.properties`.
+
+1. From the repo root: **`npx expo prebuild --clean --platform android`** (or delete `apps/mobile/android` and run **`npx expo prebuild --platform android`**).
+2. Uninstall the old app from the device/emulator.
+3. **`npm run android -w @crewcue/mobile`** (or your EAS development profile) so the APK is rebuilt with current autolinking (`react-native-safe-area-context` ships `RNCSafeAreaProvider` on Fabric).
+
+The app keeps **`newArchEnabled: true`** in Expo config so Metro and Gradle stay aligned with React Native 0.83 / Expo SDK 55.
+
+## Android 15+: “16 KB compatible” / ELF alignment popup
+
+Some devices show **Android App Compatibility** because a bundled `.so` was built for 4KB page alignment. The OS still runs the app in **compatibility mode**; tap **OK** (or **Don’t show again**) to dismiss.
+
+- **CrewCue-specific:** Chat push decryption uses **`lazysodium-android` 5.2.0+**, which ships **16KB-aligned `libsodium.so`**. If you still see **`libsodium.so` / LOAD segment not aligned**, run **`npx expo prebuild --clean --platform android`** (or bump the dependency in `app/build.gradle` to **5.2.0**) and reinstall the dev client.
+- **Other listed libraries** (`libreactnative.so`, `libexpo-modules-core.so`, etc.) come from **Expo / React Native**; clear the warning by staying on current **Expo SDK 55** patch releases and rebuilding after upgrades. See [Expo FYI: 16KB page sizes](https://github.com/expo/fyi/blob/main/android-16kb-page-sizes.md) and [Android docs](https://developer.android.com/guide/practices/page-sizes).
