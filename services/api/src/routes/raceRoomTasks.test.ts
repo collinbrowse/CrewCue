@@ -235,6 +235,12 @@ test("task board snapshot path matches canonical replay path", async () => {
     }
   });
   assert.equal(activateResponse.statusCode, 200);
+  const activatedRoom = activateResponse.json() as {
+    course: {
+      checkpoints: Array<{ id: string; latitude: number; longitude: number }>;
+      baselineTrack?: unknown;
+    };
+  };
 
   const initialBoardResponse = await app.inject({
     method: "GET",
@@ -272,6 +278,23 @@ test("task board snapshot path matches canonical replay path", async () => {
   });
   assert.equal(startResponse.statusCode, 200);
 
+  const raceStartOnlyUpdate = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: activatedRoom.course.checkpoints,
+        baselineTrack: activatedRoom.course.baselineTrack
+      },
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T17:00:00.000Z"
+    },
+    headers: {
+      authorization: `Bearer ${athleteToken}`
+    }
+  });
+  assert.equal(raceStartOnlyUpdate.statusCode, 200);
+
   clearTaskBoardLocalState(roomId);
   const snapshotResponse = await app.inject({
     method: "GET",
@@ -281,7 +304,14 @@ test("task board snapshot path matches canonical replay path", async () => {
     }
   });
   assert.equal(snapshotResponse.statusCode, 200);
-  const snapshotBoard = snapshotResponse.json();
+  const snapshotBoard = snapshotResponse.json() as {
+    tasks: Array<{ id: string; status: string }>;
+    assignments: Array<{ taskId: string; assigneeUserId: string }>;
+  };
+  const persistedTask = snapshotBoard.tasks.find((task) => task.id === taskId);
+  assert.equal(persistedTask?.status, "in_progress");
+  const persistedAssignment = snapshotBoard.assignments.find((assignment) => assignment.taskId === taskId);
+  assert.equal(persistedAssignment?.assigneeUserId, "athlete-user");
 
   await deleteTaskBoardSnapshot(roomId);
   clearTaskBoardLocalState(roomId);

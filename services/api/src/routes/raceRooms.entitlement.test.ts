@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
   return {
@@ -44,6 +45,64 @@ test("blocks room access when entitlement is unpaid", async () => {
 
   assert.equal(getResponse.statusCode, 402);
   assert.equal((getResponse.json() as { error: string }).error, "Entitlement unpaid");
+  await app.close();
+});
+
+test("blocks course and map workspace routes when entitlement is unpaid", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createRoomWithOwner(app, ownerToken);
+  const routeOverlayLayer = lineStringRouteOverlayForCheckpoints([
+    { latitude: 42.0, longitude: -70.0 },
+    { latitude: 42.01, longitude: -70.0 }
+  ]);
+  const headers = { authorization: `Bearer ${ownerToken}` };
+
+  const courseResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      routeOverlayLayer,
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(courseResponse.statusCode, 402);
+  assert.equal((courseResponse.json() as { error: string }).error, "Entitlement unpaid");
+
+  const getMapResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    headers
+  });
+  assert.equal(getMapResponse.statusCode, 402);
+  assert.equal((getMapResponse.json() as { error: string }).error, "Entitlement unpaid");
+
+  const putMapResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    payload: {
+      layers: [routeOverlayLayer],
+      selectedLayerId: routeOverlayLayer.id,
+      drivesProjectionLayerId: routeOverlayLayer.id,
+      checkpoints: [
+        { id: "cp0", latitude: 42.0, longitude: -70.0 },
+        { id: "cp1", latitude: 42.01, longitude: -70.0 }
+      ]
+    },
+    headers
+  });
+  assert.equal(putMapResponse.statusCode, 402);
+  assert.equal((putMapResponse.json() as { error: string }).error, "Entitlement unpaid");
+
   await app.close();
 });
 
