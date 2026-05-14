@@ -27,6 +27,25 @@ This matches upstream reports (e.g. [expo#42647](https://github.com/expo/expo/is
 
 MapLibre and other native modules require a **development build** (not Expo Go); use `expo-dev-client` after a successful native compile.
 
+## `Cannot find native module 'ExpoWebBrowser'`
+
+Auth0 uses **`expo-auth-session`**, which depends on **`expo-web-browser`** native code. Metro is loading JS that expects that module inside the **app binary** you opened.
+
+### Typical causes
+
+- An **older CrewCue dev client** on the device or simulator, built before `expo-web-browser` was in the project or before `app.json` listed the plugin.
+- Opening the bundle with **Expo Go** from the store while your workflow assumes a **custom dev client** (this repo uses `expo-dev-client` and several config plugins).
+
+### Fix
+
+1. From the repo root: `npm install`
+2. From **`apps/mobile`**, install a **new** native build on the device or simulator you use for testing:
+   - `npx expo run:ios`, or `npm run ios -w @crewcue/mobile` (same thing via the workspace script), **or**
+   - `eas build --profile development --platform ios` and install the artifact.
+3. Start Metro (`npm run dev:mobile`), then open **that** CrewCue build (not an unrelated Expo Go session).
+
+After any change to `app.json` **plugins** or native dependencies, assume you need a **rebuild**, not only a JS reload.
+
 ## Android emulator: dev client shows `Connection reset` / cannot load Metro
 
 The monorepo uses **`npm run android -w @crewcue/mobile`** (wrapper `scripts/mobile-expo-start.mjs`) so Metro resolves workspace packages via `metro.config.js`, runs **`adb reverse tcp:8081 tcp:8081`**, and (when ADB reports a QEMU emulator) sets **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** so the dev client does not rely on LAN routing to the host.
