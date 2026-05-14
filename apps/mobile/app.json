@@ -15,8 +15,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.crewcue.mobile",
-      "usesAppleSignIn": true, 
-      "deploymentTarget": "18.0"
+      "usesAppleSignIn": true,
+      "deploymentTarget": "18.0",
+      "appleTeamId": "84XX2W7G34"
     },
     "android": {
       "package": "com.crewcue.mobile"

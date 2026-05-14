@@ -23,7 +23,9 @@ test("crypto: encrypt/decrypt roundtrip preserves UTF-8 text", () => {
 test("crypto: tampered ciphertext returns null on decrypt", () => {
   const key = generateChannelKey();
   const enc = encryptMessage("secret", key, 1);
-  const tampered = { ...enc, ciphertextB64: enc.ciphertextB64.replace(/A|B|C/, "Z") };
+  const bytes = Buffer.from(enc.ciphertextB64, "base64");
+  bytes[0] ^= 0xff;
+  const tampered = { ...enc, ciphertextB64: bytes.toString("base64") };
   assert.equal(decryptMessage(tampered, key), null);
 });
 

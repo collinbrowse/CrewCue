@@ -26,3 +26,9 @@ This matches upstream reports (e.g. [expo#42647](https://github.com/expo/expo/is
    - `npx expo run:ios`
 
 MapLibre and other native modules require a **development build** (not Expo Go); use `expo-dev-client` after a successful native compile.
+
+## Android emulator: dev client shows `Connection reset` / cannot load Metro
+
+The monorepo uses **`npm run android -w @crewcue/mobile`** (wrapper `scripts/mobile-expo-start.mjs`) so Metro resolves workspace packages via `metro.config.js`, runs **`adb reverse tcp:8081 tcp:8081`**, and (when ADB reports a QEMU emulator) sets **`REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2`** so the dev client does not rely on LAN routing to the host.
+
+If you run **`npx expo run:android` without the wrapper**, you skip that logic. Physical device on Wi‑Fi may need **`REACT_NATIVE_PACKAGER_HOSTNAME`** set to your computer’s LAN address.

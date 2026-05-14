@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-14): Android dev client + Metro monorepo (local tooling)
+
+- **`apps/mobile/metro.config.js`:** `watchFolders` + `resolver.nodeModulesPaths` for the repo root workspace (stable Metro resolution with hoisted dependencies).
+- **`scripts/mobile-expo-start.mjs`:** For `run:android`, runs `adb reverse tcp:8081 tcp:8081` and sets `REACT_NATIVE_PACKAGER_HOSTNAME=10.0.2.2` when `adb shell getprop ro.kernel.qemu` is `1` (Android emulator). Prefer **`npm run android -w @crewcue/mobile`** over bare `npx expo run:android` so this runs. See `apps/mobile/README.md` (Android emulator section).
+
 ## Recent (2026-05-12): Canonical course length + route-based projection (**merged** PR [#258](https://github.com/collinbrowse/CrewCue/pull/258) → `main`, merge `a880d44`, **Closes** [#257](https://github.com/collinbrowse/CrewCue/issues/257))
 
 - **On `main`:** `recomputeRaceProjection` requires `routeMetricPoints` (≥ 2); canonical length; checkpoint splits require projected `distanceMetersFromStart` (no chord fallback). `raceRooms` resolves route from workspace; course + map-workspace gates when ≥ 2 checkpoints. Mobile Pace tri-column readouts, race start clock row, `paceDeltaAhead` vs `danger` for vs-plan line, `+- 0min` within 1m of plan; `TrackMapDashboardScreen` canonical length chain; `docs/api/ws2-task2-projection.md` updated.
@@ -40,7 +45,8 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-12 (America/Chicago)
+- Last updated: 2026-05-14 (America/Chicago)
+- **CI / PR #261:** `crypto.test.ts` tamper test was flaky: `ciphertextB64.replace(/A|B|C/, "Z")` is a no-op when the random base64 has no `A`/`B`/`C`, so decrypt still succeeds. Fixed by XORing the first decoded ciphertext byte before re-encoding (deterministic tamper).
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
 - **#253 / #254:** Merged to **`main`** via **PR [#254](https://github.com/collinbrowse/CrewCue/pull/254)** (merge `5b1a791`). Delete local/remote **`feature/race-start-native-picker-253`** when convenient.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
