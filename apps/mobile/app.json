@@ -23,6 +23,7 @@
       "package": "com.crewcue.mobile"
     },
     "plugins": [
+      "./plugins/withAndroidGradleNodeExecutable.js",
       "expo-dev-client",
       "@react-native-community/datetimepicker",
       "expo-localization",

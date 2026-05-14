@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-14): Android Gradle + `node` on PATH (Homebrew)
+
+- **Cause:** Gradle settings use `commandLine("node", …)`; daemons started from Android Studio often have no `/opt/homebrew/bin` on PATH → ENOENT for `node`.
+- **Quick fix:** `cd apps/mobile/android && ./gradlew --stop`, then `npm run android -w @crewcue/mobile` from a terminal where `which node` works.
+- **Persistent:** Expo config plugin `apps/mobile/plugins/withAndroidGradleNodeExecutable.js` (first in `app.json` `plugins`) patches generated `settings.gradle` / `app/build.gradle` on prebuild. Override with **`NODE_BINARY`** if Node is not under Homebrew defaults.
+
 ## Recent (2026-05-14): Android dev client + Metro monorepo (local tooling)
 
 - **`apps/mobile/metro.config.js`:** `watchFolders` + `resolver.nodeModulesPaths` for the repo root workspace (stable Metro resolution with hoisted dependencies).
