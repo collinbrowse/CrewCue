@@ -1,4 +1,4 @@
--- Chunk A Sprint 1 (WS1 durable persistence)
+-- Postgres & event log track — WS1 durable persistence (room invite)
 -- Canonical DDL for room/invite JSON persistence tables used by roomPersistence.ts.
 
 CREATE TABLE IF NOT EXISTS race_rooms_json (

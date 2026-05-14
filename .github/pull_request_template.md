@@ -1,6 +1,6 @@
 ## Change surface (check all that apply)
 
-Use this for quick triage. Finer grouping (epic, milestone, delivery chunk) lives in **linked issues** and GitHub labels.
+Use this for quick triage. Finer grouping (epic, milestone, cloud rollout phase from `docs/sdlc/staging-first-cloud-delivery.md`) lives in **linked issues** and GitHub labels.
 
 - [ ] Mobile (`apps/mobile`)
 - [ ] Web (`apps/web`)

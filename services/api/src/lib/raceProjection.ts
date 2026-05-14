@@ -207,7 +207,7 @@ export type ProjectionPreviousState = {
   rollingMovingSpeedMps: number;
 };
 
-/** Deterministic headwind assumption by course progress (Chunk D1 stub until a weather provider exists). */
+/** Deterministic headwind assumption by course progress (placeholder until a weather provider exists). */
 export function buildProjectionWeatherStub(input: {
   progressMeters: number;
   courseLengthMeters: number;

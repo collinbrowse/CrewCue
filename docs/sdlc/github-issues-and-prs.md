@@ -10,10 +10,10 @@ You can treat **GitHub as the full tracker** for what is planned, in progress, a
 | --- | --- |
 | **Issues** | One card per task; scope and acceptance live here (same as today). |
 | **Pull requests** | The actual code change; link to the issue so merge **closes** the task (see below). |
-| **GitHub Projects** | A **board or table** of issues: columns like *Backlog / Ready / In progress / Done*, filters by label (e.g. `mobile`, `api`, `chunk-a`), and optional **dates** so you see the slice of work at a glance. |
+| **GitHub Projects** | A **board or table** of issues: columns like *Backlog / Ready / In progress / Done*, filters by label (e.g. `mobile`, `api`, `postgres-event-log`), and optional **dates** so you see the slice of work at a glance. |
 | **Iterations** (in Projects) | **Sprint-style timeboxes** (e.g. “Sprint 2026-W20 — two weeks”): assign each issue to an iteration to answer “what are we shipping this sprint?” |
 | **Milestones** (optional) | Another way to group issues by release or sprint if you prefer not to use Project iterations; some teams use both. |
-| **Labels** | Quick tags: `mobile`, `api`, `contracts`, `blocked`, `docs`, `chunk-a`–`chunk-d`, etc., so views stay readable. |
+| **Labels** | Quick tags: `mobile`, `api`, `contracts`, `blocked`, `docs`, cloud rollout tags from [`staging-first-cloud-delivery.md`](./staging-first-cloud-delivery.md) (e.g. `staging-client-e2e`), etc., so views stay readable. |
 | **Parent / sub-issues** | Optional: one **epic** issue with **child issues** per task, so status rolls up visually. |
 
 **Links you care about:** PR bodies already support `Closes #123`. Issues can link to other issues or PRs with `#number` or full URLs. Project views simply **pull in those same issues**, so status, sprint, and code stay connected.
