@@ -5,6 +5,7 @@ import {
   cumulativeDistancesAlongCheckpoints,
   latLngAtDistanceAlongCheckpointCourse,
   lngLatAtDistanceAlongPolyline,
+  primaryCourseLngLatPolyline,
   remainingGainAndLossMetersAfter
 } from "./coursePosition.js";
 
@@ -42,6 +43,45 @@ test("lngLatAtDistanceAlongPolyline interpolates along GeoJSON line", () => {
   const mid = lngLatAtDistanceAlongPolyline(line, 50);
   assert.ok(mid);
   assert.ok(mid![1] > 40.0 && mid![1] < 40.002);
+});
+
+test("primaryCourseLngLatPolyline prefers the projection-driving route layer", () => {
+  const line = primaryCourseLngLatPolyline(tinyCourse, {
+    drivesProjectionLayerId: "driver",
+    selectedLayerId: "decoy",
+    checkpoints: tinyCourse.checkpoints,
+    layers: [
+      {
+        id: "decoy",
+        label: "Visible decoy",
+        visible: true,
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [-73, 41],
+            [-73, 42]
+          ]
+        }
+      },
+      {
+        id: "driver",
+        label: "Projection driver",
+        visible: false,
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [-74, 40],
+            [-74, 40.002]
+          ]
+        }
+      }
+    ]
+  });
+
+  assert.deepEqual(line, [
+    [-74, 40],
+    [-74, 40.002]
+  ]);
 });
 
 test("remainingGainAndLossMetersAfter prefers gain then loss rule inputs", () => {

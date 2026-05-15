@@ -463,15 +463,15 @@ export function TrackMapDashboardScreen(): ReactElement {
       return null;
     }
     if (projection !== undefined) {
-      const fromCp = latLngAtDistanceAlongCheckpointCourse(room.course, projection.progressMeters);
-      if (fromCp) {
-        return fromCp;
-      }
       if (courseLine.length >= 2) {
         const ll = lngLatAtDistanceAlongPolyline(courseLine, projection.progressMeters);
         if (ll) {
           return { latitude: ll[1], longitude: ll[0] };
         }
+      }
+      const fromCp = latLngAtDistanceAlongCheckpointCourse(room.course, projection.progressMeters);
+      if (fromCp) {
+        return fromCp;
       }
     }
     if (lastPing?.decision === "accepted") {
