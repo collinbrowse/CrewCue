@@ -306,6 +306,11 @@ export function buildDerivedMetricsFromPolyline(points: CourseMetricPoint[]): Ra
   };
 }
 
+/** When GPX import stored {@link RaceCourseCheckpoint.distanceMetersFromStart} from encounter sort, widen search this much (haversine vs geodesic). */
+const ENCOUNTER_HINT_SLACK_METERS = 400;
+/** When import left {@link RaceCourseCheckpoint.distanceMetersFromStart}, trust it over geodesic snap if they disagree by this much (m). */
+const ENCOUNTER_HINT_TRUST_DIVERGENCE_METERS = 2000;
+
 export function checkpointsWithProjectedDistances(
   checkpoints: RaceCourseCheckpoint[],
   routePoints: CourseMetricPoint[]
@@ -330,14 +335,27 @@ export function checkpointsWithProjectedDistances(
       /** Pace and race clocks anchor at mile 0 at the official start, even when the polyline also closes there. */
       clamped = 0;
     } else {
+      const hintMeters = checkpoint.distanceMetersFromStart;
+      const hintFloor =
+        typeof hintMeters === "number" && Number.isFinite(hintMeters)
+          ? Math.max(0, hintMeters - ENCOUNTER_HINT_SLACK_METERS)
+          : undefined;
+      const searchMin = hintFloor !== undefined ? Math.max(minProgressMeters, hintFloor) : minProgressMeters;
       const progress = geodesicProjectPointToPolylineWithMinProgress(
         canonical,
         cumulative,
         courseLengthMeters,
         checkpoint,
-        minProgressMeters
+        searchMin
       );
       clamped = Math.min(courseLengthMeters, Math.max(minProgressMeters, progress));
+      if (
+        typeof hintMeters === "number" &&
+        Number.isFinite(hintMeters) &&
+        Math.abs(clamped - hintMeters) > ENCOUNTER_HINT_TRUST_DIVERGENCE_METERS
+      ) {
+        clamped = Math.min(courseLengthMeters, Math.max(minProgressMeters, hintMeters));
+      }
     }
     result.push({ ...checkpoint, distanceMetersFromStart: clamped });
     minProgressMeters = clamped + CHECKPOINT_FORWARD_EPS_M;

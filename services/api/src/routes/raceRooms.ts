@@ -1584,7 +1584,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
           routeMetricPoints: routePts
         });
-      } catch {
+      } catch (err) {
+        request.log.warn({ err, roomId }, "course_metrics_recompute_failed");
         return reply.code(400).send({ error: "Course route data is invalid or could not be processed." });
       }
     } else {

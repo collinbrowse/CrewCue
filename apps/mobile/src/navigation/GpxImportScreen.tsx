@@ -158,7 +158,8 @@ export function GpxImportScreen(): ReactElement {
     raceName.trim().length > 0 &&
     creatorName.trim().length > 0 &&
     !finishingSetup &&
-    normalizedRaceStart !== null;
+    normalizedRaceStart !== null &&
+    (!replaceCourseFileMode || pendingCourseUpload !== undefined);
 
   const onImportGpx = async (): Promise<void> => {
     setImportState({ status: "loading" });
@@ -196,10 +197,7 @@ export function GpxImportScreen(): ReactElement {
       setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
     } catch (error) {
       setPendingCourseUpload(undefined);
-      const message =
-        error instanceof Error
-          ? toUserFriendlyImportErrorMessage(error.message)
-          : "We could not read that file. Please choose a GPX file and try again.";
+      const message = resolveImportErrorMessage(error, "We could not read that file. Please choose GPX, KML, or JSON and try again.");
       setImportState({ status: "error", message });
     }
   };
@@ -212,6 +210,14 @@ export function GpxImportScreen(): ReactElement {
 
     if (!normalizedRaceStart) {
       setImportState({ status: "error", message: "Choose a valid race start date and time before saving." });
+      return;
+    }
+
+    if (replaceCourseFileMode && !pendingCourseUpload) {
+      setImportState({
+        status: "error",
+        message: "Select a new route file with “Select new file” before saving the replacement course."
+      });
       return;
     }
 
@@ -303,7 +309,7 @@ export function GpxImportScreen(): ReactElement {
       }
       setImportState({
         status: "error",
-        message: error instanceof Error ? toUserFriendlyImportErrorMessage(error.message) : "Could not finish setup."
+        message: resolveImportErrorMessage(error, "Could not finish setup. Please try again.")
       });
     } finally {
       setFinishingSetup(false);
@@ -415,6 +421,16 @@ export function GpxImportScreen(): ReactElement {
   );
 }
 
+function resolveImportErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    return toUserFriendlyImportErrorMessage(error.message);
+  }
+  if (error instanceof Error) {
+    return toUserFriendlyImportErrorMessage(error.message);
+  }
+  return fallback;
+}
+
 function toUserFriendlyImportErrorMessage(errorMessage: string): string {
   const normalized = errorMessage.toLowerCase();
   if (normalized.includes("deprecated") && normalized.includes("expo-file-system")) {
@@ -438,7 +454,32 @@ function toUserFriendlyImportErrorMessage(errorMessage: string): string {
   if (normalized.includes("race room")) {
     return "Create your race room first, then upload so your crew sees the same course data.";
   }
-  return "We could not process this route file. Please choose GPX, KML, or JSON and try again.";
+  if (
+    normalized.includes("upload a gpx") ||
+    normalized.includes("checkpoint-only courses are not supported") ||
+    normalized.includes("full route line")
+  ) {
+    return "We need the full route track line, not just aid-station points. Select your GPX, KML, or JSON file again and finish setup so the track is uploaded.";
+  }
+  if (normalized.includes("course route data is invalid") || normalized.includes("could not be processed")) {
+    return "The server could not compute distances along this route. Re-select the file; if it still fails, confirm the export includes a continuous track line.";
+  }
+  if (normalized.includes("invalid course payload")) {
+    return "Some course or race-start fields were rejected. Confirm the race start date and time, then upload the route file again.";
+  }
+  if (normalized.includes("cannot remove visited checkpoint")) {
+    return "You cannot remove an aid station your athlete has already reached.";
+  }
+  if (normalized.includes("insufficient permissions")) {
+    return "You do not have permission to change this race setup.";
+  }
+  if (normalized.includes("entitlement")) {
+    return "This race needs an active subscription before you can update the course.";
+  }
+  if (normalized.includes("forbidden")) {
+    return "You do not have access to update this race.";
+  }
+  return "We could not save this route. Confirm the file is GPX, KML, or JSON with a track line and try again.";
 }
 
 function buildImportStateFromParsedTrack(

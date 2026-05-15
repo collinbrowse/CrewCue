@@ -188,15 +188,22 @@ export function formatDistance(distanceMeters: number, unit: DistanceUnit = "km"
   return `${distance.toFixed(2)} ${unit}`;
 }
 
+type SelectedWaypointEncounter = {
+  waypoint: GpxWaypoint;
+  /** Haversine cumulative distance at encounter along the parsed track (import hint for projection). */
+  encounterMetersFromStart: number;
+};
+
 export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
 } {
-  const selectedWaypoints = selectCheckpointWaypoints(parsedTrack.points, parsedTrack.waypoints);
+  const selectedEncounters = selectCheckpointWaypoints(parsedTrack.points, parsedTrack.waypoints);
   const seenIds = new Set<string>();
   const checkpoints =
-    selectedWaypoints.length >= 2
-      ? selectedWaypoints.map((waypoint, index) => {
+    selectedEncounters.length >= 2
+      ? selectedEncounters.map((row, index) => {
+          const waypoint = row.waypoint;
           const id = uniqueCheckpointId(sanitizeCheckpointId(waypoint.name, index + 1), seenIds);
           const cutoff = tryParseCheckpointCutoffFromDescription(waypoint.description);
           const title = waypoint.name?.trim() ? waypoint.name.trim() : slugToTitle(id);
@@ -206,6 +213,7 @@ export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
             latitude: waypoint.latitude,
             longitude: waypoint.longitude,
             plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS,
+            distanceMetersFromStart: row.encounterMetersFromStart,
             ...(cutoff ? { cutoff } : {})
           };
         })
@@ -667,13 +675,16 @@ function dedupeWaypoints(waypoints: GpxWaypoint[]): GpxWaypoint[] {
   return deduped;
 }
 
-function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): GpxWaypoint[] {
+function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): SelectedWaypointEncounter[] {
   if (candidates.length < 2) {
     const expandedSingle = expandWaypointEncounters(points, candidates);
     if (expandedSingle.length < 2) {
       return [];
     }
-    return expandedSingle.map((entry) => entry.candidate);
+    return expandedSingle.map((entry) => ({
+      waypoint: entry.candidate,
+      encounterMetersFromStart: entry.distanceMetersFromStart
+    }));
   }
   const stationLike = candidates.filter((candidate) => isStationLikeName(candidate.name));
   const pool = stationLike.length > 0 ? stationLike : candidates;
@@ -693,19 +704,28 @@ function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypo
             longitude: points[points.length - 1]!.longitude,
             name: "Finish"
           },
-          distanceMetersFromStart: points.length
+          distanceMetersFromStart: calculateTotalDistance(points)
         }
       : finishAnchor;
-  const body = enriched
+  const body: SelectedWaypointEncounter[] = enriched
     .filter((entry) => entry !== startAnchor && entry !== finishAnchor)
-    .map((entry) => entry.candidate);
-  const ordered: GpxWaypoint[] = [];
+    .map((entry) => ({
+      waypoint: entry.candidate,
+      encounterMetersFromStart: entry.distanceMetersFromStart
+    }));
+  const ordered: SelectedWaypointEncounter[] = [];
   if (startAnchor) {
-    ordered.push(startAnchor.candidate);
+    ordered.push({
+      waypoint: startAnchor.candidate,
+      encounterMetersFromStart: startAnchor.distanceMetersFromStart
+    });
   }
   ordered.push(...body);
   if (resolvedFinishAnchor) {
-    ordered.push(resolvedFinishAnchor.candidate);
+    ordered.push({
+      waypoint: resolvedFinishAnchor.candidate,
+      encounterMetersFromStart: resolvedFinishAnchor.distanceMetersFromStart
+    });
   }
   return ordered.length >= 2 ? ordered : [];
 }
