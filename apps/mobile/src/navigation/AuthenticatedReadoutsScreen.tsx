@@ -104,14 +104,25 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
     if (!cps?.length) {
       return [] as number[];
     }
-    if (splits.length === cps.length) {
-      return splits.map((row) => row.distanceMetersFromStart);
+    /** Prefer arc distances from the saved course (PUT recomputes with canonical projection); splits can lag after course edits. */
+    const aligned = cps.map((cp) => {
+      if (typeof cp.distanceMetersFromStart === "number" && Number.isFinite(cp.distanceMetersFromStart)) {
+        return cp.distanceMetersFromStart;
+      }
+      const row = splitById.get(cp.id);
+      if (typeof row?.distanceMetersFromStart === "number" && Number.isFinite(row.distanceMetersFromStart)) {
+        return row.distanceMetersFromStart;
+      }
+      return Number.NaN;
+    });
+    if (aligned.every((d) => Number.isFinite(d))) {
+      return aligned;
     }
     if (cps.every((c) => typeof c.distanceMetersFromStart === "number" && Number.isFinite(c.distanceMetersFromStart))) {
       return cps.map((c) => c.distanceMetersFromStart!);
     }
     return cumulativeDistancesAlongCheckpoints(cps);
-  }, [room?.course?.checkpoints, splits]);
+  }, [room?.course?.checkpoints, splitById]);
 
   useFocusEffect(
     useCallback(() => {
@@ -481,7 +492,10 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           const completed = split ? isCheckpointCompletedUi(split) : false;
           const inProgressHere = isCurrent && !completed && index < checkpoints.length;
           const stationLabel = checkpointDisplayTitle(cp);
-          const distMetersAtCp = split?.distanceMetersFromStart ?? cumMetersAtCp[index] ?? 0;
+          const distMetersAtCp =
+            typeof cp.distanceMetersFromStart === "number" && Number.isFinite(cp.distanceMetersFromStart)
+              ? cp.distanceMetersFromStart
+              : (split?.distanceMetersFromStart ?? cumMetersAtCp[index] ?? 0);
           const distMi = milesFromMeters(distMetersAtCp);
           const plannedElapsed =
             split?.plannedElapsedSecondsAtCross ?? secondsForDistance(distMetersAtCp, paceSecondsPerKm);

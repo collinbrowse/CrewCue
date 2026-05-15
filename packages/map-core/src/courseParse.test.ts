@@ -12,6 +12,8 @@ import {
   formatPace,
   parseGpxTrack
 } from "./courseParse.js";
+import { checkpointsWithProjectedDistances } from "./courseMetrics.js";
+import { parsedTrackToWorkspaceLayer } from "./mapWorkspace.js";
 
 const fixtureDir = dirname(fileURLToPath(import.meta.url));
 const tmrAidStationsJson = readFileSync(
@@ -312,6 +314,55 @@ test("TMR 100K fixture keeps start first, finish last, and duplicates repeated s
   assert.equal(checkpointIds[0], "town-park-start-finish");
   assert.equal(checkpointIds[checkpointIds.length - 1], "town-park-start-finish-2");
   assert.equal(checkpointIds.filter((id) => id.startsWith("bridal-veil-aid-station")).length, 2);
+});
+
+test("TMR 100K fixture stores first Bridal encounter hint and projects to early-course miles", () => {
+  const parsed = parseCourseTrack(tmrAidStationsJson, "2026_TMR_100k_AidStations.json");
+  const { course } = buildRaceCourseFromGpx(parsed);
+  const firstBridal = course.checkpoints.find((cp) => cp.id === "bridal-veil-aid-station");
+  const secondBridal = course.checkpoints.find((cp) => cp.id === "bridal-veil-aid-station-2");
+  assert.ok(firstBridal);
+  assert.ok(secondBridal);
+  const METERS_PER_MILE = 1609.344;
+  const firstHintMi = (firstBridal!.distanceMetersFromStart ?? 0) / METERS_PER_MILE;
+  const secondHintMi = (secondBridal!.distanceMetersFromStart ?? 0) / METERS_PER_MILE;
+  assert.ok(firstHintMi > 3 && firstHintMi < 8, `first Bridal hint mi=${firstHintMi}`);
+  assert.ok(secondHintMi > 30 && secondHintMi < 40, `second Bridal hint mi=${secondHintMi}`);
+
+  const layer = parsedTrackToWorkspaceLayer("2026_TMR_100k_AidStations.json", parsed);
+  const coords =
+    layer.geometry.type === "LineString"
+      ? layer.geometry.coordinates
+      : layer.geometry.coordinates.flat();
+  const routePoints = coords.map((c) => ({
+    longitude: c[0],
+    latitude: c[1],
+    elevationMeters: typeof c[2] === "number" ? c[2] : null
+  }));
+  const projected = checkpointsWithProjectedDistances(course.checkpoints, routePoints);
+  const firstProjMi =
+    (projected.find((cp) => cp.id === "bridal-veil-aid-station")!.distanceMetersFromStart ?? 0) / METERS_PER_MILE;
+  assert.ok(firstProjMi > 3 && firstProjMi < 8, `first Bridal projected mi=${firstProjMi}`);
+});
+
+test("TMR 100K without encounter hints projects first Bridal to late course (pre-fix regression)", () => {
+  const parsed = parseCourseTrack(tmrAidStationsJson, "2026_TMR_100k_AidStations.json");
+  const { course } = buildRaceCourseFromGpx(parsed);
+  const layer = parsedTrackToWorkspaceLayer("2026_TMR_100k_AidStations.json", parsed);
+  const coords =
+    layer.geometry.type === "LineString"
+      ? layer.geometry.coordinates
+      : layer.geometry.coordinates.flat();
+  const routePoints = coords.map((c) => ({
+    longitude: c[0],
+    latitude: c[1],
+    elevationMeters: typeof c[2] === "number" ? c[2] : null
+  }));
+  const stripped = course.checkpoints.map(({ distanceMetersFromStart: _d, ...rest }) => rest);
+  const projected = checkpointsWithProjectedDistances(stripped, routePoints);
+  const firstProjMi =
+    (projected.find((cp) => cp.id === "bridal-veil-aid-station")!.distanceMetersFromStart ?? 0) / 1609.344;
+  assert.ok(firstProjMi > 30, `without hints first Bridal mi=${firstProjMi}`);
 });
 
 test("TMR 100K fixture order is deterministic by route progress, not source point feature order", () => {

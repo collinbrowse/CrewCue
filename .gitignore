@@ -1,3 +1,6 @@
+# Railway CLI local link metadata (do not commit; each clone runs `railway link`).
+.railway/
+
 node_modules/
 dist/
 .expo/

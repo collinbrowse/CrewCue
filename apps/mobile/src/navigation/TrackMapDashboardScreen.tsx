@@ -156,9 +156,12 @@ function resolveNextCheckpointForMapSheet(
     if (!row) {
       return null;
     }
+    const fromCourse = checkpointDistanceById.get(row.checkpointId);
+    const distanceMetersFromStart =
+      typeof fromCourse === "number" && Number.isFinite(fromCourse) ? fromCourse : row.distanceMetersFromStart;
     return {
       checkpointId: row.checkpointId,
-      distanceMetersFromStart: row.distanceMetersFromStart,
+      distanceMetersFromStart,
       crossedAtRecordedAt: row.crossedAtRecordedAt
     };
   }
@@ -827,11 +830,26 @@ export function TrackMapDashboardScreen(): ReactElement {
     if (!room?.course) {
       return map;
     }
+    const cps = room.course.checkpoints;
+    for (const cp of cps) {
+      if (typeof cp.distanceMetersFromStart === "number" && Number.isFinite(cp.distanceMetersFromStart)) {
+        map.set(cp.id, cp.distanceMetersFromStart);
+      }
+    }
+    if (map.size === cps.length) {
+      return map;
+    }
     const projectionRows = projection?.checkpointSplits ?? [];
-    if (projectionRows.length > 0) {
-      for (const row of projectionRows) {
+    for (const row of projectionRows) {
+      if (
+        !map.has(row.checkpointId) &&
+        typeof row.distanceMetersFromStart === "number" &&
+        Number.isFinite(row.distanceMetersFromStart)
+      ) {
         map.set(row.checkpointId, row.distanceMetersFromStart);
       }
+    }
+    if (map.size === cps.length) {
       return map;
     }
     const fallback = buildExpectedAidStationSplitsFromCourse(
@@ -841,7 +859,7 @@ export function TrackMapDashboardScreen(): ReactElement {
     ).splits;
     for (let index = 0; index < fallback.length; index += 1) {
       const checkpointId = room.course.checkpoints[index]?.id;
-      if (!checkpointId) {
+      if (!checkpointId || map.has(checkpointId)) {
         continue;
       }
       map.set(checkpointId, fallback[index]!.distanceKm * 1000);

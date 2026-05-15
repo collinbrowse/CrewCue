@@ -12,6 +12,18 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
+
+- **Cause:** Pace and map sheet used **`checkpointSplits[].distanceMetersFromStart` ahead of `room.course.checkpoints[].distanceMetersFromStart`**, so stale WS2 projection snapshots could show wrong miles (e.g. first Bridal ~34 mi) even when the room course from `PUT /course` had correct arc distances.
+- **Fix:** `AuthenticatedReadoutsScreen` (`cumMetersAtCp`, row mile label) and `TrackMapDashboardScreen` (`checkpointDistanceById`, next-aid distance) now **prefer each checkpoint’s saved `distanceMetersFromStart`**, with splits as fallback.
+- **Validation:** `npx tsc --noEmit -p apps/mobile` green.
+
+## Recent (2026-05-14): TMR duplicate-aid projected miles (Bridal Veil first pass)
+
+- **Cause:** Parser encounter order was correct, but **both** Bridal rows shared one waypoint pin; **pure geometry projection** snapped each row to the **nearest** polyline vertex (often the **second** pass ~34 mi), so Pace showed the wrong “first” Bridal mile.
+- **Mitigation (local / PR #271 branch):** `buildRaceCourseFromGpx` carries **`distanceMetersFromStart` from encounter arc** as a hint; `checkpointsWithProjectedDistances` uses **`ENCOUNTER_HINT_SLACK_METERS`** (min search progress) and **`ENCOUNTER_HINT_TRUST_DIVERGENCE_METERS`** (if geodesic still disagrees with hint by >2 km, **clamp to hint**). A brief regression (inner `let clamped` shadowing + missing trust block) was fixed in `courseMetrics.ts`.
+- **Validation:** `npm test -w @crewcue/map-core` and root **`npm run verify`** green after the fix.
+
 ## Recent (2026-05-14): Critical correctness fix — entitlement gate + race-start data preservation (branch `cursor/critical-correctness-bugs-5c10`, commits `094d116`, `01d768f`)
 
 - **Completed:** `PUT /race-rooms/:roomId/course` and `GET/PUT /race-rooms/:roomId/map-workspace` now enforce the same `evaluateEntitlement` gate as `GET /race-rooms/:roomId`, preventing unpaid/expired rooms from reading or mutating race setup/map data via side routes.
@@ -58,12 +70,20 @@ Use this as the minimal continuity file between sessions.
 - **Timeline rail:** `PaceTimelineRail` + `paceRailCheckpointRowModel` / `paceRailFinishRowModel` — active leg **purple** trunk; marker **opaque** (`card` fill); approach/dwell/finish fractions; **past legs pin marker bottom** after focus advances or checkpoint completed; **dwell** uses `statusRail` card tint + primary left bar and **“At station”** badge vs **“In progress”** en route.
 - **Also on `main` from #246:** `CheckpointPickMapScreen`, course/map/linking, projection timeliness tests/docs, `slugToTitle` / course helpers in `@crewcue/map-core`, `AuthenticatedReadoutsScreen` Pace surface (stale banner, course PUT path, etc.).
 
+## Recent (2026-05-15): Upload error UX + Railway map-core build
+
+- **Upload failures:** Generic “choose GPX/KML/JSON” masked API errors (missing route line, recompute failure, invalid payload). `GpxImportScreen` maps those strings to specific copy; `PUT /course` logs `course_metrics_recompute_failed` on recompute throw.
+- **Railway:** `railway.toml` `buildCommand` now builds `@crewcue/contracts`, `@crewcue/map-core`, then `@crewcue/api` so staging ships encounter-hint projection after deploy.
+- **TMR Bridal (~34 mi):** Staging still shows old miles until map-core hint fix is merged/deployed and course re-imported; local `npm test -w @crewcue/map-core` green (32/32).
+- **Next:** Commit/PR #271, `railway up`, re-import Telluride JSON, confirm DB first Bridal ~4.4 mi; check staging logs if upload still 400.
+
 ## Session status snapshot
 
-- Last updated: 2026-05-14 (UTC)
+- Last updated: 2026-05-15 (UTC)
 - **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
 - Last updated: 2026-05-14 (America/Chicago)
-- **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**.
+- **Map-core / TMR:** Duplicate-aid (same lat/lon) projection fix: encounter **hint** + **trust diverge** clamp in `checkpointsWithProjectedDistances`; aligns with **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)**. `npm run verify` green on latest `courseMetrics.ts` fix.
+- **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (sequential checkpoint projection along route — open).
 - **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
 - **#260 / #261:** Merged to **`main`** via **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (merge `8f3f3e8`). Issue **#260** closed. Local branches **`feature/map-sheet-phases-260`** and **`pr-261`** deleted; remote **`origin/feature/map-sheet-phases-260`** removed after merge.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
@@ -162,12 +182,13 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ## Next 1-3 tasks
 
-1. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
-2. Open a separate scoped issue/PR if fixing mobile map projection/rendering polyline mismatch.
-3. Open a separate scoped issue/PR if fixing chat prefetch stale-session cancellation.
+1. Land **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (**#270**): sequential checkpoint projection + TMR duplicate-aid hint/trust path; confirm Telluride JSON first Bridal ~4–5 mi (not ~34 mi).
+2. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
+3. Open separate scoped issues for mobile map polyline mismatch and chat prefetch stale-session cancellation if still desired.
 
 ## Validation summary
 
+- **TMR / map-core (this session):** `npm test -w @crewcue/map-core` — **pass** (32/32); root **`npm run verify`** — **pass** after encounter-hint projection + upload UX.
 - `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
 - `npm run test:memory -w @crewcue/api` — **pass** (98/98).
 - `npm run verify` — **pass**.
@@ -192,6 +213,6 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 ## Successor prompt
 
 ```text
-Review PR for cursor/critical-correctness-bugs-5c10; verify CI. If continuing bug audit, separately investigate mobile map polyline mismatch and chat prefetch stale-session cancellation.
-On main (post-#264, merge a041ad0): git pull; npm run verify. Rebuild Android/iOS dev clients after pull (Metro + newArch + lazysodium 5.2.0). Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
+On PR #271 / #270: confirm Telluride GPX/JSON — first Bridal Veil projected mile ~4–5 mi, second ~34 mi; merge when CI green; deploy staging (`railway.toml` builds map-core) and re-import course.
+Review PR cursor/critical-correctness-bugs-5c10; on main post-#264: git pull; npm run verify; rebuild dev clients. Separate issues: map polyline mismatch, chat prefetch cancellation.
 ```
