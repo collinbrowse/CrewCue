@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-15): Map pre-start time formatting (**PR** [#274](https://github.com/collinbrowse/CrewCue/pull/274), **Closes** [#273](https://github.com/collinbrowse/CrewCue/issues/273))
+
+- **Fix:** Pre-start sheet **START TIME** uses locale `hour`/`minute` two-digit only (no seconds); **UNTIL START** via `formatRemainingMinutes` omits `0M` when hours present (e.g. `2H`).
+- **Files:** `TrackMapDashboardScreen.tsx`, `eta.ts`, `eta.test.ts`.
+- **Validation:** `npm run verify` green.
+
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 
 - **Cause:** Pace and map sheet used **`checkpointSplits[].distanceMetersFromStart` ahead of `room.course.checkpoints[].distanceMetersFromStart`**, so stale WS2 projection snapshots could show wrong miles (e.g. first Bridal ~34 mi) even when the room course from `PUT /course` had correct arc distances.
