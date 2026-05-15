@@ -12,12 +12,18 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-15): Critical correctness fix — projection route alignment + manual stop authority (branch `cursor/critical-correctness-bugs-3cc1`, commit `e0dd5b0`)
+
+- **Completed:** Mobile map runner placement now uses the projection-driving workspace route before checkpoint-chord fallback, matching API `progressMeters` on sparse/winding courses and multi-layer workspaces.
+- **Completed:** `POST /race-rooms/:roomId/checkpoints/:cpId/manual-stop` now makes an overlapping visit's manual stop authoritative immediately (`resolvedSource: "manual_crew"`), so Pace edits/outbox saves update stoppage totals without a second source-toggle call.
+- **Validation:** `npm run test -w @crewcue/map-core`; `npm run lint -w @crewcue/mobile`; `npm run build -w @crewcue/api`; focused `raceRoomProjection.test.js`; root `npm run verify` all pass.
+
 ## Recent (2026-05-14): Critical correctness fix — entitlement gate + race-start data preservation (branch `cursor/critical-correctness-bugs-5c10`, commits `094d116`, `01d768f`)
 
 - **Completed:** `PUT /race-rooms/:roomId/course` and `GET/PUT /race-rooms/:roomId/map-workspace` now enforce the same `evaluateEntitlement` gate as `GET /race-rooms/:roomId`, preventing unpaid/expired rooms from reading or mutating race setup/map data via side routes.
 - **Completed:** `PUT /course` now clears TaskBoard/WS4/WS5 course-dependent state only when material course data changes. Race-start-only saves preserve crew task status/assignments/snapshots.
 - **Validation:** focused API route tests green (21/21), full API memory suite green (98/98), and root `npm run verify` green.
-- **Residual audit leads not fixed here:** mobile map may still render route/dot from a different polyline than server projection in multi-layer/non-straight routes; chat prefetch may need stale-session cancellation. Track separately if product accepts severity/scope.
+- **Residual audit lead not fixed here:** chat prefetch may need stale-session cancellation. Track separately if product accepts severity/scope.
 ## Recent (**merged** PR [#264](https://github.com/collinbrowse/CrewCue/pull/264) → `main`, merge `a041ad0`, **Closes** [#263](https://github.com/collinbrowse/CrewCue/issues/263)): Android dev tooling + Metro + native compatibility
 
 - **Metro / monorepo:** `apps/mobile/metro.config.js` (`watchFolders`, `resolver.nodeModulesPaths`); root **`npm run setup:macos-silicon`**, **`npm run pod:ios`**, **`scripts/ios-pod-install.mjs`**, **`scripts/setup-apple-silicon-toolchain.sh`**.
@@ -60,6 +66,8 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
+- Last updated: 2026-05-15 (UTC)
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-3cc1`** pushed with projection-route/manual-stop fix; PR pending/open for merge to `main`.
 - Last updated: 2026-05-14 (UTC)
 - **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
 - Last updated: 2026-05-14 (America/Chicago)
@@ -76,7 +84,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Current objective
 
-Daily high-severity correctness audit completed with a narrowly scoped API fix for entitlement bypass and race-start-only task-board data loss.
+Daily high-severity correctness audit completed with a narrowly scoped mobile/API correctness fix for route-aligned race tracking and manual stop authority.
 
 ## Phases delivered (feature/crew-chat-e2e)
 
@@ -162,12 +170,16 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ## Next 1-3 tasks
 
-1. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
-2. Open a separate scoped issue/PR if fixing mobile map projection/rendering polyline mismatch.
+1. Monitor CI/PR for `cursor/critical-correctness-bugs-3cc1`; merge only after checks stay green.
+2. Decide product/admin model for `POST /race-rooms/:roomId/entitlement` before hardening the documented manual billing path.
 3. Open a separate scoped issue/PR if fixing chat prefetch stale-session cancellation.
 
 ## Validation summary
 
+- `npm run test -w @crewcue/map-core` — **pass**.
+- `npm run lint -w @crewcue/mobile` — **pass**.
+- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/raceRoomProjection.test.js` — **pass** (10/10).
+- `npm run verify` — **pass**.
 - `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
 - `npm run test:memory -w @crewcue/api` — **pass** (98/98).
 - `npm run verify` — **pass**.
@@ -177,7 +189,8 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 ## Open risks/blockers/questions
 
 - Existing dependency audit warnings surfaced during `npm ci`; no dependency changes were made.
-- Remaining audit leads (mobile map polyline mismatch, chat stale prefetch) were not changed in this PR to keep the critical API fix narrow.
+- `POST /race-rooms/:roomId/entitlement` remains a documented/manual billing path exposed to privileged room roles; hardening needs a product/admin/payment decision.
+- Remaining audit lead (chat stale prefetch) was not changed in this PR to keep the critical fix narrow.
 - Real APNS / FCM transports are not yet wired; staging push uses the logging transport. The encrypted preview is already piped through, so flipping in real credentials is a localized change.
 - The `CrewCueChatNativeBridge` Expo Module does not exist yet; until it's shipped, push previews fall back to `New Message in Crew Chat`. The chat itself works fully and the cipher / payload layout is pinned so the module can be added without breaking changes.
 - App-reinstall recovery flow: a device that loses its keypair must be re-enveloped from another device. Documented in the plan's Risks section; UX work tracked in a follow-up issue.
@@ -192,6 +205,6 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 ## Successor prompt
 
 ```text
-Review PR for cursor/critical-correctness-bugs-5c10; verify CI. If continuing bug audit, separately investigate mobile map polyline mismatch and chat prefetch stale-session cancellation.
-On main (post-#264, merge a041ad0): git pull; npm run verify. Rebuild Android/iOS dev clients after pull (Metro + newArch + lazysodium 5.2.0). Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
+Review PR for cursor/critical-correctness-bugs-3cc1; verify CI. If continuing bug audit, separately evaluate the manual entitlement admin/payment model and chat prefetch stale-session cancellation.
+On main (post-#268, merge a9e67dd): git pull; npm run verify. Rebuild Android/iOS dev clients after native dependency pulls. Chat follow-ups: CrewCueChatNativeBridge + production push/retention (#236–#238).
 ```
