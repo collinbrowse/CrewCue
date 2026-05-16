@@ -311,6 +311,11 @@ const ENCOUNTER_HINT_SLACK_METERS = 400;
 /** When import left {@link RaceCourseCheckpoint.distanceMetersFromStart}, trust it over geodesic snap if they disagree by this much (m). */
 const ENCOUNTER_HINT_TRUST_DIVERGENCE_METERS = 2000;
 
+function isCheckpointAtRouteStart(canonical: CourseMetricPoint[], checkpoint: RaceCourseCheckpoint): boolean {
+  const routeStart = canonical[0];
+  return routeStart ? geodesicDistanceMeters(routeStart, checkpoint) <= LOOP_START_FINISH_MAX_SEPARATION_M : false;
+}
+
 export function checkpointsWithProjectedDistances(
   checkpoints: RaceCourseCheckpoint[],
   routePoints: CourseMetricPoint[]
@@ -326,14 +331,16 @@ export function checkpointsWithProjectedDistances(
   const cumulative = geodesicCumulativeAtVertices(canonical);
   const courseLengthMeters = cumulative[cumulative.length - 1] ?? 0;
   let minProgressMeters = 0;
+  let firstCheckpointAnchoredAtRouteStart = false;
   const result: RaceCourseCheckpoint[] = [];
 
   for (let index = 0; index < checkpoints.length; index += 1) {
     const checkpoint = checkpoints[index]!;
     let clamped: number;
-    if (index === 0) {
+    if (index === 0 && isCheckpointAtRouteStart(canonical, checkpoint)) {
       /** Pace and race clocks anchor at mile 0 at the official start, even when the polyline also closes there. */
       clamped = 0;
+      firstCheckpointAnchoredAtRouteStart = true;
     } else {
       const hintMeters = checkpoint.distanceMetersFromStart;
       const hintFloor =
@@ -371,7 +378,7 @@ export function checkpointsWithProjectedDistances(
     result[index] = { ...row, distanceMetersFromStart: repaired };
   }
 
-  if (result.length >= 2) {
+  if (result.length >= 2 && firstCheckpointAnchoredAtRouteStart) {
     const firstCp = checkpoints[0]!;
     const lastCp = checkpoints[checkpoints.length - 1]!;
     if (geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M) {

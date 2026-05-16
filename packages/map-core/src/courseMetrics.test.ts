@@ -100,6 +100,31 @@ test("first checkpoint is mile zero and loop finish anchors at course length whe
   assert.ok(Math.abs((projected[2]!.distanceMetersFromStart ?? 0) - total) < 0.5);
 });
 
+test("repeated non-start aid checkpoints are not rewritten as course start and finish", () => {
+  const loopRoute = [
+    { latitude: 40.0, longitude: -105.0 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -104.84 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -105.0 }
+  ];
+  const total = geodesicPolylineLength(loopRoute);
+  const sharedAid = { latitude: 40.0, longitude: -104.92 };
+  const projected = checkpointsWithProjectedDistances(
+    [
+      { id: "aid-first", ...sharedAid },
+      { id: "aid-second", ...sharedAid }
+    ],
+    loopRoute
+  );
+
+  const firstAid = projected[0]!.distanceMetersFromStart!;
+  const secondAid = projected[1]!.distanceMetersFromStart!;
+  assert.ok(firstAid > 500, `first aid should retain its route mile, got ${firstAid}`);
+  assert.ok(secondAid > firstAid + 500, `second aid should be after first aid, got ${firstAid} -> ${secondAid}`);
+  assert.ok(secondAid < total - 500, `second aid should not be clamped to finish, got ${secondAid} of ${total}`);
+});
+
 test("smoothed elevation computes gain and loss", () => {
   const smoothed = smoothElevations(route, { windowSize: 1 });
   const vertical = gainLossFromSmoothed(smoothed, { minimumDeltaMeters: 1 });
