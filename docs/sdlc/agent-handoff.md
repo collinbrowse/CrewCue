@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-16): Critical correctness fix — repeated non-start aid projection
+
+- **Cause:** `checkpointsWithProjectedDistances` unconditionally forced checkpoint index 0 to mile 0 and clamped a matching final checkpoint to course length. Imports with a single repeated non-start aid waypoint (two encounters, no start/finish waypoint) were saved as "aid at start" + "aid at finish", corrupting Pace/map miles for the race.
+- **Fix:** First/last anchoring now only applies when the first checkpoint is actually near the route start; repeated non-start aid passes keep their distinct projected arc positions.
+- **Validation:** `npm test -w @crewcue/map-core` green (33/33, new regression included); root `npm run verify` green.
+
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 
 - **Cause:** Pace and map sheet used **`checkpointSplits[].distanceMetersFromStart` ahead of `room.course.checkpoints[].distanceMetersFromStart`**, so stale WS2 projection snapshots could show wrong miles (e.g. first Bridal ~34 mi) even when the room course from `PUT /course` had correct arc distances.
@@ -79,8 +85,8 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-15 (UTC)
-- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
+- Last updated: 2026-05-16 (UTC)
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-b054`** pushed with map-core repeated non-start aid projection fix (`53216aa`); PR pending/open for merge to `main`.
 - Last updated: 2026-05-14 (America/Chicago)
 - **Map-core / TMR:** Duplicate-aid (same lat/lon) projection fix: encounter **hint** + **trust diverge** clamp in `checkpointsWithProjectedDistances`; aligns with **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)**. `npm run verify` green on latest `courseMetrics.ts` fix.
 - **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (sequential checkpoint projection along route — open).
@@ -96,7 +102,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Current objective
 
-Daily high-severity correctness audit completed with a narrowly scoped API fix for entitlement bypass and race-start-only task-board data loss.
+Daily high-severity correctness audit completed with a narrowly scoped map-core fix for repeated non-start aid waypoint distance corruption.
 
 ## Phases delivered (feature/crew-chat-e2e)
 
@@ -182,12 +188,13 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ## Next 1-3 tasks
 
-1. Land **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (**#270**): sequential checkpoint projection + TMR duplicate-aid hint/trust path; confirm Telluride JSON first Bridal ~4–5 mi (not ~34 mi).
-2. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
+1. Review/merge PR for **`cursor/critical-correctness-bugs-b054`** after CI stays green; this protects single-waypoint repeated-aid imports from being saved as start/finish.
+2. Continue post-#271 staging validation: deploy/re-import Telluride JSON and confirm first Bridal ~4–5 mi, second ~34 mi.
 3. Open separate scoped issues for mobile map polyline mismatch and chat prefetch stale-session cancellation if still desired.
 
 ## Validation summary
 
+- **2026-05-16 critical audit:** `npm test -w @crewcue/map-core` — **pass** (33/33); root **`npm run verify`** — **pass**.
 - **TMR / map-core (this session):** `npm test -w @crewcue/map-core` — **pass** (32/32); root **`npm run verify`** — **pass** after encounter-hint projection + upload UX.
 - `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
 - `npm run test:memory -w @crewcue/api` — **pass** (98/98).
@@ -213,6 +220,5 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 ## Successor prompt
 
 ```text
-On PR #271 / #270: confirm Telluride GPX/JSON — first Bridal Veil projected mile ~4–5 mi, second ~34 mi; merge when CI green; deploy staging (`railway.toml` builds map-core) and re-import course.
-Review PR cursor/critical-correctness-bugs-5c10; on main post-#264: git pull; npm run verify; rebuild dev clients. Separate issues: map polyline mismatch, chat prefetch cancellation.
+Review/merge cursor/critical-correctness-bugs-b054 after CI: map-core now only anchors first/last checkpoints when the first checkpoint is at route start, preserving repeated non-start aid miles. Then continue #271 staging validation/re-import and track separate map polyline mismatch / chat stale-prefetch issues if desired.
 ```
