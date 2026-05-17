@@ -16,7 +16,7 @@ Use this as the minimal continuity file between sessions.
 
 - **Cause:** PR #271’s projection repair always forced the first checkpoint to mile 0, even when an uploaded GPX/KML/JSON course had aid-station waypoints but no explicit Start waypoint. That silently saved “Aid Station 1” as the race start distance.
 - **Fix:** `checkpointsWithProjectedDistances` now anchors the first checkpoint to 0 only when the checkpoint is colocated with the route start; loop finish anchoring also requires the first checkpoint to be the route start and the last checkpoint to be at the route end.
-- **Validation:** `npm test -w @crewcue/map-core` and root `npm run verify` green on branch `cursor/critical-correctness-bugs-93fb` (commit `40ab142`).
+- **Validation:** `npm test -w @crewcue/map-core` and root `npm run verify` green on branch `cursor/critical-correctness-bugs-93fb` / PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) (commit `40ab142`).
 
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 
@@ -86,7 +86,7 @@ Use this as the minimal continuity file between sessions.
 ## Session status snapshot
 
 - Last updated: 2026-05-17 (UTC)
-- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-93fb`** pushed with map-core first-checkpoint anchoring fix; PR should target `main`.
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-93fb`** pushed with map-core first-checkpoint anchoring fix; PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) targets `main`.
 - Last updated: 2026-05-14 (America/Chicago)
 - **Map-core / TMR:** Duplicate-aid (same lat/lon) projection fix: encounter **hint** + **trust diverge** clamp in `checkpointsWithProjectedDistances`; aligns with **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)**. `npm run verify` green on latest `courseMetrics.ts` fix.
 - **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** merged.
@@ -188,7 +188,7 @@ Daily high-severity correctness audit completed with a narrowly scoped map-core 
 
 ## Next 1-3 tasks
 
-1. Open/review the PR for branch `cursor/critical-correctness-bugs-93fb`; include this bug scenario in the PR body.
+1. Review PR [#281](https://github.com/collinbrowse/CrewCue/pull/281); the PR body includes the bug scenario, impact, root cause, fix, and validation.
 2. Monitor CI; merge only after `checks`/`dual-client-guard` stay green.
 3. After merge/deploy, re-save any affected imported courses whose first checkpoint was incorrectly persisted at mile 0.
 
@@ -222,6 +222,6 @@ Daily high-severity correctness audit completed with a narrowly scoped map-core 
 ## Successor prompt
 
 ```text
-Review branch cursor/critical-correctness-bugs-93fb: verify the first-checkpoint anchoring fix for uploads without explicit Start waypoints, ensure PR body documents impact/root cause/fix, and merge only after CI is green.
+Review PR #281 / branch cursor/critical-correctness-bugs-93fb: verify the first-checkpoint anchoring fix for uploads without explicit Start waypoints and merge only after CI is green.
 Post-merge, re-save/re-import any affected courses whose first aid station was persisted at mile 0.
 ```
