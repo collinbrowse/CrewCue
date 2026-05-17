@@ -100,6 +100,25 @@ test("first checkpoint is mile zero and loop finish anchors at course length whe
   assert.ok(Math.abs((projected[2]!.distanceMetersFromStart ?? 0) - total) < 0.5);
 });
 
+test("does not force mile zero when first checkpoint is not the route start", () => {
+  const routeWithoutStartCheckpoint = [
+    { latitude: 40.0, longitude: -105.0 },
+    { latitude: 40.0, longitude: -104.96 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -104.88 }
+  ];
+  const projected = checkpointsWithProjectedDistances(
+    [
+      { id: "aid-1", latitude: 40.0, longitude: -104.96, distanceMetersFromStart: 3400 },
+      { id: "aid-2", latitude: 40.0, longitude: -104.92, distanceMetersFromStart: 6800 }
+    ],
+    routeWithoutStartCheckpoint
+  );
+  const firstDistance = projected[0]!.distanceMetersFromStart ?? 0;
+  assert.ok(firstDistance > 2000, `first aid station should keep its route mile, got ${firstDistance}`);
+  assert.ok((projected[1]!.distanceMetersFromStart ?? 0) > firstDistance);
+});
+
 test("smoothed elevation computes gain and loss", () => {
   const smoothed = smoothElevations(route, { windowSize: 1 });
   const vertical = gainLossFromSmoothed(smoothed, { minimumDeltaMeters: 1 });
