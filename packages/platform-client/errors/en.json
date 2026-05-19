@@ -1,0 +1,13 @@
+{
+  "locationUnavailable": "We couldn't find your location. Turn on Location Services or try again.",
+  "locationPermissionDenied": "Location access is off. Turn it on in Settings to center the map on you.",
+  "saveFailed": "Couldn't save your changes. Check your connection and try again.",
+  "finishSetupFailed": "Couldn't finish setup. Check your connection and try again.",
+  "networkOffline": "You're offline. We'll retry when you're connected.",
+  "unknown": "Something went wrong. Please try again.",
+  "roomCreateFailed": "Couldn't create your race room. Please try again.",
+  "fetchFailed": "Couldn't refresh data. Pull to refresh or try again in a moment.",
+  "forbidden": "You don't have permission to do that.",
+  "notFound": "That item is no longer available.",
+  "invalidInput": "Some fields need a fix before we can continue."
+}

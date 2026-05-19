@@ -12,11 +12,19 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Recent (2026-05-17): Critical correctness fix — first aid station distance preservation
+## Active: Platform actions, notices, idempotency (branch `feature/platform-actions-notices`, PR [#282](https://github.com/collinbrowse/CrewCue/pull/282), epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
+
+- **Done:** epic #275 + production hardening: claim/complete/release idempotency (`0012`), canonical JSON hashes, shell errors → `NoticeBus`, web swipe velocity, pg idempotency test.
+- **Validation:** `npm run verify`; staging `db:migrate` through `0012_http_idempotency_state.sql`.
+- **Next:** Merge PR #282 after CI green; device check map locate + notice swipe + shell error banner on create-room failure.
+
+**Successor prompt:** Merge PR #282; run staging migrations `0011`–`0012`; smoke idempotent course save retry.
+
+## Recent (2026-05-17): Critical correctness fix — first aid station distance preservation (**merged** PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) → `main`)
 
 - **Cause:** PR #271’s projection repair always forced the first checkpoint to mile 0, even when an uploaded GPX/KML/JSON course had aid-station waypoints but no explicit Start waypoint. That silently saved “Aid Station 1” as the race start distance.
 - **Fix:** `checkpointsWithProjectedDistances` now anchors the first checkpoint to 0 only when the checkpoint is colocated with the route start; loop finish anchoring also requires the first checkpoint to be the route start and the last checkpoint to be at the route end.
-- **Validation:** `npm test -w @crewcue/map-core` and root `npm run verify` green on branch `cursor/critical-correctness-bugs-93fb` / PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) (commit `40ab142`).
+- **Validation:** `npm test -w @crewcue/map-core` and root `npm run verify` green (merge `ad02bc7` on `main`).
 
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 

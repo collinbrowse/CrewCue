@@ -21,7 +21,15 @@ import {
   remainingGainAndLossMetersAfter
 } from "@crewcue/map-core";
 import * as Location from "expo-location";
+import {
+  nextUserLocateVisual,
+  type UserLocateVisual
+} from "@crewcue/platform-client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
+
+const LOCATE_ACCENT = "#2563eb";
+import { appNoticeBus } from "../platform/runtime";
+import { useAction } from "../platform/useAction";
 import {
   Alert,
   Animated,
@@ -217,6 +225,10 @@ function paddedLngLatBounds(coords: [number, number][], padFrac: number): [numbe
 
 export function TrackMapDashboardScreen(): ReactElement {
   const s = useAuthedShell();
+  const { execute: executeCenterOnUser } = useAction<void>("map:center-user", "replace");
+  const [userLocateVisual, setUserLocateVisual] = useState<UserLocateVisual>("default");
+  const locatePulse = useRef(new Animated.Value(1)).current;
+  const locatePulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const theme = useDSTheme();
   const { activeMode } = useDesignSystemSelection();
   const insets = useSafeAreaInsets();
@@ -560,12 +572,50 @@ export function TrackMapDashboardScreen(): ReactElement {
     };
   }, [followRunner, athletePos, courseBounds, roomId, courseFitPadding]);
 
-  const onPressCenterOnUser = useCallback(async () => {
-    setFollowRunner(false);
-    try {
+  const stopLocatePulse = useCallback(() => {
+    locatePulseLoopRef.current?.stop();
+    locatePulseLoopRef.current = null;
+    locatePulse.stopAnimation();
+    locatePulse.setValue(1);
+  }, [locatePulse]);
+
+  useEffect(() => {
+    if (userLocateVisual !== "locating") {
+      stopLocatePulse();
+      return;
+    }
+    locatePulseLoopRef.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(locatePulse, {
+          toValue: 1.18,
+          duration: 550,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true
+        }),
+        Animated.timing(locatePulse, {
+          toValue: 1,
+          duration: 550,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true
+        })
+      ])
+    );
+    locatePulseLoopRef.current.start();
+    return () => stopLocatePulse();
+  }, [userLocateVisual, locatePulse, stopLocatePulse]);
+
+  const onPressCenterOnUser = useCallback(() => {
+    setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "press" }));
+    void executeCenterOnUser(async (signal) => {
+      setFollowRunner(false);
       let { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
         ({ status } = await Location.requestForegroundPermissionsAsync());
+      }
+      if (signal.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
       }
       if (status !== "granted") {
         Alert.alert(
@@ -576,11 +626,18 @@ export function TrackMapDashboardScreen(): ReactElement {
             { text: "Open Settings", onPress: () => void Linking.openSettings() }
           ]
         );
-        return;
+        const err = new Error("Location permission not granted");
+        err.name = "LocationPermissionDenied";
+        throw err;
       }
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced
       });
+      if (signal.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
+      }
       const { longitude, latitude } = pos.coords;
       cameraRef.current?.easeTo({
         center: [longitude, latitude],
@@ -588,10 +645,31 @@ export function TrackMapDashboardScreen(): ReactElement {
         duration: 500,
         easing: "ease"
       });
-    } catch {
-      Alert.alert("Location", "Could not read your current location. Check that Location Services are on for this device.");
-    }
-  }, []);
+    })
+      .then((result) => {
+        if (result.status === "skipped") {
+          setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "skipped" }));
+          return;
+        }
+        setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "success" }));
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "aborted" }));
+          return;
+        }
+        setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "failure" }));
+        if (err instanceof Error && err.name === "LocationPermissionDenied") {
+          return;
+        }
+        appNoticeBus.presentTransient({
+          fingerprint: "map:center-user",
+          catalogKey: "locationUnavailable"
+        });
+      });
+  }, [executeCenterOnUser]);
+
+  const locateIconColor = userLocateVisual === "default" ? theme.color.text : LOCATE_ACCENT;
 
   const onPressCenterOnRunner = useCallback(() => {
     setFollowRunner(true);
@@ -1440,8 +1518,11 @@ export function TrackMapDashboardScreen(): ReactElement {
           style={styles.fab}
           onPress={() => void onPressCenterOnUser()}
           accessibilityLabel="Center map on your location"
+          accessibilityState={{ busy: userLocateVisual === "locating" }}
         >
-          <Ionicons name="locate" size={22} color={theme.color.text} />
+          <Animated.View style={{ transform: [{ scale: locatePulse }] }}>
+            <Ionicons name="locate" size={22} color={locateIconColor} />
+          </Animated.View>
         </Pressable>
         <Pressable style={styles.fab} onPress={onPressCenterOnRunner} accessibilityLabel="Center map on runner">
           <Image

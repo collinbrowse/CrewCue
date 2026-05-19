@@ -26,9 +26,12 @@ import {
   type CSSProperties,
   type ReactElement
 } from "react";
+import { mapApiError } from "@crewcue/platform-client";
 import { emitWebAnalytics } from "./analytics/track";
+import { hashIdempotencyPayload } from "./api/idempotencyKey";
 import { createWebApiClient } from "./api/client";
 import { useWebDesignSystem } from "./designSystem";
+import { appNoticeBus } from "./platform/runtime";
 import type { WebBasemapPresetId } from "./mapStyleUrl";
 import { webBasemapAnalyticsId, webMapStyleUrlForPreset } from "./mapStyleUrl";
 
@@ -259,7 +262,7 @@ export function MapWorkspace(): ReactElement {
         const routeOverlayLayer = parsedTrackToWorkspaceLayer(file.name, parsed);
         const uploadAnalytics = summarizeParsedCourseUploadAnalytics(parsed);
         const client = createWebApiClient({ baseUrl, accessToken: token });
-        const updatedRoom = await client.updateRaceCourse(roomId, {
+        const courseBody = {
           course,
           plannedPaceSecondsPerKm,
           raceStartAt: new Date().toISOString(),
@@ -267,6 +270,10 @@ export function MapWorkspace(): ReactElement {
           courseElevationGainMeters: computeElevationGainMeters(parsed.points),
           courseFileName: file.name,
           routeOverlayLayer
+        };
+        const payloadHash = await hashIdempotencyPayload(courseBody);
+        const updatedRoom = await client.updateRaceCourse(roomId, courseBody, {
+          idempotencyKey: `web:save:course:${roomId}:${payloadHash}`
         });
         const next = updatedRoom.mapWorkspace ?? { layers: [], checkpoints: [] };
         setWorkspace(next);
@@ -323,8 +330,13 @@ export function MapWorkspace(): ReactElement {
         });
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Could not parse file.";
-      setStatus(message);
+      const mapped = mapApiError(err, "invalidInput");
+      setStatus(mapped.message);
+      appNoticeBus.presentTransient({
+        fingerprint: "web:upload",
+        catalogKey: mapped.key,
+        message: mapped.message
+      });
     }
   };
 
@@ -383,8 +395,13 @@ export function MapWorkspace(): ReactElement {
       });
       setStatus("Saved map workspace to CrewCue API.");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Save failed.";
-      setStatus(message);
+      const mapped = mapApiError(err, "saveFailed");
+      setStatus(mapped.message);
+      appNoticeBus.presentTransient({
+        fingerprint: "web:workspace-save",
+        catalogKey: mapped.key,
+        message: mapped.message
+      });
     }
   };
 
@@ -402,8 +419,13 @@ export function MapWorkspace(): ReactElement {
       setWorkspace(res.mapWorkspace);
       setStatus("Loaded workspace from API.");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Load failed.";
-      setStatus(message);
+      const mapped = mapApiError(err, "fetchFailed");
+      setStatus(mapped.message);
+      appNoticeBus.presentTransient({
+        fingerprint: "web:workspace-load",
+        catalogKey: mapped.key,
+        message: mapped.message
+      });
     }
   };
 

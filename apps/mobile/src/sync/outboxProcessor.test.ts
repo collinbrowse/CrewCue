@@ -94,14 +94,25 @@ test("processOutboxBatch leaves retryable failures pending and stops the batch",
 });
 
 test("processOutboxBatch processes checkpoint manual_stop operation", async () => {
-  const calls: Array<{ checkpointId: string; arrivalAt: string; departureAt: string }> = [];
+  const calls: Array<{
+    checkpointId: string;
+    arrivalAt: string;
+    departureAt: string;
+    idempotencyKey?: string;
+  }> = [];
   const client = {
     postManualCheckpointStop: async (
       _roomId: string,
       checkpointId: string,
-      input: { arrivalAt: string; departureAt: string }
+      input: { arrivalAt: string; departureAt: string },
+      extras?: { idempotencyKey?: string }
     ) => {
-      calls.push({ checkpointId, arrivalAt: input.arrivalAt, departureAt: input.departureAt });
+      calls.push({
+        checkpointId,
+        arrivalAt: input.arrivalAt,
+        departureAt: input.departureAt,
+        idempotencyKey: extras?.idempotencyKey
+      });
       return { checkpointSplit: { checkpointId, visits: [], plannedStopSeconds: 120 } };
     }
   } as unknown as ApiClient;
@@ -127,6 +138,7 @@ test("processOutboxBatch processes checkpoint manual_stop operation", async () =
   assert.equal(result.operations[0]?.status, "sent");
   assert.equal(result.operations[0]?.feedback, "Manual stop saved.");
   assert.deepEqual(result.touchedRoomIds, ["room-1"]);
+  assert.equal(calls[0]?.idempotencyKey, "op-cp-1");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.checkpointId, "cp-mid");
 });
