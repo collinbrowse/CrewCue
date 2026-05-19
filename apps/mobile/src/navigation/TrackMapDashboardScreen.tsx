@@ -21,10 +21,13 @@ import {
   remainingGainAndLossMetersAfter
 } from "@crewcue/map-core";
 import * as Location from "expo-location";
+import {
+  nextUserLocateVisual,
+  type UserLocateVisual
+} from "@crewcue/platform-client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 const LOCATE_ACCENT = "#2563eb";
-type UserLocateVisual = "default" | "locating" | "latched";
 import { appNoticeBus } from "../platform/runtime";
 import { useAction } from "../platform/useAction";
 import {
@@ -602,7 +605,7 @@ export function TrackMapDashboardScreen(): ReactElement {
   }, [userLocateVisual, locatePulse, stopLocatePulse]);
 
   const onPressCenterOnUser = useCallback(() => {
-    setUserLocateVisual("locating");
+    setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "press" }));
     void executeCenterOnUser(async (signal) => {
       setFollowRunner(false);
       let { status } = await Location.getForegroundPermissionsAsync();
@@ -645,15 +648,17 @@ export function TrackMapDashboardScreen(): ReactElement {
     })
       .then((result) => {
         if (result.status === "skipped") {
+          setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "skipped" }));
           return;
         }
-        setUserLocateVisual("latched");
+        setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "success" }));
       })
       .catch((err: unknown) => {
         if (err instanceof Error && err.name === "AbortError") {
+          setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "aborted" }));
           return;
         }
-        setUserLocateVisual("default");
+        setUserLocateVisual((current) => nextUserLocateVisual(current, { type: "failure" }));
         if (err instanceof Error && err.name === "LocationPermissionDenied") {
           return;
         }

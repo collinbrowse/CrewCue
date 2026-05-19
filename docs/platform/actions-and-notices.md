@@ -15,7 +15,7 @@ Cross-platform rules for CrewCue clients (mobile, web).
 - **Transient (banner):** At most one app-wide. A new transient **replaces** the previous, even if the message differs. Push-notification style per platform.
 - **Inline:** Anchored to a control; persists until cleared, success, or user fixes input.
 - **Catalog:** User-facing strings live only in `packages/platform-client/errors/en.json`. Code uses keys, never HTTP status codes.
-- **Chat:** Send failures stay inline on the message bubble only (no global notice).
+- **Chat:** Send failures stay inline on the message bubble. Composer errors (attachments, reactions) stay inline above the composer (no global notice).
 
 ## Out of scope
 

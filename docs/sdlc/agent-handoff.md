@@ -14,9 +14,9 @@ Use this as the minimal continuity file between sessions.
 
 ## Active: Platform actions, notices, idempotency (branch `feature/platform-actions-notices`, epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
-- **Done:** `@crewcue/platform-client`; swipe-to-dismiss transient notices (mobile + web); map locate pulse/blue latch UX; Postgres-backed HTTP idempotency + 409 on key/body mismatch; client keys (create room, course hash, outbox manual-stop); `AbortSignal` on fetch; web `mapApiError` + notice bus on API errors.
-- **Validation:** run `npm run verify` after pull.
-- **Next:** Commit/PR with `Closes #276 #277 #278 #279`; manual sim: swipe-dismiss banner, map locate pulse + latch.
+- **Done:** platform actions/notices/idempotency epic; crit follow-ups: composite idempotency scope (memory + PG PK), TTL purge, notice/locate unit tests, chat composer inline errors, `useAction` pending tied to registry.
+- **Validation:** `npm run verify` after pull.
+- **Next:** PR with `Closes #276 #277 #278 #279`; run `db:migrate` on staging for `0011_http_idempotency_composite_pk.sql`.
 
 **Successor prompt:** Epic #275. Verify map locate + notice swipe on device; open PR from `feature/platform-actions-notices`.
 

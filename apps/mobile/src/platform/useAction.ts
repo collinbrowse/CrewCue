@@ -17,7 +17,7 @@ export function useAction<T>(key: string, policy: ActionPolicy): {
       try {
         return await appActionRegistry.run(key, policy, fn);
       } finally {
-        setIsPending(false);
+        setIsPending(appActionRegistry.isBusy(key));
       }
     },
     [key, policy]

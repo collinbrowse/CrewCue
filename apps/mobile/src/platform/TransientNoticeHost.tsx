@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { TransientNotice } from "@crewcue/platform-client";
+import {
+  DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+  DEFAULT_NOTICE_SWIPE_DISMISS_VY,
+  shouldDismissTransientBySwipe,
+  type TransientNotice
+} from "@crewcue/platform-client";
 import { useDSTheme } from "../design-system";
 import { appNoticeBus } from "./runtime";
 
 const AUTO_DISMISS_MS = 4500;
-const SWIPE_DISMISS_DY = -48;
-const SWIPE_DISMISS_VY = -0.45;
 
 export function TransientNoticeHost(): ReactElement | null {
   const theme = useDSTheme();
@@ -45,7 +48,12 @@ export function TransientNoticeHost(): ReactElement | null {
         translateY.setValue(dy);
       },
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy <= SWIPE_DISMISS_DY || gesture.vy <= SWIPE_DISMISS_VY) {
+        if (
+          shouldDismissTransientBySwipe(gesture.dy, gesture.vy, {
+            dismissDy: DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+            dismissVy: DEFAULT_NOTICE_SWIPE_DISMISS_VY
+          })
+        ) {
           dismissWithAnimation();
           return;
         }

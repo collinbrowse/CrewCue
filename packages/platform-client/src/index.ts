@@ -21,3 +21,13 @@ export {
   type ErrorCatalogKey
 } from "./errorCatalog.js";
 export { mapApiError, type MappedError, type ApiErrorLike } from "./mapApiError.js";
+export {
+  shouldDismissTransientBySwipe,
+  DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+  DEFAULT_NOTICE_SWIPE_DISMISS_VY
+} from "./noticeGesture.js";
+export {
+  nextUserLocateVisual,
+  type UserLocateVisual,
+  type LocateVisualEvent
+} from "./mapLocateVisual.js";

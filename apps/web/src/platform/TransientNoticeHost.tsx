@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement, type TouchEvent } from "react";
-import type { TransientNotice } from "@crewcue/platform-client";
+import {
+  DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+  shouldDismissTransientBySwipe,
+  type TransientNotice
+} from "@crewcue/platform-client";
 import { appNoticeBus } from "./runtime";
 
 const hostStyle: CSSProperties = {
@@ -11,8 +15,6 @@ const hostStyle: CSSProperties = {
   width: "min(420px, calc(100vw - 24px))",
   pointerEvents: "none"
 };
-
-const SWIPE_DISMISS_DY = -48;
 
 export function TransientNoticeHost(): ReactElement | null {
   const [notice, setNotice] = useState<TransientNotice | undefined>(undefined);
@@ -68,7 +70,7 @@ export function TransientNoticeHost(): ReactElement | null {
       return;
     }
     const dy = endY - startY;
-    if (dy <= SWIPE_DISMISS_DY) {
+    if (shouldDismissTransientBySwipe(dy, 0, { dismissDy: DEFAULT_NOTICE_SWIPE_DISMISS_DY })) {
       dismissAnimated();
       return;
     }

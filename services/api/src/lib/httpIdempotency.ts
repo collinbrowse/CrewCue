@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { getPersistencePool, isRoomPersistenceEnabled } from "./roomPersistence.js";
 
 const TTL_MS = 24 * 60 * 60 * 1000;
+const PURGE_INTERVAL_MS = 5 * 60 * 1000;
 
 type StoredIdempotentResponse = {
   requestHash: string;
@@ -12,6 +13,7 @@ type StoredIdempotentResponse = {
 };
 
 const memoryStore = new Map<string, StoredIdempotentResponse>();
+let lastPurgeAtMs = 0;
 
 export type IdempotencyLookupResult =
   | { kind: "hit"; statusCode: number; body: unknown }
@@ -30,16 +32,20 @@ export function readIdempotencyKey(request: FastifyRequest): string | undefined 
   return undefined;
 }
 
-function readRequestPath(request: FastifyRequest): string {
+export function readRequestPath(request: FastifyRequest): string {
   const url = request.url ?? "";
   const q = url.indexOf("?");
   return q >= 0 ? url.slice(0, q) : url;
 }
 
-function lookupMemory(key: string, requestHash: string): IdempotencyLookupResult {
-  const row = memoryStore.get(key);
+export function idempotencyScopeKey(idempotencyKey: string, method: string, path: string): string {
+  return `${method}\0${path}\0${idempotencyKey}`;
+}
+
+function lookupMemory(scopeKey: string, requestHash: string): IdempotencyLookupResult {
+  const row = memoryStore.get(scopeKey);
   if (!row || row.expiresAtMs <= Date.now()) {
-    memoryStore.delete(key);
+    memoryStore.delete(scopeKey);
     return { kind: "miss" };
   }
   if (row.requestHash !== requestHash) {
@@ -48,8 +54,8 @@ function lookupMemory(key: string, requestHash: string): IdempotencyLookupResult
   return { kind: "hit", statusCode: row.statusCode, body: JSON.parse(row.bodyJson) as unknown };
 }
 
-function storeMemory(key: string, requestHash: string, statusCode: number, body: unknown): void {
-  memoryStore.set(key, {
+function storeMemory(scopeKey: string, requestHash: string, statusCode: number, body: unknown): void {
+  memoryStore.set(scopeKey, {
     requestHash,
     statusCode,
     bodyJson: JSON.stringify(body ?? null),
@@ -58,7 +64,7 @@ function storeMemory(key: string, requestHash: string, statusCode: number, body:
 }
 
 async function lookupPostgres(
-  key: string,
+  idempotencyKey: string,
   method: string,
   path: string,
   requestHash: string
@@ -76,14 +82,17 @@ async function lookupPostgres(
     `SELECT request_hash, status_code, response_body, expires_at
      FROM http_idempotency
      WHERE idempotency_key = $1 AND method = $2 AND path = $3`,
-    [key, method, path]
+    [idempotencyKey, method, path]
   );
   const row = result.rows[0];
   if (!row) {
     return { kind: "miss" };
   }
   if (row.expires_at.getTime() <= Date.now()) {
-    await pool.query(`DELETE FROM http_idempotency WHERE idempotency_key = $1`, [key]);
+    await pool.query(
+      `DELETE FROM http_idempotency WHERE idempotency_key = $1 AND method = $2 AND path = $3`,
+      [idempotencyKey, method, path]
+    );
     return { kind: "miss" };
   }
   if (row.request_hash !== requestHash) {
@@ -93,7 +102,7 @@ async function lookupPostgres(
 }
 
 async function storePostgres(
-  key: string,
+  idempotencyKey: string,
   method: string,
   path: string,
   requestHash: string,
@@ -108,30 +117,60 @@ async function storePostgres(
   await pool.query(
     `INSERT INTO http_idempotency (idempotency_key, method, path, request_hash, status_code, response_body, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-     ON CONFLICT (idempotency_key) DO UPDATE SET
-       method = EXCLUDED.method,
-       path = EXCLUDED.path,
+     ON CONFLICT (idempotency_key, method, path) DO UPDATE SET
        request_hash = EXCLUDED.request_hash,
        status_code = EXCLUDED.status_code,
        response_body = EXCLUDED.response_body,
        expires_at = EXCLUDED.expires_at`,
-    [key, method, path, requestHash, statusCode, body ?? null, expiresAt]
+    [idempotencyKey, method, path, requestHash, statusCode, body ?? null, expiresAt]
   );
+}
+
+export async function purgeExpiredHttpIdempotencyRecords(): Promise<number> {
+  if (isRoomPersistenceEnabled()) {
+    const pool = getPersistencePool();
+    if (!pool) {
+      return 0;
+    }
+    const result = await pool.query(`DELETE FROM http_idempotency WHERE expires_at < NOW()`);
+    return result.rowCount ?? 0;
+  }
+  let removed = 0;
+  const now = Date.now();
+  for (const [scopeKey, row] of memoryStore.entries()) {
+    if (row.expiresAtMs <= now) {
+      memoryStore.delete(scopeKey);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+async function purgeExpiredHttpIdempotencyIfDue(): Promise<void> {
+  const now = Date.now();
+  if (now - lastPurgeAtMs < PURGE_INTERVAL_MS) {
+    return;
+  }
+  lastPurgeAtMs = now;
+  await purgeExpiredHttpIdempotencyRecords();
 }
 
 export async function resolveIdempotentRequest(
   request: FastifyRequest,
   bodyForHash: unknown
 ): Promise<IdempotencyLookupResult> {
+  await purgeExpiredHttpIdempotencyIfDue();
   const key = readIdempotencyKey(request);
   if (!key) {
     return { kind: "miss" };
   }
+  const method = request.method;
+  const path = readRequestPath(request);
   const requestHash = hashHttpRequestBody(bodyForHash);
   if (isRoomPersistenceEnabled()) {
-    return lookupPostgres(key, request.method, readRequestPath(request), requestHash);
+    return lookupPostgres(key, method, path, requestHash);
   }
-  return lookupMemory(key, requestHash);
+  return lookupMemory(idempotencyScopeKey(key, method, path), requestHash);
 }
 
 export async function tryReplayIdempotentResponse(
@@ -166,15 +205,17 @@ export async function persistIdempotentResponse(
     await storePostgres(key, method, path, requestHash, statusCode, body);
     return;
   }
-  storeMemory(key, requestHash, statusCode, body);
+  storeMemory(idempotencyScopeKey(key, method, path), requestHash, statusCode, body);
 }
 
 /** @deprecated Use resolveIdempotentRequest — kept for unit tests. */
 export function lookupIdempotentResponse(
   key: string,
-  requestHash: string
+  requestHash: string,
+  method = "POST",
+  path = "/race-rooms"
 ): { statusCode: number; body: unknown } | null {
-  const resolved = lookupMemory(key, requestHash);
+  const resolved = lookupMemory(idempotencyScopeKey(key, method, path), requestHash);
   if (resolved.kind === "hit") {
     return { statusCode: resolved.statusCode, body: resolved.body };
   }
@@ -186,11 +227,25 @@ export function storeIdempotentResponse(
   key: string,
   requestHash: string,
   statusCode: number,
-  body: unknown
+  body: unknown,
+  method = "POST",
+  path = "/race-rooms"
 ): void {
-  storeMemory(key, requestHash, statusCode, body);
+  storeMemory(idempotencyScopeKey(key, method, path), requestHash, statusCode, body);
+}
+
+export function expireIdempotencyRecordForTests(
+  idempotencyKey: string,
+  method: string,
+  path: string
+): void {
+  const row = memoryStore.get(idempotencyScopeKey(idempotencyKey, method, path));
+  if (row) {
+    row.expiresAtMs = Date.now() - 1;
+  }
 }
 
 export function clearHttpIdempotencyStoreForTests(): void {
   memoryStore.clear();
+  lastPurgeAtMs = 0;
 }

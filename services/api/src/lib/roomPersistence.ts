@@ -172,14 +172,15 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS http_idempotency (
-        idempotency_key TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL,
         method TEXT NOT NULL,
         path TEXT NOT NULL,
         request_hash TEXT NOT NULL,
         status_code INTEGER NOT NULL,
         response_body JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        expires_at TIMESTAMPTZ NOT NULL
+        expires_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (idempotency_key, method, path)
       );
     `);
     await client.query(`
