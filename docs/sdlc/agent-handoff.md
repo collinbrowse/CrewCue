@@ -12,6 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Active (2026-05-19): XcodeBuildMCP shared config (**PR [#285](https://github.com/collinbrowse/CrewCue/pull/285)**, **Closes** [#284](https://github.com/collinbrowse/CrewCue/issues/284))
+
+- **Branch:** `chore/xcodebuildmcp-shared-config`
+- **On branch:** `.xcodebuildmcp/config.yaml` (workspace/scheme/bundleId, `simulatorName` only, `debug: false`); `apps/mobile/README.md` prerequisites; root `AGENTS.md`.
+- **Validation:** docs/config review; optional local `xcodebuildmcp` + prebuild smoke after merge.
+
 ## Recent (**merged** PR [#282](https://github.com/collinbrowse/CrewCue/pull/282) → `main`, merge `80e3843`, **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279)): Platform actions, notices, HTTP idempotency (epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
 - **On `main`:** `@crewcue/platform-client` (`ActionRegistry`, `NoticeBus`, error catalog, map-locate visual); mobile/web `TransientNoticeHost`; `useAction` on Pace/GPX/map; HTTP idempotency (claim/complete/release, migrations `0010`–`0012`, canonical JSON hash); shell errors → `NoticeBus`; CI `db:migrate` before `test:pg`.
@@ -230,6 +236,6 @@ Platform actions/notices/idempotency epic delivered on `main` (#282). Next: stag
 ## Successor prompt
 
 ```text
-Review PR #281 / branch cursor/critical-correctness-bugs-93fb: verify the first-checkpoint anchoring fix for uploads without explicit Start waypoints and merge only after CI is green.
-Post-merge, re-save/re-import any affected courses whose first aid station was persisted at mile 0.
+Merge PR #285 (XcodeBuildMCP shared config, Closes #284) after CI green.
+Then: each dev installs xcodebuildmcp + Cursor MCP, runs `npx expo prebuild` in apps/mobile, and uses UI automation with a simulator matching `simulatorName` in .xcodebuildmcp/config.yaml (do not commit personal simulatorId).
 ```
