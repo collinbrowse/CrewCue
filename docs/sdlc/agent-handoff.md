@@ -12,13 +12,12 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Active: Platform actions, notices, idempotency (branch `feature/platform-actions-notices`, PR [#282](https://github.com/collinbrowse/CrewCue/pull/282), epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
+## Recent (**merged** PR [#282](https://github.com/collinbrowse/CrewCue/pull/282) → `main`, merge `80e3843`, **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279)): Platform actions, notices, HTTP idempotency (epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
-- **Done:** epic #275 + production hardening: claim/complete/release idempotency (`0012`), canonical JSON hashes, shell errors → `NoticeBus`, web swipe velocity, pg idempotency test.
-- **Validation:** `npm run verify`; staging `db:migrate` through `0012_http_idempotency_state.sql`.
-- **Next:** Merge PR #282 after CI green; device check map locate + notice swipe + shell error banner on create-room failure.
-
-**Successor prompt:** Merge PR #282; run staging migrations `0011`–`0012`; smoke idempotent course save retry.
+- **On `main`:** `@crewcue/platform-client` (`ActionRegistry`, `NoticeBus`, error catalog, map-locate visual); mobile/web `TransientNoticeHost`; `useAction` on Pace/GPX/map; HTTP idempotency (claim/complete/release, migrations `0010`–`0012`, canonical JSON hash); shell errors → `NoticeBus`; CI `db:migrate` before `test:pg`.
+- **Docs:** `docs/platform/actions-and-notices.md`, `packages/platform-client/PHASES.md`.
+- **Staging ops:** Run `npm run db:migrate` through `0012_http_idempotency_state.sql` before soak.
+- **Validation:** `npm run verify` green before merge.
 
 ## Recent (2026-05-17): Critical correctness fix — first aid station distance preservation (**merged** PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) → `main`)
 
@@ -93,8 +92,9 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-17 (UTC)
-- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-93fb`** pushed with map-core first-checkpoint anchoring fix; PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) targets `main`.
+- Last updated: 2026-05-19 (UTC)
+- **#275 / #282:** Merged to **`main`** via **PR [#282](https://github.com/collinbrowse/CrewCue/pull/282)** (merge `80e3843`). **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279). Local/remote **`feature/platform-actions-notices`** deleted. **Staging:** `db:migrate` through `0012`.
+- **Critical correctness audit:** **#281** merged (`ad02bc7`); map-core first-checkpoint anchoring on `main`.
 - Last updated: 2026-05-14 (America/Chicago)
 - **Map-core / TMR:** Duplicate-aid (same lat/lon) projection fix: encounter **hint** + **trust diverge** clamp in `checkpointsWithProjectedDistances`; aligns with **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)**. `npm run verify` green on latest `courseMetrics.ts` fix.
 - **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** merged.
@@ -105,12 +105,12 @@ Use this as the minimal continuity file between sessions.
 - **#247 / #248:** Merged to **`main`** via **PR [#248](https://github.com/collinbrowse/CrewCue/pull/248)** (merge `563641f`). Delete local/remote `feature/race-start-projection-bootstrap-247` when convenient.
 - **PR #249:** Merged to **`main`** via **PR [#249](https://github.com/collinbrowse/CrewCue/pull/249)** (merge `9e0d028`). Delete local/remote **`feature/race-start-projection-isolated`** when convenient (GitHub may auto-delete the remote branch).
 - **Pace tab:** Includes **#246**, **#248**, **#249**, **#253/#254**, **#257/#258**, and **#260/#261** (projection anchor, map sheet peek + sheet phases, unified course metrics, native race start, canonical route projection + Pace readouts).
-- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `8f3f3e8`).
+- **Default branch:** **`main`** for new work; `git pull origin main` (at or after `80e3843`).
 - **Plan:** Chat E2E roadmap continues in parallel; projection lifecycle doc at `docs/api/ws2-task2-projection.md`.
 
 ## Current objective
 
-Daily high-severity correctness audit completed with a narrowly scoped map-core fix for uploaded courses whose first checkpoint is an aid station rather than the race start.
+Platform actions/notices/idempotency epic delivered on `main` (#282). Next: staging migration soak (`0010`–`0012`) and device smoke for notices + idempotent course save; continue parallel tracks (chat E2E, map/Pace work).
 
 ## Phases delivered (feature/crew-chat-e2e)
 

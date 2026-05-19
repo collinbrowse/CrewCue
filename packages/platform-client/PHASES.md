@@ -1,6 +1,6 @@
 # Platform client — phase gates
 
-Epic: [#275](https://github.com/collinbrowse/CrewCue/issues/275)
+Epic: [#275](https://github.com/collinbrowse/CrewCue/issues/275) — **delivered** on `main` via PR [#282](https://github.com/collinbrowse/CrewCue/pull/282) (merge `80e3843`).
 
 Do not start phase N+1 until phase N is checked and `npm run verify` is recorded in `docs/sdlc/agent-handoff.md`.
 
