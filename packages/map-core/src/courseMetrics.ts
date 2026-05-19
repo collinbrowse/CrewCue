@@ -311,6 +311,13 @@ const ENCOUNTER_HINT_SLACK_METERS = 400;
 /** When import left {@link RaceCourseCheckpoint.distanceMetersFromStart}, trust it over geodesic snap if they disagree by this much (m). */
 const ENCOUNTER_HINT_TRUST_DIVERGENCE_METERS = 2000;
 
+function checkpointIsAtRouteStart(
+  checkpoint: RaceCourseCheckpoint,
+  routeStart: Pick<CourseMetricPoint, "latitude" | "longitude">
+): boolean {
+  return geodesicDistanceMeters(checkpoint, routeStart) <= LOOP_START_FINISH_MAX_SEPARATION_M;
+}
+
 export function checkpointsWithProjectedDistances(
   checkpoints: RaceCourseCheckpoint[],
   routePoints: CourseMetricPoint[]
@@ -325,13 +332,16 @@ export function checkpointsWithProjectedDistances(
 
   const cumulative = geodesicCumulativeAtVertices(canonical);
   const courseLengthMeters = cumulative[cumulative.length - 1] ?? 0;
+  const routeStart = canonical[0]!;
+  const routeEnd = canonical[canonical.length - 1]!;
+  const firstCheckpointAnchorsStart = checkpointIsAtRouteStart(checkpoints[0]!, routeStart);
   let minProgressMeters = 0;
   const result: RaceCourseCheckpoint[] = [];
 
   for (let index = 0; index < checkpoints.length; index += 1) {
     const checkpoint = checkpoints[index]!;
     let clamped: number;
-    if (index === 0) {
+    if (index === 0 && firstCheckpointAnchorsStart) {
       /** Pace and race clocks anchor at mile 0 at the official start, even when the polyline also closes there. */
       clamped = 0;
     } else {
@@ -374,7 +384,11 @@ export function checkpointsWithProjectedDistances(
   if (result.length >= 2) {
     const firstCp = checkpoints[0]!;
     const lastCp = checkpoints[checkpoints.length - 1]!;
-    if (geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M) {
+    if (
+      firstCheckpointAnchorsStart &&
+      geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M &&
+      geodesicDistanceMeters(lastCp, routeEnd) <= LOOP_START_FINISH_MAX_SEPARATION_M
+    ) {
       const lastIx = result.length - 1;
       result[lastIx] = {
         ...result[lastIx]!,

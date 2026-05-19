@@ -12,11 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
-## Recent (2026-05-15): Map pre-start time formatting (**PR** [#274](https://github.com/collinbrowse/CrewCue/pull/274), **Closes** [#273](https://github.com/collinbrowse/CrewCue/issues/273))
+## Recent (2026-05-17): Critical correctness fix — first aid station distance preservation
 
-- **Fix:** Pre-start sheet **START TIME** uses locale `hour`/`minute` two-digit only (no seconds); **UNTIL START** via `formatRemainingMinutes` omits `0M` when hours present (e.g. `2H`).
-- **Files:** `TrackMapDashboardScreen.tsx`, `eta.ts`, `eta.test.ts`.
-- **Validation:** `npm run verify` green.
+- **Cause:** PR #271’s projection repair always forced the first checkpoint to mile 0, even when an uploaded GPX/KML/JSON course had aid-station waypoints but no explicit Start waypoint. That silently saved “Aid Station 1” as the race start distance.
+- **Fix:** `checkpointsWithProjectedDistances` now anchors the first checkpoint to 0 only when the checkpoint is colocated with the route start; loop finish anchoring also requires the first checkpoint to be the route start and the last checkpoint to be at the route end.
+- **Validation:** `npm test -w @crewcue/map-core` and root `npm run verify` green on branch `cursor/critical-correctness-bugs-93fb` / PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) (commit `40ab142`).
 
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 
@@ -80,16 +80,16 @@ Use this as the minimal continuity file between sessions.
 
 - **Upload failures:** Generic “choose GPX/KML/JSON” masked API errors (missing route line, recompute failure, invalid payload). `GpxImportScreen` maps those strings to specific copy; `PUT /course` logs `course_metrics_recompute_failed` on recompute throw.
 - **Railway:** `railway.toml` `buildCommand` now builds `@crewcue/contracts`, `@crewcue/map-core`, then `@crewcue/api` so staging ships encounter-hint projection after deploy.
-- **TMR Bridal (~34 mi):** Staging still shows old miles until map-core hint fix is merged/deployed and course re-imported; local `npm test -w @crewcue/map-core` green (32/32).
-- **Next:** Commit/PR #271, `railway up`, re-import Telluride JSON, confirm DB first Bridal ~4.4 mi; check staging logs if upload still 400.
+- **TMR Bridal (~34 mi):** Map-core hint fix is merged in PR #271; staging/data may still need deploy plus course re-import to replace old saved miles.
+- **Next:** Re-import Telluride JSON after deployment, confirm DB first Bridal ~4.4 mi; check staging logs if upload still 400.
 
 ## Session status snapshot
 
-- Last updated: 2026-05-15 (UTC)
-- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-5c10`** pushed with API entitlement/data-preservation fix; PR pending/open for merge to `main`.
+- Last updated: 2026-05-17 (UTC)
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-93fb`** pushed with map-core first-checkpoint anchoring fix; PR [#281](https://github.com/collinbrowse/CrewCue/pull/281) targets `main`.
 - Last updated: 2026-05-14 (America/Chicago)
 - **Map-core / TMR:** Duplicate-aid (same lat/lon) projection fix: encounter **hint** + **trust diverge** clamp in `checkpointsWithProjectedDistances`; aligns with **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)**. `npm run verify` green on latest `courseMetrics.ts` fix.
-- **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (sequential checkpoint projection along route — open).
+- **Repo process:** PR template **Change surface** (area checkboxes) replaces the old WS1–WS7 checklist. New issues use **Implementation task** (`.github/ISSUE_TEMPLATE/implementation-task.yml`). Cloud rollout phases are spelled out in `docs/sdlc/staging-first-cloud-delivery.md`. Workflow: `docs/sdlc/github-issues-and-prs.md`. Tracking: **#267**, **#269** / **PR [#268](https://github.com/collinbrowse/CrewCue/pull/268)**; **#270** / **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** merged.
 - **#263 / #264:** Merged to **`main`** via **PR [#264](https://github.com/collinbrowse/CrewCue/pull/264)** (merge `a041ad0`). Issue **#263** closed. Local branch **`feature/mobile-metro-android-dev-tooling`** deleted; remote branch auto-deleted on merge.
 - **#260 / #261:** Merged to **`main`** via **PR [#261](https://github.com/collinbrowse/CrewCue/pull/261)** (merge `8f3f3e8`). Issue **#260** closed. Local branches **`feature/map-sheet-phases-260`** and **`pr-261`** deleted; remote **`origin/feature/map-sheet-phases-260`** removed after merge.
 - **#257 / #258:** Merged to **`main`** via **PR [#258](https://github.com/collinbrowse/CrewCue/pull/258)** (merge `a880d44`). Stale **`feature/canonical-pace-projection-257`** removed locally and on origin.
@@ -102,7 +102,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Current objective
 
-Daily high-severity correctness audit completed with a narrowly scoped API fix for entitlement bypass and race-start-only task-board data loss.
+Daily high-severity correctness audit completed with a narrowly scoped map-core fix for uploaded courses whose first checkpoint is an aid station rather than the race start.
 
 ## Phases delivered (feature/crew-chat-e2e)
 
@@ -188,12 +188,14 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ## Next 1-3 tasks
 
-1. Land **PR [#271](https://github.com/collinbrowse/CrewCue/pull/271)** (**#270**): sequential checkpoint projection + TMR duplicate-aid hint/trust path; confirm Telluride JSON first Bridal ~4–5 mi (not ~34 mi).
-2. Monitor CI/PR for `cursor/critical-correctness-bugs-5c10`; merge only after checks stay green.
-3. Open separate scoped issues for mobile map polyline mismatch and chat prefetch stale-session cancellation if still desired.
+1. Review PR [#281](https://github.com/collinbrowse/CrewCue/pull/281); the PR body includes the bug scenario, impact, root cause, fix, and validation.
+2. Monitor CI; merge only after `checks`/`dual-client-guard` stay green.
+3. After merge/deploy, re-save any affected imported courses whose first checkpoint was incorrectly persisted at mile 0.
 
 ## Validation summary
 
+- `npm test -w @crewcue/map-core` — **pass** (33/33) after first-aid checkpoint regression test.
+- `npm run verify` — **pass** (includes mobile Expo export and web/API builds).
 - **TMR / map-core (this session):** `npm test -w @crewcue/map-core` — **pass** (32/32); root **`npm run verify`** — **pass** after encounter-hint projection + upload UX.
 - `npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRooms.entitlement.test.js services/api/dist/services/api/src/routes/raceRoomTasks.test.js services/api/dist/services/api/src/routes/raceRooms.test.js` — **pass** (21/21).
 - `npm run test:memory -w @crewcue/api` — **pass** (98/98).
@@ -203,8 +205,9 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 
 ## Open risks/blockers/questions
 
-- Existing dependency audit warnings surfaced during `npm ci`; no dependency changes were made.
-- Remaining audit leads (mobile map polyline mismatch, chat stale prefetch) were not changed in this PR to keep the critical API fix narrow.
+- Existing courses already saved with a non-start first checkpoint at mile 0 need a course re-save/re-import after this fix; the code change prevents new silent corruption but does not migrate persisted rooms.
+- `npm ci` reports existing dependency audit warnings (22 vulnerabilities, including 2 critical); no dependency changes were made.
+- Remaining audit leads (mobile map polyline mismatch, chat stale prefetch) were not changed in this audit to keep the critical fix narrow.
 - Real APNS / FCM transports are not yet wired; staging push uses the logging transport. The encrypted preview is already piped through, so flipping in real credentials is a localized change.
 - The `CrewCueChatNativeBridge` Expo Module does not exist yet; until it's shipped, push previews fall back to `New Message in Crew Chat`. The chat itself works fully and the cipher / payload layout is pinned so the module can be added without breaking changes.
 - App-reinstall recovery flow: a device that loses its keypair must be re-enveloped from another device. Documented in the plan's Risks section; UX work tracked in a follow-up issue.
@@ -219,6 +222,6 @@ Daily high-severity correctness audit completed with a narrowly scoped API fix f
 ## Successor prompt
 
 ```text
-On PR #271 / #270: confirm Telluride GPX/JSON — first Bridal Veil projected mile ~4–5 mi, second ~34 mi; merge when CI green; deploy staging (`railway.toml` builds map-core) and re-import course.
-Review PR cursor/critical-correctness-bugs-5c10; on main post-#264: git pull; npm run verify; rebuild dev clients. Separate issues: map polyline mismatch, chat prefetch cancellation.
+Review PR #281 / branch cursor/critical-correctness-bugs-93fb: verify the first-checkpoint anchoring fix for uploads without explicit Start waypoints and merge only after CI is green.
+Post-merge, re-save/re-import any affected courses whose first aid station was persisted at mile 0.
 ```
