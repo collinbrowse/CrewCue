@@ -42,6 +42,7 @@ export type UpdateRaceCourseWebInput = {
 
 type RequestExtras = {
   idempotencyKey?: string;
+  signal?: AbortSignal;
 };
 
 async function request<T>(
@@ -64,7 +65,8 @@ async function request<T>(
   const res = await fetch(`${options.baseUrl.replace(/\/$/, "")}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: extras?.signal
   });
   const text = await res.text();
   let parsed: unknown;

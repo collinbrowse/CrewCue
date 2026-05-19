@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ActivityIndicator, LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from "react-native";
 import { cumulativeDistancesAlongCheckpoints } from "@crewcue/map-core";
+import { hashIdempotencyPayload } from "../api/idempotencyKey";
 import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { createApiClient } from "../api/client";
 import { useAction } from "../platform/useAction";
@@ -282,7 +283,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   }, [editing, currentIx, checkpoints, splits.length]);
 
   const onSave = (): void => {
-    void executeSave(async () => {
+    void executeSave(async (signal) => {
     if (!room?.id || !s.auth.accessToken) {
       setSaveError(getErrorMessage("unknown"));
       return;
@@ -304,21 +305,22 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
         }));
         const normalizedCheckpoints = normalizeCheckpointDraft(staged);
         checkpointIdsForStops = normalizedCheckpoints.map((c) => c.id);
-        const updatedRoom = await client.updateRaceCourse(
-          room.id,
-          {
-            course: {
-              checkpoints: normalizedCheckpoints,
-              baselineTrack: room.course?.baselineTrack
-            },
-            plannedPaceSecondsPerKm: paceSecondsPerKm,
-            raceStartAt: anchorIso,
-            courseDistanceMeters: room.courseDistanceMeters,
-            courseElevationGainMeters: room.courseElevationGainMeters,
-            courseFileName: room.courseFileName
+        const courseBody = {
+          course: {
+            checkpoints: normalizedCheckpoints,
+            baselineTrack: room.course?.baselineTrack
           },
-          { idempotencyKey: `pace:save:course:${room.id}` }
-        );
+          plannedPaceSecondsPerKm: paceSecondsPerKm,
+          raceStartAt: anchorIso,
+          courseDistanceMeters: room.courseDistanceMeters,
+          courseElevationGainMeters: room.courseElevationGainMeters,
+          courseFileName: room.courseFileName
+        };
+        const payloadHash = await hashIdempotencyPayload(courseBody);
+        const updatedRoom = await client.updateRaceCourse(room.id, courseBody, {
+          idempotencyKey: `pace:save:course:${room.id}:${payloadHash}`,
+          signal
+        });
         s.onApplyRaceRoomFromServer(updatedRoom);
       } else if (courseDirty && !canEditCourse) {
         setSaveError(getErrorMessage("forbidden"));

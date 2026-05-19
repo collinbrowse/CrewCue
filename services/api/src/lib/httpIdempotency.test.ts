@@ -4,6 +4,7 @@ import {
   clearHttpIdempotencyStoreForTests,
   hashHttpRequestBody,
   lookupIdempotentResponse,
+  resolveIdempotentRequest,
   storeIdempotentResponse
 } from "./httpIdempotency.js";
 
@@ -16,13 +17,24 @@ test("idempotency returns cached response for same key and body hash", () => {
   assert.deepEqual(cached, { statusCode: 201, body: { id: "room-1" } });
 });
 
-test("idempotency last-wins when body hash changes", () => {
+test("idempotency reports conflict when body hash changes for same key", async () => {
   clearHttpIdempotencyStoreForTests();
   const key = "k2";
   const hashA = hashHttpRequestBody({ a: 1 });
   const hashB = hashHttpRequestBody({ a: 2 });
   storeIdempotentResponse(key, hashA, 201, { id: "first" });
+
+  const request = {
+    headers: { "idempotency-key": key },
+    method: "POST",
+    url: "/race-rooms"
+  };
+
+  assert.deepEqual(await resolveIdempotentRequest(request as never, { a: 1 }), {
+    kind: "hit",
+    statusCode: 201,
+    body: { id: "first" }
+  });
+  assert.deepEqual(await resolveIdempotentRequest(request as never, { a: 2 }), { kind: "conflict" });
   assert.equal(lookupIdempotentResponse(key, hashB), null);
-  storeIdempotentResponse(key, hashB, 201, { id: "second" });
-  assert.deepEqual(lookupIdempotentResponse(key, hashB)?.body, { id: "second" });
 });

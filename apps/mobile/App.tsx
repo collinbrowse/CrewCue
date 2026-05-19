@@ -38,6 +38,7 @@ import {
   canRecordMergeTelemetry,
   getCurrentRoomRole
 } from "./src/auth/roleGuards";
+import * as Crypto from "expo-crypto";
 import { mapApiError } from "@crewcue/platform-client";
 import { ApiError, createApiClient } from "./src/api/client";
 import { appActionRegistry } from "./src/platform/runtime";
@@ -273,6 +274,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [onboardingNotificationsSeen, setOnboardingNotificationsSeen] = useState(false);
   const [onboardingNotificationsRequired, setOnboardingNotificationsRequired] = useState(false);
   const outboxProcessingRef = useRef(false);
+  const createRoomIdempotencyKeyRef = useRef<string | null>(null);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
   const currentRoomRole = useMemo(() => getCurrentRoomRole(auth, room?.id), [auth, room?.id]);
@@ -437,15 +439,21 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const teamId = auth.claims.teamIds?.[0] ?? "mobile-ops-team";
-      const created = await client.createRaceRoom({
+      const createBody = {
         teamId,
         athleteId: auth.claims.sub,
         name: input?.raceName?.trim() || `Race ${new Date().toISOString().slice(0, 16)}`,
         creatorName: input?.creatorName?.trim() || "Race lead",
         description: input?.raceDescription?.trim() || undefined,
         crewName: input?.crewName?.trim() || undefined,
-        creatorRole: "team_manager"
-      });
+        creatorRole: "team_manager" as const
+      };
+      const idempotencyKey =
+        createRoomIdempotencyKeyRef.current ??
+        `create-room:${auth.claims.sub}:${Crypto.randomUUID()}`;
+      createRoomIdempotencyKeyRef.current = idempotencyKey;
+      const created = await client.createRaceRoom(createBody, { idempotencyKey });
+      createRoomIdempotencyKeyRef.current = null;
       setRoom(created);
       setRoomDetail(undefined);
       setLastPing(undefined);
@@ -749,13 +757,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         }
       } catch (err) {
         if (mode === "manual") {
-          if (err instanceof ApiError) {
-            setApiError(`${err.status} ${err.message}`);
-          } else if (err instanceof Error) {
-            setApiError(err.message);
-          } else {
-            setApiError("Unknown error");
-          }
+          setStatusError(err);
         }
       } finally {
         outboxProcessingRef.current = false;

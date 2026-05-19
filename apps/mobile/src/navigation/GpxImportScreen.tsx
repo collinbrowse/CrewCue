@@ -19,6 +19,7 @@ import {
   type GpxTrackPoint,
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
+import { hashIdempotencyPayload } from "../api/idempotencyKey";
 import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { useAction } from "../platform/useAction";
 import { useAuthedShell } from "../shell/AuthedShellContext";
@@ -205,7 +206,7 @@ export function GpxImportScreen(): ReactElement {
   };
 
   const onFinishSetup = (): void => {
-    void executeFinishSetup(async () => {
+    void executeFinishSetup(async (signal) => {
     if (!raceName.trim() || !creatorName.trim()) {
       setImportState({ status: "error", message: "Race name and your name are required to finish setup." });
       return;
@@ -254,19 +255,20 @@ export function GpxImportScreen(): ReactElement {
           return;
         }
         const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-        const updatedRoom = await client.updateRaceCourse(
-          room.id,
-          {
-            course: pendingCourseUpload.course,
-            plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
-            raceStartAt: normalizedRaceStart,
-            courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
-            courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
-            courseFileName: pendingCourseUpload.fileName,
-            routeOverlayLayer: pendingCourseUpload.routeOverlayLayer
-          },
-          { idempotencyKey: `gpx:finish:${room.id}:${normalizedRaceStart}` }
-        );
+        const courseBody = {
+          course: pendingCourseUpload.course,
+          plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
+          raceStartAt: normalizedRaceStart,
+          courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
+          courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
+          courseFileName: pendingCourseUpload.fileName,
+          routeOverlayLayer: pendingCourseUpload.routeOverlayLayer
+        };
+        const payloadHash = await hashIdempotencyPayload(courseBody);
+        const updatedRoom = await client.updateRaceCourse(room.id, courseBody, {
+          idempotencyKey: `gpx:finish:${room.id}:${payloadHash}`,
+          signal
+        });
         s.onApplyRaceRoomFromServer(updatedRoom);
         setPendingCourseUpload(undefined);
       } else if (
@@ -286,7 +288,7 @@ export function GpxImportScreen(): ReactElement {
             return;
           }
           const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-          const updatedRoom = await client.updateRaceCourse(room.id, {
+          const startOnlyBody = {
             course: {
               checkpoints: room.course.checkpoints,
               baselineTrack: room.course.baselineTrack
@@ -296,6 +298,11 @@ export function GpxImportScreen(): ReactElement {
             courseDistanceMeters: room.courseDistanceMeters,
             courseElevationGainMeters: room.courseElevationGainMeters,
             courseFileName: room.courseFileName
+          };
+          const startHash = await hashIdempotencyPayload(startOnlyBody);
+          const updatedRoom = await client.updateRaceCourse(room.id, startOnlyBody, {
+            idempotencyKey: `gpx:start:${room.id}:${startHash}`,
+            signal
           });
           s.onApplyRaceRoomFromServer(updatedRoom);
         }

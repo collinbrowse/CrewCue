@@ -14,12 +14,11 @@ Use this as the minimal continuity file between sessions.
 
 ## Active: Platform actions, notices, idempotency (branch `feature/platform-actions-notices`, epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
-- **Done:** `@crewcue/platform-client`; mobile/web `TransientNoticeHost`; map locate `replace` (no double location `Alert`); `useAction` lock on GPX/Pace save; shell `ignoreIfBusy` + friendly `mapApiError`; outbox merge; HTTP idempotency on create room / PUT course / manual-stop.
-- **Validation:** `npm test -w @crewcue/platform-client` 9/9; mobile 109/109; `npm run test:memory -w @crewcue/api` 100/100; `npm run verify` green.
-- **Docs:** `docs/platform/actions-and-notices.md`, `packages/platform-client/PHASES.md`.
-- **Next:** Commit, PR with `Closes #276 #277 #278 #279`; manual sim double-tap map locate.
+- **Done:** `@crewcue/platform-client`; swipe-to-dismiss transient notices (mobile + web); map locate pulse/blue latch UX; Postgres-backed HTTP idempotency + 409 on key/body mismatch; client keys (create room, course hash, outbox manual-stop); `AbortSignal` on fetch; web `mapApiError` + notice bus on API errors.
+- **Validation:** run `npm run verify` after pull.
+- **Next:** Commit/PR with `Closes #276 #277 #278 #279`; manual sim: swipe-dismiss banner, map locate pulse + latch.
 
-**Successor prompt:** Epic #275. Read `packages/platform-client/PHASES.md`. Open PR from `feature/platform-actions-notices` if not merged.
+**Successor prompt:** Epic #275. Verify map locate + notice swipe on device; open PR from `feature/platform-actions-notices`.
 
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 

@@ -42,6 +42,10 @@ export function isRoomPersistenceEnabled(): boolean {
   return pool !== null;
 }
 
+export function getPersistencePool(): Pool | null {
+  return pool;
+}
+
 export function getRoomPersistenceMode(): PersistenceMode {
   return PERSISTENCE_MODE;
 }
@@ -165,6 +169,21 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         payload JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS http_idempotency (
+        idempotency_key TEXT PRIMARY KEY,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        response_body JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS http_idempotency_expires_at_idx ON http_idempotency (expires_at);
     `);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");

@@ -1444,7 +1444,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid race room payload" });
     }
 
-    const replayCreate = tryReplayIdempotentResponse(request, reply, parsed.data);
+    const replayCreate = await tryReplayIdempotentResponse(request, reply, parsed.data);
     if (replayCreate) {
       return replayCreate;
     }
@@ -1479,7 +1479,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await saveRaceRoom(room);
     scheduleStreamChannelMembershipSync(room, request.log);
-    persistIdempotentResponse(request, parsed.data, 201, room);
+    await persistIdempotentResponse(request, parsed.data, 201, room);
     return reply.code(201).send(room);
   });
 
@@ -1564,7 +1564,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid course payload" });
     }
 
-    const replayCourse = tryReplayIdempotentResponse(request, reply, parsed.data);
+    const replayCourse = await tryReplayIdempotentResponse(request, reply, parsed.data);
     if (replayCourse) {
       return replayCourse;
     }
@@ -1658,7 +1658,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     await ensureBootstrapProjection(roomId, updatedRoom, true);
     await saveWs2RuntimeSnapshot(roomId);
-    persistIdempotentResponse(request, parsed.data, 200, updatedRoom);
+    await persistIdempotentResponse(request, parsed.data, 200, updatedRoom);
     return reply.send(updatedRoom);
   });
 
@@ -2386,7 +2386,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid manual stop payload" });
     }
 
-    const replayManualStop = tryReplayIdempotentResponse(request, reply, parsed.data);
+    const replayManualStop = await tryReplayIdempotentResponse(request, reply, parsed.data);
     if (replayManualStop) {
       return replayManualStop;
     }
@@ -2443,7 +2443,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
     const manualStopPayload = { checkpointSplit: split };
-    persistIdempotentResponse(request, parsed.data, 200, manualStopPayload);
+    await persistIdempotentResponse(request, parsed.data, 200, manualStopPayload);
     return reply.send(manualStopPayload);
   });
 

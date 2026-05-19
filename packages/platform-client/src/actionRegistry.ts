@@ -46,8 +46,7 @@ export class ActionRegistry {
     this.inFlight.set(key, { policy, controller, promise });
 
     const value = (await promise) as T;
-    const status: ActionRunStatus = existing && policy === "replace" ? "replaced" : "started";
-    return { status, value };
+    return { status: "started", value };
   }
 
   isBusy(key: string): boolean {
