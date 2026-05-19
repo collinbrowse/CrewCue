@@ -27,6 +27,25 @@ This matches upstream reports (e.g. [expo#42647](https://github.com/expo/expo/is
 
 MapLibre and other native modules require a **development build** (not Expo Go); use `expo-dev-client` after a successful native compile.
 
+## XcodeBuildMCP (Cursor / simulator UI automation)
+
+[XcodeBuildMCP](https://github.com/getsentry/XcodeBuildMCP) can drive the iOS Simulator (tap, screenshots, accessibility snapshots) for agent-assisted QA. Repo defaults live in **`.xcodebuildmcp/config.yaml`** at the monorepo root (`CrewCue` scheme, `com.crewcue.mobile`, suggested simulator name).
+
+### Prerequisites
+
+1. **macOS** with **Xcode** installed (match the iOS SDK your Expo/RN version expects; install the matching **Simulator runtime** under Xcode → Settings → Components if builds complain about a missing platform).
+2. **Native project:** from `apps/mobile`, run **`npx expo prebuild`** so **`apps/mobile/ios/CrewCue.xcworkspace`** exists (`ios/` is not committed).
+3. **Install XcodeBuildMCP** (e.g. `brew install xcodebuildmcp`) and add the MCP server in **Cursor** (command `xcodebuildmcp`, args `mcp`). Each developer configures MCP locally; it is not stored in this repo.
+4. **Run the app** on a simulator (`npm run ios -w @crewcue/mobile` or open an existing dev client) with Metro (`npm run dev:mobile`) before UI automation.
+
+### Simulator name vs UUID
+
+Shared config sets **`simulatorName`** only (not **`simulatorId`**), because simulator UUIDs differ per Mac. If your machine has no device with that name, pick one from Xcode or run `xcodebuildmcp simulator-management list-sims` and either rename your choice in `.xcodebuildmcp/config.yaml` locally (do not commit a personal UUID) or pass `--simulator-id` on the CLI for one-off runs.
+
+### Agents
+
+See root **`AGENTS.md`**: use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.
+
 ## `Cannot find native module 'ExpoWebBrowser'`
 
 Auth0 uses **`expo-auth-session`**, which depends on **`expo-web-browser`** native code. Metro is loading JS that expects that module inside the **app binary** you opened.
