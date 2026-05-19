@@ -26,5 +26,8 @@ export function formatRemainingMinutes(seconds: number): string {
   const totalMinutes = Math.max(1, Math.round(seconds / 60));
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}H ${minutes}M` : `${minutes}M`;
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}H ${minutes}M` : `${hours}H`;
+  }
+  return `${minutes}M`;
 }
