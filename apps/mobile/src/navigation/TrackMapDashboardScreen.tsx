@@ -936,9 +936,8 @@ export function TrackMapDashboardScreen(): ReactElement {
         minute: "2-digit"
       }),
       startsAtTimeOfDay: new Date(anchorMs).toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit"
+        hour: "2-digit",
+        minute: "2-digit"
       }),
       startsInRemain: startsInSec >= 60 ? formatRemainingMinutes(startsInSec) : startsInSec > 0 ? "< 1 min" : "Starting",
       startsAtClock: formatEtaClock(anchorMs)
