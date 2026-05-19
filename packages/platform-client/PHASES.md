@@ -39,3 +39,11 @@ Do not start phase N+1 until phase N is checked and `npm run verify` is recorded
 - [x] Client `Idempotency-Key` on course PUT (GPX/Pace)
 - [x] `httpIdempotency.test.ts` + API memory suite 100/100
 - [x] Epic ready for PR
+
+## Production hardening (post-audit)
+
+- [x] Claim-before-mutate idempotency (`0012` state column, 5m processing lease, release on failure)
+- [x] `canonicalJsonStringify` shared for client/API body hashes
+- [x] Shell `setStatusError` → `NoticeBus` (+ Operate Status rail mirror)
+- [x] Web notice swipe velocity parity
+- [x] Postgres idempotency test in `httpIdempotency.test.ts` (runs under `test:pg`)

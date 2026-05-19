@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement, type TouchEvent } from "react";
 import {
   DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+  DEFAULT_NOTICE_SWIPE_DISMISS_VY,
   shouldDismissTransientBySwipe,
   type TransientNotice
 } from "@crewcue/platform-client";
@@ -21,6 +22,7 @@ export function TransientNoticeHost(): ReactElement | null {
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const touchStartY = useRef<number | null>(null);
+  const touchStartAtMs = useRef<number | null>(null);
 
   useEffect(() => {
     return appNoticeBus.subscribe((state) => {
@@ -45,6 +47,7 @@ export function TransientNoticeHost(): ReactElement | null {
 
   const onTouchStart = (event: TouchEvent) => {
     touchStartY.current = event.touches[0]?.clientY ?? null;
+    touchStartAtMs.current = Date.now();
     setIsDragging(true);
   };
 
@@ -62,7 +65,9 @@ export function TransientNoticeHost(): ReactElement | null {
 
   const onTouchEnd = (event: TouchEvent) => {
     const startY = touchStartY.current;
+    const startedAtMs = touchStartAtMs.current;
     touchStartY.current = null;
+    touchStartAtMs.current = null;
     setIsDragging(false);
     const endY = event.changedTouches[0]?.clientY;
     if (startY === null || endY === undefined) {
@@ -70,7 +75,14 @@ export function TransientNoticeHost(): ReactElement | null {
       return;
     }
     const dy = endY - startY;
-    if (shouldDismissTransientBySwipe(dy, 0, { dismissDy: DEFAULT_NOTICE_SWIPE_DISMISS_DY })) {
+    const elapsedSeconds = startedAtMs === null ? 1 : Math.max(0.05, (Date.now() - startedAtMs) / 1000);
+    const vy = dy / elapsedSeconds;
+    if (
+      shouldDismissTransientBySwipe(dy, vy, {
+        dismissDy: DEFAULT_NOTICE_SWIPE_DISMISS_DY,
+        dismissVy: DEFAULT_NOTICE_SWIPE_DISMISS_VY
+      })
+    ) {
       dismissAnimated();
       return;
     }

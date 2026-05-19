@@ -180,7 +180,9 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
         response_body JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         expires_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (idempotency_key, method, path)
+        state TEXT NOT NULL DEFAULT 'complete',
+        PRIMARY KEY (idempotency_key, method, path),
+        CONSTRAINT http_idempotency_state_check CHECK (state IN ('processing', 'complete'))
       );
     `);
     await client.query(`

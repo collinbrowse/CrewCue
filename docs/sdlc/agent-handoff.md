@@ -14,11 +14,11 @@ Use this as the minimal continuity file between sessions.
 
 ## Active: Platform actions, notices, idempotency (branch `feature/platform-actions-notices`, epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
-- **Done:** platform actions/notices/idempotency epic; crit follow-ups: composite idempotency scope (memory + PG PK), TTL purge, notice/locate unit tests, chat composer inline errors, `useAction` pending tied to registry.
-- **Validation:** `npm run verify` after pull.
-- **Next:** PR with `Closes #276 #277 #278 #279`; run `db:migrate` on staging for `0011_http_idempotency_composite_pk.sql`.
+- **Done:** epic #275 + production hardening: claim/complete/release idempotency (`0012`), canonical JSON hashes, shell errors → `NoticeBus`, web swipe velocity, pg idempotency test.
+- **Validation:** `npm run verify`; staging `db:migrate` through `0012_http_idempotency_state.sql`.
+- **Next:** PR with `Closes #276 #277 #278 #279`; device check map locate + notice swipe + shell error banner on create-room failure.
 
-**Successor prompt:** Epic #275. Verify map locate + notice swipe on device; open PR from `feature/platform-actions-notices`.
+**Successor prompt:** Merge PR; run staging migrations `0011`–`0012`; smoke idempotent course save retry.
 
 ## Recent (2026-05-14): Mobile Pace / map — prefer saved course arc over projection splits
 

@@ -41,7 +41,7 @@ import {
 import * as Crypto from "expo-crypto";
 import { mapApiError } from "@crewcue/platform-client";
 import { ApiError, createApiClient } from "./src/api/client";
-import { appActionRegistry } from "./src/platform/runtime";
+import { appActionRegistry, appNoticeBus } from "./src/platform/runtime";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
   list as listOutbox,
@@ -289,9 +289,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     setSyncStatusMessage(message);
   }, []);
 
-  const setStatusError = useCallback((err: unknown) => {
+  const setStatusError = useCallback((err: unknown, fingerprint = "shell") => {
     const mapped = mapApiError(err);
     setApiError(mapped.message);
+    appNoticeBus.presentTransient({
+      catalogKey: mapped.key,
+      fingerprint: `${fingerprint}:${mapped.key}`
+    });
   }, []);
 
   const refreshOutbox = useCallback(async () => {

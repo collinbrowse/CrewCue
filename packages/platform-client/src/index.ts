@@ -21,6 +21,7 @@ export {
   type ErrorCatalogKey
 } from "./errorCatalog.js";
 export { mapApiError, type MappedError, type ApiErrorLike } from "./mapApiError.js";
+export { canonicalJsonStringify, sortJsonValue } from "./canonicalJson.js";
 export {
   shouldDismissTransientBySwipe,
   DEFAULT_NOTICE_SWIPE_DISMISS_DY,

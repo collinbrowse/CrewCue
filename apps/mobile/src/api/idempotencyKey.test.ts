@@ -15,3 +15,9 @@ test("hashIdempotencyPayload changes when payload changes", async () => {
   const b = await hashIdempotencyPayload({ a: 2 });
   assert.notEqual(a, b);
 });
+
+test("hashIdempotencyPayload ignores object key order", async () => {
+  const a = await hashIdempotencyPayload({ z: 1, a: { y: 2, b: 3 } });
+  const b = await hashIdempotencyPayload({ a: { b: 3, y: 2 }, z: 1 });
+  assert.equal(a, b);
+});

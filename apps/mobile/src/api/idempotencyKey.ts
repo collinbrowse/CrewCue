@@ -1,3 +1,5 @@
+import { canonicalJsonStringify } from "@crewcue/platform-client";
+
 async function sha256Hex(json: string): Promise<string> {
   if (typeof globalThis.crypto?.subtle?.digest === "function") {
     const bytes = new TextEncoder().encode(json);
@@ -15,6 +17,6 @@ async function sha256Hex(json: string): Promise<string> {
 
 /** Stable short hash for idempotency keys derived from request bodies. */
 export async function hashIdempotencyPayload(payload: unknown): Promise<string> {
-  const json = JSON.stringify(payload ?? null);
+  const json = canonicalJsonStringify(payload);
   return (await sha256Hex(json)).slice(0, 16);
 }

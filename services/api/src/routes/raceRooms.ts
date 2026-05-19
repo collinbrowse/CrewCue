@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
-import { persistIdempotentResponse, tryReplayIdempotentResponse } from "../lib/httpIdempotency.js";
+import {
+  beginIdempotentMutation,
+  completeIdempotentMutation,
+  idempotencyErrorReply,
+  releaseIdempotentMutation
+} from "../lib/httpIdempotency.js";
 import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
@@ -1444,9 +1449,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid race room payload" });
     }
 
-    const replayCreate = await tryReplayIdempotentResponse(request, reply, parsed.data);
-    if (replayCreate) {
-      return replayCreate;
+    const idemCreate = await beginIdempotentMutation(request, parsed.data);
+    if (idemCreate.kind === "replay") {
+      return reply.code(idemCreate.statusCode).send(idemCreate.body);
+    }
+    if (idemCreate.kind === "conflict" || idemCreate.kind === "in_progress") {
+      return idempotencyErrorReply(reply, idemCreate);
     }
 
     const now = new Date().toISOString();
@@ -1477,10 +1485,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ]
     };
 
-    await saveRaceRoom(room);
-    scheduleStreamChannelMembershipSync(room, request.log);
-    await persistIdempotentResponse(request, parsed.data, 201, room);
-    return reply.code(201).send(room);
+    try {
+      await saveRaceRoom(room);
+      scheduleStreamChannelMembershipSync(room, request.log);
+      await completeIdempotentMutation(request, parsed.data, 201, room);
+      return reply.code(201).send(room);
+    } catch (err) {
+      await releaseIdempotentMutation(request, parsed.data);
+      throw err;
+    }
   });
 
   app.get("/race-rooms/mine", async (request, reply) => {
@@ -1564,11 +1577,16 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid course payload" });
     }
 
-    const replayCourse = await tryReplayIdempotentResponse(request, reply, parsed.data);
-    if (replayCourse) {
-      return replayCourse;
+    const idemCourse = await beginIdempotentMutation(request, parsed.data);
+    if (idemCourse.kind === "replay") {
+      return reply.code(idemCourse.statusCode).send(idemCourse.body);
+    }
+    if (idemCourse.kind === "conflict" || idemCourse.kind === "in_progress") {
+      return idempotencyErrorReply(reply, idemCourse);
     }
 
+    let idemCourseFinished = false;
+    try {
     await loadWs2RuntimeIfNeeded(roomId);
     const prevProjection = roomProjectionState.get(roomId);
     if (prevProjection) {
@@ -1647,19 +1665,25 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearWs5RoomLocalState(roomId);
     }
 
-    await saveRaceRoom(updatedRoom);
-    if (!getOrInitPingState(roomId).lastAccepted) {
-      roomProjectionState.delete(roomId);
+      await saveRaceRoom(updatedRoom);
+      if (!getOrInitPingState(roomId).lastAccepted) {
+        roomProjectionState.delete(roomId);
+      }
+      try {
+        await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
+      } catch (err) {
+        app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
+      }
+      await ensureBootstrapProjection(roomId, updatedRoom, true);
+      await saveWs2RuntimeSnapshot(roomId);
+      await completeIdempotentMutation(request, parsed.data, 200, updatedRoom);
+      idemCourseFinished = true;
+      return reply.send(updatedRoom);
+    } finally {
+      if (!idemCourseFinished) {
+        await releaseIdempotentMutation(request, parsed.data);
+      }
     }
-    try {
-      await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
-    } catch (err) {
-      app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
-    }
-    await ensureBootstrapProjection(roomId, updatedRoom, true);
-    await saveWs2RuntimeSnapshot(roomId);
-    await persistIdempotentResponse(request, parsed.data, 200, updatedRoom);
-    return reply.send(updatedRoom);
   });
 
   app.get("/race-rooms/:roomId/map-workspace", async (request, reply) => {
@@ -2386,11 +2410,16 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid manual stop payload" });
     }
 
-    const replayManualStop = await tryReplayIdempotentResponse(request, reply, parsed.data);
-    if (replayManualStop) {
-      return replayManualStop;
+    const idemManualStop = await beginIdempotentMutation(request, parsed.data);
+    if (idemManualStop.kind === "replay") {
+      return reply.code(idemManualStop.statusCode).send(idemManualStop.body);
+    }
+    if (idemManualStop.kind === "conflict" || idemManualStop.kind === "in_progress") {
+      return idempotencyErrorReply(reply, idemManualStop);
     }
 
+    let idemManualStopFinished = false;
+    try {
     await loadWs2RuntimeIfNeeded(roomId);
     const projectionState = roomProjectionState.get(roomId);
     const raceAnchor = resolveRaceAnchorIso(room);
@@ -2441,10 +2470,16 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
     syncProjectionAccumulatorStateFromCore(projectionState);
-    await saveWs2RuntimeSnapshot(roomId);
-    const manualStopPayload = { checkpointSplit: split };
-    await persistIdempotentResponse(request, parsed.data, 200, manualStopPayload);
-    return reply.send(manualStopPayload);
+      await saveWs2RuntimeSnapshot(roomId);
+      const manualStopPayload = { checkpointSplit: split };
+      await completeIdempotentMutation(request, parsed.data, 200, manualStopPayload);
+      idemManualStopFinished = true;
+      return reply.send(manualStopPayload);
+    } finally {
+      if (!idemManualStopFinished) {
+        await releaseIdempotentMutation(request, parsed.data);
+      }
+    }
   });
 
   app.patch("/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source", async (request, reply) => {
