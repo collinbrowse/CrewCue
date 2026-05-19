@@ -40,11 +40,24 @@ export type UpdateRaceCourseWebInput = {
   routeOverlayLayer?: MapWorkspaceLayer;
 };
 
-async function request<T>(options: WebApiClientOptions, method: string, path: string, body?: unknown): Promise<T> {
+type RequestExtras = {
+  idempotencyKey?: string;
+};
+
+async function request<T>(
+  options: WebApiClientOptions,
+  method: string,
+  path: string,
+  body?: unknown,
+  extras?: RequestExtras
+): Promise<T> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.accessToken}`,
     Accept: "application/json"
   };
+  if (extras?.idempotencyKey) {
+    headers["Idempotency-Key"] = extras.idempotencyKey;
+  }
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
@@ -72,8 +85,8 @@ async function request<T>(options: WebApiClientOptions, method: string, path: st
 
 export function createWebApiClient(options: WebApiClientOptions) {
   return {
-    updateRaceCourse: (roomId: string, input: UpdateRaceCourseWebInput) =>
-      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input),
+    updateRaceCourse: (roomId: string, input: UpdateRaceCourseWebInput, extras?: RequestExtras) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input, extras),
     getMapWorkspace: (roomId: string) =>
       request<{ mapWorkspace: RaceMapWorkspace }>(options, "GET", `/race-rooms/${roomId}/map-workspace`),
     putMapWorkspace: (roomId: string, input: PutRaceMapWorkspaceInput) =>

@@ -19,6 +19,8 @@ import {
   type GpxTrackPoint,
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
+import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
+import { useAction } from "../platform/useAction";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 type ImportState =
@@ -55,7 +57,7 @@ export function GpxImportScreen(): ReactElement {
   const [creatorName, setCreatorName] = useState("");
   const [raceDescription, setRaceDescription] = useState("");
   const [crewName, setCrewName] = useState("");
-  const [finishingSetup, setFinishingSetup] = useState(false);
+  const { execute: executeFinishSetup, isPending: finishingSetup } = useAction<void>("gpx:finish-setup", "lock");
   const [pendingCourseUpload, setPendingCourseUpload] = useState<PendingCourseUpload | undefined>(undefined);
   const [raceStartIso, setRaceStartIso] = useState(() =>
     defaultSuggestedRaceStartIso(Localization.getCalendars()[0]?.timeZone ?? "UTC")
@@ -202,7 +204,8 @@ export function GpxImportScreen(): ReactElement {
     }
   };
 
-  const onFinishSetup = async (): Promise<void> => {
+  const onFinishSetup = (): void => {
+    void executeFinishSetup(async () => {
     if (!raceName.trim() || !creatorName.trim()) {
       setImportState({ status: "error", message: "Race name and your name are required to finish setup." });
       return;
@@ -221,7 +224,6 @@ export function GpxImportScreen(): ReactElement {
       return;
     }
 
-    setFinishingSetup(true);
     try {
       const createInput = {
         raceName: raceName.trim(),
@@ -252,15 +254,19 @@ export function GpxImportScreen(): ReactElement {
           return;
         }
         const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
-        const updatedRoom = await client.updateRaceCourse(room.id, {
-          course: pendingCourseUpload.course,
-          plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
-          raceStartAt: normalizedRaceStart,
-          courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
-          courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
-          courseFileName: pendingCourseUpload.fileName,
-          routeOverlayLayer: pendingCourseUpload.routeOverlayLayer
-        });
+        const updatedRoom = await client.updateRaceCourse(
+          room.id,
+          {
+            course: pendingCourseUpload.course,
+            plannedPaceSecondsPerKm: pendingCourseUpload.plannedPaceSecondsPerKm,
+            raceStartAt: normalizedRaceStart,
+            courseDistanceMeters: pendingCourseUpload.totalDistanceMeters,
+            courseElevationGainMeters: pendingCourseUpload.elevationGainMeters,
+            courseFileName: pendingCourseUpload.fileName,
+            routeOverlayLayer: pendingCourseUpload.routeOverlayLayer
+          },
+          { idempotencyKey: `gpx:finish:${room.id}:${normalizedRaceStart}` }
+        );
         s.onApplyRaceRoomFromServer(updatedRoom);
         setPendingCourseUpload(undefined);
       } else if (
@@ -309,11 +315,10 @@ export function GpxImportScreen(): ReactElement {
       }
       setImportState({
         status: "error",
-        message: resolveImportErrorMessage(error, "Could not finish setup. Please try again.")
+        message: resolveImportErrorMessage(error, mapApiError(error, "finishSetupFailed").message)
       });
-    } finally {
-      setFinishingSetup(false);
     }
+    });
   };
 
   return (

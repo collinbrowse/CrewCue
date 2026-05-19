@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import { persistIdempotentResponse, tryReplayIdempotentResponse } from "../lib/httpIdempotency.js";
 import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
@@ -1443,6 +1444,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid race room payload" });
     }
 
+    const replayCreate = tryReplayIdempotentResponse(request, reply, parsed.data);
+    if (replayCreate) {
+      return replayCreate;
+    }
+
     const now = new Date().toISOString();
     const roomId = randomUUID();
     const joinCode = await generateUniqueJoinCode();
@@ -1473,6 +1479,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await saveRaceRoom(room);
     scheduleStreamChannelMembershipSync(room, request.log);
+    persistIdempotentResponse(request, parsed.data, 201, room);
     return reply.code(201).send(room);
   });
 
@@ -1555,6 +1562,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const parsed = updateRaceCourseInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid course payload" });
+    }
+
+    const replayCourse = tryReplayIdempotentResponse(request, reply, parsed.data);
+    if (replayCourse) {
+      return replayCourse;
     }
 
     await loadWs2RuntimeIfNeeded(roomId);
@@ -1646,6 +1658,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     await ensureBootstrapProjection(roomId, updatedRoom, true);
     await saveWs2RuntimeSnapshot(roomId);
+    persistIdempotentResponse(request, parsed.data, 200, updatedRoom);
     return reply.send(updatedRoom);
   });
 
@@ -2372,6 +2385,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid manual stop payload" });
     }
+
+    const replayManualStop = tryReplayIdempotentResponse(request, reply, parsed.data);
+    if (replayManualStop) {
+      return replayManualStop;
+    }
+
     await loadWs2RuntimeIfNeeded(roomId);
     const projectionState = roomProjectionState.get(roomId);
     const raceAnchor = resolveRaceAnchorIso(room);
@@ -2423,7 +2442,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
-    return reply.send({ checkpointSplit: split });
+    const manualStopPayload = { checkpointSplit: split };
+    persistIdempotentResponse(request, parsed.data, 200, manualStopPayload);
+    return reply.send(manualStopPayload);
   });
 
   app.patch("/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source", async (request, reply) => {

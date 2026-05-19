@@ -6,7 +6,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ActivityIndicator, LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from "react-native";
 import { cumulativeDistancesAlongCheckpoints } from "@crewcue/map-core";
+import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { createApiClient } from "../api/client";
+import { useAction } from "../platform/useAction";
 import { canEditCheckpointStopsFromRoomRole, canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
 import { DSButton, DSCard, DSTextInput, useDSTheme, type DSThemeTokens } from "../design-system";
 import { secondsForDistance } from "../features/readouts/eta";
@@ -54,7 +56,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   const [draftStops, setDraftStops] = useState<Record<string, { arrival: string; departure: string }>>({});
   const [cutoffTod, setCutoffTod] = useState<Record<string, string>>({});
   const [cutoffElapsedMin, setCutoffElapsedMin] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+  const { execute: executeSave, isPending: saving } = useAction<void>("pace:save", "lock");
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
 
   const editBaselineRef = useRef<{ stagedJson: string; stopsJson: string } | null>(null);
@@ -279,12 +281,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
     didAutoScrollRef.current = true;
   }, [editing, currentIx, checkpoints, splits.length]);
 
-  const onSave = async (): Promise<void> => {
+  const onSave = (): void => {
+    void executeSave(async () => {
     if (!room?.id || !s.auth.accessToken) {
-      setSaveError("Sign in again before saving.");
+      setSaveError(getErrorMessage("unknown"));
       return;
     }
-    setSaving(true);
     setSaveError(undefined);
     try {
       const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
@@ -293,8 +295,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       if (courseDirty && canEditCourse) {
         const anchorIso = room.raceStartAt ?? room.activatedAt;
         if (!anchorIso) {
-          setSaveError("Race start time is missing. Save the course from GPX import with a race start before editing checkpoints here.");
-          setSaving(false);
+          setSaveError(getErrorMessage("invalidInput"));
           return;
         }
         const staged = draftCp.map((cp) => ({
@@ -303,21 +304,24 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
         }));
         const normalizedCheckpoints = normalizeCheckpointDraft(staged);
         checkpointIdsForStops = normalizedCheckpoints.map((c) => c.id);
-        const updatedRoom = await client.updateRaceCourse(room.id, {
-          course: {
-            checkpoints: normalizedCheckpoints,
-            baselineTrack: room.course?.baselineTrack
+        const updatedRoom = await client.updateRaceCourse(
+          room.id,
+          {
+            course: {
+              checkpoints: normalizedCheckpoints,
+              baselineTrack: room.course?.baselineTrack
+            },
+            plannedPaceSecondsPerKm: paceSecondsPerKm,
+            raceStartAt: anchorIso,
+            courseDistanceMeters: room.courseDistanceMeters,
+            courseElevationGainMeters: room.courseElevationGainMeters,
+            courseFileName: room.courseFileName
           },
-          plannedPaceSecondsPerKm: paceSecondsPerKm,
-          raceStartAt: anchorIso,
-          courseDistanceMeters: room.courseDistanceMeters,
-          courseElevationGainMeters: room.courseElevationGainMeters,
-          courseFileName: room.courseFileName
-        });
+          { idempotencyKey: `pace:save:course:${room.id}` }
+        );
         s.onApplyRaceRoomFromServer(updatedRoom);
       } else if (courseDirty && !canEditCourse) {
-        setSaveError("You do not have permission to edit the course.");
-        setSaving(false);
+        setSaveError(getErrorMessage("forbidden"));
         return;
       }
 
@@ -338,8 +342,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           }
         }
       } else if (stopsDirty && !canEditStops) {
-        setSaveError("You do not have permission to edit station times.");
-        setSaving(false);
+        setSaveError(getErrorMessage("forbidden"));
         return;
       }
 
@@ -349,10 +352,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       editBaselineRef.current = null;
       didAutoScrollRef.current = false;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Save failed.");
-    } finally {
-      setSaving(false);
+      setSaveError(mapApiError(error, "saveFailed").message);
     }
+    });
   };
 
   const openMapPicker = useCallback(() => {

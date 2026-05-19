@@ -22,6 +22,8 @@ import {
 } from "@crewcue/map-core";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { appNoticeBus } from "../platform/runtime";
+import { useAction } from "../platform/useAction";
 import {
   Alert,
   Animated,
@@ -217,6 +219,7 @@ function paddedLngLatBounds(coords: [number, number][], padFrac: number): [numbe
 
 export function TrackMapDashboardScreen(): ReactElement {
   const s = useAuthedShell();
+  const { execute: executeCenterOnUser } = useAction<void>("map:center-user", "replace");
   const theme = useDSTheme();
   const { activeMode } = useDesignSystemSelection();
   const insets = useSafeAreaInsets();
@@ -560,12 +563,17 @@ export function TrackMapDashboardScreen(): ReactElement {
     };
   }, [followRunner, athletePos, courseBounds, roomId, courseFitPadding]);
 
-  const onPressCenterOnUser = useCallback(async () => {
-    setFollowRunner(false);
-    try {
+  const onPressCenterOnUser = useCallback(() => {
+    void executeCenterOnUser(async (signal) => {
+      setFollowRunner(false);
       let { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
         ({ status } = await Location.requestForegroundPermissionsAsync());
+      }
+      if (signal.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
       }
       if (status !== "granted") {
         Alert.alert(
@@ -581,6 +589,11 @@ export function TrackMapDashboardScreen(): ReactElement {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced
       });
+      if (signal.aborted) {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        throw err;
+      }
       const { longitude, latitude } = pos.coords;
       cameraRef.current?.easeTo({
         center: [longitude, latitude],
@@ -588,10 +601,16 @@ export function TrackMapDashboardScreen(): ReactElement {
         duration: 500,
         easing: "ease"
       });
-    } catch {
-      Alert.alert("Location", "Could not read your current location. Check that Location Services are on for this device.");
-    }
-  }, []);
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      appNoticeBus.presentTransient({
+        fingerprint: "map:center-user",
+        catalogKey: "locationUnavailable"
+      });
+    });
+  }, [executeCenterOnUser]);
 
   const onPressCenterOnRunner = useCallback(() => {
     setFollowRunner(true);

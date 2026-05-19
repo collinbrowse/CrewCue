@@ -30,7 +30,6 @@ import {
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Modal,
@@ -49,6 +48,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Channel, Event as StreamEvent, MessageResponse, StreamChat } from "stream-chat";
 import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
+import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
+import { appNoticeBus } from "../platform/runtime";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { decryptIncoming, encryptOutgoing } from "../features/chat/chatChannel";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
@@ -572,7 +573,11 @@ export function CrewChatScreen(): ReactElement {
       const picked = await pickGalleryImage();
       if (picked) setPendingImage(picked);
     } catch {
-      Alert.alert("Image picker", "Could not open gallery.");
+      appNoticeBus.presentTransient({
+        fingerprint: "chat:image-picker",
+        catalogKey: "unknown",
+        message: getErrorMessage("unknown")
+      });
     }
   };
 
@@ -582,7 +587,10 @@ export function CrewChatScreen(): ReactElement {
     try {
       await channel.sendReaction(messageId, { type });
     } catch (e) {
-      Alert.alert("Reaction failed", humanizeError(e));
+      appNoticeBus.presentTransient({
+        fingerprint: `chat:reaction:${messageId}:${type}`,
+        message: mapApiError(e).message
+      });
     }
   };
 

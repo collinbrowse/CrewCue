@@ -88,16 +88,24 @@ function finalizeApiFailureMessage(status: number, parsed: unknown, method: stri
   return message;
 }
 
+type RequestExtras = {
+  idempotencyKey?: string;
+};
+
 async function request<T>(
   options: ApiClientOptions,
   method: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  extras?: RequestExtras
 ): Promise<T> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.accessToken}`,
     Accept: "application/json"
   };
+  if (extras?.idempotencyKey) {
+    headers["Idempotency-Key"] = extras.idempotencyKey;
+  }
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
@@ -278,8 +286,8 @@ export type PostRoomRouteInput = {
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
-    createRaceRoom: (input: CreateRaceRoomInput) =>
-      request<RaceRoom>(options, "POST", "/race-rooms", input),
+    createRaceRoom: (input: CreateRaceRoomInput, extras?: RequestExtras) =>
+      request<RaceRoom>(options, "POST", "/race-rooms", input, extras),
     updateEntitlement: (roomId: string, status: "unpaid" | "paid" | "expired") =>
       request<RaceRoomEntitlement>(options, "POST", `/race-rooms/${roomId}/entitlement`, { status }),
     getRaceRoom: (roomId: string) =>
@@ -327,8 +335,8 @@ export function createApiClient(options: ApiClientOptions) {
     listMyRaceRooms: () => request<{ rooms: RaceRoom[] }>(options, "GET", "/race-rooms/mine"),
     listTeamRaceRooms: (teamId: string) =>
       request<{ rooms: RaceRoom[] }>(options, "GET", `/teams/${encodeURIComponent(teamId)}/race-rooms`),
-    updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput) =>
-      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input),
+    updateRaceCourse: (roomId: string, input: UpdateRaceCourseInput, extras?: RequestExtras) =>
+      request<RaceRoom>(options, "PUT", `/race-rooms/${roomId}/course`, input, extras),
     postPing: (roomId: string, input: PostPingInput) =>
       request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input),
     getProjection: (roomId: string) =>
@@ -416,12 +424,18 @@ export function createApiClient(options: ApiClientOptions) {
         `/race-rooms/${roomId}/recommendations/${recommendationId}/reject`
       ),
     getPlanDelta: (roomId: string) => request<{ planDelta: PlanDelta | null }>(options, "GET", `/race-rooms/${roomId}/plan-delta`),
-    postManualCheckpointStop: (roomId: string, checkpointId: string, input: ManualCheckpointStopInput) =>
+    postManualCheckpointStop: (
+      roomId: string,
+      checkpointId: string,
+      input: ManualCheckpointStopInput,
+      extras?: RequestExtras
+    ) =>
       request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
         options,
         "POST",
         `/race-rooms/${roomId}/checkpoints/${checkpointId}/manual-stop`,
-        input
+        input,
+        extras
       ),
     patchCheckpointVisitResolvedSource: (
       roomId: string,
