@@ -11,6 +11,58 @@ function buildClaims(sub: string) {
   };
 }
 
+test("race room creation replays idempotent retries and rejects conflicting reuse", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-idempotent"));
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "create-race-room-route-retry"
+  };
+  const payload = {
+    teamId: "team-1",
+    athleteId: "athlete-1",
+    name: "Race Room",
+    creatorName: "Owner User",
+    creatorRole: "team_manager"
+  };
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(first.statusCode, 201);
+  const firstBody = first.json() as { id: string; name: string };
+
+  const retry = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(retry.statusCode, 201);
+  const retryBody = retry.json() as { id: string; name: string };
+  assert.equal(retryBody.id, firstBody.id);
+  assert.equal(retryBody.name, firstBody.name);
+
+  const conflict = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      ...payload,
+      name: "Different Race Room"
+    },
+    headers
+  });
+  assert.equal(conflict.statusCode, 409);
+  assert.match((conflict.json() as { error: string }).error, /different request body/);
+
+  await app.close();
+});
+
 test("issues and accepts invite with role assignment", async () => {
   const app = buildApp();
   await app.ready();
