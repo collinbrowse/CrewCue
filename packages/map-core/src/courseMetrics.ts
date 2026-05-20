@@ -332,7 +332,7 @@ export function checkpointsWithProjectedDistances(
   const courseLengthMeters = cumulative[cumulative.length - 1] ?? 0;
   const routeStart = canonical[0]!;
   const routeEnd = canonical[canonical.length - 1]!;
-  const firstCheckpointAnchorsStart = checkpointIsAtRouteStart(checkpoints[0]!, routeStart);
+  const firstCheckpointAnchorsStart = isCheckpointAtRouteStart(canonical, checkpoints[0]!);
   let minProgressMeters = 0;
   let firstCheckpointAnchoredAtRouteStart = false;
   const result: RaceCourseCheckpoint[] = [];
