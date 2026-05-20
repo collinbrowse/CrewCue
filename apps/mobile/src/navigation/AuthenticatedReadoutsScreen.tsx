@@ -6,7 +6,10 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { ActivityIndicator, LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from "react-native";
 import { cumulativeDistancesAlongCheckpoints } from "@crewcue/map-core";
+import { hashIdempotencyPayload } from "../api/idempotencyKey";
+import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { createApiClient } from "../api/client";
+import { useAction } from "../platform/useAction";
 import { canEditCheckpointStopsFromRoomRole, canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
 import { DSButton, DSCard, DSTextInput, useDSTheme, type DSThemeTokens } from "../design-system";
 import { secondsForDistance } from "../features/readouts/eta";
@@ -54,7 +57,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
   const [draftStops, setDraftStops] = useState<Record<string, { arrival: string; departure: string }>>({});
   const [cutoffTod, setCutoffTod] = useState<Record<string, string>>({});
   const [cutoffElapsedMin, setCutoffElapsedMin] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+  const { execute: executeSave, isPending: saving } = useAction<void>("pace:save", "lock");
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
 
   const editBaselineRef = useRef<{ stagedJson: string; stopsJson: string } | null>(null);
@@ -104,14 +107,25 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
     if (!cps?.length) {
       return [] as number[];
     }
-    if (splits.length === cps.length) {
-      return splits.map((row) => row.distanceMetersFromStart);
+    /** Prefer arc distances from the saved course (PUT recomputes with canonical projection); splits can lag after course edits. */
+    const aligned = cps.map((cp) => {
+      if (typeof cp.distanceMetersFromStart === "number" && Number.isFinite(cp.distanceMetersFromStart)) {
+        return cp.distanceMetersFromStart;
+      }
+      const row = splitById.get(cp.id);
+      if (typeof row?.distanceMetersFromStart === "number" && Number.isFinite(row.distanceMetersFromStart)) {
+        return row.distanceMetersFromStart;
+      }
+      return Number.NaN;
+    });
+    if (aligned.every((d) => Number.isFinite(d))) {
+      return aligned;
     }
     if (cps.every((c) => typeof c.distanceMetersFromStart === "number" && Number.isFinite(c.distanceMetersFromStart))) {
       return cps.map((c) => c.distanceMetersFromStart!);
     }
     return cumulativeDistancesAlongCheckpoints(cps);
-  }, [room?.course?.checkpoints, splits]);
+  }, [room?.course?.checkpoints, splitById]);
 
   useFocusEffect(
     useCallback(() => {
@@ -268,12 +282,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
     didAutoScrollRef.current = true;
   }, [editing, currentIx, checkpoints, splits.length]);
 
-  const onSave = async (): Promise<void> => {
+  const onSave = (): void => {
+    void executeSave(async (signal) => {
     if (!room?.id || !s.auth.accessToken) {
-      setSaveError("Sign in again before saving.");
+      setSaveError(getErrorMessage("unknown"));
       return;
     }
-    setSaving(true);
     setSaveError(undefined);
     try {
       const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
@@ -282,8 +296,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       if (courseDirty && canEditCourse) {
         const anchorIso = room.raceStartAt ?? room.activatedAt;
         if (!anchorIso) {
-          setSaveError("Race start time is missing. Save the course from GPX import with a race start before editing checkpoints here.");
-          setSaving(false);
+          setSaveError(getErrorMessage("invalidInput"));
           return;
         }
         const staged = draftCp.map((cp) => ({
@@ -292,7 +305,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
         }));
         const normalizedCheckpoints = normalizeCheckpointDraft(staged);
         checkpointIdsForStops = normalizedCheckpoints.map((c) => c.id);
-        const updatedRoom = await client.updateRaceCourse(room.id, {
+        const courseBody = {
           course: {
             checkpoints: normalizedCheckpoints,
             baselineTrack: room.course?.baselineTrack
@@ -302,11 +315,15 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           courseDistanceMeters: room.courseDistanceMeters,
           courseElevationGainMeters: room.courseElevationGainMeters,
           courseFileName: room.courseFileName
+        };
+        const payloadHash = await hashIdempotencyPayload(courseBody);
+        const updatedRoom = await client.updateRaceCourse(room.id, courseBody, {
+          idempotencyKey: `pace:save:course:${room.id}:${payloadHash}`,
+          signal
         });
         s.onApplyRaceRoomFromServer(updatedRoom);
       } else if (courseDirty && !canEditCourse) {
-        setSaveError("You do not have permission to edit the course.");
-        setSaving(false);
+        setSaveError(getErrorMessage("forbidden"));
         return;
       }
 
@@ -327,8 +344,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           }
         }
       } else if (stopsDirty && !canEditStops) {
-        setSaveError("You do not have permission to edit station times.");
-        setSaving(false);
+        setSaveError(getErrorMessage("forbidden"));
         return;
       }
 
@@ -338,10 +354,9 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
       editBaselineRef.current = null;
       didAutoScrollRef.current = false;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Save failed.");
-    } finally {
-      setSaving(false);
+      setSaveError(mapApiError(error, "saveFailed").message);
     }
+    });
   };
 
   const openMapPicker = useCallback(() => {
@@ -481,7 +496,10 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           const completed = split ? isCheckpointCompletedUi(split) : false;
           const inProgressHere = isCurrent && !completed && index < checkpoints.length;
           const stationLabel = checkpointDisplayTitle(cp);
-          const distMetersAtCp = split?.distanceMetersFromStart ?? cumMetersAtCp[index] ?? 0;
+          const distMetersAtCp =
+            typeof cp.distanceMetersFromStart === "number" && Number.isFinite(cp.distanceMetersFromStart)
+              ? cp.distanceMetersFromStart
+              : (split?.distanceMetersFromStart ?? cumMetersAtCp[index] ?? 0);
           const distMi = milesFromMeters(distMetersAtCp);
           const plannedElapsed =
             split?.plannedElapsedSecondsAtCross ?? secondsForDistance(distMetersAtCp, paceSecondsPerKm);

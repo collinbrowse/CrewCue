@@ -33,6 +33,18 @@ const DEFAULT_PACE_SECONDS_PER_KM = 360;
 const MAX_BASELINE_POINTS = 220;
 const WAYPOINT_ENCOUNTER_RADIUS_METERS = 80;
 const WAYPOINT_ENCOUNTER_MIN_GAP_METERS = 200;
+/**
+ * Segment-wise closest approach is recorded when within this distance, so a trail track that never
+ * enters the 80 m "inside" pocket still yields a visit. Merged with {@link WAYPOINT_ENCOUNTER_MIN_GAP_METERS}
+ * along-route so winding near an aid does not create duplicate passes.
+ */
+const WAYPOINT_APPROACH_MAX_DISTANCE_METERS = 155;
+/**
+ * When the 80 m pocket records only one crossing but segment analysis finds two well-separated
+ * approaches (≥ this span in meters), treat the waypoint as visited twice (e.g. out-and-back aid).
+ * Keeps single-pass stations from gaining spurious second hits when the route winds nearby twice.
+ */
+const WAYPOINT_SECOND_PASS_MIN_SPAN_METERS = 15_000;
 /** Default planned aid stop when importing or synthesizing checkpoints (10 minutes). */
 export const DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS = 600;
 
@@ -176,15 +188,22 @@ export function formatDistance(distanceMeters: number, unit: DistanceUnit = "km"
   return `${distance.toFixed(2)} ${unit}`;
 }
 
+type SelectedWaypointEncounter = {
+  waypoint: GpxWaypoint;
+  /** Haversine cumulative distance at encounter along the parsed track (import hint for projection). */
+  encounterMetersFromStart: number;
+};
+
 export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
   course: RaceCourse;
   plannedPaceSecondsPerKm: number;
 } {
-  const selectedWaypoints = selectCheckpointWaypoints(parsedTrack.points, parsedTrack.waypoints);
+  const selectedEncounters = selectCheckpointWaypoints(parsedTrack.points, parsedTrack.waypoints);
   const seenIds = new Set<string>();
   const checkpoints =
-    selectedWaypoints.length >= 2
-      ? selectedWaypoints.map((waypoint, index) => {
+    selectedEncounters.length >= 2
+      ? selectedEncounters.map((row, index) => {
+          const waypoint = row.waypoint;
           const id = uniqueCheckpointId(sanitizeCheckpointId(waypoint.name, index + 1), seenIds);
           const cutoff = tryParseCheckpointCutoffFromDescription(waypoint.description);
           const title = waypoint.name?.trim() ? waypoint.name.trim() : slugToTitle(id);
@@ -194,6 +213,7 @@ export function buildRaceCourseFromGpx(parsedTrack: ParsedGpxTrack): {
             latitude: waypoint.latitude,
             longitude: waypoint.longitude,
             plannedStopSeconds: DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS,
+            distanceMetersFromStart: row.encounterMetersFromStart,
             ...(cutoff ? { cutoff } : {})
           };
         })
@@ -655,13 +675,16 @@ function dedupeWaypoints(waypoints: GpxWaypoint[]): GpxWaypoint[] {
   return deduped;
 }
 
-function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): GpxWaypoint[] {
+function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypoint[]): SelectedWaypointEncounter[] {
   if (candidates.length < 2) {
     const expandedSingle = expandWaypointEncounters(points, candidates);
     if (expandedSingle.length < 2) {
       return [];
     }
-    return expandedSingle.map((entry) => entry.candidate);
+    return expandedSingle.map((entry) => ({
+      waypoint: entry.candidate,
+      encounterMetersFromStart: entry.distanceMetersFromStart
+    }));
   }
   const stationLike = candidates.filter((candidate) => isStationLikeName(candidate.name));
   const pool = stationLike.length > 0 ? stationLike : candidates;
@@ -681,19 +704,28 @@ function selectCheckpointWaypoints(points: GpxTrackPoint[], candidates: GpxWaypo
             longitude: points[points.length - 1]!.longitude,
             name: "Finish"
           },
-          distanceMetersFromStart: points.length
+          distanceMetersFromStart: calculateTotalDistance(points)
         }
       : finishAnchor;
-  const body = enriched
+  const body: SelectedWaypointEncounter[] = enriched
     .filter((entry) => entry !== startAnchor && entry !== finishAnchor)
-    .map((entry) => entry.candidate);
-  const ordered: GpxWaypoint[] = [];
+    .map((entry) => ({
+      waypoint: entry.candidate,
+      encounterMetersFromStart: entry.distanceMetersFromStart
+    }));
+  const ordered: SelectedWaypointEncounter[] = [];
   if (startAnchor) {
-    ordered.push(startAnchor.candidate);
+    ordered.push({
+      waypoint: startAnchor.candidate,
+      encounterMetersFromStart: startAnchor.distanceMetersFromStart
+    });
   }
   ordered.push(...body);
   if (resolvedFinishAnchor) {
-    ordered.push(resolvedFinishAnchor.candidate);
+    ordered.push({
+      waypoint: resolvedFinishAnchor.candidate,
+      encounterMetersFromStart: resolvedFinishAnchor.distanceMetersFromStart
+    });
   }
   return ordered.length >= 2 ? ordered : [];
 }
@@ -717,7 +749,7 @@ function waypointEncounterProgresses(points: GpxTrackPoint[], candidate: GpxWayp
     cumulativeAtPoints.push(cumulativeAtPoints[index - 1]! + haversineDistanceMeters(points[index - 1]!, points[index]!));
   }
 
-  const encounters: number[] = [];
+  const insideHits: number[] = [];
   let inside = false;
   let lastEncounter = -Number.POSITIVE_INFINITY;
   for (let index = 0; index < points.length; index += 1) {
@@ -726,16 +758,73 @@ function waypointEncounterProgresses(points: GpxTrackPoint[], candidate: GpxWayp
     const distanceToWaypoint = haversineDistanceMeters(point, candidate);
     const isInside = distanceToWaypoint <= WAYPOINT_ENCOUNTER_RADIUS_METERS;
     if (isInside && !inside && progress - lastEncounter >= WAYPOINT_ENCOUNTER_MIN_GAP_METERS) {
-      encounters.push(progress);
+      insideHits.push(progress);
       lastEncounter = progress;
     }
     inside = isInside;
   }
 
-  if (encounters.length === 0) {
-    encounters.push(distanceAlongTrack(points, candidate));
+  const segmentHits = segmentApproachProgressesFromCumulative(points, candidate, cumulativeAtPoints);
+
+  if (insideHits.length >= 2) {
+    return insideHits;
   }
-  return encounters;
+  if (insideHits.length === 1) {
+    if (segmentHits.length >= 2) {
+      const spanMeters = segmentHits[segmentHits.length - 1]! - segmentHits[0]!;
+      if (spanMeters >= WAYPOINT_SECOND_PASS_MIN_SPAN_METERS) {
+        return segmentHits.slice(0, Math.min(segmentHits.length, 2));
+      }
+    }
+    return insideHits;
+  }
+  if (segmentHits.length > 0) {
+    return segmentHits;
+  }
+  return [distanceAlongTrack(points, candidate)];
+}
+
+function segmentApproachProgressesFromCumulative(
+  points: GpxTrackPoint[],
+  candidate: GpxWaypoint,
+  cumulativeAtPoints: number[]
+): number[] {
+  const samples: Array<{ progress: number; distanceMeters: number }> = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const segmentLength = haversineDistanceMeters(previous, current);
+    if (segmentLength <= 0) {
+      continue;
+    }
+    const projectionRatio = projectionRatioOnSegment(previous, current, candidate);
+    const projected = {
+      latitude: previous.latitude + (current.latitude - previous.latitude) * projectionRatio,
+      longitude: previous.longitude + (current.longitude - previous.longitude) * projectionRatio
+    };
+    const candidateDistance = haversineDistanceMeters(projected, candidate);
+    if (candidateDistance <= WAYPOINT_APPROACH_MAX_DISTANCE_METERS) {
+      const cumA = cumulativeAtPoints[index - 1]!;
+      samples.push({ progress: cumA + segmentLength * projectionRatio, distanceMeters: candidateDistance });
+    }
+  }
+
+  samples.sort((a, b) => a.progress - b.progress);
+  const merged: Array<{ progress: number; distanceMeters: number }> = [];
+  for (const sample of samples) {
+    if (merged.length === 0) {
+      merged.push(sample);
+      continue;
+    }
+    const last = merged[merged.length - 1]!;
+    if (sample.progress - last.progress >= WAYPOINT_ENCOUNTER_MIN_GAP_METERS) {
+      merged.push(sample);
+    } else if (sample.distanceMeters < last.distanceMeters) {
+      merged[merged.length - 1] = sample;
+    }
+  }
+
+  return merged.map((s) => s.progress);
 }
 
 function isStationLikeName(name: string | undefined): boolean {

@@ -152,4 +152,6 @@ jobs:
           cache: npm
       - run: npm install
       - run: npm run typecheck -w @crewcue/api
+      - run: npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client
+      - run: npm run db:migrate -w @crewcue/api
       - run: npm run test:pg -w @crewcue/api

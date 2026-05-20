@@ -38,12 +38,16 @@ import {
   canRecordMergeTelemetry,
   getCurrentRoomRole
 } from "./src/auth/roleGuards";
+import * as Crypto from "expo-crypto";
+import { mapApiError } from "@crewcue/platform-client";
 import { ApiError, createApiClient } from "./src/api/client";
+import { appActionRegistry, appNoticeBus } from "./src/platform/runtime";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
   list as listOutbox,
   replace as replaceOutbox,
   enqueue as enqueueOutbox,
+  enqueueWithConflictKey,
   type OutboxOperation
 } from "./src/sync/outboxStore";
 import {
@@ -61,6 +65,7 @@ import {
 import { useCrewCueNavigationTheme } from "./src/navigation/navigationTheme";
 import { GuestStack } from "./src/navigation/GuestStack";
 import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
+import { TransientNoticeHost } from "./src/platform/TransientNoticeHost";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
 import { RaceChatPrefetcher } from "./src/navigation/RaceChatPrefetcher";
 import { runNativeDependencyPrewarm } from "./src/chat/nativeDependencyPrewarm";
@@ -269,6 +274,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const [onboardingNotificationsSeen, setOnboardingNotificationsSeen] = useState(false);
   const [onboardingNotificationsRequired, setOnboardingNotificationsRequired] = useState(false);
   const outboxProcessingRef = useRef(false);
+  const createRoomIdempotencyKeyRef = useRef<string | null>(null);
   const pendingOutboxCount = useMemo(() => countPendingOutboxOperations(outbox), [outbox]);
   const canEditCheckpointStops = useMemo(() => canMutateCheckpointStoppage(auth), [auth]);
   const currentRoomRole = useMemo(() => getCurrentRoomRole(auth, room?.id), [auth, room?.id]);
@@ -283,14 +289,13 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     setSyncStatusMessage(message);
   }, []);
 
-  const setStatusError = useCallback((err: unknown) => {
-    if (err instanceof ApiError) {
-      setApiError(`${err.status} ${err.message}`);
-    } else if (err instanceof Error) {
-      setApiError(err.message);
-    } else {
-      setApiError("Unknown error");
-    }
+  const setStatusError = useCallback((err: unknown, fingerprint = "shell") => {
+    const mapped = mapApiError(err);
+    setApiError(mapped.message);
+    appNoticeBus.presentTransient({
+      catalogKey: mapped.key,
+      fingerprint: `${fingerprint}:${mapped.key}`
+    });
   }, []);
 
   const refreshOutbox = useCallback(async () => {
@@ -362,9 +367,15 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const pollProjectionQuiet = useCallback(async () => {
     if (!auth.accessToken || !room) return;
     try {
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      setProjection(await client.getProjection(room.id));
-      setProjectionPolledAt(new Date().toISOString());
+      const token = auth.accessToken;
+      const result = await appActionRegistry.run("shell:projection-quiet", "ignoreIfBusy", async () => {
+        const client = createApiClient({ baseUrl, accessToken: token });
+        setProjection(await client.getProjection(room.id));
+        setProjectionPolledAt(new Date().toISOString());
+      });
+      if (result.status === "skipped") {
+        return;
+      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setProjection(undefined);
@@ -432,15 +443,21 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     try {
       const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
       const teamId = auth.claims.teamIds?.[0] ?? "mobile-ops-team";
-      const created = await client.createRaceRoom({
+      const createBody = {
         teamId,
         athleteId: auth.claims.sub,
         name: input?.raceName?.trim() || `Race ${new Date().toISOString().slice(0, 16)}`,
         creatorName: input?.creatorName?.trim() || "Race lead",
         description: input?.raceDescription?.trim() || undefined,
         crewName: input?.crewName?.trim() || undefined,
-        creatorRole: "team_manager"
-      });
+        creatorRole: "team_manager" as const
+      };
+      const idempotencyKey =
+        createRoomIdempotencyKeyRef.current ??
+        `create-room:${auth.claims.sub}:${Crypto.randomUUID()}`;
+      createRoomIdempotencyKeyRef.current = idempotencyKey;
+      const created = await client.createRaceRoom(createBody, { idempotencyKey });
+      createRoomIdempotencyKeyRef.current = null;
       setRoom(created);
       setRoomDetail(undefined);
       setLastPing(undefined);
@@ -522,17 +539,26 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   const fetchProjection = useCallback(async () => {
     if (!auth.accessToken || !room) return;
-    setBusy(true);
-    setApiError(undefined);
     try {
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      setProjection(await client.getProjection(room.id));
-      setProjectionPolledAt(new Date().toISOString());
-      setStatusSuccess("Projection fetched.");
+      const token = auth.accessToken;
+      const result = await appActionRegistry.run("shell:fetch-projection", "ignoreIfBusy", async () => {
+        setBusy(true);
+        setApiError(undefined);
+        try {
+          const client = createApiClient({ baseUrl, accessToken: token });
+          setProjection(await client.getProjection(room.id));
+          setProjectionPolledAt(new Date().toISOString());
+          setStatusSuccess("Projection fetched.");
+        } finally {
+          setBusy(false);
+        }
+      });
+      if (result.status === "skipped") {
+        return;
+      }
     } catch (err) {
-      setStatusError(err);
-    } finally {
       setBusy(false);
+      setStatusError(err);
     }
   }, [auth.accessToken, room, baseUrl, setStatusError, setStatusSuccess]);
 
@@ -735,13 +761,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         }
       } catch (err) {
         if (mode === "manual") {
-          if (err instanceof ApiError) {
-            setApiError(`${err.status} ${err.message}`);
-          } else if (err instanceof Error) {
-            setApiError(err.message);
-          } else {
-            setApiError("Unknown error");
-          }
+          setStatusError(err);
         }
       } finally {
         outboxProcessingRef.current = false;
@@ -980,30 +1000,39 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     async (explicitRoomId?: string) => {
       const roomId = explicitRoomId ?? room?.id;
       if (!auth.accessToken || !roomId) return;
-      setBusy(true);
-      setApiError(undefined);
       try {
-        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-        const detail = await client.getRaceRoom(roomId);
-        setRoomDetail(detail);
-        setRoom(detail.room);
-        setMyRaceRooms((prev) => {
-          if (!prev) {
-            return [detail.room];
+        const token = auth.accessToken;
+        const result = await appActionRegistry.run(`shell:fetch-room:${roomId}`, "ignoreIfBusy", async () => {
+          setBusy(true);
+          setApiError(undefined);
+          try {
+            const client = createApiClient({ baseUrl, accessToken: token });
+            const detail = await client.getRaceRoom(roomId);
+            setRoomDetail(detail);
+            setRoom(detail.room);
+            setMyRaceRooms((prev) => {
+              if (!prev) {
+                return [detail.room];
+              }
+              const idx = prev.findIndex((r) => r.id === detail.room.id);
+              if (idx === -1) {
+                return [detail.room, ...prev];
+              }
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx]!, ...detail.room };
+              return copy;
+            });
+            setStatusSuccess("Room details fetched.");
+          } finally {
+            setBusy(false);
           }
-          const idx = prev.findIndex((r) => r.id === detail.room.id);
-          if (idx === -1) {
-            return [detail.room, ...prev];
-          }
-          const copy = [...prev];
-          copy[idx] = { ...copy[idx]!, ...detail.room };
-          return copy;
         });
-        setStatusSuccess("Room details fetched.");
+        if (result.status === "skipped") {
+          return;
+        }
       } catch (err) {
-        setStatusError(err);
-      } finally {
         setBusy(false);
+        setStatusError(err);
       }
     },
     [auth.accessToken, room?.id, baseUrl, setStatusError, setStatusSuccess]
@@ -1263,13 +1292,17 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   const enqueueManualStop = useCallback(
     async (checkpointId: string, arrivalAt: string, departureAt: string) => {
       if (!room) return;
-      await enqueueOutbox({
-        id: `manual-stop-${room.id}-${checkpointId}-${Date.now()}`,
-        type: "checkpoint",
-        payload: { roomId: room.id, checkpointId, action: "manual_stop", arrivalAt, departureAt },
-        attempts: 0,
-        status: "pending"
-      });
+      const conflictKey = `manual-stop:${room.id}:${checkpointId}:${arrivalAt}`;
+      await enqueueWithConflictKey(
+        {
+          id: conflictKey,
+          type: "checkpoint",
+          payload: { roomId: room.id, checkpointId, action: "manual_stop", arrivalAt, departureAt },
+          attempts: 0,
+          status: "pending"
+        },
+        conflictKey
+      );
       setStationArrivalAt((prev) => {
         const next = { ...prev };
         delete next[checkpointId];
@@ -1470,6 +1503,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       <NavigationContainer theme={navigationTheme} linking={crewCueLinking}>
         {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
+      <TransientNoticeHost />
       <StatusBar style="dark" />
     </AuthedShellProvider>
   );
