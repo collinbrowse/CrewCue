@@ -67,13 +67,14 @@ api_request() {
 
 expect_code() {
   local want="$1" actual="$2" label="$3" body_file="$4"
-  if [[ "$actual" != "$want" && "$actual" != "${want%%|*}" ]]; then
-    if [[ "$want" == *"|* ]]; then
-      local alt="${want#*|}"
-      [[ "$actual" == "$alt" ]] && return 0
+  local code
+  local IFS='|'
+  for code in $want; do
+    if [[ "$actual" == "$code" ]]; then
+      return 0
     fi
-    fail "$label HTTP $actual — $(cat "$body_file" 2>/dev/null || true)"
-  fi
+  done
+  fail "$label HTTP $actual — $(cat "$body_file" 2>/dev/null || true)"
 }
 
 log "Probe POST /chat/identity (must exist on deployed API)"
