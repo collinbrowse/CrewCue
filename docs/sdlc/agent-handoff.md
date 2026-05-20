@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-16): Critical correctness fix — repeated non-start aid projection
+
+- **Cause:** `checkpointsWithProjectedDistances` unconditionally forced checkpoint index 0 to mile 0 and clamped a matching final checkpoint to course length. Imports with a single repeated non-start aid waypoint (two encounters, no start/finish waypoint) were saved as "aid at start" + "aid at finish", corrupting Pace/map miles for the race.
+- **Fix:** First/last anchoring now only applies when the first checkpoint is actually near the route start; repeated non-start aid passes keep their distinct projected arc positions.
+- **Validation:** `npm test -w @crewcue/map-core` green (33/33, new regression included); root `npm run verify` green.
 ## Recent (**merged** PR [#282](https://github.com/collinbrowse/CrewCue/pull/282) → `main`, merge `80e3843`, **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279)): Platform actions, notices, HTTP idempotency (epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
 - **On `main`:** `@crewcue/platform-client` (`ActionRegistry`, `NoticeBus`, error catalog, map-locate visual); mobile/web `TransientNoticeHost`; `useAction` on Pace/GPX/map; HTTP idempotency (claim/complete/release, migrations `0010`–`0012`, canonical JSON hash); shell errors → `NoticeBus`; CI `db:migrate` before `test:pg`.
