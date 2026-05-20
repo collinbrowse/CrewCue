@@ -483,7 +483,7 @@ test("GET projection returns checkpointSplits after course save without any ping
   await app.close();
 });
 
-test("manual checkpoint stop and resolved source toggle update projection split", async () => {
+test("manual checkpoint stop updates projection split as manual source", async () => {
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-user"));
@@ -556,13 +556,9 @@ test("manual checkpoint stop and resolved source toggle update projection split"
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   assert.equal(manual.statusCode, 200);
-  const patched = await app.inject({
-    method: "PATCH",
-    url: `/race-rooms/${roomId}/checkpoints/cp0/visits/1/resolved-source`,
-    payload: { resolvedSource: "manual_crew" },
-    headers: { authorization: `Bearer ${ownerToken}` }
-  });
-  assert.equal(patched.statusCode, 200);
+  const manualSplit = manual.json() as { checkpointSplit: RaceRoomProjection["checkpointSplits"][number] };
+  assert.equal(manualSplit.checkpointSplit.visits[0]?.resolvedSource, "manual_crew");
+  assert.equal(manualSplit.checkpointSplit.visits[0]?.activeActualStopSeconds, 180);
   const viewResponse = await app.inject({
     method: "GET",
     url: `/race-rooms/${roomId}/projection`,

@@ -1,4 +1,5 @@
-import type { RaceCourse, RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
+import type { MapWorkspaceLayer, RaceCourse, RaceCourseCheckpoint, RaceMapWorkspace } from "@crewcue/contracts";
+import { PRIMARY_COURSE_ROUTE_LAYER_ID } from "./mapWorkspace.js";
 
 const EARTH_RADIUS_M = 6371000;
 
@@ -117,21 +118,40 @@ export function lngLatAtDistanceAlongPolyline(polyline: [number, number][], dist
   return polyline[polyline.length - 1]!;
 }
 
-/** Prefer a visible workspace LineString; otherwise checkpoint polyline as GeoJSON positions. */
+function layerLngLatPolyline(layer: MapWorkspaceLayer | undefined): [number, number][] {
+  const g = layer?.geometry;
+  if (!g) {
+    return [];
+  }
+  if (g.type === "LineString" && g.coordinates.length >= 2) {
+    return g.coordinates.map((c) => [c[0], c[1]] as [number, number]);
+  }
+  if (g.type === "MultiLineString") {
+    for (const ring of g.coordinates) {
+      if (ring.length >= 2) {
+        return ring.map((c) => [c[0], c[1]] as [number, number]);
+      }
+    }
+  }
+  return [];
+}
+
+/** Prefer the projection-driving workspace route; otherwise visible layers, then checkpoint centers. */
 export function primaryCourseLngLatPolyline(course: RaceCourse | undefined, workspace: RaceMapWorkspace | undefined): [number, number][] {
   const layers = workspace?.layers ?? [];
+  const drivingLayer = workspace?.drivesProjectionLayerId
+    ? layers.find((l) => l.id === workspace.drivesProjectionLayerId)
+    : layers.find((l) => l.id === PRIMARY_COURSE_ROUTE_LAYER_ID);
+  const drivingLine = layerLngLatPolyline(drivingLayer);
+  if (drivingLine.length >= 2) {
+    return drivingLine;
+  }
+
   const visible = layers.filter((l) => l.visible);
   for (const layer of visible) {
-    const g = layer.geometry;
-    if (g.type === "LineString" && g.coordinates.length >= 2) {
-      return g.coordinates.map((c) => [c[0], c[1]] as [number, number]);
-    }
-    if (g.type === "MultiLineString") {
-      for (const ring of g.coordinates) {
-        if (ring.length >= 2) {
-          return ring.map((c) => [c[0], c[1]] as [number, number]);
-        }
-      }
+    const line = layerLngLatPolyline(layer);
+    if (line.length >= 2) {
+      return line;
     }
   }
 
