@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer } from "@react-navigation/native";
+import { createNavigationContainerRef, NavigationContainer } from "@react-navigation/native";
 import {
   AppState,
   InteractionManager,
@@ -55,7 +55,11 @@ import {
   describeOutboxOperation,
   processOutboxBatch
 } from "./src/sync/outboxProcessor";
-import { crewCueLinking } from "./src/navigation/linking";
+import {
+  buildCrewCueLinking,
+  navigationStateForAuthedDeepLink,
+  pathFromCrewCueUrl
+} from "./src/navigation/linking";
 import {
   CANVAS_BACKGROUND_COLOR,
   DSDesignSystemProvider,
@@ -81,6 +85,7 @@ import {
 } from "./src/navigation/onboardingState";
 
 const MOBILE_DEVICE_ID = "mobile-operator-device";
+const crewCueNavigationRef = createNavigationContainerRef();
 const DEFAULT_PENDING_QUEUE_COUNT = 1;
 const OUTBOX_AUTO_PROCESS_INTERVAL_MS = 8000;
 
@@ -1508,10 +1513,53 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     !pendingJoinCompletion &&
     !pendingNotificationsPrompt;
 
+  const showAuthedTabsRef = useRef(showAuthedTabs);
+  showAuthedTabsRef.current = showAuthedTabs;
+  const pendingAuthedDeeplinkRef = useRef<string | null>(null);
+
+  const linking = useMemo(
+    () =>
+      buildCrewCueLinking({
+        showAuthedTabs,
+        showAuthedTabsRef,
+        onDeferAuthedDeepLink: (url) => {
+          pendingAuthedDeeplinkRef.current = url;
+        }
+      }),
+    [showAuthedTabs]
+  );
+
+  useEffect(() => {
+    if (!showAuthedTabs || !pendingAuthedDeeplinkRef.current) return;
+    const url = pendingAuthedDeeplinkRef.current;
+    pendingAuthedDeeplinkRef.current = null;
+    const path = pathFromCrewCueUrl(url);
+    if (!path) return;
+    const state = navigationStateForAuthedDeepLink(path);
+    if (!state) return;
+
+    const apply = () => {
+      if (!crewCueNavigationRef.isReady()) return false;
+      crewCueNavigationRef.reset(state);
+      return true;
+    };
+
+    if (apply()) return;
+    const timer = setInterval(() => {
+      if (apply()) clearInterval(timer);
+    }, 50);
+    return () => clearInterval(timer);
+  }, [showAuthedTabs]);
+
   return (
     <AuthedShellProvider value={shellValue}>
       {showAuthedTabs ? <RaceChatPrefetcher /> : null}
-      <NavigationContainer theme={navigationTheme} linking={crewCueLinking}>
+      <NavigationContainer
+        ref={crewCueNavigationRef}
+        theme={navigationTheme}
+        linking={linking}
+        key={showAuthedTabs ? "authed-tabs" : "guest-stack"}
+      >
         {showAuthedTabs ? <CrewMainTabs /> : <GuestStack />}
       </NavigationContainer>
       <TransientNoticeHost />
