@@ -1,6 +1,5 @@
 /**
- * Shared Stream + channel-key bootstrap for crew chat (used by CrewChatScreen
- * and background prefetch so opening the Chat tab can reuse warm work).
+ * Shared Stream + channel-key bootstrap for crew chat.
  */
 import type { Channel, MessageResponse, StreamChat } from "stream-chat";
 import type { RaceRoom } from "@crewcue/contracts";
@@ -20,7 +19,6 @@ export type RaceChatSessionInput = {
   memberships: MentionMember[];
 };
 
-/** Session input plus stable roster fingerprint for prefetch de-dupe. */
 export type RaceChatPrefetchInput = RaceChatSessionInput & {
   chatMembershipKey: string;
 };
@@ -72,6 +70,17 @@ export async function buildStreamIdDisplayNameMap(
   return map;
 }
 
+async function memberIdentities(api: ApiClient, room: RaceRoom): Promise<ChannelMember[]> {
+  const out: ChannelMember[] = [];
+  for (const m of room.memberships) {
+    const identity = await api.getChatUserIdentity(m.userId);
+    if (identity?.publicKey) {
+      out.push({ userId: m.userId, publicKey: identity.publicKey });
+    }
+  }
+  return out;
+}
+
 export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Promise<RaceChatBootstrapResult> {
   const { room, authSub, api, memberships } = args;
   const tokenResp = await api.getChatStreamToken({ roomId: room.id });
@@ -85,15 +94,8 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
     messages: { limit: CHAT_INITIAL_MESSAGE_COUNT }
   });
 
-  const memberDevices: ChannelMember[] = [];
-  for (const m of room.memberships) {
-    const lookup = await api.listChatDevicesForUser(m.userId);
-    memberDevices.push({
-      userId: m.userId,
-      devices: lookup.devices.map((d) => ({ deviceId: d.deviceId, publicKey: d.publicKey }))
-    });
-  }
-  const channelKey = await bootstrapChannelKey(api, room.id, memberDevices);
+  const members = await memberIdentities(api, room);
+  const channelKey = await bootstrapChannelKey(api, room.id, members);
 
   const streamNames = await buildStreamIdDisplayNameMap(memberships, room.athleteId, room.creatorName);
   streamNames.set(tokenResp.streamUserId, selfLabel || "You");

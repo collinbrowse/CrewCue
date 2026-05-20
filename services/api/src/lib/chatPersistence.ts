@@ -1,24 +1,18 @@
 /**
- * Chat persistence: device public keys, per-recipient channel-key envelopes,
- * notification preferences, and push tokens.
- *
- * Server only ever sees ciphertext payloads; plaintext message storage lives
- * with Stream Chat. Tables here are intentionally narrow: identity + opaque
- * encrypted blobs + transport metadata.
- *
- * Mirrors `roomPersistence.ts`'s memory/postgres dual-mode pattern so unit
- * tests can run with PERSISTENCE_MODE=memory.
+ * Chat persistence: user identity, encrypted backups, per-user channel-key
+ * envelopes, notification preferences, and push devices.
  */
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 import type {
-  ChatDeviceKey,
+  ChatIdentityBackup,
   ChatKeyEnvelope,
   ChatNotificationPref,
   ChatNotificationPrefRecord,
+  ChatPushDeviceRecord,
   ChatPushPlatform,
-  ChatPushTokenRecord,
-  ChatRetentionResult
+  ChatRetentionResult,
+  ChatUserIdentity
 } from "@crewcue/contracts";
 
 type Mode = "memory" | "postgres";
@@ -38,10 +32,12 @@ const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) 
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
-const memoryDeviceKeys = new Map<string, ChatDeviceKey>(); // deviceId -> key
-const memoryEnvelopes = new Map<string, ChatKeyEnvelope[]>(); // roomId -> envelopes
-const memoryPrefs = new Map<string, ChatNotificationPrefRecord>(); // userId|roomId -> record
-const memoryPushTokens = new Map<string, ChatPushTokenRecord>(); // deviceId -> token
+const memoryIdentities = new Map<string, ChatUserIdentity>();
+const memoryBackups = new Map<string, ChatIdentityBackup>();
+const memoryRoomVersions = new Map<string, number>();
+const memoryEnvelopes = new Map<string, ChatKeyEnvelope[]>();
+const memoryPrefs = new Map<string, ChatNotificationPrefRecord>();
+const memoryPushDevices = new Map<string, ChatPushDeviceRecord>();
 
 function prefKey(userId: string, roomId: string): string {
   return `${userId}|${roomId}`;
@@ -67,33 +63,56 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
     try {
       await client.query("SELECT pg_advisory_lock(711200)");
       await client.query(`
-        CREATE TABLE IF NOT EXISTS chat_device_keys (
-          device_id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS chat_user_identity (
+          user_id TEXT PRIMARY KEY,
           public_key TEXT NOT NULL,
           registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
       `);
       await client.query(`
-        CREATE INDEX IF NOT EXISTS chat_device_keys_user
-        ON chat_device_keys (user_id);
+        CREATE TABLE IF NOT EXISTS chat_identity_backup (
+          user_id TEXT PRIMARY KEY,
+          ciphertext TEXT NOT NULL,
+          nonce TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS chat_room_crypto_state (
+          room_id TEXT PRIMARY KEY,
+          latest_key_version INTEGER NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
       `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_channel_envelopes (
           room_id TEXT NOT NULL,
           recipient_user_id TEXT NOT NULL,
-          recipient_device_id TEXT NOT NULL,
           sender_ephemeral_public_key TEXT NOT NULL,
           nonce TEXT NOT NULL,
           ciphertext TEXT NOT NULL,
           key_version INTEGER NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          PRIMARY KEY (room_id, recipient_device_id, key_version)
+          PRIMARY KEY (room_id, recipient_user_id, key_version)
         );
       `);
       await client.query(`
-        CREATE INDEX IF NOT EXISTS chat_channel_envelopes_by_user
-        ON chat_channel_envelopes (room_id, recipient_user_id);
+        CREATE INDEX IF NOT EXISTS chat_channel_envelopes_room_version
+        ON chat_channel_envelopes (room_id, key_version DESC);
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS chat_push_devices (
+          device_id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          token TEXT NOT NULL,
+          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS chat_push_devices_user
+        ON chat_push_devices (user_id);
       `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_notification_prefs (
@@ -104,34 +123,12 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
           PRIMARY KEY (user_id, room_id)
         );
       `);
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS chat_push_tokens (
-          device_id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          token TEXT NOT NULL,
-          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
     } finally {
       await client.query("SELECT pg_advisory_unlock(711200)");
       client.release();
     }
     initialized = true;
-    log.info(
-      {
-        chatPersistence: {
-          mode: MODE,
-          tables: [
-            "chat_device_keys",
-            "chat_channel_envelopes",
-            "chat_notification_prefs",
-            "chat_push_tokens"
-          ]
-        }
-      },
-      "chat_persistence_ready"
-    );
+    log.info({ chatPersistence: { mode: MODE } }, "chat_persistence_ready");
   })();
   try {
     await initPromise;
@@ -153,63 +150,112 @@ async function ensureChatPersistenceReady(): Promise<void> {
   await initChatPersistence(CHAT_PERSISTENCE_NOOP_LOGGER);
 }
 
-export async function upsertChatDeviceKey(record: ChatDeviceKey): Promise<void> {
+async function bumpRoomKeyVersion(roomId: string, keyVersion: number): Promise<void> {
   if (!pool) {
-    memoryDeviceKeys.set(record.deviceId, structuredClone(record));
+    const prev = memoryRoomVersions.get(roomId) ?? 0;
+    memoryRoomVersions.set(roomId, Math.max(prev, keyVersion));
     return;
   }
   await pool.query(
     `
-      INSERT INTO chat_device_keys (device_id, user_id, public_key, registered_at)
-      VALUES ($1, $2, $3, $4::timestamptz)
-      ON CONFLICT (device_id) DO UPDATE
-      SET user_id = EXCLUDED.user_id,
-          public_key = EXCLUDED.public_key,
-          registered_at = EXCLUDED.registered_at;
+      INSERT INTO chat_room_crypto_state (room_id, latest_key_version, updated_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (room_id) DO UPDATE
+      SET latest_key_version = GREATEST(chat_room_crypto_state.latest_key_version, EXCLUDED.latest_key_version),
+          updated_at = NOW();
     `,
-    [record.deviceId, record.userId, record.publicKey, record.registeredAt]
+    [roomId, keyVersion]
   );
 }
 
-export async function listChatDeviceKeysForUser(userId: string): Promise<ChatDeviceKey[]> {
+export async function upsertChatUserIdentity(record: ChatUserIdentity): Promise<void> {
   if (!pool) {
-    return Array.from(memoryDeviceKeys.values()).filter((k) => k.userId === userId);
+    memoryIdentities.set(record.userId, structuredClone(record));
+    return;
+  }
+  await pool.query(
+    `
+      INSERT INTO chat_user_identity (user_id, public_key, registered_at)
+      VALUES ($1, $2, $3::timestamptz)
+      ON CONFLICT (user_id) DO UPDATE
+      SET public_key = EXCLUDED.public_key,
+          registered_at = EXCLUDED.registered_at;
+    `,
+    [record.userId, record.publicKey, record.registeredAt]
+  );
+}
+
+export async function getChatUserIdentity(userId: string): Promise<ChatUserIdentity | undefined> {
+  if (!pool) {
+    return memoryIdentities.get(userId);
   }
   const result = await pool.query<{
-    device_id: string;
     user_id: string;
     public_key: string;
     registered_at: Date | string;
-  }>(
-    "SELECT device_id, user_id, public_key, registered_at FROM chat_device_keys WHERE user_id = $1",
-    [userId]
-  );
-  return result.rows.map((row) => ({
-    deviceId: row.device_id,
+  }>("SELECT user_id, public_key, registered_at FROM chat_user_identity WHERE user_id = $1", [userId]);
+  const row = result.rows[0];
+  if (!row) return undefined;
+  return {
     userId: row.user_id,
     publicKey: row.public_key,
     registeredAt:
       row.registered_at instanceof Date
         ? row.registered_at.toISOString()
         : new Date(row.registered_at).toISOString()
-  }));
+  };
 }
 
-export async function listChatDeviceKeysForUsers(
-  userIds: readonly string[]
-): Promise<ChatDeviceKey[]> {
-  const out: ChatDeviceKey[] = [];
-  for (const id of userIds) {
-    out.push(...(await listChatDeviceKeysForUser(id)));
+export async function upsertChatIdentityBackup(record: ChatIdentityBackup): Promise<void> {
+  if (!pool) {
+    memoryBackups.set(record.userId, structuredClone(record));
+    return;
   }
-  return out;
+  await pool.query(
+    `
+      INSERT INTO chat_identity_backup (user_id, ciphertext, nonce, version, updated_at)
+      VALUES ($1, $2, $3, $4, $5::timestamptz)
+      ON CONFLICT (user_id) DO UPDATE
+      SET ciphertext = EXCLUDED.ciphertext,
+          nonce = EXCLUDED.nonce,
+          version = EXCLUDED.version,
+          updated_at = EXCLUDED.updated_at;
+    `,
+    [record.userId, record.ciphertext, record.nonce, record.version, record.updatedAt]
+  );
+}
+
+export async function getChatIdentityBackup(userId: string): Promise<ChatIdentityBackup | undefined> {
+  if (!pool) {
+    return memoryBackups.get(userId);
+  }
+  const result = await pool.query<{
+    user_id: string;
+    ciphertext: string;
+    nonce: string;
+    version: number;
+    updated_at: Date | string;
+  }>(
+    "SELECT user_id, ciphertext, nonce, version, updated_at FROM chat_identity_backup WHERE user_id = $1",
+    [userId]
+  );
+  const row = result.rows[0];
+  if (!row) return undefined;
+  return {
+    userId: row.user_id,
+    ciphertext: row.ciphertext,
+    nonce: row.nonce,
+    version: row.version,
+    updatedAt:
+      row.updated_at instanceof Date ? row.updated_at.toISOString() : new Date(row.updated_at).toISOString()
+  };
 }
 
 export async function upsertChatKeyEnvelope(envelope: ChatKeyEnvelope): Promise<void> {
   if (!pool) {
     const list = memoryEnvelopes.get(envelope.roomId) ?? [];
     const existingIdx = list.findIndex(
-      (e) => e.recipientDeviceId === envelope.recipientDeviceId && e.keyVersion === envelope.keyVersion
+      (e) => e.recipientUserId === envelope.recipientUserId && e.keyVersion === envelope.keyVersion
     );
     if (existingIdx >= 0) {
       list[existingIdx] = structuredClone(envelope);
@@ -217,26 +263,25 @@ export async function upsertChatKeyEnvelope(envelope: ChatKeyEnvelope): Promise<
       list.push(structuredClone(envelope));
     }
     memoryEnvelopes.set(envelope.roomId, list);
+    await bumpRoomKeyVersion(envelope.roomId, envelope.keyVersion);
     return;
   }
   await pool.query(
     `
       INSERT INTO chat_channel_envelopes (
-        room_id, recipient_user_id, recipient_device_id,
-        sender_ephemeral_public_key, nonce, ciphertext, key_version, created_at
+        room_id, recipient_user_id, sender_ephemeral_public_key,
+        nonce, ciphertext, key_version, created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
-      ON CONFLICT (room_id, recipient_device_id, key_version) DO UPDATE
+      VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+      ON CONFLICT (room_id, recipient_user_id, key_version) DO UPDATE
       SET sender_ephemeral_public_key = EXCLUDED.sender_ephemeral_public_key,
           nonce = EXCLUDED.nonce,
           ciphertext = EXCLUDED.ciphertext,
-          recipient_user_id = EXCLUDED.recipient_user_id,
           created_at = EXCLUDED.created_at;
     `,
     [
       envelope.roomId,
       envelope.recipientUserId,
-      envelope.recipientDeviceId,
       envelope.senderEphemeralPublicKey,
       envelope.nonce,
       envelope.ciphertext,
@@ -244,21 +289,19 @@ export async function upsertChatKeyEnvelope(envelope: ChatKeyEnvelope): Promise<
       envelope.createdAt
     ]
   );
+  await bumpRoomKeyVersion(envelope.roomId, envelope.keyVersion);
 }
 
-export async function listChatKeyEnvelopesForDevice(
+export async function listChatKeyEnvelopesForUser(
   roomId: string,
-  recipientDeviceId: string
+  recipientUserId: string
 ): Promise<ChatKeyEnvelope[]> {
   if (!pool) {
-    return (memoryEnvelopes.get(roomId) ?? []).filter(
-      (e) => e.recipientDeviceId === recipientDeviceId
-    );
+    return (memoryEnvelopes.get(roomId) ?? []).filter((e) => e.recipientUserId === recipientUserId);
   }
   const result = await pool.query<{
     room_id: string;
     recipient_user_id: string;
-    recipient_device_id: string;
     sender_ephemeral_public_key: string;
     nonce: string;
     ciphertext: string;
@@ -266,18 +309,17 @@ export async function listChatKeyEnvelopesForDevice(
     created_at: Date | string;
   }>(
     `
-      SELECT room_id, recipient_user_id, recipient_device_id,
-             sender_ephemeral_public_key, nonce, ciphertext, key_version, created_at
+      SELECT room_id, recipient_user_id, sender_ephemeral_public_key,
+             nonce, ciphertext, key_version, created_at
       FROM chat_channel_envelopes
-      WHERE room_id = $1 AND recipient_device_id = $2
+      WHERE room_id = $1 AND recipient_user_id = $2
       ORDER BY key_version DESC
     `,
-    [roomId, recipientDeviceId]
+    [roomId, recipientUserId]
   );
   return result.rows.map((row) => ({
     roomId: row.room_id,
     recipientUserId: row.recipient_user_id,
-    recipientDeviceId: row.recipient_device_id,
     senderEphemeralPublicKey: row.sender_ephemeral_public_key,
     nonce: row.nonce,
     ciphertext: row.ciphertext,
@@ -289,16 +331,38 @@ export async function listChatKeyEnvelopesForDevice(
 
 export async function getLatestChatKeyVersionForRoom(roomId: string): Promise<number | undefined> {
   if (!pool) {
+    const fromState = memoryRoomVersions.get(roomId);
+    if (typeof fromState === "number" && fromState > 0) return fromState;
     const envs = memoryEnvelopes.get(roomId) ?? [];
     if (envs.length === 0) return undefined;
     return envs.reduce((max, e) => (e.keyVersion > max ? e.keyVersion : max), envs[0]!.keyVersion);
   }
+  const state = await pool.query<{ latest_key_version: number }>(
+    "SELECT latest_key_version FROM chat_room_crypto_state WHERE room_id = $1",
+    [roomId]
+  );
+  const fromState = state.rows[0]?.latest_key_version;
+  if (typeof fromState === "number" && fromState > 0) return fromState;
   const result = await pool.query<{ max_key_version: number | null }>(
     "SELECT MAX(key_version) AS max_key_version FROM chat_channel_envelopes WHERE room_id = $1",
     [roomId]
   );
   const max = result.rows[0]?.max_key_version;
   return typeof max === "number" ? max : undefined;
+}
+
+/** Member removed: bump version and purge envelopes so remaining clients re-wrap. */
+export async function rotateRoomChannelKey(roomId: string): Promise<number> {
+  const latest = (await getLatestChatKeyVersionForRoom(roomId)) ?? 0;
+  const nextVersion = latest + 1;
+  if (!pool) {
+    memoryEnvelopes.delete(roomId);
+    memoryRoomVersions.set(roomId, nextVersion);
+    return nextVersion;
+  }
+  await pool.query("DELETE FROM chat_channel_envelopes WHERE room_id = $1", [roomId]);
+  await bumpRoomKeyVersion(roomId, nextVersion);
+  return nextVersion;
 }
 
 export async function setChatNotificationPref(record: ChatNotificationPrefRecord): Promise<void> {
@@ -359,14 +423,14 @@ export async function listChatNotificationPrefsForUsers(
   return out;
 }
 
-export async function upsertChatPushToken(record: ChatPushTokenRecord): Promise<void> {
+export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promise<void> {
   if (!pool) {
-    memoryPushTokens.set(record.deviceId, structuredClone(record));
+    memoryPushDevices.set(record.deviceId, structuredClone(record));
     return;
   }
   await pool.query(
     `
-      INSERT INTO chat_push_tokens (device_id, user_id, platform, token, registered_at)
+      INSERT INTO chat_push_devices (device_id, user_id, platform, token, registered_at)
       VALUES ($1, $2, $3, $4, $5::timestamptz)
       ON CONFLICT (device_id) DO UPDATE
       SET user_id = EXCLUDED.user_id,
@@ -378,11 +442,14 @@ export async function upsertChatPushToken(record: ChatPushTokenRecord): Promise<
   );
 }
 
-export async function listChatPushTokensForUsers(
+/** @deprecated alias */
+export const upsertChatPushToken = upsertChatPushDevice;
+
+export async function listChatPushDevicesForUsers(
   userIds: readonly string[]
-): Promise<ChatPushTokenRecord[]> {
+): Promise<ChatPushDeviceRecord[]> {
   if (!pool) {
-    return Array.from(memoryPushTokens.values()).filter((t) => userIds.includes(t.userId));
+    return Array.from(memoryPushDevices.values()).filter((t) => userIds.includes(t.userId));
   }
   if (userIds.length === 0) return [];
   const result = await pool.query<{
@@ -394,7 +461,7 @@ export async function listChatPushTokensForUsers(
   }>(
     `
       SELECT device_id, user_id, platform, token, registered_at
-      FROM chat_push_tokens
+      FROM chat_push_devices
       WHERE user_id = ANY($1::text[])
     `,
     [userIds]
@@ -411,10 +478,14 @@ export async function listChatPushTokensForUsers(
   }));
 }
 
+/** @deprecated alias */
+export const listChatPushTokensForUsers = listChatPushDevicesForUsers;
+
 export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionResult> {
   if (!pool) {
     const envs = memoryEnvelopes.get(roomId) ?? [];
     memoryEnvelopes.delete(roomId);
+    memoryRoomVersions.delete(roomId);
     let prefsPurged = 0;
     for (const key of Array.from(memoryPrefs.keys())) {
       if (key.endsWith(`|${roomId}`)) {
@@ -441,6 +512,7 @@ export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionR
   );
   await pool.query("DELETE FROM chat_channel_envelopes WHERE room_id = $1", [roomId]);
   await pool.query("DELETE FROM chat_notification_prefs WHERE room_id = $1", [roomId]);
+  await pool.query("DELETE FROM chat_room_crypto_state WHERE room_id = $1", [roomId]);
   return {
     roomId,
     deletedAt: new Date().toISOString(),
@@ -453,8 +525,10 @@ export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionR
 /** Test-only: clear all in-memory state. No-op against postgres. */
 export function _resetChatPersistenceForTests(): void {
   if (pool) return;
-  memoryDeviceKeys.clear();
+  memoryIdentities.clear();
+  memoryBackups.clear();
+  memoryRoomVersions.clear();
   memoryEnvelopes.clear();
   memoryPrefs.clear();
-  memoryPushTokens.clear();
+  memoryPushDevices.clear();
 }

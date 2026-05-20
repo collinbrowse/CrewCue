@@ -15,6 +15,7 @@
     "test": "tsx --test src/config.test.ts src/auth/jwt.test.ts src/auth/roleGuards.test.ts src/auth/useAuth.test.ts src/api/client.test.ts src/api/idempotencyKey.test.ts src/features/gpx/gpxImport.test.ts src/features/maps/mercatorTileMath.test.ts src/features/readouts/eta.test.ts src/features/pace/timeline.test.ts src/features/raceStart/raceStartSchedule.test.ts src/sync/pendingHeartbeatParse.test.ts src/sync/pendingHeartbeatRetry.test.ts src/sync/outboxPolicy.test.ts src/sync/outboxProcessor.test.ts src/sync/outboxMerge.test.ts src/features/chat/crypto.test.ts src/features/chat/mentions.test.ts src/features/chat/imagePipeline.test.ts src/features/chat/messageQueue.test.ts src/features/chat/notificationPrefs.test.ts src/features/chat/timestamps.test.ts src/features/chat/unreadBadge.test.ts"
   },
   "dependencies": {
+    "@crewcue/chat-crypto": "0.1.0",
     "@crewcue/contracts": "0.1.0",
     "@crewcue/map-core": "0.1.0",
     "@crewcue/platform-client": "0.1.0",

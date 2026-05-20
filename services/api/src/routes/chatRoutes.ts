@@ -1,49 +1,35 @@
 /**
- * Chat HTTP routes.
- *
- * Surface:
- *   POST   /chat/stream-token  (optional JSON `{ "roomId": "<race-room-id>" }` syncs Stream members first)
- *   POST   /chat/rooms/:roomId/sync-stream-channel
- *   POST   /chat/devices
- *   GET    /chat/rooms/:roomId/key-envelopes
- *   POST   /chat/rooms/:roomId/key-envelopes
- *   GET    /chat/rooms/:roomId/notification-prefs
- *   POST   /chat/rooms/:roomId/notification-prefs
- *   POST   /chat/push/tokens
- *   POST   /chat/push/webhook
- *   DELETE /chat/rooms/:roomId/messages
- *
- * Server stores opaque ciphertext + metadata; it cannot read message content.
- * Membership authorization reuses race-room membership: only members of the
- * referenced `roomId` may register/list envelopes or read/write prefs.
+ * Chat HTTP routes — identity, encrypted backup, user-scoped envelopes, push devices.
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type {
-  ChatDeviceKey,
+  ChatIdentityBackup,
   ChatKeyEnvelope,
   ChatNotificationPref,
   ChatNotificationPrefRecord,
+  ChatPushDeviceRecord,
   ChatPushPlatform,
-  ChatPushTokenRecord,
   ChatPushWebhookPayload,
-  ChatStreamTokenResponse
+  ChatStreamTokenResponse,
+  ChatUserIdentity
 } from "@crewcue/contracts";
 import { getRaceRoom } from "./raceRooms.js";
 import {
   deleteChatRoomData,
+  getChatIdentityBackup,
+  getChatUserIdentity,
   getLatestChatKeyVersionForRoom,
   getChatNotificationPref,
   initChatPersistence,
-  listChatDeviceKeysForUser,
-  listChatDeviceKeysForUsers,
-  listChatKeyEnvelopesForDevice,
+  listChatKeyEnvelopesForUser,
   listChatNotificationPrefsForUsers,
-  listChatPushTokensForUsers,
+  listChatPushDevicesForUsers,
   setChatNotificationPref,
-  upsertChatDeviceKey,
+  upsertChatIdentityBackup,
   upsertChatKeyEnvelope,
-  upsertChatPushToken
+  upsertChatPushDevice,
+  upsertChatUserIdentity
 } from "../lib/chatPersistence.js";
 import {
   GENERIC_CHAT_PUSH_BODY,
@@ -54,13 +40,17 @@ import { deriveStreamUserId, mintStreamUserToken, readStreamCredentials } from "
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 
 const streamTokenBodySchema = z.object({
-  /** When set, server syncs Stream channel members for this race room before minting the JWT. */
   roomId: z.string().trim().min(1).optional()
 });
 
-const deviceRegistrationSchema = z.object({
-  deviceId: z.string().trim().min(1).max(200),
+const identityRegistrationSchema = z.object({
   publicKey: z.string().trim().min(1).max(2048)
+});
+
+const backupUploadSchema = z.object({
+  ciphertext: z.string().trim().min(1).max(65536),
+  nonce: z.string().trim().min(1).max(2048),
+  version: z.number().int().positive()
 });
 
 const envelopeUploadSchema = z.object({
@@ -68,7 +58,6 @@ const envelopeUploadSchema = z.object({
     .array(
       z.object({
         recipientUserId: z.string().trim().min(1),
-        recipientDeviceId: z.string().trim().min(1),
         senderEphemeralPublicKey: z.string().trim().min(1).max(2048),
         nonce: z.string().trim().min(1).max(2048),
         ciphertext: z.string().trim().min(1).max(8192),
@@ -83,7 +72,7 @@ const notificationPrefSchema = z.object({
   preference: z.enum(["all", "mentions", "none"])
 });
 
-const pushTokenSchema = z.object({
+const pushDeviceSchema = z.object({
   deviceId: z.string().trim().min(1).max(200),
   platform: z.enum(["ios", "android", "web"]),
   token: z.string().trim().min(1).max(2048)
@@ -108,8 +97,17 @@ async function isMemberOfRoom(roomId: string, userId: string): Promise<boolean> 
   return room.memberships.some((m) => m.userId === userId);
 }
 
-function deviceQuerySchema() {
-  return z.object({ deviceId: z.string().trim().min(1).max(200) });
+async function canReadUserIdentity(requesterId: string, targetUserId: string): Promise<boolean> {
+  if (requesterId === targetUserId) return true;
+  // Member-readable if they share any race room.
+  const { listRaceRoomsForMember } = await import("./raceRooms.js");
+  const requesterRooms = await listRaceRoomsForMember(requesterId);
+  for (const room of requesterRooms) {
+    if (room.memberships.some((m) => m.userId === targetUserId)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
@@ -177,34 +175,104 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true as const });
   });
 
-  app.post("/chat/devices", async (request, reply) => {
+  app.post("/chat/identity", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
-    const parsed = deviceRegistrationSchema.safeParse(request.body);
+    const parsed = identityRegistrationSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid device registration payload" });
+      return reply.code(400).send({ error: "Invalid identity registration payload" });
     }
-    const record: ChatDeviceKey = {
-      deviceId: parsed.data.deviceId,
+    const record: ChatUserIdentity = {
       userId: request.identity.sub,
       publicKey: parsed.data.publicKey,
       registeredAt: new Date().toISOString()
     };
-    await upsertChatDeviceKey(record);
+    await upsertChatUserIdentity(record);
     return reply.code(201).send(record);
   });
 
-  app.get("/chat/users/:userId/devices", async (request, reply) => {
+  app.get("/chat/users/:userId/identity", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const { userId } = request.params as { userId: string };
-    if (!userId) {
-      return reply.code(400).send({ error: "userId is required" });
+    if (!(await canReadUserIdentity(request.identity.sub, userId))) {
+      return reply.code(403).send({ error: "Forbidden" });
     }
-    const devices = await listChatDeviceKeysForUser(userId);
-    return reply.send({ devices });
+    const record = await getChatUserIdentity(userId);
+    if (!record) {
+      return reply.code(404).send({ error: "Identity not found" });
+    }
+    return reply.send(record);
+  });
+
+  app.post("/chat/identity/backup", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const parsed = backupUploadSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid backup payload" });
+    }
+    const record: ChatIdentityBackup = {
+      userId: request.identity.sub,
+      ciphertext: parsed.data.ciphertext,
+      nonce: parsed.data.nonce,
+      version: parsed.data.version,
+      updatedAt: new Date().toISOString()
+    };
+    await upsertChatIdentityBackup(record);
+    return reply.code(201).send(record);
+  });
+
+  app.get("/chat/identity/backup", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const record = await getChatIdentityBackup(request.identity.sub);
+    if (!record) {
+      return reply.code(404).send({ error: "Backup not found" });
+    }
+    return reply.send(record);
+  });
+
+  app.post("/chat/devices", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const parsed = pushDeviceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid push device payload" });
+    }
+    const record: ChatPushDeviceRecord = {
+      deviceId: parsed.data.deviceId,
+      userId: request.identity.sub,
+      platform: parsed.data.platform,
+      token: parsed.data.token,
+      registeredAt: new Date().toISOString()
+    };
+    await upsertChatPushDevice(record);
+    return reply.code(201).send(record);
+  });
+
+  app.post("/chat/push/tokens", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const parsed = pushDeviceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid push token payload" });
+    }
+    const record: ChatPushDeviceRecord = {
+      deviceId: parsed.data.deviceId,
+      userId: request.identity.sub,
+      platform: parsed.data.platform,
+      token: parsed.data.token,
+      registeredAt: new Date().toISOString()
+    };
+    await upsertChatPushDevice(record);
+    return reply.code(201).send(record);
   });
 
   app.post("/chat/rooms/:roomId/key-envelopes", async (request, reply) => {
@@ -225,7 +293,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       const envelope: ChatKeyEnvelope = {
         roomId,
         recipientUserId: e.recipientUserId,
-        recipientDeviceId: e.recipientDeviceId,
         senderEphemeralPublicKey: e.senderEphemeralPublicKey,
         nonce: e.nonce,
         ciphertext: e.ciphertext,
@@ -246,11 +313,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!(await isMemberOfRoom(roomId, request.identity.sub))) {
       return reply.code(403).send({ error: "Not a member of this room" });
     }
-    const queryParsed = deviceQuerySchema().safeParse(request.query ?? {});
-    if (!queryParsed.success) {
-      return reply.code(400).send({ error: "deviceId query is required" });
-    }
-    const envelopes = await listChatKeyEnvelopesForDevice(roomId, queryParsed.data.deviceId);
+    const envelopes = await listChatKeyEnvelopesForUser(roomId, request.identity.sub);
     const latestRoomKeyVersion = await getLatestChatKeyVersionForRoom(roomId);
     return reply.send({ envelopes, latestRoomKeyVersion });
   });
@@ -292,32 +355,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(record);
   });
 
-  app.post("/chat/push/tokens", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const parsed = pushTokenSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid push token payload" });
-    }
-    const record: ChatPushTokenRecord = {
-      deviceId: parsed.data.deviceId,
-      userId: request.identity.sub,
-      platform: parsed.data.platform,
-      token: parsed.data.token,
-      registeredAt: new Date().toISOString()
-    };
-    await upsertChatPushToken(record);
-    return reply.code(201).send(record);
-  });
-
-  /**
-   * Stream Chat invokes this webhook with each new message. We never decrypt
-   * the body — Stream sees ciphertext and so do we. The server uses recipient
-   * notification prefs to fan out APNS/FCM. The actual outbound APNS/FCM
-   * delivery is performed by `dispatchEncryptedPush` (provider-specific) and
-   * is mocked in tests.
-   */
   app.post("/chat/push/webhook", async (request, reply) => {
     const parsed = pushWebhookSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -336,7 +373,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       if (pref === "mentions") return mentioned.has(userId);
       return true;
     });
-    const tokens = await listChatPushTokensForUsers(eligibleUserIds);
+    const tokens = await listChatPushDevicesForUsers(eligibleUserIds);
     const dispatch = await dispatchChatPush({
       channelId: payload.channelId,
       roomId: payload.roomId,
@@ -374,8 +411,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(result);
   });
 
-  // Helper for tests/cron to look up the Stream channel for a room without
-  // going through the SDK.
   app.get("/chat/rooms/:roomId/diagnostics", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -386,10 +421,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     }
     const room = await getRaceRoom(roomId);
     const memberIds = room?.memberships.map((m) => m.userId) ?? [];
-    const devices = await listChatDeviceKeysForUsers(memberIds);
+    let identityCount = 0;
+    for (const id of memberIds) {
+      if (await getChatUserIdentity(id)) identityCount += 1;
+    }
     return reply.send({
       memberCount: memberIds.length,
-      deviceCount: devices.length,
+      identityCount,
       streamConfigured: Boolean(readStreamCredentials())
     });
   });

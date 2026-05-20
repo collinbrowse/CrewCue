@@ -849,50 +849,82 @@ export function chatChannelIdForRoom(roomId: string): string {
   return `crew-${roomId}`;
 }
 
-/** A device public key registered for E2E key wrapping. */
-export interface ChatDeviceKey {
-  /** Stable per-install device id chosen by the client. */
-  deviceId: string;
-  /** Owning user id (auth `sub`). */
+/** User identity public key for E2E key wrapping (one per Auth0 sub). */
+export interface ChatUserIdentity {
   userId: string;
-  /** Curve25519 public key (base64). */
   publicKey: string;
-  /** Last time this device renewed its registration. */
   registeredAt: string;
 }
 
-export interface ChatDeviceKeyRegistration {
-  deviceId: string;
+export interface ChatUserIdentityRegistration {
   publicKey: string;
 }
 
+/** Encrypted identity + room-key snapshot stored on the API (ciphertext only). */
+export interface ChatIdentityBackup {
+  userId: string;
+  ciphertext: string;
+  nonce: string;
+  version: number;
+  updatedAt: string;
+}
+
+export interface ChatIdentityBackupUpload {
+  ciphertext: string;
+  nonce: string;
+  version: number;
+}
+
+/** Per-room key entry inside the decrypted backup payload. */
+export interface ChatRoomKeySnapshot {
+  keyB64: string;
+  keyVersion: number;
+}
+
+/** JSON inside backup ciphertext after local secretbox decrypt. */
+export interface ChatBackupPayloadV1 {
+  identitySecretB64: string;
+  roomKeys: Record<string, ChatRoomKeySnapshot>;
+}
+
 /**
- * Per-recipient envelope: the symmetric channel key wrapped to a single device
- * public key using libsodium `crypto_box`. Multiple envelopes (one per member
- * device) are stored per room, allowing any device to unwrap the channel key.
+ * Per-recipient envelope: the symmetric channel key wrapped to a member's
+ * identity public key using libsodium `crypto_box`.
  */
 export interface ChatKeyEnvelope {
   roomId: string;
   recipientUserId: string;
-  recipientDeviceId: string;
   /** Author's ephemeral public key used to wrap (base64). */
   senderEphemeralPublicKey: string;
   /** Box nonce (base64). */
   nonce: string;
   /** Encrypted channel key bytes (base64). */
   ciphertext: string;
-  /** Monotonic version counter; incremented on every key rotation. */
+  /** Monotonic version counter; incremented on member remove rotation. */
   keyVersion: number;
   createdAt: string;
 }
 
 export interface ChatKeyEnvelopeUpload {
   recipientUserId: string;
-  recipientDeviceId: string;
   senderEphemeralPublicKey: string;
   nonce: string;
   ciphertext: string;
   keyVersion: number;
+}
+
+export type ChatPushPlatform = "ios" | "android" | "web";
+
+/** Push device registration (transport only — not used for crypto). */
+export interface ChatPushDeviceRegistration {
+  deviceId: string;
+  platform: ChatPushPlatform;
+  token: string;
+}
+
+export interface ChatPushDeviceRecord extends ChatPushDeviceRegistration {
+  userId: string;
+  registeredAt: string;
 }
 
 export type ChatNotificationPref = "all" | "mentions" | "none";
@@ -904,19 +936,11 @@ export interface ChatNotificationPrefRecord {
   updatedAt: string;
 }
 
-export type ChatPushPlatform = "ios" | "android" | "web";
+/** @deprecated Use ChatPushDeviceRegistration */
+export type ChatPushTokenRegistration = ChatPushDeviceRegistration;
 
-export interface ChatPushTokenRegistration {
-  deviceId: string;
-  platform: ChatPushPlatform;
-  /** APNs device token or FCM registration id. */
-  token: string;
-}
-
-export interface ChatPushTokenRecord extends ChatPushTokenRegistration {
-  userId: string;
-  registeredAt: string;
-}
+/** @deprecated Use ChatPushDeviceRecord */
+export type ChatPushTokenRecord = ChatPushDeviceRecord;
 
 /**
  * Stream Chat push webhook payload (subset). The server uses this to fan out
