@@ -16,6 +16,7 @@
     "build": "npm run build --workspaces --if-present",
     "smoke:mobile:android": "node scripts/mobile-android-deeplink-smoke.mjs",
     "smoke:mobile:ios": "node scripts/mobile-ios-deeplink-smoke.mjs",
+    "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:memory": "npm run test:memory -w @crewcue/api",
     "test:pg": "npm run test:pg -w @crewcue/api",

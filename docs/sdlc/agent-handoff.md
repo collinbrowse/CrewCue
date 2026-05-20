@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Active (2026-05-20): iOS simulator agent QA (**branch `chore/ios-simulator-agent-qa`**, supersedes PR [#285](https://github.com/collinbrowse/CrewCue/pull/285), **Closes** [#284](https://github.com/collinbrowse/CrewCue/issues/284))
+
+- **Added:** `.xcodebuildmcp/config.yaml`, `npm run agent:ios:ready`, rule `mobile-simulator-agent-qa`, skill `ios-simulator-agent-qa`, `docs/sdlc/ios-simulator-agent-qa.md`, PR template sim evidence (PR-only).
+- **Policy:** Mobile UI not done without sim proof; human blockers → stop with options.
+
 ## Recent (2026-05-20): API regression — `POST /race-rooms` idempotency (PR [#286](https://github.com/collinbrowse/CrewCue/pull/286), branch `cursor/regression-test-coverage-9f1d`)
 
 - **Added:** Injected route tests prove the same `Idempotency-Key` + body replays the original `201` and room id; reusing the key with a different body returns `409`.
@@ -63,5 +68,5 @@ Regression coverage hardening after the platform epic on `main`. PR #286 adds de
 ## Successor prompt
 
 ```text
-On cursor/regression-test-coverage-9f1d: confirm PR #286 merges cleanly after main handoff resolution, CI green, link issue if required. Then open the next coverage slice for PUT /course and manual-stop idempotency (Postgres retries).
+Merge chore/ios-simulator-agent-qa PR (Closes #284); close superseded #285. Mobile UI tasks: npm run agent:ios:ready + XcodeBuildMCP; evidence on PR only.
 ```
