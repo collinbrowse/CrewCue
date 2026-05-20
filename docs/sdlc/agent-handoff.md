@@ -95,7 +95,7 @@ Use this as the minimal continuity file between sessions.
 - Last updated: 2026-05-20 (UTC)
 - **Current roadmap phase:** Regression coverage hardening after platform actions/notices/HTTP idempotency epic **#275 / PR #282** merged to `main` (`80e3843`).
 - **Active branch:** `cursor/regression-test-coverage-9f1d`.
-- **Active PR:** Created/updated from this branch after this handoff update.
+- **Active PR:** [#286](https://github.com/collinbrowse/CrewCue/pull/286).
 - **Active issue:** No new GitHub issue was created by this cron run because only read-only GitHub CLI access was available in-agent; link a tracking issue before merge if repository policy requires one.
 - **Acceptance criteria:** inspect recent merged code, choose one meaningful weak coverage area, add deterministic tests only, run relevant tests plus CI-parity verification, document handoff.
 - **Files changed:** `services/api/src/routes/raceRooms.test.ts` adds route-level API coverage; `docs/sdlc/agent-handoff.md` records continuity.
@@ -124,6 +124,7 @@ Use this as the minimal continuity file between sessions.
 
 - No production behavior changed; residual risk is limited to test-only coverage.
 - GitHub issue creation was not performed because this automation run did not have an allowed write path for issues.
+- Slack notification failed because the Cursor bot is not in `#all-crewcue`; this run's outcome is available in PR #286.
 - Dependency audit warnings remain pre-existing and were not addressed in this test-coverage task.
 
 ## Guardrails
