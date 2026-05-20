@@ -28,8 +28,18 @@ function installTweetnaclPrng(): void {
     nacl.setPRNG((x, n) => {
       x.set(randomBytes(n));
     });
+    return;
   } catch {
-    // Node tests without node:crypto resolution still get Web Crypto in modern runtimes.
+    // Metro / RN bundle may not resolve `node:crypto`.
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getRandomBytes } = require("expo-crypto") as typeof import("expo-crypto");
+    nacl.setPRNG((x, n) => {
+      x.set(getRandomBytes(n));
+    });
+  } catch {
+    // Node tests without expo-crypto still get Web Crypto when available.
   }
 }
 

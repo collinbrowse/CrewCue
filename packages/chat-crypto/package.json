@@ -13,8 +13,17 @@
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
+    "expo-crypto": "~55.0.14",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1"
+  },
+  "peerDependencies": {
+    "expo-crypto": ">=13.0.0"
+  },
+  "peerDependenciesMeta": {
+    "expo-crypto": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "tsx": "^4.20.0",
