@@ -1,17 +1,7 @@
 import * as SecureStore from "../storage/secureStorage";
+import type { OutboxOperation, OutboxOperationStatus, OutboxOperationType } from "./outboxTypes";
 
-export type OutboxOperationType = "ping" | "task" | "protocol" | "checkpoint";
-export type OutboxOperationStatus = "pending" | "sent" | "rejected" | "conflict";
-
-export type OutboxOperation = {
-  id: string;
-  type: OutboxOperationType;
-  payload: any;
-  attempts: number;
-  status: OutboxOperationStatus;
-  feedback?: string;
-  updatedAt?: string;
-};
+export type { OutboxOperation, OutboxOperationStatus, OutboxOperationType } from "./outboxTypes";
 
 const OUTBOX_STORE_KEY = "crewcue.sync.outbox";
 
@@ -85,6 +75,16 @@ export async function enqueue(operation: OutboxOperation): Promise<void> {
   }
 
   await persist(operations);
+}
+
+import { mergeOutboxByConflictKey } from "./outboxMerge";
+
+export { mergeOutboxByConflictKey } from "./outboxMerge";
+
+/** Merge by `conflictKey`: replace an existing pending op with the same key. */
+export async function enqueueWithConflictKey(operation: OutboxOperation, conflictKey: string): Promise<void> {
+  const operations = await list();
+  await persist(mergeOutboxByConflictKey(operations, operation, conflictKey));
 }
 
 export async function dequeue(id: string): Promise<void> {

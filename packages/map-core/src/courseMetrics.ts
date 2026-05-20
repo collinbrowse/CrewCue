@@ -330,6 +330,9 @@ export function checkpointsWithProjectedDistances(
 
   const cumulative = geodesicCumulativeAtVertices(canonical);
   const courseLengthMeters = cumulative[cumulative.length - 1] ?? 0;
+  const routeStart = canonical[0]!;
+  const routeEnd = canonical[canonical.length - 1]!;
+  const firstCheckpointAnchorsStart = checkpointIsAtRouteStart(checkpoints[0]!, routeStart);
   let minProgressMeters = 0;
   let firstCheckpointAnchoredAtRouteStart = false;
   const result: RaceCourseCheckpoint[] = [];
@@ -381,7 +384,11 @@ export function checkpointsWithProjectedDistances(
   if (result.length >= 2 && firstCheckpointAnchoredAtRouteStart) {
     const firstCp = checkpoints[0]!;
     const lastCp = checkpoints[checkpoints.length - 1]!;
-    if (geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M) {
+    if (
+      firstCheckpointAnchorsStart &&
+      geodesicDistanceMeters(firstCp, lastCp) <= LOOP_START_FINISH_MAX_SEPARATION_M &&
+      geodesicDistanceMeters(lastCp, routeEnd) <= LOOP_START_FINISH_MAX_SEPARATION_M
+    ) {
       const lastIx = result.length - 1;
       result[lastIx] = {
         ...result[lastIx]!,

@@ -202,11 +202,16 @@ async function processOutboxOperation(
 
   if (operation.type === "checkpoint" && isOutboxCheckpointPayload(operation.payload)) {
     if (operation.payload.action === "manual_stop") {
-      await client.postManualCheckpointStop(operation.payload.roomId, operation.payload.checkpointId, {
-        arrivalAt: operation.payload.arrivalAt,
-        departureAt: operation.payload.departureAt,
-        ...(operation.payload.note ? { note: operation.payload.note } : {})
-      });
+      await client.postManualCheckpointStop(
+        operation.payload.roomId,
+        operation.payload.checkpointId,
+        {
+          arrivalAt: operation.payload.arrivalAt,
+          departureAt: operation.payload.departureAt,
+          ...(operation.payload.note ? { note: operation.payload.note } : {})
+        },
+        { idempotencyKey: operation.id }
+      );
       return {
         roomId: operation.payload.roomId,
         label: "checkpoint manual stop",

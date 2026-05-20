@@ -30,7 +30,6 @@ import {
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Modal,
@@ -49,6 +48,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Channel, Event as StreamEvent, MessageResponse, StreamChat } from "stream-chat";
 import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
+import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { decryptIncoming, encryptOutgoing } from "../features/chat/chatChannel";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
@@ -141,6 +141,7 @@ export function CrewChatScreen(): ReactElement {
   const [channelKey, setChannelKey] = useState<{ keyB64: string; keyVersion: number } | undefined>();
   const [messages, setMessages] = useState<ChatViewMessage[]>([]);
   const [composer, setComposer] = useState("");
+  const [composerError, setComposerError] = useState<string | undefined>();
   const [pendingImage, setPendingImage] = useState<PickedImage | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -528,6 +529,7 @@ export function CrewChatScreen(): ReactElement {
     if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
     const trimmed = composer.trim();
     if (!trimmed && !pendingImage) return;
+    setComposerError(undefined);
     setReactionOverlay(undefined);
     scrollEndAfterOutgoingRef.current = true;
     const mentioned = extractMentionedUserIds(trimmed, memberships);
@@ -572,7 +574,7 @@ export function CrewChatScreen(): ReactElement {
       const picked = await pickGalleryImage();
       if (picked) setPendingImage(picked);
     } catch {
-      Alert.alert("Image picker", "Could not open gallery.");
+      setComposerError(getErrorMessage("unknown"));
     }
   };
 
@@ -582,7 +584,7 @@ export function CrewChatScreen(): ReactElement {
     try {
       await channel.sendReaction(messageId, { type });
     } catch (e) {
-      Alert.alert("Reaction failed", humanizeError(e));
+      setComposerError(mapApiError(e).message);
     }
   };
 
@@ -758,9 +760,15 @@ export function CrewChatScreen(): ReactElement {
       ) : null}
       <Composer
         value={composer}
-        onChange={setComposer}
+        onChange={(value) => {
+          setComposer(value);
+          if (composerError) {
+            setComposerError(undefined);
+          }
+        }}
         memberships={memberships}
         pendingImage={pendingImage}
+        composerError={composerError}
         onClearImage={() => setPendingImage(undefined)}
         onPickImage={handlePickImage}
         onSend={handleSend}
@@ -787,6 +795,7 @@ type ComposerProps = {
   onChange: (v: string) => void;
   memberships: MentionMember[];
   pendingImage: PickedImage | undefined;
+  composerError?: string;
   onClearImage: () => void;
   onPickImage: () => Promise<void>;
   onSend: () => Promise<void>;
@@ -854,6 +863,11 @@ function Composer(props: ComposerProps): ReactElement {
             <Ionicons name="close-circle" size={22} color={theme.color.text} />
           </Pressable>
         </View>
+      ) : null}
+      {props.composerError ? (
+        <Text style={styles.composerError} accessibilityRole="alert">
+          {props.composerError}
+        </Text>
       ) : null}
       <View style={styles.composerRow}>
         <Pressable
@@ -1478,6 +1492,7 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     reactionPillInnerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
     reactionPillEmojiTouch: { paddingHorizontal: 6, paddingVertical: 2 },
     composer: { gap: 6, paddingBottom: 8 },
+    composerError: { color: theme.color.danger, fontSize: 13, lineHeight: 18 },
     composerRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     composerInput: {
       flex: 1,

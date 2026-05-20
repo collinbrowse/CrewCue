@@ -11,6 +11,7 @@ test("secondsForDistance converts meters with pace", () => {
 test("formatRemainingMinutes keeps compact hour/min output", () => {
   assert.equal(formatRemainingMinutes(65 * 60), "1H 5M");
   assert.equal(formatRemainingMinutes(8 * 60), "8M");
+  assert.equal(formatRemainingMinutes(2 * 60 * 60), "2H");
 });
 
 test("formatEtaClock returns placeholder for invalid values", () => {

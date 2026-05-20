@@ -17,6 +17,9 @@
       ],
       "@crewcue/map-core": [
         "../../packages/map-core/src/index.ts"
+      ],
+      "@crewcue/platform-client": [
+        "../../packages/platform-client/src/index.ts"
       ]
     }
   },

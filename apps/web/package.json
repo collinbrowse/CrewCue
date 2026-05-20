@@ -14,6 +14,7 @@
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
     "@crewcue/map-core": "0.1.0",
+    "@crewcue/platform-client": "0.1.0",
     "maplibre-gl": "^5.13.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
