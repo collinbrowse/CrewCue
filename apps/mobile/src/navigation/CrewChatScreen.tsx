@@ -659,7 +659,9 @@ export function CrewChatScreen(): ReactElement {
         {isChatHistoryLoading && messages.length === 0 ? (
           <View style={styles.historyLoading} accessibilityRole="progressbar" accessibilityLabel="Loading chat">
             <ActivityIndicator size="large" color={theme.color.primary} />
-            <Text style={styles.historyLoadingText}>Loading messages…</Text>
+            <Text style={styles.historyLoadingText}>
+              {error?.toLowerCase().includes("sync") ? "Syncing secure chat…" : "Loading messages…"}
+            </Text>
           </View>
         ) : null}
         <FlatList

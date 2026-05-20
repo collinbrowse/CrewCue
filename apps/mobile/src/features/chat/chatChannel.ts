@@ -1,122 +1,60 @@
 /**
- * Channel-level orchestration: bootstrap the channel symmetric key for a
- * room (generate-and-distribute on first send, otherwise unwrap from server),
- * encrypt outgoing payloads, decrypt incoming ones.
- *
- * Public API is intentionally narrow: the chat screen calls
- *   - `bootstrapChannelKey(api, roomId, members)` once when the screen mounts
- *   - `encryptOutgoing(roomId, body)` for each send
- *   - `decryptIncoming(roomId, encrypted)` for each rendered message
+ * Channel-level encrypt/decrypt and room-key bootstrap via @crewcue/chat-crypto.
  */
 import type { ApiClient } from "../../api/client";
 import {
-  decodeChannelKey,
+  decodeRoomKey,
   decryptMessage,
-  encodeChannelKey,
+  encodeRoomKey,
   encryptMessage,
-  generateChannelKey,
-  unwrapChannelKey,
-  wrapChannelKeyForDevice,
+  ensureRoomKeyReady,
   type EncryptedMessage,
-  type WrappedChannelKey
-} from "./crypto";
-import { ensureDeviceIdentity, loadChannelKey, saveChannelKey } from "./keyStore";
+  type RoomMemberIdentity
+} from "@crewcue/chat-crypto";
+import { chatSecureStorageAdapter } from "./secureStorageAdapter";
 
-export type ChannelMember = {
-  userId: string;
-  /** Map of deviceId -> base64 public key. */
-  devices: { deviceId: string; publicKey: string }[];
-};
+export type ChannelMember = RoomMemberIdentity;
 
-async function uploadKeyEnvelopesForMembers(
-  api: ApiClient,
-  roomId: string,
-  members: ChannelMember[],
-  keyB64: string,
-  keyVersion: number
-): Promise<void> {
-  const keyBytes = decodeChannelKey(keyB64);
-  const envelopes = [];
-  for (const member of members) {
-    for (const device of member.devices) {
-      const wrapped = wrapChannelKeyForDevice(keyBytes, device.publicKey, keyVersion);
-      envelopes.push({
-        recipientUserId: member.userId,
-        recipientDeviceId: device.deviceId,
-        senderEphemeralPublicKey: wrapped.senderEphemeralPublicKeyB64,
-        nonce: wrapped.nonceB64,
-        ciphertext: wrapped.ciphertextB64,
-        keyVersion
-      });
-    }
-  }
-  if (envelopes.length > 0) {
-    // Persistence layer upserts by (room, recipient, device, version), so this
-    // is safe to call repeatedly and naturally backfills newly added devices.
-    await api.uploadChatKeyEnvelopes(roomId, envelopes);
-  }
+function apiToChatCrypto(api: ApiClient) {
+  return {
+    registerIdentity: (publicKey: string) => api.registerChatIdentity({ publicKey }),
+    fetchIdentity: (userId: string) => api.getChatUserIdentity(userId),
+    uploadIdentityBackup: (upload: { ciphertext: string; nonce: string; version: number }) =>
+      api.uploadChatIdentityBackup(upload),
+    fetchIdentityBackup: () => api.getChatIdentityBackup(),
+    listKeyEnvelopes: (roomId: string) => api.listChatKeyEnvelopes(roomId),
+    uploadKeyEnvelopes: (roomId: string, envelopes: Parameters<ApiClient["uploadChatKeyEnvelopes"]>[1]) =>
+      api.uploadChatKeyEnvelopes(roomId, envelopes)
+  };
 }
 
-/**
- * Produce a channel key for `roomId`:
- *   1) try local SecureStore cache;
- *   2) try fetching an existing wrapped envelope for this device from server;
- *   3) generate a new key, wrap it for every member device, upload envelopes.
- */
 export async function bootstrapChannelKey(
   api: ApiClient,
   roomId: string,
   members: ChannelMember[]
 ): Promise<{ keyB64: string; keyVersion: number }> {
-  const cached = await loadChannelKey(roomId);
-
-  const identity = await ensureDeviceIdentity();
-  await api.registerChatDevice({
-    deviceId: identity.deviceId,
-    publicKey: identity.keyPair.publicKeyB64
-  });
-
-  if (cached) {
-    await uploadKeyEnvelopesForMembers(api, roomId, members, cached.keyB64, cached.keyVersion);
-    return cached;
-  }
-
-  const fromServer = await api.listChatKeyEnvelopesForDevice(roomId, identity.deviceId);
-  if (fromServer.envelopes.length > 0) {
-    const latest = fromServer.envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc));
-    const envelope: WrappedChannelKey = {
-      ciphertextB64: latest.ciphertext,
-      nonceB64: latest.nonce,
-      senderEphemeralPublicKeyB64: latest.senderEphemeralPublicKey,
-      keyVersion: latest.keyVersion
-    };
-    const unwrapped = unwrapChannelKey(envelope, identity.keyPair.secretKeyB64);
-    if (unwrapped) {
-      const keyB64 = encodeChannelKey(unwrapped);
-      await saveChannelKey(roomId, keyB64, latest.keyVersion);
-      await uploadKeyEnvelopesForMembers(api, roomId, members, keyB64, latest.keyVersion);
-      return { keyB64, keyVersion: latest.keyVersion };
+  let attempt = 0;
+  for (;;) {
+    const result = await ensureRoomKeyReady(chatSecureStorageAdapter, apiToChatCrypto(api), roomId, members, {
+      retryAttempt: attempt
+    });
+    if (result.status === "ready" || result.status === "catastrophic_rekey") {
+      return result.material;
     }
+    attempt += 1;
+    if (attempt > 3) {
+      throw new Error("Syncing secure chat…");
+    }
+    await new Promise((r) => setTimeout(r, 400 * attempt));
   }
-
-  if (typeof fromServer.latestRoomKeyVersion === "number" && fromServer.latestRoomKeyVersion > 0) {
-    throw new Error(
-      "This device is missing the room key. Open this chat on a device that can already read messages, then retry here."
-    );
-  }
-
-  const newKey = generateChannelKey();
-  const keyVersion = 1;
-  const keyB64 = encodeChannelKey(newKey);
-  await uploadKeyEnvelopesForMembers(api, roomId, members, keyB64, keyVersion);
-  await saveChannelKey(roomId, keyB64, keyVersion);
-  return { keyB64, keyVersion };
 }
 
 export function encryptOutgoing(keyB64: string, body: string, keyVersion: number): EncryptedMessage {
-  return encryptMessage(body, decodeChannelKey(keyB64), keyVersion);
+  return encryptMessage(body, decodeRoomKey(keyB64), keyVersion);
 }
 
 export function decryptIncoming(keyB64: string, payload: EncryptedMessage): string | null {
-  return decryptMessage(payload, decodeChannelKey(keyB64));
+  return decryptMessage(payload, decodeRoomKey(keyB64));
 }
+
+export { encodeRoomKey as encodeChannelKey, decodeRoomKey as decodeChannelKey };

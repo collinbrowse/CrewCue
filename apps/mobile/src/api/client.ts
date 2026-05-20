@@ -1,8 +1,9 @@
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
-  ChatDeviceKey,
+  ChatIdentityBackup,
   ChatKeyEnvelope,
+  ChatUserIdentity,
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushPlatform,
@@ -475,19 +476,36 @@ export function createApiClient(options: ApiClientOptions) {
         "/chat/stream-token",
         input?.roomId ? { roomId: input.roomId } : undefined
       ),
-    registerChatDevice: (input: { deviceId: string; publicKey: string }) =>
-      request<ChatDeviceKey>(options, "POST", "/chat/devices", input),
-    listChatDevicesForUser: (userId: string) =>
-      request<{ devices: ChatDeviceKey[] }>(
-        options,
-        "GET",
-        `/chat/users/${encodeURIComponent(userId)}/devices`
-      ),
+    registerChatIdentity: (input: { publicKey: string }) =>
+      request<ChatUserIdentity>(options, "POST", "/chat/identity", input),
+    getChatUserIdentity: async (userId: string) => {
+      try {
+        return await request<ChatUserIdentity>(
+          options,
+          "GET",
+          `/chat/users/${encodeURIComponent(userId)}/identity`
+        );
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return undefined;
+        throw err;
+      }
+    },
+    uploadChatIdentityBackup: (input: { ciphertext: string; nonce: string; version: number }) =>
+      request<ChatIdentityBackup>(options, "POST", "/chat/identity/backup", input),
+    getChatIdentityBackup: async () => {
+      try {
+        return await request<ChatIdentityBackup>(options, "GET", "/chat/identity/backup");
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) return undefined;
+        throw err;
+      }
+    },
+    registerChatPushDevice: (input: { deviceId: string; platform: ChatPushPlatform; token: string }) =>
+      request<ChatPushTokenRecord>(options, "POST", "/chat/devices", input),
     uploadChatKeyEnvelopes: (
       roomId: string,
       envelopes: Array<{
         recipientUserId: string;
-        recipientDeviceId: string;
         senderEphemeralPublicKey: string;
         nonce: string;
         ciphertext: string;
@@ -500,11 +518,11 @@ export function createApiClient(options: ApiClientOptions) {
         `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes`,
         { envelopes }
       ),
-    listChatKeyEnvelopesForDevice: (roomId: string, deviceId: string) =>
+    listChatKeyEnvelopes: (roomId: string) =>
       request<{ envelopes: ChatKeyEnvelope[]; latestRoomKeyVersion?: number }>(
         options,
         "GET",
-        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes?deviceId=${encodeURIComponent(deviceId)}`
+        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes`
       ),
     getChatNotificationPref: (roomId: string) =>
       request<{ preference: ChatNotificationPref; updatedAt?: string }>(

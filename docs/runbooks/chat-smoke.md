@@ -12,11 +12,12 @@ Phase 7 acceptance: a single operator can run through this list on staging in un
 ## 1. First-launch encryption bootstrap
 
 1. Cold-start the app on Device A. Open the Chat tab.
-2. Confirm the channel loads with no banner saying "Couldn't decrypt messages."
-3. Send a plain-text message ("hello from A").
-4. On Device B, foreground the app within 10 seconds.
-5. **Pass:** Device B sees the message instantly with the correct sender label and bubble alignment (others-left).
-6. **Pass:** Device A sees the read-by-everyone indicator after Device B's app has scrolled the message into view.
+2. Confirm the channel loads (may show "Syncing secure chat…" briefly while keys distribute).
+3. Confirm there is **no** fatal "missing room key" error — reinstall recovery uses encrypted identity backup + server envelopes (ADR 0006).
+4. Send a plain-text message ("hello from A").
+5. On Device B, foreground the app within 10 seconds.
+6. **Pass:** Device B sees the message instantly with the correct sender label and bubble alignment (others-left).
+7. **Pass:** Device A sees the read-by-everyone indicator after Device B's app has scrolled the message into view.
 
 ## 2. Realtime + typing
 

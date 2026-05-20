@@ -7,8 +7,9 @@ Until this runbook is executed, the OS displays the generic body `New Message in
 ## 1. Prerequisites
 
 - `apps/mobile/eas.json` configured (Phase 1).
-- Device public keys uploaded to `chat_device_keys` and channel keys wrapped in `chat_channel_envelopes` (Phase 2 / Phase 3).
-- Push tokens registered via `POST /chat/push/tokens` (Phase 5).
+- User identity registered at `POST /chat/identity` and encrypted backup at `POST /chat/identity/backup` (ADR 0006).
+- Per-user channel keys wrapped in `chat_channel_envelopes` (not device-scoped).
+- Push devices registered via `POST /chat/devices` or `POST /chat/push/tokens` (transport only).
 - Apple Developer team that supports App Group entitlements.
 - Firebase project with FCM enabled and the `google-services.json` configured for `apps/mobile/android/`.
 
