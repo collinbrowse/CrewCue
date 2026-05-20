@@ -12,6 +12,11 @@ Use this as the minimal continuity file between sessions.
 6. `.cursor/rules/github-pr-issue-workflow.mdc`
 7. `.github/pull_request_template.md`
 
+## Recent (2026-05-16): Critical correctness fix — repeated non-start aid projection
+
+- **Cause:** `checkpointsWithProjectedDistances` unconditionally forced checkpoint index 0 to mile 0 and clamped a matching final checkpoint to course length. Imports with a single repeated non-start aid waypoint (two encounters, no start/finish waypoint) were saved as "aid at start" + "aid at finish", corrupting Pace/map miles for the race.
+- **Fix:** First/last anchoring now only applies when the first checkpoint is actually near the route start; repeated non-start aid passes keep their distinct projected arc positions.
+- **Validation:** `npm test -w @crewcue/map-core` green (33/33, new regression included); root `npm run verify` green.
 ## Recent (**merged** PR [#282](https://github.com/collinbrowse/CrewCue/pull/282) → `main`, merge `80e3843`, **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279)): Platform actions, notices, HTTP idempotency (epic [#275](https://github.com/collinbrowse/CrewCue/issues/275))
 
 - **On `main`:** `@crewcue/platform-client` (`ActionRegistry`, `NoticeBus`, error catalog, map-locate visual); mobile/web `TransientNoticeHost`; `useAction` on Pace/GPX/map; HTTP idempotency (claim/complete/release, migrations `0010`–`0012`, canonical JSON hash); shell errors → `NoticeBus`; CI `db:migrate` before `test:pg`.
@@ -92,6 +97,8 @@ Use this as the minimal continuity file between sessions.
 
 ## Session status snapshot
 
+- Last updated: 2026-05-16 (UTC)
+- **Critical correctness audit:** branch **`cursor/critical-correctness-bugs-b054`** pushed with map-core repeated non-start aid projection fix (`53216aa`); PR pending/open for merge to `main`.
 - Last updated: 2026-05-19 (UTC)
 - **#275 / #282:** Merged to **`main`** via **PR [#282](https://github.com/collinbrowse/CrewCue/pull/282)** (merge `80e3843`). **Closes** [#276](https://github.com/collinbrowse/CrewCue/issues/276)–[#279](https://github.com/collinbrowse/CrewCue/issues/279). Local/remote **`feature/platform-actions-notices`** deleted. **Staging:** `db:migrate` through `0012`.
 - **Critical correctness audit:** **#281** merged (`ad02bc7`); map-core first-checkpoint anchoring on `main`.
@@ -110,6 +117,7 @@ Use this as the minimal continuity file between sessions.
 
 ## Current objective
 
+Daily high-severity correctness audit completed with a narrowly scoped map-core fix for repeated non-start aid waypoint distance corruption.
 Platform actions/notices/idempotency epic delivered on `main` (#282). Next: staging migration soak (`0010`–`0012`) and device smoke for notices + idempotent course save; continue parallel tracks (chat E2E, map/Pace work).
 
 ## Phases delivered (feature/crew-chat-e2e)
@@ -196,6 +204,13 @@ Platform actions/notices/idempotency epic delivered on `main` (#282). Next: stag
 
 ## Next 1-3 tasks
 
+1. Review/merge PR for **`cursor/critical-correctness-bugs-b054`** after CI stays green; this protects single-waypoint repeated-aid imports from being saved as start/finish.
+2. Continue post-#271 staging validation: deploy/re-import Telluride JSON and confirm first Bridal ~4–5 mi, second ~34 mi.
+3. Open separate scoped issues for mobile map polyline mismatch and chat prefetch stale-session cancellation if still desired.
+
+## Validation summary
+
+- **2026-05-16 critical audit:** `npm test -w @crewcue/map-core` — **pass** (33/33); root **`npm run verify`** — **pass**.
 1. Review PR [#281](https://github.com/collinbrowse/CrewCue/pull/281); the PR body includes the bug scenario, impact, root cause, fix, and validation.
 2. Monitor CI; merge only after `checks`/`dual-client-guard` stay green.
 3. After merge/deploy, re-save any affected imported courses whose first checkpoint was incorrectly persisted at mile 0.
@@ -230,6 +245,7 @@ Platform actions/notices/idempotency epic delivered on `main` (#282). Next: stag
 ## Successor prompt
 
 ```text
+Review/merge cursor/critical-correctness-bugs-b054 after CI: map-core now only anchors first/last checkpoints when the first checkpoint is at route start, preserving repeated non-start aid miles. Then continue #271 staging validation/re-import and track separate map polyline mismatch / chat stale-prefetch issues if desired.
 Review PR #281 / branch cursor/critical-correctness-bugs-93fb: verify the first-checkpoint anchoring fix for uploads without explicit Start waypoints and merge only after CI is green.
 Post-merge, re-save/re-import any affected courses whose first aid station was persisted at mile 0.
 ```
