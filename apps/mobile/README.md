@@ -27,6 +27,15 @@ This matches upstream reports (e.g. [expo#42647](https://github.com/expo/expo/is
 
 MapLibre and other native modules require a **development build** (not Expo Go); use `expo-dev-client` after a successful native compile.
 
+## Agent iOS simulator QA (XcodeBuildMCP)
+
+Agents validate mobile UI on a booted simulator before marking work done. Policy: [`docs/sdlc/ios-simulator-agent-qa.md`](../../docs/sdlc/ios-simulator-agent-qa.md).
+
+1. `npx expo prebuild` in this directory (if `ios/` is missing).
+2. `npm run ios -w @crewcue/mobile` once to install the dev client.
+3. From repo root: `npm run agent:ios:ready` then XcodeBuildMCP (`snapshot_ui`, `tap --label`, `screenshot`).
+4. Put proof on the **PR only** (not under `docs/`). Config: `.xcodebuildmcp/config.yaml` at repo root.
+
 ## `Cannot find native module 'ExpoWebBrowser'`
 
 Auth0 uses **`expo-auth-session`**, which depends on **`expo-web-browser`** native code. Metro is loading JS that expects that module inside the **app binary** you opened.

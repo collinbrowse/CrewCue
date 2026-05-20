@@ -65,7 +65,16 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - npm run test
 - npm run smoke:mobile:ios (macOS local smoke; if mobile/deep-link navigation changed)
 - npm run verify (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**)
-- Manual checks (if applicable)
+
+## iOS simulator evidence (required if `apps/mobile` UI changed)
+
+Attach proof here or in PR comments (screenshots, key `snapshot_ui` labels). **Do not commit** evidence files to the repo — it is discarded when the PR closes.
+
+- [ ] `npm run agent:ios:ready` — pass (or **Blocker** below with options)
+- [ ] Acceptance criteria exercised on simulator (XcodeBuildMCP / Maestro)
+- [ ] `npm run verify` — pass
+
+**Blocker (if sim testing stopped):** _what blocked, what was verified, numbered options to proceed_
 
 ## Maintainability Checklist (required)
 

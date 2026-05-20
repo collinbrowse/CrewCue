@@ -1,0 +1,19 @@
+schemaVersion: 1
+enabledWorkflows:
+  - debugging
+  - project-discovery
+  - simulator
+  - simulator-management
+  - ui-automation
+  - utilities
+  - xcode-ide
+debug: false
+sentryDisabled: true
+setupPreferences:
+  platforms:
+    - iOS
+sessionDefaults:
+  workspacePath: apps/mobile/ios/CrewCue.xcworkspace
+  scheme: CrewCue
+  simulatorName: iPhone 16e
+  bundleId: com.crewcue.mobile

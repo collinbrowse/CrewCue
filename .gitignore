@@ -16,6 +16,9 @@ coverage/
 # Local IDE/project artifacts
 .idea/
 
+# Ephemeral agent simulator artifacts — attach to PR only, never commit
+.agent-pr-evidence/
+
 # Expo prebuild output when run from repo root
 /android/
 /ios/
