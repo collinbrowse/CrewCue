@@ -2455,9 +2455,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       if (parsed.data.note) {
         overlapVisit.note = parsed.data.note;
       }
-      if (!overlapVisit.autoDetected && overlapVisit.resolvedSource !== "manual_crew") {
-        overlapVisit.resolvedSource = "manual_crew";
-      }
+      overlapVisit.resolvedSource = "manual_crew";
     } else {
       split.visits.push({
         visitIndex: split.visits.length + 1,
