@@ -11,36 +11,35 @@
 ## Session status snapshot
 
 - Last updated: 2026-05-21 (UTC)
-- **Branch:** `main`
-- **Issue:** [#290](https://github.com/collinbrowse/CrewCue/issues/290) — closed via PR
-- **PR:** [#291](https://github.com/collinbrowse/CrewCue/pull/291) — **merged**
-- **Prior:** [#289](https://github.com/collinbrowse/CrewCue/pull/289) practical E2E crew chat on `main`
+- **Branch:** `fix/primary-on-primary-contrast` (local, uncommitted)
+- **Issue:** [#292](https://github.com/collinbrowse/CrewCue/issues/292) — primary/onPrimary contrast
+- **PR:** none yet
 
 ## Completed (this session)
 
-- **Deep linking fix (#291):** guest vs authed tab linking configs; defer/replay authed deeplinks (`crewcue://chat`, etc.); fixes unhandled `NAVIGATE` toast on guest root.
-- Unit tests: `apps/mobile/src/navigation/linking.test.ts`.
-- Local cleanup: on `main`, deleted merged branch `fix/chat-deeplink-linking-config`.
+- **`onPrimary` theme token:** pairs with `color.primary` (light `primary`, dark `primaryContainer`); fixes Kinetic light ~1.2:1 green-on-green.
+- **Consumers:** `DSButton` primary, own chat bubbles, unseen chip, pace rail checkmark, readouts badge/save spinner.
+- **Test:** `apps/mobile/src/design-system/themeContrast.test.ts` (WCAG AA ≥4.5:1 all systems/modes).
 
 ## Validation evidence
 
-- PR #291 merged (`be6aceb`); Closes #290
-- `npm run lint -w @crewcue/mobile` + linking tests — pass pre-merge
-- iOS sim re-check after dev reload: confirm no RN toast on `crewcue://chat` (authed session)
+- `npm run typecheck -w @crewcue/mobile` — pass
+- `node --import tsx --test src/design-system/themeContrast.test.ts` — pass
+- iOS sim visual check — not run (UI-only token wiring)
 
 ## Next 1-3 tasks
 
-1. **Sim:** Re-open `crewcue://chat` on authed simulator — confirm NAVIGATE toast gone post-merge.
-2. **Optional:** Commit Maestro smoke flows under `apps/mobile/.maestro/` (currently local untracked) or add chat send flow.
-3. **Optional:** `accessibilityLabel="Send"` on chat composer for XcodeBuildMCP label taps.
+1. Commit + PR for #292 (`Closes #292`); run `npm run verify` before push.
+2. Sim: Profile → Color mode primary buttons + own chat bubble text (Kinetic light).
+3. Optional: Maestro smokes / deeplink re-check from prior handoff.
 
 ## Open risks/blockers
 
-- Untracked local: `apps/mobile/.maestro/`, `docs/sdlc/plans/practical-e2e-crew-chat.md` — not on `main`; decide commit vs discard.
-- Legacy chat ciphertext decrypt placeholder until room key re-wrap (ADR 0006).
+- Dark mode uses `onPrimaryContainer` for `onPrimary` token when `primary` maps to container — intentional; test enforces pairing.
+- Untracked: `apps/mobile/.maestro/`, `docs/sdlc/plans/practical-e2e-crew-chat.md`.
 
 ## Successor prompt
 
 ```text
-On main after #291: verify crewcue://chat deeplink on authed iOS sim (no NAVIGATE toast). Optionally PR Maestro smokes from apps/mobile/.maestro/.
+Branch fix/primary-on-primary-contrast: commit, PR Closes #292, npm run verify, iOS sim check Profile color-mode buttons + own chat bubbles (Kinetic light).
 ```

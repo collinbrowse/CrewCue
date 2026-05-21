@@ -750,7 +750,7 @@ export function CrewChatScreen(): ReactElement {
               accessibilityLabel="New messages above, scroll to oldest unseen"
             >
               <Text style={styles.unseenChipText}>New messages</Text>
-              <Ionicons name="arrow-up" size={16} color={theme.color.authPrimaryActionText} />
+              <Ionicons name="arrow-up" size={16} color={theme.color.onPrimary} />
             </Pressable>
           </Animated.View>
         ) : null}
@@ -1011,7 +1011,7 @@ function MessageBubble({
   const styles = makeStyles(theme);
   const bubbleRef = useRef<View | null>(null);
   const bubbleColor = message.isOwn ? theme.color.primary : theme.color.card;
-  const textColor = message.isOwn ? theme.color.authPrimaryActionText : theme.color.text;
+  const textColor = message.isOwn ? theme.color.onPrimary : theme.color.text;
   const ts = formatChatTimestamp(message.sentAt, message.arrivedAt);
   const tokens = parseMentions(message.body ?? "", memberships);
 
@@ -1409,7 +1409,7 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
       backgroundColor: theme.color.primary
     },
     unseenChipText: {
-      color: theme.color.authPrimaryActionText,
+      color: theme.color.onPrimary,
       fontWeight: "600",
       fontSize: 13
     },
