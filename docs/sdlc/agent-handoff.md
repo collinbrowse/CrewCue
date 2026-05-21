@@ -11,9 +11,9 @@
 ## Session status snapshot
 
 - Last updated: 2026-05-21 (UTC)
-- **Branch:** `fix/primary-on-primary-contrast` (local, uncommitted)
+- **Branch:** `fix/primary-on-primary-contrast`
 - **Issue:** [#292](https://github.com/collinbrowse/CrewCue/issues/292) — primary/onPrimary contrast
-- **PR:** none yet
+- **PR:** [#293](https://github.com/collinbrowse/CrewCue/pull/293) — open
 
 ## Completed (this session)
 
@@ -29,7 +29,7 @@
 
 ## Next 1-3 tasks
 
-1. Commit + PR for #292 (`Closes #292`); run `npm run verify` before push.
+1. Merge PR #293 after CI green; optional iOS sim checks in PR test plan.
 2. Sim: Profile → Color mode primary buttons + own chat bubble text (Kinetic light).
 3. Optional: Maestro smokes / deeplink re-check from prior handoff.
 
