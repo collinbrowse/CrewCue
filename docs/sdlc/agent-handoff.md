@@ -13,7 +13,7 @@
 - Last updated: 2026-05-21 (UTC)
 - **Branch:** `fix/map-sheet-peek-height`
 - **Issue:** [#294](https://github.com/collinbrowse/CrewCue/issues/294) — map peek sheet empty space
-- **PR:** (open after push) — map bottom sheet peek height
+- **PR:** [#295](https://github.com/collinbrowse/CrewCue/pull/295) — map bottom sheet peek height
 
 ## Completed (this session)
 
