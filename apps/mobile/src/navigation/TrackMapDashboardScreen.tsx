@@ -305,9 +305,7 @@ export function TrackMapDashboardScreen(): ReactElement {
     });
   }, []);
 
-  /** Handle row: `styles.sheet` paddingTop + `styles.handle` + handle marginBottom, plus a little gap before body. */
-  const SHEET_HANDLE_STACK_PX = 31;
-  const [sheetPeekPx, setSheetPeekPx] = useState(210);
+  const [sheetPeekPx, setSheetPeekPx] = useState(160);
   const badgeBottomFallbackY = insets.top + HEADER_INNER + BADGE_STRIP_FALLBACK_BELOW_HEADER;
   /** Fully expanded: top of sheet = bottom of ON TRACK / LAST PING + same gap as under header. */
   const expandedSheetTopY = (badgeBottomAbs ?? badgeBottomFallbackY) + BADGE_ROW_GAP_BELOW_HEADER;
@@ -324,11 +322,15 @@ export function TrackMapDashboardScreen(): ReactElement {
   /** Collapsed sheet uses positive `translateY`, so the **top** of the panel stays on-screen — stats must sit above the checklist. */
   const hideChecklistInPeek =
     maxSheetTranslate < 6 ? false : sheetTranslate > maxSheetTranslate * 0.82;
+  /** Fully peeked: shrink the sheet box to measured chrome so no empty card shows below stats. */
+  const sheetFullyPeeked =
+    maxSheetTranslate > 6 && sheetTranslate >= maxSheetTranslate * 0.98;
+  const sheetBoxHeight = sheetFullyPeeked ? sheetPeekPx : SHEET_H;
+  const sheetBoxTranslate = sheetFullyPeeked ? 0 : sheetTranslate;
 
-  const onSheetPeekSectionLayout = useCallback(
+  const onSheetPeekChromeLayout = useCallback(
     (e: LayoutChangeEvent) => {
-      const fh = e.nativeEvent.layout.height;
-      const raw = Math.round(SHEET_HANDLE_STACK_PX + fh);
+      const raw = Math.round(e.nativeEvent.layout.height);
       const span = sheetAnchorBottomY - expandedSheetTopY;
       const maxPeek = Math.min(480, Math.max(120, span - 48));
       const minPeek = 120;
@@ -1244,7 +1246,7 @@ export function TrackMapDashboardScreen(): ReactElement {
         fabCol: {
           position: "absolute",
           right: 14,
-          bottom: insets.bottom + (SHEET_H - sheetTranslate) + 16,
+          bottom: insets.bottom + (sheetBoxHeight - sheetBoxTranslate) + 16,
           gap: 12,
           zIndex: 18,
           alignItems: "flex-end"
@@ -1268,16 +1270,16 @@ export function TrackMapDashboardScreen(): ReactElement {
           left: 0,
           right: 0,
           bottom: 0,
-          height: SHEET_H,
+          height: sheetBoxHeight,
           backgroundColor: theme.color.card,
           borderTopLeftRadius: 16,
           borderTopRightRadius: 16,
-          paddingTop: 8,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderColor: theme.color.border,
           zIndex: 25,
-          transform: [{ translateY: sheetTranslate }],
-          flexDirection: "column"
+          transform: [{ translateY: sheetBoxTranslate }],
+          flexDirection: "column",
+          overflow: "hidden"
         },
         handle: {
           alignSelf: "center",
@@ -1380,7 +1382,7 @@ export function TrackMapDashboardScreen(): ReactElement {
         },
         layerSubtitle: { color: theme.color.muted, fontSize: 13, lineHeight: 18 }
       }),
-    [activeMode, insets.top, insets.bottom, SHEET_H, sheetPeekPx, sheetTranslate, theme]
+    [activeMode, insets.top, insets.bottom, sheetBoxHeight, sheetBoxTranslate, sheetPeekPx, theme]
   );
 
   const sheetExpandProgress =
@@ -1536,22 +1538,22 @@ export function TrackMapDashboardScreen(): ReactElement {
       </View>
 
       <View style={styles.sheet}>
-        <View {...panResponder.panHandlers}>
-          <Pressable onPress={cycleSheet} accessibilityRole="button" accessibilityLabel="Expand sheet">
-            <View style={styles.handle} />
-          </Pressable>
-        </View>
-        <View
-          style={{
-            paddingHorizontal: 16,
-            paddingTop: 4,
-            paddingBottom: insets.bottom + 10,
-            flexShrink: 0,
-            borderBottomWidth: hideChecklistInPeek ? 0 : StyleSheet.hairlineWidth,
-            borderBottomColor: theme.color.divider
-          }}
-          onLayout={onSheetPeekSectionLayout}
-        >
+        <View onLayout={onSheetPeekChromeLayout} style={{ flexShrink: 0 }}>
+          <View style={{ paddingTop: 8 }} {...panResponder.panHandlers}>
+            <Pressable onPress={cycleSheet} accessibilityRole="button" accessibilityLabel="Expand sheet">
+              <View style={styles.handle} />
+            </Pressable>
+          </View>
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 4,
+              paddingBottom: sheetFullyPeeked ? 12 : insets.bottom + 10,
+              flexShrink: 0,
+              borderBottomWidth: hideChecklistInPeek ? 0 : StyleSheet.hairlineWidth,
+              borderBottomColor: theme.color.divider
+            }}
+          >
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View style={{ flex: 1, paddingRight: 8 }}>
               {mapSheetPhase === "preStart" ? (
@@ -1642,35 +1644,32 @@ export function TrackMapDashboardScreen(): ReactElement {
               </View>
             </View>
           ) : null}
+          </View>
         </View>
-        <ScrollView
-          style={{
-            flex: hideChecklistInPeek ? 0 : 1,
-            maxHeight: hideChecklistInPeek ? 0 : undefined,
-            opacity: hideChecklistInPeek ? 0 : 1,
-            paddingHorizontal: 16
-          }}
-          contentContainerStyle={{ paddingBottom: 16 + insets.bottom }}
-          scrollEnabled={!hideChecklistInPeek && sheetTranslate < maxSheetTranslate - 2}
-          pointerEvents={hideChecklistInPeek ? "none" : "auto"}
-        >
-          <Text style={styles.checklistTitle}>Aid station checklist</Text>
-          {(projection?.checkpointSplits ?? []).map((row, index) => {
-            const label = checkpointLabel(room, row.checkpointId);
-            const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
-            return (
-              <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
-                <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
-                <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
-                  {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
-                </Text>
-              </View>
-            );
-          })}
-          {projection?.checkpointSplits?.length ? null : (
-            <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
-          )}
-        </ScrollView>
+        {!hideChecklistInPeek ? (
+          <ScrollView
+            style={{ flex: 1, paddingHorizontal: 16 }}
+            contentContainerStyle={{ paddingBottom: 16 + insets.bottom }}
+            scrollEnabled={sheetTranslate < maxSheetTranslate - 2}
+          >
+            <Text style={styles.checklistTitle}>Aid station checklist</Text>
+            {(projection?.checkpointSplits ?? []).map((row, index) => {
+              const label = checkpointLabel(room, row.checkpointId);
+              const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
+              return (
+                <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
+                  <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
+                  <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
+                    {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
+                  </Text>
+                </View>
+              );
+            })}
+            {projection?.checkpointSplits?.length ? null : (
+              <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
+            )}
+          </ScrollView>
+        ) : null}
       </View>
 
       <Modal visible={layersOpen} transparent animationType="fade" onRequestClose={() => setLayersOpen(false)}>
