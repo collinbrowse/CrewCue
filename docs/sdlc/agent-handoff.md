@@ -11,40 +11,38 @@
 ## Session status snapshot
 
 - Last updated: 2026-05-20 (UTC)
-- **Branch:** `feature/practical-e2e-crew-chat` (local, not pushed)
-- **Issue:** [#288](https://github.com/collinbrowse/CrewCue/issues/288) — Practical E2E crew chat
+- **Branch:** `main` (merged)
+- **Issue:** [#288](https://github.com/collinbrowse/CrewCue/issues/288) — closed via PR
+- **PR:** [#289](https://github.com/collinbrowse/CrewCue/pull/289) — **merged** (squash)
 - **Plan:** `docs/sdlc/plans/practical-e2e-crew-chat.md`
 
 ## Completed (this session)
 
-- ADR **0006** practical E2E crew chat (user identity, backup, rotate on remove).
-- Contracts: `ChatUserIdentity`, `ChatIdentityBackup`, user-scoped `ChatKeyEnvelope`, `ChatPushDevice*`.
-- Migration **0013** + `chatPersistence` rewrite (`chat_user_identity`, `chat_identity_backup`, `chat_room_crypto_state`, user envelopes, `chat_push_devices`).
-- API routes: identity, backup, user-scoped envelopes; `/chat/devices` push-only; member remove calls `rotateRoomChannelKey`.
-- Package **`@crewcue/chat-crypto`** with unit tests; mobile wired (`chatKeySync`, `secureStorageAdapter`, no fatal missing-room-key).
-- Runbooks updated (`chat-smoke.md`, `chat-push-decryption.md`).
+- Practical E2E crew chat shipped on `main` (ADR 0006, migration 0013, `@crewcue/chat-crypto`, API identity/backup/user envelopes, mobile key sync).
+- **Staging soak:** `./scripts/staging-soak-chat.sh` PASSED on `https://crewcue-staging.up.railway.app`.
+- **CI:** PR #289 — `checks`, `dual-client-guard`, `api-postgres-integration`, `pr-decision-doc-guard` all pass.
+- **iOS sim:** `crewcue://chat` → TMR 100k; identity path OK; composer/Send visible; legacy messages show decrypt placeholder (expected).
 
 ## Validation evidence
 
-- `npm run verify` — green
-- `npm run test -w @crewcue/chat-crypto` — 5/5
-- `npm run test:memory -w @crewcue/api` — 106 pass (3 skipped)
-- `npm run agent:ios:ready` — OK (sim `3D6B4E19-…`)
-- **iOS chat acceptance:** blocked — sim on guest/deeplink prompt; Auth0 login required for crew chat flows
+- CI `checks` on PR #289 — pass (~5m)
+- Staging chat soak — user-confirmed PASS
+- `npm run agent:ios:ready` — OK; sim chat screen exercised (see PR #289 comment)
+- PR sim notes: https://github.com/collinbrowse/CrewCue/pull/289#issuecomment-4503110891
 
 ## Next 1-3 tasks
 
-1. Push branch, open PR with `Closes #288`, PR sim notes after Auth0 test login (or staging test account).
-2. Staging: `db:migrate` through **0013** before chat soak.
-3. Optional: Maestro flows under `apps/mobile/.maestro/` for chat key sync smoke.
+1. **Staging:** ensure migration **0013** applied in all staging DBs if not already (soak implies yes).
+2. **Optional sim hardening:** add `accessibilityLabel="Send"` on chat composer button for XcodeBuildMCP; Maestro flow for send + plaintext assert.
+3. **Optional:** second device / fresh install to confirm new outbound encrypt-decrypt roundtrip (not blocked for merge).
 
 ## Open risks/blockers
 
-- Full sim chat criteria need authenticated test user (existing human blocker).
-- Member-remove rotation requires remaining clients to re-wrap at new `latestRoomKeyVersion` (foreground `syncAllRoomKeys`).
+- Legacy room ciphertext may remain undecryptable until another member opens chat and re-wraps at current key version.
+- Full AX tree sparse in RN sim — prefer labels on primary actions for agent QA.
 
 ## Successor prompt
 
 ```text
-On branch feature/practical-e2e-crew-chat: push, gh pr create (Closes #288), complete iOS sim chat acceptance with Auth0 test user per docs/sdlc/ios-simulator-agent-qa.md. Staging migrate 0013 before soak.
+On main after #289: optional Maestro chat send smoke; verify new message encrypt/decrypt on two simulators or staging devices. Confirm staging migration 0013 everywhere.
 ```
