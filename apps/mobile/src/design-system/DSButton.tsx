@@ -36,7 +36,7 @@ export function DSButton({
 
   const textColor =
     preset === "primary"
-      ? theme.color.authPrimaryActionText
+      ? theme.color.onPrimary
       : preset === "authPrimary"
       ? theme.color.authPrimaryActionText
       : preset === "authSecondary"

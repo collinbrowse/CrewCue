@@ -28,6 +28,8 @@ export type DSThemeTokens = {
   designSystemName: string;
   color: {
     primary: string;
+    /** Foreground on \`color.primary\` (pairs with light \`primary\` / dark \`primaryContainer\`). */
+    onPrimary: string;
     background: string;
     card: string;
     text: string;
@@ -92,6 +94,7 @@ function toMobileTokens(definition: DesignSystemDefinition, mode: DesignSystemMo
     designSystemName: definition.name,
     color: {
       primary: primaryForeground,
+      onPrimary: mode === "light" ? c.onPrimary : c.onPrimaryContainer,
       background: c.background,
       card: c.surfaceContainer,
       text: c.onSurface,

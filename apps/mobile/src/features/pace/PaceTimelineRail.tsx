@@ -80,7 +80,7 @@ export function PaceTimelineRail({ theme, isActiveLeg, completed, fraction01, va
         ]}
       >
         {completed ? (
-          <Ionicons name="checkmark" size={11} color={color.authPrimaryActionText} />
+          <Ionicons name="checkmark" size={11} color={color.onPrimary} />
         ) : variant === "finish" ? (
           <Ionicons name="flag" size={12} color={color.primary} />
         ) : null}

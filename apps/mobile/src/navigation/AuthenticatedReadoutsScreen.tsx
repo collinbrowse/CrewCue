@@ -766,7 +766,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
         <View style={paceStyles.saveBar}>
           {saveError ? <Text style={s.styles.errorText}>{saveError}</Text> : null}
           <DSButton preset="primary" onPress={() => void onSave()} disabled={!hasEditChanges || saving}>
-            {saving ? <ActivityIndicator color={theme.color.authPrimaryActionText} /> : "Save"}
+            {saving ? <ActivityIndicator color={theme.color.onPrimary} /> : "Save"}
           </DSButton>
         </View>
       ) : null}
@@ -926,7 +926,7 @@ function createPaceStyles(t: DSThemeTokens) {
       borderRadius: radius.full
     },
     inProgressBadgeText: {
-      color: color.authPrimaryActionText,
+      color: color.onPrimary,
       fontSize: 10,
       fontWeight: "800",
       letterSpacing: 0.8,
