@@ -10,38 +10,37 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-05-21 (UTC)
-- **Branch:** `fix/primary-on-primary-contrast` (rebasing on `main` after #295 merge)
-- **Issue:** [#292](https://github.com/collinbrowse/CrewCue/issues/292) — primary/onPrimary contrast
-- **PR:** [#293](https://github.com/collinbrowse/CrewCue/pull/293) — open, conflicts resolved with `main`
+- Last updated: 2026-06-04 (UTC)
+- **Branch:** `cursor/missing-test-coverage-2a80`
+- **Issue:** none created in this run (GitHub CLI is read-only in this environment)
+- **PR:** pending
 
 ## Completed (this session)
 
-- **`onPrimary` theme token (#292):** pairs with `color.primary` (light `primary`, dark `primaryContainer`); fixes Kinetic light ~1.2:1 green-on-green.
-- **Consumers:** `DSButton` primary, own chat bubbles, unseen chip, pace rail checkmark, readouts badge/save spinner.
-- **Test:** `apps/mobile/src/design-system/themeContrast.test.ts` (WCAG AA ≥4.5:1 all systems/modes).
-- **On `main`:** map peek sheet height fix ([#295](https://github.com/collinbrowse/CrewCue/pull/295) / #294) — merged; no code conflict with contrast branch.
+- Added chat route regression coverage in `services/api/src/routes/chatRoutes.test.ts`.
+- Covered identity lookup permission boundaries: self/shared-room members allowed, outsider denied.
+- Covered owner-only chat data purge: crew member denied, owner purge removes key envelopes and notification prefs.
+- Commit pushed: `e968fd4` (`test(api): cover chat identity and purge permissions`).
 
 ## Validation evidence
 
-- `npm run typecheck -w @crewcue/mobile` — pass (pre-merge with main)
-- `node --import tsx --test src/design-system/themeContrast.test.ts` — pass
-- Merge with `origin/main`: handoff-only conflict resolved
-- iOS sim contrast check — not run
+- `npm run test:memory -w @crewcue/api` — pass (`111` tests, `fail 0`; new chat tests `ok 42`, `ok 45`).
+- `npm run verify` — pass; includes workspace lint/typecheck/tests/smoke/build.
 
 ## Next 1-3 tasks
 
-1. Merge PR #293 after CI green on updated branch.
-2. Sim: Profile → Color mode primary buttons + own chat bubble text (Kinetic light).
-3. Optional: Maestro smokes / map peek regression on guest map (`crewcue://guest`).
+1. Open PR for `cursor/missing-test-coverage-2a80` and wait for CI.
+2. If CI differs from local verify, inspect failed job logs and patch on the same branch.
+3. Continue future coverage automation with recent merged API/mobile code paths that changed production behavior without tests.
 
 ## Open risks/blockers
 
-- Dark mode `onPrimary` uses `onPrimaryContainer` when `primary` maps to container — intentional; test enforces pairing.
-- Untracked: `apps/mobile/.maestro/`, `docs/sdlc/plans/`.
+- No production behavior changed.
+- Could not create/link a GitHub issue because the available `gh` CLI is read-only and no issue-creation tool is available.
+- `npm ci` reported existing dependency audit findings; not related to this test-only change.
 
 ## Successor prompt
 
 ```text
-PR #293 fix/primary-on-primary-contrast: merged main (post #295). Push conflict resolution, confirm CI green, merge Closes #292. Optional iOS sim: Profile color-mode buttons + own chat bubbles (Kinetic light).
+Coverage PR on cursor/missing-test-coverage-2a80: chat route tests added for identity lookup permissions and owner-only chat data purge. Local `npm run test:memory -w @crewcue/api` and `npm run verify` pass. Monitor PR CI; if green, merge per repo process.
 ```
