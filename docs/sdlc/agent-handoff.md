@@ -10,38 +10,37 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-05-21 (UTC)
-- **Branch:** `fix/primary-on-primary-contrast` (rebasing on `main` after #295 merge)
-- **Issue:** [#292](https://github.com/collinbrowse/CrewCue/issues/292) — primary/onPrimary contrast
-- **PR:** [#293](https://github.com/collinbrowse/CrewCue/pull/293) — open, conflicts resolved with `main`
+- Last updated: 2026-06-05 (UTC)
+- **Branch:** `cursor/missing-test-coverage-3538`
+- **Issue:** none provided for this scheduled coverage run
+- **PR:** to be opened for chat-crypto backup restore coverage
 
 ## Completed (this session)
 
-- **`onPrimary` theme token (#292):** pairs with `color.primary` (light `primary`, dark `primaryContainer`); fixes Kinetic light ~1.2:1 green-on-green.
-- **Consumers:** `DSButton` primary, own chat bubbles, unseen chip, pace rail checkmark, readouts badge/save spinner.
-- **Test:** `apps/mobile/src/design-system/themeContrast.test.ts` (WCAG AA ≥4.5:1 all systems/modes).
-- **On `main`:** map peek sheet height fix ([#295](https://github.com/collinbrowse/CrewCue/pull/295) / #294) — merged; no code conflict with contrast branch.
+- Inspected recent merged changes and selected the new `@crewcue/chat-crypto` backup restore path from the practical E2E chat merge as the highest-risk coverage gap.
+- Added regression coverage in `packages/chat-crypto/src/roomKey.test.ts` proving backup restore persists the restored identity and room key.
+- Fixed `restoreIdentityWithBackup` in `packages/chat-crypto/src/roomKey.ts` so the API registers the restored public key after a valid backup, instead of a transient generated identity.
 
 ## Validation evidence
 
-- `npm run typecheck -w @crewcue/mobile` — pass (pre-merge with main)
-- `node --import tsx --test src/design-system/themeContrast.test.ts` — pass
-- Merge with `origin/main`: handoff-only conflict resolved
-- iOS sim contrast check — not run
+- Pre-fix `npm test -w @crewcue/chat-crypto` — failed on new backup restore registration assertion.
+- Post-fix `npm test -w @crewcue/chat-crypto` — pass (6/6).
+- `npm run build -w @crewcue/chat-crypto` — pass.
+- `npm run verify` — pass.
 
 ## Next 1-3 tasks
 
-1. Merge PR #293 after CI green on updated branch.
-2. Sim: Profile → Color mode primary buttons + own chat bubble text (Kinetic light).
-3. Optional: Maestro smokes / map peek regression on guest map (`crewcue://guest`).
+1. Review/merge the coverage PR after GitHub Actions are green.
+2. Continue scheduled coverage sweeps against recent merged code, prioritizing security/data recovery and authorization paths.
+3. Consider adding API-level chat identity backup conflict tests if future persistence work changes backup semantics.
 
 ## Open risks/blockers
 
-- Dark mode `onPrimary` uses `onPrimaryContainer` when `primary` maps to container — intentional; test enforces pairing.
-- Untracked: `apps/mobile/.maestro/`, `docs/sdlc/plans/`.
+- No mobile UI files changed; iOS simulator proof was not required.
+- This run did not create a GitHub issue because no issue was provided and this environment restricts GitHub CLI writes; the PR description should record the scheduled coverage scope.
 
 ## Successor prompt
 
 ```text
-PR #293 fix/primary-on-primary-contrast: merged main (post #295). Push conflict resolution, confirm CI green, merge Closes #292. Optional iOS sim: Profile color-mode buttons + own chat bubbles (Kinetic light).
+Coverage run on cursor/missing-test-coverage-3538 added chat-crypto backup restore regression coverage and fixed restored identity registration. Confirm PR CI green, then merge. Next sweep: inspect newest merged code for untested authz/data-validation/security paths.
 ```
