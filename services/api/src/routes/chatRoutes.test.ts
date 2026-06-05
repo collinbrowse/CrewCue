@@ -60,6 +60,30 @@ async function createActivatedRoom(
   return roomId;
 }
 
+async function inviteAndAcceptMember(
+  app: ReturnType<typeof buildApp>,
+  roomId: string,
+  ownerToken: string,
+  memberToken: string,
+  email = "crew@example.com"
+): Promise<void> {
+  const invite = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email, role: "crew_member" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(invite.statusCode, 201);
+  const inviteToken = (invite.json() as { token: string }).token;
+  const accept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: inviteToken },
+    headers: { authorization: `Bearer ${memberToken}` }
+  });
+  assert.equal(accept.statusCode, 200);
+}
+
 test("chat: identity registration requires auth and persists", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
@@ -91,6 +115,51 @@ test("chat: identity registration requires auth and persists", async () => {
     });
     assert.equal(lookup.statusCode, 200);
     assert.equal((lookup.json() as { publicKey: string }).publicKey, "pk-1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: identity lookup is limited to self or shared room members", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-identity"));
+    const crewToken = app.jwt.sign(buildClaims("crew-identity"));
+    const outsiderToken = app.jwt.sign(buildClaims("outsider-identity"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-identity");
+
+    const crewIdentity = await app.inject({
+      method: "POST",
+      url: "/chat/identity",
+      payload: { publicKey: "pk-crew-shared" },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(crewIdentity.statusCode, 201);
+
+    const outsiderDenied = await app.inject({
+      method: "GET",
+      url: "/chat/users/crew-identity/identity",
+      headers: { authorization: `Bearer ${outsiderToken}` }
+    });
+    assert.equal(outsiderDenied.statusCode, 403);
+
+    await inviteAndAcceptMember(
+      app,
+      roomId,
+      athleteToken,
+      crewToken,
+      "crew-identity@example.com"
+    );
+
+    const sharedMemberLookup = await app.inject({
+      method: "GET",
+      url: "/chat/users/crew-identity/identity",
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(sharedMemberLookup.statusCode, 200);
+    assert.equal((sharedMemberLookup.json() as { publicKey: string }).publicKey, "pk-crew-shared");
   } finally {
     await app.close();
   }
@@ -140,6 +209,94 @@ test("chat: push device registration on /chat/devices", async () => {
     const body = ok.json() as { userId: string; deviceId: string };
     assert.equal(body.userId, "user-push");
     assert.equal(body.deviceId, "dev-1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: only race owner can purge room chat data", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-retention"));
+    const crewToken = app.jwt.sign(buildClaims("crew-retention"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-retention");
+    await inviteAndAcceptMember(app, roomId, athleteToken, crewToken, "crew-retention@example.com");
+
+    const athletePref = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/notification-prefs`,
+      payload: { preference: "mentions" },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(athletePref.statusCode, 200);
+    const crewPref = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/notification-prefs`,
+      payload: { preference: "none" },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(crewPref.statusCode, 200);
+
+    const upload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-retention",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n1",
+            ciphertext: "ct1",
+            keyVersion: 3
+          },
+          {
+            recipientUserId: "crew-retention",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n2",
+            ciphertext: "ct2",
+            keyVersion: 3
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(upload.statusCode, 201);
+
+    const memberDenied = await app.inject({
+      method: "DELETE",
+      url: `/chat/rooms/${roomId}/messages`,
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(memberDenied.statusCode, 403);
+
+    const purged = await app.inject({
+      method: "DELETE",
+      url: `/chat/rooms/${roomId}/messages`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(purged.statusCode, 200);
+    const body = purged.json() as { envelopesPurged: number; prefsPurged: number; roomId: string };
+    assert.equal(body.roomId, roomId);
+    assert.equal(body.envelopesPurged, 2);
+    assert.equal(body.prefsPurged, 2);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(list.statusCode, 200);
+    assert.deepEqual((list.json() as { envelopes: unknown[] }).envelopes, []);
+
+    const defaultPref = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/notification-prefs`,
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(defaultPref.statusCode, 200);
+    assert.equal((defaultPref.json() as { preference: string }).preference, "all");
   } finally {
     await app.close();
   }
