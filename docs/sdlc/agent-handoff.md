@@ -10,38 +10,48 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-05-21 (UTC)
-- **Branch:** `fix/primary-on-primary-contrast` (rebasing on `main` after #295 merge)
-- **Issue:** [#292](https://github.com/collinbrowse/CrewCue/issues/292) — primary/onPrimary contrast
-- **PR:** [#293](https://github.com/collinbrowse/CrewCue/pull/293) — open, conflicts resolved with `main`
+- Last updated: 2026-06-05 (UTC)
+- **Branch:** `cursor/critical-bug-investigation-ac47`
+- **Issue/PR:** none opened; critical-bug sweep only.
+- **Roadmap phase:** maintenance / post-merge regression review.
 
 ## Completed (this session)
 
-- **`onPrimary` theme token (#292):** pairs with `color.primary` (light `primary`, dark `primaryContainer`); fixes Kinetic light ~1.2:1 green-on-green.
-- **Consumers:** `DSButton` primary, own chat bubbles, unseen chip, pace rail checkmark, readouts badge/save spinner.
-- **Test:** `apps/mobile/src/design-system/themeContrast.test.ts` (WCAG AA ≥4.5:1 all systems/modes).
-- **On `main`:** map peek sheet height fix ([#295](https://github.com/collinbrowse/CrewCue/pull/295) / #294) — merged; no code conflict with contrast branch.
+- Reviewed recent main commits for high-severity correctness regressions:
+  - `7645107` primary/onPrimary contrast
+  - `2accf6c` map peek sheet height
+  - `be6aceb` deep-link root alignment
+  - `a725699` practical E2E crew chat
+- Traced chat key-envelope persistence/bootstrap, member-removal key rotation, push preferences, deep-link deferral, and map sheet sizing paths.
+- No concrete critical bug found with a plausible accidental trigger; no product-code fix or PR opened.
 
 ## Validation evidence
 
-- `npm run typecheck -w @crewcue/mobile` — pass (pre-merge with main)
-- `node --import tsx --test src/design-system/themeContrast.test.ts` — pass
-- Merge with `origin/main`: handoff-only conflict resolved
-- iOS sim contrast check — not run
+- `git status --short --branch`, `git log --oneline --decorate -n 20`
+- `git show --stat --oneline --decorate -n 8`
+- Targeted reads/searches:
+  - `services/api/src/routes/chatRoutes.ts`
+  - `services/api/src/lib/chatPersistence.ts`
+  - `packages/chat-crypto/src/roomKey.ts`
+  - `apps/mobile/src/navigation/linking*.ts`
+  - `apps/mobile/src/navigation/TrackMapDashboardScreen.tsx`
+  - `services/api/src/routes/chatRoutes.test.ts`
+- No tests run because no runtime behavior was changed.
 
 ## Next 1-3 tasks
 
-1. Merge PR #293 after CI green on updated branch.
-2. Sim: Profile → Color mode primary buttons + own chat bubble text (Kinetic light).
-3. Optional: Maestro smokes / map peek regression on guest map (`crewcue://guest`).
+1. Continue daily critical-regression sweeps on new merges.
+2. If desired, add non-critical hardening tests for chat envelope recipient membership and map sheet peek/expand behavior.
+3. Run mobile simulator smoke only when a mobile UI fix is actually made.
 
 ## Open risks/blockers
 
-- Dark mode `onPrimary` uses `onPrimaryContainer` when `primary` maps to container — intentional; test enforces pairing.
-- Untracked: `apps/mobile/.maestro/`, `docs/sdlc/plans/`.
+- No critical findings; no PR created per automation safety rule.
+- Chat envelope upload trusts member-supplied recipient IDs/key versions; reviewed as a potential malicious-member DoS/hardening item, not a confirmed critical escaped-review bug.
+- Map sheet and deep-link changes still have limited end-to-end simulator coverage.
 
 ## Successor prompt
 
 ```text
-PR #293 fix/primary-on-primary-contrast: merged main (post #295). Push conflict resolution, confirm CI green, merge Closes #292. Optional iOS sim: Profile color-mode buttons + own chat bubbles (Kinetic light).
+Run the daily critical-bug sweep on commits after 7645107. Only fix/open PR for concrete data-loss/crash/security/significant-breakage scenarios; otherwise report no critical bugs found.
 ```
