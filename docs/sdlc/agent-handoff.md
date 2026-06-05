@@ -11,36 +11,40 @@
 ## Session status snapshot
 
 - Last updated: 2026-06-05 (UTC)
-- **Branch:** `cursor/missing-test-coverage-3538`
-- **Issue:** none provided for this scheduled coverage run
-- **PR:** to be opened for chat-crypto backup restore coverage
+- **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
+- **Branch:** `cursor/critical-bug-investigation-c22b`
+- **Issue:** none created for this automation run.
+- **PR:** #296 — Fix chat crypto backup and rotation data loss.
+- **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
 
-- Inspected recent merged changes and selected the new `@crewcue/chat-crypto` backup restore path from the practical E2E chat merge as the highest-risk coverage gap.
-- Added regression coverage in `packages/chat-crypto/src/roomKey.test.ts` proving backup restore persists the restored identity and room key.
-- Fixed `restoreIdentityWithBackup` in `packages/chat-crypto/src/roomKey.ts` so the API registers the restored public key after a valid backup, instead of a transient generated identity.
+- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
+- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
+- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
+- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
+- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
 
 ## Validation evidence
 
-- Pre-fix `npm test -w @crewcue/chat-crypto` — failed on new backup restore registration assertion.
-- Post-fix `npm test -w @crewcue/chat-crypto` — pass (6/6).
-- `npm run build -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pass.
+- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
+- `npm run typecheck -w @crewcue/chat-crypto` — pass.
+- `npm run verify` — pending post-merge commit.
 
 ## Next 1-3 tasks
 
-1. Review/merge the coverage PR after GitHub Actions are green.
-2. Continue scheduled coverage sweeps against recent merged code, prioritizing security/data recovery and authorization paths.
-3. Consider adding API-level chat identity backup conflict tests if future persistence work changes backup semantics.
+1. Push merge commit and confirm PR #296 CI green.
+2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
+3. Separate critical review of API idempotency partial-failure/retry paths.
 
 ## Open risks/blockers
 
-- No mobile UI files changed; iOS simulator proof was not required.
-- This run did not create a GitHub issue because no issue was provided and this environment restricts GitHub CLI writes; the PR description should record the scheduled coverage scope.
+- No GitHub issue was created for this automation run.
+- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
+- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
 
 ## Successor prompt
 
 ```text
-Coverage run on cursor/missing-test-coverage-3538 added chat-crypto backup restore regression coverage and fixed restored identity registration. Confirm PR CI green, then merge. Next sweep: inspect newest merged code for untested authz/data-validation/security paths.
+PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
 ```

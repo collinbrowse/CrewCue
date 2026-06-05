@@ -11,6 +11,7 @@ import {
   ensureBackupLocalSecret,
   ensureIdentity,
   encryptBackupForUpload,
+  loadAllLocalRoomKeys,
   loadLocalRoomKey,
   restoreIdentityFromBackupPayload,
   saveLocalRoomKey
@@ -33,6 +34,13 @@ export type ChatCryptoApi = {
 };
 
 const MAX_DISTRIBUTE_RETRIES = 3;
+
+function isDeterministicDistributor(identity: IdentityKeyPair, members: RoomMemberIdentity[]): boolean {
+  const self = members.find((member) => member.publicKey === identity.publicKeyB64);
+  if (!self) return false;
+  const firstMember = [...members].sort((a, b) => a.userId.localeCompare(b.userId))[0];
+  return firstMember?.userId === self.userId;
+}
 
 export async function restoreIdentityWithBackup(
   storage: ChatCryptoStorageAdapter,
@@ -115,13 +123,15 @@ export async function ensureRoomKeyReady(
   options?: { retryAttempt?: number }
 ): Promise<EnsureRoomKeyResult> {
   const identity = await restoreIdentityWithBackup(storage, api);
+  const fromServer = await api.listKeyEnvelopes(roomId);
+  const latestVersion = fromServer.latestRoomKeyVersion ?? 0;
   const cached = await loadLocalRoomKey(storage, roomId);
-  if (cached) {
+  if (cached && cached.keyVersion >= latestVersion) {
     await uploadKeyEnvelopesForMembers(api, roomId, members, cached.keyB64, cached.keyVersion);
+    await pushBackupSnapshot(storage, api, identity, roomId, cached);
     return { status: "ready", material: cached };
   }
 
-  const fromServer = await api.listKeyEnvelopes(roomId);
   const envelopeToTry =
     fromServer.envelopes.length > 0
       ? fromServer.envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
@@ -135,7 +145,20 @@ export async function ensureRoomKeyReady(
     }
   }
 
-  const latestVersion = fromServer.latestRoomKeyVersion ?? 0;
+  if (
+    cached &&
+    latestVersion > cached.keyVersion &&
+    fromServer.envelopes.length === 0 &&
+    isDeterministicDistributor(identity, members)
+  ) {
+    const newKey = generateRoomKey();
+    const keyB64 = encodeRoomKey(newKey);
+    await uploadKeyEnvelopesForMembers(api, roomId, members, keyB64, latestVersion);
+    await saveLocalRoomKey(storage, roomId, keyB64, latestVersion);
+    await pushBackupSnapshot(storage, api, identity, roomId, { keyB64, keyVersion: latestVersion });
+    return { status: "ready", material: { keyB64, keyVersion: latestVersion } };
+  }
+
   if (latestVersion === 0) {
     const newKey = generateRoomKey();
     const keyVersion = 1;
@@ -171,11 +194,17 @@ async function pushBackupSnapshot(
   roomId: string,
   material: RoomKeyMaterial
 ): Promise<void> {
-  const allRooms: Record<string, RoomKeyMaterial> = { [roomId]: material };
-  const existing = await loadLocalRoomKey(storage, roomId);
-  if (existing && existing.keyB64 !== material.keyB64) {
-    allRooms[roomId] = material;
+  const allRooms: Record<string, RoomKeyMaterial> = {};
+  const backup = await api.fetchIdentityBackup();
+  if (backup) {
+    const localSecret = await ensureBackupLocalSecret(storage);
+    const payload = decryptBackupFromServer(backup, localSecret);
+    if (payload) {
+      Object.assign(allRooms, payload.roomKeys);
+    }
   }
+  Object.assign(allRooms, await loadAllLocalRoomKeys(storage, [roomId]));
+  allRooms[roomId] = material;
   const upload = await encryptBackupForUpload(storage, identity, allRooms, 1);
   await api.uploadIdentityBackup(upload);
 }

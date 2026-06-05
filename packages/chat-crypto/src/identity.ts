@@ -11,6 +11,7 @@ import type { ChatCryptoStorageAdapter, IdentityKeyPair, RoomKeyMaterial } from 
 const IDENTITY_PUBLIC_KEY = "crewcue.chat.identity.publicKey";
 const IDENTITY_SECRET_KEY = "crewcue.chat.identity.secretKey";
 const BACKUP_LOCAL_SECRET = "crewcue.chat.backup.localSecret";
+const ROOM_KEY_INDEX = "crewcue.chat.roomKeyIndex";
 
 function roomKeyStorageKey(roomId: string): string {
   return `crewcue.chat.roomKey.${roomId}`;
@@ -18,6 +19,40 @@ function roomKeyStorageKey(roomId: string): string {
 
 function roomKeyVersionStorageKey(roomId: string): string {
   return `crewcue.chat.roomKeyVersion.${roomId}`;
+}
+
+async function loadRoomKeyIndex(storage: ChatCryptoStorageAdapter): Promise<string[]> {
+  const raw = await storage.getItem(ROOM_KEY_INDEX);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((roomId): roomId is string => typeof roomId === "string" && roomId.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function saveRoomKeyIndex(storage: ChatCryptoStorageAdapter, roomIds: string[]): Promise<void> {
+  const unique = Array.from(new Set(roomIds.filter((roomId) => roomId.length > 0))).sort();
+  await storage.setItem(ROOM_KEY_INDEX, JSON.stringify(unique));
+}
+
+async function rememberRoomKey(storage: ChatCryptoStorageAdapter, roomId: string): Promise<void> {
+  const known = await loadRoomKeyIndex(storage);
+  if (!known.includes(roomId)) {
+    await saveRoomKeyIndex(storage, [...known, roomId]);
+  }
+}
+
+async function forgetRoomKey(storage: ChatCryptoStorageAdapter, roomId: string): Promise<void> {
+  const known = await loadRoomKeyIndex(storage);
+  if (known.includes(roomId)) {
+    await saveRoomKeyIndex(
+      storage,
+      known.filter((knownRoomId) => knownRoomId !== roomId)
+    );
+  }
 }
 
 export async function ensureBackupLocalSecret(storage: ChatCryptoStorageAdapter): Promise<string> {
@@ -116,6 +151,7 @@ export async function saveLocalRoomKey(
     storage.setItem(roomKeyStorageKey(roomId), keyB64),
     storage.setItem(roomKeyVersionStorageKey(roomId), String(keyVersion))
   ]);
+  await rememberRoomKey(storage, roomId);
 }
 
 export async function loadLocalRoomKey(
@@ -132,9 +168,19 @@ export async function loadLocalRoomKey(
   return { keyB64, keyVersion };
 }
 
-export async function loadAllLocalRoomKeys(storage: ChatCryptoStorageAdapter): Promise<Record<string, RoomKeyMaterial>> {
-  // Storage adapters do not enumerate keys; callers pass known room ids when syncing backup.
-  return {};
+export async function loadAllLocalRoomKeys(
+  storage: ChatCryptoStorageAdapter,
+  roomIds: string[] = []
+): Promise<Record<string, RoomKeyMaterial>> {
+  const allRoomIds = Array.from(new Set([...(await loadRoomKeyIndex(storage)), ...roomIds]));
+  const loaded: Record<string, RoomKeyMaterial> = {};
+  for (const roomId of allRoomIds) {
+    const material = await loadLocalRoomKey(storage, roomId);
+    if (material) {
+      loaded[roomId] = material;
+    }
+  }
+  return loaded;
 }
 
 export async function clearLocalRoomKey(storage: ChatCryptoStorageAdapter, roomId: string): Promise<void> {
@@ -142,4 +188,5 @@ export async function clearLocalRoomKey(storage: ChatCryptoStorageAdapter, roomI
     storage.deleteItem(roomKeyStorageKey(roomId)),
     storage.deleteItem(roomKeyVersionStorageKey(roomId))
   ]);
+  await forgetRoomKey(storage, roomId);
 }
