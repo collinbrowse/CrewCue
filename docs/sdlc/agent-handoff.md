@@ -10,37 +10,37 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-04 (UTC)
-- **Branch:** `cursor/missing-test-coverage-2a80`
-- **Issue:** none created in this run (GitHub CLI is read-only in this environment)
-- **PR:** pending
+- Last updated: 2026-06-05 (UTC)
+- **Branch:** `cursor/missing-test-coverage-3538`
+- **Issue:** none provided for this scheduled coverage run
+- **PR:** to be opened for chat-crypto backup restore coverage
 
 ## Completed (this session)
 
-- Added chat route regression coverage in `services/api/src/routes/chatRoutes.test.ts`.
-- Covered identity lookup permission boundaries: self/shared-room members allowed, outsider denied.
-- Covered owner-only chat data purge: crew member denied, owner purge removes key envelopes and notification prefs.
-- Commit pushed: `e968fd4` (`test(api): cover chat identity and purge permissions`).
+- Inspected recent merged changes and selected the new `@crewcue/chat-crypto` backup restore path from the practical E2E chat merge as the highest-risk coverage gap.
+- Added regression coverage in `packages/chat-crypto/src/roomKey.test.ts` proving backup restore persists the restored identity and room key.
+- Fixed `restoreIdentityWithBackup` in `packages/chat-crypto/src/roomKey.ts` so the API registers the restored public key after a valid backup, instead of a transient generated identity.
 
 ## Validation evidence
 
-- `npm run test:memory -w @crewcue/api` — pass (`111` tests, `fail 0`; new chat tests `ok 42`, `ok 45`).
-- `npm run verify` — pass; includes workspace lint/typecheck/tests/smoke/build.
+- Pre-fix `npm test -w @crewcue/chat-crypto` — failed on new backup restore registration assertion.
+- Post-fix `npm test -w @crewcue/chat-crypto` — pass (6/6).
+- `npm run build -w @crewcue/chat-crypto` — pass.
+- `npm run verify` — pass.
 
 ## Next 1-3 tasks
 
-1. Open PR for `cursor/missing-test-coverage-2a80` and wait for CI.
-2. If CI differs from local verify, inspect failed job logs and patch on the same branch.
-3. Continue future coverage automation with recent merged API/mobile code paths that changed production behavior without tests.
+1. Review/merge the coverage PR after GitHub Actions are green.
+2. Continue scheduled coverage sweeps against recent merged code, prioritizing security/data recovery and authorization paths.
+3. Consider adding API-level chat identity backup conflict tests if future persistence work changes backup semantics.
 
 ## Open risks/blockers
 
-- No production behavior changed.
-- Could not create/link a GitHub issue because the available `gh` CLI is read-only and no issue-creation tool is available.
-- `npm ci` reported existing dependency audit findings; not related to this test-only change.
+- No mobile UI files changed; iOS simulator proof was not required.
+- This run did not create a GitHub issue because no issue was provided and this environment restricts GitHub CLI writes; the PR description should record the scheduled coverage scope.
 
 ## Successor prompt
 
 ```text
-Coverage PR on cursor/missing-test-coverage-2a80: chat route tests added for identity lookup permissions and owner-only chat data purge. Local `npm run test:memory -w @crewcue/api` and `npm run verify` pass. Monitor PR CI; if green, merge per repo process.
+Coverage run on cursor/missing-test-coverage-3538 added chat-crypto backup restore regression coverage and fixed restored identity registration. Confirm PR CI green, then merge. Next sweep: inspect newest merged code for untested authz/data-validation/security paths.
 ```
