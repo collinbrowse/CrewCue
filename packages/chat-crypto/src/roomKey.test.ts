@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ChatKeyEnvelope, ChatUserIdentity } from "@crewcue/contracts";
+import type { ChatBackupPayloadV1, ChatKeyEnvelope, ChatUserIdentity } from "@crewcue/contracts";
 import {
   decodeRoomKey,
   encodeRoomKey,
+  encryptBackupSecret,
   encryptMessage,
   generateIdentityKeyPair,
   generateRoomKey,
@@ -13,10 +14,11 @@ import {
   decryptBackupFromServer,
   ensureBackupLocalSecret,
   ensureIdentity,
+  loadLocalRoomKey,
   saveLocalRoomKey
 } from "./identity.js";
 import type { ChatCryptoStorageAdapter } from "./types.js";
-import { ensureRoomKeyReady, type ChatCryptoApi } from "./roomKey.js";
+import { ensureRoomKeyReady, restoreIdentityWithBackup, type ChatCryptoApi } from "./roomKey.js";
 
 function memoryStorage(): ChatCryptoStorageAdapter & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -195,4 +197,39 @@ test("roomKey: server rotation creates a fresh key instead of re-uploading stale
     envs.map((env) => env.keyVersion),
     [2, 2]
   );
+});
+
+test("roomKey: backup restore registers restored identity and room key", async () => {
+  const storage = memoryStorage();
+  const restoredIdentity = generateIdentityKeyPair();
+  const restoredRoomKey = encodeRoomKey(generateRoomKey());
+  const localSecret = await ensureBackupLocalSecret(storage);
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: restoredIdentity.secretKeyB64,
+    roomKeys: {
+      "room-restored": { keyB64: restoredRoomKey, keyVersion: 7 }
+    }
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), localSecret);
+  const state = {
+    identities: new Map<string, ChatUserIdentity>(),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: {
+      ciphertext: encryptedBackup.ciphertextB64,
+      nonce: encryptedBackup.nonceB64,
+      version: 1
+    }
+  };
+  const api = mockApi(state);
+
+  const identity = await restoreIdentityWithBackup(storage, api);
+
+  assert.equal(identity.publicKeyB64, restoredIdentity.publicKeyB64);
+  assert.equal(identity.secretKeyB64, restoredIdentity.secretKeyB64);
+  assert.equal(state.identities.get("self")?.publicKey, restoredIdentity.publicKeyB64);
+  assert.deepEqual(await loadLocalRoomKey(storage, "room-restored"), {
+    keyB64: restoredRoomKey,
+    keyVersion: 7
+  });
 });

@@ -47,17 +47,20 @@ export async function restoreIdentityWithBackup(
   api: ChatCryptoApi
 ): Promise<IdentityKeyPair> {
   const identity = await ensureIdentity(storage);
-  await api.registerIdentity(identity.publicKeyB64);
   const backup = await api.fetchIdentityBackup();
   if (!backup) {
+    await api.registerIdentity(identity.publicKeyB64);
     return identity;
   }
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
+    await api.registerIdentity(identity.publicKeyB64);
     return identity;
   }
-  return restoreIdentityFromBackupPayload(storage, payload);
+  const restored = await restoreIdentityFromBackupPayload(storage, payload);
+  await api.registerIdentity(restored.publicKeyB64);
+  return restored;
 }
 
 export async function uploadKeyEnvelopesForMembers(
