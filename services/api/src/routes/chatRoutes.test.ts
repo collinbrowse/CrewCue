@@ -403,6 +403,37 @@ test("chat: key-envelope upload requires room membership", async () => {
   }
 });
 
+test("chat: key-envelope upload rejects non-member recipients", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-recipient"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-recipient");
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "outsider-recipient",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n1",
+            ciphertext: "ct1",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+
+    assert.equal(denied.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
 test("chat: member remove rotates key version and clears envelopes", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
