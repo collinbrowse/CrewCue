@@ -199,6 +199,37 @@ test("roomKey: server rotation creates a fresh key instead of re-uploading stale
   );
 });
 
+test("roomKey: non-distributor waits instead of rotating stale cached material", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const bob = generateIdentityKeyPair();
+  const staleKeyB64 = encodeRoomKey(generateRoomKey());
+  const state = {
+    identities: new Map([
+      ["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }],
+      ["bob", { userId: "bob", publicKey: bob.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>([["room-1", 2]])
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", bob.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", bob.secretKeyB64);
+  await saveLocalRoomKey(storage, "room-1", staleKeyB64, 1);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-1", [
+    { userId: "alice", publicKey: alice.publicKeyB64 },
+    { userId: "bob", publicKey: bob.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "syncing");
+  assert.equal(state.envelopes.get("room-1")?.length ?? 0, 0);
+  assert.deepEqual(await loadLocalRoomKey(storage, "room-1"), {
+    keyB64: staleKeyB64,
+    keyVersion: 1
+  });
+});
+
 test("roomKey: backup restore registers restored identity and room key", async () => {
   const storage = memoryStorage();
   const restoredIdentity = generateIdentityKeyPair();
