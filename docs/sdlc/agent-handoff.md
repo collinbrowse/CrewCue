@@ -10,41 +10,39 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
-- **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
-- **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
-- **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
+- Last updated: 2026-06-06 (UTC)
+- **Roadmap phase:** Scheduled regression coverage for practical E2E crew chat hardening.
+- **Branch:** `cursor/missing-test-coverage-6968`
+- **Issue:** none created; this environment has read-only GitHub CLI access and no issue creation tool.
+- **PR:** pending for this branch.
+- **Acceptance criteria:** inspect recent merged risky code, add focused deterministic tests only, avoid production behavior changes, run relevant tests plus local parity verification.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Reviewed recent merged PRs #296, #297, and #298; selected chat-crypto server-rotation behavior as the highest-signal remaining weak coverage.
+- Added a regression test proving a non-deterministic member with stale cached room-key material returns `syncing` and uploads no competing envelopes after server-side rotation.
+- Kept changes test-only in `packages/chat-crypto/src/roomKey.test.ts`; no API, contract, mobile UI, or production crypto behavior changed.
+- Installed locked dependencies with `npm ci` because the clean environment initially lacked `tsx`/`tsc`.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
+- `npm run test -w @crewcue/chat-crypto` — pass (9 tests; new non-distributor stale-key test is `ok 8`).
 - `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- `npm run verify` — pass (lint, typecheck, tests, smoke, workspace builds including Expo export).
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Confirm PR CI remains green after remote checks complete.
+2. Continue future coverage automation on API idempotency partial-failure/retry paths.
+3. Consider direct identity utility coverage for room-key index cleanup if future changes touch backup indexing.
 
 ## Open risks/blockers
 
-- No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- No linked issue exists for this scheduled automation run due GitHub write restrictions in this environment.
+- No iOS simulator run: package-level test-only crypto coverage, no mobile-visible UI behavior changed.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+On branch cursor/missing-test-coverage-6968, PR pending: test-only chat-crypto coverage now asserts stale cached room keys do not rotate from non-deterministic members after server rotation. Verify CI, then merge if green. Next coverage target: API idempotency partial-failure/retry paths.
 ```
