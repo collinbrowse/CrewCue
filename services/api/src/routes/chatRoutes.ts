@@ -279,9 +279,10 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
+    const identity = request.identity;
     const { roomId } = request.params as { roomId: string };
     const room = await getRaceRoom(roomId);
-    if (!room?.memberships.some((m) => m.userId === request.identity.sub)) {
+    if (!room?.memberships.some((m) => m.userId === identity.sub)) {
       return reply.code(403).send({ error: "Not a member of this room" });
     }
     const parsed = envelopeUploadSchema.safeParse(request.body);
