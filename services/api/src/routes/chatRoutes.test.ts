@@ -403,6 +403,73 @@ test("chat: key-envelope upload requires room membership", async () => {
   }
 });
 
+test("chat: key-envelope list only returns envelopes for the caller", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-scope"));
+    const crewToken = app.jwt.sign(buildClaims("crew-scope"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-scope");
+    await inviteAndAcceptMember(app, roomId, athleteToken, crewToken, "crew-scope@example.com");
+
+    const upload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-scope",
+            senderEphemeralPublicKey: "eph-athlete",
+            nonce: "n-athlete",
+            ciphertext: "ct-athlete",
+            keyVersion: 1
+          },
+          {
+            recipientUserId: "crew-scope",
+            senderEphemeralPublicKey: "eph-crew",
+            nonce: "n-crew",
+            ciphertext: "ct-crew",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(upload.statusCode, 201);
+
+    const athleteList = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(athleteList.statusCode, 200);
+    const athleteEnvelopes = (
+      athleteList.json() as { envelopes: Array<{ recipientUserId: string; ciphertext: string }> }
+    ).envelopes;
+    assert.deepEqual(
+      athleteEnvelopes.map(({ recipientUserId, ciphertext }) => ({ recipientUserId, ciphertext })),
+      [{ recipientUserId: "athlete-scope", ciphertext: "ct-athlete" }]
+    );
+
+    const crewList = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(crewList.statusCode, 200);
+    const crewEnvelopes = (
+      crewList.json() as { envelopes: Array<{ recipientUserId: string; ciphertext: string }> }
+    ).envelopes;
+    assert.deepEqual(
+      crewEnvelopes.map(({ recipientUserId, ciphertext }) => ({ recipientUserId, ciphertext })),
+      [{ recipientUserId: "crew-scope", ciphertext: "ct-crew" }]
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("chat: member remove rotates key version and clears envelopes", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
