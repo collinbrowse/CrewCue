@@ -32,10 +32,11 @@
 - `npm run typecheck -w @crewcue/api` — pass.
 - `npm run test:memory -w @crewcue/api` — pass (111 tests: 108 pass, 3 skipped).
 - `npm run verify` — pass, including workspace tests/builds and mobile Expo export.
+- PR #301 CI — pass (`pr-decision-doc-guard`, `dual-client-guard`, `api-postgres-integration`, `checks`).
 
 ## Next 1-3 tasks
 
-1. Confirm PR #301 CI green.
+1. Merge PR #301 when ready.
 2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key on backup decrypt failure.
 3. Continue separate critical review of API idempotency partial-failure/retry paths.
 
@@ -48,5 +49,5 @@
 ## Successor prompt
 
 ```text
-PR #301 on cursor/critical-bug-investigation-084b fixes stale chat key restore/envelope downgrade and unsigned Stream push webhooks; `npm run verify` passes. Monitor CI, then continue optional hardening of backup decrypt-failure identity registration and API idempotency retry paths.
+PR #301 on cursor/critical-bug-investigation-084b fixes stale chat key restore/envelope downgrade and unsigned Stream push webhooks; local `npm run verify` and PR CI pass. Merge when ready, then continue optional hardening of backup decrypt-failure identity registration and API idempotency retry paths.
 ```
