@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
@@ -8,6 +8,18 @@ import { deriveStreamUserId } from "../lib/streamChat.js";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
+}
+
+function signedStreamWebhookPayload(payload: unknown) {
+  const body = JSON.stringify(payload);
+  return {
+    body,
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": "test-key",
+      "x-signature": createHmac("sha256", "test-secret").update(body).digest("hex")
+    }
+  };
 }
 
 async function createActivatedRoom(
@@ -546,6 +558,8 @@ test("chat: notification preferences round-trip with default 'all'", async () =>
 
 test("chat: push webhook respects per-user preferences", async () => {
   _resetChatPersistenceForTests();
+  process.env.STREAM_API_KEY = "test-key";
+  process.env.STREAM_API_SECRET = "test-secret";
   const app = buildApp();
   await app.ready();
   try {
@@ -605,16 +619,26 @@ test("chat: push webhook respects per-user preferences", async () => {
       assert.equal(reg.statusCode, 201);
     }
 
+    const noMentionPayload = {
+      channelId: `crew-${roomId}`,
+      senderUserId: "athlete-3",
+      recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
+      roomId,
+      encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+    };
+    const unsigned = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: noMentionPayload
+    });
+    assert.equal(unsigned.statusCode, 401);
+
+    const signedNoMention = signedStreamWebhookPayload(noMentionPayload);
     const noMention = await app.inject({
       method: "POST",
       url: "/chat/push/webhook",
-      payload: {
-        channelId: `crew-${roomId}`,
-        senderUserId: "athlete-3",
-        recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
-        roomId,
-        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
-      }
+      payload: signedNoMention.body,
+      headers: signedNoMention.headers
     });
     assert.equal(noMention.statusCode, 200);
     const noMentionResult = noMention.json() as {
@@ -626,17 +650,20 @@ test("chat: push webhook respects per-user preferences", async () => {
     assert.ok(!notified.has("user-c"));
     assert.ok(!notified.has("user-d"));
 
+    const withMentionPayload = {
+      channelId: `crew-${roomId}`,
+      senderUserId: "athlete-3",
+      recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
+      roomId,
+      mentionedUserIds: ["user-c"],
+      encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+    };
+    const signedWithMention = signedStreamWebhookPayload(withMentionPayload);
     const withMention = await app.inject({
       method: "POST",
       url: "/chat/push/webhook",
-      payload: {
-        channelId: `crew-${roomId}`,
-        senderUserId: "athlete-3",
-        recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
-        roomId,
-        mentionedUserIds: ["user-c"],
-        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
-      }
+      payload: signedWithMention.body,
+      headers: signedWithMention.headers
     });
     assert.equal(withMention.statusCode, 200);
     const mentionResult = withMention.json() as { tokens: Array<{ userId: string }> };
@@ -645,6 +672,8 @@ test("chat: push webhook respects per-user preferences", async () => {
     assert.ok(mentionNotified.has("user-c"));
     assert.ok(!mentionNotified.has("user-d"));
   } finally {
+    delete process.env.STREAM_API_KEY;
+    delete process.env.STREAM_API_SECRET;
     await app.close();
   }
 });

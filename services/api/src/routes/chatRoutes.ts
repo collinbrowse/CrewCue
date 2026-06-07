@@ -1,7 +1,9 @@
 /**
  * Chat HTTP routes — identity, encrypted backup, user-scoped envelopes, push devices.
  */
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import rawBody from "fastify-raw-body";
 import { z } from "zod";
 import type {
   ChatIdentityBackup,
@@ -110,8 +112,33 @@ async function canReadUserIdentity(requesterId: string, targetUserId: string): P
   return false;
 }
 
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function verifyStreamWebhookSignature(options: {
+  rawBody?: string | Buffer;
+  signature?: string;
+  apiKey?: string;
+}): boolean {
+  const creds = readStreamCredentials();
+  if (!creds || options.apiKey !== creds.apiKey || !options.rawBody || !options.signature) {
+    return false;
+  }
+  const raw = Buffer.isBuffer(options.rawBody)
+    ? options.rawBody
+    : Buffer.from(options.rawBody, "utf8");
+  const expected = createHmac("sha256", creds.apiSecret).update(raw).digest();
+  const supplied = Buffer.from(options.signature.trim(), "hex");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   await initChatPersistence(app.log);
+  await app.register(rawBody, {
+    global: false,
+    runFirst: true
+  });
 
   app.post("/chat/stream-token", async (request, reply) => {
     const identity = request.identity;
@@ -362,45 +389,61 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(record);
   });
 
-  app.post("/chat/push/webhook", async (request, reply) => {
-    const parsed = pushWebhookSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid push webhook payload" });
+  app.post(
+    "/chat/push/webhook",
+    {
+      config: {
+        rawBody: true
+      }
+    },
+    async (request, reply) => {
+      const signed = verifyStreamWebhookSignature({
+        rawBody: request.rawBody,
+        signature: headerValue(request.headers["x-signature"]),
+        apiKey: headerValue(request.headers["x-api-key"])
+      });
+      if (!signed) {
+        return reply.code(401).send({ error: "Invalid push webhook signature" });
+      }
+      const parsed = pushWebhookSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Invalid push webhook payload" });
+      }
+      const payload: ChatPushWebhookPayload = parsed.data;
+      const recipientsExceptSender = payload.recipientUserIds.filter(
+        (id) => id !== payload.senderUserId
+      );
+      const prefs = await listChatNotificationPrefsForUsers(recipientsExceptSender, payload.roomId);
+      const mentioned = new Set(payload.mentionedUserIds ?? []);
+      const eligibleUserIds = recipientsExceptSender.filter((userId) => {
+        const explicit = prefs.find((p) => p.userId === userId);
+        const pref: ChatNotificationPref = explicit?.preference ?? "all";
+        if (pref === "none") return false;
+        if (pref === "mentions") return mentioned.has(userId);
+        return true;
+      });
+      const tokens = await listChatPushDevicesForUsers(eligibleUserIds);
+      const dispatch = await dispatchChatPush({
+        channelId: payload.channelId,
+        roomId: payload.roomId,
+        encryptedPreview: payload.encryptedPreview,
+        targets: tokensToTargets(tokens)
+      });
+      return reply.send({
+        delivered: dispatch.delivered,
+        attempts: dispatch.attempts,
+        failures: dispatch.failures,
+        tokens: tokens.map((t) => ({
+          userId: t.userId,
+          deviceId: t.deviceId,
+          platform: t.platform as ChatPushPlatform
+        })),
+        genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
+        encryptedPreview: payload.encryptedPreview,
+        channelId: payload.channelId
+      });
     }
-    const payload: ChatPushWebhookPayload = parsed.data;
-    const recipientsExceptSender = payload.recipientUserIds.filter(
-      (id) => id !== payload.senderUserId
-    );
-    const prefs = await listChatNotificationPrefsForUsers(recipientsExceptSender, payload.roomId);
-    const mentioned = new Set(payload.mentionedUserIds ?? []);
-    const eligibleUserIds = recipientsExceptSender.filter((userId) => {
-      const explicit = prefs.find((p) => p.userId === userId);
-      const pref: ChatNotificationPref = explicit?.preference ?? "all";
-      if (pref === "none") return false;
-      if (pref === "mentions") return mentioned.has(userId);
-      return true;
-    });
-    const tokens = await listChatPushDevicesForUsers(eligibleUserIds);
-    const dispatch = await dispatchChatPush({
-      channelId: payload.channelId,
-      roomId: payload.roomId,
-      encryptedPreview: payload.encryptedPreview,
-      targets: tokensToTargets(tokens)
-    });
-    return reply.send({
-      delivered: dispatch.delivered,
-      attempts: dispatch.attempts,
-      failures: dispatch.failures,
-      tokens: tokens.map((t) => ({
-        userId: t.userId,
-        deviceId: t.deviceId,
-        platform: t.platform as ChatPushPlatform
-      })),
-      genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
-      encryptedPreview: payload.encryptedPreview,
-      channelId: payload.channelId
-    });
-  });
+  );
 
   app.delete("/chat/rooms/:roomId/messages", async (request, reply) => {
     if (!request.identity) {
