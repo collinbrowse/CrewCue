@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression coverage automation / practical E2E crew chat hardening.
 - **Branch:** `cursor/missing-test-coverage-d495`
 - **Issue:** none created; automation environment exposes `gh` as read-only.
-- **PR:** pending automation PR creation for this branch.
+- **PR:** #302 — Add regression coverage for chat key rotation and envelope scoping.
 - **Acceptance criteria:** inspect recent merged code; add minimal high-signal regression tests for meaningful weak coverage; do not change production behavior; run relevant test targets.
 
 ## Completed (this session)
@@ -32,7 +32,7 @@
 
 ## Next 1-3 tasks
 
-1. Open the automation PR and confirm CI stays green.
+1. Confirm PR #302 CI stays green.
 2. Continue future coverage automation by checking recent production-only merges for permissions/parsing/idempotency gaps.
 3. Optional hardening candidate: identity backup missing/undecryptable fallback semantics in `restoreIdentityWithBackup`.
 
