@@ -93,7 +93,10 @@ export async function restoreIdentityFromBackupPayload(
     storage.setItem(IDENTITY_SECRET_KEY, payload.identitySecretB64)
   ]);
   for (const [roomId, snap] of Object.entries(payload.roomKeys)) {
-    await saveLocalRoomKey(storage, roomId, snap.keyB64, snap.keyVersion);
+    const local = await loadLocalRoomKey(storage, roomId);
+    if (!local || snap.keyVersion > local.keyVersion) {
+      await saveLocalRoomKey(storage, roomId, snap.keyB64, snap.keyVersion);
+    }
   }
   return ensureIdentity(storage);
 }

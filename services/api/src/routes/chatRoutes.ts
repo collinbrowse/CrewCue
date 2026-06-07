@@ -287,6 +287,13 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid envelope payload" });
     }
+    const latestRoomKeyVersion = await getLatestChatKeyVersionForRoom(roomId);
+    if (
+      typeof latestRoomKeyVersion === "number" &&
+      parsed.data.envelopes.some((e) => e.keyVersion < latestRoomKeyVersion)
+    ) {
+      return reply.code(409).send({ error: "Envelope key version is stale" });
+    }
     const now = new Date().toISOString();
     const stored: ChatKeyEnvelope[] = [];
     for (const e of parsed.data.envelopes) {

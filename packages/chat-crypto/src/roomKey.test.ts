@@ -199,6 +199,93 @@ test("roomKey: server rotation creates a fresh key instead of re-uploading stale
   );
 });
 
+test("roomKey: stale backup restore does not downgrade newer local room keys", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const staleRoomKey = encodeRoomKey(generateRoomKey());
+  const currentRoomKey = encodeRoomKey(generateRoomKey());
+  const localSecret = await ensureBackupLocalSecret(storage);
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: alice.secretKeyB64,
+    roomKeys: {
+      "room-1": { keyB64: staleRoomKey, keyVersion: 1 }
+    }
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), localSecret);
+  const state = {
+    identities: new Map([["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }]]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: {
+      ciphertext: encryptedBackup.ciphertextB64,
+      nonce: encryptedBackup.nonceB64,
+      version: 1
+    }
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", alice.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", alice.secretKeyB64);
+  await saveLocalRoomKey(storage, "room-1", currentRoomKey, 2);
+  const api = mockApi(state);
+
+  await ensureRoomKeyReady(storage, api, "room-2", [{ userId: "alice", publicKey: alice.publicKeyB64 }]);
+
+  assert.deepEqual(await loadLocalRoomKey(storage, "room-1"), {
+    keyB64: currentRoomKey,
+    keyVersion: 2
+  });
+  assert.ok(state.backup);
+  const uploaded = decryptBackupFromServer(state.backup, localSecret);
+  assert.equal(uploaded?.roomKeys["room-1"]?.keyVersion, 2);
+});
+
+test("roomKey: stale server envelopes below latest version do not block fresh rotation key", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const bob = generateIdentityKeyPair();
+  const staleKey = generateRoomKey();
+  const staleKeyB64 = encodeRoomKey(staleKey);
+  const staleWrapped = wrapRoomKeyForUser(staleKey, alice.publicKeyB64, 1);
+  const state = {
+    identities: new Map([
+      ["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }],
+      ["bob", { userId: "bob", publicKey: bob.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>([
+      [
+        "room-1",
+        [
+          {
+            roomId: "room-1",
+            recipientUserId: "alice",
+            senderEphemeralPublicKey: staleWrapped.senderEphemeralPublicKeyB64,
+            nonce: staleWrapped.nonceB64,
+            ciphertext: staleWrapped.ciphertextB64,
+            keyVersion: 1,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      ]
+    ]),
+    latestVersion: new Map<string, number>([["room-1", 2]])
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", alice.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", alice.secretKeyB64);
+  await saveLocalRoomKey(storage, "room-1", staleKeyB64, 1);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-1", [
+    { userId: "alice", publicKey: alice.publicKeyB64 },
+    { userId: "bob", publicKey: bob.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.material.keyVersion, 2);
+  assert.notEqual(result.material.keyB64, staleKeyB64);
+  const envs = state.envelopes.get("room-1") ?? [];
+  assert.ok(envs.some((env) => env.keyVersion === 2 && env.recipientUserId === "alice"));
+  assert.ok(envs.some((env) => env.keyVersion === 2 && env.recipientUserId === "bob"));
+});
+
 test("roomKey: backup restore registers restored identity and room key", async () => {
   const storage = memoryStorage();
   const restoredIdentity = generateIdentityKeyPair();

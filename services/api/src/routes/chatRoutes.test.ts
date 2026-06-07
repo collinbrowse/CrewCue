@@ -468,6 +468,42 @@ test("chat: member remove rotates key version and clears envelopes", async () =>
     const parsed = list.json() as { envelopes: unknown[]; latestRoomKeyVersion?: number };
     assert.equal(parsed.envelopes.length, 0);
     assert.equal(parsed.latestRoomKeyVersion, 2);
+
+    const staleUpload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-rm",
+            senderEphemeralPublicKey: "eph-stale",
+            nonce: "n-stale",
+            ciphertext: "ct-stale",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(staleUpload.statusCode, 409);
+
+    const currentUpload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-rm",
+            senderEphemeralPublicKey: "eph-current",
+            nonce: "n-current",
+            ciphertext: "ct-current",
+            keyVersion: 2
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(currentUpload.statusCode, 201);
   } finally {
     await app.close();
   }

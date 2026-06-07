@@ -132,9 +132,10 @@ export async function ensureRoomKeyReady(
     return { status: "ready", material: cached };
   }
 
+  const usableEnvelopes = fromServer.envelopes.filter((e) => e.keyVersion >= latestVersion);
   const envelopeToTry =
-    fromServer.envelopes.length > 0
-      ? fromServer.envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
+    usableEnvelopes.length > 0
+      ? usableEnvelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
       : undefined;
   if (envelopeToTry) {
     const material = await tryUnwrapServerEnvelope(storage, identity, roomId, envelopeToTry);
@@ -148,7 +149,7 @@ export async function ensureRoomKeyReady(
   if (
     cached &&
     latestVersion > cached.keyVersion &&
-    fromServer.envelopes.length === 0 &&
+    usableEnvelopes.length === 0 &&
     isDeterministicDistributor(identity, members)
   ) {
     const newKey = generateRoomKey();
