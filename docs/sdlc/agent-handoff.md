@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-cc99`
 - **Issue:** none created for this cron automation run.
-- **PR:** pending/opened from this branch for undecryptable chat backup hardening.
+- **PR:** #303 — Fix undecryptable chat backup server mutation.
 - **Acceptance criteria:** fix high-confidence critical bug; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
@@ -33,7 +33,7 @@
 
 ## Next 1-3 tasks
 
-1. Confirm PR CI green after push.
+1. Confirm PR #303 CI green.
 2. Decide whether to add explicit UI/recovery messaging for undecryptable backups rather than silent syncing.
 3. Separately triage the possible authenticated join-flow lockout noted during review.
 
@@ -46,5 +46,5 @@
 ## Successor prompt
 
 ```text
-On cursor/critical-bug-investigation-cc99, verify the undecryptable chat backup hardening PR CI is green. The fix prevents identity registration and backup upload when an existing server backup cannot be decrypted; package tests and npm run verify passed locally. Optional follow-up: recovery UX for undecryptable backups and separate join-flow lockout triage.
+PR #303 on cursor/critical-bug-investigation-cc99 prevents identity registration and backup upload when an existing server backup cannot be decrypted. Verify CI is green; package tests and npm run verify passed locally. Optional follow-up: recovery UX for undecryptable backups and separate join-flow lockout triage.
 ```
