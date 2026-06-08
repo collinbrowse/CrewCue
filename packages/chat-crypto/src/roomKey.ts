@@ -55,7 +55,7 @@ export async function restoreIdentityWithBackup(
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
-    await api.registerIdentity(identity.publicKeyB64);
+    // Existing backups are authoritative; if we cannot decrypt one, avoid replacing it with fresh local state.
     return identity;
   }
   const restored = await restoreIdentityFromBackupPayload(storage, payload);
@@ -201,6 +201,8 @@ async function pushBackupSnapshot(
     const payload = decryptBackupFromServer(backup, localSecret);
     if (payload) {
       Object.assign(allRooms, payload.roomKeys);
+    } else {
+      return;
     }
   }
   Object.assign(allRooms, await loadAllLocalRoomKeys(storage, [roomId]));

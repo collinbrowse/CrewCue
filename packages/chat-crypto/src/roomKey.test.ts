@@ -6,6 +6,7 @@ import {
   encodeRoomKey,
   encryptBackupSecret,
   encryptMessage,
+  generateBackupSecret,
   generateIdentityKeyPair,
   generateRoomKey,
   wrapRoomKeyForUser
@@ -232,4 +233,71 @@ test("roomKey: backup restore registers restored identity and room key", async (
     keyB64: restoredRoomKey,
     keyVersion: 7
   });
+});
+
+test("roomKey: undecryptable existing backup does not replace server identity", async () => {
+  const storage = memoryStorage();
+  await ensureBackupLocalSecret(storage);
+  const restoredIdentity = generateIdentityKeyPair();
+  const serverSecret = generateBackupSecret();
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: restoredIdentity.secretKeyB64,
+    roomKeys: {}
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), serverSecret);
+  const state = {
+    identities: new Map<string, ChatUserIdentity>(),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: {
+      ciphertext: encryptedBackup.ciphertextB64,
+      nonce: encryptedBackup.nonceB64,
+      version: 1
+    }
+  };
+  const api = mockApi(state);
+
+  const identity = await restoreIdentityWithBackup(storage, api);
+
+  assert.notEqual(identity.publicKeyB64, restoredIdentity.publicKeyB64);
+  assert.equal(state.identities.size, 0);
+});
+
+test("roomKey: undecryptable existing backup is not overwritten by partial snapshot", async () => {
+  const storage = memoryStorage();
+  await ensureBackupLocalSecret(storage);
+  const alice = generateIdentityKeyPair();
+  const oldRoomKey = encodeRoomKey(generateRoomKey());
+  const serverSecret = generateBackupSecret();
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: alice.secretKeyB64,
+    roomKeys: {
+      "room-old": { keyB64: oldRoomKey, keyVersion: 3 }
+    }
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), serverSecret);
+  const originalBackup = {
+    ciphertext: encryptedBackup.ciphertextB64,
+    nonce: encryptedBackup.nonceB64,
+    version: 1
+  };
+  const state = {
+    identities: new Map([["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }]]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: originalBackup
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", alice.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", alice.secretKeyB64);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-new", [
+    { userId: "alice", publicKey: alice.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(state.backup, originalBackup);
+  const preservedPayload = decryptBackupFromServer(state.backup, serverSecret);
+  assert.ok(preservedPayload);
+  assert.deepEqual(Object.keys(preservedPayload.roomKeys), ["room-old"]);
 });
