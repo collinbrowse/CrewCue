@@ -5,6 +5,7 @@ import type { PlatformEventEnvelope, ReplayedRaceRoomAggregate } from "@crewcue/
 import { initRoomPersistence } from "./roomPersistence.js";
 import {
   appendPlatformEvent,
+  listEventsForAggregate,
   reduceRaceRoomEvents,
   resetPlatformEventStoreForTests
 } from "./platformEventLog.js";
@@ -42,6 +43,38 @@ test("append is idempotent by idempotencyKey", async () => {
   });
   assert.equal(second.duplicate, true);
   assert.equal(second.event.id, first.event.id);
+});
+
+test("append rejects idempotencyKey reuse for a different platform event", async () => {
+  await initRoomPersistence(testLog);
+  await resetPlatformEventStoreForTests();
+  const first = await appendPlatformEvent({
+    aggregateId: "room-a",
+    aggregateType: "race_room",
+    eventType: "race_room.draft_created",
+    idempotencyKey: "idem-conflict",
+    payload: { teamId: "t1", athleteId: "a1", name: "Race A" },
+    schemaVersion: "2026.05.0",
+    transport: "cloud",
+    actorUserId: "u1"
+  });
+  assert.equal(first.duplicate, false);
+
+  const conflict = await appendPlatformEvent({
+    aggregateId: "room-b",
+    aggregateType: "race_room",
+    eventType: "race_room.draft_created",
+    idempotencyKey: "idem-conflict",
+    payload: { teamId: "t1", athleteId: "a1", name: "Race B" },
+    schemaVersion: "2026.05.0",
+    transport: "cloud",
+    actorUserId: "u1"
+  });
+  assert.equal(conflict.conflict, true);
+  assert.equal(conflict.event.id, first.event.id);
+
+  const roomBEvents = await listEventsForAggregate("race_room", "room-b");
+  assert.deepEqual(roomBEvents, []);
 });
 
 test("race_room replay is deterministic and order-insensitive for sequence sort", () => {
