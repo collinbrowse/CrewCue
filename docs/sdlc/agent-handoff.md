@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression coverage automation / chat crypto hardening.
 - **Branch:** `cursor/missing-test-coverage-b839`
 - **Issue:** none created; this cron automation has read-only `gh` guidance.
-- **PR:** pending automation PR creation after final push.
+- **PR:** #305 — test(chat-crypto): cover non-distributor room-key rotation wait.
 - **Acceptance criteria:** inspect recent merged production code; add minimal deterministic tests for meaningful uncovered risk; avoid production behavior changes; run relevant tests and local parity verification.
 
 ## Completed (this session)
@@ -33,7 +33,7 @@
 
 ## Next 1-3 tasks
 
-1. Open/update the PR for `cursor/missing-test-coverage-b839` and confirm CI stays green.
+1. Confirm PR #305 CI stays green.
 2. In a future coverage run, inspect API idempotency partial-failure/retry paths for missing edge-case tests.
 3. In a future coverage run, revisit identity backup restore-before-register semantics if recent production changes touch that area.
 
