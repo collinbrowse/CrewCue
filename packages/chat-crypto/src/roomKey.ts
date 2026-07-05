@@ -35,6 +35,11 @@ export type ChatCryptoApi = {
 
 const MAX_DISTRIBUTE_RETRIES = 3;
 
+type IdentityRestoreState = {
+  identity: IdentityKeyPair;
+  backupLocked: boolean;
+};
+
 function isDeterministicDistributor(identity: IdentityKeyPair, members: RoomMemberIdentity[]): boolean {
   const self = members.find((member) => member.publicKey === identity.publicKeyB64);
   if (!self) return false;
@@ -42,25 +47,32 @@ function isDeterministicDistributor(identity: IdentityKeyPair, members: RoomMemb
   return firstMember?.userId === self.userId;
 }
 
-export async function restoreIdentityWithBackup(
+async function restoreIdentityWithBackupState(
   storage: ChatCryptoStorageAdapter,
   api: ChatCryptoApi
-): Promise<IdentityKeyPair> {
+): Promise<IdentityRestoreState> {
   const identity = await ensureIdentity(storage);
   const backup = await api.fetchIdentityBackup();
   if (!backup) {
     await api.registerIdentity(identity.publicKeyB64);
-    return identity;
+    return { identity, backupLocked: false };
   }
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
-    await api.registerIdentity(identity.publicKeyB64);
-    return identity;
+    return { identity, backupLocked: true };
   }
   const restored = await restoreIdentityFromBackupPayload(storage, payload);
   await api.registerIdentity(restored.publicKeyB64);
-  return restored;
+  return { identity: restored, backupLocked: false };
+}
+
+export async function restoreIdentityWithBackup(
+  storage: ChatCryptoStorageAdapter,
+  api: ChatCryptoApi
+): Promise<IdentityKeyPair> {
+  const restored = await restoreIdentityWithBackupState(storage, api);
+  return restored.identity;
 }
 
 export async function uploadKeyEnvelopesForMembers(
@@ -122,7 +134,7 @@ export async function ensureRoomKeyReady(
   members: RoomMemberIdentity[],
   options?: { retryAttempt?: number }
 ): Promise<EnsureRoomKeyResult> {
-  const identity = await restoreIdentityWithBackup(storage, api);
+  const { identity, backupLocked } = await restoreIdentityWithBackupState(storage, api);
   const fromServer = await api.listKeyEnvelopes(roomId);
   const latestVersion = fromServer.latestRoomKeyVersion ?? 0;
   const cached = await loadLocalRoomKey(storage, roomId);
@@ -132,17 +144,18 @@ export async function ensureRoomKeyReady(
     return { status: "ready", material: cached };
   }
 
-  const envelopeToTry =
-    fromServer.envelopes.length > 0
-      ? fromServer.envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
-      : undefined;
-  if (envelopeToTry) {
-    const material = await tryUnwrapServerEnvelope(storage, identity, roomId, envelopeToTry);
+  const envelopesToTry = [...fromServer.envelopes].sort((a, b) => b.keyVersion - a.keyVersion);
+  for (const envelope of envelopesToTry) {
+    const material = await tryUnwrapServerEnvelope(storage, identity, roomId, envelope);
     if (material) {
       await uploadKeyEnvelopesForMembers(api, roomId, members, material.keyB64, material.keyVersion);
       await pushBackupSnapshot(storage, api, identity, roomId, material);
       return { status: "ready", material };
     }
+  }
+
+  if (backupLocked) {
+    return { status: "syncing" };
   }
 
   if (
@@ -199,9 +212,10 @@ async function pushBackupSnapshot(
   if (backup) {
     const localSecret = await ensureBackupLocalSecret(storage);
     const payload = decryptBackupFromServer(backup, localSecret);
-    if (payload) {
-      Object.assign(allRooms, payload.roomKeys);
+    if (!payload) {
+      return;
     }
+    Object.assign(allRooms, payload.roomKeys);
   }
   Object.assign(allRooms, await loadAllLocalRoomKeys(storage, [roomId]));
   allRooms[roomId] = material;

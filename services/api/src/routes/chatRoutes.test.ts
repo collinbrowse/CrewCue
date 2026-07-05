@@ -249,14 +249,14 @@ test("chat: only race owner can purge room chat data", async () => {
             senderEphemeralPublicKey: "eph",
             nonce: "n1",
             ciphertext: "ct1",
-            keyVersion: 3
+            keyVersion: 1
           },
           {
             recipientUserId: "crew-retention",
             senderEphemeralPublicKey: "eph",
             nonce: "n2",
             ciphertext: "ct2",
-            keyVersion: 3
+            keyVersion: 1
           }
         ]
       },
@@ -398,6 +398,72 @@ test("chat: key-envelope upload requires room membership", async () => {
     const envelopes = (list.json() as { envelopes: Array<{ ciphertext: string }> }).envelopes;
     assert.equal(envelopes.length, 1);
     assert.equal(envelopes[0]?.ciphertext, "ct1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: key-envelope upload rejects non-member recipients and far-future versions", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-envelope-guard"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-envelope-guard");
+
+    const nonMemberRecipient = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "outsider-envelope-guard",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n1",
+            ciphertext: "ct1",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(nonMemberRecipient.statusCode, 400);
+
+    const farFutureVersion = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-envelope-guard",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n1",
+            ciphertext: "ct1",
+            keyVersion: 99
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(farFutureVersion.statusCode, 409);
+
+    const ok = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-envelope-guard",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n1",
+            ciphertext: "ct1",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(ok.statusCode, 201);
   } finally {
     await app.close();
   }

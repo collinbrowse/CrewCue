@@ -233,3 +233,99 @@ test("roomKey: backup restore registers restored identity and room key", async (
     keyVersion: 7
   });
 });
+
+test("roomKey: undecryptable server backup does not replace identity or backup", async () => {
+  const oldStorage = memoryStorage();
+  const freshStorage = memoryStorage();
+  const serverIdentity = generateIdentityKeyPair();
+  const backedUpRoomKey = encodeRoomKey(generateRoomKey());
+  const oldLocalSecret = await ensureBackupLocalSecret(oldStorage);
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: serverIdentity.secretKeyB64,
+    roomKeys: {
+      "room-existing": { keyB64: backedUpRoomKey, keyVersion: 4 }
+    }
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), oldLocalSecret);
+  const state = {
+    identities: new Map<string, ChatUserIdentity>([
+      ["self", { userId: "self", publicKey: serverIdentity.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: {
+      ciphertext: encryptedBackup.ciphertextB64,
+      nonce: encryptedBackup.nonceB64,
+      version: 1
+    }
+  };
+  const originalBackup = { ...state.backup };
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(freshStorage, api, "room-new", [
+    { userId: "self", publicKey: serverIdentity.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "syncing");
+  assert.equal(state.identities.get("self")?.publicKey, serverIdentity.publicKeyB64);
+  assert.deepEqual(state.backup, originalBackup);
+  assert.deepEqual(state.envelopes.get("room-new") ?? [], []);
+});
+
+test("roomKey: falls back to a lower decryptable envelope when a higher one is corrupt", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const bob = generateIdentityKeyPair();
+  const roomKey = generateRoomKey();
+  const valid = wrapRoomKeyForUser(roomKey, bob.publicKeyB64, 1);
+  const corruptForBob = wrapRoomKeyForUser(generateRoomKey(), alice.publicKeyB64, 999);
+  const state = {
+    identities: new Map([
+      ["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }],
+      ["bob", { userId: "bob", publicKey: bob.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>([
+      [
+        "room-1",
+        [
+          {
+            roomId: "room-1",
+            recipientUserId: "bob",
+            senderEphemeralPublicKey: corruptForBob.senderEphemeralPublicKeyB64,
+            nonce: corruptForBob.nonceB64,
+            ciphertext: corruptForBob.ciphertextB64,
+            keyVersion: 999,
+            createdAt: new Date().toISOString()
+          },
+          {
+            roomId: "room-1",
+            recipientUserId: "bob",
+            senderEphemeralPublicKey: valid.senderEphemeralPublicKeyB64,
+            nonce: valid.nonceB64,
+            ciphertext: valid.ciphertextB64,
+            keyVersion: 1,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      ]
+    ]),
+    latestVersion: new Map([["room-1", 999]])
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", bob.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", bob.secretKeyB64);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-1", [
+    { userId: "alice", publicKey: alice.publicKeyB64 },
+    { userId: "bob", publicKey: bob.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "ready");
+  if (result.status !== "ready") {
+    throw new Error("expected a decryptable envelope");
+  }
+  assert.equal(result.material.keyVersion, 1);
+  const encrypted = encryptMessage("still decrypts", roomKey, 1);
+  const decrypted = await import("./crypto.js").then((m) => m.decryptMessage(encrypted, decodeRoomKey(result.material.keyB64)));
+  assert.equal(decrypted, "still decrypts");
+});
