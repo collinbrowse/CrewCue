@@ -293,6 +293,108 @@ test("updates room course for shared GPX usage", async () => {
   await app.close();
 });
 
+test("course updates replay idempotent retries and release failed save attempts", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-idempotent"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Race Room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const validPayload = {
+    plannedPaceSecondsPerKm: 360,
+    course: {
+      checkpoints: [
+        { id: "aid-1", latitude: 40.7128, longitude: -74.006, plannedStopSeconds: 120 },
+        { id: "aid-2", latitude: 40.7228, longitude: -73.996, plannedStopSeconds: 120 }
+      ]
+    },
+    routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+      { latitude: 40.7128, longitude: -74.006 },
+      { latitude: 40.7228, longitude: -73.996 }
+    ]),
+    raceStartAt: "2026-05-12T16:00:00.000Z"
+  };
+  const updateHeaders = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "course-update-route-retry"
+  };
+
+  const first = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: validPayload,
+    headers: updateHeaders
+  });
+  assert.equal(first.statusCode, 200);
+  const firstBody = first.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
+
+  const retry = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: validPayload,
+    headers: updateHeaders
+  });
+  assert.equal(retry.statusCode, 200);
+  const retryBody = retry.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
+  assert.deepEqual(retryBody, firstBody);
+  assert.equal(retryBody.course.checkpoints[0]?.id, "aid-1");
+
+  const failedSaveHeaders = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "course-update-route-failed-save"
+  };
+  const invalidRouteResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: {
+      ...validPayload,
+      routeOverlayLayer: undefined
+    },
+    headers: failedSaveHeaders
+  });
+  assert.equal(invalidRouteResponse.statusCode, 400);
+
+  const recovered = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: {
+      ...validPayload,
+      courseFileName: "race.gpx"
+    },
+    headers: failedSaveHeaders
+  });
+  assert.equal(recovered.statusCode, 200);
+
+  await app.close();
+});
+
 test("updates course with routeOverlayLayer merges canonical map workspace layer", async () => {
   const app = buildApp();
   await app.ready();
