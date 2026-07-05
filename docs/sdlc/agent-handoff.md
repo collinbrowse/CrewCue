@@ -10,41 +10,42 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
+- Last updated: 2026-07-05 (UTC)
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
+- **Branch:** `cursor/critical-bug-investigation-a06d`
 - **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
+- **PR:** pending automation PR for this branch.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Fixed undecryptable chat identity backups so a fresh/secret-mismatched install does not register a new public key, create new envelopes, or overwrite the existing server backup.
+- Fixed chat room-key bootstrap to try lower-version envelopes when a higher-version envelope cannot be decrypted, avoiding lockout from poisoned high-version envelopes.
+- Added API guards for chat key-envelope uploads: recipients must be current room members, batches must use one positive key version, and uploads cannot jump beyond `latest + 1`.
+- Added regression coverage in `packages/chat-crypto/src/roomKey.test.ts` and `services/api/src/routes/chatRoutes.test.ts`.
+- Do-not-change guardrails honored: no mobile UI changes, no contract shape changes, no broad chat push/webhook refactor.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
-- `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- `npm run test -w @crewcue/chat-crypto && npm run test:memory -w @crewcue/api` — pass (chat crypto 10/10; API memory 109 pass, 3 skipped).
+- `npm run typecheck -w @crewcue/chat-crypto && npm run typecheck -w @crewcue/api` — pass.
+- `npm run verify` — pass, including workspace builds and mobile `expo export`.
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Open the automation PR and monitor CI.
+2. Separately assess `/chat/push/webhook` authentication/signature requirements before production push transport is enabled.
+3. Consider a future envelope authenticity design if the chat threat model must protect against malicious current room members.
 
 ## Open risks/blockers
 
 - No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- Existing backup ciphertext remains unrecoverable when the local backup secret is gone; this fix preserves server state instead of replacing it.
+- The API cannot cryptographically prove envelope contents match a specific room key; client fallback and server guards reduce lockout risk without changing protocol shape.
+- No iOS simulator run: API/shared package behavior changed, not mobile UI.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+On cursor/critical-bug-investigation-a06d, review the chat backup/envelope poisoning fix PR, confirm CI, then merge if green. Follow-up candidates: webhook auth/signature hardening and longer-term envelope authenticity design.
 ```
