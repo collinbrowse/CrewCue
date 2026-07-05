@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression coverage automation / API retry hardening.
 - **Branch:** `cursor/missing-test-coverage-0005`
 - **Issue:** none created; automation environment has read-only `gh` and no issue-creation MCP tool.
-- **PR:** pending automation open.
+- **PR:** #307 — test(api): cover course update idempotency recovery.
 - **Acceptance criteria:** inspect recent merged work; add meaningful missing tests only; keep production behavior unchanged; run relevant tests and repo verify.
 
 ## Completed (this session)
@@ -31,7 +31,7 @@
 
 ## Next 1-3 tasks
 
-1. Open the PR for `cursor/missing-test-coverage-0005` and monitor CI.
+1. Monitor PR #307 CI and merge when checks are green.
 2. Future coverage candidate: chat backup behavior when local backup secret cannot decrypt an existing server backup.
 3. Future coverage candidate: stale processing lease recovery in the memory HTTP idempotency store.
 
@@ -43,5 +43,5 @@
 ## Successor prompt
 
 ```text
-Continue from PR on cursor/missing-test-coverage-0005. The only code change is API route test coverage for course PUT idempotency recovery/replay; local `npm run test:memory -w @crewcue/api` and `npm run verify` passed. Monitor CI and consider next coverage targets: undecryptable chat backup overwrite and stale memory idempotency processing leases.
+Continue from PR #307 on cursor/missing-test-coverage-0005. The only code change is API route test coverage for course PUT idempotency recovery/replay; local `npm run test:memory -w @crewcue/api` and `npm run verify` passed. Monitor CI and consider next coverage targets: undecryptable chat backup overwrite and stale memory idempotency processing leases.
 ```
