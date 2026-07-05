@@ -343,33 +343,9 @@ test("course updates replay idempotent retries and release failed save attempts"
   };
   const updateHeaders = {
     authorization: `Bearer ${ownerToken}`,
-    "idempotency-key": "course-update-route-retry"
-  };
-
-  const first = await app.inject({
-    method: "PUT",
-    url: `/race-rooms/${room.id}/course`,
-    payload: validPayload,
-    headers: updateHeaders
-  });
-  assert.equal(first.statusCode, 200);
-  const firstBody = first.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
-
-  const retry = await app.inject({
-    method: "PUT",
-    url: `/race-rooms/${room.id}/course`,
-    payload: validPayload,
-    headers: updateHeaders
-  });
-  assert.equal(retry.statusCode, 200);
-  const retryBody = retry.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
-  assert.deepEqual(retryBody, firstBody);
-  assert.equal(retryBody.course.checkpoints[0]?.id, "aid-1");
-
-  const failedSaveHeaders = {
-    authorization: `Bearer ${ownerToken}`,
     "idempotency-key": "course-update-route-failed-save"
   };
+
   const invalidRouteResponse = await app.inject({
     method: "PUT",
     url: `/race-rooms/${room.id}/course`,
@@ -377,7 +353,7 @@ test("course updates replay idempotent retries and release failed save attempts"
       ...validPayload,
       routeOverlayLayer: undefined
     },
-    headers: failedSaveHeaders
+    headers: updateHeaders
   });
   assert.equal(invalidRouteResponse.statusCode, 400);
 
@@ -388,9 +364,24 @@ test("course updates replay idempotent retries and release failed save attempts"
       ...validPayload,
       courseFileName: "race.gpx"
     },
-    headers: failedSaveHeaders
+    headers: updateHeaders
   });
   assert.equal(recovered.statusCode, 200);
+  const recoveredBody = recovered.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
+
+  const replay = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${room.id}/course`,
+    payload: {
+      ...validPayload,
+      courseFileName: "race.gpx"
+    },
+    headers: updateHeaders
+  });
+  assert.equal(replay.statusCode, 200);
+  const replayBody = replay.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
+  assert.deepEqual(replayBody, recoveredBody);
+  assert.equal(replayBody.course.checkpoints[0]?.id, "aid-1");
 
   await app.close();
 });
