@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-a06d`
 - **Issue:** none created for this automation run.
-- **PR:** pending automation PR for this branch.
+- **PR:** #306 — Fix chat backup data loss and envelope poisoning lockout.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
@@ -33,7 +33,7 @@
 
 ## Next 1-3 tasks
 
-1. Open the automation PR and monitor CI.
+1. Monitor PR #306 CI.
 2. Separately assess `/chat/push/webhook` authentication/signature requirements before production push transport is enabled.
 3. Consider a future envelope authenticity design if the chat threat model must protect against malicious current room members.
 
@@ -47,5 +47,5 @@
 ## Successor prompt
 
 ```text
-On cursor/critical-bug-investigation-a06d, review the chat backup/envelope poisoning fix PR, confirm CI, then merge if green. Follow-up candidates: webhook auth/signature hardening and longer-term envelope authenticity design.
+On PR #306 (`cursor/critical-bug-investigation-a06d`), confirm CI and merge if green. Follow-up candidates: webhook auth/signature hardening and longer-term envelope authenticity design.
 ```
