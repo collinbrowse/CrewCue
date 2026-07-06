@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / regression coverage automation.
 - **Branch:** `cursor/missing-test-coverage-6460`
 - **Issue:** none created; this environment has read-only `gh` guidance and no issue-creation MCP tool.
-- **PR:** pending automation PR creation.
+- **PR:** #309 — test(api): cover chat room nonmember denials.
 - **Acceptance criteria:** add deterministic high-signal tests for recent risky behavior; avoid production changes; run scoped validation.
 
 ## Completed (this session)
