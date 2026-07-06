@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-0257`
 - **Issue:** none created for this automation run.
-- **PR:** pending automation PR creation.
+- **PR:** #308 — Fix chat key envelope version poisoning.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
@@ -34,7 +34,7 @@
 
 ## Next 1-3 tasks
 
-1. Open automation PR for `cursor/critical-bug-investigation-0257` and confirm CI green.
+1. Confirm PR #308 CI green.
 2. Consider follow-up hardening for same-version envelope overwrite races/immutability; not included here to keep the critical fix minimal.
 3. Continue daily critical review of chat/API idempotency and crypto sync paths.
 
@@ -47,5 +47,5 @@
 ## Successor prompt
 
 ```text
-On branch cursor/critical-bug-investigation-0257, API key-envelope recipient/version guards are implemented and validated (`npm run verify` pass). Open/monitor the PR, ensure CI green, and optionally follow up on same-version envelope overwrite race hardening.
+PR #308 on cursor/critical-bug-investigation-0257 implements API key-envelope recipient/version guards and passed `npm run verify`. Monitor CI, then optionally follow up on same-version envelope overwrite race hardening.
 ```
