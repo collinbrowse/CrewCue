@@ -10,41 +10,42 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
+- Last updated: 2026-07-06 (UTC)
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
+- **Branch:** `cursor/critical-bug-investigation-0257`
 - **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
+- **PR:** pending automation PR creation.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Found a critical chat key-envelope poisoning path: any current room member could upload an arbitrary high `keyVersion` envelope for another member, advancing room crypto state and causing the victim client to reject cached keys and remain stuck syncing.
+- Added API guards so key-envelope uploads must target current room members, use a single positive version per batch, and match allowed room crypto versions (`1` for first bootstrap, current version thereafter, plus existing solo rekey escape hatch).
+- Added regression coverage for non-member recipient rejection and high-version jump rejection while preserving the original v1 envelope/latest version.
+- Updated an older retention test fixture to use first-bootstrap key version `1`.
+- Do-not-change guardrails honored: no contract changes, no mobile UI changes, no broad crypto/client refactor.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
-- `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- Initial `npm run test:memory -w @crewcue/api` failed before dependency install because `tsc` was missing; ran `npm install`.
+- `npm run test:memory -w @crewcue/api` — pass (112 tests).
+- `npm run typecheck -w @crewcue/api` — pass.
+- `npm run verify` — pass.
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Open automation PR for `cursor/critical-bug-investigation-0257` and confirm CI green.
+2. Consider follow-up hardening for same-version envelope overwrite races/immutability; not included here to keep the critical fix minimal.
+3. Continue daily critical review of chat/API idempotency and crypto sync paths.
 
 ## Open risks/blockers
 
 - No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- Existing same-version envelope overwrite behavior remains unchanged; this PR blocks version poisoning and non-member recipients but does not redesign envelope conflict resolution.
+- No iOS simulator run: API-only behavior changed, not mobile UI.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+On branch cursor/critical-bug-investigation-0257, API key-envelope recipient/version guards are implemented and validated (`npm run verify` pass). Open/monitor the PR, ensure CI green, and optionally follow up on same-version envelope overwrite race hardening.
 ```
