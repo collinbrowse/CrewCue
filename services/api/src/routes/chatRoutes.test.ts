@@ -403,6 +403,65 @@ test("chat: key-envelope upload requires room membership", async () => {
   }
 });
 
+test("chat: room-scoped read, preference, sync, and diagnostics endpoints reject nonmembers", async () => {
+  _resetChatPersistenceForTests();
+  const previousStreamApiKey = process.env.STREAM_API_KEY;
+  const previousStreamApiSecret = process.env.STREAM_API_SECRET;
+  process.env.STREAM_API_KEY = "test-key";
+  process.env.STREAM_API_SECRET = "test-secret";
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-room-scope"));
+    const outsiderToken = app.jwt.sign(buildClaims("outsider-room-scope"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-room-scope");
+
+    for (const probe of [
+      {
+        method: "GET",
+        url: `/chat/rooms/${roomId}/key-envelopes`
+      },
+      {
+        method: "GET",
+        url: `/chat/rooms/${roomId}/notification-prefs`
+      },
+      {
+        method: "POST",
+        url: `/chat/rooms/${roomId}/notification-prefs`,
+        payload: { preference: "mentions" }
+      },
+      {
+        method: "POST",
+        url: `/chat/rooms/${roomId}/sync-stream-channel`
+      },
+      {
+        method: "GET",
+        url: `/chat/rooms/${roomId}/diagnostics`
+      }
+    ] as const) {
+      const denied = await app.inject({
+        method: probe.method,
+        url: probe.url,
+        payload: "payload" in probe ? probe.payload : undefined,
+        headers: { authorization: `Bearer ${outsiderToken}` }
+      });
+      assert.equal(denied.statusCode, 403, `${probe.method} ${probe.url}`);
+    }
+  } finally {
+    if (previousStreamApiKey === undefined) {
+      delete process.env.STREAM_API_KEY;
+    } else {
+      process.env.STREAM_API_KEY = previousStreamApiKey;
+    }
+    if (previousStreamApiSecret === undefined) {
+      delete process.env.STREAM_API_SECRET;
+    } else {
+      process.env.STREAM_API_SECRET = previousStreamApiSecret;
+    }
+    await app.close();
+  }
+});
+
 test("chat: member remove rotates key version and clears envelopes", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
