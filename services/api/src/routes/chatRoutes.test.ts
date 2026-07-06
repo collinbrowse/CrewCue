@@ -403,6 +403,102 @@ test("chat: key-envelope upload requires room membership", async () => {
   }
 });
 
+test("chat: key-envelope upload rejects non-member recipients and version jumps", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-poison"));
+    const crewToken = app.jwt.sign(buildClaims("crew-poison"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-poison");
+    await inviteAndAcceptMember(
+      app,
+      roomId,
+      athleteToken,
+      crewToken,
+      "crew-poison@example.com"
+    );
+
+    const initial = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-poison",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n-athlete",
+            ciphertext: "ct-athlete-v1",
+            keyVersion: 1
+          },
+          {
+            recipientUserId: "crew-poison",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n-crew",
+            ciphertext: "ct-crew-v1",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(initial.statusCode, 201);
+
+    const outsiderRecipient = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "outsider-poison",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n-outsider",
+            ciphertext: "ct-outsider",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(outsiderRecipient.statusCode, 400);
+
+    const versionJump = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-poison",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n-poison",
+            ciphertext: "ct-poison",
+            keyVersion: 999
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(versionJump.statusCode, 409);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(list.statusCode, 200);
+    const parsed = list.json() as {
+      envelopes: Array<{ ciphertext: string; keyVersion: number }>;
+      latestRoomKeyVersion?: number;
+    };
+    assert.equal(parsed.envelopes.length, 1);
+    assert.equal(parsed.envelopes[0]?.ciphertext, "ct-athlete-v1");
+    assert.equal(parsed.envelopes[0]?.keyVersion, 1);
+    assert.equal(parsed.latestRoomKeyVersion, 1);
+  } finally {
+    await app.close();
+  }
+});
+
 test("chat: member remove rotates key version and clears envelopes", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
