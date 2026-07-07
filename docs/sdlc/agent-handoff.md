@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-c428`
 - **Issue:** none created for this automation run.
-- **PR:** pending automation PR creation.
+- **PR:** #310 — Fix chat crypto backup clobbering.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
