@@ -63,13 +63,21 @@ export async function ensureBackupLocalSecret(storage: ChatCryptoStorageAdapter)
   return secret;
 }
 
-export async function ensureIdentity(storage: ChatCryptoStorageAdapter): Promise<IdentityKeyPair> {
+export async function loadIdentity(storage: ChatCryptoStorageAdapter): Promise<IdentityKeyPair | undefined> {
   const [pub, sec] = await Promise.all([
     storage.getItem(IDENTITY_PUBLIC_KEY),
     storage.getItem(IDENTITY_SECRET_KEY)
   ]);
   if (pub && sec) {
     return { publicKeyB64: pub, secretKeyB64: sec };
+  }
+  return undefined;
+}
+
+export async function ensureIdentity(storage: ChatCryptoStorageAdapter): Promise<IdentityKeyPair> {
+  const existing = await loadIdentity(storage);
+  if (existing) {
+    return existing;
   }
   const keyPair = generateIdentityKeyPair();
   await Promise.all([

@@ -12,6 +12,7 @@ import {
   ensureIdentity,
   encryptBackupForUpload,
   loadAllLocalRoomKeys,
+  loadIdentity,
   loadLocalRoomKey,
   restoreIdentityFromBackupPayload,
   saveLocalRoomKey
@@ -35,6 +36,13 @@ export type ChatCryptoApi = {
 
 const MAX_DISTRIBUTE_RETRIES = 3;
 
+export class ChatIdentityBackupUnavailableError extends Error {
+  constructor() {
+    super("Secure chat identity backup could not be decrypted on this device.");
+    this.name = "ChatIdentityBackupUnavailableError";
+  }
+}
+
 function isDeterministicDistributor(identity: IdentityKeyPair, members: RoomMemberIdentity[]): boolean {
   const self = members.find((member) => member.publicKey === identity.publicKeyB64);
   if (!self) return false;
@@ -42,21 +50,30 @@ function isDeterministicDistributor(identity: IdentityKeyPair, members: RoomMemb
   return firstMember?.userId === self.userId;
 }
 
+function latestEnvelope(envelopes: ChatKeyEnvelope[]): ChatKeyEnvelope | undefined {
+  return envelopes.length > 0
+    ? envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
+    : undefined;
+}
+
 export async function restoreIdentityWithBackup(
   storage: ChatCryptoStorageAdapter,
   api: ChatCryptoApi
 ): Promise<IdentityKeyPair> {
-  const identity = await ensureIdentity(storage);
+  const existingIdentity = await loadIdentity(storage);
   const backup = await api.fetchIdentityBackup();
   if (!backup) {
+    const identity = existingIdentity ?? (await ensureIdentity(storage));
     await api.registerIdentity(identity.publicKeyB64);
     return identity;
   }
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
-    await api.registerIdentity(identity.publicKeyB64);
-    return identity;
+    if (existingIdentity) {
+      return existingIdentity;
+    }
+    throw new ChatIdentityBackupUnavailableError();
   }
   const restored = await restoreIdentityFromBackupPayload(storage, payload);
   await api.registerIdentity(restored.publicKeyB64);
@@ -126,16 +143,25 @@ export async function ensureRoomKeyReady(
   const fromServer = await api.listKeyEnvelopes(roomId);
   const latestVersion = fromServer.latestRoomKeyVersion ?? 0;
   const cached = await loadLocalRoomKey(storage, roomId);
+  const envelopeToTry = latestEnvelope(fromServer.envelopes);
   if (cached && cached.keyVersion >= latestVersion) {
+    if (envelopeToTry && envelopeToTry.keyVersion >= cached.keyVersion) {
+      const reconciled = await tryUnwrapServerEnvelope(storage, identity, roomId, envelopeToTry);
+      const shouldPreferServer =
+        reconciled &&
+        (reconciled.keyVersion > cached.keyVersion ||
+          (reconciled.keyVersion === cached.keyVersion && reconciled.keyB64 !== cached.keyB64));
+      if (shouldPreferServer) {
+        await uploadKeyEnvelopesForMembers(api, roomId, members, reconciled.keyB64, reconciled.keyVersion);
+        await pushBackupSnapshot(storage, api, identity, roomId, reconciled);
+        return { status: "ready", material: reconciled };
+      }
+    }
     await uploadKeyEnvelopesForMembers(api, roomId, members, cached.keyB64, cached.keyVersion);
     await pushBackupSnapshot(storage, api, identity, roomId, cached);
     return { status: "ready", material: cached };
   }
 
-  const envelopeToTry =
-    fromServer.envelopes.length > 0
-      ? fromServer.envelopes.reduce((acc, e) => (e.keyVersion > acc.keyVersion ? e : acc))
-      : undefined;
   if (envelopeToTry) {
     const material = await tryUnwrapServerEnvelope(storage, identity, roomId, envelopeToTry);
     if (material) {
@@ -217,9 +243,17 @@ export async function syncRoomKeysForRooms(
   for (const room of rooms) {
     let attempt = 0;
     for (;;) {
-      const result = await ensureRoomKeyReady(storage, api, room.roomId, room.members, {
-        retryAttempt: attempt
-      });
+      let result: EnsureRoomKeyResult;
+      try {
+        result = await ensureRoomKeyReady(storage, api, room.roomId, room.members, {
+          retryAttempt: attempt
+        });
+      } catch (err) {
+        if (err instanceof ChatIdentityBackupUnavailableError) {
+          break;
+        }
+        throw err;
+      }
       if (result.status === "ready" || result.status === "catastrophic_rekey") {
         break;
       }

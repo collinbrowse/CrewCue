@@ -18,7 +18,12 @@ import {
   saveLocalRoomKey
 } from "./identity.js";
 import type { ChatCryptoStorageAdapter } from "./types.js";
-import { ensureRoomKeyReady, restoreIdentityWithBackup, type ChatCryptoApi } from "./roomKey.js";
+import {
+  ChatIdentityBackupUnavailableError,
+  ensureRoomKeyReady,
+  restoreIdentityWithBackup,
+  type ChatCryptoApi
+} from "./roomKey.js";
 
 function memoryStorage(): ChatCryptoStorageAdapter & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -231,5 +236,94 @@ test("roomKey: backup restore registers restored identity and room key", async (
   assert.deepEqual(await loadLocalRoomKey(storage, "room-restored"), {
     keyB64: restoredRoomKey,
     keyVersion: 7
+  });
+});
+
+test("roomKey: fresh device does not overwrite identity or backup when backup cannot decrypt", async () => {
+  const sourceStorage = memoryStorage();
+  const oldIdentity = generateIdentityKeyPair();
+  const sourceSecret = await ensureBackupLocalSecret(sourceStorage);
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: oldIdentity.secretKeyB64,
+    roomKeys: {
+      "room-existing": { keyB64: encodeRoomKey(generateRoomKey()), keyVersion: 3 }
+    }
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), sourceSecret);
+  const originalBackup = {
+    ciphertext: encryptedBackup.ciphertextB64,
+    nonce: encryptedBackup.nonceB64,
+    version: 1
+  };
+  const state = {
+    identities: new Map<string, ChatUserIdentity>([
+      ["self", { userId: "self", publicKey: oldIdentity.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: originalBackup
+  };
+  const freshStorage = memoryStorage();
+  const api = mockApi(state);
+
+  await assert.rejects(
+    () =>
+      ensureRoomKeyReady(freshStorage, api, "room-new", [
+        { userId: "self", publicKey: oldIdentity.publicKeyB64 }
+      ]),
+    ChatIdentityBackupUnavailableError
+  );
+
+  assert.equal(state.identities.get("self")?.publicKey, oldIdentity.publicKeyB64);
+  assert.strictEqual(state.backup, originalBackup);
+  assert.equal(state.envelopes.get("room-new"), undefined);
+  assert.equal(freshStorage.map.has("crewcue.chat.identity.publicKey"), false);
+  assert.equal(freshStorage.map.has("crewcue.chat.identity.secretKey"), false);
+});
+
+test("roomKey: cached room key reconciles to a decryptable server envelope at the same version", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const staleLocalKeyB64 = encodeRoomKey(generateRoomKey());
+  const serverRoomKey = generateRoomKey();
+  const serverKeyB64 = encodeRoomKey(serverRoomKey);
+  const wrapped = wrapRoomKeyForUser(serverRoomKey, alice.publicKeyB64, 1);
+  const state = {
+    identities: new Map<string, ChatUserIdentity>([
+      ["self", { userId: "self", publicKey: alice.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>([
+      [
+        "room-1",
+        [
+          {
+            roomId: "room-1",
+            recipientUserId: "self",
+            senderEphemeralPublicKey: wrapped.senderEphemeralPublicKeyB64,
+            nonce: wrapped.nonceB64,
+            ciphertext: wrapped.ciphertextB64,
+            keyVersion: 1,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      ]
+    ]),
+    latestVersion: new Map<string, number>([["room-1", 1]])
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", alice.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", alice.secretKeyB64);
+  await saveLocalRoomKey(storage, "room-1", staleLocalKeyB64, 1);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-1", [
+    { userId: "self", publicKey: alice.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.material.keyB64, serverKeyB64);
+  assert.notEqual(result.material.keyB64, staleLocalKeyB64);
+  assert.deepEqual(await loadLocalRoomKey(storage, "room-1"), {
+    keyB64: serverKeyB64,
+    keyVersion: 1
   });
 });
