@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-cec1`
 - **Issue:** none created for this cron automation run.
-- **PR:** pending automation PR creation.
+- **PR:** #311 — Fix critical chat crypto poisoning and backup clobbering.
 - **Acceptance criteria:** fix only high-confidence critical bugs; keep patches minimal; add regressions; run local parity verification.
 
 ## Completed (this session)
