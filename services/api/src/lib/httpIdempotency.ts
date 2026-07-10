@@ -76,20 +76,25 @@ function lookupMemory(scopeKey: string, requestHash: string): IdempotencyLookupR
 
 function claimMemory(scopeKey: string, requestHash: string): IdempotencyBeginResult {
   const existing = memoryStore.get(scopeKey);
-  if (existing && existing.expiresAtMs > Date.now()) {
+  const now = Date.now();
+  if (existing && existing.expiresAtMs > now) {
     if (existing.requestHash !== requestHash) {
       return { kind: "conflict" };
     }
     if (existing.state === "processing") {
-      return { kind: "in_progress" };
+      if (existing.createdAtMs <= now - PROCESSING_LEASE_MS) {
+        memoryStore.delete(scopeKey);
+      } else {
+        return { kind: "in_progress" };
+      }
+    } else {
+      return {
+        kind: "replay",
+        statusCode: existing.statusCode,
+        body: JSON.parse(existing.bodyJson) as unknown
+      };
     }
-    return {
-      kind: "replay",
-      statusCode: existing.statusCode,
-      body: JSON.parse(existing.bodyJson) as unknown
-    };
   }
-  const now = Date.now();
   memoryStore.set(scopeKey, {
     requestHash,
     statusCode: 0,
