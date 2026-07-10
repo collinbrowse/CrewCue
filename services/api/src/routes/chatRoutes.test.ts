@@ -249,14 +249,14 @@ test("chat: only race owner can purge room chat data", async () => {
             senderEphemeralPublicKey: "eph",
             nonce: "n1",
             ciphertext: "ct1",
-            keyVersion: 3
+            keyVersion: 1
           },
           {
             recipientUserId: "crew-retention",
             senderEphemeralPublicKey: "eph",
             nonce: "n2",
             ciphertext: "ct2",
-            keyVersion: 3
+            keyVersion: 1
           }
         ]
       },
@@ -398,6 +398,118 @@ test("chat: key-envelope upload requires room membership", async () => {
     const envelopes = (list.json() as { envelopes: Array<{ ciphertext: string }> }).envelopes;
     assert.equal(envelopes.length, 1);
     assert.equal(envelopes[0]?.ciphertext, "ct1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: key-envelope upload rejects nonmember recipients and version jumps", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-guard"));
+    const crewToken = app.jwt.sign(buildClaims("crew-guard"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-guard");
+    await inviteAndAcceptMember(app, roomId, athleteToken, crewToken, "crew-guard@example.com");
+
+    const nonmemberRecipient = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n1",
+            ciphertext: "ct-athlete",
+            keyVersion: 1
+          },
+          {
+            recipientUserId: "outsider-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n2",
+            ciphertext: "ct-outsider",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(nonmemberRecipient.statusCode, 400);
+
+    const afterRejectedRecipient = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(afterRejectedRecipient.statusCode, 200);
+    assert.deepEqual((afterRejectedRecipient.json() as { envelopes: unknown[] }).envelopes, []);
+
+    const initial = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n1",
+            ciphertext: "ct-athlete-v1",
+            keyVersion: 1
+          },
+          {
+            recipientUserId: "crew-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n2",
+            ciphertext: "ct-crew-v1",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(initial.statusCode, 201);
+
+    const versionJump = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n3",
+            ciphertext: "ct-athlete-v99",
+            keyVersion: 99
+          },
+          {
+            recipientUserId: "crew-guard",
+            senderEphemeralPublicKey: "eph",
+            nonce: "n4",
+            ciphertext: "ct-crew-v99",
+            keyVersion: 99
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(versionJump.statusCode, 409);
+
+    const afterRejectedJump = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(afterRejectedJump.statusCode, 200);
+    const body = afterRejectedJump.json() as {
+      envelopes: Array<{ ciphertext: string; keyVersion: number }>;
+      latestRoomKeyVersion?: number;
+    };
+    assert.equal(body.latestRoomKeyVersion, 1);
+    assert.equal(body.envelopes.length, 1);
+    assert.equal(body.envelopes[0]?.keyVersion, 1);
+    assert.equal(body.envelopes[0]?.ciphertext, "ct-athlete-v1");
   } finally {
     await app.close();
   }

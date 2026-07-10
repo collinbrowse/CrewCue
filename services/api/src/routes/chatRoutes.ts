@@ -61,7 +61,7 @@ const envelopeUploadSchema = z.object({
         senderEphemeralPublicKey: z.string().trim().min(1).max(2048),
         nonce: z.string().trim().min(1).max(2048),
         ciphertext: z.string().trim().min(1).max(8192),
-        keyVersion: z.number().int().nonnegative()
+        keyVersion: z.number().int().positive()
       })
     )
     .min(1)
@@ -280,12 +280,36 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const { roomId } = request.params as { roomId: string };
-    if (!(await isMemberOfRoom(roomId, request.identity.sub))) {
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (!room.memberships.some((m) => m.userId === request.identity?.sub)) {
       return reply.code(403).send({ error: "Not a member of this room" });
     }
     const parsed = envelopeUploadSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid envelope payload" });
+    }
+    const memberIds = new Set(room.memberships.map((m) => m.userId));
+    if (parsed.data.envelopes.some((e) => !memberIds.has(e.recipientUserId))) {
+      return reply.code(400).send({ error: "Envelope recipient is not a room member" });
+    }
+    const keyVersions = new Set(parsed.data.envelopes.map((e) => e.keyVersion));
+    if (keyVersions.size !== 1) {
+      return reply.code(400).send({ error: "Envelope batch must use one key version" });
+    }
+    const keyVersion = parsed.data.envelopes[0]!.keyVersion;
+    const latestRoomKeyVersion = (await getLatestChatKeyVersionForRoom(roomId)) ?? 0;
+    const isInitialBootstrap = latestRoomKeyVersion === 0 && keyVersion === 1;
+    const isCurrentVersion = latestRoomKeyVersion > 0 && keyVersion === latestRoomKeyVersion;
+    const isSoloRekey =
+      room.memberships.length === 1 &&
+      room.memberships[0]?.userId === request.identity.sub &&
+      latestRoomKeyVersion > 0 &&
+      keyVersion === latestRoomKeyVersion + 1;
+    if (!isInitialBootstrap && !isCurrentVersion && !isSoloRekey) {
+      return reply.code(409).send({ error: "Envelope key version is not valid for this room" });
     }
     const now = new Date().toISOString();
     const stored: ChatKeyEnvelope[] = [];
