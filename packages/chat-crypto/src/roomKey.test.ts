@@ -14,7 +14,6 @@ import {
 import {
   decryptBackupFromServer,
   ensureBackupLocalSecret,
-  ensureIdentity,
   loadLocalRoomKey,
   saveLocalRoomKey
 } from "./identity.js";
@@ -85,7 +84,8 @@ test("roomKey: bootstrap new room creates version 1 envelopes", async () => {
     latestVersion: new Map<string, number>()
   };
   const api = mockApi(state);
-  await ensureIdentity(storage);
+  await storage.setItem("crewcue.chat.identity.publicKey", alice.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", alice.secretKeyB64);
   const result = await ensureRoomKeyReady(storage, api, "room-1", [
     { userId: "alice", publicKey: alice.publicKeyB64 }
   ]);
@@ -93,6 +93,31 @@ test("roomKey: bootstrap new room creates version 1 envelopes", async () => {
   const envs = state.envelopes.get("room-1") ?? [];
   assert.equal(envs.length, 1);
   assert.equal(envs[0]?.keyVersion, 1);
+});
+
+test("roomKey: non-distributor waits during empty-room bootstrap", async () => {
+  const storage = memoryStorage();
+  const alice = generateIdentityKeyPair();
+  const bob = generateIdentityKeyPair();
+  const state = {
+    identities: new Map([
+      ["alice", { userId: "alice", publicKey: alice.publicKeyB64, registeredAt: "" }],
+      ["bob", { userId: "bob", publicKey: bob.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>()
+  };
+  await storage.setItem("crewcue.chat.identity.publicKey", bob.publicKeyB64);
+  await storage.setItem("crewcue.chat.identity.secretKey", bob.secretKeyB64);
+  const api = mockApi(state);
+
+  const result = await ensureRoomKeyReady(storage, api, "room-1", [
+    { userId: "alice", publicKey: alice.publicKeyB64 },
+    { userId: "bob", publicKey: bob.publicKeyB64 }
+  ]);
+
+  assert.equal(result.status, "syncing");
+  assert.equal(state.envelopes.get("room-1")?.length ?? 0, 0);
 });
 
 test("roomKey: join member unwraps existing envelope", async () => {

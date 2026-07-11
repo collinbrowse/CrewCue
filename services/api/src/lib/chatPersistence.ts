@@ -380,8 +380,31 @@ export async function rotateRoomChannelKey(roomId: string): Promise<number> {
     memoryRoomVersions.set(roomId, nextVersion);
     return nextVersion;
   }
-  await pool.query("DELETE FROM chat_channel_envelopes WHERE room_id = $1", [roomId]);
-  await bumpRoomKeyVersion(roomId, nextVersion);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM chat_channel_envelopes WHERE room_id = $1", [roomId]);
+    await client.query(
+      `
+        INSERT INTO chat_room_crypto_state (room_id, latest_key_version, updated_at)
+        VALUES ($1, $2, NOW())
+        ON CONFLICT (room_id) DO UPDATE
+        SET latest_key_version = GREATEST(chat_room_crypto_state.latest_key_version, EXCLUDED.latest_key_version),
+            updated_at = NOW();
+      `,
+      [roomId, nextVersion]
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original rotation failure for callers.
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
   return nextVersion;
 }
 

@@ -169,6 +169,9 @@ export async function ensureRoomKeyReady(
   }
 
   if (latestVersion === 0) {
+    if (!isDeterministicDistributor(identity, members)) {
+      return { status: "syncing" };
+    }
     const newKey = generateRoomKey();
     const keyVersion = 1;
     const keyB64 = encodeRoomKey(newKey);
