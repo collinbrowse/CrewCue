@@ -6,6 +6,7 @@ import {
   encodeRoomKey,
   encryptBackupSecret,
   encryptMessage,
+  generateBackupSecret,
   generateIdentityKeyPair,
   generateRoomKey,
   wrapRoomKeyForUser
@@ -232,4 +233,33 @@ test("roomKey: backup restore registers restored identity and room key", async (
     keyB64: restoredRoomKey,
     keyVersion: 7
   });
+});
+
+test("roomKey: undecryptable server backup does not overwrite registered identity", async () => {
+  const storage = memoryStorage();
+  const restoredIdentity = generateIdentityKeyPair();
+  const serverSecret = generateBackupSecret();
+  const payload: ChatBackupPayloadV1 = {
+    identitySecretB64: restoredIdentity.secretKeyB64,
+    roomKeys: {}
+  };
+  const encryptedBackup = encryptBackupSecret(JSON.stringify(payload), serverSecret);
+  const state = {
+    identities: new Map<string, ChatUserIdentity>([
+      ["self", { userId: "self", publicKey: restoredIdentity.publicKeyB64, registeredAt: "" }]
+    ]),
+    envelopes: new Map<string, ChatKeyEnvelope[]>(),
+    latestVersion: new Map<string, number>(),
+    backup: {
+      ciphertext: encryptedBackup.ciphertextB64,
+      nonce: encryptedBackup.nonceB64,
+      version: 1
+    }
+  };
+  const api = mockApi(state);
+
+  await assert.rejects(() => restoreIdentityWithBackup(storage, api), /Unable to decrypt chat identity backup/);
+
+  assert.equal(state.identities.get("self")?.publicKey, restoredIdentity.publicKeyB64);
+  assert.equal(storage.map.has("crewcue.chat.identity.publicKey"), false);
 });

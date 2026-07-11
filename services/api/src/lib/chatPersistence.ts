@@ -43,6 +43,10 @@ function prefKey(userId: string, roomId: string): string {
   return `${userId}|${roomId}`;
 }
 
+function pushDeviceKey(userId: string, deviceId: string): string {
+  return `${userId}|${deviceId}`;
+}
+
 export function isChatPersistencePostgres(): boolean {
   return pool !== null;
 }
@@ -103,12 +107,28 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
       `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS chat_push_devices (
-          device_id TEXT PRIMARY KEY,
+          device_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
           platform TEXT NOT NULL,
           token TEXT NOT NULL,
-          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, device_id)
         );
+      `);
+      await client.query("ALTER TABLE chat_push_devices DROP CONSTRAINT IF EXISTS chat_push_devices_pkey;");
+      await client.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'chat_push_devices_user_device_pkey'
+              AND conrelid = 'chat_push_devices'::regclass
+          ) THEN
+            ALTER TABLE chat_push_devices
+              ADD CONSTRAINT chat_push_devices_user_device_pkey PRIMARY KEY (user_id, device_id);
+          END IF;
+        END $$;
       `);
       await client.query(`
         CREATE INDEX IF NOT EXISTS chat_push_devices_user
@@ -425,16 +445,15 @@ export async function listChatNotificationPrefsForUsers(
 
 export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promise<void> {
   if (!pool) {
-    memoryPushDevices.set(record.deviceId, structuredClone(record));
+    memoryPushDevices.set(pushDeviceKey(record.userId, record.deviceId), structuredClone(record));
     return;
   }
   await pool.query(
     `
       INSERT INTO chat_push_devices (device_id, user_id, platform, token, registered_at)
       VALUES ($1, $2, $3, $4, $5::timestamptz)
-      ON CONFLICT (device_id) DO UPDATE
-      SET user_id = EXCLUDED.user_id,
-          platform = EXCLUDED.platform,
+      ON CONFLICT (user_id, device_id) DO UPDATE
+      SET platform = EXCLUDED.platform,
           token = EXCLUDED.token,
           registered_at = EXCLUDED.registered_at;
     `,

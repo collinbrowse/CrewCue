@@ -9,7 +9,6 @@ import type {
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushDeviceRecord,
-  ChatPushPlatform,
   ChatPushWebhookPayload,
   ChatStreamTokenResponse,
   ChatUserIdentity
@@ -356,14 +355,31 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/chat/push/webhook", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
     const parsed = pushWebhookSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid push webhook payload" });
     }
     const payload: ChatPushWebhookPayload = parsed.data;
-    const recipientsExceptSender = payload.recipientUserIds.filter(
-      (id) => id !== payload.senderUserId
+    if (payload.senderUserId !== request.identity.sub) {
+      return reply.code(403).send({ error: "Sender identity mismatch" });
+    }
+    const room = await getRaceRoom(payload.roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const memberIds = new Set(room.memberships.map((m) => m.userId));
+    if (!memberIds.has(request.identity.sub)) {
+      return reply.code(403).send({ error: "Not a member of this room" });
+    }
+    const recipientsExceptSender = Array.from(
+      new Set(payload.recipientUserIds.filter((id) => id !== payload.senderUserId))
     );
+    if (recipientsExceptSender.some((userId) => !memberIds.has(userId))) {
+      return reply.code(403).send({ error: "Push recipients must be room members" });
+    }
     const prefs = await listChatNotificationPrefsForUsers(recipientsExceptSender, payload.roomId);
     const mentioned = new Set(payload.mentionedUserIds ?? []);
     const eligibleUserIds = recipientsExceptSender.filter((userId) => {
@@ -383,12 +399,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({
       delivered: dispatch.delivered,
       attempts: dispatch.attempts,
-      failures: dispatch.failures,
-      tokens: tokens.map((t) => ({
-        userId: t.userId,
-        deviceId: t.deviceId,
-        platform: t.platform as ChatPushPlatform
-      })),
+      failureCount: dispatch.failures.length,
+      targetCount: tokens.length,
       genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
       encryptedPreview: payload.encryptedPreview,
       channelId: payload.channelId
