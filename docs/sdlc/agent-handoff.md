@@ -10,41 +10,41 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
-- **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
-- **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
-- **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
+- Last updated: 2026-07-11 (UTC)
+- **Roadmap phase:** Regression coverage automation / API idempotency hardening.
+- **Branch:** `cursor/missing-test-coverage-fd9e`
+- **Issue:** none created; this automation environment has read-only `gh` and no issue-creation MCP tool.
+- **PR:** pending.
+- **Acceptance criteria:** inspect recent merged code, add deterministic high-signal tests for meaningful regression risk, avoid production behavior changes, run relevant validation, commit/push, open PR.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Inspected recent merged PRs; chat crypto regressions were already covered by recent runs, while course/manual-stop route idempotency remained weak at the business-route boundary.
+- Added `services/api/src/routes/raceRooms.test.ts` coverage for `PUT /race-rooms/:id/course` idempotency:
+  - failed route-level save releases the claim so a corrected retry can proceed;
+  - completed retry replays the cached response;
+  - same key with a different completed body returns conflict.
+- Do-not-change guardrails honored: no production behavior changes, no API contract changes, no mobile UI/simulator scope, no staging/cloud behavior changes.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
-- `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/raceRooms.test.js` — pass (16 tests).
+- `npm run test:memory -w @crewcue/api` — pass (109 passed, 3 skipped).
+- `npm run verify` — pending final validation.
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Run final validation (`npm run verify`) if environment supports full mobile/web build.
+2. Open PR for `cursor/missing-test-coverage-fd9e` and confirm CI.
+3. Future coverage candidate: manual checkpoint stop idempotency replay/release paths.
 
 ## Open risks/blockers
 
-- No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- No GitHub issue was created due automation write limitations for issues; document this in PR.
+- No iOS simulator run: API test-only change, no mobile-visible behavior changed.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+On branch cursor/missing-test-coverage-fd9e, finish PR delivery for API route idempotency coverage. Tests added in services/api/src/routes/raceRooms.test.ts cover course update release/replay/conflict. Validate with npm run verify if possible, then open PR and confirm CI.
 ```
