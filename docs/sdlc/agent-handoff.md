@@ -30,13 +30,12 @@
 
 - `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/raceRooms.test.js` — pass (16 tests).
 - `npm run test:memory -w @crewcue/api` — pass (109 passed, 3 skipped).
-- `npm run verify` — pending final validation.
+- `npm run verify` — pass.
 
 ## Next 1-3 tasks
 
-1. Run final validation (`npm run verify`) if environment supports full mobile/web build.
-2. Open PR for `cursor/missing-test-coverage-fd9e` and confirm CI.
-3. Future coverage candidate: manual checkpoint stop idempotency replay/release paths.
+1. Open PR for `cursor/missing-test-coverage-fd9e` and confirm CI.
+2. Future coverage candidate: manual checkpoint stop idempotency replay/release paths.
 
 ## Open risks/blockers
 
