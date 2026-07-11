@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-663f`
 - **Issue:** none created for this automation run.
-- **PR:** pending automation PR from `cursor/critical-bug-investigation-663f`.
+- **PR:** #313 — Fix critical chat push and key recovery bugs.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
@@ -34,7 +34,7 @@
 
 ## Next 1-3 tasks
 
-1. Confirm automation PR CI green before merge.
+1. Confirm PR #313 CI green before merge.
 2. Add first-class Stream webhook HMAC/raw-body verification before exposing provider webhooks directly.
 3. Follow-up chat history hardening: versioned local room-key history so post-removal rotations preserve authorized pre-rotation reads.
 
@@ -48,5 +48,5 @@
 ## Successor prompt
 
 ```text
-On cursor/critical-bug-investigation-663f, review the critical chat hardening PR: secured push webhook/device ownership, fail-closed identity backup restore, deterministic v1 room-key bootstrap, and transactional Postgres key rotation. Confirm CI green; next hardening is Stream HMAC raw-body verification and versioned local room-key history.
+Review PR #313 on cursor/critical-bug-investigation-663f: secured push webhook/device ownership, fail-closed identity backup restore, deterministic v1 room-key bootstrap, and transactional Postgres key rotation. Confirm CI green; next hardening is Stream HMAC raw-body verification and versioned local room-key history.
 ```
