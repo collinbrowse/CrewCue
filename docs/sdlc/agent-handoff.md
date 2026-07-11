@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression coverage automation / API idempotency hardening.
 - **Branch:** `cursor/missing-test-coverage-fd9e`
 - **Issue:** none created; this automation environment has read-only `gh` and no issue-creation MCP tool.
-- **PR:** pending.
+- **PR:** #314 — test(api): cover course idempotency recovery.
 - **Acceptance criteria:** inspect recent merged code, add deterministic high-signal tests for meaningful regression risk, avoid production behavior changes, run relevant validation, commit/push, open PR.
 
 ## Completed (this session)
@@ -34,7 +34,7 @@
 
 ## Next 1-3 tasks
 
-1. Open PR for `cursor/missing-test-coverage-fd9e` and confirm CI.
+1. Confirm PR #314 CI.
 2. Future coverage candidate: manual checkpoint stop idempotency replay/release paths.
 
 ## Open risks/blockers
@@ -45,5 +45,5 @@
 ## Successor prompt
 
 ```text
-On branch cursor/missing-test-coverage-fd9e, finish PR delivery for API route idempotency coverage. Tests added in services/api/src/routes/raceRooms.test.ts cover course update release/replay/conflict. Validate with npm run verify if possible, then open PR and confirm CI.
+PR #314 on cursor/missing-test-coverage-fd9e adds API route coverage for course update idempotency release/replay/conflict. Confirm CI, then merge when checks are green.
 ```
