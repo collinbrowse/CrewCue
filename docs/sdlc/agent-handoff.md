@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-9610`
 - **Issue:** none created for this automation run.
-- **PR:** pending.
+- **PR:** #315 — Fix chat backup and webhook criticals.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
 
 ## Completed (this session)
@@ -35,7 +35,7 @@
 
 ## Next 1-3 tasks
 
-1. Open PR from `cursor/critical-bug-investigation-9610` to `main` and confirm CI green.
+1. Confirm PR #315 CI green.
 2. Configure `CHAT_PUSH_WEBHOOK_SECRET` wherever unauthenticated Stream/server-to-server push fanout is used.
 3. Follow-up: add raw-body Stream webhook HMAC verification if direct Stream webhooks are enabled.
 
@@ -48,5 +48,5 @@
 ## Successor prompt
 
 ```text
-PR from cursor/critical-bug-investigation-9610 hardens chat backup restore, key envelopes, and push webhook auth. Confirm CI green; ensure staging/prod set CHAT_PUSH_WEBHOOK_SECRET if push fanout relies on unauthenticated server-to-server calls.
+PR #315 from cursor/critical-bug-investigation-9610 hardens chat backup restore, key envelopes, and push webhook auth. Confirm CI green; ensure staging/prod set CHAT_PUSH_WEBHOOK_SECRET if push fanout relies on unauthenticated server-to-server calls.
 ```
