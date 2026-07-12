@@ -398,6 +398,94 @@ test("chat: key-envelope upload requires room membership", async () => {
     const envelopes = (list.json() as { envelopes: Array<{ ciphertext: string }> }).envelopes;
     assert.equal(envelopes.length, 1);
     assert.equal(envelopes[0]?.ciphertext, "ct1");
+
+    const invalidRecipient = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "outsider-1",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n2",
+            ciphertext: "ct2",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(invalidRecipient.statusCode, 400);
+
+    const mixedVersions = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-1",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n3",
+            ciphertext: "ct3",
+            keyVersion: 1
+          },
+          {
+            recipientUserId: "athlete-1",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n4",
+            ciphertext: "ct4",
+            keyVersion: 2
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(mixedVersions.statusCode, 400);
+
+    const versionJump = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-1",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n5",
+            ciphertext: "ct5",
+            keyVersion: 9
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(versionJump.statusCode, 409);
+
+    const overwrite = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      payload: {
+        envelopes: [
+          {
+            recipientUserId: "athlete-1",
+            senderEphemeralPublicKey: "ephK",
+            nonce: "n6",
+            ciphertext: "malicious-overwrite",
+            keyVersion: 1
+          }
+        ]
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(overwrite.statusCode, 201);
+    const afterOverwrite = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/key-envelopes`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(afterOverwrite.statusCode, 200);
+    const preserved = (afterOverwrite.json() as { envelopes: Array<{ ciphertext: string }> }).envelopes;
+    assert.equal(preserved.length, 1);
+    assert.equal(preserved[0]?.ciphertext, "ct1");
   } finally {
     await app.close();
   }
@@ -569,7 +657,7 @@ test("chat: push webhook respects per-user preferences", async () => {
       assert.equal(reg.statusCode, 201);
     }
 
-    const noMention = await app.inject({
+    const unauthenticated = await app.inject({
       method: "POST",
       url: "/chat/push/webhook",
       payload: {
@@ -580,15 +668,26 @@ test("chat: push webhook respects per-user preferences", async () => {
         encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
       }
     });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const noMention = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-3",
+        recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
+        roomId,
+        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
     assert.equal(noMention.statusCode, 200);
     const noMentionResult = noMention.json() as {
       delivered: number;
-      tokens: Array<{ userId: string }>;
+      attempts: number;
     };
-    const notified = new Set(noMentionResult.tokens.map((t) => t.userId));
-    assert.ok(notified.has("user-b"));
-    assert.ok(!notified.has("user-c"));
-    assert.ok(!notified.has("user-d"));
+    assert.equal(noMentionResult.attempts, 1);
 
     const withMention = await app.inject({
       method: "POST",
@@ -600,14 +699,26 @@ test("chat: push webhook respects per-user preferences", async () => {
         roomId,
         mentionedUserIds: ["user-c"],
         encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
-      }
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
     });
     assert.equal(withMention.statusCode, 200);
-    const mentionResult = withMention.json() as { tokens: Array<{ userId: string }> };
-    const mentionNotified = new Set(mentionResult.tokens.map((t) => t.userId));
-    assert.ok(mentionNotified.has("user-b"));
-    assert.ok(mentionNotified.has("user-c"));
-    assert.ok(!mentionNotified.has("user-d"));
+    const mentionResult = withMention.json() as { attempts: number };
+    assert.equal(mentionResult.attempts, 2);
+
+    const nonMemberRecipient = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-3",
+        recipientUserIds: ["outsider-push"],
+        roomId,
+        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(nonMemberRecipient.statusCode, 400);
   } finally {
     await app.close();
   }

@@ -1,7 +1,8 @@
 /**
  * Chat HTTP routes — identity, encrypted backup, user-scoped envelopes, push devices.
  */
-import type { FastifyInstance } from "fastify";
+import { timingSafeEqual } from "node:crypto";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type {
   ChatIdentityBackup,
@@ -9,7 +10,6 @@ import type {
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushDeviceRecord,
-  ChatPushPlatform,
   ChatPushWebhookPayload,
   ChatStreamTokenResponse,
   ChatUserIdentity
@@ -61,7 +61,7 @@ const envelopeUploadSchema = z.object({
         senderEphemeralPublicKey: z.string().trim().min(1).max(2048),
         nonce: z.string().trim().min(1).max(2048),
         ciphertext: z.string().trim().min(1).max(8192),
-        keyVersion: z.number().int().nonnegative()
+        keyVersion: z.number().int().positive()
       })
     )
     .min(1)
@@ -90,6 +90,19 @@ const pushWebhookSchema = z.object({
     keyVersion: z.number().int().nonnegative()
   })
 });
+
+const PUSH_WEBHOOK_SECRET_HEADER = "x-crewcue-chat-push-secret";
+
+function hasValidPushWebhookSecret(request: FastifyRequest): boolean {
+  const expected = process.env.CHAT_PUSH_WEBHOOK_SECRET?.trim();
+  if (!expected) return false;
+  const raw = request.headers[PUSH_WEBHOOK_SECRET_HEADER];
+  const provided = Array.isArray(raw) ? raw[0] : raw;
+  if (!provided) return false;
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  return expectedBytes.length === providedBytes.length && timingSafeEqual(expectedBytes, providedBytes);
+}
 
 async function isMemberOfRoom(roomId: string, userId: string): Promise<boolean> {
   const room = await getRaceRoom(roomId);
@@ -276,16 +289,39 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/chat/rooms/:roomId/key-envelopes", async (request, reply) => {
-    if (!request.identity) {
+    const identity = request.identity;
+    if (!identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const { roomId } = request.params as { roomId: string };
-    if (!(await isMemberOfRoom(roomId, request.identity.sub))) {
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const memberIds = new Set(room.memberships.map((m) => m.userId));
+    if (!memberIds.has(identity.sub)) {
       return reply.code(403).send({ error: "Not a member of this room" });
     }
     const parsed = envelopeUploadSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid envelope payload" });
+    }
+    const keyVersions = Array.from(new Set(parsed.data.envelopes.map((e) => e.keyVersion)));
+    if (keyVersions.length !== 1) {
+      return reply.code(400).send({ error: "Envelope batch must use one key version" });
+    }
+    const invalidRecipient = parsed.data.envelopes.find((e) => !memberIds.has(e.recipientUserId));
+    if (invalidRecipient) {
+      return reply.code(400).send({ error: "Envelope recipients must be room members" });
+    }
+    const keyVersion = keyVersions[0]!;
+    const latestVersion = (await getLatestChatKeyVersionForRoom(roomId)) ?? 0;
+    const allowedBootstrap = latestVersion === 0 && keyVersion === 1;
+    const allowedCurrent = latestVersion > 0 && keyVersion === latestVersion;
+    const allowedSoloRecovery =
+      room.memberships.length === 1 && latestVersion > 0 && keyVersion === latestVersion + 1;
+    if (!allowedBootstrap && !allowedCurrent && !allowedSoloRecovery) {
+      return reply.code(409).send({ error: "Envelope key version is not current for this room" });
     }
     const now = new Date().toISOString();
     const stored: ChatKeyEnvelope[] = [];
@@ -361,6 +397,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid push webhook payload" });
     }
     const payload: ChatPushWebhookPayload = parsed.data;
+    const authenticatedSender = request.identity?.sub === payload.senderUserId;
+    if (!authenticatedSender && !hasValidPushWebhookSecret(request)) {
+      return reply.code(request.identity ? 403 : 401).send({ error: "Unauthorized" });
+    }
+    const room = await getRaceRoom(payload.roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const memberIds = new Set(room.memberships.map((m) => m.userId));
+    if (!memberIds.has(payload.senderUserId)) {
+      return reply.code(403).send({ error: "Sender is not a member of this room" });
+    }
+    const invalidRecipient = payload.recipientUserIds.find((userId) => !memberIds.has(userId));
+    if (invalidRecipient) {
+      return reply.code(400).send({ error: "Push recipients must be room members" });
+    }
     const recipientsExceptSender = payload.recipientUserIds.filter(
       (id) => id !== payload.senderUserId
     );
@@ -384,11 +436,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       delivered: dispatch.delivered,
       attempts: dispatch.attempts,
       failures: dispatch.failures,
-      tokens: tokens.map((t) => ({
-        userId: t.userId,
-        deviceId: t.deviceId,
-        platform: t.platform as ChatPushPlatform
-      })),
       genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
       encryptedPreview: payload.encryptedPreview,
       channelId: payload.channelId

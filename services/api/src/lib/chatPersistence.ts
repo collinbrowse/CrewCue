@@ -257,9 +257,7 @@ export async function upsertChatKeyEnvelope(envelope: ChatKeyEnvelope): Promise<
     const existingIdx = list.findIndex(
       (e) => e.recipientUserId === envelope.recipientUserId && e.keyVersion === envelope.keyVersion
     );
-    if (existingIdx >= 0) {
-      list[existingIdx] = structuredClone(envelope);
-    } else {
+    if (existingIdx < 0) {
       list.push(structuredClone(envelope));
     }
     memoryEnvelopes.set(envelope.roomId, list);
@@ -273,11 +271,7 @@ export async function upsertChatKeyEnvelope(envelope: ChatKeyEnvelope): Promise<
         nonce, ciphertext, key_version, created_at
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
-      ON CONFLICT (room_id, recipient_user_id, key_version) DO UPDATE
-      SET sender_ephemeral_public_key = EXCLUDED.sender_ephemeral_public_key,
-          nonce = EXCLUDED.nonce,
-          ciphertext = EXCLUDED.ciphertext,
-          created_at = EXCLUDED.created_at;
+      ON CONFLICT (room_id, recipient_user_id, key_version) DO NOTHING;
     `,
     [
       envelope.roomId,

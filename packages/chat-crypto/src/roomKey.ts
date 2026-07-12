@@ -12,6 +12,7 @@ import {
   ensureIdentity,
   encryptBackupForUpload,
   loadAllLocalRoomKeys,
+  loadIdentity,
   loadLocalRoomKey,
   restoreIdentityFromBackupPayload,
   saveLocalRoomKey
@@ -46,17 +47,21 @@ export async function restoreIdentityWithBackup(
   storage: ChatCryptoStorageAdapter,
   api: ChatCryptoApi
 ): Promise<IdentityKeyPair> {
-  const identity = await ensureIdentity(storage);
   const backup = await api.fetchIdentityBackup();
   if (!backup) {
+    const identity = await ensureIdentity(storage);
     await api.registerIdentity(identity.publicKeyB64);
     return identity;
   }
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
-    await api.registerIdentity(identity.publicKeyB64);
-    return identity;
+    const existingIdentity = await loadIdentity(storage);
+    if (existingIdentity) {
+      await api.registerIdentity(existingIdentity.publicKeyB64);
+      return existingIdentity;
+    }
+    throw new Error("Existing chat identity backup could not be decrypted");
   }
   const restored = await restoreIdentityFromBackupPayload(storage, payload);
   await api.registerIdentity(restored.publicKeyB64);
@@ -199,9 +204,10 @@ async function pushBackupSnapshot(
   if (backup) {
     const localSecret = await ensureBackupLocalSecret(storage);
     const payload = decryptBackupFromServer(backup, localSecret);
-    if (payload) {
-      Object.assign(allRooms, payload.roomKeys);
+    if (!payload) {
+      return;
     }
+    Object.assign(allRooms, payload.roomKeys);
   }
   Object.assign(allRooms, await loadAllLocalRoomKeys(storage, [roomId]));
   allRooms[roomId] = material;
