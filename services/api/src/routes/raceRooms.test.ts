@@ -11,6 +11,39 @@ function buildClaims(sub: string) {
   };
 }
 
+async function createPaidRaceRoom(app: ReturnType<typeof buildApp>, ownerToken: string, name = "Race Room"): Promise<string> {
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name,
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  return room.id;
+}
+
 test("race room creation replays idempotent retries and rejects conflicting reuse", async () => {
   const app = buildApp();
   await app.ready();
@@ -856,6 +889,188 @@ test("PUT course rejects removing a visited checkpoint", async () => {
   assert.equal(goodUpdate.statusCode, 200);
   const body = goodUpdate.json() as { course: { checkpoints: Array<{ id: string; title?: string }> } };
   assert.equal(body.course.checkpoints[0]?.title, "Renamed");
+
+  await app.close();
+});
+
+test("PUT course replays idempotent retries and rejects conflicting reuse", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-idempotency"));
+  const roomId = await createPaidRaceRoom(app, ownerToken, "Course Idempotency Room");
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "course-route-retry"
+  };
+  const payload = {
+    plannedPaceSecondsPerKm: 600,
+    course: {
+      checkpoints: [
+        { id: "cp0", latitude: 41.0, longitude: -71.0 },
+        { id: "cp1", latitude: 41.01, longitude: -71.0 }
+      ]
+    },
+    routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+      { latitude: 41.0, longitude: -71.0 },
+      { latitude: 41.01, longitude: -71.0 }
+    ]),
+    raceStartAt: "2026-05-12T16:00:00.000Z"
+  };
+
+  const first = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload,
+    headers
+  });
+  assert.equal(first.statusCode, 200);
+  const firstBody = first.json() as { course: { checkpoints: Array<{ id: string }> }; activatedAt: string };
+
+  const retry = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload,
+    headers
+  });
+  assert.equal(retry.statusCode, 200);
+  const retryBody = retry.json() as { course: { checkpoints: Array<{ id: string }> }; activatedAt: string };
+  assert.equal(retryBody.activatedAt, firstBody.activatedAt);
+  assert.deepEqual(retryBody.course.checkpoints.map((checkpoint) => checkpoint.id), ["cp0", "cp1"]);
+
+  const conflict = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      ...payload,
+      plannedPaceSecondsPerKm: 601
+    },
+    headers
+  });
+  assert.equal(conflict.statusCode, 409);
+  assert.match((conflict.json() as { error: string }).error, /different request body/);
+
+  await app.close();
+});
+
+test("PUT course releases idempotency claim after semantic validation failure", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-validation-idempotency"));
+  const roomId = await createPaidRaceRoom(app, ownerToken, "Course Validation Idempotency Room");
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "course-route-validation-retry"
+  };
+  const incompletePayload = {
+    plannedPaceSecondsPerKm: 600,
+    course: {
+      checkpoints: [
+        { id: "cp0", latitude: 41.0, longitude: -71.0 },
+        { id: "cp1", latitude: 41.01, longitude: -71.0 }
+      ]
+    },
+    raceStartAt: "2026-05-12T16:00:00.000Z"
+  };
+
+  const invalid = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: incompletePayload,
+    headers
+  });
+  assert.equal(invalid.statusCode, 400);
+
+  const corrected = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      ...incompletePayload,
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ])
+    },
+    headers
+  });
+  assert.equal(corrected.statusCode, 200);
+  const body = corrected.json() as { course: { checkpoints: Array<{ id: string }> } };
+  assert.deepEqual(body.course.checkpoints.map((checkpoint) => checkpoint.id), ["cp0", "cp1"]);
+
+  await app.close();
+});
+
+test("manual checkpoint stop replays idempotent retries and rejects conflicting reuse", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-manual-stop-idempotency"));
+  const roomId = await createPaidRaceRoom(app, ownerToken, "Manual Stop Idempotency Room");
+  const activateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: 600,
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 41.0, longitude: -71.0 },
+          { id: "cp1", latitude: 41.01, longitude: -71.0 }
+        ]
+      },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ]),
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
+  const activatedAtMs = Date.parse(activatedAt);
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "manual-stop-route-retry"
+  };
+  const payload = {
+    arrivalAt: new Date(activatedAtMs + 40_000).toISOString(),
+    departureAt: new Date(activatedAtMs + 200_000).toISOString(),
+    note: "Crew confirmed stop"
+  };
+
+  const first = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload,
+    headers
+  });
+  assert.equal(first.statusCode, 200);
+  const firstBody = first.json() as { checkpointSplit: { visits: Array<{ visitIndex: number; note?: string }> } };
+  assert.equal(firstBody.checkpointSplit.visits.length, 1);
+  assert.equal(firstBody.checkpointSplit.visits[0]?.note, "Crew confirmed stop");
+
+  const retry = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload,
+    headers
+  });
+  assert.equal(retry.statusCode, 200);
+  const retryBody = retry.json() as { checkpointSplit: { visits: Array<{ visitIndex: number; note?: string }> } };
+  assert.deepEqual(retryBody.checkpointSplit.visits, firstBody.checkpointSplit.visits);
+
+  const conflict = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload: {
+      ...payload,
+      note: "Different note"
+    },
+    headers
+  });
+  assert.equal(conflict.statusCode, 409);
+  assert.match((conflict.json() as { error: string }).error, /different request body/);
 
   await app.close();
 });
