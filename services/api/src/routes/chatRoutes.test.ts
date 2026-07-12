@@ -249,14 +249,14 @@ test("chat: only race owner can purge room chat data", async () => {
             senderEphemeralPublicKey: "eph",
             nonce: "n1",
             ciphertext: "ct1",
-            keyVersion: 3
+            keyVersion: 1
           },
           {
             recipientUserId: "crew-retention",
             senderEphemeralPublicKey: "eph",
             nonce: "n2",
             ciphertext: "ct2",
-            keyVersion: 3
+            keyVersion: 1
           }
         ]
       },
