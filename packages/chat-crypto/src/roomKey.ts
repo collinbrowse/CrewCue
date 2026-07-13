@@ -55,8 +55,7 @@ export async function restoreIdentityWithBackup(
   const localSecret = await ensureBackupLocalSecret(storage);
   const payload = decryptBackupFromServer(backup, localSecret);
   if (!payload) {
-    await api.registerIdentity(identity.publicKeyB64);
-    return identity;
+    throw new Error("Unable to decrypt chat identity backup");
   }
   const restored = await restoreIdentityFromBackupPayload(storage, payload);
   await api.registerIdentity(restored.publicKeyB64);
@@ -111,16 +110,22 @@ export type EnsureRoomKeyResult =
   | { status: "syncing" }
   | { status: "catastrophic_rekey"; material: RoomKeyMaterial };
 
+type EnsureRoomKeyOptions = {
+  retryAttempt?: number;
+  roomMemberCount?: number;
+};
+
 /**
  * Bootstrap or restore the per-room symmetric key for the caller.
  * Never throws "missing room key" — returns syncing or performs solo rekey.
+ * Throws if a server identity backup exists but cannot be decrypted locally.
  */
 export async function ensureRoomKeyReady(
   storage: ChatCryptoStorageAdapter,
   api: ChatCryptoApi,
   roomId: string,
   members: RoomMemberIdentity[],
-  options?: { retryAttempt?: number }
+  options?: EnsureRoomKeyOptions
 ): Promise<EnsureRoomKeyResult> {
   const identity = await restoreIdentityWithBackup(storage, api);
   const fromServer = await api.listKeyEnvelopes(roomId);
@@ -174,7 +179,8 @@ export async function ensureRoomKeyReady(
     return { status: "syncing" };
   }
 
-  if (members.length === 1 && members[0]?.userId) {
+  const roomMemberCount = options?.roomMemberCount ?? members.length;
+  if (members.length === 1 && roomMemberCount === 1 && members[0]?.userId) {
     const nextVersion = latestVersion + 1;
     const newKey = generateRoomKey();
     const keyB64 = encodeRoomKey(newKey);
@@ -201,6 +207,8 @@ async function pushBackupSnapshot(
     const payload = decryptBackupFromServer(backup, localSecret);
     if (payload) {
       Object.assign(allRooms, payload.roomKeys);
+    } else {
+      return;
     }
   }
   Object.assign(allRooms, await loadAllLocalRoomKeys(storage, [roomId]));
@@ -212,13 +220,14 @@ async function pushBackupSnapshot(
 export async function syncRoomKeysForRooms(
   storage: ChatCryptoStorageAdapter,
   api: ChatCryptoApi,
-  rooms: Array<{ roomId: string; members: RoomMemberIdentity[] }>
+  rooms: Array<{ roomId: string; members: RoomMemberIdentity[]; roomMemberCount?: number }>
 ): Promise<void> {
   for (const room of rooms) {
     let attempt = 0;
     for (;;) {
       const result = await ensureRoomKeyReady(storage, api, room.roomId, room.members, {
-        retryAttempt: attempt
+        retryAttempt: attempt,
+        roomMemberCount: room.roomMemberCount
       });
       if (result.status === "ready" || result.status === "catastrophic_rekey") {
         break;

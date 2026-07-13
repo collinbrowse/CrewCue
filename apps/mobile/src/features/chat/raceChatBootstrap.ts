@@ -95,7 +95,9 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
   });
 
   const members = await memberIdentities(api, room);
-  const channelKey = await bootstrapChannelKey(api, room.id, members);
+  const channelKey = await bootstrapChannelKey(api, room.id, members, {
+    roomMemberCount: room.memberships.length
+  });
 
   const streamNames = await buildStreamIdDisplayNameMap(memberships, room.athleteId, room.creatorName);
   streamNames.set(tokenResp.streamUserId, selfLabel || "You");

@@ -31,12 +31,14 @@ function apiToChatCrypto(api: ApiClient) {
 export async function bootstrapChannelKey(
   api: ApiClient,
   roomId: string,
-  members: ChannelMember[]
+  members: ChannelMember[],
+  options?: { roomMemberCount?: number }
 ): Promise<{ keyB64: string; keyVersion: number }> {
   let attempt = 0;
   for (;;) {
     const result = await ensureRoomKeyReady(chatSecureStorageAdapter, apiToChatCrypto(api), roomId, members, {
-      retryAttempt: attempt
+      retryAttempt: attempt,
+      roomMemberCount: options?.roomMemberCount
     });
     if (result.status === "ready" || result.status === "catastrophic_rekey") {
       return result.material;

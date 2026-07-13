@@ -31,7 +31,7 @@ export async function syncAllRoomKeys(api: ApiClient, rooms: RaceRoom[]): Promis
   for (const room of rooms) {
     const members = await memberIdentities(api, room);
     if (members.length > 0) {
-      payloads.push({ roomId: room.id, members });
+      payloads.push({ roomId: room.id, members, roomMemberCount: room.memberships.length });
     }
   }
   if (payloads.length === 0) return;
@@ -41,5 +41,7 @@ export async function syncAllRoomKeys(api: ApiClient, rooms: RaceRoom[]): Promis
 export async function ensureRoomKeyForRoom(api: ApiClient, room: RaceRoom) {
   const { ensureRoomKeyReady } = await import("@crewcue/chat-crypto");
   const members = await memberIdentities(api, room);
-  return ensureRoomKeyReady(chatSecureStorageAdapter, apiToChatCrypto(api), room.id, members);
+  return ensureRoomKeyReady(chatSecureStorageAdapter, apiToChatCrypto(api), room.id, members, {
+    roomMemberCount: room.memberships.length
+  });
 }
