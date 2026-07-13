@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression-prevention coverage automation for practical E2E crew chat.
 - **Branch:** `cursor/missing-test-coverage-fe14`
 - **Issue:** none created; this automation environment has read-only `gh` guidance and no issue-creation MCP tool.
-- **PR:** pending automation PR from `cursor/missing-test-coverage-fe14`.
+- **PR:** #318 — test(api): cover Stream channel member sync.
 - **Acceptance criteria:** add deterministic high-signal tests for recent risky production code; avoid production behavior changes; validate the touched API test target.
 
 ## Completed (this session)
@@ -44,5 +44,5 @@
 ## Successor prompt
 
 ```text
-On branch cursor/missing-test-coverage-fe14, Stream channel member sync regression tests were added and API memory tests pass. Confirm PR CI. For the next coverage automation run, prefer platform event duplicate-key mismatch semantics or route-level Stream sync failure behavior.
+PR #318 on branch cursor/missing-test-coverage-fe14 adds Stream channel member sync regression tests and API memory tests pass. Confirm PR CI. For the next coverage automation run, prefer platform event duplicate-key mismatch semantics or route-level Stream sync failure behavior.
 ```
