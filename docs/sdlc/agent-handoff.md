@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
 - **Branch:** `cursor/critical-bug-investigation-4df2`
 - **Issue:** none created for this automation run.
-- **PR:** pending automation PR from `cursor/critical-bug-investigation-4df2`.
+- **PR:** #317 — Fix chat identity recovery data loss.
 - **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification; document simulator blocker if mobile harness cannot run.
 
 ## Completed (this session)
@@ -36,7 +36,7 @@
 
 ## Next 1-3 tasks
 
-1. Open automation PR and confirm CI green.
+1. Confirm PR #317 CI green.
 2. Run iOS simulator QA from a macOS runner if mobile-visible chat recovery needs manual proof beyond `agent:ios:ready`.
 3. Continue separate critical review of remaining chat surfaces (push webhook auth/HMAC, versioned local key history).
 
