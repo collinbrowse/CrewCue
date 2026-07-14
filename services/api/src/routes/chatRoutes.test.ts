@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { StreamChat } from "stream-chat";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
@@ -338,6 +339,48 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
     assert.equal(body.streamUserId, deriveStreamUserId("user-stream"));
     assert.equal(body.streamApiKey, "test-key");
   } finally {
+    delete process.env.STREAM_API_KEY;
+    delete process.env.STREAM_API_SECRET;
+    await app.close();
+  }
+});
+
+test("chat: room-scoped stream-token returns 502 when Stream channel sync fails", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  const streamChat = StreamChat as unknown as { getInstance: typeof StreamChat.getInstance };
+  const originalGetInstance = streamChat.getInstance;
+  try {
+    const token = app.jwt.sign(buildClaims("user-stream-sync"));
+    const roomId = await createActivatedRoom(app, token, "user-stream-sync");
+
+    process.env.STREAM_API_KEY = "test-key";
+    process.env.STREAM_API_SECRET = "test-secret";
+    streamChat.getInstance = (() =>
+      ({
+        upsertUsers: async () => {
+          throw new Error("stream unavailable");
+        },
+        channel: () => ({
+          create: async () => {},
+          query: async () => {},
+          addMembers: async () => {},
+          removeMembers: async () => {},
+          state: { members: {} }
+        })
+      }) as unknown as ReturnType<typeof StreamChat.getInstance>) as typeof StreamChat.getInstance;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/chat/stream-token",
+      payload: { roomId },
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(res.statusCode, 502);
+    assert.equal((res.json() as { error: string }).error, "Failed to prepare Stream Chat channel for this room");
+  } finally {
+    streamChat.getInstance = originalGetInstance;
     delete process.env.STREAM_API_KEY;
     delete process.env.STREAM_API_SECRET;
     await app.close();
