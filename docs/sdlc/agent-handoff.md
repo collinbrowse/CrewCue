@@ -14,7 +14,7 @@
 - **Roadmap phase:** Regression coverage automation / practical E2E crew chat hardening.
 - **Branch:** `cursor/missing-test-coverage-40e8`
 - **Issue:** none created; this automation has read-only `gh` guidance and no issue-creation MCP tool.
-- **PR:** pending automation PR creation for this branch.
+- **PR:** #319 — test(api): cover Stream sync failure on room-scoped chat token.
 - **Acceptance criteria:** inspect recent merged code, add minimal high-signal regression tests, avoid production behavior changes, run relevant tests plus local parity verification.
 
 ## Completed (this session)
@@ -34,7 +34,7 @@
 
 ## Next 1-3 tasks
 
-1. Open/update PR for `cursor/missing-test-coverage-40e8` and confirm CI stays green.
+1. Confirm PR #319 CI stays green.
 2. Future coverage candidate: platform event duplicate-key mismatch semantics across aggregate/payload differences.
 3. Future coverage candidate: API idempotency partial-failure/retry edges not already covered by stale-lease tests.
 
