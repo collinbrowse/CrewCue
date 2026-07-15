@@ -374,6 +374,8 @@ test("chat: sync-stream-channel enforces config and membership before syncing", 
     });
     assert.equal(missingConfig.statusCode, 503);
 
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-sync-route");
+
     process.env.STREAM_API_KEY = "test-key";
     process.env.STREAM_API_SECRET = "test-secret";
     setStreamClientFactoryForTests(() => ({
@@ -396,7 +398,6 @@ test("chat: sync-stream-channel enforces config and membership before syncing", 
     });
     assert.equal(notFound.statusCode, 404);
 
-    const roomId = await createActivatedRoom(app, athleteToken, "athlete-sync-route");
     const forbidden = await app.inject({
       method: "POST",
       url: `/chat/rooms/${roomId}/sync-stream-channel`,
