@@ -102,17 +102,24 @@ npm run auth0:bootstrap-mobile-client
 
 ## 8) CI + local environment variable wiring
 
-1. **Local dev:** `apps/mobile/.env` (from `.env.example`). Never commit real tenant values.
+1. **Local / staging profiles (recommended):**
+  - Once: `npm run env:init` (seeds `apps/mobile/.env.{local,staging}` and root `.env.{local,staging}` from your active files, or from `*.example`).
+  - Switch: `npm run env:local` or `npm run env:staging` (copies the profile onto active `.env` files).
+  - Check: `npm run env:status` (warns if mobile audience ≠ API `AUTH0_AUDIENCE`).
+  - Restart Metro and the API after switching — env is read at process start.
 2. **GitHub Actions:** This repo’s PR/`main` CI (`.github/workflows/ci.yml`) uses **placeholder** `EXPO_PUBLIC_`* values so `expo export` stays deterministic; it does **not** talk to your real Auth0 tenant. You cannot grant an assistant remote access to set secrets on your GitHub org—add them yourself under **Repo → Settings → Secrets and variables → Actions** if you add a workflow that builds against staging (for example EAS Build invoked from Actions).
 3. **EAS / production-like mobile builds:** Configure the same `EXPO_PUBLIC_`* keys as **EAS environment variables** or **EAS Secrets** for the profile that ships staging/production binaries—those override `.env` for hosted builds.
-4. Variables to mirror across local `.env`, EAS, and any deploy workflow:
+4. Variables to mirror across local profiles, EAS, and any deploy workflow:
   - `EXPO_PUBLIC_AUTH0_DOMAIN`
   - `EXPO_PUBLIC_AUTH0_CLIENT_ID`
   - `EXPO_PUBLIC_AUTH0_AUDIENCE`
   - `EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE`
   - `EXPO_PUBLIC_AUTH0_CONNECTION_APPLE`
   - `EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL`
-5. **Bootstrap / automation only** (never bundle these into the mobile app):
+5. **API Auth0 verify (root `.env` / profiles)** — must stay aligned with mobile:
+  - `AUTH0_ISSUER` = `https://{EXPO_PUBLIC_AUTH0_DOMAIN}/` (trailing slash)
+  - `AUTH0_AUDIENCE` = same string as `EXPO_PUBLIC_AUTH0_AUDIENCE`
+6. **Bootstrap / automation only** (never bundle these into the mobile app):
   - `AUTH0_DOMAIN`
   - `AUTH0_MGMT_CLIENT_ID`
   - `AUTH0_MGMT_CLIENT_SECRET`
@@ -120,6 +127,40 @@ npm run auth0:bootstrap-mobile-client
 
 From a machine already logged into GitHub CLI (`gh auth login`), you can set an Actions secret locally:
 `gh secret set AUTH0_MGMT_CLIENT_SECRET --repo OWNER/REPO`
+
+## 8b) Local API + Auth0 sync
+
+There is no separate “Auth0 running on localhost.” Local means: **mobile talks to your local API**, while **login still uses Auth0 (usually the staging tenant)**.
+
+### Recommended: reuse staging Auth0 against local API
+
+1. Keep the same mobile Auth0 values in `apps/mobile/.env.local` as staging (`DOMAIN`, `CLIENT_ID`, `AUDIENCE`, connection names).
+2. Set only the API URL differently:
+   - Local: `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:4000` (iOS Simulator)
+   - Android emulator: `http://10.0.2.2:4000`
+3. On the **API** local profile (root `.env.local`), set:
+   - `AUTH0_ISSUER=https://<same-domain-as-mobile>/`
+   - `AUTH0_AUDIENCE=<same-as-EXPO_PUBLIC_AUTH0_AUDIENCE>`
+4. `npm run env:init` does steps 2–3 for you when seeding from an existing mobile `.env`.
+5. `npm run env:local` → start API (`npm run dev:api` or `dev:api:memory`) → restart Metro.
+
+If `AUTH0_ISSUER` / `AUTH0_AUDIENCE` are missing on the API, it falls back to HS256 `JWT_SECRET` tokens and **will not accept Auth0 access tokens** from the app.
+
+### Auth0 Dashboard checks (staging tenant is fine for local)
+
+1. Native app **Allowed Callback URLs** include `crewcue://auth`.
+2. **Allowed Logout URLs** / **Allowed Origins** include any Expo / simulator origins you use.
+3. API identifier (audience) in Auth0 **APIs** matches `EXPO_PUBLIC_AUTH0_AUDIENCE` / `AUTH0_AUDIENCE` exactly.
+4. No need for a second Auth0 tenant unless you want isolation from staging users.
+
+### Optional: dedicated Auth0 “Development” tenant
+
+Only if you want local traffic fully isolated from staging:
+
+1. Create a new Auth0 tenant + API (audience e.g. `https://api.crewcue.local`).
+2. Create a native app with `crewcue://auth` callbacks; enable Google/Apple/Email connections.
+3. Put that tenant’s domain/client/audience in **both** `apps/mobile/.env.local` and root `.env.local` (`AUTH0_ISSUER` / `AUTH0_AUDIENCE`).
+4. Keep `apps/mobile/.env.staging` on the staging tenant unchanged.
 
 ## 9) Verification checklist (staging first)
 

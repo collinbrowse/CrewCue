@@ -17,9 +17,14 @@ This repository now contains the WS0 implementation baseline for a hybrid iOS/An
 ```bash
 npm install
 docker compose -f docker-compose.local.yml up -d
-npm run dev:api
+npm run env:init          # once: seed local/staging profiles from current .env
+npm run env:local         # or: npm run env:staging  (Railway)
+npm run env:status        # confirm mobile API URL + Auth0 audience match API
+npm run dev:api           # or: npm run dev:api:memory
 npm run dev:mobile
 ```
+
+Switch backends anytime with `npm run env:local` / `npm run env:staging`, then restart Metro and the API. Auth0 sync notes: `docs/runbooks/auth0-and-social-idp-setup.md`.
 
 ## Quality Gates
 
