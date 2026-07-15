@@ -14,7 +14,7 @@
 - **Roadmap phase:** Practical E2E crew chat hardening / regression test coverage automation.
 - **Branch:** `cursor/missing-test-coverage-401e`
 - **Issue:** none created; automation has read-only `gh` guidance and no issue-creation MCP tool.
-- **PR:** pending for this branch.
+- **PR:** #320 — test(api): cover Stream channel member sync.
 - **Acceptance criteria:** inspect recent merged code; add focused deterministic tests for risky missing coverage; avoid production behavior changes except tiny testability refactor; run relevant validation.
 
 ## Completed (this session)
@@ -33,8 +33,8 @@
 
 ## Next 1-3 tasks
 
-1. Open the PR for `cursor/missing-test-coverage-401e`.
-2. Confirm PR CI is green after opening.
+1. Confirm PR #320 CI is green.
+2. Merge PR #320 when checks pass and review is complete.
 3. Future coverage candidate: mobile `apps/mobile/src/features/chat/chatKeySync.ts` (requires iOS simulator proof if touched).
 
 ## Open risks/blockers
@@ -45,5 +45,5 @@
 ## Successor prompt
 
 ```text
-On branch cursor/missing-test-coverage-401e, Stream channel member sync coverage was added for API helper and route paths. Scoped API typecheck, API memory tests, and npm run verify pass. Open/monitor the PR and note no issue was created because the automation lacks an issue-creation tool.
+PR #320 on cursor/missing-test-coverage-401e adds Stream channel member sync coverage for API helper and route paths. Scoped API typecheck, API memory tests, and npm run verify pass. Monitor CI; no issue was created because the automation lacks an issue-creation tool.
 ```
