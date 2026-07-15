@@ -14,7 +14,7 @@
 - **Roadmap phase:** MVP chat reliability (plaintext Stream).
 - **Branch:** `feature/remove-chat-encryption-mvp`
 - **Issue:** #323
-- **PR:** (open after push)
+- **PR:** #324
 - **Acceptance criteria:** Remove E2E chat crypto; plaintext send/receive; no Syncing secure chat; ADR 0007; verify + sim notes.
 
 ## Completed (this session)
@@ -44,5 +44,5 @@
 ## Successor prompt
 
 ```text
-PR feature/remove-chat-encryption-mvp (#323): plaintext MVP chat. Confirm CI green, merge, run migration 0014 on staging, then smoke send/receive while signed in. Close obsolete crypto draft PRs.
+PR #324 (feature/remove-chat-encryption-mvp, #323): plaintext MVP chat. Confirm CI green, merge, run migration 0014 on staging, then smoke send/receive while signed in. Close obsolete crypto draft PRs.
 ```
