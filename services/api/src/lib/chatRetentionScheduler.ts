@@ -2,13 +2,13 @@
  * Chat retention scheduler (Phase 7 — issue #234).
  *
  * Runs `runChatRetentionPass` on a fixed cadence (default: every 6 hours) so
- * crew chat data (envelopes, prefs, push tokens) is purged 30 days after the
- * race ends. The scheduler is intentionally minimal — Phase 7 v1 doesn't pull
- * in a real cron framework; we just use `setInterval` and let the host process
- * stay long-lived. The job is idempotent so missing a run only delays cleanup.
+ * crew chat metadata (prefs, push tokens) is purged 30 days after the race
+ * ends. The scheduler is intentionally minimal — Phase 7 v1 doesn't pull in a
+ * real cron framework; we just use `setInterval` and let the host process stay
+ * long-lived. The job is idempotent so missing a run only delays cleanup.
  *
  * In production the scheduler must also call `Stream.deleteChannel(...)` for
- * each result so the ciphertext is removed from Stream's storage. That's a
+ * each result so channel messages are removed from Stream's storage. That's a
  * one-line addition once the Stream server SDK credentials are wired and is
  * intentionally left as a runbook step (see docs/runbooks/chat-retention.md).
  */

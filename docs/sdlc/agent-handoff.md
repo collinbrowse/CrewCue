@@ -10,41 +10,39 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
-- **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
-- **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
-- **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
+- Last updated: 2026-07-15 (UTC)
+- **Roadmap phase:** MVP chat reliability (plaintext Stream).
+- **Branch:** `feature/remove-chat-encryption-mvp`
+- **Issue:** #323
+- **PR:** (open after push)
+- **Acceptance criteria:** Remove E2E chat crypto; plaintext send/receive; no Syncing secure chat; ADR 0007; verify + sim notes.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Removed `@crewcue/chat-crypto` and mobile/API identity, backup, envelope, and push-decrypt bridges.
+- Mobile chat sends/reads Stream `text`; bootstrap is token + connect only.
+- Push webhook uses optional `previewText`; migration `0014_drop_chat_crypto.sql`.
+- ADR 0006 superseded by ADR 0007; runbooks updated (`chat-smoke`, `chat-push`, `chat-retention`).
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
-- `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- `npm run verify` — pass.
+- `npm run agent:ios:ready` — pass (sim booted). Full chat send/receive on sim blocked: Auth0 login required; XcodeBuildMCP tap tools not enabled in this session (snapshot/screenshot only).
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Open/merge PR for #323; deploy API migration 0014 to staging.
+2. Manual smoke on a signed-in device: open chat, send text/photo, confirm no sync-key UI.
+3. Close obsolete draft crypto automation PRs (#308/#311/#317 etc.) as won’t-fix / obsolete.
 
 ## Open risks/blockers
 
-- No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- Historical Stream messages that only stored ciphertext will not show readable text.
+- Agent cannot complete Auth0 chat E2E on simulator without a test account / deeplink fixture.
+- Env-switch work (#321 / PR #322) is separate and still open on another branch.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+PR feature/remove-chat-encryption-mvp (#323): plaintext MVP chat. Confirm CI green, merge, run migration 0014 on staging, then smoke send/receive while signed in. Close obsolete crypto draft PRs.
 ```

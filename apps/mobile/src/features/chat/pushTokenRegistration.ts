@@ -1,11 +1,7 @@
 /**
  * Push token registration: fetch the device token from `expo-notifications`
  * and register it with our chat backend so the server-side webhook can fan
- * out APNS/FCM with the encrypted preview blob.
- *
- * Strict E2E means our server delivers ciphertext only; the recipient device
- * (or the iOS NSE / Android FCM service from Phase 6) is responsible for
- * decrypting before showing the lock-screen body.
+ * out APNS/FCM with an optional plaintext preview (or generic fallback copy).
  */
 import type { ChatPushPlatform } from "@crewcue/contracts";
 import type { ApiClient } from "../../api/client";

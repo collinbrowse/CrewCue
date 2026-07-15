@@ -1,10 +1,9 @@
 /**
- * Shared Stream + channel-key bootstrap for crew chat.
+ * Shared Stream bootstrap for crew chat (plaintext MVP).
  */
 import type { Channel, MessageResponse, StreamChat } from "stream-chat";
 import type { RaceRoom } from "@crewcue/contracts";
 import type { ApiClient } from "../../api/client";
-import { bootstrapChannelKey, type ChannelMember } from "./chatChannel";
 import { registerChatPushToken } from "./pushTokenRegistration";
 import { ensureDeviceIdentity } from "./keyStore";
 import { rememberStreamUserIdForAuthSub, streamUserIdForAuthSub } from "./streamUserId";
@@ -28,7 +27,6 @@ export type RaceChatBootstrapResult = {
   streamUserId: string;
   client: StreamChat;
   channel: Channel;
-  channelKey: { keyB64: string; keyVersion: number };
   streamIdToDisplayName: Map<string, string>;
   rawInitialMessages: MessageResponse[];
 };
@@ -70,17 +68,6 @@ export async function buildStreamIdDisplayNameMap(
   return map;
 }
 
-async function memberIdentities(api: ApiClient, room: RaceRoom): Promise<ChannelMember[]> {
-  const out: ChannelMember[] = [];
-  for (const m of room.memberships) {
-    const identity = await api.getChatUserIdentity(m.userId);
-    if (identity?.publicKey) {
-      out.push({ userId: m.userId, publicKey: identity.publicKey });
-    }
-  }
-  return out;
-}
-
 export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Promise<RaceChatBootstrapResult> {
   const { room, authSub, api, memberships } = args;
   const tokenResp = await api.getChatStreamToken({ roomId: room.id });
@@ -93,9 +80,6 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
   const channel = await joinCrewChannel(client, room.id, {
     messages: { limit: CHAT_INITIAL_MESSAGE_COUNT }
   });
-
-  const members = await memberIdentities(api, room);
-  const channelKey = await bootstrapChannelKey(api, room.id, members);
 
   const streamNames = await buildStreamIdDisplayNameMap(memberships, room.athleteId, room.creatorName);
   streamNames.set(tokenResp.streamUserId, selfLabel || "You");
@@ -114,7 +98,6 @@ export async function bootstrapRaceChatSession(args: RaceChatSessionInput): Prom
     streamUserId: tokenResp.streamUserId,
     client,
     channel,
-    channelKey,
     streamIdToDisplayName: streamNames,
     rawInitialMessages
   };

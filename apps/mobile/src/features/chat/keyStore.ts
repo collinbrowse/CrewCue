@@ -1,10 +1,7 @@
 /**
- * SecureStore: push device id, per-room keys (via chat-crypto), NSE mirror.
+ * SecureStore: push device id only (message encryption removed for MVP).
  */
-import { deleteItemAsync, getItemAsync, setItemAsync } from "../../storage/secureStorage";
-import { loadLocalRoomKey, saveLocalRoomKey } from "@crewcue/chat-crypto";
-import { chatSecureStorageAdapter } from "./secureStorageAdapter";
-import { removeChannelKeyFromExtension, shareChannelKeyWithExtension } from "./nativeKeyBridge";
+import { getItemAsync, setItemAsync } from "../../storage/secureStorage";
 
 const DEVICE_ID_KEY = "crewcue.chat.deviceId";
 
@@ -27,25 +24,4 @@ export async function ensureDeviceIdentity(): Promise<{ deviceId: string }> {
   const deviceId = generateDeviceId();
   await setItemAsync(DEVICE_ID_KEY, deviceId);
   return { deviceId };
-}
-
-export async function saveChannelKey(
-  roomId: string,
-  keyB64: string,
-  keyVersion: number
-): Promise<void> {
-  await saveLocalRoomKey(chatSecureStorageAdapter, roomId, keyB64, keyVersion);
-  await shareChannelKeyWithExtension(roomId, keyB64);
-}
-
-export async function loadChannelKey(
-  roomId: string
-): Promise<{ keyB64: string; keyVersion: number } | undefined> {
-  return loadLocalRoomKey(chatSecureStorageAdapter, roomId);
-}
-
-export async function clearChannelKey(roomId: string): Promise<void> {
-  const { clearLocalRoomKey } = await import("@crewcue/chat-crypto");
-  await clearLocalRoomKey(chatSecureStorageAdapter, roomId);
-  await removeChannelKeyFromExtension(roomId);
 }

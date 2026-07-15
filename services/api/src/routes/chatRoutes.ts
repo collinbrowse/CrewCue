@@ -1,35 +1,26 @@
 /**
- * Chat HTTP routes — identity, encrypted backup, user-scoped envelopes, push devices.
+ * Chat HTTP routes — Stream token, channel sync, push devices, notification prefs.
+ * Crew chat MVP uses plaintext Stream messages (no server-side E2E crypto).
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type {
-  ChatIdentityBackup,
-  ChatKeyEnvelope,
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushDeviceRecord,
   ChatPushPlatform,
   ChatPushWebhookPayload,
-  ChatStreamTokenResponse,
-  ChatUserIdentity
+  ChatStreamTokenResponse
 } from "@crewcue/contracts";
 import { getRaceRoom } from "./raceRooms.js";
 import {
   deleteChatRoomData,
-  getChatIdentityBackup,
-  getChatUserIdentity,
-  getLatestChatKeyVersionForRoom,
   getChatNotificationPref,
   initChatPersistence,
-  listChatKeyEnvelopesForUser,
   listChatNotificationPrefsForUsers,
   listChatPushDevicesForUsers,
   setChatNotificationPref,
-  upsertChatIdentityBackup,
-  upsertChatKeyEnvelope,
-  upsertChatPushDevice,
-  upsertChatUserIdentity
+  upsertChatPushDevice
 } from "../lib/chatPersistence.js";
 import {
   GENERIC_CHAT_PUSH_BODY,
@@ -41,31 +32,6 @@ import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js
 
 const streamTokenBodySchema = z.object({
   roomId: z.string().trim().min(1).optional()
-});
-
-const identityRegistrationSchema = z.object({
-  publicKey: z.string().trim().min(1).max(2048)
-});
-
-const backupUploadSchema = z.object({
-  ciphertext: z.string().trim().min(1).max(65536),
-  nonce: z.string().trim().min(1).max(2048),
-  version: z.number().int().positive()
-});
-
-const envelopeUploadSchema = z.object({
-  envelopes: z
-    .array(
-      z.object({
-        recipientUserId: z.string().trim().min(1),
-        senderEphemeralPublicKey: z.string().trim().min(1).max(2048),
-        nonce: z.string().trim().min(1).max(2048),
-        ciphertext: z.string().trim().min(1).max(8192),
-        keyVersion: z.number().int().nonnegative()
-      })
-    )
-    .min(1)
-    .max(500)
 });
 
 const notificationPrefSchema = z.object({
@@ -84,30 +50,13 @@ const pushWebhookSchema = z.object({
   recipientUserIds: z.array(z.string().trim().min(1)),
   roomId: z.string().trim().min(1),
   mentionedUserIds: z.array(z.string().trim().min(1)).optional(),
-  encryptedPreview: z.object({
-    ciphertext: z.string().trim().min(1),
-    nonce: z.string().trim().min(1),
-    keyVersion: z.number().int().nonnegative()
-  })
+  previewText: z.string().trim().min(1).max(500).optional()
 });
 
 async function isMemberOfRoom(roomId: string, userId: string): Promise<boolean> {
   const room = await getRaceRoom(roomId);
   if (!room) return false;
   return room.memberships.some((m) => m.userId === userId);
-}
-
-async function canReadUserIdentity(requesterId: string, targetUserId: string): Promise<boolean> {
-  if (requesterId === targetUserId) return true;
-  // Member-readable if they share any race room.
-  const { listRaceRoomsForMember } = await import("./raceRooms.js");
-  const requesterRooms = await listRaceRoomsForMember(requesterId);
-  for (const room of requesterRooms) {
-    if (room.memberships.some((m) => m.userId === targetUserId)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
@@ -175,68 +124,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true as const });
   });
 
-  app.post("/chat/identity", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const parsed = identityRegistrationSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid identity registration payload" });
-    }
-    const record: ChatUserIdentity = {
-      userId: request.identity.sub,
-      publicKey: parsed.data.publicKey,
-      registeredAt: new Date().toISOString()
-    };
-    await upsertChatUserIdentity(record);
-    return reply.code(201).send(record);
-  });
-
-  app.get("/chat/users/:userId/identity", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const { userId } = request.params as { userId: string };
-    if (!(await canReadUserIdentity(request.identity.sub, userId))) {
-      return reply.code(403).send({ error: "Forbidden" });
-    }
-    const record = await getChatUserIdentity(userId);
-    if (!record) {
-      return reply.code(404).send({ error: "Identity not found" });
-    }
-    return reply.send(record);
-  });
-
-  app.post("/chat/identity/backup", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const parsed = backupUploadSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid backup payload" });
-    }
-    const record: ChatIdentityBackup = {
-      userId: request.identity.sub,
-      ciphertext: parsed.data.ciphertext,
-      nonce: parsed.data.nonce,
-      version: parsed.data.version,
-      updatedAt: new Date().toISOString()
-    };
-    await upsertChatIdentityBackup(record);
-    return reply.code(201).send(record);
-  });
-
-  app.get("/chat/identity/backup", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const record = await getChatIdentityBackup(request.identity.sub);
-    if (!record) {
-      return reply.code(404).send({ error: "Backup not found" });
-    }
-    return reply.send(record);
-  });
-
   app.post("/chat/devices", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -273,49 +160,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     };
     await upsertChatPushDevice(record);
     return reply.code(201).send(record);
-  });
-
-  app.post("/chat/rooms/:roomId/key-envelopes", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const { roomId } = request.params as { roomId: string };
-    if (!(await isMemberOfRoom(roomId, request.identity.sub))) {
-      return reply.code(403).send({ error: "Not a member of this room" });
-    }
-    const parsed = envelopeUploadSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid envelope payload" });
-    }
-    const now = new Date().toISOString();
-    const stored: ChatKeyEnvelope[] = [];
-    for (const e of parsed.data.envelopes) {
-      const envelope: ChatKeyEnvelope = {
-        roomId,
-        recipientUserId: e.recipientUserId,
-        senderEphemeralPublicKey: e.senderEphemeralPublicKey,
-        nonce: e.nonce,
-        ciphertext: e.ciphertext,
-        keyVersion: e.keyVersion,
-        createdAt: now
-      };
-      await upsertChatKeyEnvelope(envelope);
-      stored.push(envelope);
-    }
-    return reply.code(201).send({ stored: stored.length, envelopes: stored });
-  });
-
-  app.get("/chat/rooms/:roomId/key-envelopes", async (request, reply) => {
-    if (!request.identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const { roomId } = request.params as { roomId: string };
-    if (!(await isMemberOfRoom(roomId, request.identity.sub))) {
-      return reply.code(403).send({ error: "Not a member of this room" });
-    }
-    const envelopes = await listChatKeyEnvelopesForUser(roomId, request.identity.sub);
-    const latestRoomKeyVersion = await getLatestChatKeyVersionForRoom(roomId);
-    return reply.send({ envelopes, latestRoomKeyVersion });
   });
 
   app.get("/chat/rooms/:roomId/notification-prefs", async (request, reply) => {
@@ -377,7 +221,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const dispatch = await dispatchChatPush({
       channelId: payload.channelId,
       roomId: payload.roomId,
-      encryptedPreview: payload.encryptedPreview,
+      previewText: payload.previewText,
       targets: tokensToTargets(tokens)
     });
     return reply.send({
@@ -390,7 +234,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         platform: t.platform as ChatPushPlatform
       })),
       genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
-      encryptedPreview: payload.encryptedPreview,
+      previewText: payload.previewText,
       channelId: payload.channelId
     });
   });
@@ -421,13 +265,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     }
     const room = await getRaceRoom(roomId);
     const memberIds = room?.memberships.map((m) => m.userId) ?? [];
-    let identityCount = 0;
-    for (const id of memberIds) {
-      if (await getChatUserIdentity(id)) identityCount += 1;
-    }
     return reply.send({
       memberCount: memberIds.length,
-      identityCount,
       streamConfigured: Boolean(readStreamCredentials())
     });
   });

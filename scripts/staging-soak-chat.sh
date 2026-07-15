@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Practical E2E chat staging soak (identity, backup, user-scoped envelopes).
-# Requires staging API deployed with migration 0013+.
+# Crew chat MVP staging soak (stream token, devices, notification prefs).
+# Requires staging API deployed with migration 0014+ (crypto tables dropped).
 set -euo pipefail
 
 log() { printf "\n[%s] %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -11,7 +11,6 @@ required_env() { [[ -n "${!1:-}" ]] || fail "Missing env: $1"; }
 
 required_cmd curl
 required_cmd jq
-required_cmd python3
 
 required_env API_BASE_URL
 required_env AUTH0_ISSUER
@@ -77,25 +76,14 @@ expect_code() {
   fail "$label HTTP $actual — $(cat "$body_file" 2>/dev/null || true)"
 }
 
-log "Probe POST /chat/identity (must exist on deployed API)"
-ident_file="$(api_request POST /chat/identity '{"publicKey":"c29hay1pZGVudGl0eS1wa2I="}')"
-code="$(cat "$tmp_dir/last_code.txt")"
-if [[ "$code" == "404" ]]; then
-  fail "POST /chat/identity HTTP 404 — deploy feature branch + db:migrate 0013 first. Body: $(cat "$ident_file")"
-fi
-expect_code "201" "$code" "POST /chat/identity" "$ident_file"
-log "Identity registered"
-
-log "Backup round-trip"
-backup_post_file="$(api_request POST /chat/identity/backup '{"ciphertext":"c29hay1jdA==","nonce":"c29hay1u","version":1}')"
-expect_code "201" "$(cat "$tmp_dir/last_code.txt")" "POST /chat/identity/backup" "$backup_post_file"
-backup_get_file="$(api_request GET /chat/identity/backup)"
-expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "GET /chat/identity/backup" "$backup_get_file"
-log "Backup OK"
-
 log "Push device registration"
 push_file="$(api_request POST /chat/devices '{"deviceId":"soak-chat-1","platform":"ios","token":"apns-soak-chat"}')"
-expect_code "201" "$(cat "$tmp_dir/last_code.txt")" "POST /chat/devices" "$push_file"
+code="$(cat "$tmp_dir/last_code.txt")"
+if [[ "$code" == "404" ]]; then
+  fail "POST /chat/devices HTTP 404 — deploy feature branch first. Body: $(cat "$push_file")"
+fi
+expect_code "201" "$code" "POST /chat/devices" "$push_file"
+log "Push device registered"
 
 log "List race rooms"
 rooms_file="$(api_request GET /race-rooms/mine)"
@@ -104,24 +92,25 @@ room_id="$(jq -r '.rooms[0].id // empty' "$rooms_file")"
 [[ -n "$room_id" ]] || fail "No race rooms for test user"
 log "Using room $room_id"
 
-log "Key envelope upload/list"
-read -r sub _ <<< "$(echo "$ACCESS_TOKEN" | cut -d. -f2 | python3 -c "import sys,base64,json; p=sys.stdin.read().strip(); p+='='*((4-len(p)%4)%4); print(json.loads(base64.urlsafe_b64decode(p))['sub'])")"
-envelope_body="$(jq -n --arg uid "$sub" '{
-  envelopes: [{
-    recipientUserId: $uid,
-    senderEphemeralPublicKey: "c29hay1lcGg=",
-    nonce: "c29hay1u",
-    ciphertext: "c29hay1jdA==",
-    keyVersion: 1
-  }]
-}')"
-env_post_file="$(api_request POST "/chat/rooms/${room_id}/key-envelopes" "$envelope_body")"
-expect_code "201" "$(cat "$tmp_dir/last_code.txt")" "POST key-envelopes" "$env_post_file"
-env_get_file="$(api_request GET "/chat/rooms/${room_id}/key-envelopes")"
-expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "GET key-envelopes" "$env_get_file"
-count="$(jq -r '.envelopes | length' "$env_get_file")"
-[[ "$count" -ge 1 ]] || fail "Expected envelopes for caller"
-log "Envelopes OK (count=$count)"
+log "Notification prefs round-trip"
+prefs_get_file="$(api_request GET "/chat/rooms/${room_id}/notification-prefs")"
+expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "GET notification-prefs" "$prefs_get_file"
+prefs_post_file="$(api_request POST "/chat/rooms/${room_id}/notification-prefs" '{"preference":"mentions"}')"
+expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "POST notification-prefs" "$prefs_post_file"
+prefs_after_file="$(api_request GET "/chat/rooms/${room_id}/notification-prefs")"
+expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "GET notification-prefs after" "$prefs_after_file"
+pref="$(jq -r '.preference // empty' "$prefs_after_file")"
+[[ "$pref" == "mentions" ]] || fail "Expected preference=mentions, got: $pref"
+log "Notification prefs OK"
+
+log "Crypto routes must be gone"
+ident_file="$(api_request POST /chat/identity '{"publicKey":"should-404"}')"
+ident_code="$(cat "$tmp_dir/last_code.txt")"
+[[ "$ident_code" == "404" ]] || fail "POST /chat/identity expected 404, got $ident_code ($(cat "$ident_file"))"
+env_file="$(api_request GET "/chat/rooms/${room_id}/key-envelopes")"
+env_code="$(cat "$tmp_dir/last_code.txt")"
+[[ "$env_code" == "404" ]] || fail "GET key-envelopes expected 404, got $env_code ($(cat "$env_file"))"
+log "Crypto routes absent"
 
 log "Stream token (optional)"
 stream_file="$(api_request POST /chat/stream-token "$(jq -n --arg roomId "$room_id" '{roomId: $roomId}')")"
@@ -129,7 +118,7 @@ stream_code="$(cat "$tmp_dir/last_code.txt")"
 if [[ "$stream_code" == "200" ]]; then
   log "Stream token minted"
 elif [[ "$stream_code" == "503" ]]; then
-  log "Stream not configured on staging (503) — OK for crypto soak"
+  log "Stream not configured on staging (503) — OK for MVP soak"
 else
   fail "POST /chat/stream-token HTTP $stream_code"
 fi

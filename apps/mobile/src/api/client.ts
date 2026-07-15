@@ -1,9 +1,6 @@
 import type {
   AthletePingAcceptedResponse,
   AthletePingRejectedResponse,
-  ChatIdentityBackup,
-  ChatKeyEnvelope,
-  ChatUserIdentity,
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushPlatform,
@@ -468,7 +465,7 @@ export function createApiClient(options: ApiClientOptions) {
       events: Array<{ name: string; properties?: Record<string, unknown>; occurredAt?: string }>
     ) => request<{ accepted: number }>(options, "POST", "/analytics/v1/events", { events }),
 
-    // --- Crew chat (E2E) ---
+    // --- Crew chat MVP plaintext ---
     getChatStreamToken: (input?: { roomId?: string }) =>
       request<ChatStreamTokenResponse>(
         options,
@@ -476,54 +473,8 @@ export function createApiClient(options: ApiClientOptions) {
         "/chat/stream-token",
         input?.roomId ? { roomId: input.roomId } : undefined
       ),
-    registerChatIdentity: (input: { publicKey: string }) =>
-      request<ChatUserIdentity>(options, "POST", "/chat/identity", input),
-    getChatUserIdentity: async (userId: string) => {
-      try {
-        return await request<ChatUserIdentity>(
-          options,
-          "GET",
-          `/chat/users/${encodeURIComponent(userId)}/identity`
-        );
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return undefined;
-        throw err;
-      }
-    },
-    uploadChatIdentityBackup: (input: { ciphertext: string; nonce: string; version: number }) =>
-      request<ChatIdentityBackup>(options, "POST", "/chat/identity/backup", input),
-    getChatIdentityBackup: async () => {
-      try {
-        return await request<ChatIdentityBackup>(options, "GET", "/chat/identity/backup");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return undefined;
-        throw err;
-      }
-    },
     registerChatPushDevice: (input: { deviceId: string; platform: ChatPushPlatform; token: string }) =>
       request<ChatPushTokenRecord>(options, "POST", "/chat/devices", input),
-    uploadChatKeyEnvelopes: (
-      roomId: string,
-      envelopes: Array<{
-        recipientUserId: string;
-        senderEphemeralPublicKey: string;
-        nonce: string;
-        ciphertext: string;
-        keyVersion: number;
-      }>
-    ) =>
-      request<{ stored: number; envelopes: ChatKeyEnvelope[] }>(
-        options,
-        "POST",
-        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes`,
-        { envelopes }
-      ),
-    listChatKeyEnvelopes: (roomId: string) =>
-      request<{ envelopes: ChatKeyEnvelope[]; latestRoomKeyVersion?: number }>(
-        options,
-        "GET",
-        `/chat/rooms/${encodeURIComponent(roomId)}/key-envelopes`
-      ),
     getChatNotificationPref: (roomId: string) =>
       request<{ preference: ChatNotificationPref; updatedAt?: string }>(
         options,
