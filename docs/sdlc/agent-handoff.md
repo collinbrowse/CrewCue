@@ -10,41 +10,40 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-06-05 (UTC)
-- **Roadmap phase:** Practical E2E crew chat hardening / critical bug-hunt.
-- **Branch:** `cursor/critical-bug-investigation-c22b`
-- **Issue:** none created for this automation run.
-- **PR:** #296 — Fix chat crypto backup and rotation data loss.
-- **Acceptance criteria:** fix high-confidence critical bugs; keep patch minimal; add regression tests; run local parity verification.
+- Last updated: 2026-07-15 (UTC)
+- **Roadmap phase:** Practical E2E crew chat hardening / regression test coverage automation.
+- **Branch:** `cursor/missing-test-coverage-401e`
+- **Issue:** none created; automation has read-only `gh` guidance and no issue-creation MCP tool.
+- **PR:** pending for this branch.
+- **Acceptance criteria:** inspect recent merged code; add focused deterministic tests for risky missing coverage; avoid production behavior changes except tiny testability refactor; run relevant validation.
 
 ## Completed (this session)
 
-- Fixed chat crypto backup snapshots so syncing one room preserves decryptable/known room keys for other rooms instead of replacing the server backup with only the current room.
-- Fixed server-rotation handling so a cached room key is trusted only when its version is current; after a member-removal bump with no envelopes, the deterministic first remaining member distributes a fresh key at the bumped version.
-- Merged `main` into PR #296; resolved conflicts in `roomKey.test.ts` and `agent-handoff.md`, keeping all regression tests (multi-room backup, stale cached-key rotation, backup restore).
-- `restoreIdentityWithBackup` (from merged `main`) registers the restored public key after a valid backup instead of a transient generated identity.
-- Do-not-change guardrails honored: no API contract changes, no mobile UI changes, no broad idempotency/API refactor.
+- Added a Stream client factory hook in `services/api/src/lib/streamChannelMembers.ts` so tests can exercise Stream channel sync without network calls.
+- Added `services/api/src/lib/streamChannelMembers.test.ts` covering roster user upsert, display-name trimming, duplicate member dedupe, stale Stream member removal, duplicate-channel create tolerance, and the empty-snapshot no-remove guard.
+- Extended `services/api/src/routes/chatRoutes.test.ts` to cover `/chat/rooms/:roomId/sync-stream-channel` auth, missing Stream config, room not found, non-member rejection, and successful member sync.
+- Do-not-change guardrails honored: no API contract changes, no persistence behavior changes, no mobile/web UI changes, no staging/cloud changes.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/chat-crypto` — pass (8 tests, including all regressions).
-- `npm run typecheck -w @crewcue/chat-crypto` — pass.
-- `npm run verify` — pending post-merge commit.
+- `npm run typecheck -w @crewcue/api` — pass.
+- `npm run test:memory -w @crewcue/api` — pass (114 tests, 111 pass, 3 skipped).
+- Initial validation attempt failed because dependencies were missing (`tsc: not found`); `npm ci` from lockfile resolved the environment setup.
 
 ## Next 1-3 tasks
 
-1. Push merge commit and confirm PR #296 CI green.
-2. Follow-up hardening: decide whether identity registration should fetch/decrypt backup before upserting a new public key.
-3. Separate critical review of API idempotency partial-failure/retry paths.
+1. Run root `npm run verify` if time/environment permits; otherwise rely on scoped API validation plus CI.
+2. Confirm PR CI is green after opening.
+3. Future coverage candidate: mobile `apps/mobile/src/features/chat/chatKeySync.ts` (requires iOS simulator proof if touched).
 
 ## Open risks/blockers
 
-- No GitHub issue was created for this automation run.
-- Deterministic distributor uses the lexicographically first remaining member with a matching public key; if that member never syncs, others return `syncing` rather than risk conflicting fresh keys.
-- No iOS simulator run: package-only crypto behavior changed, not mobile UI.
+- No GitHub issue was created for this automation run due tool availability; PR body must note this instead of using an invalid `Closes #`.
+- Full repo verify is not yet run in this snapshot.
+- No iOS simulator run: API-only tests changed, not mobile UI.
 
 ## Successor prompt
 
 ```text
-PR #296 on cursor/critical-bug-investigation-c22b fixes chat crypto multi-room backup overwrite, stale cached key reuse after server rotation, and includes merged backup-restore registration coverage. Confirm CI green, then merge. Optional next hardening: identity backup restore-before-register semantics and API idempotency partial-failure retries.
+On branch cursor/missing-test-coverage-401e, Stream channel member sync coverage was added for API helper and route paths. Scoped API typecheck and memory tests pass. If continuing, run npm run verify, open/monitor the PR, and note no issue was created because the automation lacks an issue-creation tool.
 ```
