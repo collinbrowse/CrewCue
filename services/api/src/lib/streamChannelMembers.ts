@@ -14,6 +14,31 @@ import { StreamChat } from "stream-chat";
 import { chatChannelIdForRoom, type RaceRoom } from "@crewcue/contracts";
 import { deriveStreamUserId, readStreamCredentials } from "./streamChat.js";
 
+type StreamMember = { id: string; name?: string };
+type StreamChannelState = {
+  members?: Record<string, unknown>;
+};
+type StreamChannel = {
+  state: StreamChannelState;
+  create: () => Promise<unknown>;
+  query: (options: {
+    state: true;
+    messages: { limit: number };
+    members: { limit: number };
+  }) => Promise<unknown>;
+  addMembers: (memberIds: string[]) => Promise<unknown>;
+  removeMembers: (memberIds: string[]) => Promise<unknown>;
+};
+type StreamClient = {
+  upsertUsers: (users: StreamMember[]) => Promise<unknown>;
+  channel: (
+    type: "messaging",
+    id: string,
+    options: { created_by_id: string; members: string[] }
+  ) => StreamChannel;
+};
+type StreamClientFactory = (apiKey: string, apiSecret: string) => StreamClient;
+
 function isStreamChannelExistsError(err: unknown): boolean {
   const o = err as {
     message?: string;
@@ -30,6 +55,19 @@ function isStreamChannelExistsError(err: unknown): boolean {
   const code = o?.code ?? o?.response?.data?.code;
   if (code === 4) return true;
   return false;
+}
+
+const defaultStreamClientFactory: StreamClientFactory = (apiKey, apiSecret) =>
+  StreamChat.getInstance(apiKey, apiSecret, { timeout: 20_000 }) as unknown as StreamClient;
+
+let streamClientFactory = defaultStreamClientFactory;
+
+export function setStreamClientFactoryForTests(factory: StreamClientFactory): void {
+  streamClientFactory = factory;
+}
+
+export function resetStreamClientFactoryForTests(): void {
+  streamClientFactory = defaultStreamClientFactory;
 }
 
 /**
@@ -54,9 +92,7 @@ export async function syncRaceRoomStreamChannelMembers(
 
   const desired = new Set(memberStreamIds);
 
-  const client = StreamChat.getInstance(creds.apiKey, creds.apiSecret, {
-    timeout: 20_000
-  });
+  const client = streamClientFactory(creds.apiKey, creds.apiSecret);
 
   await client.upsertUsers(dedupedUsers);
 

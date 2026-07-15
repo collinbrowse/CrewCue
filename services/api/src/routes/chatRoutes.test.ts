@@ -5,6 +5,10 @@ import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
 import { deriveStreamUserId } from "../lib/streamChat.js";
+import {
+  resetStreamClientFactoryForTests,
+  setStreamClientFactoryForTests
+} from "../lib/streamChannelMembers.js";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
@@ -340,6 +344,86 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
   } finally {
     delete process.env.STREAM_API_KEY;
     delete process.env.STREAM_API_SECRET;
+    await app.close();
+  }
+});
+
+test("chat: sync-stream-channel enforces config and membership before syncing", async () => {
+  _resetChatPersistenceForTests();
+  const previousApiKey = process.env.STREAM_API_KEY;
+  const previousApiSecret = process.env.STREAM_API_SECRET;
+  delete process.env.STREAM_API_KEY;
+  delete process.env.STREAM_API_SECRET;
+  const syncedMembers: string[][] = [];
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-sync-route"));
+    const outsiderToken = app.jwt.sign(buildClaims("outsider-sync-route"));
+
+    const unauthorized = await app.inject({
+      method: "POST",
+      url: "/chat/rooms/missing/sync-stream-channel"
+    });
+    assert.equal(unauthorized.statusCode, 401);
+
+    const missingConfig = await app.inject({
+      method: "POST",
+      url: "/chat/rooms/missing/sync-stream-channel",
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(missingConfig.statusCode, 503);
+
+    process.env.STREAM_API_KEY = "test-key";
+    process.env.STREAM_API_SECRET = "test-secret";
+    setStreamClientFactoryForTests(() => ({
+      upsertUsers: async () => {},
+      channel: () => ({
+        state: { members: {} },
+        create: async () => {},
+        query: async () => {},
+        addMembers: async (memberIds: string[]) => {
+          syncedMembers.push([...memberIds]);
+        },
+        removeMembers: async () => {}
+      })
+    }));
+
+    const notFound = await app.inject({
+      method: "POST",
+      url: "/chat/rooms/missing/sync-stream-channel",
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(notFound.statusCode, 404);
+
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-sync-route");
+    const forbidden = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${outsiderToken}` }
+    });
+    assert.equal(forbidden.statusCode, 403);
+
+    const ok = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/sync-stream-channel`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(ok.statusCode, 200);
+    assert.deepEqual(ok.json(), { ok: true });
+    assert.deepEqual(syncedMembers, [[deriveStreamUserId("athlete-sync-route")]]);
+  } finally {
+    resetStreamClientFactoryForTests();
+    if (previousApiKey === undefined) {
+      delete process.env.STREAM_API_KEY;
+    } else {
+      process.env.STREAM_API_KEY = previousApiKey;
+    }
+    if (previousApiSecret === undefined) {
+      delete process.env.STREAM_API_SECRET;
+    } else {
+      process.env.STREAM_API_SECRET = previousApiSecret;
+    }
     await app.close();
   }
 });
