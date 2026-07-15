@@ -28,22 +28,22 @@
 
 - `npm run typecheck -w @crewcue/api` — pass.
 - `npm run test:memory -w @crewcue/api` — pass (114 tests, 111 pass, 3 skipped).
+- `npm run verify` — pass.
 - Initial validation attempt failed because dependencies were missing (`tsc: not found`); `npm ci` from lockfile resolved the environment setup.
 
 ## Next 1-3 tasks
 
-1. Run root `npm run verify` if time/environment permits; otherwise rely on scoped API validation plus CI.
+1. Open the PR for `cursor/missing-test-coverage-401e`.
 2. Confirm PR CI is green after opening.
 3. Future coverage candidate: mobile `apps/mobile/src/features/chat/chatKeySync.ts` (requires iOS simulator proof if touched).
 
 ## Open risks/blockers
 
 - No GitHub issue was created for this automation run due tool availability; PR body must note this instead of using an invalid `Closes #`.
-- Full repo verify is not yet run in this snapshot.
 - No iOS simulator run: API-only tests changed, not mobile UI.
 
 ## Successor prompt
 
 ```text
-On branch cursor/missing-test-coverage-401e, Stream channel member sync coverage was added for API helper and route paths. Scoped API typecheck and memory tests pass. If continuing, run npm run verify, open/monitor the PR, and note no issue was created because the automation lacks an issue-creation tool.
+On branch cursor/missing-test-coverage-401e, Stream channel member sync coverage was added for API helper and route paths. Scoped API typecheck, API memory tests, and npm run verify pass. Open/monitor the PR and note no issue was created because the automation lacks an issue-creation tool.
 ```
