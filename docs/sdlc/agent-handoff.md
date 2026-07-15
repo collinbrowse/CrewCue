@@ -29,13 +29,14 @@
 - `npm run typecheck -w @crewcue/api` — pass.
 - `npm run test:memory -w @crewcue/api` — pass (114 tests, 111 pass, 3 skipped).
 - `npm run verify` — pass.
+- PR #320 CI — pass (`pr-decision-doc-guard`, `dual-client-guard`, `api-postgres-integration`, `checks`).
 - Initial validation attempt failed because dependencies were missing (`tsc: not found`); `npm ci` from lockfile resolved the environment setup.
 
 ## Next 1-3 tasks
 
-1. Confirm PR #320 CI is green.
-2. Merge PR #320 when checks pass and review is complete.
-3. Future coverage candidate: mobile `apps/mobile/src/features/chat/chatKeySync.ts` (requires iOS simulator proof if touched).
+1. Merge PR #320 when review is complete.
+2. Future coverage candidate: mobile `apps/mobile/src/features/chat/chatKeySync.ts` (requires iOS simulator proof if touched).
+3. Future route coverage candidate: `/chat/rooms/:roomId/sync-stream-channel` 502 failure response if Stream sync throws.
 
 ## Open risks/blockers
 
@@ -45,5 +46,5 @@
 ## Successor prompt
 
 ```text
-PR #320 on cursor/missing-test-coverage-401e adds Stream channel member sync coverage for API helper and route paths. Scoped API typecheck, API memory tests, and npm run verify pass. Monitor CI; no issue was created because the automation lacks an issue-creation tool.
+PR #320 on cursor/missing-test-coverage-401e adds Stream channel member sync coverage for API helper and route paths. Scoped API typecheck, API memory tests, npm run verify, and PR CI pass. No issue was created because the automation lacks an issue-creation tool.
 ```
