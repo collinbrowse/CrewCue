@@ -296,7 +296,7 @@ test("chat: push webhook respects per-user preferences", async () => {
       assert.equal(reg.statusCode, 201);
     }
 
-    const noMention = await app.inject({
+    const unauthenticated = await app.inject({
       method: "POST",
       url: "/chat/push/webhook",
       payload: {
@@ -307,17 +307,29 @@ test("chat: push webhook respects per-user preferences", async () => {
         previewText: "Hello crew"
       }
     });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const noMention = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-3",
+        recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
+        roomId,
+        previewText: "Hello crew"
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
     assert.equal(noMention.statusCode, 200);
     const noMentionResult = noMention.json() as {
       delivered: number;
-      tokens: Array<{ userId: string }>;
+      attempts: number;
       previewText?: string;
       genericFallbackBody: string;
     };
-    const notified = new Set(noMentionResult.tokens.map((t) => t.userId));
-    assert.ok(notified.has("user-b"));
-    assert.ok(!notified.has("user-c"));
-    assert.ok(!notified.has("user-d"));
+    assert.equal(noMentionResult.attempts, 1);
+    assert.equal("tokens" in noMentionResult, false);
     assert.equal(noMentionResult.previewText, "Hello crew");
 
     const withMention = await app.inject({
@@ -329,18 +341,27 @@ test("chat: push webhook respects per-user preferences", async () => {
         recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
         roomId,
         mentionedUserIds: ["user-c"]
-      }
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
     });
     assert.equal(withMention.statusCode, 200);
-    const mentionResult = withMention.json() as {
-      tokens: Array<{ userId: string }>;
-      previewText?: string;
-    };
-    const mentionNotified = new Set(mentionResult.tokens.map((t) => t.userId));
-    assert.ok(mentionNotified.has("user-b"));
-    assert.ok(mentionNotified.has("user-c"));
-    assert.ok(!mentionNotified.has("user-d"));
+    const mentionResult = withMention.json() as { attempts: number; previewText?: string };
+    assert.equal(mentionResult.attempts, 2);
     assert.equal(mentionResult.previewText, undefined);
+
+    const nonMemberRecipient = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-3",
+        recipientUserIds: ["outsider-push"],
+        roomId,
+        previewText: "Hello crew"
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(nonMemberRecipient.statusCode, 400);
   } finally {
     await app.close();
   }
