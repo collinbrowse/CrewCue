@@ -47,8 +47,7 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
-      ],
-      "./plugins/withChatPushDecryption.js"
+      ]
     ]
   }
 }

@@ -5,7 +5,7 @@
  * safe to run on a schedule. Returns per-room results so a smoke runbook can
  * confirm coverage.
  *
- * NOTE: this layer only deletes server-side metadata (envelopes, prefs).
+ * NOTE: this layer only deletes server-side metadata (notification prefs).
  * Stream Chat channel deletion is performed via the Stream SDK on the API
  * tier — out of scope for the in-memory unit tests but documented in the
  * Phase 7 runbook.

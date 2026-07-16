@@ -72,7 +72,6 @@ import { CrewMainTabs } from "./src/navigation/CrewMainTabs";
 import { TransientNoticeHost } from "./src/platform/TransientNoticeHost";
 import { AuthedShellProvider, type AuthedShellContextValue } from "./src/shell/AuthedShellContext";
 import { RaceChatPrefetcher } from "./src/navigation/RaceChatPrefetcher";
-import { syncAllRoomKeys } from "./src/features/chat/chatKeySync";
 import { runNativeDependencyPrewarm } from "./src/chat/nativeDependencyPrewarm";
 import * as SecureStore from "./src/storage/secureStorage";
 import {
@@ -440,16 +439,6 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
     }
     void fetchMyRaceRooms();
   }, [auth.status, fetchMyRaceRooms]);
-
-  useEffect(() => {
-    if (appState !== "active" || auth.status !== "authenticated" || !auth.accessToken) {
-      return;
-    }
-    const rooms = myRaceRooms ?? (room ? [room] : []);
-    if (rooms.length === 0) return;
-    const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-    void syncAllRoomKeys(client, rooms);
-  }, [appState, auth.status, auth.accessToken, myRaceRooms, room, baseUrl]);
 
   const createRoom = useCallback(
     async (input?: { raceName?: string; creatorName?: string; raceDescription?: string; crewName?: string }) => {

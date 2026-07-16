@@ -1,9 +1,8 @@
 /**
- * Crew chat (E2E) screen.
+ * Crew chat screen (MVP: plaintext on Stream).
  *
- * Strict end-to-end encryption: messages are encrypted on this device with the
- * per-channel symmetric key (see features/chat/chatChannel) and the server
- * stores ciphertext only. Stream Chat is the realtime transport.
+ * Message bodies use Stream's normal `text` field. Encryption was removed for
+ * MVP reliability; send/receive must not depend on room keys.
  *
  * UI requirements covered:
  *   - own messages on the right, others on the left
@@ -50,11 +49,14 @@ import { createApiClient, type ApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import { decryptIncoming, encryptOutgoing } from "../features/chat/chatChannel";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
 import { CHAT_REACTIONS, type ChatReactionType } from "../features/chat/reactions";
 import { extractMentionedUserIds, parseMentions, suggestMentions, type MentionMember } from "../features/chat/mentions";
-import { pickGalleryImage, type PickedImage } from "../features/chat/imagePipeline";
+import {
+  pickGalleryImage,
+  warmChatImageModules,
+  type PickedImage
+} from "../features/chat/imagePipeline";
 import { formatChatTimestamp } from "../features/chat/timestamps";
 import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
@@ -138,7 +140,6 @@ export function CrewChatScreen(): ReactElement {
 
   const [client, setClient] = useState<StreamChat | undefined>();
   const [channel, setChannel] = useState<Channel | undefined>();
-  const [channelKey, setChannelKey] = useState<{ keyB64: string; keyVersion: number } | undefined>();
   const [messages, setMessages] = useState<ChatViewMessage[]>([]);
   const [composer, setComposer] = useState("");
   const [composerError, setComposerError] = useState<string | undefined>();
@@ -148,8 +149,11 @@ export function CrewChatScreen(): ReactElement {
   const [readByEveryone, setReadByEveryone] = useState(false);
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
-  /** True until Stream bootstrap (watch + keys) finishes for the current room (or errors). */
+  /** True until Stream bootstrap finishes for the current room (or errors). */
   const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
+  const [bootstrapNonce, setBootstrapNonce] = useState(0);
+  const [pickingImage, setPickingImage] = useState(false);
+  const pickingImageRef = useRef(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [reactionOverlay, setReactionOverlay] = useState<
@@ -291,6 +295,7 @@ export function CrewChatScreen(): ReactElement {
       return undefined;
     }
     setIsChatHistoryLoading(true);
+    setError(undefined);
     void (async () => {
       try {
         setHasMoreHistory(false);
@@ -312,12 +317,10 @@ export function CrewChatScreen(): ReactElement {
         setMyStreamUserId(result.streamUserId);
         setClient(result.client);
         setChannel(result.channel);
-        setChannelKey(result.channelKey);
         setStreamIdToDisplayName(result.streamIdToDisplayName);
 
         const view = toViewMessages(
           result.rawInitialMessages,
-          result.channelKey,
           result.streamUserId,
           result.streamIdToDisplayName
         );
@@ -334,14 +337,14 @@ export function CrewChatScreen(): ReactElement {
       cancelled = true;
       setMyStreamUserId(undefined);
     };
-  }, [room?.id, authSub, api, chatMembershipKey]);
+  }, [room?.id, authSub, api, chatMembershipKey, bootstrapNonce]);
 
   // Realtime event wiring: incoming messages, typing, reactions, read state.
   useEffect(() => {
-    if (!channel || !channelKey || !myStreamUserId) return undefined;
+    if (!channel || !myStreamUserId) return undefined;
     const handleNewMessage = (event: StreamEvent) => {
       if (!event.message) return;
-      const view = toViewMessage(event.message, channelKey, myStreamUserId, streamIdToDisplayName);
+      const view = toViewMessage(event.message, myStreamUserId, streamIdToDisplayName);
       if (!view) return;
       // Local send path already merges the server message; ingesting `message.new`
       // for the same id duplicates rows and breaks FlatList keys.
@@ -359,9 +362,7 @@ export function CrewChatScreen(): ReactElement {
       setTypingUserIds((prev) => prev.filter((u) => u !== id));
     };
     const handleRead = () => {
-      const memberCount = Object.keys(channel.state.read).length;
-      const totalMembers = (channel.state.members ? Object.keys(channel.state.members).length : memberCount) || memberCount;
-      setReadByEveryone(memberCount > 0 && memberCount >= totalMembers);
+      setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
     };
     const handleReaction = (event: StreamEvent) => {
       const id = event.message?.id;
@@ -387,25 +388,34 @@ export function CrewChatScreen(): ReactElement {
       channel.on("reaction.deleted", handleReaction)
     ];
     handleUnread();
+    handleRead();
     return () => {
       for (const sub of subs) sub.unsubscribe();
     };
-  }, [channel, channelKey, myStreamUserId, streamIdToDisplayName]);
+  }, [channel, myStreamUserId, streamIdToDisplayName]);
+
+  // Recompute after local sends — own markRead must not imply peers have read.
+  useEffect(() => {
+    if (!channel || !myStreamUserId) {
+      setReadByEveryone(false);
+      return;
+    }
+    setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
+  }, [channel, myStreamUserId, messages.length]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
-    if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
+    if (!room || !channel || !authSub || !myStreamUserId) return;
     void retryOutbox(
       room.id,
       channel,
-      channelKey,
       myStreamUserId,
       streamIdToDisplayName,
       userIdToDisplayName,
       authSub,
       setMessages
     );
-  }, [room?.id, channel, channelKey, authSub, myStreamUserId, streamIdToDisplayName, userIdToDisplayName]);
+  }, [room?.id, channel, authSub, myStreamUserId, streamIdToDisplayName, userIdToDisplayName]);
 
   // Viewing the screen counts as reading. Reset the tab badge.
   useEffect(() => {
@@ -457,7 +467,7 @@ export function CrewChatScreen(): ReactElement {
   }, []);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!channel || !channelKey || !myStreamUserId) return;
+    if (!channel || !myStreamUserId) return;
     if (loadingOlderRef.current || !hasMoreHistory) return;
     const sorted = [...messagesRef.current].sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
     const oldestReal = sorted.find((m) => !m.id.startsWith("outbox-"));
@@ -472,7 +482,7 @@ export function CrewChatScreen(): ReactElement {
         setHasMoreHistory(false);
         return;
       }
-      const olderViews = toViewMessages(rawOlder, channelKey, myStreamUserId, streamIdToDisplayName);
+      const olderViews = toViewMessages(rawOlder, myStreamUserId, streamIdToDisplayName);
       const added = olderViews.length;
       setMessages((prev) => {
         const merged = normalizeMessageList([...olderViews, ...prev]);
@@ -497,7 +507,7 @@ export function CrewChatScreen(): ReactElement {
       setLoadingOlder(false);
       setMinUnseenAboveIndex(undefined);
     }
-  }, [channel, channelKey, myStreamUserId, streamIdToDisplayName, hasMoreHistory]);
+  }, [channel, myStreamUserId, streamIdToDisplayName, hasMoreHistory]);
 
   const onListScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -509,13 +519,12 @@ export function CrewChatScreen(): ReactElement {
         anchoredInitialScrollRef.current &&
         !loadingOlderRef.current &&
         channel &&
-        channelKey &&
         myStreamUserId
       ) {
         void loadOlderMessages();
       }
     },
-    [hasMoreHistory, channel, channelKey, myStreamUserId, loadOlderMessages]
+    [hasMoreHistory, channel, myStreamUserId, loadOlderMessages]
   );
 
   useEffect(() => {
@@ -525,8 +534,18 @@ export function CrewChatScreen(): ReactElement {
     };
   }, []);
 
+  // After chat is usable, warm image modules off the critical path. An early
+  // photo tap still shows the spinner and awaits the same import promise.
+  useEffect(() => {
+    if (!channel || isChatHistoryLoading) return;
+    warmChatImageModules();
+  }, [channel, isChatHistoryLoading]);
+
   const handleSend = async () => {
-    if (!room || !channel || !channelKey || !authSub || !myStreamUserId) return;
+    if (!room || !channel || !authSub || !myStreamUserId) {
+      setComposerError("Chat is still connecting. Please wait a moment.");
+      return;
+    }
     const trimmed = composer.trim();
     if (!trimmed && !pendingImage) return;
     setComposerError(undefined);
@@ -554,7 +573,6 @@ export function CrewChatScreen(): ReactElement {
     await sendOutboxEntry(
       entry,
       channel,
-      channelKey,
       myStreamUserId,
       streamIdToDisplayName,
       setMessages
@@ -562,19 +580,38 @@ export function CrewChatScreen(): ReactElement {
   };
 
   const handleRetry = async (entryId: string) => {
-    if (!room || !channel || !channelKey || !myStreamUserId) return;
+    if (!room || !channel || !myStreamUserId) return;
     const box = await loadOutbox(room.id);
     const entry = box.entries.find((e) => e.id === entryId);
     if (!entry) return;
-    await sendOutboxEntry(entry, channel, channelKey, myStreamUserId, streamIdToDisplayName, setMessages);
+    await sendOutboxEntry(entry, channel, myStreamUserId, streamIdToDisplayName, setMessages);
   };
 
   const handlePickImage = async () => {
+    if (!channel) {
+      setComposerError("Chat is still connecting. Please wait a moment.");
+      return;
+    }
+    // Ref guard: React state alone races on rapid double-taps.
+    if (pickingImageRef.current) return;
+    pickingImageRef.current = true;
+    setComposerError(undefined);
+    setPickingImage(true);
     try {
       const picked = await pickGalleryImage();
       if (picked) setPendingImage(picked);
-    } catch {
-      setComposerError(getErrorMessage("unknown"));
+    } catch (e) {
+      const msg = humanizeError(e).toLowerCase();
+      if (msg.includes("permission")) {
+        setComposerError("Photo library permission is required to attach images.");
+      } else if (msg.includes("too large") || msg.includes("size")) {
+        setComposerError("That image is too large to send. Try a smaller photo.");
+      } else {
+        setComposerError(getErrorMessage("unknown"));
+      }
+    } finally {
+      pickingImageRef.current = false;
+      setPickingImage(false);
     }
   };
 
@@ -646,6 +683,20 @@ export function CrewChatScreen(): ReactElement {
       {error ? (
         <DSCard style={styles.errorCard}>
           <Text style={[styles.body, { color: theme.color.danger }]}>{error}</Text>
+          <DSButton
+            onPress={() => {
+              setError(undefined);
+              setIsChatHistoryLoading(true);
+              // Re-trigger bootstrap by clearing channel so effect deps / remount path can run;
+              // membership key effect already owns room; bump via state reset:
+              setChannel(undefined);
+              setClient(undefined);
+              setMyStreamUserId(undefined);
+              setBootstrapNonce((n) => n + 1);
+            }}
+          >
+            Retry
+          </DSButton>
         </DSCard>
       ) : null}
       {eventEnded && removalDate ? (
@@ -659,9 +710,7 @@ export function CrewChatScreen(): ReactElement {
         {isChatHistoryLoading && messages.length === 0 ? (
           <View style={styles.historyLoading} accessibilityRole="progressbar" accessibilityLabel="Loading chat">
             <ActivityIndicator size="large" color={theme.color.primary} />
-            <Text style={styles.historyLoadingText}>
-              {error?.toLowerCase().includes("sync") ? "Syncing secure chat…" : "Loading messages…"}
-            </Text>
+            <Text style={styles.historyLoadingText}>Loading messages…</Text>
           </View>
         ) : null}
         <FlatList
@@ -770,6 +819,7 @@ export function CrewChatScreen(): ReactElement {
         }}
         memberships={memberships}
         pendingImage={pendingImage}
+        pickingImage={pickingImage}
         composerError={composerError}
         onClearImage={() => setPendingImage(undefined)}
         onPickImage={handlePickImage}
@@ -797,6 +847,7 @@ type ComposerProps = {
   onChange: (v: string) => void;
   memberships: MentionMember[];
   pendingImage: PickedImage | undefined;
+  pickingImage: boolean;
   composerError?: string;
   onClearImage: () => void;
   onPickImage: () => Promise<void>;
@@ -873,11 +924,18 @@ function Composer(props: ComposerProps): ReactElement {
       ) : null}
       <View style={styles.composerRow}>
         <Pressable
-          onPress={props.onPickImage}
+          onPress={() => void props.onPickImage()}
           accessibilityRole="button"
+          accessibilityState={{ busy: props.pickingImage, disabled: props.pickingImage }}
+          accessibilityLabel={props.pickingImage ? "Opening photo library" : "Attach photo"}
+          disabled={props.pickingImage}
           style={styles.iconButton}
         >
-          <Ionicons name="image-outline" size={22} color={theme.color.text} />
+          {props.pickingImage ? (
+            <ActivityIndicator size="small" color={theme.color.primary} />
+          ) : (
+            <Ionicons name="image-outline" size={22} color={theme.color.text} />
+          )}
         </Pressable>
         <DSTextInput
           key={`composer-field-${composerFieldKey}`}
@@ -1130,28 +1188,56 @@ function MessageBubble({
   );
 }
 
+/**
+ * "Read by everyone" means every other channel member has read through the
+ * latest message you sent. Your own markRead must never make this true alone
+ * (solo channels and self-read both used to flash the footer incorrectly).
+ */
+function computeReadByEveryone(channel: Channel, myStreamUserId: string): boolean {
+  const members = channel.state.members ?? {};
+  const reads = channel.state.read ?? {};
+  const otherMemberIds = Object.keys(members).filter((id) => id !== myStreamUserId);
+  if (otherMemberIds.length === 0) return false;
+
+  const channelMessages = channel.state.messages ?? [];
+  let latestOwnId: string | undefined;
+  let latestOwnAtMs: number | undefined;
+  for (let i = channelMessages.length - 1; i >= 0; i -= 1) {
+    const candidate = channelMessages[i];
+    if (!candidate?.id || candidate.user?.id !== myStreamUserId) continue;
+    const createdAt = candidate.created_at;
+    if (!createdAt) continue;
+    const at = new Date(createdAt).getTime();
+    if (!Number.isFinite(at)) continue;
+    latestOwnId = candidate.id;
+    latestOwnAtMs = at;
+    break;
+  }
+  if (!latestOwnId || latestOwnAtMs === undefined) return false;
+
+  return otherMemberIds.every((id) => {
+    const readState = reads[id];
+    if (!readState) return false;
+    if (readState.last_read_message_id === latestOwnId) return true;
+    if (!readState.last_read) return false;
+    return new Date(readState.last_read).getTime() >= latestOwnAtMs!;
+  });
+}
+
 function toViewMessages(
   raw: MessageResponse[],
-  key: { keyB64: string; keyVersion: number },
   viewerStreamUserId: string,
   streamIdToDisplayName: Map<string, string>
 ): ChatViewMessage[] {
   const out: ChatViewMessage[] = [];
   for (const m of raw) {
-    const v = toViewMessage(m, key, viewerStreamUserId, streamIdToDisplayName);
+    const v = toViewMessage(m, viewerStreamUserId, streamIdToDisplayName);
     if (v) out.push(v);
   }
   return normalizeMessageList(out);
 }
 
-const UNLOCK_BODY_PLACEHOLDER =
-  "[Could not decrypt on this device. Another member may need to open chat once so your device receives the room key.]";
-
 type RawMessage = MessageResponse & {
-  ciphertext?: string;
-  nonce?: string;
-  key_version?: number;
-  keyVersion?: number;
   custom_sent_at?: string;
   user_id?: string;
 };
@@ -1165,15 +1251,6 @@ function resolveAuthorStreamId(raw: MessageResponse): string {
   return "unknown";
 }
 
-function parseKeyVersion(v: unknown): number | undefined {
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return undefined;
-}
-
 function streamUserImage(user: MessageResponse["user"]): string | undefined {
   if (!user || typeof user !== "object") return undefined;
   const img = (user as { image?: string }).image;
@@ -1182,20 +1259,12 @@ function streamUserImage(user: MessageResponse["user"]): string | undefined {
 
 function toViewMessage(
   raw: MessageResponse,
-  key: { keyB64: string; keyVersion: number },
   viewerStreamUserId: string,
   streamIdToDisplayName: Map<string, string>
 ): ChatViewMessage | undefined {
   if (!raw.id) return undefined;
   const message = raw as RawMessage;
-  const cipher = readEncryptedFields(message);
-  let body: string | null;
-  if (cipher) {
-    const decrypted = decryptIncoming(key.keyB64, cipher);
-    body = decrypted ?? UNLOCK_BODY_PLACEHOLDER;
-  } else {
-    body = message.text ?? null;
-  }
+  const body = message.text ?? null;
   const sentAtIso = message.custom_sent_at ?? message.created_at ?? new Date().toISOString();
   const arrivedAtIso = message.created_at ?? sentAtIso;
   const authorId = resolveAuthorStreamId(message);
@@ -1219,14 +1288,6 @@ function toViewMessage(
     arrivedAt: new Date(arrivedAtIso),
     reactionCounts: { ...((message.reaction_counts as Record<string, number> | undefined) ?? {}) }
   };
-}
-
-function readEncryptedFields(
-  raw: RawMessage
-): { ciphertextB64: string; nonceB64: string; keyVersion: number } | undefined {
-  const keyVersion = parseKeyVersion(raw.key_version ?? raw.keyVersion);
-  if (!raw.ciphertext || !raw.nonce || keyVersion === undefined) return undefined;
-  return { ciphertextB64: raw.ciphertext, nonceB64: raw.nonce, keyVersion };
 }
 
 function pendingEntryToView(
@@ -1289,7 +1350,6 @@ function typingNames(userIds: string[], streamIdToDisplayName: Map<string, strin
 async function sendOutboxEntry(
   entry: ChatOutboxEntry,
   channel: Channel,
-  key: { keyB64: string; keyVersion: number },
   myStreamUserId: string,
   streamIdToDisplayName: Map<string, string>,
   setMessages: React.Dispatch<React.SetStateAction<ChatViewMessage[]>>
@@ -1302,16 +1362,13 @@ async function sendOutboxEntry(
     )
   );
   try {
-    const enc = encryptOutgoing(key.keyB64, entry.body, key.keyVersion);
     let attachments;
     if (entry.attachmentUri) {
       const upload = await channel.sendImage(entry.attachmentUri, "chat-image.jpg", entry.attachmentMimeType ?? "image/jpeg");
       attachments = [{ type: "image", image_url: upload.file }];
     }
     const sent = await channel.sendMessage({
-      ciphertext: enc.ciphertextB64,
-      nonce: enc.nonceB64,
-      key_version: enc.keyVersion,
+      text: entry.body,
       custom_sent_at: new Date(entry.createdAtMs).toISOString(),
       mentioned_user_ids: entry.mentionedUserIds,
       attachments
@@ -1322,7 +1379,7 @@ async function sendOutboxEntry(
     setMessages((prev) => {
       const mapped = prev.map((m) =>
         m.outboxId === entry.id
-          ? toViewMessage(sent.message as MessageResponse, key, myStreamUserId, streamIdToDisplayName) ?? m
+          ? toViewMessage(sent.message as MessageResponse, myStreamUserId, streamIdToDisplayName) ?? m
           : m
       );
       return normalizeMessageList(mapped);
@@ -1338,7 +1395,6 @@ async function sendOutboxEntry(
 async function retryOutbox(
   roomId: string,
   channel: Channel,
-  key: { keyB64: string; keyVersion: number },
   myStreamUserId: string,
   streamIdToDisplayName: Map<string, string>,
   authDisplayBySub: Map<string, string>,
@@ -1353,7 +1409,7 @@ async function retryOutbox(
     setMessages((prev) =>
       upsertMessage(prev, pendingEntryToView(entry, myStreamUserId, myName, new Date(entry.createdAtMs)))
     );
-    await sendOutboxEntry(entry, channel, key, myStreamUserId, streamIdToDisplayName, setMessages);
+    await sendOutboxEntry(entry, channel, myStreamUserId, streamIdToDisplayName, setMessages);
   }
 }
 

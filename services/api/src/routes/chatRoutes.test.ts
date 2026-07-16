@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
@@ -84,115 +83,6 @@ async function inviteAndAcceptMember(
   assert.equal(accept.statusCode, 200);
 }
 
-test("chat: identity registration requires auth and persists", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const unauthorized = await app.inject({
-      method: "POST",
-      url: "/chat/identity",
-      payload: { publicKey: "pk-1" }
-    });
-    assert.equal(unauthorized.statusCode, 401);
-
-    const token = app.jwt.sign(buildClaims("user-a"));
-    const ok = await app.inject({
-      method: "POST",
-      url: "/chat/identity",
-      payload: { publicKey: "pk-1" },
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(ok.statusCode, 201);
-    const body = ok.json() as { userId: string; publicKey: string };
-    assert.equal(body.userId, "user-a");
-    assert.equal(body.publicKey, "pk-1");
-
-    const lookup = await app.inject({
-      method: "GET",
-      url: "/chat/users/user-a/identity",
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(lookup.statusCode, 200);
-    assert.equal((lookup.json() as { publicKey: string }).publicKey, "pk-1");
-  } finally {
-    await app.close();
-  }
-});
-
-test("chat: identity lookup is limited to self or shared room members", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const athleteToken = app.jwt.sign(buildClaims("athlete-identity"));
-    const crewToken = app.jwt.sign(buildClaims("crew-identity"));
-    const outsiderToken = app.jwt.sign(buildClaims("outsider-identity"));
-    const roomId = await createActivatedRoom(app, athleteToken, "athlete-identity");
-
-    const crewIdentity = await app.inject({
-      method: "POST",
-      url: "/chat/identity",
-      payload: { publicKey: "pk-crew-shared" },
-      headers: { authorization: `Bearer ${crewToken}` }
-    });
-    assert.equal(crewIdentity.statusCode, 201);
-
-    const outsiderDenied = await app.inject({
-      method: "GET",
-      url: "/chat/users/crew-identity/identity",
-      headers: { authorization: `Bearer ${outsiderToken}` }
-    });
-    assert.equal(outsiderDenied.statusCode, 403);
-
-    await inviteAndAcceptMember(
-      app,
-      roomId,
-      athleteToken,
-      crewToken,
-      "crew-identity@example.com"
-    );
-
-    const sharedMemberLookup = await app.inject({
-      method: "GET",
-      url: "/chat/users/crew-identity/identity",
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(sharedMemberLookup.statusCode, 200);
-    assert.equal((sharedMemberLookup.json() as { publicKey: string }).publicKey, "pk-crew-shared");
-  } finally {
-    await app.close();
-  }
-});
-
-test("chat: identity backup round-trip (caller only)", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const token = app.jwt.sign(buildClaims("user-backup"));
-    const upload = await app.inject({
-      method: "POST",
-      url: "/chat/identity/backup",
-      payload: { ciphertext: "ct", nonce: "n", version: 1 },
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(upload.statusCode, 201);
-
-    const fetch = await app.inject({
-      method: "GET",
-      url: "/chat/identity/backup",
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(fetch.statusCode, 200);
-    const body = fetch.json() as { ciphertext: string; version: number };
-    assert.equal(body.ciphertext, "ct");
-    assert.equal(body.version, 1);
-  } finally {
-    await app.close();
-  }
-});
-
 test("chat: push device registration on /chat/devices", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
@@ -239,31 +129,6 @@ test("chat: only race owner can purge room chat data", async () => {
     });
     assert.equal(crewPref.statusCode, 200);
 
-    const upload = await app.inject({
-      method: "POST",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      payload: {
-        envelopes: [
-          {
-            recipientUserId: "athlete-retention",
-            senderEphemeralPublicKey: "eph",
-            nonce: "n1",
-            ciphertext: "ct1",
-            keyVersion: 3
-          },
-          {
-            recipientUserId: "crew-retention",
-            senderEphemeralPublicKey: "eph",
-            nonce: "n2",
-            ciphertext: "ct2",
-            keyVersion: 3
-          }
-        ]
-      },
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(upload.statusCode, 201);
-
     const memberDenied = await app.inject({
       method: "DELETE",
       url: `/chat/rooms/${roomId}/messages`,
@@ -277,18 +142,9 @@ test("chat: only race owner can purge room chat data", async () => {
       headers: { authorization: `Bearer ${athleteToken}` }
     });
     assert.equal(purged.statusCode, 200);
-    const body = purged.json() as { envelopesPurged: number; prefsPurged: number; roomId: string };
+    const body = purged.json() as { prefsPurged: number; roomId: string };
     assert.equal(body.roomId, roomId);
-    assert.equal(body.envelopesPurged, 2);
     assert.equal(body.prefsPurged, 2);
-
-    const list = await app.inject({
-      method: "GET",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(list.statusCode, 200);
-    assert.deepEqual((list.json() as { envelopes: unknown[] }).envelopes, []);
 
     const defaultPref = await app.inject({
       method: "GET",
@@ -340,135 +196,6 @@ test("chat: stream-token returns signed JWT when credentials configured", async 
   } finally {
     delete process.env.STREAM_API_KEY;
     delete process.env.STREAM_API_SECRET;
-    await app.close();
-  }
-});
-
-test("chat: key-envelope upload requires room membership", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const athleteToken = app.jwt.sign(buildClaims("athlete-1"));
-    const outsiderToken = app.jwt.sign(buildClaims("outsider-1"));
-    const roomId = await createActivatedRoom(app, athleteToken, "athlete-1");
-
-    const denied = await app.inject({
-      method: "POST",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      payload: {
-        envelopes: [
-          {
-            recipientUserId: "athlete-1",
-            senderEphemeralPublicKey: "ephK",
-            nonce: "n1",
-            ciphertext: "ct1",
-            keyVersion: 1
-          }
-        ]
-      },
-      headers: { authorization: `Bearer ${outsiderToken}` }
-    });
-    assert.equal(denied.statusCode, 403);
-
-    const ok = await app.inject({
-      method: "POST",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      payload: {
-        envelopes: [
-          {
-            recipientUserId: "athlete-1",
-            senderEphemeralPublicKey: "ephK",
-            nonce: "n1",
-            ciphertext: "ct1",
-            keyVersion: 1
-          }
-        ]
-      },
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(ok.statusCode, 201);
-
-    const list = await app.inject({
-      method: "GET",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(list.statusCode, 200);
-    const envelopes = (list.json() as { envelopes: Array<{ ciphertext: string }> }).envelopes;
-    assert.equal(envelopes.length, 1);
-    assert.equal(envelopes[0]?.ciphertext, "ct1");
-  } finally {
-    await app.close();
-  }
-});
-
-test("chat: member remove rotates key version and clears envelopes", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const athleteToken = app.jwt.sign(buildClaims("athlete-rm"));
-    const crewToken = app.jwt.sign(buildClaims("crew-rm"));
-    const roomId = await createActivatedRoom(app, athleteToken, "athlete-rm");
-
-    const invite = await app.inject({
-      method: "POST",
-      url: `/race-rooms/${roomId}/invites`,
-      payload: { email: "crew@example.com", role: "crew_member" },
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(invite.statusCode, 201);
-    const inviteToken = (invite.json() as { token: string }).token;
-    const accept = await app.inject({
-      method: "POST",
-      url: `/race-rooms/${roomId}/invites/accept`,
-      payload: { token: inviteToken },
-      headers: { authorization: `Bearer ${crewToken}` }
-    });
-    assert.equal(accept.statusCode, 200);
-
-    const upload = await app.inject({
-      method: "POST",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      payload: {
-        envelopes: [
-          {
-            recipientUserId: "athlete-rm",
-            senderEphemeralPublicKey: "eph",
-            nonce: "n",
-            ciphertext: "ct",
-            keyVersion: 1
-          },
-          {
-            recipientUserId: "crew-rm",
-            senderEphemeralPublicKey: "eph",
-            nonce: "n2",
-            ciphertext: "ct2",
-            keyVersion: 1
-          }
-        ]
-      },
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(upload.statusCode, 201);
-
-    const remove = await app.inject({
-      method: "DELETE",
-      url: `/race-rooms/${roomId}/members/crew-rm`,
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    assert.equal(remove.statusCode, 200);
-
-    const list = await app.inject({
-      method: "GET",
-      url: `/chat/rooms/${roomId}/key-envelopes`,
-      headers: { authorization: `Bearer ${athleteToken}` }
-    });
-    const parsed = list.json() as { envelopes: unknown[]; latestRoomKeyVersion?: number };
-    assert.equal(parsed.envelopes.length, 0);
-    assert.equal(parsed.latestRoomKeyVersion, 2);
-  } finally {
     await app.close();
   }
 });
@@ -577,18 +304,21 @@ test("chat: push webhook respects per-user preferences", async () => {
         senderUserId: "athlete-3",
         recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
         roomId,
-        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+        previewText: "Hello crew"
       }
     });
     assert.equal(noMention.statusCode, 200);
     const noMentionResult = noMention.json() as {
       delivered: number;
       tokens: Array<{ userId: string }>;
+      previewText?: string;
+      genericFallbackBody: string;
     };
     const notified = new Set(noMentionResult.tokens.map((t) => t.userId));
     assert.ok(notified.has("user-b"));
     assert.ok(!notified.has("user-c"));
     assert.ok(!notified.has("user-d"));
+    assert.equal(noMentionResult.previewText, "Hello crew");
 
     const withMention = await app.inject({
       method: "POST",
@@ -598,16 +328,41 @@ test("chat: push webhook respects per-user preferences", async () => {
         senderUserId: "athlete-3",
         recipientUserIds: ["athlete-3", "user-b", "user-c", "user-d"],
         roomId,
-        mentionedUserIds: ["user-c"],
-        encryptedPreview: { ciphertext: "ct", nonce: "n", keyVersion: 1 }
+        mentionedUserIds: ["user-c"]
       }
     });
     assert.equal(withMention.statusCode, 200);
-    const mentionResult = withMention.json() as { tokens: Array<{ userId: string }> };
+    const mentionResult = withMention.json() as {
+      tokens: Array<{ userId: string }>;
+      previewText?: string;
+    };
     const mentionNotified = new Set(mentionResult.tokens.map((t) => t.userId));
     assert.ok(mentionNotified.has("user-b"));
     assert.ok(mentionNotified.has("user-c"));
     assert.ok(!mentionNotified.has("user-d"));
+    assert.equal(mentionResult.previewText, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: diagnostics reports memberCount and streamConfigured only", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-diag"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-diag");
+    const res = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/diagnostics`,
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as Record<string, unknown>;
+    assert.equal(body.memberCount, 1);
+    assert.equal(typeof body.streamConfigured, "boolean");
+    assert.equal("identityCount" in body, false);
   } finally {
     await app.close();
   }

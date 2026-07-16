@@ -2073,8 +2073,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     };
     await saveRaceRoom(updatedRoom);
     scheduleStreamChannelMembershipSync(updatedRoom, request.log);
-    const { rotateRoomChannelKey } = await import("../lib/chatPersistence.js");
-    await rotateRoomChannelKey(roomId);
     return reply.send({ room: updatedRoom });
   });
 

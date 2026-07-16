@@ -829,10 +829,11 @@ export interface ReplayedRaceRoomAggregate {
   lastActivatedEventEndsAt?: string;
 }
 
-// --- Crew chat (E2E) contracts ---
-// Server stores ciphertext (via Stream Chat) and per-recipient wrapped channel
-// keys; it never sees plaintext message content. Notification preferences and
-// push tokens live here so the API can fan out push without seeing plaintext.
+// --- Crew chat contracts (MVP: plaintext on Stream) ---
+// Message bodies are normal Stream `text`. The API mints Stream tokens, stores
+// push devices and notification prefs, and fans out push with a short preview.
+// End-to-end encryption was removed for MVP reliability; any future crypto must
+// be a blank-slate redesign (do not revive the retired room-key/envelope model).
 
 /** Mints a short-lived Stream Chat user token bound to the authenticated user. */
 export interface ChatStreamTokenResponse {
@@ -849,73 +850,9 @@ export function chatChannelIdForRoom(roomId: string): string {
   return `crew-${roomId}`;
 }
 
-/** User identity public key for E2E key wrapping (one per Auth0 sub). */
-export interface ChatUserIdentity {
-  userId: string;
-  publicKey: string;
-  registeredAt: string;
-}
-
-export interface ChatUserIdentityRegistration {
-  publicKey: string;
-}
-
-/** Encrypted identity + room-key snapshot stored on the API (ciphertext only). */
-export interface ChatIdentityBackup {
-  userId: string;
-  ciphertext: string;
-  nonce: string;
-  version: number;
-  updatedAt: string;
-}
-
-export interface ChatIdentityBackupUpload {
-  ciphertext: string;
-  nonce: string;
-  version: number;
-}
-
-/** Per-room key entry inside the decrypted backup payload. */
-export interface ChatRoomKeySnapshot {
-  keyB64: string;
-  keyVersion: number;
-}
-
-/** JSON inside backup ciphertext after local secretbox decrypt. */
-export interface ChatBackupPayloadV1 {
-  identitySecretB64: string;
-  roomKeys: Record<string, ChatRoomKeySnapshot>;
-}
-
-/**
- * Per-recipient envelope: the symmetric channel key wrapped to a member's
- * identity public key using libsodium `crypto_box`.
- */
-export interface ChatKeyEnvelope {
-  roomId: string;
-  recipientUserId: string;
-  /** Author's ephemeral public key used to wrap (base64). */
-  senderEphemeralPublicKey: string;
-  /** Box nonce (base64). */
-  nonce: string;
-  /** Encrypted channel key bytes (base64). */
-  ciphertext: string;
-  /** Monotonic version counter; incremented on member remove rotation. */
-  keyVersion: number;
-  createdAt: string;
-}
-
-export interface ChatKeyEnvelopeUpload {
-  recipientUserId: string;
-  senderEphemeralPublicKey: string;
-  nonce: string;
-  ciphertext: string;
-  keyVersion: number;
-}
-
 export type ChatPushPlatform = "ios" | "android" | "web";
 
-/** Push device registration (transport only — not used for crypto). */
+/** Push device registration (transport only). */
 export interface ChatPushDeviceRegistration {
   deviceId: string;
   platform: ChatPushPlatform;
@@ -944,8 +881,7 @@ export type ChatPushTokenRecord = ChatPushDeviceRecord;
 
 /**
  * Stream Chat push webhook payload (subset). The server uses this to fan out
- * APNS/FCM with the encrypted preview blob. Field names mirror Stream's
- * webhook contract; we only consume what we need.
+ * APNS/FCM with a short plaintext preview (or generic fallback copy).
  */
 export interface ChatPushWebhookPayload {
   channelId: string;
@@ -955,21 +891,16 @@ export interface ChatPushWebhookPayload {
   recipientUserIds: string[];
   /** Crew room id this channel maps to. */
   roomId: string;
-  /** Mentioned user ids inside the encrypted message body. */
+  /** Mentioned user ids inside the message body. */
   mentionedUserIds?: string[];
-  /** Encrypted preview blob: base64 ciphertext + base64 nonce. */
-  encryptedPreview: {
-    ciphertext: string;
-    nonce: string;
-    keyVersion: number;
-  };
+  /** Optional short plaintext preview for the notification body. */
+  previewText?: string;
 }
 
 /** Result of a retention deletion job run for a single room. */
 export interface ChatRetentionResult {
   roomId: string;
   deletedAt: string;
-  envelopesPurged: number;
   prefsPurged: number;
   pushTokensPurged: number;
 }

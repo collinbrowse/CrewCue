@@ -6,8 +6,8 @@
  * we do at most `MAX_ATTEMPTS` passes to bound work.
  *
  * Native imports (`expo-image-picker`, `expo-image-manipulator`,
- * `expo-file-system`) are lazy so the unit tests can exercise the resize and
- * quality back-off policy without evaluating `react-native`.
+ * `expo-file-system/legacy`) are lazy so the unit tests can exercise the resize
+ * and quality back-off policy without evaluating `react-native`.
  */
 
 export const CHAT_IMAGE_MAX_BYTES = 2.5 * 1024 * 1024;
@@ -24,15 +24,63 @@ export type PickedImage = {
   mimeType: string;
 };
 
+type ImagePickerModule = typeof import("expo-image-picker");
+type ImageManipulatorModule = typeof import("expo-image-manipulator");
+type FileSystemLegacyModule = typeof import("expo-file-system/legacy");
+
+let imagePickerImport: Promise<ImagePickerModule> | undefined;
+let imageManipulatorImport: Promise<ImageManipulatorModule> | undefined;
+let fileSystemLegacyImport: Promise<FileSystemLegacyModule> | undefined;
+
+function loadImagePickerModule(): Promise<ImagePickerModule> {
+  if (!imagePickerImport) {
+    imagePickerImport = import("expo-image-picker");
+  }
+  return imagePickerImport;
+}
+
+function loadImageManipulatorModule(): Promise<ImageManipulatorModule> {
+  if (!imageManipulatorImport) {
+    imageManipulatorImport = import("expo-image-manipulator");
+  }
+  return imageManipulatorImport;
+}
+
+function loadFileSystemLegacyModule(): Promise<FileSystemLegacyModule> {
+  if (!fileSystemLegacyImport) {
+    // Main `expo-file-system` getInfoAsync throws at runtime on SDK 55+.
+    fileSystemLegacyImport = import("expo-file-system/legacy");
+  }
+  return fileSystemLegacyImport;
+}
+
+function loadCompressModules(): Promise<[ImageManipulatorModule, FileSystemLegacyModule]> {
+  return Promise.all([loadImageManipulatorModule(), loadFileSystemLegacyModule()]);
+}
+
+/**
+ * Start importing image modules in the background after chat UI is up.
+ * Safe to call more than once; does not block the caller.
+ */
+export function warmChatImageModules(): void {
+  void loadImagePickerModule();
+  void loadCompressModules();
+}
+
 export async function pickGalleryImage(): Promise<PickedImage | undefined> {
-  const ImagePicker = await import("expo-image-picker");
+  // Open picker as soon as ImagePicker is ready; warm compress deps in parallel
+  // so a fast gallery selection does not stall on Metro after the user picks.
+  const pickerReady = loadImagePickerModule();
+  const compressReady = loadCompressModules();
+  const ImagePicker = await pickerReady;
   const result = await ImagePicker.launchImageLibraryAsync({
     allowsEditing: false,
     quality: 1,
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ["images"],
     selectionLimit: 1
   });
   if (result.canceled || result.assets.length === 0) return undefined;
+  await compressReady;
   const asset = result.assets[0]!;
   const compressed = await compressForChat({
     uri: asset.uri,
@@ -92,7 +140,7 @@ export async function compressForChat(input: CompressInput): Promise<PickedImage
 }
 
 const manipulateForChat: ManipulateFn = async (uri, width, height, quality) => {
-  const ImageManipulator = await import("expo-image-manipulator");
+  const ImageManipulator = await loadImageManipulatorModule();
   const out = await ImageManipulator.manipulateAsync(
     uri,
     [{ resize: { width, height } }],
@@ -105,9 +153,8 @@ const manipulateForChat: ManipulateFn = async (uri, width, height, quality) => {
 };
 
 async function defaultMeasureFileSize(uri: string): Promise<number> {
-  const fs = await import("expo-file-system");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const info = await (fs as any).getInfoAsync(uri, { size: true });
-  if (info && typeof info.size === "number") return info.size;
+  const fs = await loadFileSystemLegacyModule();
+  const info = await fs.getInfoAsync(uri);
+  if (info.exists && typeof info.size === "number") return info.size;
   return 0;
 }

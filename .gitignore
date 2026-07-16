@@ -5,7 +5,14 @@ node_modules/
 dist/
 .expo/
 .DS_Store
+# Local env / secrets (keep *.example templates tracked)
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.crewcue-dev-env
 *.log
 *.tsbuildinfo
 coverage/

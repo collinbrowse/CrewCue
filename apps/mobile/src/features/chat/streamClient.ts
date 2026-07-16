@@ -4,8 +4,7 @@
  * low-level `stream-chat` SDK rather than `stream-chat-react-native` so the
  * UI can lean on the existing CrewCue design system.
  *
- * Server stores ciphertext only — we encrypt on this device before calling
- * `channel.sendMessage` and decrypt incoming events before rendering.
+ * Crew chat MVP sends and renders plaintext Stream messages.
  */
 import { StreamChat, type Channel, type ChannelQueryOptions } from "stream-chat";
 import { chatChannelIdForRoom, type ChatStreamTokenResponse } from "@crewcue/contracts";

@@ -1,16 +1,12 @@
 /**
  * Pluggable chat push dispatch.
  *
- * Strict E2E means our server only forwards encrypted payloads. The actual
- * APNS/FCM send is done by an injected transport so we can:
+ * Crew chat MVP sends plaintext preview text (or generic fallback copy) to
+ * APNS/FCM. The actual send is done by an injected transport so we can:
  *   - in dev: log the dispatch and skip the network
  *   - in production: wire APNs HTTP/2 (with a .p8 signing key) and FCM HTTP v1
  *     (with a service-account access token)
  *   - in tests: capture dispatches deterministically
- *
- * The shape of the outbound payload is "data only": title/body fall back to
- * the generic copy on the device when the NSE/FCM service cannot decrypt.
- * Phase 6 (issue #230) covers the on-device decryption.
  */
 import type {
   ChatPushPlatform,
@@ -30,9 +26,10 @@ export type ChatPushDeliveryTarget = {
 export type ChatPushDispatchInput = {
   channelId: string;
   roomId: string;
-  encryptedPreview: ChatPushWebhookPayload["encryptedPreview"];
+  /** Optional short plaintext preview; falls back to GENERIC_CHAT_PUSH_BODY. */
+  previewText?: ChatPushWebhookPayload["previewText"];
   targets: ChatPushDeliveryTarget[];
-  /** Body to fall back to when the device cannot decrypt the preview. */
+  /** Body to use when previewText is missing. */
   genericFallback?: string;
 };
 
@@ -72,14 +69,13 @@ export function tokensToTargets(tokens: ChatPushTokenRecord[]): ChatPushDelivery
 }
 
 async function loggingTransport(input: ChatPushDispatchInput): Promise<ChatPushDispatchResult> {
-  // The server logs once per dispatch with no payload bodies — content is
-  // ciphertext only — to confirm the path works during dev/staging soak.
+  // Log dispatch metadata only — never log preview body text.
   // eslint-disable-next-line no-console
   console.log("chat_push_dispatch", {
     channelId: input.channelId,
     roomId: input.roomId,
     targetCount: input.targets.length,
-    keyVersion: input.encryptedPreview.keyVersion
+    hasPreviewText: Boolean(input.previewText?.trim())
   });
   return {
     delivered: input.targets.length,
