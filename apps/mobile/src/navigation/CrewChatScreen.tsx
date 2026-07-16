@@ -52,7 +52,11 @@ import { useAuthedShell } from "../shell/AuthedShellContext";
 import { computeChatRemovalDateClient, isEventEndedClient } from "../features/chat/retention";
 import { CHAT_REACTIONS, type ChatReactionType } from "../features/chat/reactions";
 import { extractMentionedUserIds, parseMentions, suggestMentions, type MentionMember } from "../features/chat/mentions";
-import { pickGalleryImage, type PickedImage } from "../features/chat/imagePipeline";
+import {
+  pickGalleryImage,
+  warmChatImageModules,
+  type PickedImage
+} from "../features/chat/imagePipeline";
 import { formatChatTimestamp } from "../features/chat/timestamps";
 import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
@@ -148,6 +152,8 @@ export function CrewChatScreen(): ReactElement {
   /** True until Stream bootstrap finishes for the current room (or errors). */
   const [isChatHistoryLoading, setIsChatHistoryLoading] = useState(false);
   const [bootstrapNonce, setBootstrapNonce] = useState(0);
+  const [pickingImage, setPickingImage] = useState(false);
+  const pickingImageRef = useRef(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [reactionOverlay, setReactionOverlay] = useState<
@@ -356,9 +362,7 @@ export function CrewChatScreen(): ReactElement {
       setTypingUserIds((prev) => prev.filter((u) => u !== id));
     };
     const handleRead = () => {
-      const memberCount = Object.keys(channel.state.read).length;
-      const totalMembers = (channel.state.members ? Object.keys(channel.state.members).length : memberCount) || memberCount;
-      setReadByEveryone(memberCount > 0 && memberCount >= totalMembers);
+      setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
     };
     const handleReaction = (event: StreamEvent) => {
       const id = event.message?.id;
@@ -384,10 +388,20 @@ export function CrewChatScreen(): ReactElement {
       channel.on("reaction.deleted", handleReaction)
     ];
     handleUnread();
+    handleRead();
     return () => {
       for (const sub of subs) sub.unsubscribe();
     };
   }, [channel, myStreamUserId, streamIdToDisplayName]);
+
+  // Recompute after local sends — own markRead must not imply peers have read.
+  useEffect(() => {
+    if (!channel || !myStreamUserId) {
+      setReadByEveryone(false);
+      return;
+    }
+    setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
+  }, [channel, myStreamUserId, messages.length]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
@@ -505,7 +519,7 @@ export function CrewChatScreen(): ReactElement {
         anchoredInitialScrollRef.current &&
         !loadingOlderRef.current &&
         channel &&
-                myStreamUserId
+        myStreamUserId
       ) {
         void loadOlderMessages();
       }
@@ -519,6 +533,13 @@ export function CrewChatScreen(): ReactElement {
       void disconnectStreamClient();
     };
   }, []);
+
+  // After chat is usable, warm image modules off the critical path. An early
+  // photo tap still shows the spinner and awaits the same import promise.
+  useEffect(() => {
+    if (!channel || isChatHistoryLoading) return;
+    warmChatImageModules();
+  }, [channel, isChatHistoryLoading]);
 
   const handleSend = async () => {
     if (!room || !channel || !authSub || !myStreamUserId) {
@@ -571,6 +592,11 @@ export function CrewChatScreen(): ReactElement {
       setComposerError("Chat is still connecting. Please wait a moment.");
       return;
     }
+    // Ref guard: React state alone races on rapid double-taps.
+    if (pickingImageRef.current) return;
+    pickingImageRef.current = true;
+    setComposerError(undefined);
+    setPickingImage(true);
     try {
       const picked = await pickGalleryImage();
       if (picked) setPendingImage(picked);
@@ -583,6 +609,9 @@ export function CrewChatScreen(): ReactElement {
       } else {
         setComposerError(getErrorMessage("unknown"));
       }
+    } finally {
+      pickingImageRef.current = false;
+      setPickingImage(false);
     }
   };
 
@@ -790,6 +819,7 @@ export function CrewChatScreen(): ReactElement {
         }}
         memberships={memberships}
         pendingImage={pendingImage}
+        pickingImage={pickingImage}
         composerError={composerError}
         onClearImage={() => setPendingImage(undefined)}
         onPickImage={handlePickImage}
@@ -817,6 +847,7 @@ type ComposerProps = {
   onChange: (v: string) => void;
   memberships: MentionMember[];
   pendingImage: PickedImage | undefined;
+  pickingImage: boolean;
   composerError?: string;
   onClearImage: () => void;
   onPickImage: () => Promise<void>;
@@ -893,11 +924,18 @@ function Composer(props: ComposerProps): ReactElement {
       ) : null}
       <View style={styles.composerRow}>
         <Pressable
-          onPress={props.onPickImage}
+          onPress={() => void props.onPickImage()}
           accessibilityRole="button"
+          accessibilityState={{ busy: props.pickingImage, disabled: props.pickingImage }}
+          accessibilityLabel={props.pickingImage ? "Opening photo library" : "Attach photo"}
+          disabled={props.pickingImage}
           style={styles.iconButton}
         >
-          <Ionicons name="image-outline" size={22} color={theme.color.text} />
+          {props.pickingImage ? (
+            <ActivityIndicator size="small" color={theme.color.primary} />
+          ) : (
+            <Ionicons name="image-outline" size={22} color={theme.color.text} />
+          )}
         </Pressable>
         <DSTextInput
           key={`composer-field-${composerFieldKey}`}
@@ -1148,6 +1186,42 @@ function MessageBubble({
       </View>
     </View>
   );
+}
+
+/**
+ * "Read by everyone" means every other channel member has read through the
+ * latest message you sent. Your own markRead must never make this true alone
+ * (solo channels and self-read both used to flash the footer incorrectly).
+ */
+function computeReadByEveryone(channel: Channel, myStreamUserId: string): boolean {
+  const members = channel.state.members ?? {};
+  const reads = channel.state.read ?? {};
+  const otherMemberIds = Object.keys(members).filter((id) => id !== myStreamUserId);
+  if (otherMemberIds.length === 0) return false;
+
+  const channelMessages = channel.state.messages ?? [];
+  let latestOwnId: string | undefined;
+  let latestOwnAtMs: number | undefined;
+  for (let i = channelMessages.length - 1; i >= 0; i -= 1) {
+    const candidate = channelMessages[i];
+    if (!candidate?.id || candidate.user?.id !== myStreamUserId) continue;
+    const createdAt = candidate.created_at;
+    if (!createdAt) continue;
+    const at = new Date(createdAt).getTime();
+    if (!Number.isFinite(at)) continue;
+    latestOwnId = candidate.id;
+    latestOwnAtMs = at;
+    break;
+  }
+  if (!latestOwnId || latestOwnAtMs === undefined) return false;
+
+  return otherMemberIds.every((id) => {
+    const readState = reads[id];
+    if (!readState) return false;
+    if (readState.last_read_message_id === latestOwnId) return true;
+    if (!readState.last_read) return false;
+    return new Date(readState.last_read).getTime() >= latestOwnAtMs!;
+  });
 }
 
 function toViewMessages(

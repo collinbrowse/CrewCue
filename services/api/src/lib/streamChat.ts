@@ -3,9 +3,8 @@
  *
  * Stream Chat user tokens are HS256 JWTs whose payload contains a `user_id`
  * claim and which are signed with the team's API secret. The client uses
- * these tokens to connect to the Stream realtime backend; the server never
- * sees plaintext message content because we encrypt before handing the
- * payload to Stream.
+ * these tokens to connect to the Stream realtime backend. Crew chat MVP sends
+ * plaintext message bodies on Stream (see ADR 0007).
  *
  * Reference: https://getstream.io/chat/docs/javascript/tokens_and_authentication/
  */

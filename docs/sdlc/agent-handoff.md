@@ -10,39 +10,38 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-15 (UTC)
+- Last updated: 2026-07-16 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream).
 - **Branch:** `feature/remove-chat-encryption-mvp`
 - **Issue:** #323
 - **PR:** #324
-- **Acceptance criteria:** Remove E2E chat crypto; plaintext send/receive; no Syncing secure chat; ADR 0007; verify + sim notes.
+- **Acceptance criteria:** Plaintext chat; fix false “Read by everyone”; reduce photo-picker first-tap lag; migration 0014 on Railway preDeploy.
 
 ## Completed (this session)
 
-- Removed `@crewcue/chat-crypto` and mobile/API identity, backup, envelope, and push-decrypt bridges.
-- Mobile chat sends/reads Stream `text`; bootstrap is token + connect only.
-- Push webhook uses optional `previewText`; migration `0014_drop_chat_crypto.sql`.
-- ADR 0006 superseded by ADR 0007; runbooks updated (`chat-smoke`, `chat-push`, `chat-retention`).
+- Kept `streamChat.ts` (token minting still required); fixed stale encrypt comment.
+- Fixed false “Read by everyone” (exclude self / require peer read of latest own message).
+- Preload image modules + busy indicator on photo button; fixed leftover indentation.
+- Closed obsolete crypto draft PRs (#299–#317 set).
 
 ## Validation evidence
 
-- `npm run verify` — pass.
-- `npm run agent:ios:ready` — pass (sim booted). Full chat send/receive on sim blocked: Auth0 login required; XcodeBuildMCP tap tools not enabled in this session (snapshot/screenshot only).
+- Local edits on PR branch; typecheck/mobile pending push.
+- Migration 0014 runs via Railway `preDeployCommand` (`npm run db:migrate`), not GitHub Actions against staging.
 
 ## Next 1-3 tasks
 
-1. Open/merge PR for #323; deploy API migration 0014 to staging.
-2. Manual smoke on a signed-in device: open chat, send text/photo, confirm no sync-key UI.
-3. Close obsolete draft crypto automation PRs (#308/#311/#317 etc.) as won’t-fix / obsolete.
+1. Commit/push follow-ups on #324; merge when smoke OK.
+2. Deploy staging API (Railway preDeploy applies 0014) and confirm migrate logs.
+3. Signed-in smoke: send message (no false read footer); tap photo (spinner then picker).
 
 ## Open risks/blockers
 
-- Historical Stream messages that only stored ciphertext will not show readable text.
-- Agent cannot complete Auth0 chat E2E on simulator without a test account / deeplink fixture.
-- Env-switch work (#321 / PR #322) is separate and still open on another branch.
+- Auth0 still blocks unattended sim chat E2E.
+- Stream-sync / non-crypto draft test PRs left open (#309, #316, #318–#320, etc.).
 
 ## Successor prompt
 
 ```text
-PR #324 (feature/remove-chat-encryption-mvp, #323): plaintext MVP chat. Confirm CI green, merge, run migration 0014 on staging, then smoke send/receive while signed in. Close obsolete crypto draft PRs.
+PR #324 follow-ups: push read-receipt + image-preload fixes, merge, deploy staging (Railway runs db:migrate / 0014), smoke chat send + photo attach.
 ```
