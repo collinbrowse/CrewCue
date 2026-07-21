@@ -1,5 +1,18 @@
 # CrewCue mobile (`@crewcue/mobile`)
 
+## Local vs staging API
+
+From the repo root:
+
+```bash
+npm run env:init      # once — seed .env.local / .env.staging from your current .env
+npm run env:local     # mobile → http://127.0.0.1:4000 + Auth0-aligned API .env
+npm run env:staging   # mobile → Railway staging
+npm run env:status
+```
+
+Restart Metro after switching. Auth0 sync: `docs/runbooks/auth0-and-social-idp-setup.md` (§ Local API + Auth0 sync).
+
 ## `Unable to resolve "../../App" from "node_modules/expo/AppEntry.js"`
 
 Expo resolves the JS entry from **`process.cwd()`** when you run CLI commands. If you run **`npx expo start`** or **`npx expo run:ios` from the monorepo root** (no `main` there), `@expo/config` falls through to **`expo/AppEntry.js`**, which imports **`../../App`** next to the **root** `package.json` — not **`apps/mobile/App`**.

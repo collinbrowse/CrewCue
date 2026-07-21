@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { startTelemetry, stopTelemetry } from "./telemetry.js";
 import { validateRoomPersistenceEnv } from "./lib/roomPersistence.js";
@@ -6,6 +9,12 @@ import {
   stopChatRetentionScheduler
 } from "./lib/chatRetentionScheduler.js";
 import { listRaceRoomsForRetention } from "./routes/raceRooms.js";
+
+/** Load monorepo-root `.env` when present (Node 20.12+). Does not override existing process.env keys. */
+const repoRootEnv = resolve(fileURLToPath(new URL("../../../.env", import.meta.url)));
+if (existsSync(repoRootEnv) && typeof process.loadEnvFile === "function") {
+  process.loadEnvFile(repoRootEnv);
+}
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
