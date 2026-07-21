@@ -139,6 +139,56 @@ test("beginIdempotentMutation blocks concurrent duplicate body until complete", 
   }
 });
 
+test("memory idempotency reclaims stale processing lease on retry", async (t) => {
+  if (isRoomPersistenceEnabled()) {
+    t.skip("memory-store lease; postgres lookup reclaims stale processing rows");
+    return;
+  }
+  await resetIdempotencyStoreForTests();
+  let now = 1_700_000_000_000;
+  t.mock.method(Date, "now", () => now);
+  const request = {
+    headers: { "idempotency-key": "stale-processing" },
+    method: "POST",
+    url: "/race-rooms"
+  };
+  const body = { a: 1 };
+
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "proceed");
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "in_progress");
+
+  now += 5 * 60 * 1000 + 1;
+
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "proceed");
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "in_progress");
+});
+
+test("postgres idempotency reclaims stale processing lease on retry", async (t) => {
+  if (!isRoomPersistenceEnabled()) {
+    t.skip("requires PERSISTENCE_MODE=postgres");
+    return;
+  }
+  await resetIdempotencyStoreForTests();
+  const pool = getPersistencePool();
+  assert.ok(pool);
+  const key = `pg-stale-${Date.now()}`;
+  const body = { a: 1 };
+  const request = {
+    headers: { "idempotency-key": key },
+    method: "POST",
+    url: "/race-rooms"
+  };
+  await pool.query(
+    `INSERT INTO http_idempotency
+       (idempotency_key, method, path, request_hash, status_code, response_body, created_at, expires_at, state)
+     VALUES ($1, 'POST', '/race-rooms', $2, 0, '{}'::jsonb, NOW() - INTERVAL '10 minutes', NOW() + INTERVAL '1 hour', 'processing')`,
+    [key, hashHttpRequestBody(body)]
+  );
+
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "proceed");
+  assert.equal((await beginIdempotentMutation(request as never, body)).kind, "in_progress");
+});
+
 test("releaseIdempotentMutation allows retry after failed mutation", async () => {
   await resetIdempotencyStoreForTests();
   const request = {
