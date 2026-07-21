@@ -6,7 +6,7 @@
  *
  * UI requirements covered:
  *   - own messages on the right, others on the left
- *   - typing indicator + "read by everyone" footer when applicable
+ *   - typing indicator + "read by everyone" under own bubbles when peers have read
  *   - mention rendering with bold display name
  *   - fixed reaction set (long-press to react)
  *   - hold-and-swipe to reveal sent / arrived timestamps
@@ -60,9 +60,10 @@ import {
 import { formatChatTimestamp } from "../features/chat/timestamps";
 import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
-  computeReadByEveryone,
-  latestDeliveredOwnMessage,
-  messageIdsAtOrAfter
+  applyMessageReadEvent,
+  computeOwnMessageIdsReadByEveryone,
+  snapshotChannelReads,
+  type ReadReceiptReadState
 } from "../features/chat/readReceipts";
 import {
   enqueueChatMessage,
@@ -151,7 +152,12 @@ export function CrewChatScreen(): ReactElement {
   const [pendingImage, setPendingImage] = useState<PickedImage | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
-  const [readByEveryone, setReadByEveryone] = useState(false);
+  /** Own message ids that every other channel member has read through. */
+  const [ownMessageIdsReadByEveryone, setOwnMessageIdsReadByEveryone] = useState<Set<string>>(
+    () => new Set()
+  );
+  /** Local copy of peer read frontiers — updated on `message.read` for live UI. */
+  const [peerReads, setPeerReads] = useState<Record<string, ReadReceiptReadState | undefined>>({});
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
   /** True until Stream bootstrap finishes for the current room (or errors). */
@@ -243,6 +249,8 @@ export function CrewChatScreen(): ReactElement {
     setLoadingOlder(false);
     listContentHeightRef.current = 0;
     pendingOlderPrependAdjustRef.current = false;
+    setOwnMessageIdsReadByEveryone(new Set());
+    setPeerReads({});
     if (!room?.id) {
       setMessages([]);
       setIsChatHistoryLoading(false);
@@ -371,8 +379,15 @@ export function CrewChatScreen(): ReactElement {
       if (!id) return;
       setTypingUserIds((prev) => prev.filter((u) => u !== id));
     };
-    const handleRead = () => {
-      setReadByEveryone(readByEveryoneForChannel(channel, myStreamUserId, messagesRef.current));
+    const handleRead = (event?: StreamEvent) => {
+      setPeerReads((prev) => {
+        const fromChannel = snapshotChannelReads(
+          channel.state.read as Record<string, ReadReceiptReadState | undefined> | undefined
+        );
+        const merged = { ...prev, ...fromChannel };
+        if (!event) return merged;
+        return applyMessageReadEvent(merged, event as Parameters<typeof applyMessageReadEvent>[1]);
+      });
     };
     const handleReaction = (event: StreamEvent) => {
       const id = event.message?.id;
@@ -390,8 +405,8 @@ export function CrewChatScreen(): ReactElement {
       }),
       channel.on("typing.start", handleTyping),
       channel.on("typing.stop", handleStopTyping),
-      channel.on("message.read", () => {
-        handleRead();
+      channel.on("message.read", (e: StreamEvent) => {
+        handleRead(e);
         handleUnread();
       }),
       channel.on("reaction.new", handleReaction),
@@ -404,14 +419,21 @@ export function CrewChatScreen(): ReactElement {
     };
   }, [channel, myStreamUserId, streamIdToDisplayName]);
 
-  // Recompute after local sends — own markRead must not imply peers have read.
+  // Derive per-own-message read receipts from peer read snapshot + message list.
   useEffect(() => {
     if (!channel || !myStreamUserId) {
-      setReadByEveryone(false);
+      setOwnMessageIdsReadByEveryone(new Set());
       return;
     }
-    setReadByEveryone(readByEveryoneForChannel(channel, myStreamUserId, messages));
-  }, [channel, myStreamUserId, messages]);
+    setOwnMessageIdsReadByEveryone(
+      computeOwnMessageIdsReadByEveryone({
+        members: channel.state.members ?? {},
+        reads: peerReads,
+        myStreamUserId,
+        messages
+      })
+    );
+  }, [channel, myStreamUserId, messages, peerReads]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
@@ -786,6 +808,9 @@ export function CrewChatScreen(): ReactElement {
                 revealed={revealedMessageId === info.item.id}
                 reactionHighlight={reactionOverlay?.messageId === info.item.id}
                 showAvatarTail={showAvatarTail}
+                showReadByEveryone={
+                  info.item.isOwn && ownMessageIdsReadByEveryone.has(info.item.id)
+                }
                 onRevealLongPress={(id) => setRevealedMessageId(id)}
                 onReleaseReveal={() => setRevealedMessageId(undefined)}
                 onOpenReactionPicker={(id, frame) => openReactionPickerForMessage(id, frame)}
@@ -797,13 +822,6 @@ export function CrewChatScreen(): ReactElement {
             <DSCard style={styles.emptyCard}>
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
-          }
-          ListFooterComponent={
-            readByEveryone ? (
-              <View style={styles.readByListFooter} accessibilityRole="text">
-                <Text style={styles.readByListFooterText}>Read by everyone</Text>
-              </View>
-            ) : null
           }
         />
         {loadingOlder ? (
@@ -1084,6 +1102,7 @@ type MessageBubbleProps = {
   revealed: boolean;
   reactionHighlight: boolean;
   showAvatarTail: boolean;
+  showReadByEveryone: boolean;
   onRevealLongPress: (id: string) => void;
   onReleaseReveal: () => void;
   onOpenReactionPicker: (id: string, frame: { x: number; y: number; width: number; height: number }) => void;
@@ -1097,6 +1116,7 @@ function MessageBubble({
   revealed,
   reactionHighlight,
   showAvatarTail,
+  showReadByEveryone,
   onRevealLongPress,
   onReleaseReveal,
   onOpenReactionPicker,
@@ -1166,6 +1186,11 @@ function MessageBubble({
     return (
       <View style={styles.messageRowOwn}>
         {bubbleBody}
+        {showReadByEveryone ? (
+          <Text style={styles.readByUnderBubble} accessibilityRole="text">
+            Read by everyone
+          </Text>
+        ) : null}
         {revealed ? (
           <View style={styles.timestampReveal}>
             <Text style={styles.timestampText}>sent {ts.sent}</Text>
@@ -1223,29 +1248,6 @@ function MessageBubble({
       </View>
     </View>
   );
-}
-
-/**
- * "Read by everyone" means every other channel member has read through the
- * latest delivered message you sent. Prefer the UI message list over
- * `channel.state.messages` so a just-sent row is not evaluated against an older
- * own message peers already read. Never use `last_read` timestamps alone.
- */
-function readByEveryoneForChannel(
-  channel: Channel,
-  myStreamUserId: string,
-  viewMessages: ChatViewMessage[]
-): boolean {
-  const latestOwn = latestDeliveredOwnMessage(viewMessages);
-  if (!latestOwn) return false;
-  const ids = messageIdsAtOrAfter(viewMessages, latestOwn);
-  return computeReadByEveryone({
-    members: channel.state.members ?? {},
-    reads: channel.state.read ?? {},
-    myStreamUserId,
-    latestOwn,
-    messageIdsAtOrAfterOwn: ids
-  });
 }
 
 function toViewMessages(
@@ -1604,13 +1606,14 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     attachmentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     attachmentThumb: { width: 64, height: 64, borderRadius: 8 },
     typing: { color: theme.color.muted, fontSize: 12, paddingHorizontal: 4 },
-    /** In-list footer: sits under the last bubble inside `FlatList`, right-aligned (LTR). */
-    readByListFooter: {
-      alignSelf: "stretch",
-      alignItems: "flex-end",
-      paddingTop: 4,
-      paddingBottom: 2
-    },
-    readByListFooterText: { color: theme.color.muted, fontSize: 11 }
+    /** Under an own bubble once every other member has read through that message. */
+    readByUnderBubble: {
+      alignSelf: "flex-end",
+      marginTop: 2,
+      marginBottom: 2,
+      marginRight: 2,
+      color: theme.color.muted,
+      fontSize: 11
+    }
   });
 }

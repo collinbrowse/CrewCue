@@ -13,28 +13,30 @@
 - Last updated: 2026-07-21 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream).
 - **Branch:** `fix/chat-read-by-everyone-326`
-- **Issues:** #326 (read receipts), #328 (scroll preserve on load-older)
+- **Issues:** #326, #328, #329
 - **PR:** #327
-- **Acceptance criteria:** No false “Read by everyone”; footer can light via message-id or safe last_read vs UI latest own; load-older keeps viewport anchored.
+- **Acceptance criteria:** Read receipt under own bubbles only; live update on peer `message.read`; load-older keeps scroll; idle roster members without read state do not block.
 
 ## Completed
 
-- Strict read-receipt helper + UI latest-own; restored last_read fallback only with UI-sourced latest own.
-- Scroll: removed `autoscrollToTopThreshold`; overlay loader; content-height delta scroll adjust on prepend.
+- Per-message “Read by everyone” under own bubbles (list footer removed).
+- Live peerReads snapshot from `message.read` + channel.state.read.
+- Peers = users with read frontiers (not full never-opened roster).
+- Scroll preserve for older history (#328).
 
 ## Next 1-3 tasks
 
-1. Human smoke on #327 branch: scroll-up history + two-sim read footer.
-2. Merge #327 when green.
-3. Staging deploy / chat smoke on main after merge.
+1. Two-sim smoke on #327: send → peer opens chat → receipt under sender’s bubble.
+2. Merge #327 when OK.
+3. Staging smoke on main after merge.
 
 ## Open risks/blockers
 
 - Auth0 blocks unattended sim chat E2E.
-- “Read by everyone” needs every other Stream channel member to have read the latest *own* message (not per-message ticks).
+- Stream channel type must allow `read_events` for markRead broadcasts.
 
 ## Successor prompt
 
 ```text
-On PR #327: reload Metro, smoke load-older scroll anchor + two simulators for Read by everyone. Merge when OK.
+PR #327: reload Metro, two-sim smoke — receipt under own bubble when peer reads. Then merge.
 ```
