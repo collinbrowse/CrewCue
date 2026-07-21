@@ -14,7 +14,7 @@
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — read-receipt correctness.
 - **Branch:** `fix/chat-read-by-everyone-326`
 - **Issue:** #326
-- **PR:** pending
+- **PR:** #327
 - **Acceptance criteria:** “Read by everyone” only when every other Stream member has `last_read_message_id` through latest delivered own message; no timestamp-only false positives; unit tests.
 
 ## Completed
