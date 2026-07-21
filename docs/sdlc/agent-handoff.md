@@ -10,38 +10,29 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-16 (UTC)
+- Last updated: 2026-07-21 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream).
-- **Branch:** `feature/remove-chat-encryption-mvp`
-- **Issue:** #323
-- **PR:** #324
-- **Acceptance criteria:** Plaintext chat; fix false “Read by everyone”; reduce photo-picker first-tap lag; migration 0014 on Railway preDeploy.
+- **Branch:** `cursor/critical-bug-investigation-0663`
+- **PR:** #325 — chat push webhook authorization (rebasing onto main post-#324).
 
-## Completed (this session)
+## Completed
 
-- Kept `streamChat.ts` (token minting still required); fixed stale encrypt comment.
-- Fixed false “Read by everyone” (exclude self / require peer read of latest own message).
-- Preload image modules + busy indicator on photo button; fixed leftover indentation.
-- Closed obsolete crypto draft PRs (#299–#317 set).
-
-## Validation evidence
-
-- Local edits on PR branch; typecheck/mobile pending push.
-- Migration 0014 runs via Railway `preDeployCommand` (`npm run db:migrate`), not GitHub Actions against staging.
+- Rebased #325 onto main after plaintext chat; webhook uses `previewText`.
+- Closed obsolete/optional Bugbot PRs: #307, #309, #314, #316, #318–#320.
 
 ## Next 1-3 tasks
 
-1. Commit/push follow-ups on #324; merge when smoke OK.
-2. Deploy staging API (Railway preDeploy applies 0014) and confirm migrate logs.
-3. Signed-in smoke: send message (no false read footer); tap photo (spinner then picker).
+1. Finish merge of #325, then #304, then #312.
+2. Deploy staging API (Railway migrate 0014) + signed-in chat smoke.
+3. Configure `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout cannot use sender JWT.
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
-- Stream-sync / non-crypto draft test PRs left open (#309, #316, #318–#320, etc.).
+- Staging DB must get migration 0014 via Railway deploy.
 
 ## Successor prompt
 
 ```text
-PR #324 follow-ups: push read-receipt + image-preload fixes, merge, deploy staging (Railway runs db:migrate / 0014), smoke chat send + photo attach.
+Merge #325 (push webhook auth), then rebase/merge #304 and #312. Deploy staging and smoke chat.
 ```

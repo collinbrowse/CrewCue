@@ -2,13 +2,13 @@
  * Chat HTTP routes — Stream token, channel sync, push devices, notification prefs.
  * Crew chat MVP uses plaintext Stream messages (no server-side E2E crypto).
  */
-import type { FastifyInstance } from "fastify";
+import { timingSafeEqual } from "node:crypto";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type {
   ChatNotificationPref,
   ChatNotificationPrefRecord,
   ChatPushDeviceRecord,
-  ChatPushPlatform,
   ChatPushWebhookPayload,
   ChatStreamTokenResponse
 } from "@crewcue/contracts";
@@ -52,6 +52,19 @@ const pushWebhookSchema = z.object({
   mentionedUserIds: z.array(z.string().trim().min(1)).optional(),
   previewText: z.string().trim().min(1).max(500).optional()
 });
+
+const PUSH_WEBHOOK_SECRET_HEADER = "x-crewcue-chat-push-secret";
+
+function hasValidPushWebhookSecret(request: FastifyRequest): boolean {
+  const expected = process.env.CHAT_PUSH_WEBHOOK_SECRET?.trim();
+  if (!expected) return false;
+  const raw = request.headers[PUSH_WEBHOOK_SECRET_HEADER];
+  const provided = Array.isArray(raw) ? raw[0] : raw;
+  if (!provided) return false;
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  return expectedBytes.length === providedBytes.length && timingSafeEqual(expectedBytes, providedBytes);
+}
 
 async function isMemberOfRoom(roomId: string, userId: string): Promise<boolean> {
   const room = await getRaceRoom(roomId);
@@ -205,6 +218,22 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid push webhook payload" });
     }
     const payload: ChatPushWebhookPayload = parsed.data;
+    const authenticatedSender = request.identity?.sub === payload.senderUserId;
+    if (!authenticatedSender && !hasValidPushWebhookSecret(request)) {
+      return reply.code(request.identity ? 403 : 401).send({ error: "Unauthorized" });
+    }
+    const room = await getRaceRoom(payload.roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const memberIds = new Set(room.memberships.map((m) => m.userId));
+    if (!memberIds.has(payload.senderUserId)) {
+      return reply.code(403).send({ error: "Sender is not a member of this room" });
+    }
+    const invalidRecipient = payload.recipientUserIds.find((userId) => !memberIds.has(userId));
+    if (invalidRecipient) {
+      return reply.code(400).send({ error: "Push recipients must be room members" });
+    }
     const recipientsExceptSender = payload.recipientUserIds.filter(
       (id) => id !== payload.senderUserId
     );
@@ -228,11 +257,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       delivered: dispatch.delivered,
       attempts: dispatch.attempts,
       failures: dispatch.failures,
-      tokens: tokens.map((t) => ({
-        userId: t.userId,
-        deviceId: t.deviceId,
-        platform: t.platform as ChatPushPlatform
-      })),
       genericFallbackBody: GENERIC_CHAT_PUSH_BODY,
       previewText: payload.previewText,
       channelId: payload.channelId
