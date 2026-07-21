@@ -60,6 +60,11 @@ import {
 import { formatChatTimestamp } from "../features/chat/timestamps";
 import { disconnectStreamClient } from "../features/chat/streamClient";
 import {
+  computeReadByEveryone,
+  latestDeliveredOwnMessage,
+  messageIdsAtOrAfter
+} from "../features/chat/readReceipts";
+import {
   enqueueChatMessage,
   loadOutbox,
   markFailed,
@@ -362,7 +367,7 @@ export function CrewChatScreen(): ReactElement {
       setTypingUserIds((prev) => prev.filter((u) => u !== id));
     };
     const handleRead = () => {
-      setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
+      setReadByEveryone(readByEveryoneForChannel(channel, myStreamUserId, messagesRef.current));
     };
     const handleReaction = (event: StreamEvent) => {
       const id = event.message?.id;
@@ -400,8 +405,8 @@ export function CrewChatScreen(): ReactElement {
       setReadByEveryone(false);
       return;
     }
-    setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
-  }, [channel, myStreamUserId, messages.length]);
+    setReadByEveryone(readByEveryoneForChannel(channel, myStreamUserId, messages));
+  }, [channel, myStreamUserId, messages]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
@@ -1190,37 +1195,24 @@ function MessageBubble({
 
 /**
  * "Read by everyone" means every other channel member has read through the
- * latest message you sent. Your own markRead must never make this true alone
- * (solo channels and self-read both used to flash the footer incorrectly).
+ * latest delivered message you sent. Prefer the UI message list over
+ * `channel.state.messages` so a just-sent row is not evaluated against an older
+ * own message peers already read. Never use `last_read` timestamps alone.
  */
-function computeReadByEveryone(channel: Channel, myStreamUserId: string): boolean {
-  const members = channel.state.members ?? {};
-  const reads = channel.state.read ?? {};
-  const otherMemberIds = Object.keys(members).filter((id) => id !== myStreamUserId);
-  if (otherMemberIds.length === 0) return false;
-
-  const channelMessages = channel.state.messages ?? [];
-  let latestOwnId: string | undefined;
-  let latestOwnAtMs: number | undefined;
-  for (let i = channelMessages.length - 1; i >= 0; i -= 1) {
-    const candidate = channelMessages[i];
-    if (!candidate?.id || candidate.user?.id !== myStreamUserId) continue;
-    const createdAt = candidate.created_at;
-    if (!createdAt) continue;
-    const at = new Date(createdAt).getTime();
-    if (!Number.isFinite(at)) continue;
-    latestOwnId = candidate.id;
-    latestOwnAtMs = at;
-    break;
-  }
-  if (!latestOwnId || latestOwnAtMs === undefined) return false;
-
-  return otherMemberIds.every((id) => {
-    const readState = reads[id];
-    if (!readState) return false;
-    if (readState.last_read_message_id === latestOwnId) return true;
-    if (!readState.last_read) return false;
-    return new Date(readState.last_read).getTime() >= latestOwnAtMs!;
+function readByEveryoneForChannel(
+  channel: Channel,
+  myStreamUserId: string,
+  viewMessages: ChatViewMessage[]
+): boolean {
+  const latestOwn = latestDeliveredOwnMessage(viewMessages);
+  if (!latestOwn) return false;
+  const ids = messageIdsAtOrAfter(viewMessages, latestOwn);
+  return computeReadByEveryone({
+    members: channel.state.members ?? {},
+    reads: channel.state.read ?? {},
+    myStreamUserId,
+    latestOwn,
+    messageIdsAtOrAfterOwn: ids
   });
 }
 
