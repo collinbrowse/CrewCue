@@ -47,12 +47,15 @@ function peerHasReadThrough(
     if (lastId === latestOwn.id) return true;
     // Peer read a later message in the same channel → they have read through ours.
     if (messageIdsAtOrAfterOwn.has(lastId)) return true;
+    // Stale message id that is not at/after latest own → not read through yet.
     return false;
   }
-  // No message id: do not use last_read timestamps alone — that falsely lights
-  // the footer when channel.state still points at an older own message, or when
-  // peers merely watched the channel before your latest send.
-  return false;
+  // Stream sometimes omits last_read_message_id and only sets last_read. With the
+  // UI's latest delivered own message (not a stale channel.state row), timestamp
+  // comparison is safe: peers who only watched before your send stay below it.
+  if (!readState.last_read) return false;
+  const lastReadMs = new Date(readState.last_read).getTime();
+  return Number.isFinite(lastReadMs) && lastReadMs >= latestOwn.sentAtMs;
 }
 
 /**

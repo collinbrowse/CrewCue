@@ -11,31 +11,30 @@
 ## Session status snapshot
 
 - Last updated: 2026-07-21 (UTC)
-- **Roadmap phase:** MVP chat reliability (plaintext Stream) — read-receipt correctness.
+- **Roadmap phase:** MVP chat reliability (plaintext Stream).
 - **Branch:** `fix/chat-read-by-everyone-326`
-- **Issue:** #326
+- **Issues:** #326 (read receipts), #328 (scroll preserve on load-older)
 - **PR:** #327
-- **Acceptance criteria:** “Read by everyone” only when every other Stream member has `last_read_message_id` through latest delivered own message; no timestamp-only false positives; unit tests.
+- **Acceptance criteria:** No false “Read by everyone”; footer can light via message-id or safe last_read vs UI latest own; load-older keeps viewport anchored.
 
 ## Completed
 
-- Merged #322 env switch; #324–#325/#304/#312 on main.
-- Diagnosed false “Read by everyone”: loose `last_read >= createdAt` + stale `channel.state` latest-own.
-- Extracted `readReceipts.ts` with strict message-id checks; wired `CrewChatScreen`.
+- Strict read-receipt helper + UI latest-own; restored last_read fallback only with UI-sourced latest own.
+- Scroll: removed `autoscrollToTopThreshold`; overlay loader; content-height delta scroll adjust on prepend.
 
 ## Next 1-3 tasks
 
-1. Open/merge PR for #326; re-smoke on staging after reload.
-2. Deploy staging API if 0014 not yet applied; confirm migrate logs.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server push fanout needs it.
+1. Human smoke on #327 branch: scroll-up history + two-sim read footer.
+2. Merge #327 when green.
+3. Staging deploy / chat smoke on main after merge.
 
 ## Open risks/blockers
 
-- Auth0 blocks unattended sim chat E2E — human signed-in smoke required for footer proof.
-- Staging DB migration 0014 via Railway deploy.
+- Auth0 blocks unattended sim chat E2E.
+- “Read by everyone” needs every other Stream channel member to have read the latest *own* message (not per-message ticks).
 
 ## Successor prompt
 
 ```text
-PR for #326 (false Read by everyone). Confirm CI, merge, reload mobile against staging, smoke: send message → footer off until peer reads.
+On PR #327: reload Metro, smoke load-older scroll anchor + two simulators for Read by everyone. Merge when OK.
 ```

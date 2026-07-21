@@ -175,6 +175,9 @@ export function CrewChatScreen(): ReactElement {
   const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchoredInitialScrollRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
+  const listContentHeightRef = useRef(0);
+  /** After prepending older history, bump offset by the content-height delta so the viewport stays put. */
+  const pendingOlderPrependAdjustRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
@@ -238,6 +241,8 @@ export function CrewChatScreen(): ReactElement {
     setHasMoreHistory(false);
     loadingOlderRef.current = false;
     setLoadingOlder(false);
+    listContentHeightRef.current = 0;
+    pendingOlderPrependAdjustRef.current = false;
     if (!room?.id) {
       setMessages([]);
       setIsChatHistoryLoading(false);
@@ -439,8 +444,27 @@ export function CrewChatScreen(): ReactElement {
     return () => clearTimeout(handle);
   }, [room?.id, messages]);
 
-  const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
-    if (messagesRef.current.length === 0) return;
+  const onMessagesContentSizeChange = useCallback((_w: number, h: number) => {
+    if (messagesRef.current.length === 0) {
+      listContentHeightRef.current = h;
+      return;
+    }
+
+    const previousHeight = listContentHeightRef.current;
+    listContentHeightRef.current = h;
+
+    // Prepended older pages grow content upward; keep the same bubbles on screen.
+    if (pendingOlderPrependAdjustRef.current && h > previousHeight && previousHeight > 0) {
+      pendingOlderPrependAdjustRef.current = false;
+      const delta = h - previousHeight;
+      const nextOffset = scrollOffsetYRef.current + delta;
+      scrollOffsetYRef.current = nextOffset;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: nextOffset, animated: false });
+      });
+      return;
+    }
+    pendingOlderPrependAdjustRef.current = false;
 
     if (!anchoredInitialScrollRef.current) {
       anchoredInitialScrollRef.current = true;
@@ -489,6 +513,8 @@ export function CrewChatScreen(): ReactElement {
       }
       const olderViews = toViewMessages(rawOlder, myStreamUserId, streamIdToDisplayName);
       const added = olderViews.length;
+      // Capture height before prepend so onContentSizeChange can restore the viewport.
+      pendingOlderPrependAdjustRef.current = true;
       setMessages((prev) => {
         const merged = normalizeMessageList([...olderViews, ...prev]);
         if (added > 0) {
@@ -506,6 +532,7 @@ export function CrewChatScreen(): ReactElement {
         setHasMoreHistory(false);
       }
     } catch {
+      pendingOlderPrependAdjustRef.current = false;
       // leave hasMoreHistory; user can scroll again to retry
     } finally {
       loadingOlderRef.current = false;
@@ -729,9 +756,11 @@ export function CrewChatScreen(): ReactElement {
           scrollEventThrottle={16}
           {...(messages.length > 0
             ? ({
+                // Keep the first visible bubble pinned when older rows are prepended.
+                // Do NOT set autoscrollToTopThreshold — that forces a jump to the top
+                // whenever the user is near y=0 (exactly when load-more fires).
                 maintainVisibleContentPosition: {
-                  minIndexForVisible: 0,
-                  autoscrollToTopThreshold: 24
+                  minIndexForVisible: 0
                 }
               } as const)
             : {})}
@@ -769,13 +798,6 @@ export function CrewChatScreen(): ReactElement {
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
           }
-          ListHeaderComponent={
-            loadingOlder ? (
-              <View style={styles.oldPageLoading} accessibilityRole="progressbar" accessibilityLabel="Loading older messages">
-                <ActivityIndicator size="small" color={theme.color.muted} />
-              </View>
-            ) : null
-          }
           ListFooterComponent={
             readByEveryone ? (
               <View style={styles.readByListFooter} accessibilityRole="text">
@@ -784,6 +806,16 @@ export function CrewChatScreen(): ReactElement {
             ) : null
           }
         />
+        {loadingOlder ? (
+          <View
+            style={styles.oldPageLoadingOverlay}
+            pointerEvents="none"
+            accessibilityRole="progressbar"
+            accessibilityLabel="Loading older messages"
+          >
+            <ActivityIndicator size="small" color={theme.color.muted} />
+          </View>
+        ) : null}
         <View
           pointerEvents="none"
           style={[styles.scrollGutterStrip, { width: SCROLLBAR_OUTSIDE_STRIP, backgroundColor: theme.color.background }]}
@@ -1438,7 +1470,15 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     listFlatList: { flex: 1, minWidth: 0 },
     scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
-    oldPageLoading: { paddingVertical: 10, alignItems: "center", justifyContent: "center" },
+    oldPageLoadingOverlay: {
+      position: "absolute",
+      top: 8,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 2
+    },
     unseenChipWrap: {
       position: "absolute",
       bottom: 10,

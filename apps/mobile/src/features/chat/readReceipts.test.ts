@@ -41,15 +41,25 @@ test("own markRead alone does not light the footer", () => {
   );
 });
 
-test("last_read timestamp alone must not count as read through latest own", () => {
-  // Regression: peers watched recently (fresh last_read) but never got last_read_message_id
-  // for the new send — previously compared last_read >= createdAt and flashed the footer.
+test("last_read timestamp counts only when at or after latest own send", () => {
   const latestOwn = { id: "m-new", sentAtMs: 5000 };
   assert.equal(
     computeReadByEveryone({
       members: { [me]: {}, [peerA]: {} },
       reads: {
         [peerA]: { last_read: new Date(9000) }
+      },
+      myStreamUserId: me,
+      latestOwn,
+      messageIdsAtOrAfterOwn: new Set(["m-new"])
+    }),
+    true
+  );
+  assert.equal(
+    computeReadByEveryone({
+      members: { [me]: {}, [peerA]: {} },
+      reads: {
+        [peerA]: { last_read: new Date(4000) }
       },
       myStreamUserId: me,
       latestOwn,
