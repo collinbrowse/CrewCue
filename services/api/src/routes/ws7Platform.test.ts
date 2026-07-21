@@ -78,6 +78,18 @@ test("platform events append, list, replay with membership and idempotent retry"
   assert.equal(dupBody.duplicate, true);
   assert.equal(dupBody.event.id, acceptedBody.event.id);
 
+  const conflictingRetry = await app.inject({
+    method: "POST",
+    url: "/platform/v1/events",
+    headers: { authorization: `Bearer ${athleteToken}` },
+    payload: {
+      ...basePayload,
+      eventType: "race_room.activated",
+      payload: { eventEndsAt: new Date(Date.now() + 86_400_000).toISOString() }
+    }
+  });
+  assert.equal(conflictingRetry.statusCode, 409);
+
   await app.inject({
     method: "POST",
     url: "/platform/v1/events",

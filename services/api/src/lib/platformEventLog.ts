@@ -18,6 +18,7 @@ import {
   persistRaceRoomSnapshot,
   resetPersistedPlatformEventsForTests as resetPersistedPlatformEventsInDbForTests
 } from "./roomPersistence.js";
+import { matchesPlatformEventIdempotencyInput } from "./platformEventIdempotency.js";
 
 const draftSchema = z.object({
   teamId: z.string().min(1),
@@ -73,19 +74,39 @@ export type AppendPlatformEventInput = {
   causationId?: string;
 };
 
+export type AppendPlatformEventResult =
+  | { duplicate: true; conflict?: false; event: PlatformEventEnvelope }
+  | { duplicate: false; conflict?: false; event: PlatformEventEnvelope }
+  | { duplicate: false; conflict: true; event: PlatformEventEnvelope };
+
 function appendPlatformEventMemory(
   input: AppendPlatformEventInput
-): { duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope } {
+): AppendPlatformEventResult {
+  const normalized = coercePlatformEventPayload(input.eventType, input.payload);
   const existing = idempotencyIndex.get(input.idempotencyKey);
   if (existing) {
+    if (
+      !matchesPlatformEventIdempotencyInput(existing, {
+        aggregateId: input.aggregateId,
+        aggregateType: input.aggregateType,
+        eventType: input.eventType,
+        idempotencyKey: input.idempotencyKey,
+        normalizedPayload: normalized,
+        schemaVersion: input.schemaVersion,
+        transport: input.transport,
+        actorUserId: input.actorUserId,
+        ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
+        ...(input.causationId !== undefined ? { causationId: input.causationId } : {})
+      })
+    ) {
+      return { duplicate: false, conflict: true, event: existing };
+    }
     return { duplicate: true, event: existing };
   }
 
   const key = aggregateKey(input.aggregateType, input.aggregateId);
   const nextSeq = (sequenceByAggregate.get(key) ?? 0) + 1;
   sequenceByAggregate.set(key, nextSeq);
-
-  const normalized = coercePlatformEventPayload(input.eventType, input.payload);
 
   const event: PlatformEventEnvelope = {
     id: randomUUID(),
@@ -108,9 +129,7 @@ function appendPlatformEventMemory(
   return { duplicate: false, event };
 }
 
-export async function appendPlatformEvent(
-  input: AppendPlatformEventInput
-): Promise<{ duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope }> {
+export async function appendPlatformEvent(input: AppendPlatformEventInput): Promise<AppendPlatformEventResult> {
   if (!isRoomPersistenceEnabled()) {
     return appendPlatformEventMemory(input);
   }
@@ -127,7 +146,7 @@ export async function appendPlatformEvent(
     ...(input.correlationId !== undefined ? { correlationId: input.correlationId } : {}),
     ...(input.causationId !== undefined ? { causationId: input.causationId } : {})
   });
-  if (!result.duplicate && input.aggregateType === "race_room") {
+  if (!result.duplicate && !result.conflict && input.aggregateType === "race_room") {
     await refreshRaceRoomSnapshot(input.aggregateId, result.event);
   }
   return result;

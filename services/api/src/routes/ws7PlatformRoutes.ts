@@ -97,6 +97,9 @@ export async function ws7PlatformRoutes(app: FastifyInstance): Promise<void> {
       ...(body.causationId !== undefined ? { causationId: body.causationId } : {})
     });
 
+    if (result.conflict) {
+      return reply.code(409).send({ error: "Idempotency key already used for a different platform event" });
+    }
     if (result.duplicate) {
       return reply.code(200).send({ event: result.event, duplicate: true });
     }

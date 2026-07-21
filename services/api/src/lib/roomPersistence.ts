@@ -10,6 +10,7 @@ import type {
   ReplayedRaceRoomAggregate,
   TransportChannel
 } from "@crewcue/contracts";
+import { matchesPlatformEventIdempotencyInput } from "./platformEventIdempotency.js";
 
 export type PersistenceMode = "memory" | "postgres";
 
@@ -703,7 +704,11 @@ export type AppendPersistedPlatformEventInput = {
 
 export async function appendPersistedPlatformEvent(
   input: AppendPersistedPlatformEventInput
-): Promise<{ duplicate: true; event: PlatformEventEnvelope } | { duplicate: false; event: PlatformEventEnvelope }> {
+): Promise<
+  | { duplicate: true; conflict?: false; event: PlatformEventEnvelope }
+  | { duplicate: false; conflict?: false; event: PlatformEventEnvelope }
+  | { duplicate: false; conflict: true; event: PlatformEventEnvelope }
+> {
   if (!pool) {
     throw new Error("appendPersistedPlatformEvent requires Postgres persistence");
   }
@@ -721,8 +726,12 @@ export async function appendPersistedPlatformEvent(
       [input.idempotencyKey]
     );
     if (existing.rows[0]) {
+      const event = platformEventRowToEnvelope(existing.rows[0]);
       await client.query("COMMIT");
-      return { duplicate: true, event: platformEventRowToEnvelope(existing.rows[0]) };
+      if (!matchesPlatformEventIdempotencyInput(event, input)) {
+        return { duplicate: false, conflict: true, event };
+      }
+      return { duplicate: true, event };
     }
 
     const seqResult = await client.query<{ last_sequence: number }>(
