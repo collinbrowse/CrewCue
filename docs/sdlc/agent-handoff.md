@@ -11,32 +11,32 @@
 ## Session status snapshot
 
 - Last updated: 2026-07-21 (UTC)
-- **Roadmap phase:** Dev ergonomics / local↔staging env switching (after MVP plaintext chat).
-- **Branch:** `feature/env-local-staging-switch-321`
-- **Issue:** #321
-- **PR:** #322
-- **Acceptance criteria:** env:local/staging/status/init; Auth0-aligned API profiles; runbook docs; machine profiles seeded (gitignored).
+- **Roadmap phase:** MVP chat reliability (plaintext Stream).
+- **Branch:** `fix/chat-read-by-everyone-326`
+- **Issues:** #326, #328, #329
+- **PR:** #327
+- **Acceptance criteria:** Read receipt under own bubbles only; live update on peer `message.read`; load-older keeps scroll; idle roster members without read state do not block.
 
 ## Completed
 
-- Merged #324 plaintext chat; #325 push webhook auth; #304 platform event idempotency conflicts; #312 stale idempotency lease reclaim.
-- Closed obsolete Bugbot coverage PRs (#307/#309/#314/#316/#318–#320).
-- On this PR: `scripts/switch-dev-env.mjs` + `env:init|local|staging|status`; example profiles; API root `.env` load; Auth0 runbook updates.
+- Per-message “Read by everyone” under own bubbles (list footer removed).
+- Live peerReads snapshot from `message.read` + channel.state.read.
+- Peers = users with read frontiers (not full never-opened roster).
+- Scroll preserve for older history (#328).
 
 ## Next 1-3 tasks
 
-1. Finish rebase of #322 onto main; push; confirm CI green; merge.
-2. Deploy staging API (Railway migrate 0014) + signed-in chat smoke.
-3. Configure `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout cannot use sender JWT.
+1. Two-sim smoke on #327: send → peer opens chat → receipt under sender’s bubble.
+2. Merge #327 when OK.
+3. Staging smoke on main after merge.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- “Local Auth0” reuses the staging Auth0 tenant by default; each clone needs `npm run env:init`.
+- Auth0 blocks unattended sim chat E2E.
+- Stream channel type must allow `read_events` for markRead broadcasts.
 
 ## Successor prompt
 
 ```text
-#322 rebased onto main (env local/staging switch). Confirm CI, merge. Then staging deploy + chat smoke; use npm run env:local for local API work.
+PR #327: reload Metro, two-sim smoke — receipt under own bubble when peer reads. Then merge.
 ```

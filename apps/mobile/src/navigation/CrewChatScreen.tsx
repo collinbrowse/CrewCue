@@ -6,7 +6,7 @@
  *
  * UI requirements covered:
  *   - own messages on the right, others on the left
- *   - typing indicator + "read by everyone" footer when applicable
+ *   - typing indicator + "read by everyone" under own bubbles when peers have read
  *   - mention rendering with bold display name
  *   - fixed reaction set (long-press to react)
  *   - hold-and-swipe to reveal sent / arrived timestamps
@@ -59,6 +59,12 @@ import {
 } from "../features/chat/imagePipeline";
 import { formatChatTimestamp } from "../features/chat/timestamps";
 import { disconnectStreamClient } from "../features/chat/streamClient";
+import {
+  applyMessageReadEvent,
+  computeOwnMessageIdsReadByEveryone,
+  snapshotChannelReads,
+  type ReadReceiptReadState
+} from "../features/chat/readReceipts";
 import {
   enqueueChatMessage,
   loadOutbox,
@@ -146,7 +152,12 @@ export function CrewChatScreen(): ReactElement {
   const [pendingImage, setPendingImage] = useState<PickedImage | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
-  const [readByEveryone, setReadByEveryone] = useState(false);
+  /** Own message ids that every other channel member has read through. */
+  const [ownMessageIdsReadByEveryone, setOwnMessageIdsReadByEveryone] = useState<Set<string>>(
+    () => new Set()
+  );
+  /** Local copy of peer read frontiers — updated on `message.read` for live UI. */
+  const [peerReads, setPeerReads] = useState<Record<string, ReadReceiptReadState | undefined>>({});
   const [revealedMessageId, setRevealedMessageId] = useState<string | undefined>();
   const [minUnseenAboveIndex, setMinUnseenAboveIndex] = useState<number | undefined>(undefined);
   /** True until Stream bootstrap finishes for the current room (or errors). */
@@ -170,6 +181,9 @@ export function CrewChatScreen(): ReactElement {
   const scrollEndIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchoredInitialScrollRef = useRef(false);
   const scrollOffsetYRef = useRef(0);
+  const listContentHeightRef = useRef(0);
+  /** After prepending older history, bump offset by the content-height delta so the viewport stays put. */
+  const pendingOlderPrependAdjustRef = useRef(false);
   const loadingOlderRef = useRef(false);
   const memberships: MentionMember[] = useMemo(() => room?.memberships ?? [], [room]);
 
@@ -233,6 +247,10 @@ export function CrewChatScreen(): ReactElement {
     setHasMoreHistory(false);
     loadingOlderRef.current = false;
     setLoadingOlder(false);
+    listContentHeightRef.current = 0;
+    pendingOlderPrependAdjustRef.current = false;
+    setOwnMessageIdsReadByEveryone(new Set());
+    setPeerReads({});
     if (!room?.id) {
       setMessages([]);
       setIsChatHistoryLoading(false);
@@ -361,8 +379,15 @@ export function CrewChatScreen(): ReactElement {
       if (!id) return;
       setTypingUserIds((prev) => prev.filter((u) => u !== id));
     };
-    const handleRead = () => {
-      setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
+    const handleRead = (event?: StreamEvent) => {
+      setPeerReads((prev) => {
+        const fromChannel = snapshotChannelReads(
+          channel.state.read as Record<string, ReadReceiptReadState | undefined> | undefined
+        );
+        const merged = { ...prev, ...fromChannel };
+        if (!event) return merged;
+        return applyMessageReadEvent(merged, event as Parameters<typeof applyMessageReadEvent>[1]);
+      });
     };
     const handleReaction = (event: StreamEvent) => {
       const id = event.message?.id;
@@ -380,8 +405,8 @@ export function CrewChatScreen(): ReactElement {
       }),
       channel.on("typing.start", handleTyping),
       channel.on("typing.stop", handleStopTyping),
-      channel.on("message.read", () => {
-        handleRead();
+      channel.on("message.read", (e: StreamEvent) => {
+        handleRead(e);
         handleUnread();
       }),
       channel.on("reaction.new", handleReaction),
@@ -394,14 +419,21 @@ export function CrewChatScreen(): ReactElement {
     };
   }, [channel, myStreamUserId, streamIdToDisplayName]);
 
-  // Recompute after local sends — own markRead must not imply peers have read.
+  // Derive per-own-message read receipts from peer read snapshot + message list.
   useEffect(() => {
     if (!channel || !myStreamUserId) {
-      setReadByEveryone(false);
+      setOwnMessageIdsReadByEveryone(new Set());
       return;
     }
-    setReadByEveryone(computeReadByEveryone(channel, myStreamUserId));
-  }, [channel, myStreamUserId, messages.length]);
+    setOwnMessageIdsReadByEveryone(
+      computeOwnMessageIdsReadByEveryone({
+        members: channel.state.members ?? {},
+        reads: peerReads,
+        myStreamUserId,
+        messages
+      })
+    );
+  }, [channel, myStreamUserId, messages, peerReads]);
 
   // Drain any pending outbox entries from prior sessions on mount/key change.
   useEffect(() => {
@@ -434,8 +466,27 @@ export function CrewChatScreen(): ReactElement {
     return () => clearTimeout(handle);
   }, [room?.id, messages]);
 
-  const onMessagesContentSizeChange = useCallback((_w: number, _h: number) => {
-    if (messagesRef.current.length === 0) return;
+  const onMessagesContentSizeChange = useCallback((_w: number, h: number) => {
+    if (messagesRef.current.length === 0) {
+      listContentHeightRef.current = h;
+      return;
+    }
+
+    const previousHeight = listContentHeightRef.current;
+    listContentHeightRef.current = h;
+
+    // Prepended older pages grow content upward; keep the same bubbles on screen.
+    if (pendingOlderPrependAdjustRef.current && h > previousHeight && previousHeight > 0) {
+      pendingOlderPrependAdjustRef.current = false;
+      const delta = h - previousHeight;
+      const nextOffset = scrollOffsetYRef.current + delta;
+      scrollOffsetYRef.current = nextOffset;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: nextOffset, animated: false });
+      });
+      return;
+    }
+    pendingOlderPrependAdjustRef.current = false;
 
     if (!anchoredInitialScrollRef.current) {
       anchoredInitialScrollRef.current = true;
@@ -484,6 +535,8 @@ export function CrewChatScreen(): ReactElement {
       }
       const olderViews = toViewMessages(rawOlder, myStreamUserId, streamIdToDisplayName);
       const added = olderViews.length;
+      // Capture height before prepend so onContentSizeChange can restore the viewport.
+      pendingOlderPrependAdjustRef.current = true;
       setMessages((prev) => {
         const merged = normalizeMessageList([...olderViews, ...prev]);
         if (added > 0) {
@@ -501,6 +554,7 @@ export function CrewChatScreen(): ReactElement {
         setHasMoreHistory(false);
       }
     } catch {
+      pendingOlderPrependAdjustRef.current = false;
       // leave hasMoreHistory; user can scroll again to retry
     } finally {
       loadingOlderRef.current = false;
@@ -724,9 +778,11 @@ export function CrewChatScreen(): ReactElement {
           scrollEventThrottle={16}
           {...(messages.length > 0
             ? ({
+                // Keep the first visible bubble pinned when older rows are prepended.
+                // Do NOT set autoscrollToTopThreshold — that forces a jump to the top
+                // whenever the user is near y=0 (exactly when load-more fires).
                 maintainVisibleContentPosition: {
-                  minIndexForVisible: 0,
-                  autoscrollToTopThreshold: 24
+                  minIndexForVisible: 0
                 }
               } as const)
             : {})}
@@ -752,6 +808,9 @@ export function CrewChatScreen(): ReactElement {
                 revealed={revealedMessageId === info.item.id}
                 reactionHighlight={reactionOverlay?.messageId === info.item.id}
                 showAvatarTail={showAvatarTail}
+                showReadByEveryone={
+                  info.item.isOwn && ownMessageIdsReadByEveryone.has(info.item.id)
+                }
                 onRevealLongPress={(id) => setRevealedMessageId(id)}
                 onReleaseReveal={() => setRevealedMessageId(undefined)}
                 onOpenReactionPicker={(id, frame) => openReactionPickerForMessage(id, frame)}
@@ -764,21 +823,17 @@ export function CrewChatScreen(): ReactElement {
               <Text style={styles.body}>No messages yet. Say hi to your crew.</Text>
             </DSCard>
           }
-          ListHeaderComponent={
-            loadingOlder ? (
-              <View style={styles.oldPageLoading} accessibilityRole="progressbar" accessibilityLabel="Loading older messages">
-                <ActivityIndicator size="small" color={theme.color.muted} />
-              </View>
-            ) : null
-          }
-          ListFooterComponent={
-            readByEveryone ? (
-              <View style={styles.readByListFooter} accessibilityRole="text">
-                <Text style={styles.readByListFooterText}>Read by everyone</Text>
-              </View>
-            ) : null
-          }
         />
+        {loadingOlder ? (
+          <View
+            style={styles.oldPageLoadingOverlay}
+            pointerEvents="none"
+            accessibilityRole="progressbar"
+            accessibilityLabel="Loading older messages"
+          >
+            <ActivityIndicator size="small" color={theme.color.muted} />
+          </View>
+        ) : null}
         <View
           pointerEvents="none"
           style={[styles.scrollGutterStrip, { width: SCROLLBAR_OUTSIDE_STRIP, backgroundColor: theme.color.background }]}
@@ -1047,6 +1102,7 @@ type MessageBubbleProps = {
   revealed: boolean;
   reactionHighlight: boolean;
   showAvatarTail: boolean;
+  showReadByEveryone: boolean;
   onRevealLongPress: (id: string) => void;
   onReleaseReveal: () => void;
   onOpenReactionPicker: (id: string, frame: { x: number; y: number; width: number; height: number }) => void;
@@ -1060,6 +1116,7 @@ function MessageBubble({
   revealed,
   reactionHighlight,
   showAvatarTail,
+  showReadByEveryone,
   onRevealLongPress,
   onReleaseReveal,
   onOpenReactionPicker,
@@ -1129,6 +1186,11 @@ function MessageBubble({
     return (
       <View style={styles.messageRowOwn}>
         {bubbleBody}
+        {showReadByEveryone ? (
+          <Text style={styles.readByUnderBubble} accessibilityRole="text">
+            Read by everyone
+          </Text>
+        ) : null}
         {revealed ? (
           <View style={styles.timestampReveal}>
             <Text style={styles.timestampText}>sent {ts.sent}</Text>
@@ -1186,42 +1248,6 @@ function MessageBubble({
       </View>
     </View>
   );
-}
-
-/**
- * "Read by everyone" means every other channel member has read through the
- * latest message you sent. Your own markRead must never make this true alone
- * (solo channels and self-read both used to flash the footer incorrectly).
- */
-function computeReadByEveryone(channel: Channel, myStreamUserId: string): boolean {
-  const members = channel.state.members ?? {};
-  const reads = channel.state.read ?? {};
-  const otherMemberIds = Object.keys(members).filter((id) => id !== myStreamUserId);
-  if (otherMemberIds.length === 0) return false;
-
-  const channelMessages = channel.state.messages ?? [];
-  let latestOwnId: string | undefined;
-  let latestOwnAtMs: number | undefined;
-  for (let i = channelMessages.length - 1; i >= 0; i -= 1) {
-    const candidate = channelMessages[i];
-    if (!candidate?.id || candidate.user?.id !== myStreamUserId) continue;
-    const createdAt = candidate.created_at;
-    if (!createdAt) continue;
-    const at = new Date(createdAt).getTime();
-    if (!Number.isFinite(at)) continue;
-    latestOwnId = candidate.id;
-    latestOwnAtMs = at;
-    break;
-  }
-  if (!latestOwnId || latestOwnAtMs === undefined) return false;
-
-  return otherMemberIds.every((id) => {
-    const readState = reads[id];
-    if (!readState) return false;
-    if (readState.last_read_message_id === latestOwnId) return true;
-    if (!readState.last_read) return false;
-    return new Date(readState.last_read).getTime() >= latestOwnAtMs!;
-  });
 }
 
 function toViewMessages(
@@ -1446,7 +1472,15 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     listFlatList: { flex: 1, minWidth: 0 },
     scrollGutterStrip: { flexShrink: 0, alignSelf: "stretch" },
     listContent: { gap: 6, paddingVertical: 12 },
-    oldPageLoading: { paddingVertical: 10, alignItems: "center", justifyContent: "center" },
+    oldPageLoadingOverlay: {
+      position: "absolute",
+      top: 8,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 2
+    },
     unseenChipWrap: {
       position: "absolute",
       bottom: 10,
@@ -1572,13 +1606,14 @@ function makeStyles(theme: ReturnType<typeof useDSTheme>) {
     attachmentRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     attachmentThumb: { width: 64, height: 64, borderRadius: 8 },
     typing: { color: theme.color.muted, fontSize: 12, paddingHorizontal: 4 },
-    /** In-list footer: sits under the last bubble inside `FlatList`, right-aligned (LTR). */
-    readByListFooter: {
-      alignSelf: "stretch",
-      alignItems: "flex-end",
-      paddingTop: 4,
-      paddingBottom: 2
-    },
-    readByListFooterText: { color: theme.color.muted, fontSize: 11 }
+    /** Under an own bubble once every other member has read through that message. */
+    readByUnderBubble: {
+      alignSelf: "flex-end",
+      marginTop: 2,
+      marginBottom: 2,
+      marginRight: 2,
+      color: theme.color.muted,
+      fontSize: 11
+    }
   });
 }
