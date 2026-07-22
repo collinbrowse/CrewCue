@@ -12,27 +12,27 @@
 
 - Last updated: 2026-07-22 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `fix/332-map-error-banner-loop` (uncommitted fix for #332).
-- **Active:** [#332](https://github.com/collinbrowse/CrewCue/issues/332) — stop repeating error banners from map auto-fetch loop.
+- **Branch / PR:** `fix/332-map-error-banner-loop` → [#333](https://github.com/collinbrowse/CrewCue/pull/333) (`Closes #332`).
+- **Active:** Review/merge #333; then staging chat smoke from prior handoff.
 
-## Completed (this session)
+## Completed
 
-- Diagnosed constant “Something went wrong. Please try again.” banners: map `useEffect` depended on entire shell `s` (new every render) → infinite `onFetchRoomDetails` / `onFetchInvites`; failures → `setStatusError` → transient banner.
-- Fix drafted: roomId-only effect + quiet auto-fetch; map focus uses quiet projection; noticeBus dedupe survives dismiss.
+- #332/#333: stop repeating map error banners (roomId-only effect, quiet auto-fetch, noticeBus post-dismiss dedupe).
+- `npm run verify` green locally before PR open.
 
 ## Next 1-3 tasks
 
-1. Commit + open PR for #332 (`Closes #332`); run `npm run verify`; sim smoke if signed in.
-2. Staging deploy + signed-in chat smoke from prior handoff (#327).
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if push fanout needs it.
+1. Merge #333 when CI green; optional signed-in map idle smoke (no spam banners).
+2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
+3. Signed-in chat smoke on staging (send/photo/read receipt/scroll); set `CHAT_PUSH_WEBHOOK_SECRET` if needed.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E; banner-loop sim proof needs signed-in room.
-- Staging API failures still possible; should no longer spam banners after #332.
+- Auth0 blocks unattended sim proof for #333 banner absence.
+- Staging DB must get migration 0014 via Railway deploy.
 
 ## Successor prompt
 
 ```text
-Finish #332: commit on fix/332-map-error-banner-loop, npm run verify, gh pr create with Closes #332. Optional signed-in map smoke (no spam banners). Then staging chat smoke from prior handoff.
+Watch #333 CI; merge when green. Optional signed-in map smoke. Then staging deploy (0014) + chat smoke from prior handoff.
 ```
