@@ -10,33 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-21 (UTC)
-- **Roadmap phase:** MVP chat reliability (plaintext Stream).
-- **Branch:** `fix/chat-read-by-everyone-326`
-- **Issues:** #326, #328, #329
-- **PR:** #327
-- **Acceptance criteria:** Read receipt under own bubbles only; live update on peer `message.read`; load-older keeps scroll; idle roster members without read state do not block.
+- Last updated: 2026-07-22 (UTC)
+- **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
+- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
+- **Active follow-up:** Staging deploy + signed-in chat smoke.
 
 ## Completed
 
-- Per-message “Read by everyone” under own bubbles (list footer removed).
-- Live peerReads snapshot from `message.read` + channel.state.read.
-- Peers = users with read frontiers (not full never-opened roster).
-- Scroll preserve for older history (#328).
+- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
+- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
 
 ## Next 1-3 tasks
 
-1. Two-sim smoke on #327: send → peer opens chat → receipt under sender’s bubble.
-2. Merge #327 when OK.
-3. Staging smoke on main after merge.
+1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
+2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
+3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
 
 ## Open risks/blockers
 
-- Auth0 blocks unattended sim chat E2E.
-- Stream channel type must allow `read_events` for markRead broadcasts.
+- Auth0 still blocks unattended sim chat E2E.
+- Staging DB must get migration 0014 via Railway deploy.
+- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
 
 ## Successor prompt
 
 ```text
-PR #327: reload Metro, two-sim smoke — receipt under own bubble when peer reads. Then merge.
+#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
 ```
