@@ -12,28 +12,27 @@
 
 - Last updated: 2026-07-22 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch / PR:** `fix/332-map-error-banner-loop` → [#333](https://github.com/collinbrowse/CrewCue/pull/333) (`Closes #332`).
+- **Active:** Review/merge #333; then staging chat smoke from prior handoff.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- #332/#333: stop repeating map error banners (roomId-only effect, quiet auto-fetch, noticeBus post-dismiss dedupe).
+- `npm run verify` green locally before PR open.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Merge #333 when CI green; optional signed-in map idle smoke (no spam banners).
+2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
+3. Signed-in chat smoke on staging (send/photo/read receipt/scroll); set `CHAT_PUSH_WEBHOOK_SECRET` if needed.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E.
+- Auth0 blocks unattended sim proof for #333 banner absence.
 - Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Watch #333 CI; merge when green. Optional signed-in map smoke. Then staging deploy (0014) + chat smoke from prior handoff.
 ```

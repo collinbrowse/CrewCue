@@ -71,8 +71,9 @@ export class NoticeBus {
     const now = Date.now();
     const dedupeMs = input.dedupeMs ?? DEFAULT_DEDUPE_MS;
 
+    // Dedupe by fingerprint + window even after dismiss — otherwise a background
+    // retry loop can re-present the same banner as soon as auto-dismiss clears it.
     if (
-      this.state.transient &&
       this.lastTransientFingerprint === input.fingerprint &&
       now - this.lastTransientAtMs < dedupeMs
     ) {
