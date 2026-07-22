@@ -12,28 +12,27 @@
 
 - Last updated: 2026-07-22 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `fix/332-map-error-banner-loop` (uncommitted fix for #332).
+- **Active:** [#332](https://github.com/collinbrowse/CrewCue/issues/332) — stop repeating error banners from map auto-fetch loop.
 
-## Completed
+## Completed (this session)
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Diagnosed constant “Something went wrong. Please try again.” banners: map `useEffect` depended on entire shell `s` (new every render) → infinite `onFetchRoomDetails` / `onFetchInvites`; failures → `setStatusError` → transient banner.
+- Fix drafted: roomId-only effect + quiet auto-fetch; map focus uses quiet projection; noticeBus dedupe survives dismiss.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Commit + open PR for #332 (`Closes #332`); run `npm run verify`; sim smoke if signed in.
+2. Staging deploy + signed-in chat smoke from prior handoff (#327).
+3. Set `CHAT_PUSH_WEBHOOK_SECRET` if push fanout needs it.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Auth0 still blocks unattended sim chat E2E; banner-loop sim proof needs signed-in room.
+- Staging API failures still possible; should no longer spam banners after #332.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Finish #332: commit on fix/332-map-error-banner-loop, npm run verify, gh pr create with Closes #332. Optional signed-in map smoke (no spam banners). Then staging chat smoke from prior handoff.
 ```

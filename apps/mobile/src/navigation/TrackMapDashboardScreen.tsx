@@ -442,26 +442,38 @@ export function TrackMapDashboardScreen(): ReactElement {
       });
   }, [roomId, token, s.baseUrl]);
 
+  const onSetProjectionPollEnabled = s.onSetProjectionPollEnabled;
+  const onRefreshProjectionQuiet = s.onRefreshProjectionQuiet;
+  const onFetchRoomDetails = s.onFetchRoomDetails;
+  const onFetchInvites = s.onFetchInvites;
+  const onFetchRoomDetailsRef = useRef(onFetchRoomDetails);
+  const onFetchInvitesRef = useRef(onFetchInvites);
+  onFetchRoomDetailsRef.current = onFetchRoomDetails;
+  onFetchInvitesRef.current = onFetchInvites;
+
   useFocusEffect(
     useCallback(() => {
-      s.onSetProjectionPollEnabled(true);
-      s.onFetchProjection();
-      if (room?.id) {
-        void s.onFetchRoomDetails(room.id);
+      onSetProjectionPollEnabled(true);
+      // Quiet path: background refresh must not toast on transient API failures.
+      onRefreshProjectionQuiet();
+      if (roomId) {
+        void onFetchRoomDetailsRef.current(roomId, { quiet: true });
       }
       return () => {
-        s.onSetProjectionPollEnabled(false);
+        onSetProjectionPollEnabled(false);
       };
-    }, [s.onFetchProjection, s.onSetProjectionPollEnabled, s.onFetchRoomDetails, room?.id])
+    }, [onRefreshProjectionQuiet, onSetProjectionPollEnabled, roomId])
   );
 
+  // Depend on roomId only — shell context `s` is a new object every App render, so
+  // including it here re-fired fetches forever and spammed error banners (#332).
   useEffect(() => {
-    if (!inRace || !room) {
+    if (!roomId) {
       return;
     }
-    void s.onFetchRoomDetails(room.id);
-    void s.onFetchInvites();
-  }, [inRace, room?.id, s]);
+    void onFetchRoomDetailsRef.current(roomId, { quiet: true });
+    void onFetchInvitesRef.current({ quiet: true });
+  }, [roomId]);
 
   const courseLine = useMemo(() => primaryCourseLngLatPolyline(room?.course, workspace), [room?.course, workspace]);
   const routeFeature = useMemo(() => {
