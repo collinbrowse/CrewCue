@@ -64,6 +64,11 @@ export async function replace(operations: OutboxOperation[]): Promise<void> {
   await persist(operations);
 }
 
+/** Wipe the device sync outbox (call on account sign-out). */
+export async function clearAll(): Promise<void> {
+  await persist([]);
+}
+
 export async function enqueue(operation: OutboxOperation): Promise<void> {
   const operations = await list();
   const existingIndex = operations.findIndex((entry) => entry.id === operation.id);
