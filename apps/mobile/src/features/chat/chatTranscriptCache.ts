@@ -62,6 +62,30 @@ export async function saveTranscriptCache(roomId: string, messages: CachedChatTr
   }
 }
 
+export async function clearTranscriptCache(roomId: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(key(roomId));
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Drop all cached plaintext transcripts. Returns room ids that had cache entries
+ * so callers can clear related SecureStore keys that are not enumerable on native.
+ */
+export async function clearAllTranscriptCaches(): Promise<string[]> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const matched = keys.filter((k) => k.startsWith(PREFIX));
+    if (matched.length === 0) return [];
+    await AsyncStorage.multiRemove(matched);
+    return matched.map((k) => k.slice(PREFIX.length)).filter((id) => id.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 export function chatViewMessagesToCacheRows(
   messages: Array<{
     id: string;

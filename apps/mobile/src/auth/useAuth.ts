@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import { clearTokens, loadTokens, saveTokens, type StoredTokens } from "./tokenStorage";
 import { decodeAccessTokenClaims, type DecodedAccessClaims } from "./jwt";
 import { shouldRestoreStoredSession } from "./sessionRestore";
+import { clearLocalAccountDataDefault } from "./clearLocalAccountDataDefault";
 
 type Auth0Settings = {
   domain: string;
@@ -204,6 +205,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
         setStatus("authenticated");
       } else {
         await clearTokens();
+        await clearLocalAccountDataDefault();
         setStatus("anonymous");
       }
     })();
@@ -329,6 +331,7 @@ export function useAuth(settings: Auth0Settings): AuthState {
 
   const signOut = useCallback(async () => {
     await clearTokens();
+    await clearLocalAccountDataDefault();
     setTokens(undefined);
     setError(undefined);
     setStatus("anonymous");
