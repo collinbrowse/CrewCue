@@ -12,7 +12,7 @@ import { clearLocalAccountData } from "./clearLocalAccountData";
 export async function clearLocalAccountDataDefault(): Promise<void> {
   await clearLocalAccountData({
     clearTranscriptCaches: clearAllTranscriptCaches,
-    clearChatOutboxes: clearAllChatOutboxes,
+    clearChatOutboxes: (knownRoomIds) => clearAllChatOutboxes(knownRoomIds),
     clearNotificationPref: clearCachedPref,
     clearSyncOutbox: () => syncOutboxStore.clearAll(),
     disconnectStream: disconnectStreamClient

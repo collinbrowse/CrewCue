@@ -67,6 +67,10 @@ export async function loadOutbox(roomId: string): Promise<ChatOutbox> {
     if (!parsed || parsed.roomId !== roomId || !Array.isArray(parsed.entries)) {
       return { roomId, entries: [] };
     }
+    // Heal the room index for outboxes created before indexing existed.
+    if (parsed.entries.length > 0) {
+      void rememberOutboxRoom(roomId);
+    }
     return parsed;
   } catch {
     return { roomId, entries: [] };
@@ -90,11 +94,14 @@ export async function clearOutbox(roomId: string): Promise<void> {
 }
 
 /**
- * Clear every tracked chat outbox. Returns room ids that were indexed so related
- * per-room SecureStore prefs can be cleared in the same pass.
+ * Clear every tracked chat outbox (plus any extra known rooms). Returns the
+ * room ids wiped so related per-room SecureStore prefs can be cleared too.
  */
-export async function clearAllChatOutboxes(): Promise<string[]> {
-  const roomIds = await readOutboxRoomIndex();
+export async function clearAllChatOutboxes(extraRoomIds: readonly string[] = []): Promise<string[]> {
+  const indexed = await readOutboxRoomIndex();
+  const roomIds = Array.from(
+    new Set([...indexed, ...extraRoomIds.map((id) => id.trim()).filter(Boolean)])
+  );
   for (const roomId of roomIds) {
     await SecureStore.deleteItemAsync(storageKey(roomId));
   }

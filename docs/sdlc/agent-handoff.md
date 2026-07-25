@@ -10,21 +10,21 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-24 (UTC)
+- Last updated: 2026-07-25 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `cursor/critical-bug-investigation-6000` (base `main` @ `e0d1578`).
-- **Active follow-up:** Sign-out local-data wipe PR; staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-9fc3` (base `main` @ `e0d1578`).
+- **Active follow-up:** Land sign-out local-data wipe PR; staging deploy + signed-in chat smoke.
 
 ## Completed
 
-- Critical bug hunt 2026-07-24: sign-out / expired-session teardown now clears plaintext transcript caches, chat outboxes (+ room index), notif pref caches for known rooms, sync outbox, and disconnects Stream — prevents cross-account cache leak and wrong-user outbox drain after #324.
+- Critical bug hunt 2026-07-25: re-landed + hardened sign-out wipe (prior `6000` branch had no PR). Sign-out / expired-session clears plaintext transcript caches, chat outboxes (index + transcript-known rooms), notif prefs, sync outbox, and disconnects Stream. Pre-index outboxes heal via `loadOutbox` and are wiped using transcript room ids.
 - Earlier on main: #327 read receipts; #331 handoff; #325 push webhook auth; #324 plaintext chat.
 
 ## Next 1-3 tasks
 
-1. Merge sign-out local wipe PR; create tracking GitHub issue if still missing (cloud `gh` was read-only).
+1. Merge sign-out local wipe PR; create tracking GitHub issue if still missing (cloud `gh` read-only).
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-3. Signed-in smoke: sign-out/sign-in as second account on same device must not paint prior transcript or send prior outbox; then chat send/photo + read receipts.
+3. Signed-in smoke: account switch on device must not paint prior transcript or drain prior outbox; then chat send/photo + read receipts.
 
 ## Open risks/blockers
 
@@ -36,5 +36,5 @@
 ## Successor prompt
 
 ```text
-Land sign-out local wipe PR if open. Create GitHub issue for it if missing. Staging deploy (0014). Smoke: account switch on device must not leak chat cache/outbox; then chat send/photo + receipts.
+Merge sign-out local wipe PR if open. Staging deploy (0014). Smoke: account switch must not leak chat cache/outbox; then chat send/photo + receipts.
 ```
