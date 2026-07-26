@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-07-26 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-ee0f` (chat outbox stuck-`sending` reclaim).
+- **Active follow-up:** Merge outbox reclaim PR; also #334 sign-out wipe still open on main.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Found critical chat outbox bug: `markSending` refused persisted `sending`, so force-quit mid-send stranded messages with no retry UI. Fixed with live in-flight claims + reclaim, stable Stream client message ids, and duplicate-id treated as success.
+- Open #334 still covers cross-account plaintext cache/outbox wipe on sign-out (not duplicated here).
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Merge chat outbox reclaim PR after CI; smoke: send message, force-quit mid-send, reopen → message delivers (or clears as duplicate-id success).
+2. Merge #334 (sign-out local wipe) when ready.
+3. Staging deploy + signed-in chat smoke (migrate 0014, read receipts, `CHAT_PUSH_WEBHOOK_SECRET` if needed).
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
+- Pre-fix outbox entries sent without client message ids can still duplicate if crash was after Stream ack (new sends are idempotent).
 - Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Merge outbox reclaim PR + #334 if open. Staging: confirm 0014; smoke chat send/photo, kill-mid-send reopen, sign-out account switch, peer read receipt.
 ```
