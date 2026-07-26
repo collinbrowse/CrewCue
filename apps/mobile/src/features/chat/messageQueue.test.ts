@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeEntry, transitionEntry, type ChatOutboxEntry } from "./messageQueueCore";
+import {
+  isDuplicateStreamMessageError,
+  makeEntry,
+  shouldClaimOutboxSend,
+  streamMessageIdForOutboxEntry,
+  transitionEntry,
+  type ChatOutboxEntry
+} from "./messageQueueCore";
 
 test("messageQueue: makeEntry builds a pending entry with stable shape", () => {
   const entry = makeEntry(
@@ -55,4 +62,33 @@ test("messageQueue: send_succeeded clears lastError and stamps remoteMessageId",
   assert.equal(entry.remoteMessageId, "stream-msg-1");
   assert.equal(entry.lastError, undefined);
   assert.equal(entry.attempts, 2);
+});
+
+test("messageQueue: reclaim persisted sending when no live in-flight owner", () => {
+  assert.equal(shouldClaimOutboxSend("sending", false), true);
+  assert.equal(shouldClaimOutboxSend("sending", true), false);
+  assert.equal(shouldClaimOutboxSend("pending", false), true);
+  assert.equal(shouldClaimOutboxSend("failed", false), true);
+  assert.equal(shouldClaimOutboxSend("sent", false), false);
+  assert.equal(shouldClaimOutboxSend("pending", true), false);
+});
+
+test("messageQueue: stream client message ids are stable and Stream-safe", () => {
+  assert.equal(streamMessageIdForOutboxEntry("1720-abc"), "ccq-1720-abc");
+  assert.equal(streamMessageIdForOutboxEntry("a,b%c"), "ccq-a_b_c");
+  assert.ok(streamMessageIdForOutboxEntry("x".repeat(400)).length <= 255);
+});
+
+test("messageQueue: duplicate Stream message id errors are detected", () => {
+  assert.equal(
+    isDuplicateStreamMessageError(
+      new Error('SendMessage failed with error: "a message with ID ccq-1 already exists"')
+    ),
+    true
+  );
+  assert.equal(isDuplicateStreamMessageError(new Error("network timeout")), false);
+  assert.equal(
+    isDuplicateStreamMessageError({ message: "a message with ID x already exists", code: 4 }),
+    true
+  );
 });

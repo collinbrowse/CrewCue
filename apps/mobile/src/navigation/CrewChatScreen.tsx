@@ -67,11 +67,14 @@ import {
 } from "../features/chat/readReceipts";
 import {
   enqueueChatMessage,
+  isDuplicateStreamMessageError,
   loadOutbox,
   markFailed,
   markSending,
   markSent,
+  releaseSendingClaim,
   removeEntry,
+  streamMessageIdForOutboxEntry,
   type ChatOutboxEntry
 } from "../features/chat/messageQueue";
 import {
@@ -1387,6 +1390,7 @@ async function sendOutboxEntry(
       m.outboxId === entry.id ? { ...m, isPending: true, isFailed: false } : m
     )
   );
+  const clientMessageId = streamMessageIdForOutboxEntry(entry.id);
   try {
     let attachments;
     if (entry.attachmentUri) {
@@ -1394,12 +1398,13 @@ async function sendOutboxEntry(
       attachments = [{ type: "image", image_url: upload.file }];
     }
     const sent = await channel.sendMessage({
+      id: clientMessageId,
       text: entry.body,
       custom_sent_at: new Date(entry.createdAtMs).toISOString(),
       mentioned_user_ids: entry.mentionedUserIds,
       attachments
     } as Parameters<Channel["sendMessage"]>[0]);
-    const remoteId = sent.message?.id ?? entry.id;
+    const remoteId = sent.message?.id ?? clientMessageId;
     await markSent(entry.roomId, entry.id, remoteId);
     await removeEntry(entry.roomId, entry.id);
     setMessages((prev) => {
@@ -1411,10 +1416,33 @@ async function sendOutboxEntry(
       return normalizeMessageList(mapped);
     });
   } catch (e) {
+    // Prior process may have delivered the message then died before outbox clear.
+    if (isDuplicateStreamMessageError(e)) {
+      await markSent(entry.roomId, entry.id, clientMessageId);
+      await removeEntry(entry.roomId, entry.id);
+      setMessages((prev) => {
+        const mapped = prev.map((m) =>
+          m.outboxId === entry.id
+            ? {
+                ...m,
+                id: clientMessageId,
+                isPending: false,
+                isFailed: false,
+                outboxId: undefined
+              }
+            : m
+        );
+        return normalizeMessageList(mapped);
+      });
+      return;
+    }
     await markFailed(entry.roomId, entry.id, humanizeError(e));
     setMessages((prev) =>
       prev.map((m) => (m.outboxId === entry.id ? { ...m, isPending: false, isFailed: true } : m))
     );
+  } finally {
+    // markSent/markFailed/removeEntry already release; this covers unexpected throws.
+    releaseSendingClaim(entry.roomId, entry.id);
   }
 }
 

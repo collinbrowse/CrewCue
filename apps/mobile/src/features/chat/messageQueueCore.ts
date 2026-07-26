@@ -75,3 +75,56 @@ export function transitionEntry(
       return entry;
   }
 }
+
+/**
+ * Whether `markSending` may claim this entry.
+ *
+ * Persisted `sending` without a live in-process owner is reclaimable (process
+ * death mid-send). Live overlapping drains (Strict Mode / double effects) pass
+ * `liveInFlight=true` and must not reclaim.
+ */
+export function shouldClaimOutboxSend(
+  status: ChatSendStatus,
+  liveInFlight: boolean
+): boolean {
+  if (status === "sent") return false;
+  if (liveInFlight) return false;
+  return status === "pending" || status === "failed" || status === "sending";
+}
+
+/** Stable Stream message id so a reclaim retry does not create a second message. */
+export function streamMessageIdForOutboxEntry(entryId: string): string {
+  // Stream: max 255 chars; cannot contain `,` or `%`.
+  const cleaned = entryId.replace(/[,%]/g, "_");
+  return `ccq-${cleaned}`.slice(0, 255);
+}
+
+/** Stream returns 4xx when the client-supplied message id already exists. */
+export function isDuplicateStreamMessageError(error: unknown): boolean {
+  const parts: string[] = [];
+  if (error instanceof Error) {
+    parts.push(error.message);
+    const anyErr = error as Error & {
+      code?: unknown;
+      status?: unknown;
+      response?: { data?: { code?: unknown; message?: unknown } };
+    };
+    if (anyErr.code != null) parts.push(String(anyErr.code));
+    if (anyErr.status != null) parts.push(String(anyErr.status));
+    const dataMsg = anyErr.response?.data?.message;
+    if (typeof dataMsg === "string") parts.push(dataMsg);
+    const dataCode = anyErr.response?.data?.code;
+    if (dataCode != null) parts.push(String(dataCode));
+  } else if (typeof error === "string") {
+    parts.push(error);
+  } else if (error && typeof error === "object") {
+    const o = error as { message?: unknown; code?: unknown };
+    if (typeof o.message === "string") parts.push(o.message);
+    if (o.code != null) parts.push(String(o.code));
+  }
+  const haystack = parts.join(" ").toLowerCase();
+  if (haystack.includes("already exists") && haystack.includes("message")) return true;
+  // Stream API error code 4 is commonly used for duplicate / conflict message ids.
+  if (/(^|\s)4(\s|$)/.test(haystack) && haystack.includes("already exists")) return true;
+  return false;
+}
