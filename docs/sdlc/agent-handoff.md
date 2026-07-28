@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-07-28 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-0497` (manual-stop duplicate-visit fix).
+- **Active follow-up:** Open PR for manual-stop overlap fix; merge #334/#335 when ready; staging chat smoke.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt 2026-07-28: manual checkpoint stop overlap matched only `autoDetected`, so crash/retry after projection save (idempotency lease reclaim) appended a duplicate visit and double-counted stoppage. Fix: `findOverlappingCheckpointVisit` also matches prior `manualEntry` windows; unit + route regression tests.
+- Prior open drafts (do not duplicate): #334 sign-out wipe; #335 outbox reclaim.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Review/merge manual-stop overlap PR on `cursor/critical-bug-investigation-0497`.
+2. Deploy staging API; signed-in chat smoke (send/photo/read receipt/scroll).
+3. Merge or land #334/#335 (cross-account wipe / stuck outbox send).
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
+- HTTP idempotency still releases after partial mutation on some paths (create-room); visit overlap fix covers manual-stop data corruption specifically.
 - Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Land manual-stop overlap PR if open. Prefer merge #334/#335 next. Staging deploy + chat smoke still pending from main.
 ```
