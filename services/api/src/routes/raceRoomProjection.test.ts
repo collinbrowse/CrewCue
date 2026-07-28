@@ -826,3 +826,115 @@ test("resolved source toggle rejects impossible selections", async () => {
 
   await app.close();
 });
+
+test("manual-stop retry after idempotency reclaim does not duplicate visits", async () => {
+  const { clearHttpIdempotencyStoreForTests } = await import("../lib/httpIdempotency.js");
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Manual stop idempotent room",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const activateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 40.0, longitude: -70.0, plannedStopSeconds: 120, stoppageRadiusMeters: 1000 },
+          { id: "cp1", latitude: 40.01, longitude: -70.0 }
+        ]
+      },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 40.0, longitude: -70.0 },
+        { latitude: 40.01, longitude: -70.0 }
+      ]),
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
+  const activatedAtMs = Date.parse(activatedAt);
+
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.0,
+      longitude: -70.0,
+      recordedAt: new Date(activatedAtMs + 60_000).toISOString()
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+
+  const payload = {
+    arrivalAt: new Date(activatedAtMs + 70_000).toISOString(),
+    departureAt: new Date(activatedAtMs + 250_000).toISOString()
+  };
+  const idempotencyKey = `manual-stop:${roomId}:cp0:${payload.arrivalAt}`;
+
+  const first = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload,
+    headers: {
+      authorization: `Bearer ${ownerToken}`,
+      "idempotency-key": idempotencyKey
+    }
+  });
+  assert.equal(first.statusCode, 200);
+  const firstSplit = first.json() as { checkpointSplit: RaceRoomProjection["checkpointSplits"][number] };
+  assert.equal(firstSplit.checkpointSplit.visits.length, 1);
+
+  // Simulate crash after projection save but before/without durable idempotency
+  // completion: lease is gone, client retries the same outbox key + body.
+  clearHttpIdempotencyStoreForTests();
+
+  const retry = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+    payload,
+    headers: {
+      authorization: `Bearer ${ownerToken}`,
+      "idempotency-key": idempotencyKey
+    }
+  });
+  assert.equal(retry.statusCode, 200);
+  const retrySplit = retry.json() as { checkpointSplit: RaceRoomProjection["checkpointSplits"][number] };
+  assert.equal(retrySplit.checkpointSplit.visits.length, 1);
+  assert.equal(retrySplit.checkpointSplit.visits[0]?.manualEntry?.arrivalAt, payload.arrivalAt);
+  assert.equal(retrySplit.checkpointSplit.totalActualStopSeconds, 180);
+
+  const viewResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(viewResponse.statusCode, 200);
+  const projection = viewResponse.json() as RaceRoomProjection;
+  const cp0 = projection.checkpointSplits.find((row) => row.checkpointId === "cp0");
+  assert.equal(cp0?.visits.length, 1);
+  assert.equal(projection.stoppageSummary.totalActualStopSeconds, 180);
+
+  await app.close();
+});

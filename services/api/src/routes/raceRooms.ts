@@ -6,6 +6,7 @@ import {
   idempotencyErrorReply,
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
+import { findOverlappingCheckpointVisit } from "../lib/checkpointVisitOverlap.js";
 import { z } from "zod";
 import type {
   AthletePingHistoryEntry,
@@ -2441,15 +2442,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       actualStopSeconds: (departureMs - arrivalMs) / 1000,
       recordedByUserId: request.identity.sub
     };
-    const overlapVisit =
-      split.visits.find(
-        (visit) =>
-          visit.autoDetected?.arrivalRecordedAt &&
-          Date.parse(visit.autoDetected.arrivalRecordedAt) <= departureMs &&
-          (visit.autoDetected.departureRecordedAt
-            ? Date.parse(visit.autoDetected.departureRecordedAt)
-            : Number.POSITIVE_INFINITY) >= arrivalMs
-      ) ?? null;
+    // Match auto *or* prior manual windows so crash/retry after save (idempotency
+    // lease reclaim) does not append a duplicate visit and double-count stoppage.
+    const overlapVisit = findOverlappingCheckpointVisit(split.visits, arrivalMs, departureMs) ?? null;
     if (overlapVisit) {
       overlapVisit.manualEntry = manualEntry;
       if (parsed.data.note) {
