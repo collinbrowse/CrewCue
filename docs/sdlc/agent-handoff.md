@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-07-29 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-381a` (create-room orphan fix).
+- **Active follow-up:** Merge this PR; prior drafts #334/#335/#336 still open.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt: `POST /race-rooms` released the idempotency lease after `saveRaceRoom` if `completeIdempotentMutation` failed; mobile retries with the same key created a second room. Fixed with deterministic room ids + existing-room reclaim + no release after persist.
+- Prior open drafts unchanged: #336 manual-stop overlap; #334 sign-out wipe; #335 outbox reclaim.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Review/merge create-room orphan fix PR from this hunt.
+2. Deploy staging API + signed-in chat smoke (unchanged from #327 handoff).
+3. Consider course PUT finally-release-after-save (lower blast radius; overwrite-ish).
 
 ## Open risks/blockers
 
+- Drafts #334/#335/#336 still unmerged.
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Course update `finally` still releases after durable side effects on incomplete idempotency — not fixed here.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Merge create-room orphan fix if CI green. Do not reopen #334/#335/#336. Optional: harden PUT /course release-after-save similarly. Staging chat smoke still pending.
 ```
