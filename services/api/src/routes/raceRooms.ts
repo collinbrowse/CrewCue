@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import { deterministicRaceRoomId } from "../lib/deterministicRaceRoomId.js";
 import {
   beginIdempotentMutation,
   completeIdempotentMutation,
   idempotencyErrorReply,
+  readIdempotencyKey,
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
 import { z } from "zod";
@@ -1457,8 +1459,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return idempotencyErrorReply(reply, idemCreate);
     }
 
+    const idempotencyKey = readIdempotencyKey(request);
+    const roomId = idempotencyKey
+      ? deterministicRaceRoomId(request.identity.sub, idempotencyKey)
+      : randomUUID();
+
+    // Reclaim/retry after persist+release (or stale lease) must return the same room.
+    if (idempotencyKey) {
+      const existing = await getRaceRoom(roomId);
+      if (existing) {
+        const isMember = existing.memberships.some((member) => member.userId === request.identity?.sub);
+        if (!isMember) {
+          await releaseIdempotentMutation(request, parsed.data);
+          return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
+        }
+        scheduleStreamChannelMembershipSync(existing, request.log);
+        await completeIdempotentMutation(request, parsed.data, 201, existing);
+        return reply.code(201).send(existing);
+      }
+    }
+
     const now = new Date().toISOString();
-    const roomId = randomUUID();
     const joinCode = await generateUniqueJoinCode();
     const room: RaceRoom = {
       id: roomId,
@@ -1485,14 +1506,28 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ]
     };
 
+    let roomPersisted = false;
     try {
       await saveRaceRoom(room);
+      roomPersisted = true;
       scheduleStreamChannelMembershipSync(room, request.log);
       await completeIdempotentMutation(request, parsed.data, 201, room);
       return reply.code(201).send(room);
     } catch (err) {
-      await releaseIdempotentMutation(request, parsed.data);
-      throw err;
+      if (!roomPersisted) {
+        await releaseIdempotentMutation(request, parsed.data);
+        throw err;
+      }
+      // Room is durable — do not release the lease (that created orphans on retry).
+      try {
+        await completeIdempotentMutation(request, parsed.data, 201, room);
+      } catch (completeErr) {
+        request.log.warn(
+          { err: completeErr, roomId: room.id },
+          "idempotency complete failed after race room save"
+        );
+      }
+      return reply.code(201).send(room);
     }
   });
 
