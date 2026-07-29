@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { clearHttpIdempotencyStoreForTests } from "../lib/httpIdempotency.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -59,6 +60,62 @@ test("race room creation replays idempotent retries and rejects conflicting reus
   });
   assert.equal(conflict.statusCode, 409);
   assert.match((conflict.json() as { error: string }).error, /different request body/);
+
+  await app.close();
+});
+
+test("race room create retry after idempotency lease loss does not orphan a second room", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerSub = "owner-create-release-reclaim";
+  const ownerToken = app.jwt.sign(buildClaims(ownerSub));
+  const idempotencyKey = "create-room-release-after-save";
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": idempotencyKey
+  };
+  const payload = {
+    teamId: "team-1",
+    athleteId: "athlete-1",
+    name: "Release Reclaim Room",
+    creatorName: "Owner User",
+    creatorRole: "team_manager"
+  };
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(first.statusCode, 201);
+  const firstBody = first.json() as { id: string };
+
+  // Simulate release-after-save / complete failure: room row remains, lease is gone.
+  clearHttpIdempotencyStoreForTests();
+
+  const retry = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(retry.statusCode, 201);
+  const retryBody = retry.json() as { id: string };
+  assert.equal(retryBody.id, firstBody.id);
+
+  const mine = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(mine.statusCode, 200);
+  const rooms = (mine.json() as { rooms: { id: string; name: string }[] }).rooms.filter(
+    (room) => room.name === "Release Reclaim Room"
+  );
+  assert.equal(rooms.length, 1);
+  assert.equal(rooms[0]?.id, firstBody.id);
 
   await app.close();
 });
