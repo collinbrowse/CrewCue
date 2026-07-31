@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import {
+  loadTaskBoardPayload,
+  persistTaskBoardPayload,
+  setPersistRaceRoomFailureForTests
+} from "../lib/roomPersistence.js";
 
 function buildClaims(sub: string) {
   return {
@@ -858,4 +863,144 @@ test("PUT course rejects removing a visited checkpoint", async () => {
   assert.equal(body.course.checkpoints[0]?.title, "Renamed");
 
   await app.close();
+});
+
+test("PUT course keeps task board when room persist fails after reset would wipe", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Course wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const activateResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 41.0, longitude: -71.0 },
+            { id: "cp1", latitude: 41.01, longitude: -71.0 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 41.0, longitude: -71.0 },
+          { latitude: 41.01, longitude: -71.0 }
+        ]),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(activateResponse.statusCode, 200);
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-course-put" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingUpdate = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: 600,
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 41.0, longitude: -71.0 },
+            { id: "cp1", latitude: 41.02, longitude: -71.01 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 41.0, longitude: -71.0 },
+          { latitude: 41.02, longitude: -71.01 }
+        ]),
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        "idempotency-key": "course-put-persist-fail"
+      }
+    });
+    assert.equal(failingUpdate.statusCode, 500);
+
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
+});
+
+test("PUT map-workspace keeps task board when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-workspace-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Workspace wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-workspace-put" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const overlay = lineStringRouteOverlayForCheckpoints([
+      { latitude: 40.0, longitude: -70.0 },
+      { latitude: 40.01, longitude: -70.0 }
+    ]);
+    const failingUpdate = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/map-workspace`,
+      payload: {
+        layers: [overlay],
+        selectedLayerId: overlay.id,
+        drivesProjectionLayerId: overlay.id,
+        checkpoints: [
+          { id: "cp0", latitude: 40.0, longitude: -70.0 },
+          { id: "cp1", latitude: 40.01, longitude: -70.0 }
+        ]
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(failingUpdate.statusCode, 500);
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
 });
