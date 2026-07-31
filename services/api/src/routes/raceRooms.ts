@@ -1586,6 +1586,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     let idemCourseFinished = false;
+    let coursePersisted = false;
     try {
     await loadWs2RuntimeIfNeeded(roomId);
     const prevProjection = roomProjectionState.get(roomId);
@@ -1653,6 +1654,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       nextCourseFileName: updatedRoom.courseFileName,
       routeOverlayLayer: parsed.data.routeOverlayLayer
     });
+
+      // Persist the course before wiping dependents. Otherwise a failed save after
+      // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
+      await saveRaceRoom(updatedRoom);
+      coursePersisted = true;
+
     if (shouldResetCourseDependentState) {
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
@@ -1665,7 +1672,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearWs5RoomLocalState(roomId);
     }
 
-      await saveRaceRoom(updatedRoom);
       if (!getOrInitPingState(roomId).lastAccepted) {
         roomProjectionState.delete(roomId);
       }
@@ -1680,7 +1686,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       idemCourseFinished = true;
       return reply.send(updatedRoom);
     } finally {
-      if (!idemCourseFinished) {
+      // Never release after a durable course write — retry/reclaim must not treat
+      // a partially completed PUT as a fresh mutation that can wipe again freely.
+      if (!idemCourseFinished && !coursePersisted) {
         await releaseIdempotentMutation(request, parsed.data);
       }
     }
@@ -1759,6 +1767,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
 
+    // Persist workspace before wiping dependents so a failed save cannot destroy
+    // task boards / adaptive / sync payloads while leaving the prior workspace.
+    await saveRaceRoom(updatedRoom);
+
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
     ws2RuntimeHydratedFromDb.delete(roomId);
@@ -1773,7 +1785,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
     clearWs5RoomLocalState(roomId);
 
-    await saveRaceRoom(updatedRoom);
     return reply.send(updatedRoom);
   });
 
