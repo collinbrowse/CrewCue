@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-07-31 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-3e51` (course/map-workspace wipe-before-save fix).
+- **Active follow-up:** Review/merge this PR; still open drafts #334–#337 (do not reopen).
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt 2026-07-31: course PUT + map-workspace wiped task/adaptive/sync payloads before `saveRaceRoom`; DB persist failure left boards destroyed while the room was unchanged. Fixed: persist first, then wipe; do not release course idempotency after durable save. Regression tests added.
+- Prior open drafts unchanged: #337 orphan create rooms; #336 duplicate manual-stop; #335 outbox; #334 sign-out wipe.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Merge/review wipe-before-save fix on `cursor/critical-bug-investigation-3e51`.
+2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); signed-in chat smoke.
+3. Triage open drafts #334–#337 for merge (highest severity remaining).
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- In-memory `raceRooms.set` still runs before `persistRaceRoom`; postgres failure can diverge memory vs DB (pre-existing).
+- Open drafts #334–#337 not merged.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Wipe-before-save course/map-workspace fix on cursor/critical-bug-investigation-3e51. Review PR; do not reopen #334–#337. Staging deploy + chat smoke still pending on main.
 ```
