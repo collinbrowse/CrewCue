@@ -11,6 +11,7 @@ import type {
   Recommendation,
   Role
 } from "@crewcue/contracts";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
   isRoomPersistenceEnabled,
   loadWs4AdaptivePayload,
@@ -36,7 +37,7 @@ type Ws4RoomState = {
 
 const ws4RoomState = new Map<string, Ws4RoomState>();
 
-const ws4RuntimeHydratedFromDb = new Set<string>();
+const ws4RuntimeHydrator = createLazyHydrator();
 
 function normalizeWs4AdaptivePayload(raw: unknown): Ws4RoomState | undefined {
   if (!raw || typeof raw !== "object") {
@@ -63,15 +64,13 @@ async function loadWs4AdaptiveIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws4RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws4RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs4AdaptivePayload(roomId);
-  const parsed = normalizeWs4AdaptivePayload(raw);
-  if (parsed) {
-    ws4RoomState.set(roomId, parsed);
-  }
+  await ws4RuntimeHydrator.loadIfNeeded(roomId, async () => {
+    const raw = await loadWs4AdaptivePayload(roomId);
+    const parsed = normalizeWs4AdaptivePayload(raw);
+    if (parsed) {
+      ws4RoomState.set(roomId, parsed);
+    }
+  });
 }
 
 function ensureWs4InMemory(roomId: string): Ws4RoomState {
@@ -99,7 +98,7 @@ async function saveWs4AdaptiveSnapshot(roomId: string): Promise<void> {
 /** Clears in-memory WS4 state for a room (e.g. after activation). */
 export function clearWs4RoomLocalState(roomId: string): void {
   ws4RoomState.delete(roomId);
-  ws4RuntimeHydratedFromDb.delete(roomId);
+  ws4RuntimeHydrator.delete(roomId);
 }
 
 function canDecideRecommendations(role: Role): boolean {

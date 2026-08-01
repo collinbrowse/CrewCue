@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DeviceHealth, MergeRecord, Role, SyncQueueDiagnostics, SyncStatus } from "@crewcue/contracts";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
   isRoomPersistenceEnabled,
   loadWs5SyncPayload,
@@ -43,7 +44,7 @@ type Ws5RoomState = {
 
 const ws5RoomState = new Map<string, Ws5RoomState>();
 
-const ws5RuntimeHydratedFromDb = new Set<string>();
+const ws5RuntimeHydrator = createLazyHydrator();
 
 const DEFAULT_STALE_AFTER_SECONDS = Number.parseInt(process.env.SYNC_STALE_AFTER_SECONDS ?? "120", 10);
 const DIAGNOSTICS_CAP = 50;
@@ -77,15 +78,13 @@ async function loadWs5SyncIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws5RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws5RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs5SyncPayload(roomId);
-  const parsed = normalizeWs5SyncPayload(raw);
-  if (parsed) {
-    ws5RoomState.set(roomId, parsed);
-  }
+  await ws5RuntimeHydrator.loadIfNeeded(roomId, async () => {
+    const raw = await loadWs5SyncPayload(roomId);
+    const parsed = normalizeWs5SyncPayload(raw);
+    if (parsed) {
+      ws5RoomState.set(roomId, parsed);
+    }
+  });
 }
 
 function ensureWs5InMemory(roomId: string): Ws5RoomState {
@@ -118,7 +117,7 @@ async function saveWs5SyncSnapshot(roomId: string): Promise<void> {
 /** Clears in-memory WS5 state for a room (e.g. after activation). */
 export function clearWs5RoomLocalState(roomId: string): void {
   ws5RoomState.delete(roomId);
-  ws5RuntimeHydratedFromDb.delete(roomId);
+  ws5RuntimeHydrator.delete(roomId);
 }
 
 /** Read-only roll-up for WS6 boards without mutating room state. */

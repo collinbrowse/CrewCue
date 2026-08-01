@@ -10,30 +10,31 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-01 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-61eb` (base `main` @ `e0d1578`).
+- **Active follow-up:** Critical bug fix — postgres hydrate-before-await wipe of WS2/WS4/WS5/WS6 runtime payloads.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Identified critical race: loaders marked rooms hydrated *before* DB read finished; concurrent GET projection / ping / sync could bootstrap empty state and persist over durable visits/projection (and same pattern on WS4/WS5/WS6).
+- Fix: shared `createLazyHydrator` (single-flight + mark hydrated only after successful load); wired into raceRooms, ws4, ws5, ws6. Unit tests in `lazyHydrate.test.ts`.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Merge hydrate race fix PR; deploy staging API and smoke projection/visits after cold process restart under concurrent client traffic.
+2. Staging deploy + signed-in chat smoke (prior handoff): migrate `0014_drop_chat_crypto.sql`; send + photo; peer read receipt.
+3. Review open critical drafts #334–#338 (sign-out wipe, chat outbox, manual-stop, orphan create, course wipe-before-save).
 
 ## Open risks/blockers
 
+- Open drafts #334–#338 still unmerged (separate data-loss / membership bugs).
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Join-by-code / `saveRaceRoom` memory-before-persist false success on retry remains deferred (pre-existing).
+- Mobile sync outbox `replaceOutbox` can clobber concurrent enqueues (candidate for a later hunt).
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Hydrate race fix on cursor/critical-bug-investigation-61eb. Merge/deploy staging; cold-restart API and concurrent projection/ping smoke. Then triage open drafts #334–#338 or mobile outbox replace/enqueue race.
 ```
