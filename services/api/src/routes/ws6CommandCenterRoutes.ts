@@ -14,6 +14,7 @@ import type {
   TeamCommandBoard,
   TeamCommandMetricConfig
 } from "@crewcue/contracts";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
   isRoomPersistenceEnabled,
   loadTeamMetricConfigPayload,
@@ -37,7 +38,7 @@ const putMetricConfigInput = z.object({
 
 const teamMetricConfigs = new Map<string, TeamCommandMetricConfig>();
 
-const teamMetricHydratedFromDb = new Set<string>();
+const teamMetricHydrator = createLazyHydrator();
 
 const WS6_STALE_SECONDS = Number.parseInt(
   process.env.WS6_SYNC_STALE_AFTER_SECONDS ?? process.env.SYNC_STALE_AFTER_SECONDS ?? "120",
@@ -79,15 +80,13 @@ async function loadTeamMetricConfigIfNeeded(teamId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (teamMetricHydratedFromDb.has(teamId)) {
-    return;
-  }
-  teamMetricHydratedFromDb.add(teamId);
-  const raw = await loadTeamMetricConfigPayload(teamId);
-  const parsed = normalizeTeamMetricConfigPayload(raw, teamId);
-  if (parsed) {
-    teamMetricConfigs.set(teamId, parsed);
-  }
+  await teamMetricHydrator.loadIfNeeded(teamId, async () => {
+    const raw = await loadTeamMetricConfigPayload(teamId);
+    const parsed = normalizeTeamMetricConfigPayload(raw, teamId);
+    if (parsed) {
+      teamMetricConfigs.set(teamId, parsed);
+    }
+  });
 }
 
 async function loadOrInitTeamMetricConfig(teamId: string): Promise<TeamCommandMetricConfig> {

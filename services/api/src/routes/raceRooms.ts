@@ -72,6 +72,7 @@ import {
   persistTaskBoardSnapshot,
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 
 function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
@@ -446,7 +447,7 @@ type RoomProjectionState = {
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
 
-const ws2RuntimeHydratedFromDb = new Set<string>();
+const ws2RuntimeHydrator = createLazyHydrator();
 
 function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
   if (!x || typeof x !== "object") {
@@ -508,18 +509,16 @@ async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws2RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws2RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs2RuntimePayload(roomId);
-  const { ping, projection } = normalizeWs2RuntimePayload(raw);
-  if (ping) {
-    roomPingState.set(roomId, ping);
-  }
-  if (projection) {
-    roomProjectionState.set(roomId, projection);
-  }
+  await ws2RuntimeHydrator.loadIfNeeded(roomId, async () => {
+    const raw = await loadWs2RuntimePayload(roomId);
+    const { ping, projection } = normalizeWs2RuntimePayload(raw);
+    if (ping) {
+      roomPingState.set(roomId, ping);
+    }
+    if (projection) {
+      roomProjectionState.set(roomId, projection);
+    }
+  });
 }
 
 async function saveWs2RuntimeSnapshot(roomId: string): Promise<void> {
@@ -1761,7 +1760,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
-    ws2RuntimeHydratedFromDb.delete(roomId);
+    ws2RuntimeHydrator.delete(roomId);
     clearTaskBoardLocalState(roomId);
     await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
