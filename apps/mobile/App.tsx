@@ -45,7 +45,8 @@ import { appActionRegistry, appNoticeBus } from "./src/platform/runtime";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
   list as listOutbox,
-  replace as replaceOutbox,
+  commitProcessedBatch,
+  mutate as mutateOutbox,
   enqueue as enqueueOutbox,
   enqueueWithConflictKey,
   type OutboxOperation
@@ -732,8 +733,9 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
         const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
         const result = await processOutboxBatch(client, operations);
-        await replaceOutbox(result.operations);
-        setOutbox(result.operations);
+        // Merge statuses into the live store so concurrent enqueues are not dropped.
+        const committed = await commitProcessedBatch(operations, result.operations);
+        setOutbox(committed);
 
         if (room && result.touchedRoomIds.includes(room.id)) {
           try {
@@ -744,7 +746,7 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
           }
         }
 
-        const remainingPendingCount = countPendingOutboxOperations(result.operations);
+        const remainingPendingCount = countPendingOutboxOperations(committed);
         if (result.operatorSignal) {
           const prefix =
             result.processedCount > 0
@@ -797,17 +799,18 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
         return;
       }
 
-      const nextOperations = operations.map((operation) =>
-        operation.id === operationId
-          ? {
-              ...operation,
-              status: "pending" as const,
-              feedback: "Operator requested safe retry.",
-              updatedAt: new Date().toISOString()
-            }
-          : operation
+      const nextOperations = await mutateOutbox((current) =>
+        current.map((operation) =>
+          operation.id === operationId
+            ? {
+                ...operation,
+                status: "pending" as const,
+                feedback: "Operator requested safe retry.",
+                updatedAt: new Date().toISOString()
+              }
+            : operation
+        )
       );
-      await replaceOutbox(nextOperations);
       setOutbox(nextOperations);
       setSyncStatusMessage(`Queued safe retry for ${describeOutboxOperation(target)}.`);
       await runOutboxProcessing("manual");
