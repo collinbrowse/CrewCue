@@ -21,3 +21,22 @@ export function mergeOutboxByConflictKey(
   next.push(withKey);
   return next;
 }
+
+/**
+ * Merge batch processing results into the live store snapshot.
+ *
+ * Ops present in `current` but not in the original batch (concurrent enqueues)
+ * are preserved. Ops removed from the store during processing are not re-added.
+ */
+export function mergeProcessedBatch(
+  current: OutboxOperation[],
+  originalIds: ReadonlySet<string>,
+  processedById: ReadonlyMap<string, OutboxOperation>
+): OutboxOperation[] {
+  return current.map((op) => {
+    if (originalIds.has(op.id)) {
+      return processedById.get(op.id) ?? op;
+    }
+    return op;
+  });
+}
