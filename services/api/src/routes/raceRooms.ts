@@ -304,10 +304,14 @@ async function resolveStorageRoomId(input: string): Promise<string | undefined> 
 }
 
 async function saveRaceRoom(room: RaceRoom): Promise<void> {
+  // Persist before mutating the in-memory cache. Updating memory first meant a
+  // failed Postgres write still left the process serving the new room (e.g.
+  // join-by-code membership), so retries returned 200 without durable save and
+  // a restart dropped the membership.
+  await persistRaceRoom(room);
   unindexJoinCodeForRoomId(room.id);
   raceRooms.set(room.id, room);
   indexJoinCode(room);
-  await persistRaceRoom(room);
 }
 
 async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
@@ -322,8 +326,10 @@ async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
 }
 
 async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
-  raceRoomInvites.set(invite.token, invite);
+  // Same ordering as saveRaceRoom: durable write first so a failed persist
+  // cannot leave a ghost invite in the process cache.
   await persistRaceRoomInvite(invite);
+  raceRoomInvites.set(invite.token, invite);
 }
 
 export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | undefined> {

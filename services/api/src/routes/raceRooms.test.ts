@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { setPersistRaceRoomFailureForTests } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -557,6 +558,73 @@ test("join-by-code rejects non-6-digit room codes", async () => {
   assert.equal(joinResponse.statusCode, 400);
 
   await app.close();
+});
+
+test("join-by-code does not keep ghost membership when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-join-persist"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-join-persist"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "owner-join-persist",
+        name: "Join Persist Room",
+        creatorRole: "athlete"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const room = createResponse.json() as { id: string; joinCode?: string };
+    assert.ok(room.joinCode);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingJoin = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(failingJoin.statusCode, 500);
+
+    // /mine reads the in-process room cache; a ghost membership after a failed
+    // persist would incorrectly list this room for the joiner.
+    const mineAfterFailure = await app.inject({
+      method: "GET",
+      url: "/race-rooms/mine",
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(mineAfterFailure.statusCode, 200);
+    const mineBody = mineAfterFailure.json() as { rooms: Array<{ id: string }> };
+    assert.equal(
+      mineBody.rooms.some((r) => r.id === room.id),
+      false,
+      "failed join must not leave membership in the process cache"
+    );
+
+    setPersistRaceRoomFailureForTests(false);
+    const retryJoin = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(retryJoin.statusCode, 200);
+    const retried = retryJoin.json() as {
+      room: { memberships: Array<{ userId: string }> };
+    };
+    assert.equal(
+      retried.room.memberships.some((m) => m.userId === "joiner-join-persist"),
+      true
+    );
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
 });
 
 test("lists race rooms for authenticated member via mine endpoint", async () => {

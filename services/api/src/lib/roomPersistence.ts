@@ -223,7 +223,17 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
   }
 }
 
+/** Test-only: force `persistRaceRoom` to throw before writing (any persistence mode). */
+let persistRaceRoomShouldFailForTests = false;
+
+export function setPersistRaceRoomFailureForTests(shouldFail: boolean): void {
+  persistRaceRoomShouldFailForTests = shouldFail;
+}
+
 export async function persistRaceRoom(room: RaceRoom): Promise<void> {
+  if (persistRaceRoomShouldFailForTests) {
+    throw new Error("persistRaceRoom forced failure for tests");
+  }
   if (!pool) {
     return;
   }
