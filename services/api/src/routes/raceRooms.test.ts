@@ -591,17 +591,17 @@ test("join-by-code does not keep ghost membership when room persist fails", asyn
     });
     assert.equal(failingJoin.statusCode, 500);
 
-    const afterFailure = await app.inject({
+    // /mine reads the in-process room cache; a ghost membership after a failed
+    // persist would incorrectly list this room for the joiner.
+    const mineAfterFailure = await app.inject({
       method: "GET",
-      url: `/race-rooms/${room.id}`,
-      headers: { authorization: `Bearer ${ownerToken}` }
+      url: "/race-rooms/mine",
+      headers: { authorization: `Bearer ${joinerToken}` }
     });
-    assert.equal(afterFailure.statusCode, 200);
-    const afterFailureBody = afterFailure.json() as {
-      room: { memberships: Array<{ userId: string }> };
-    };
+    assert.equal(mineAfterFailure.statusCode, 200);
+    const mineBody = mineAfterFailure.json() as { rooms: Array<{ id: string }> };
     assert.equal(
-      afterFailureBody.room.memberships.some((m) => m.userId === "joiner-join-persist"),
+      mineBody.rooms.some((r) => r.id === room.id),
       false,
       "failed join must not leave membership in the process cache"
     );
