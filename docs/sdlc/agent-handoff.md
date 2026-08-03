@@ -12,8 +12,8 @@
 
 - Last updated: 2026-08-03 (UTC)
 - **Roadmap phase:** MVP chat reliability / API durable membership correctness.
-- **Branch:** `cursor/critical-bug-investigation-bbb7` (persist-before-memory for race room saves).
-- **Active follow-up:** Land this fix; triage open drafts #334–#340.
+- **Branch:** `cursor/critical-bug-investigation-bbb7` → PR #341 (persist-before-memory for race room saves).
+- **Active follow-up:** Land #341; triage open drafts #334–#340.
 
 ## Completed
 
@@ -22,7 +22,7 @@
 
 ## Next 1-3 tasks
 
-1. Merge/review persist-before-memory fix on `cursor/critical-bug-investigation-bbb7`.
+1. Merge/review #341 (persist-before-memory / ghost membership).
 2. Prioritize landing API data-loss drafts (#338/#339) then mobile (#334/#335/#340).
 3. Staging deploy + signed-in chat smoke (prior handoff).
 
@@ -35,5 +35,5 @@
 ## Successor prompt
 
 ```text
-Persist-before-memory fix on cursor/critical-bug-investigation-bbb7. Do not reopen #334–#340. Next: land #338/#339 API drafts, or fix concurrent join membership merge / chat messageQueue RMW if still open.
+#341 open (persist-before-memory). Do not reopen #334–#340. Next: land #338/#339 API drafts, or fix concurrent join membership merge / chat messageQueue RMW if still open.
 ```
