@@ -538,6 +538,87 @@ test("concurrent join-by-code keeps both memberships (no last-write-wins loss)",
   await app.close();
 });
 
+test("course PUT concurrent with join-by-code keeps joiner membership", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-join-race"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-course-join-race"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-course-join-race",
+      name: "Course Join Race Room",
+      creatorName: "Owner",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode?: string };
+  assert.ok(room.joinCode);
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const coursePayload = {
+    course: {
+      checkpoints: [
+        { id: "cp0", latitude: 42.0, longitude: -70.0 },
+        { id: "cp1", latitude: 42.01, longitude: -70.0 }
+      ]
+    },
+    routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+      { latitude: 42.0, longitude: -70.0 },
+      { latitude: 42.01, longitude: -70.0 }
+    ]),
+    plannedPaceSecondsPerKm: 720,
+    raceStartAt: "2026-05-12T16:00:00.000Z"
+  };
+
+  const [courseResponse, joinResponse] = await Promise.all([
+    app.inject({
+      method: "PUT",
+      url: `/race-rooms/${room.id}/course`,
+      payload: coursePayload,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    }),
+    app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    })
+  ]);
+  assert.equal(courseResponse.statusCode, 200);
+  assert.equal(joinResponse.statusCode, 200);
+
+  const mine = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${joinerToken}` }
+  });
+  assert.equal(mine.statusCode, 200);
+  const rooms = (mine.json() as { rooms: Array<{ id: string; memberships: Array<{ userId: string }>; course?: unknown }> })
+    .rooms;
+  const joined = rooms.find((r) => r.id === room.id);
+  assert.ok(joined, "joiner must retain durable membership after concurrent course PUT");
+  const memberIds = new Set(joined.memberships.map((m) => m.userId));
+  assert.equal(memberIds.has("owner-course-join-race"), true);
+  assert.equal(memberIds.has("joiner-course-join-race"), true);
+  assert.ok(joined.course, "course PUT must still persist course on the room");
+
+  await app.close();
+});
+
 test("member can PATCH own displayName and owner syncs creatorName when athlete updates", async () => {
   const app = buildApp();
   await app.ready();

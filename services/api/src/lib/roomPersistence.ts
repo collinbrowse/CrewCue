@@ -320,6 +320,56 @@ export async function upsertPersistedRaceRoomMembership(
   }
 }
 
+/**
+ * Apply a room update under row lock so concurrent membership upserts are not
+ * overwritten by stale full-document writers (course / workspace / member admin).
+ */
+export async function applyPersistedRaceRoomUpdate(
+  roomId: string,
+  update: (current: RaceRoom) => RaceRoom
+): Promise<RaceRoom | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ payload: RaceRoom }>(
+      "SELECT payload FROM race_rooms_json WHERE id = $1 FOR UPDATE",
+      [roomId]
+    );
+    const existing = result.rows[0]?.payload;
+    if (!existing) {
+      await client.query("ROLLBACK");
+      return undefined;
+    }
+
+    const updated = update(existing);
+    if (updated.id !== existing.id) {
+      await client.query("ROLLBACK");
+      throw new Error("race_room_update_id_mismatch");
+    }
+
+    await client.query(
+      `
+        UPDATE race_rooms_json
+        SET payload = $2::jsonb,
+            team_id = $3,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [roomId, JSON.stringify(updated), updated.teamId]
+    );
+    await client.query("COMMIT");
+    return updated;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function loadRaceRoom(roomId: string): Promise<RaceRoom | undefined> {
   if (!pool) {
     return undefined;
