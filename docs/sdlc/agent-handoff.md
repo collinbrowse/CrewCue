@@ -13,7 +13,7 @@
 - Last updated: 2026-08-04 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging; regression coverage hardening continues in parallel.
 - **Branch:** `cursor/missing-test-coverage-20b4` @ `d303474`.
-- **Active follow-up:** Open PR for env-switch regression tests; no issue created because this automation has read-only `gh` and no issue-creation tool.
+- **Active follow-up:** PR #343 covers env-switch regression tests; no issue created because this automation has read-only `gh` and no issue-creation tool.
 
 ## Completed
 
@@ -24,7 +24,7 @@
 
 ## Next 1-3 tasks
 
-1. Review/merge the env-switch regression coverage PR once CI is green.
+1. Review/merge PR #343 once CI is green.
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
 
@@ -38,5 +38,5 @@
 ## Successor prompt
 
 ```text
-Review coverage PR from `cursor/missing-test-coverage-20b4`; if green, merge. Then deploy staging (confirm 0014) and smoke signed-in chat send/photo/read receipt/load-older scroll.
+Review PR #343 from `cursor/missing-test-coverage-20b4`; if green, merge. Then deploy staging (confirm 0014) and smoke signed-in chat send/photo/read receipt/load-older scroll.
 ```
