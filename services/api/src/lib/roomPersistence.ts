@@ -240,6 +240,86 @@ export async function persistRaceRoom(room: RaceRoom): Promise<void> {
   );
 }
 
+export type UpsertRaceRoomMembershipResult = {
+  room: RaceRoom;
+  membership: RaceRoom["memberships"][number];
+  changed: boolean;
+};
+
+/**
+ * Atomically add/update one membership under row lock so concurrent joins cannot
+ * last-write-wins overwrite each other when the room is a single JSON payload.
+ */
+export async function upsertPersistedRaceRoomMembership(
+  roomId: string,
+  membership: RaceRoom["memberships"][number],
+  options?: { replaceRoleIfExists?: boolean }
+): Promise<UpsertRaceRoomMembershipResult | undefined> {
+  if (!pool) {
+    return undefined;
+  }
+  const replaceRoleIfExists = options?.replaceRoleIfExists === true;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ payload: RaceRoom }>(
+      "SELECT payload FROM race_rooms_json WHERE id = $1 FOR UPDATE",
+      [roomId]
+    );
+    const existing = result.rows[0]?.payload;
+    if (!existing) {
+      await client.query("ROLLBACK");
+      return undefined;
+    }
+
+    const index = existing.memberships.findIndex((member) => member.userId === membership.userId);
+    let nextMemberships = existing.memberships;
+    let nextMembership = existing.memberships[index];
+    let changed = false;
+
+    if (index < 0) {
+      nextMembership = membership;
+      nextMemberships = [...existing.memberships, membership];
+      changed = true;
+    } else if (replaceRoleIfExists && nextMembership && nextMembership.role !== membership.role) {
+      nextMembership = { ...nextMembership, role: membership.role };
+      nextMemberships = existing.memberships.map((member, i) =>
+        i === index ? nextMembership! : member
+      );
+      changed = true;
+    }
+
+    if (!nextMembership) {
+      await client.query("ROLLBACK");
+      return undefined;
+    }
+
+    if (!changed) {
+      await client.query("COMMIT");
+      return { room: existing, membership: nextMembership, changed: false };
+    }
+
+    const updated: RaceRoom = { ...existing, memberships: nextMemberships };
+    await client.query(
+      `
+        UPDATE race_rooms_json
+        SET payload = $2::jsonb,
+            team_id = $3,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [roomId, JSON.stringify(updated), updated.teamId]
+    );
+    await client.query("COMMIT");
+    return { room: updated, membership: nextMembership, changed: true };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function loadRaceRoom(roomId: string): Promise<RaceRoom | undefined> {
   if (!pool) {
     return undefined;

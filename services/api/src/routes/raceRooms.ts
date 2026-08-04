@@ -70,7 +70,8 @@ import {
   persistRaceRoomInvite,
   persistTaskBoardPayload,
   persistTaskBoardSnapshot,
-  persistWs2RuntimePayload
+  persistWs2RuntimePayload,
+  upsertPersistedRaceRoomMembership
 } from "../lib/roomPersistence.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 
@@ -308,6 +309,87 @@ async function saveRaceRoom(room: RaceRoom): Promise<void> {
   raceRooms.set(room.id, room);
   indexJoinCode(room);
   await persistRaceRoom(room);
+}
+
+/** Serialize membership mutations per room in memory mode (single-process). */
+const roomMembershipWriteTails = new Map<string, Promise<void>>();
+
+function withRoomMembershipWriteLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = roomMembershipWriteTails.get(roomId) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(fn);
+  roomMembershipWriteTails.set(
+    roomId,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
+}
+
+async function readRoomForMembershipWrite(roomId: string): Promise<RaceRoom | undefined> {
+  const cached = raceRooms.get(roomId);
+  if (cached) {
+    return cached;
+  }
+  const loaded = await loadRaceRoom(roomId);
+  if (loaded) {
+    raceRooms.set(roomId, loaded);
+    indexJoinCode(loaded);
+  }
+  return loaded;
+}
+
+function cacheRaceRoomAfterMembershipWrite(room: RaceRoom): void {
+  unindexJoinCodeForRoomId(room.id);
+  raceRooms.set(room.id, room);
+  indexJoinCode(room);
+}
+
+/**
+ * Add or update a membership without last-write-wins loss against concurrent joins.
+ * Postgres: row lock + merge. Memory: per-room async queue + re-read before write.
+ */
+async function upsertRaceRoomMembership(
+  roomId: string,
+  membership: RaceRoom["memberships"][number],
+  options?: { replaceRoleIfExists?: boolean }
+): Promise<{ room: RaceRoom; membership: RaceRoom["memberships"][number]; changed: boolean } | undefined> {
+  if (isRoomPersistenceEnabled()) {
+    const persisted = await upsertPersistedRaceRoomMembership(roomId, membership, options);
+    if (!persisted) {
+      return undefined;
+    }
+    cacheRaceRoomAfterMembershipWrite(persisted.room);
+    return persisted;
+  }
+
+  return withRoomMembershipWriteLock(roomId, async () => {
+    const current = await readRoomForMembershipWrite(roomId);
+    if (!current) {
+      return undefined;
+    }
+    const index = current.memberships.findIndex((member) => member.userId === membership.userId);
+    if (index < 0) {
+      const updated: RaceRoom = {
+        ...current,
+        memberships: [...current.memberships, membership]
+      };
+      await saveRaceRoom(updated);
+      return { room: updated, membership, changed: true };
+    }
+    const existing = current.memberships[index]!;
+    if (options?.replaceRoleIfExists && existing.role !== membership.role) {
+      const nextMembership = { ...existing, role: membership.role };
+      const updated: RaceRoom = {
+        ...current,
+        memberships: current.memberships.map((member, i) => (i === index ? nextMembership : member))
+      };
+      await saveRaceRoom(updated);
+      return { room: updated, membership: nextMembership, changed: true };
+    }
+    return { room: current, membership: existing, changed: false };
+  });
 }
 
 async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
@@ -1890,43 +1972,33 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(410).send({ error: "Invite expired" });
     }
 
-    const existing = room.memberships.find((member) => member.userId === request.identity?.sub);
-    const nextMemberships = existing
-      ? room.memberships.map((member) =>
-          member.userId === request.identity?.sub ? { ...member, role: invite.role } : member
-        )
-      : [
-          ...room.memberships,
-          {
-            userId: request.identity.sub,
-            role: invite.role,
-            joinedAt: new Date().toISOString()
-          }
-        ];
+    const upserted = await upsertRaceRoomMembership(
+      room.id,
+      {
+        userId: request.identity.sub,
+        role: invite.role,
+        joinedAt: new Date().toISOString()
+      },
+      { replaceRoleIfExists: true }
+    );
+    if (!upserted) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
 
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: nextMemberships
-    };
-
-    await saveRaceRoom(updatedRoom);
     await saveRaceRoomInvite({
       ...invite,
       status: "accepted",
       acceptedBy: request.identity.sub,
       acceptedAt: new Date().toISOString()
     });
-    scheduleStreamChannelMembershipSync(updatedRoom, request.log);
-
-    const membership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
-    if (!membership) {
-      return reply.code(500).send({ error: "Membership assignment failed" });
+    if (upserted.changed) {
+      scheduleStreamChannelMembershipSync(upserted.room, request.log);
     }
 
     return reply.send({
-      room: updatedRoom,
-      assignedRole: membership.role,
-      permissions: getPermissions(membership.role)
+      room: upserted.room,
+      assignedRole: upserted.membership.role,
+      permissions: getPermissions(upserted.membership.role)
     });
   });
 
@@ -1945,37 +2017,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Race room not found" });
     }
 
-    const existingMembership = room.memberships.find((member) => member.userId === request.identity?.sub);
-    const nextMemberships = existingMembership
-      ? room.memberships
-      : [
-          ...room.memberships,
-          {
-            userId: request.identity.sub,
-            role: "crew_member" as const,
-            joinedAt: new Date().toISOString()
-          }
-        ];
-
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: nextMemberships
-    };
-
-    if (!existingMembership) {
-      await saveRaceRoom(updatedRoom);
-      scheduleStreamChannelMembershipSync(updatedRoom, request.log);
+    const upserted = await upsertRaceRoomMembership(room.id, {
+      userId: request.identity.sub,
+      role: "crew_member",
+      joinedAt: new Date().toISOString()
+    });
+    if (!upserted) {
+      return reply.code(404).send({ error: "Race room not found" });
     }
 
-    const assignedMembership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
-    if (!assignedMembership) {
-      return reply.code(500).send({ error: "Membership assignment failed" });
+    if (upserted.changed) {
+      scheduleStreamChannelMembershipSync(upserted.room, request.log);
     }
 
     return reply.send({
-      room: updatedRoom,
-      assignedRole: assignedMembership.role,
-      permissions: getPermissions(assignedMembership.role)
+      room: upserted.room,
+      assignedRole: upserted.membership.role,
+      permissions: getPermissions(upserted.membership.role)
     });
   });
 
