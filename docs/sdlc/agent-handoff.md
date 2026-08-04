@@ -10,30 +10,31 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-04 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-8c04` (base `main`).
+- **Active follow-up:** Land PR #342 (join LWW + course/join membership wipe); staging smoke still pending.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Concurrent join-by-code membership LWW fixed (`upsertRaceRoomMembership`).
+- **New critical:** course/map-workspace/member/entitlement full-document `saveRaceRoom` wiped concurrent join memberships. Fixed via `applyRaceRoomUpdate` / `applyPersistedRaceRoomUpdate` (FOR UPDATE + memory membership lock). Regression: `course PUT concurrent with join-by-code keeps joiner membership`.
+- Do not reopen drafts #334–#341.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Link GitHub issue for membership races; merge #342 after CI green.
+2. Deploy staging API; signed-in chat smoke still outstanding from #327.
+3. Optional: chat `messageQueue` SecureStore RMW; HTTP idempotency lease-owner reclaim.
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Task-board in-memory concurrent mutators still unordered full-document persists (lower everyday likelihood than join/course).
+- Staging DB must get migration 0014 via Railway deploy (prior).
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+PR #342 on cursor/critical-bug-investigation-8c04: join membership upsert + applyRaceRoomUpdate for course/workspace/admin writers. Ensure CI green, link issue, merge. Then staging deploy + chat smoke.
 ```
