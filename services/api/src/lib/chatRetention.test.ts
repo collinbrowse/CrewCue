@@ -6,7 +6,11 @@ import {
   isRoomEligibleForChatDeletion,
   runChatRetentionPass
 } from "./chatRetention.js";
-import { _resetChatPersistenceForTests } from "./chatPersistence.js";
+import {
+  _resetChatPersistenceForTests,
+  getChatNotificationPref,
+  setChatNotificationPref
+} from "./chatPersistence.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -41,9 +45,28 @@ test("computeChatRemovalDate adds 30 days", () => {
   assert.equal(removal!.toISOString(), "2026-05-31T00:00:00.000Z");
 });
 
-test("runChatRetentionPass only deletes eligible rooms", async () => {
+test("runChatRetentionPass purges only eligible room notification prefs", async () => {
   _resetChatPersistenceForTests();
   const now = new Date("2026-06-01T00:00:00Z");
+  await setChatNotificationPref({
+    userId: "crew-1",
+    roomId: "room-old",
+    preference: "all",
+    updatedAt: "2026-04-01T00:00:00.000Z"
+  });
+  await setChatNotificationPref({
+    userId: "crew-2",
+    roomId: "room-old",
+    preference: "mentions",
+    updatedAt: "2026-04-01T00:00:00.000Z"
+  });
+  await setChatNotificationPref({
+    userId: "crew-1",
+    roomId: "room-recent",
+    preference: "none",
+    updatedAt: "2026-05-30T00:00:00.000Z"
+  });
+
   const results = await runChatRetentionPass(
     [
       {
@@ -61,4 +84,13 @@ test("runChatRetentionPass only deletes eligible rooms", async () => {
   );
   assert.equal(results.length, 1);
   assert.equal(results[0]?.roomId, "room-old");
+  assert.equal(results[0]?.prefsPurged, 2);
+  assert.equal(await getChatNotificationPref("crew-1", "room-old"), undefined);
+  assert.equal(await getChatNotificationPref("crew-2", "room-old"), undefined);
+  assert.deepEqual(await getChatNotificationPref("crew-1", "room-recent"), {
+    userId: "crew-1",
+    roomId: "room-recent",
+    preference: "none",
+    updatedAt: "2026-05-30T00:00:00.000Z"
+  });
 });
