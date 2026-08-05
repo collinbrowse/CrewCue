@@ -63,7 +63,7 @@ test("runChatRetentionPass purges only eligible room notification prefs", async 
   await setChatNotificationPref({
     userId: "crew-1",
     roomId: "room-recent",
-    preference: "muted",
+    preference: "none",
     updatedAt: "2026-05-30T00:00:00.000Z"
   });
 
@@ -90,7 +90,7 @@ test("runChatRetentionPass purges only eligible room notification prefs", async 
   assert.deepEqual(await getChatNotificationPref("crew-1", "room-recent"), {
     userId: "crew-1",
     roomId: "room-recent",
-    preference: "muted",
+    preference: "none",
     updatedAt: "2026-05-30T00:00:00.000Z"
   });
 });
