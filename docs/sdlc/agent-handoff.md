@@ -13,18 +13,18 @@
 - Last updated: 2026-08-06 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) + regression coverage.
 - **Branch:** `cursor/missing-test-coverage-9937` from `main` @ `e0d1578`.
-- **Active follow-up:** Open/merge coverage PR, then continue staging deploy + signed-in chat smoke.
+- **Active follow-up:** Merge coverage PR, then continue staging deploy + signed-in chat smoke.
 
 ## Completed
 
 - Added root script-test coverage for #322 env switching: init seeding, Auth0 issuer/audience alignment, staging activation copies/marker, mismatch warnings, and unknown-profile no-mutation behavior.
 - Wired `npm test` to run `npm run test:scripts` before workspace tests.
-- Validation: `npm run test:scripts` passed; `npm test` passed after `npm ci` installed missing dev tools. `npm run verify` still needs to run before final signoff.
+- Validation: `npm run test:scripts`, `npm test`, and `npm run verify` passed after `npm ci` installed missing dev tools.
 - Earlier: #327 per-message “Read by everyone” + older-history scroll preserve; #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency.
 
 ## Next 1-3 tasks
 
-1. Run/pass `npm run verify`, commit handoff update, push, and open PR for `cursor/missing-test-coverage-9937`.
+1. Review/merge coverage PR for `cursor/missing-test-coverage-9937`.
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging: send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
 
@@ -38,5 +38,5 @@
 ## Successor prompt
 
 ```text
-On `cursor/missing-test-coverage-9937`, finish coverage PR: run `npm run verify`, commit/push handoff, open PR. Then resume staging deploy/signed-in chat smoke from #327.
+Review/merge coverage PR from `cursor/missing-test-coverage-9937`; validation passed (`npm run verify`). Then resume staging deploy/signed-in chat smoke from #327.
 ```
