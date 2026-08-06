@@ -12,8 +12,8 @@
 
 - Last updated: 2026-08-06 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) + regression coverage.
-- **Branch:** `cursor/missing-test-coverage-9937` from `main` @ `e0d1578`.
-- **Active follow-up:** Merge coverage PR, then continue staging deploy + signed-in chat smoke.
+- **Branch/PR:** `cursor/missing-test-coverage-9937` → PR #346 from `main` @ `e0d1578`.
+- **Active follow-up:** Review/merge PR #346, then continue staging deploy + signed-in chat smoke.
 
 ## Completed
 
@@ -24,7 +24,7 @@
 
 ## Next 1-3 tasks
 
-1. Review/merge coverage PR for `cursor/missing-test-coverage-9937`.
+1. Review/merge PR #346 (`cursor/missing-test-coverage-9937`).
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging: send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
 
@@ -38,5 +38,5 @@
 ## Successor prompt
 
 ```text
-Review/merge coverage PR from `cursor/missing-test-coverage-9937`; validation passed (`npm run verify`). Then resume staging deploy/signed-in chat smoke from #327.
+Review/merge PR #346 from `cursor/missing-test-coverage-9937`; validation passed (`npm run verify`). Then resume staging deploy/signed-in chat smoke from #327.
 ```
