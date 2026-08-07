@@ -13,7 +13,7 @@
 - Last updated: 2026-08-07 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
 - **Branch:** `cursor/missing-test-coverage-54e3` from `main` @ `e0d1578`.
-- **Active follow-up:** Coverage PR pending for chat push webhook auth boundaries; no GitHub issue was created because this automation environment has read-only `gh` and no issue-creation MCP tool.
+- **Active PR:** #348 — chat push webhook auth boundary coverage; no GitHub issue was created because this automation environment has read-only `gh` and no issue-creation MCP tool.
 
 ## Completed
 
