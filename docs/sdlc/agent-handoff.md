@@ -10,30 +10,29 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-07 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-20a4` (athlete ping authz fix).
+- **Active follow-up:** Merge ping authz fix; then staging chat smoke from prior handoff.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt: `POST /race-rooms/:roomId/pings` allowed any room member to forge athlete location/projection. Restricted to `room.athleteId`; regression in `raceRoomPings.test.ts`.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Review/merge athlete ping authz PR on `cursor/critical-bug-investigation-20a4`.
+2. Deploy staging API; confirm migrate `0014` if not already; signed-in chat smoke.
+3. Consider open drafts #334–#344 (membership/outbox races) separately — do not reopen blindly.
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Many prior critical-bug draft PRs (#334–#344) still open/unmerged.
+- Push webhook contract notes Stream user ids while tests/routes use Auth0 ids — verify before wiring Stream→API fanout.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Ping authz fix on cursor/critical-bug-investigation-20a4: only room.athleteId may POST /pings. Review PR; then staging chat smoke / CHAT_PUSH_WEBHOOK_SECRET as needed. Do not reopen #334–#344 unless picking one deliberately.
 ```
