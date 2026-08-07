@@ -367,6 +367,116 @@ test("chat: push webhook respects per-user preferences", async () => {
   }
 });
 
+test("chat: push webhook rejects authenticated callers forging a different sender", async () => {
+  _resetChatPersistenceForTests();
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-forged-sender"));
+    const crewToken = app.jwt.sign(buildClaims("crew-forged-sender"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-forged-sender");
+    await inviteAndAcceptMember(
+      app,
+      roomId,
+      athleteToken,
+      crewToken,
+      "crew-forged-sender@example.com"
+    );
+
+    const forged = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "crew-forged-sender",
+        recipientUserIds: ["athlete-forged-sender"],
+        roomId,
+        previewText: "Forged dispatch"
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    assert.equal(forged.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat: push webhook accepts valid server secret and keeps member checks", async () => {
+  _resetChatPersistenceForTests();
+  process.env.CHAT_PUSH_WEBHOOK_SECRET = "server-fanout-secret";
+  const app = buildApp();
+  await app.ready();
+  try {
+    const athleteToken = app.jwt.sign(buildClaims("athlete-server-fanout"));
+    const crewToken = app.jwt.sign(buildClaims("crew-server-fanout"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-server-fanout");
+    await inviteAndAcceptMember(
+      app,
+      roomId,
+      athleteToken,
+      crewToken,
+      "crew-server-fanout@example.com"
+    );
+
+    const reg = await app.inject({
+      method: "POST",
+      url: "/chat/push/tokens",
+      payload: { deviceId: "dev-crew-server", platform: "ios", token: "apns-crew-server" },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(reg.statusCode, 201);
+
+    const wrongSecret = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-server-fanout",
+        recipientUserIds: ["crew-server-fanout"],
+        roomId,
+        previewText: "Server fanout"
+      },
+      headers: { "x-crewcue-chat-push-secret": "wrong-secret" }
+    });
+    assert.equal(wrongSecret.statusCode, 401);
+
+    const nonMemberSender = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "outsider-server-fanout",
+        recipientUserIds: ["crew-server-fanout"],
+        roomId,
+        previewText: "Server fanout"
+      },
+      headers: { "x-crewcue-chat-push-secret": "server-fanout-secret" }
+    });
+    assert.equal(nonMemberSender.statusCode, 403);
+
+    const ok = await app.inject({
+      method: "POST",
+      url: "/chat/push/webhook",
+      payload: {
+        channelId: `crew-${roomId}`,
+        senderUserId: "athlete-server-fanout",
+        recipientUserIds: ["crew-server-fanout"],
+        roomId,
+        previewText: "Server fanout"
+      },
+      headers: { "x-crewcue-chat-push-secret": "server-fanout-secret" }
+    });
+    assert.equal(ok.statusCode, 200);
+    const body = ok.json() as { attempts: number; previewText?: string };
+    assert.equal(body.attempts, 1);
+    assert.equal(body.previewText, "Server fanout");
+    assert.equal("tokens" in body, false);
+  } finally {
+    delete process.env.CHAT_PUSH_WEBHOOK_SECRET;
+    await app.close();
+  }
+});
+
 test("chat: diagnostics reports memberCount and streamConfigured only", async () => {
   _resetChatPersistenceForTests();
   const app = buildApp();
