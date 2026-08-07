@@ -14,16 +14,17 @@ function buildClaims(sub: string) {
 
 async function createPaidActiveRoom(
   app: ReturnType<typeof buildApp>,
-  ownerToken: string
+  ownerToken: string,
+  athleteId = "owner-user"
 ): Promise<string> {
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId,
       name: "Ping Test Room",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -121,9 +122,9 @@ test("rejects ping when room is not active", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Completed Room",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -237,9 +238,9 @@ test("returns 402 when entitlement unpaid", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Unpaid",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -284,6 +285,61 @@ test("returns 403 for non-member", async () => {
     }
   });
   assert.equal(pingResponse.statusCode, 403);
+
+  await app.close();
+});
+
+test("returns 403 when crew member is not the race athlete", async () => {
+  const app = buildApp();
+  await app.ready();
+  const athleteToken = app.jwt.sign(buildClaims("athlete-user"));
+  const crewToken = app.jwt.sign(buildClaims("crew-user"));
+  const roomId = await createPaidActiveRoom(app, athleteToken, "athlete-user");
+
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: {
+      email: "crew@example.com",
+      role: "crew_member"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const invite = issueResponse.json() as { token: string };
+
+  const acceptResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: invite.token },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(acceptResponse.statusCode, 200);
+
+  const crewPing = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(crewPing.statusCode, 403);
+  assert.equal(
+    (crewPing.json() as { error: string }).error,
+    "Only the race athlete can ingest location pings"
+  );
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/pings/history?limit=10`,
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(historyResponse.statusCode, 200);
+  const history = historyResponse.json() as { decisions: unknown[] };
+  assert.equal(history.decisions.length, 0);
 
   await app.close();
 });

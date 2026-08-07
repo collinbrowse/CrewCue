@@ -2153,6 +2153,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    // Athlete location is authoritative for projection; only the race athlete may ingest pings.
+    if (request.identity.sub !== room.athleteId) {
+      return reply.code(403).send({ error: "Only the race athlete can ingest location pings" });
+    }
+
     const entitlement = evaluateEntitlement(app, room, request.identity.sub);
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
