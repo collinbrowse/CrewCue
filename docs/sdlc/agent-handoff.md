@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-08 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-6f55` @ `e0d1578` (investigation; no code fix pushed).
+- **Active follow-up:** Fix out-of-order athlete ping acceptance (see findings below), or continue staging smoke from prior handoff.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt (skip open drafts #334–#348): traced race rooms pings/projection, invites, entitlements, platform idempotency, chat routes, mobile outbox/read receipts/env switch.
+- Highest-confidence new finding: out-of-order `POST .../pings` accepted when `recordedAt` ≤ last accepted (skips motion check; regresses projection).
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Fix ping ingest: reject stale/duplicate `recordedAt` ≤ `lastAccepted.recordedAtMs`; add regression.
+2. (Optional) Invite accept: do not demote `athleteId` role; align with PATCH immutability.
+3. Staging deploy + signed-in chat smoke (prior #327 follow-up) if not picking the ping fix next.
 
 ## Open risks/blockers
 
+- Open draft correctness PRs #334–#347 still unmerged.
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Env lacked `node_modules` in this hunt run — ping OOO finding is code-path traced, not executed.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Fix out-of-order athlete pings on main@e0d1578: in POST /race-rooms/:roomId/pings, reject when recordedAtMs <= lastAccepted.recordedAtMs (stale/retry). Add raceRoomPings regression. Skip open drafts #334–#348.
 ```
