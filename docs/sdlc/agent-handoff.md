@@ -12,7 +12,7 @@
 
 - Last updated: 2026-08-08 (UTC)
 - **Roadmap phase:** Regression coverage automation; MVP chat reliability still awaiting staging proof.
-- **Branch:** `cursor/missing-test-coverage-a93c` (coverage PR pending/open).
+- **Branch/PR:** `cursor/missing-test-coverage-a93c` / #350.
 - **Active follow-up:** Review env-switcher coverage PR; then staging deploy + signed-in chat smoke.
 
 ## Completed
@@ -24,7 +24,7 @@
 
 ## Next 1-3 tasks
 
-1. Review/merge the env-switcher coverage PR from `cursor/missing-test-coverage-a93c`.
+1. Review/merge env-switcher coverage PR #350 from `cursor/missing-test-coverage-a93c`.
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging (reload app from main): send + photo; peer read -> receipt under own bubble; scroll-up history stays anchored.
 
@@ -38,5 +38,5 @@
 ## Successor prompt
 
 ```text
-Review/merge env-switcher coverage PR from cursor/missing-test-coverage-a93c. Then deploy staging (confirm 0014) and smoke chat send/photo, peer read receipt under own bubble, load-older scroll.
+Review/merge env-switcher coverage PR #350. Then deploy staging (confirm 0014) and smoke chat send/photo, peer read receipt under own bubble, load-older scroll.
 ```
