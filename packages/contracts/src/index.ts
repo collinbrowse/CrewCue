@@ -364,7 +364,9 @@ export type AthletePingRejectReason =
   | "room_not_active"
   | "clock_skew"
   | "implausible_motion"
-  | "accuracy_too_poor";
+  | "accuracy_too_poor"
+  /** recordedAt is not strictly after the last accepted ping (stale / duplicate / out-of-order). */
+  | "stale_recorded_at";
 
 export interface AthletePingAcceptedResponse {
   decision: "accepted";

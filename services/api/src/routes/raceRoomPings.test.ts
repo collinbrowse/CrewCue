@@ -335,3 +335,101 @@ test("rejects ping when horizontal accuracy is too poor", async () => {
 
   await app.close();
 });
+
+test("rejects out-of-order and duplicate recordedAt so projection cannot regress", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const tOlder = new Date(Date.now() - 40_000).toISOString();
+  const tNewer = new Date(Date.now() - 10_000).toISOString();
+
+  const newer = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.008,
+      longitude: -70.0,
+      recordedAt: tNewer
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(newer.statusCode, 201);
+  const newerBody = newer.json() as {
+    decision: string;
+    pingId: string;
+    projection?: { progressMeters: number; asOfPingId: string };
+  };
+  assert.equal(newerBody.decision, "accepted");
+  assert.ok(newerBody.projection);
+  const progressAfterNewer = newerBody.projection.progressMeters;
+  assert.ok(progressAfterNewer > 0);
+
+  const stale = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.001,
+      longitude: -70.0,
+      recordedAt: tOlder
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(stale.statusCode, 422);
+  const staleBody = stale.json() as { decision: string; reason: string };
+  assert.equal(staleBody.decision, "rejected");
+  assert.equal(staleBody.reason, "stale_recorded_at");
+
+  const duplicate = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.008,
+      longitude: -70.0,
+      recordedAt: tNewer
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(duplicate.statusCode, 422);
+  assert.equal((duplicate.json() as { reason: string }).reason, "stale_recorded_at");
+
+  const projection = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(projection.statusCode, 200);
+  const projectionBody = projection.json() as { progressMeters: number; asOfPingId: string };
+  assert.equal(projectionBody.asOfPingId, newerBody.pingId);
+  assert.equal(projectionBody.progressMeters, progressAfterNewer);
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/pings/history?limit=10`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(historyResponse.statusCode, 200);
+  const history = historyResponse.json() as {
+    decisions: Array<{ decision: string; reason?: string; pingId?: string }>;
+  };
+  assert.equal(history.decisions.length, 3);
+  assert.equal(history.decisions[0]?.decision, "accepted");
+  assert.equal(history.decisions[0]?.pingId, newerBody.pingId);
+  assert.equal(history.decisions[1]?.decision, "rejected");
+  assert.equal(history.decisions[1]?.reason, "stale_recorded_at");
+  assert.equal(history.decisions[2]?.decision, "rejected");
+  assert.equal(history.decisions[2]?.reason, "stale_recorded_at");
+
+  await app.close();
+});

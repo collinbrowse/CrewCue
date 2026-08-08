@@ -12,28 +12,27 @@
 
 - Last updated: 2026-08-08 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `cursor/critical-bug-investigation-6f55` @ `e0d1578` (investigation; no code fix pushed).
-- **Active follow-up:** Fix out-of-order athlete ping acceptance (see findings below), or continue staging smoke from prior handoff.
+- **Branch:** `cursor/critical-bug-investigation-6f55` — fix out-of-order athlete ping acceptance.
+- **Active follow-up:** Merge this fix; then staging chat smoke / unmerged drafts as prioritized.
 
 ## Completed
 
-- Critical bug hunt (skip open drafts #334–#348): traced race rooms pings/projection, invites, entitlements, platform idempotency, chat routes, mobile outbox/read receipts/env switch.
-- Highest-confidence new finding: out-of-order `POST .../pings` accepted when `recordedAt` ≤ last accepted (skips motion check; regresses projection).
+- Critical bug hunt (skipped open drafts #334–#348).
+- Fixed: `POST /race-rooms/:roomId/pings` accepted `recordedAt` ≤ last accepted (motion gate skipped), overwriting `lastAccepted` and regressing projection. Reject reason `stale_recorded_at` + regression in `raceRoomPings.test.ts`.
 
 ## Next 1-3 tasks
 
-1. Fix ping ingest: reject stale/duplicate `recordedAt` ≤ `lastAccepted.recordedAtMs`; add regression.
-2. (Optional) Invite accept: do not demote `athleteId` role; align with PATCH immutability.
-3. Staging deploy + signed-in chat smoke (prior #327 follow-up) if not picking the ping fix next.
+1. Merge out-of-order ping fix PR; confirm CI green.
+2. Optionally: invite accept must not demote `athleteId` role (medium confidence).
+3. Staging deploy + signed-in chat smoke (#327 follow-up) when not blocked on Auth0.
 
 ## Open risks/blockers
 
-- Open draft correctness PRs #334–#347 still unmerged.
+- Open draft correctness PRs #334–#347 still unmerged (incl. #347 athlete-only ping authz).
 - Auth0 still blocks unattended sim chat E2E.
-- Env lacked `node_modules` in this hunt run — ping OOO finding is code-path traced, not executed.
 
 ## Successor prompt
 
 ```text
-Fix out-of-order athlete pings on main@e0d1578: in POST /race-rooms/:roomId/pings, reject when recordedAtMs <= lastAccepted.recordedAtMs (stale/retry). Add raceRoomPings regression. Skip open drafts #334–#348.
+After merge of stale_recorded_at ping fix: pick next highest-severity unmerged draft (#347 athlete ping authz preferred), or run staging chat smoke if deploy ready. Skip rediscovering #334–#346.
 ```
