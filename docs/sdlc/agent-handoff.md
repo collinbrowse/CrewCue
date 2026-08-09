@@ -12,8 +12,8 @@
 
 - Last updated: 2026-08-09 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) plus regression coverage hardening.
-- **Branch:** `cursor/missing-test-coverage-faca` @ `8308107` (PR pending); base `main` @ `e0d1578`.
-- **Active follow-up:** Open coverage PR, then staging deploy + signed-in chat smoke.
+- **Branch/PR:** `cursor/missing-test-coverage-faca` / #351; base `main` @ `e0d1578`.
+- **Active follow-up:** Review coverage PR #351, then staging deploy + signed-in chat smoke.
 
 ## Completed
 
@@ -28,7 +28,7 @@
 
 ## Next 1-3 tasks
 
-1. Open/monitor PR for `cursor/missing-test-coverage-faca`; ensure linked issue is filled before merge if created manually.
+1. Monitor/review PR #351; ensure linked issue is filled before merge if created manually.
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging (reload app from main): send + photo; peer read -> receipt under own bubble; scroll-up history stays anchored.
 
