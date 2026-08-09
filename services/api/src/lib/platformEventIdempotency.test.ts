@@ -48,6 +48,7 @@ test("platform event idempotency treats semantically equivalent payload objects 
 });
 
 test("platform event idempotency rejects reuse when conflict-relevant metadata changes", () => {
+  const basePayload = baseEvent.payload as Record<string, unknown>;
   const matchingInput = {
     aggregateId: "room-1",
     aggregateType: "race_room" as const,
@@ -72,7 +73,7 @@ test("platform event idempotency rejects reuse when conflict-relevant metadata c
       name: "payload",
       input: {
         ...matchingInput,
-        normalizedPayload: { ...baseEvent.payload, name: "Different Race" }
+        normalizedPayload: { ...basePayload, name: "Different Race" }
       }
     }
   ];
