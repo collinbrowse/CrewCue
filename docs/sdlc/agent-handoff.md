@@ -13,7 +13,7 @@
 - Last updated: 2026-08-10 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
 - **Branch:** `cursor/missing-test-coverage-6d71` from `main` @ `e0d1578`.
-- **Active PR/issue:** Coverage PR pending/open from this branch; no issue created because this automation has read-only `gh` and no issue-create MCP tool.
+- **Active PR/issue:** PR #352 from this branch; no issue created because this automation has read-only `gh` and no issue-create MCP tool.
 - **Acceptance:** deterministic tests for meaningful recent regression risk; no production behavior changes.
 
 ## Completed
