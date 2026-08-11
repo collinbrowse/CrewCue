@@ -12,7 +12,7 @@
 
 - Last updated: 2026-08-11 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `cursor/missing-test-coverage-14ab` @ `ab69d06` (coverage PR pending).
+- **Branch/PR:** `cursor/missing-test-coverage-14ab` / PR #354.
 - **Active follow-up:** Open coverage PR; staging deploy + signed-in chat smoke still remain.
 - **Acceptance criteria:** deterministic tests cover risky recent chat history paging behavior; no production behavior change; relevant validation passes.
 
@@ -25,7 +25,7 @@
 
 ## Next 1-3 tasks
 
-1. Open PR for `cursor/missing-test-coverage-14ab`; link an issue manually if project workflow requires one.
+1. Monitor PR #354; link an issue manually if project workflow requires one.
 2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
 3. Signed-in smoke on staging (reload app from main): send + photo; peer read -> receipt under own bubble; scroll-up history stays anchored.
 
@@ -38,5 +38,5 @@
 ## Successor prompt
 
 ```text
-Coverage branch cursor/missing-test-coverage-14ab adds mobile chat older-history paging tests and passes mobile tests/typecheck + root verify. Open/monitor PR; if continuing product work, deploy staging 0014 and smoke signed-in chat receipts/history.
+Coverage PR #354 adds mobile chat older-history paging tests and passes mobile tests/typecheck + root verify. Monitor PR; if continuing product work, deploy staging 0014 and smoke signed-in chat receipts/history.
 ```
