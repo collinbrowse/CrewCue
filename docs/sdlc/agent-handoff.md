@@ -10,30 +10,33 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-11 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/missing-test-coverage-14ab` @ `ab69d06` (coverage PR pending).
+- **Active follow-up:** Open coverage PR; staging deploy + signed-in chat smoke still remain.
+- **Acceptance criteria:** deterministic tests cover risky recent chat history paging behavior; no production behavior change; relevant validation passes.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Added `apps/mobile/src/features/chat/chatHistoryPaging.test.ts` for older-history paging query shape:
+  default/custom page size, `id_lt` oldest-visible cursor, `"current"` Stream state mode, and missing `messages` empty-page fallback.
+- Wired the new test into `@crewcue/mobile` test script.
+- Validation passed: `npm run test -w @crewcue/mobile`; `npm run typecheck -w @crewcue/mobile`; `npm run verify`.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Open PR for `cursor/missing-test-coverage-14ab`; link an issue manually if project workflow requires one.
+2. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
+3. Signed-in smoke on staging (reload app from main): send + photo; peer read -> receipt under own bubble; scroll-up history stays anchored.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- GitHub issue was not created by this automation: `gh` is read-only here and no issue-creation MCP tool is available.
+- Auth0 still blocks unattended sim chat E2E; this coverage PR changes tests/package script only, not mobile UI behavior.
+- Staging DB must get migration 0014 via Railway deploy; Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Coverage branch cursor/missing-test-coverage-14ab adds mobile chat older-history paging tests and passes mobile tests/typecheck + root verify. Open/monitor PR; if continuing product work, deploy staging 0014 and smoke signed-in chat receipts/history.
 ```
