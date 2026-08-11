@@ -24,7 +24,7 @@ test("returns projection after accepted ping and from GET", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Proj Room",
       creatorRole: "team_manager"
     },
@@ -108,7 +108,7 @@ test("GET projection exposes derived staleness threshold from uploadIntervalSeco
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Interval staleness",
       creatorRole: "team_manager"
     },
@@ -186,7 +186,7 @@ test("GET projection becomes degraded after silence beyond threshold", async (t)
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Stale proj",
       creatorRole: "team_manager"
     },
@@ -267,7 +267,7 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Baseline projection",
       creatorRole: "team_manager"
     },
@@ -374,7 +374,7 @@ test("GET projection returns 403 for non-member", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Members only proj",
       creatorRole: "team_manager"
     },
@@ -437,7 +437,7 @@ test("GET projection returns checkpointSplits after course save without any ping
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "No ping",
       creatorRole: "team_manager"
     },
@@ -492,7 +492,7 @@ test("manual checkpoint stop updates projection split as manual source", async (
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Manual stop room",
       creatorRole: "team_manager"
     },
@@ -584,7 +584,7 @@ test("athlete cannot mutate checkpoint stoppage timing endpoints", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Athlete timing room",
       creatorRole: "athlete"
     },
@@ -662,7 +662,7 @@ test("crew member can mutate checkpoint stoppage timing after invite acceptance"
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Crew timing room",
       creatorRole: "team_manager"
     },
@@ -752,7 +752,7 @@ test("resolved source toggle rejects impossible selections", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Resolved source validation",
       creatorRole: "team_manager"
     },

@@ -14,16 +14,17 @@ function buildClaims(sub: string) {
 
 async function createPaidActiveRoom(
   app: ReturnType<typeof buildApp>,
-  ownerToken: string
+  ownerToken: string,
+  athleteId = "owner-user"
 ): Promise<string> {
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId,
       name: "Ping Test Room",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -121,9 +122,9 @@ test("rejects ping when room is not active", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Completed Room",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -237,9 +238,9 @@ test("returns 402 when entitlement unpaid", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Unpaid",
-      creatorRole: "team_manager"
+      creatorRole: "athlete"
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
@@ -288,6 +289,61 @@ test("returns 403 for non-member", async () => {
   await app.close();
 });
 
+test("returns 403 when crew member is not the race athlete", async () => {
+  const app = buildApp();
+  await app.ready();
+  const athleteToken = app.jwt.sign(buildClaims("athlete-user"));
+  const crewToken = app.jwt.sign(buildClaims("crew-user"));
+  const roomId = await createPaidActiveRoom(app, athleteToken, "athlete-user");
+
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: {
+      email: "crew@example.com",
+      role: "crew_member"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const invite = issueResponse.json() as { token: string };
+
+  const acceptResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: invite.token },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(acceptResponse.statusCode, 200);
+
+  const crewPing = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 40.7128,
+      longitude: -74.006,
+      recordedAt: isoNow()
+    },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(crewPing.statusCode, 403);
+  assert.equal(
+    (crewPing.json() as { error: string }).error,
+    "Only the race athlete can ingest location pings"
+  );
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/pings/history?limit=10`,
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(historyResponse.statusCode, 200);
+  const history = historyResponse.json() as { decisions: unknown[] };
+  assert.equal(history.decisions.length, 0);
+
+  await app.close();
+});
+
 test("returns 400 for invalid coordinates payload", async () => {
   const app = buildApp();
   await app.ready();
@@ -332,6 +388,104 @@ test("rejects ping when horizontal accuracy is too poor", async () => {
   });
   assert.equal(pingResponse.statusCode, 422);
   assert.equal((pingResponse.json() as { reason: string }).reason, "accuracy_too_poor");
+
+  await app.close();
+});
+
+test("rejects out-of-order and duplicate recordedAt so projection cannot regress", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  const tOlder = new Date(Date.now() - 40_000).toISOString();
+  const tNewer = new Date(Date.now() - 10_000).toISOString();
+
+  const newer = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.008,
+      longitude: -70.0,
+      recordedAt: tNewer
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(newer.statusCode, 201);
+  const newerBody = newer.json() as {
+    decision: string;
+    pingId: string;
+    projection?: { progressMeters: number; asOfPingId: string };
+  };
+  assert.equal(newerBody.decision, "accepted");
+  assert.ok(newerBody.projection);
+  const progressAfterNewer = newerBody.projection.progressMeters;
+  assert.ok(progressAfterNewer > 0);
+
+  const stale = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.001,
+      longitude: -70.0,
+      recordedAt: tOlder
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(stale.statusCode, 422);
+  const staleBody = stale.json() as { decision: string; reason: string };
+  assert.equal(staleBody.decision, "rejected");
+  assert.equal(staleBody.reason, "stale_recorded_at");
+
+  const duplicate = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/pings`,
+    payload: {
+      latitude: 42.008,
+      longitude: -70.0,
+      recordedAt: tNewer
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(duplicate.statusCode, 422);
+  assert.equal((duplicate.json() as { reason: string }).reason, "stale_recorded_at");
+
+  const projection = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(projection.statusCode, 200);
+  const projectionBody = projection.json() as { progressMeters: number; asOfPingId: string };
+  assert.equal(projectionBody.asOfPingId, newerBody.pingId);
+  assert.equal(projectionBody.progressMeters, progressAfterNewer);
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/pings/history?limit=10`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(historyResponse.statusCode, 200);
+  const history = historyResponse.json() as {
+    decisions: Array<{ decision: string; reason?: string; pingId?: string }>;
+  };
+  assert.equal(history.decisions.length, 3);
+  assert.equal(history.decisions[0]?.decision, "accepted");
+  assert.equal(history.decisions[0]?.pingId, newerBody.pingId);
+  assert.equal(history.decisions[1]?.decision, "rejected");
+  assert.equal(history.decisions[1]?.reason, "stale_recorded_at");
+  assert.equal(history.decisions[2]?.decision, "rejected");
+  assert.equal(history.decisions[2]?.reason, "stale_recorded_at");
 
   await app.close();
 });
