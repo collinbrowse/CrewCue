@@ -10,30 +10,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
+- Last updated: 2026-08-11 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- **Branch:** `cursor/critical-bug-investigation-d363` — athlete ping authz + stale recordedAt.
+- **Active follow-up:** Merge this fix; close superseded drafts #347/#349; staging chat smoke.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Critical bug hunt: confirmed `POST /race-rooms/:roomId/pings` still allowed any room member to forge athlete GPS/projection, and still accepted out-of-order `recordedAt` (motion gate skipped) which could regress projection.
+- Fix: require `identity.sub === room.athleteId`; reject `recordedAt <= lastAccepted` as `stale_recorded_at`. Regressions in `raceRoomPings.test.ts`; ping fixtures aligned in projection/raceRooms tests.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Review/merge ping ingest fix on `cursor/critical-bug-investigation-d363`; close drafts #347/#349 as superseded.
+2. Staging deploy + signed-in chat smoke (#327 follow-up) when Auth0 allows.
+3. Optionally pick next unmerged draft (#344 outbox RMW / #342 membership) — do not reopen blindly.
 
 ## Open risks/blockers
 
 - Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- Many prior critical-bug draft PRs (#334–#346, #348, #340–#341, etc.) still open/unmerged.
+- Push webhook Stream vs Auth0 user-id mismatch still unverified for Stream→API fanout.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Ping ingest fix on cursor/critical-bug-investigation-d363: athlete-only pings + stale_recorded_at. Merge/close #347/#349 duplicates. Next: staging chat smoke, or deliberately pick one open draft (#344/#342).
 ```
