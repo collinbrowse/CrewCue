@@ -752,7 +752,7 @@ test("PUT course rejects removing a visited checkpoint", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Visited CP room",
       creatorRole: "team_manager"
     },
@@ -788,26 +788,28 @@ test("PUT course rejects removing a visited checkpoint", async () => {
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   assert.equal(activateResponse.statusCode, 200);
-  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
-  const activatedAtMs = Date.parse(activatedAt);
 
-  await app.inject({
+  // Use wall-clock times: course `activatedAt` mirrors raceStartAt (may be far in the past)
+  // and would fail the ping clock-skew gate if used as recordedAt.
+  const pingAtMs = Date.now() - 30_000;
+  const pingResponse = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
     payload: {
       latitude: 41.0,
       longitude: -71.0,
-      recordedAt: new Date(activatedAtMs + 30_000).toISOString()
+      recordedAt: new Date(pingAtMs).toISOString()
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
+  assert.equal(pingResponse.statusCode, 201);
 
   const manual = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
     payload: {
-      arrivalAt: new Date(activatedAtMs + 40_000).toISOString(),
-      departureAt: new Date(activatedAtMs + 200_000).toISOString()
+      arrivalAt: new Date(pingAtMs + 10_000).toISOString(),
+      departureAt: new Date(pingAtMs + 170_000).toISOString()
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });

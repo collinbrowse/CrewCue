@@ -2153,6 +2153,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    // Athlete location is authoritative for projection; only the race athlete may ingest pings.
+    if (request.identity.sub !== room.athleteId) {
+      return reply.code(403).send({ error: "Only the race athlete can ingest location pings" });
+    }
+
     const entitlement = evaluateEntitlement(app, room, request.identity.sub);
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
@@ -2204,18 +2209,25 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const pingState = getOrInitPingState(roomId);
     if (pingState.lastAccepted) {
-      const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
-      if (dtSec > 0) {
-        const dist = distanceMeters(
-          pingState.lastAccepted.latitude,
-          pingState.lastAccepted.longitude,
-          body.latitude,
-          body.longitude
+      // Reject duplicates and out-of-order retries. When recordedAt goes backward,
+      // the motion gate below is skipped (dtSec <= 0) and accepting would overwrite
+      // lastAccepted / recompute projection from a stale GPS sample.
+      if (recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
+        return await reject(
+          "stale_recorded_at",
+          "recordedAt must be after the last accepted ping"
         );
-        const impliedSpeed = dist / dtSec;
-        if (impliedSpeed > MAX_SPEED_MPS) {
-          return await reject("implausible_motion", "Movement exceeds plausible speed for elapsed time");
-        }
+      }
+      const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
+      const dist = distanceMeters(
+        pingState.lastAccepted.latitude,
+        pingState.lastAccepted.longitude,
+        body.latitude,
+        body.longitude
+      );
+      const impliedSpeed = dist / dtSec;
+      if (impliedSpeed > MAX_SPEED_MPS) {
+        return await reject("implausible_motion", "Movement exceeds plausible speed for elapsed time");
       }
     }
 
