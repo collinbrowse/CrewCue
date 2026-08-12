@@ -21,7 +21,7 @@
       {
         "id": "stop-aid-2",
         "checkpointId": "aid-2",
-        "clockArrivalAt": "2026-08-15T15:23:00.000Z",
+        "clockArrivalAt": "2026-08-15T15:20:00.000Z",
         "elapsedSeconds": 8400,
         "plannedDwellSeconds": 240,
         "delayOverrideSeconds": 120,
@@ -32,7 +32,7 @@
       {
         "id": "stop-aid-3",
         "checkpointId": "aid-3",
-        "clockArrivalAt": "2026-08-15T17:13:00.000Z",
+        "clockArrivalAt": "2026-08-15T17:05:00.000Z",
         "elapsedSeconds": 14700,
         "plannedDwellSeconds": 480,
         "notes": {
@@ -62,12 +62,12 @@
       },
       {
         "checkpointId": "aid-2",
-        "clockArrivalAt": "2026-08-15T15:23:00.000Z",
+        "clockArrivalAt": "2026-08-15T15:20:00.000Z",
         "elapsedSeconds": 8400
       },
       {
         "checkpointId": "aid-3",
-        "clockArrivalAt": "2026-08-15T17:13:00.000Z",
+        "clockArrivalAt": "2026-08-15T17:05:00.000Z",
         "elapsedSeconds": 14700
       }
     ],
@@ -97,7 +97,7 @@
       "ingestedAt": "2026-08-01T09:00:00.000Z",
       "distanceMeters": 45000,
       "elapsedSeconds": 21600,
-      "elevationGainMeters": 1800
+      "elevationGainMeters": 4568
     }
   ]
 }

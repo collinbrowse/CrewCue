@@ -8,7 +8,7 @@
   "type": "Run",
   "sport_type": "Run",
   "start_date": "2026-05-10T15:30:00Z",
-  "start_date_local": "2026-05-10T08:30:00Z",
+  "start_date_local": "2026-05-10T08:30:00",
   "timezone": "(GMT-07:00) America/Los_Angeles",
   "external_id": "strava:987654321"
 }

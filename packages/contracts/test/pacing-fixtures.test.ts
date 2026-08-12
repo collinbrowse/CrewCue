@@ -30,6 +30,9 @@ test("EC5: README documents each fixture path once", () => {
   }
 });
 
+// EC3 unauthorized: N/A — static fixture files, no authz surface.
+// EC4 offline: N/A — tests read local files only; no network.
+
 test("EC1: empty GPX is classified as an empty track without throwing", () => {
   const xml = readPacingFixture("empty.gpx");
   const inspected = inspectGpx(xml);
@@ -69,23 +72,43 @@ test("EC6: golden schedule JSON matches W0-1 units and parses as schedule + esti
   assert.equal(typeof raw, "object");
   assert.ok(raw && typeof raw === "object");
   const pack = raw as Record<string, unknown>;
+  assert.throws(() => parseCrewScheduleSheet(pack), /stops must be an array/);
   const sheet = parseCrewScheduleSheet(pack.sheet);
   const estimate = parsePacingEstimate(pack.estimate);
   assert.ok(Array.isArray(pack.historyRefs));
   const history = (pack.historyRefs as unknown[]).map((row) => parseActivityHistoryRef(row));
 
+  const raceStartMs = Date.parse(sheet.raceStartAt);
   assert.match(sheet.raceStartAt, /Z$/);
   for (const stop of sheet.stops) {
     assert.match(stop.clockArrivalAt, /Z$/);
     assert.equal(typeof stop.elapsedSeconds, "number");
     assert.equal(typeof stop.plannedDwellSeconds, "number");
+    assert.equal(
+      (Date.parse(stop.clockArrivalAt) - raceStartMs) / 1000,
+      stop.elapsedSeconds,
+      `${stop.checkpointId} clockArrivalAt must equal raceStartAt + elapsedSeconds`
+    );
   }
   assert.equal(typeof estimate.expectedFinishElapsedSeconds, "number");
   assert.match(estimate.expectedFinishAt, /Z$/);
+  assert.equal(
+    (Date.parse(estimate.expectedFinishAt) - raceStartMs) / 1000,
+    estimate.expectedFinishElapsedSeconds
+  );
+  for (const eta of estimate.aidEtas) {
+    assert.equal(
+      (Date.parse(eta.clockArrivalAt) - raceStartMs) / 1000,
+      eta.elapsedSeconds,
+      `${eta.checkpointId} aidEta clock must equal raceStartAt + elapsedSeconds`
+    );
+  }
   const hist: ActivityHistoryRef = history[0]!;
   assert.equal(typeof hist.distanceMeters, "number");
   assert.ok((hist.distanceMeters ?? 0) > 1000);
   assert.equal(hist.source, "gpx_upload");
+  assert.equal(hist.externalId, "gpx:activity-long-trail");
+  assert.equal(hist.elevationGainMeters, 4568);
 });
 
 test("EC7: missing required golden field fails closed", () => {
@@ -115,4 +138,6 @@ test("strava mock summary maps to an ActivityHistoryRef without a live API", () 
   assert.equal(mapped.distanceMeters, 8000);
   assert.equal(mapped.elapsedSeconds, 2520);
   assert.equal(mapped.elevationGainMeters, 40);
+  assert.match(String(summary.start_date), /Z$/);
+  assert.doesNotMatch(String(summary.start_date_local), /Z$/);
 });

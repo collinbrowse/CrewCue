@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseGpxTrack } from "./courseParse.js";
+import { buildRaceCourseFromGpx, computeElevationGainMeters, parseGpxTrack } from "./courseParse.js";
 
 const pacingDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../fixtures/pacing");
 
@@ -17,11 +17,27 @@ test("course and activity pacing fixtures parse as GPX tracks", () => {
   assert.ok(course.totalDistanceMeters < 55_000);
   assert.ok(course.waypoints.length >= 5);
 
+  const { course: raceCourse } = buildRaceCourseFromGpx(course);
+  assert.deepEqual(
+    raceCourse.checkpoints.map((checkpoint) => checkpoint.id),
+    ["start", "aid-1", "aid-2", "aid-3", "finish"]
+  );
+
   const longTrail = parseGpxTrack(readPacingGpx("activity-long-trail.gpx"));
   const shortRoad = parseGpxTrack(readPacingGpx("activity-short-road.gpx"));
+  const longGain = computeElevationGainMeters(longTrail.points);
+  const shortGain = computeElevationGainMeters(shortRoad.points);
   assert.ok(longTrail.totalDistanceMeters > 40_000);
   assert.ok(shortRoad.totalDistanceMeters < 12_000);
-  assert.ok((longTrail.points[0]?.elevationMeters ?? 0) > (shortRoad.points[0]?.elevationMeters ?? 0) + 100);
+  assert.ok(longGain > shortGain + 1000);
+
+  const pack = JSON.parse(readFileSync(resolve(pacingDir, "schedule-expected.json"), "utf8")) as {
+    historyRefs: Array<{ distanceMeters?: number; elevationGainMeters?: number }>;
+  };
+  const hist = pack.historyRefs[0];
+  assert.ok(hist);
+  assert.equal(Math.round(longGain), hist.elevationGainMeters);
+  assert.ok(Math.abs(longTrail.totalDistanceMeters - (hist.distanceMeters ?? 0)) < 100);
 });
 
 test("empty pacing GPX is an empty track (parser throws; harness does not)", () => {

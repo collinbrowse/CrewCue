@@ -4,6 +4,8 @@ Shared Wave 0 pack. Prefer these paths over one-off GPX/JSON in later PRs.
 
 Units: distances in meters, durations in seconds, clock times ISO-8601 UTC (`…Z`).
 
+The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nested objects with the W0-1 helpers; the file root is not a `CrewScheduleSheet`. Clock arrivals equal `raceStartAt + elapsedSeconds` (planned dwell is after arrival and does not shift later clocks in this golden).
+
 | File | Purpose |
 | --- | --- |
 | `course-50k-with-aids.gpx` | Course + aid waypoints |
