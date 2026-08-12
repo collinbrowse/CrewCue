@@ -1,0 +1,103 @@
+{
+  "sheet": {
+    "roomId": "room-fixture-50k",
+    "raceStartAt": "2026-08-15T13:00:00.000Z",
+    "pacingEstimateId": "est-50k-history",
+    "stops": [
+      {
+        "id": "stop-start",
+        "checkpointId": "start",
+        "clockArrivalAt": "2026-08-15T13:00:00.000Z",
+        "elapsedSeconds": 0,
+        "plannedDwellSeconds": 0
+      },
+      {
+        "id": "stop-aid-1",
+        "checkpointId": "aid-1",
+        "clockArrivalAt": "2026-08-15T14:10:00.000Z",
+        "elapsedSeconds": 4200,
+        "plannedDwellSeconds": 180
+      },
+      {
+        "id": "stop-aid-2",
+        "checkpointId": "aid-2",
+        "clockArrivalAt": "2026-08-15T15:23:00.000Z",
+        "elapsedSeconds": 8400,
+        "plannedDwellSeconds": 240,
+        "delayOverrideSeconds": 120,
+        "notes": {
+          "planNotesId": "note-plan-aid-2"
+        }
+      },
+      {
+        "id": "stop-aid-3",
+        "checkpointId": "aid-3",
+        "clockArrivalAt": "2026-08-15T17:13:00.000Z",
+        "elapsedSeconds": 14700,
+        "plannedDwellSeconds": 480,
+        "notes": {
+          "athleteNotesId": "note-athlete-aid-3",
+          "planNotesId": "note-plan-aid-3"
+        }
+      },
+      {
+        "id": "stop-finish",
+        "checkpointId": "finish",
+        "clockArrivalAt": "2026-08-15T18:50:00.000Z",
+        "elapsedSeconds": 21000,
+        "plannedDwellSeconds": 0
+      }
+    ]
+  },
+  "estimate": {
+    "id": "est-50k-history",
+    "coldStart": false,
+    "expectedFinishAt": "2026-08-15T18:50:00.000Z",
+    "expectedFinishElapsedSeconds": 21000,
+    "aidEtas": [
+      {
+        "checkpointId": "aid-1",
+        "clockArrivalAt": "2026-08-15T14:10:00.000Z",
+        "elapsedSeconds": 4200
+      },
+      {
+        "checkpointId": "aid-2",
+        "clockArrivalAt": "2026-08-15T15:23:00.000Z",
+        "elapsedSeconds": 8400
+      },
+      {
+        "checkpointId": "aid-3",
+        "clockArrivalAt": "2026-08-15T17:13:00.000Z",
+        "elapsedSeconds": 14700
+      }
+    ],
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T19:40:00.000Z",
+        "finishElapsedSeconds": 24000
+      },
+      "expected": {
+        "finishAt": "2026-08-15T18:50:00.000Z",
+        "finishElapsedSeconds": 21000
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T18:10:00.000Z",
+        "finishElapsedSeconds": 18600
+      }
+    },
+    "explanation": "History-backed from long-trail GPX; short-road activity excluded as dissimilar.",
+    "historyRefIds": ["hist-long-trail"]
+  },
+  "historyRefs": [
+    {
+      "id": "hist-long-trail",
+      "source": "gpx_upload",
+      "externalId": "gpx:activity-long-trail",
+      "recordedAt": "2026-06-01T14:00:00.000Z",
+      "ingestedAt": "2026-08-01T09:00:00.000Z",
+      "distanceMeters": 45000,
+      "elapsedSeconds": 21600,
+      "elevationGainMeters": 1800
+    }
+  ]
+}

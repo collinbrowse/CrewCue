@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-fixtures" xmlns="http://www.topografix.com/GPX/1/1">
+
+  <trk>
+    <name>Short road 8k history</name>
+    <trkseg>
+      <trkpt lat="37.780000" lon="-122.420000"><ele>12.0</ele><time>2026-05-10T15:30:00Z</time></trkpt>
+      <trkpt lat="37.781797" lon="-122.420000"><ele>12.6</ele><time>2026-05-10T15:31:00Z</time></trkpt>
+      <trkpt lat="37.783593" lon="-122.420000"><ele>13.3</ele><time>2026-05-10T15:32:00Z</time></trkpt>
+      <trkpt lat="37.785390" lon="-122.420000"><ele>13.9</ele><time>2026-05-10T15:33:00Z</time></trkpt>
+      <trkpt lat="37.787186" lon="-122.420000"><ele>14.5</ele><time>2026-05-10T15:34:00Z</time></trkpt>
+      <trkpt lat="37.788983" lon="-122.420000"><ele>15.1</ele><time>2026-05-10T15:35:00Z</time></trkpt>
+      <trkpt lat="37.790780" lon="-122.420000"><ele>15.8</ele><time>2026-05-10T15:36:00Z</time></trkpt>
+      <trkpt lat="37.792576" lon="-122.420000"><ele>16.4</ele><time>2026-05-10T15:37:00Z</time></trkpt>
+      <trkpt lat="37.794373" lon="-122.420000"><ele>17.0</ele><time>2026-05-10T15:38:00Z</time></trkpt>
+      <trkpt lat="37.796170" lon="-122.420000"><ele>17.6</ele><time>2026-05-10T15:39:00Z</time></trkpt>
+      <trkpt lat="37.797966" lon="-122.420000"><ele>18.3</ele><time>2026-05-10T15:40:00Z</time></trkpt>
+      <trkpt lat="37.799763" lon="-122.420000"><ele>18.9</ele><time>2026-05-10T15:41:00Z</time></trkpt>
+      <trkpt lat="37.801559" lon="-122.420000"><ele>19.5</ele><time>2026-05-10T15:42:00Z</time></trkpt>
+      <trkpt lat="37.803356" lon="-122.420000"><ele>20.1</ele><time>2026-05-10T15:43:00Z</time></trkpt>
+      <trkpt lat="37.805153" lon="-122.420000"><ele>20.8</ele><time>2026-05-10T15:44:00Z</time></trkpt>
+      <trkpt lat="37.806949" lon="-122.420000"><ele>21.4</ele><time>2026-05-10T15:45:00Z</time></trkpt>
+      <trkpt lat="37.808746" lon="-122.420000"><ele>22.0</ele><time>2026-05-10T15:46:00Z</time></trkpt>
+      <trkpt lat="37.810543" lon="-122.420000"><ele>22.6</ele><time>2026-05-10T15:47:00Z</time></trkpt>
+      <trkpt lat="37.812339" lon="-122.420000"><ele>23.3</ele><time>2026-05-10T15:48:00Z</time></trkpt>
+      <trkpt lat="37.814136" lon="-122.420000"><ele>23.9</ele><time>2026-05-10T15:49:00Z</time></trkpt>
+      <trkpt lat="37.815932" lon="-122.420000"><ele>24.5</ele><time>2026-05-10T15:50:00Z</time></trkpt>
+      <trkpt lat="37.817729" lon="-122.420000"><ele>25.1</ele><time>2026-05-10T15:51:00Z</time></trkpt>
+      <trkpt lat="37.819526" lon="-122.420000"><ele>25.8</ele><time>2026-05-10T15:52:00Z</time></trkpt>
+      <trkpt lat="37.821322" lon="-122.420000"><ele>26.4</ele><time>2026-05-10T15:53:00Z</time></trkpt>
+      <trkpt lat="37.823119" lon="-122.420000"><ele>27.0</ele><time>2026-05-10T15:54:00Z</time></trkpt>
+      <trkpt lat="37.824916" lon="-122.420000"><ele>27.6</ele><time>2026-05-10T15:55:00Z</time></trkpt>
+      <trkpt lat="37.826712" lon="-122.420000"><ele>28.3</ele><time>2026-05-10T15:56:00Z</time></trkpt>
+      <trkpt lat="37.828509" lon="-122.420000"><ele>28.9</ele><time>2026-05-10T15:57:00Z</time></trkpt>
+      <trkpt lat="37.830305" lon="-122.420000"><ele>29.5</ele><time>2026-05-10T15:58:00Z</time></trkpt>
+      <trkpt lat="37.832102" lon="-122.420000"><ele>30.1</ele><time>2026-05-10T15:59:00Z</time></trkpt>
+      <trkpt lat="37.833899" lon="-122.420000"><ele>30.8</ele><time>2026-05-10T16:00:00Z</time></trkpt>
+      <trkpt lat="37.835695" lon="-122.420000"><ele>31.4</ele><time>2026-05-10T16:01:00Z</time></trkpt>
+      <trkpt lat="37.837492" lon="-122.420000"><ele>32.0</ele><time>2026-05-10T16:02:00Z</time></trkpt>
+      <trkpt lat="37.839289" lon="-122.420000"><ele>32.6</ele><time>2026-05-10T16:03:00Z</time></trkpt>
+      <trkpt lat="37.841085" lon="-122.420000"><ele>33.3</ele><time>2026-05-10T16:04:00Z</time></trkpt>
+      <trkpt lat="37.842882" lon="-122.420000"><ele>33.9</ele><time>2026-05-10T16:05:00Z</time></trkpt>
+      <trkpt lat="37.844678" lon="-122.420000"><ele>34.5</ele><time>2026-05-10T16:06:00Z</time></trkpt>
+      <trkpt lat="37.846475" lon="-122.420000"><ele>35.1</ele><time>2026-05-10T16:07:00Z</time></trkpt>
+      <trkpt lat="37.848272" lon="-122.420000"><ele>35.8</ele><time>2026-05-10T16:08:00Z</time></trkpt>
+      <trkpt lat="37.850068" lon="-122.420000"><ele>36.4</ele><time>2026-05-10T16:09:00Z</time></trkpt>
+      <trkpt lat="37.851865" lon="-122.420000"><ele>37.0</ele><time>2026-05-10T16:10:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
