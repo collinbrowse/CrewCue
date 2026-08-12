@@ -12,8 +12,8 @@
 
 - Last updated: 2026-08-12 (UTC)
 - **Roadmap phase:** MVP chat reliability (plaintext Stream) - coverage hardening for recent merged chat code.
-- **Branch:** `cursor/missing-test-coverage-e09d` from `main` @ `e0d1578`; PR pending automation creation.
-- **Active issue/PR:** No issue created; this automation has read-only `gh` guidance and no issue-creation MCP tool.
+- **Branch:** `cursor/missing-test-coverage-e09d` from `main` @ `e0d1578`; PR #355 open.
+- **Active issue/PR:** PR #355; no issue created because this automation has read-only `gh` guidance and no issue-creation MCP tool.
 
 ## Completed
 
@@ -43,5 +43,5 @@
 ## Successor prompt
 
 ```text
-Coverage PR on cursor/missing-test-coverage-e09d adds chatHistoryPaging tests. CI/local verify passed; iOS sim blocked on Linux. Next: review/merge after CI, then continue #327 staging signed-in chat smoke.
+Coverage PR #355 on cursor/missing-test-coverage-e09d adds chatHistoryPaging tests. CI/local verify passed; iOS sim blocked on Linux. Next: review/merge after CI, then continue #327 staging signed-in chat smoke.
 ```
