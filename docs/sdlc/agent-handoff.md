@@ -13,29 +13,28 @@
 
 - Last updated: 2026-08-12 (UTC)
 - **Roadmap phase:** Agent async delivery setup for crew schedule + AI pacing.
-- **Branch / PR:** `docs/356-ultrapacer-competitive-analysis` (issue [#356](https://github.com/collinbrowse/CrewCue/issues/356)).
-- **Active:** Open PR for #356; file epic + Wave 0 issues after push.
+- **Branch / PR:** `docs/356-ultrapacer-competitive-analysis` → [#357](https://github.com/collinbrowse/CrewCue/pull/357) (`Closes #356`).
+- **Active:** Merge #357; then launch W0-1 #361.
 
 ## Completed
 
 - Competitive analysis + AI history pacing direction (`docs/competitive/ultrapacer-feature-gap-analysis.md`).
-- Async agent program: `docs/sdlc/agent-async-delivery-program.md` (waves, Ready/Done, EC matrix, conflict map).
-- Issue template: `.github/ISSUE_TEMPLATE/agent-work-package.yml`.
-- Rule: `.cursor/rules/agent-work-package-verification.mdc`.
+- Async agent program + issue template + verification rule.
+- Milestone [Crew schedule + AI pacing](https://github.com/collinbrowse/CrewCue/milestone/8); epic #360; W0-1 #361 (`agent-ready`); W0-2 #358; W0-3 #359 closed.
 
 ## Next 1-3 tasks
 
-1. Merge #356 when CI green.
-2. Launch W0-1 agent (contracts) from the Wave 0 issue.
-3. After W0-1 merge, launch W0-2 (fixtures); Integration agent then unlocks Wave 1.
+1. Merge #357 when CI green.
+2. Launch W0-1 agent on #361 (contracts DTOs).
+3. After #361 merges, add `agent-ready` to #358 and launch W0-2 fixtures.
 
 ## Open risks/blockers
 
-- Wave 0 child issue numbers filled after GitHub create (see PR comments if handoff lags).
+- W0-1 should wait for #357 merge so program docs are on `main` (or branch from main after merge).
 - Strava OAuth / AI model port still need staging secrets design in W3.
 
 ## Successor prompt
 
 ```text
-Watch #356 PR CI; merge when green. Then pick the W0-1 agent-ready issue (contracts DTOs) using docs/sdlc/agent-async-delivery-program.md kickoff prompt. Do not start W0-2 until W0-1 merges.
+Merge #357 when CI green. Then execute #361 (W0-1 contracts) using the issue kickoff prompt. Do not start #358 until #361 is on main; then add agent-ready and run W0-2.
 ```

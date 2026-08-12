@@ -1,6 +1,6 @@
 # Agent async delivery program — UltraPacer gap + AI pacing
 
-**Issue:** #356 (strategy source)  
+**Issue:** #356 (strategy) · **PR:** #357 · **Epic:** #360 · **Milestone:** [Crew schedule + AI pacing](https://github.com/collinbrowse/CrewCue/milestone/8)  
 **Audience:** humans launching waves; AI agents executing one work package each  
 **Goal:** ship crew schedule ops + simple AI history pacing with **parallel agents**, each able to **fully prove** their slice (tests + verify + sim when UI), with **edge cases declared and covered up front**.
 
@@ -111,9 +111,9 @@ Agents **must** prefer these paths; if a new fixture is needed, add it in the sa
 
 | ID | Work package | Depends | Verify |
 | --- | --- | --- | --- |
-| W0-1 | Contracts: waypoints tags, schedule stop, activity history ref, pacing estimate DTO | none | contracts build + type tests |
-| W0-2 | Fixture pack + golden schedule helpers | W0-1 | fixture load tests |
-| W0-3 | Labels/milestone + this program linked from epic; seed child issues Ready | none | docs/process only |
+| W0-1 | Contracts: waypoints tags, schedule stop, activity history ref, pacing estimate DTO | none · [#361](https://github.com/collinbrowse/CrewCue/issues/361) `agent-ready` | contracts build + type tests |
+| W0-2 | Fixture pack + golden schedule helpers | W0-1 · [#358](https://github.com/collinbrowse/CrewCue/issues/358) | fixture load tests |
+| W0-3 | Labels/milestone + this program linked from epic; seed child issues Ready | none · [#359](https://github.com/collinbrowse/CrewCue/issues/359) closed | docs/process only |
 
 ### Wave 1 — Crew schedule artifacts (parallel after W0)
 
