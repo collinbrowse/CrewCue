@@ -12,29 +12,30 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-12 (UTC)
-- **Roadmap phase:** Agent async delivery setup for crew schedule + AI pacing.
-- **Branch / PR:** `docs/356-ultrapacer-competitive-analysis` → [#357](https://github.com/collinbrowse/CrewCue/pull/357) (`Closes #356`).
-- **Active:** Merge #357; then launch W0-1 #361.
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 0 unlock complete; Wave 1 starting.
+- **Branch / PR:** none open for Wave 0. Next: W1-1 [#364](https://github.com/collinbrowse/CrewCue/issues/364).
+- **Active:** Execute W1-1 (API waypoint CRUD + tags).
 
 ## Completed
 
-- Competitive analysis + AI history pacing direction (`docs/competitive/ultrapacer-feature-gap-analysis.md`).
-- Async agent program + issue template + verification rule.
-- Milestone [Crew schedule + AI pacing](https://github.com/collinbrowse/CrewCue/milestone/8); epic #360; W0-1 #361 (`agent-ready`); W0-2 #358; W0-3 #359 closed.
+- W0-1 contracts DTOs (#361 / [#362](https://github.com/collinbrowse/CrewCue/pull/362)).
+- W0-2 fixture pack (#358 / [#363](https://github.com/collinbrowse/CrewCue/pull/363)); staff review aligned golden clocks to moving-time and history climb to parsed GPX.
+- W0-3 labels/milestone/epic (#359). Epic #360 still open.
 
 ## Next 1-3 tasks
 
-1. Merge #357 when CI green.
-2. Launch W0-1 agent on #361 (contracts DTOs).
-3. After #361 merges, add `agent-ready` to #358 and launch W0-2 fixtures.
+1. Execute W1-1 #364 (course waypoint CRUD + tags).
+2. After #364 merges, mark W1-2 Ready (notes + delay overrides).
+3. W1-3 schedule sheet projection may start after W1-1 if it avoids `raceRooms.ts` waypoint handlers.
 
 ## Open risks/blockers
 
-- W0-1 should wait for #357 merge so program docs are on `main` (or branch from main after merge).
+- Golden schedule clocks are moving-time only; W1-3 must decide whether dwell shifts later ETAs.
+- Long-trail fixture is synthetic (~4568 m gain); do not treat as a realistic athlete profile.
 - Strava OAuth / AI model port still need staging secrets design in W3.
 
 ## Successor prompt
 
 ```text
-Merge #357 when CI green. Then execute #361 (W0-1 contracts) using the issue kickoff prompt. Do not start #358 until #361 is on main; then add agent-ready and run W0-2.
+Execute #364 (W1-1 API waypoint CRUD + tags). Do not start W1-2 until #364 is on main. Prefer fixtures/pacing/course-50k-with-aids.gpx. Do not edit this handoff file; leave a PR Handoff delta.
 ```
