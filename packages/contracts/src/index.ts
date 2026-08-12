@@ -1,3 +1,5 @@
+import type { WaypointTag } from "./pacingSchedule.js";
+
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
 export interface IdentityClaims {
@@ -57,6 +59,11 @@ export interface RaceCourseCheckpoint {
   slowdownThresholdRatio?: number;
   /** Parsed from course file description or set manually in Pace edit mode. */
   cutoff?: RaceCourseCheckpointCutoff;
+  /**
+   * Operational tags (aid / water / dropbag / crew). Omit or `[]` for an untagged landmark.
+   * Additive: older payloads without `tags` remain valid.
+   */
+  tags?: WaypointTag[];
 }
 
 /** Optional non-linear baseline profile used for WS2 planned split / ETA projections. */
@@ -667,6 +674,33 @@ export {
   type DesignSystemMode,
   type DesignSystemVariant
 } from "./designSystems.js";
+
+export {
+  ACTIVITY_HISTORY_SOURCES,
+  PACING_BAND_KINDS,
+  WAYPOINT_TAGS,
+  isActivityHistorySource,
+  isPacingBandKind,
+  isWaypointTag,
+  parseActivityHistoryRef,
+  parseCrewScheduleSheet,
+  parseDistanceMeters,
+  parseDurationSeconds,
+  parseIso8601Utc,
+  parsePacingEstimate,
+  parseScheduleStop,
+  parseWaypointTags,
+  type ActivityHistoryRef,
+  type ActivityHistorySource,
+  type CrewScheduleSheet,
+  type PacingAidEta,
+  type PacingBandKind,
+  type PacingEstimate,
+  type PacingTimePoint,
+  type ScheduleStop,
+  type ScheduleStopNotesRef,
+  type WaypointTag
+} from "./pacingSchedule.js";
 
 export type StaffingOverlapSeverity = "warning" | "blocking";
 
