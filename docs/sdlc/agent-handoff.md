@@ -10,30 +10,38 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-07-22 (UTC)
-- **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
-- **Branch:** `main` @ `0d1fa3e` (#327 merged; #326/#328/#329 closed).
-- **Active follow-up:** Staging deploy + signed-in chat smoke.
+- Last updated: 2026-08-12 (UTC)
+- **Roadmap phase:** MVP chat reliability (plaintext Stream) - coverage hardening for recent merged chat code.
+- **Branch:** `cursor/missing-test-coverage-e09d` from `main` @ `e0d1578`; PR #355 open.
+- **Active issue/PR:** PR #355; no issue created because this automation has read-only `gh` guidance and no issue-creation MCP tool.
 
 ## Completed
 
-- Merged #327: per-message “Read by everyone” under own bubbles; live `message.read` updates; older-history scroll preserve; idle roster members without read state do not block receipts.
-- Earlier: #324 plaintext chat; #325 push webhook auth; #304/#312 idempotency; #322 env switch; obsolete Bugbot coverage PRs closed.
+- Added `apps/mobile/src/features/chat/chatHistoryPaging.test.ts`.
+- Covered `queryOlderMessagesBefore` cursor/query behavior: default limit, `id_lt` oldest-visible cursor, Stream `"current"` state mode, custom page size, and omitted `messages` empty-page fallback.
+- Wired the new test into `@crewcue/mobile`'s existing `npm run test` script.
 
 ## Next 1-3 tasks
 
-1. Deploy staging API (Railway migrate `0014_drop_chat_crypto.sql`); confirm migrate logs.
-2. Signed-in smoke on staging (reload app from main): send + photo; peer read → receipt under own bubble; scroll-up history stays anchored.
-3. Set `CHAT_PUSH_WEBHOOK_SECRET` if server-to-server push fanout needs it.
+1. Review/merge this coverage PR after CI passes; link a GitHub issue manually before merge if required.
+2. Continue existing staging follow-up for #327: deploy staging API and smoke signed-in chat send/photo/read receipt/load-older behavior.
+3. Future coverage candidate: UI-level read receipt/older-history behavior once macOS simulator automation is available.
 
 ## Open risks/blockers
 
-- Auth0 still blocks unattended sim chat E2E.
-- Staging DB must get migration 0014 via Railway deploy.
-- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts.
+- `npm run agent:ios:ready` is blocked in this Linux cloud host: "requires macOS"; simulator acceptance was not exercised.
+- Auth0 still blocks unattended signed-in chat E2E without a fixture/deeplink/test account path.
+- Stream `messaging` channel type needs Read Events enabled for receipt broadcasts in staging.
+
+## Validation evidence
+
+- `npm run test -w @crewcue/mobile` - passed.
+- `npm run typecheck -w @crewcue/mobile` - passed.
+- `npm run verify` - passed.
+- `npm run agent:ios:ready` - blocked on Linux host requiring macOS.
 
 ## Successor prompt
 
 ```text
-#327 on main. Deploy staging (confirm 0014). Reload mobile from main; smoke chat send/photo, peer read receipt under own bubble, load-older scroll. Set CHAT_PUSH_WEBHOOK_SECRET if needed.
+Coverage PR #355 on cursor/missing-test-coverage-e09d adds chatHistoryPaging tests. CI/local verify passed; iOS sim blocked on Linux. Next: review/merge after CI, then continue #327 staging signed-in chat smoke.
 ```
