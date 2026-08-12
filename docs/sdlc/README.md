@@ -16,9 +16,10 @@ Use the sections below to avoid stale-doc confusion during implementation.
 7. `github-issues-and-prs.md` - Issue/PR execution workflow.
 8. `staging-first-cloud-delivery.md` - Named cloud rollout phases (Postgres/events, auth/payments, staging clients, projection/sync) and staging-first rules.
 9. `ios-simulator-agent-qa.md` - Agent/XcodeBuildMCP simulator validation (evidence on PR only).
+10. `agent-async-delivery-program.md` - Wave DAG, Ready/Done, edge-case matrix, async agent launch for crew schedule + AI pacing.
 
 If instructions conflict, follow in this order:
-`agent-handoff.md` -> `token-budget.md` -> `mvp-ui-development-spec.md` -> `ui-delivery-roadmap-and-spec.md` -> `staging-first-cloud-delivery.md` (when cloud/staging scope applies) -> architecture/maintainability standards.
+`agent-handoff.md` -> `token-budget.md` -> `agent-async-delivery-program.md` (when executing that program) -> `mvp-ui-development-spec.md` -> `ui-delivery-roadmap-and-spec.md` -> `staging-first-cloud-delivery.md` (when cloud/staging scope applies) -> architecture/maintainability standards.
 
 ---
 

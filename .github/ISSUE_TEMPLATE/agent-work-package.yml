@@ -1,0 +1,121 @@
+name: Agent work package
+description: One async agent-owned issue — Ready checklist, edge-case matrix, self-verify.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use for agent-executed slices under `docs/sdlc/agent-async-delivery-program.md`.
+        Agents must **refuse to implement** if Ready items are incomplete.
+
+  - type: input
+    id: wave_id
+    attributes:
+      label: Wave / package ID
+      description: e.g. W1-3, W3-1
+      placeholder: W1-3
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What outcome this single agent must deliver.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: In-scope changes
+      description: Concrete behaviors and file/package paths.
+      placeholder: "- packages/contracts/…\n- services/api/…\n- apps/mobile/…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: Explicit exclusions (required for agents).
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable bullets (max ~8).
+    validations:
+      required: true
+
+  - type: textarea
+    id: edge_cases
+    attributes:
+      label: Edge-case matrix
+      description: Every row needs a proof before Done (test path, sim step, or N/A + why).
+      value: |
+        | ID | Scenario | Expected | Proof |
+        | --- | --- | --- | --- |
+        | EC1 | empty / missing input | | |
+        | EC2 | invalid / corrupt input | | |
+        | EC3 | unauthorized / wrong role | | |
+        | EC4 | offline / retry / conflict | | |
+        | EC5 | duplicate / idempotent replay | | |
+        | EC6 | timezone / units | | |
+        | EC7 | (domain-specific) | | |
+    validations:
+      required: true
+
+  - type: textarea
+    id: fixtures
+    attributes:
+      label: Fixtures
+      description: Paths under fixtures/ or “create in this PR”.
+      value: |
+        - fixtures/pacing/…
+    validations:
+      required: true
+
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      description: Issue numbers that must be merged first, or `none`.
+      value: none
+    validations:
+      required: true
+
+  - type: textarea
+    id: conflicts
+    attributes:
+      label: Path conflict map
+      description: Directories other open PRs should avoid, or `none`.
+      value: none
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Copy-paste commands; agent must run before claiming done.
+      value: |
+        - npm run verify
+        - (API) targeted package/service tests for this slice
+        - (Mobile UI) npm run agent:ios:ready + ios-simulator-agent-qa skill; evidence on PR only
+    validations:
+      required: true
+
+  - type: textarea
+    id: kickoff
+    attributes:
+      label: Agent kickoff prompt
+      description: Paste into a fresh agent chat when launching.
+      value: |
+        You are executing ONE CrewCue work package.
+        Read: docs/sdlc/agent-handoff.md, docs/sdlc/token-budget.md, docs/sdlc/agent-async-delivery-program.md, then this issue.
+        Implement only this issue. Cover every edge-case row with proof. Run Verification. PR with Closes #<n>.
+        Mobile UI: simulator QA skill; evidence on PR only. If human-blocked, stop with options.
+    validations:
+      required: true
