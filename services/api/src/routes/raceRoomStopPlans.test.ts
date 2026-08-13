@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { isRoomPersistenceEnabled, loadRaceRoom } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import type { RaceCourseCheckpoint, RaceRoom, RaceRoomStopPlan, StopPlanNote } from "@crewcue/contracts";
 
@@ -169,7 +170,8 @@ test("EC2 invalid delay returns 400 and leaves persisted overlay unchanged", asy
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-w12-ec2"));
   const roomId = await createPaidRoom(app, ownerToken, "EC2 invalid delay");
-  await put50kCourse(app, roomId, ownerToken);
+  const course = await put50kCourse(app, roomId, ownerToken);
+  const plannedBefore = checkpointById(course, "aid-2").plannedStopSeconds;
 
   const seeded = await putStopPlan(app, roomId, "aid-2", ownerToken, {
     delayOverrideSeconds: 120,
@@ -206,7 +208,7 @@ test("EC2 invalid delay returns 400 and leaves persisted overlay unchanged", asy
   assert.equal((after.json() as StopPlanBody).delayOverrideSeconds, 120);
 
   const room = await getRoom(app, roomId, ownerToken);
-  assert.equal(checkpointById(room, "aid-2").plannedStopSeconds, checkpointById(room, "aid-2").plannedStopSeconds);
+  assert.equal(checkpointById(room, "aid-2").plannedStopSeconds, plannedBefore);
 
   await app.close();
 });
@@ -416,6 +418,15 @@ test("EC6 delay is extra seconds and notes have no timezone fields", async () =>
   assert.equal(checkpointById(roomAfterTitle, "aid-2").plannedStopSeconds, plannedBefore);
   assert.equal(checkpointById(roomAfterTitle, "aid-2").latitude, beforeAid2.latitude);
 
+  if (isRoomPersistenceEnabled()) {
+    const persisted = await loadRaceRoom(roomId);
+    assert.ok(persisted, "postgres payload missing after overlay upsert");
+    const overlay = persisted.stopPlans?.find((plan) => plan.checkpointId === "aid-2");
+    assert.equal(overlay?.delayOverrideSeconds, 120);
+    assert.equal(overlay?.planNotes?.id, "note-plan-aid-2");
+    assert.equal("delayOverrideSeconds" in checkpointById(persisted, "aid-2"), false);
+  }
+
   await app.close();
 });
 
@@ -511,6 +522,63 @@ test("EC8 clearing delay/notes removes the overlay and keeps the waypoint", asyn
   assert.deepEqual(geometryFingerprint(checkpointById(room, "aid-3")), beforeAid3);
   assert.ok(room.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-1"));
   assert.ok(room.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-3"));
+
+  await app.close();
+});
+
+test("GET list omits overlays for deleted checkpoints and saveRaceRoom prunes the room document", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w12-orphan"));
+  const roomId = await createPaidRoom(app, ownerToken, "orphan overlay prune");
+  await put50kCourse(app, roomId, ownerToken);
+
+  const putAid1 = await putStopPlan(app, roomId, "aid-1", ownerToken, { delayOverrideSeconds: 15 });
+  assert.equal(putAid1.statusCode, 200);
+  const putAid2 = await putStopPlan(app, roomId, "aid-2", ownerToken, {
+    delayOverrideSeconds: 120,
+    planNotes: { id: "note-plan-aid-2", body: "Should vanish with the waypoint" }
+  });
+  assert.equal(putAid2.statusCode, 200);
+
+  const deleted = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${roomId}/checkpoints/aid-2`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(deleted.statusCode, 200);
+
+  const list = await getStopPlans(app, roomId, ownerToken);
+  assert.equal(list.statusCode, 200);
+  const listed = (list.json() as { stopPlans: RaceRoomStopPlan[] }).stopPlans;
+  assert.deepEqual(
+    listed.map((plan) => plan.checkpointId),
+    ["aid-1"]
+  );
+  assert.equal(listed[0]?.delayOverrideSeconds, 15);
+
+  const getDeleted = await getStopPlan(app, roomId, "aid-2", ownerToken);
+  assert.equal(getDeleted.statusCode, 404);
+
+  const remaining = await getStopPlan(app, roomId, "aid-1", ownerToken);
+  assert.equal(remaining.statusCode, 200);
+  assert.equal((remaining.json() as StopPlanBody).delayOverrideSeconds, 15);
+
+  const room = await getRoom(app, roomId, ownerToken);
+  assert.equal(room.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-2"), false);
+  assert.ok(room.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-1"));
+  assert.deepEqual(
+    (room.stopPlans ?? []).map((plan) => plan.checkpointId),
+    ["aid-1"]
+  );
+
+  if (isRoomPersistenceEnabled()) {
+    const persisted = await loadRaceRoom(roomId);
+    assert.deepEqual(
+      (persisted?.stopPlans ?? []).map((plan) => plan.checkpointId),
+      ["aid-1"]
+    );
+  }
 
   await app.close();
 });

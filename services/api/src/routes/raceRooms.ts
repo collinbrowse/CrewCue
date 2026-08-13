@@ -345,11 +345,30 @@ async function resolveStorageRoomId(input: string): Promise<string | undefined> 
   return trimmed;
 }
 
+/** Drop overlays whose checkpoint was removed so GET room and Postgres JSON stay aligned with GET /stop-plans. */
+function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
+  if (!room.stopPlans?.length) {
+    return room;
+  }
+  const knownIds = new Set((room.course?.checkpoints ?? []).map((checkpoint) => checkpoint.id));
+  const stopPlans = room.stopPlans.filter((plan) => knownIds.has(plan.checkpointId));
+  if (stopPlans.length === room.stopPlans.length) {
+    return room;
+  }
+  if (stopPlans.length === 0) {
+    const next = { ...room };
+    delete next.stopPlans;
+    return next;
+  }
+  return { ...room, stopPlans };
+}
+
 export async function saveRaceRoom(room: RaceRoom): Promise<void> {
-  unindexJoinCodeForRoomId(room.id);
-  raceRooms.set(room.id, room);
-  indexJoinCode(room);
-  await persistRaceRoom(room);
+  const persisted = pruneStopPlansToLiveCheckpoints(room);
+  unindexJoinCodeForRoomId(persisted.id);
+  raceRooms.set(persisted.id, persisted);
+  indexJoinCode(persisted);
+  await persistRaceRoom(persisted);
 }
 
 async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
