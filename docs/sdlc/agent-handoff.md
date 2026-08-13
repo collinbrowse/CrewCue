@@ -12,29 +12,28 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 1 complete; Wave 2 unlocked.
-- **Branch / PR:** W1-I [#381](https://github.com/collinbrowse/CrewCue/issues/381) merged via [#384](https://github.com/collinbrowse/CrewCue/pull/384).
-- **Active next:** Execute W2-1 [#383](https://github.com/collinbrowse/CrewCue/issues/383).
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 2 in progress.
+- **Branch / PR:** W2-1 [#385](https://github.com/collinbrowse/CrewCue/pull/385) merged (`Closes #383`).
+- **Active:** Parallel W2-2 [#386](https://github.com/collinbrowse/CrewCue/issues/386) (notify) and W2-3 [#387](https://github.com/collinbrowse/CrewCue/issues/387) (mobile check-in).
 
 ## Completed
 
-- Wave 0 unlock; W1-1…W1-5; W1-I schedule E2E (API seed→delay→clear + DEV mobile edit smoke).
-- W2-1 Ready + `agent-ready`: [#383](https://github.com/collinbrowse/CrewCue/issues/383).
+- Wave 0–1; W2-1 check-in → reproject schedule ETAs (#383 / #385). Staff review fixed LWW closed-actual selection (no double-shift).
 
 ## Next 1-3 tasks
 
-1. Execute W2-1 #383 (check-in arrival/departure → reproject future ETAs).
-2. Then file/Ready W2-2 / W2-3 per program DAG.
-3. (After W2-1) keep schedule projection + check-in path conflicts serialized per program map.
+1. Execute W2-2 #386 (push/chat notify on material ETA shift).
+2. Execute W2-3 #387 (mobile check-in + schedule refresh) in parallel.
+3. After both merge, run W2-I integration.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `snapshot_ui` can fail (AXe SimulatorKit arch); bundled `axe` CLI still works for describe/tap/type.
-- Authed Pace E2E still needs a test account (DEV deeplink remains Auth0-free proof path).
-- Strava OAuth / AI model port still need staging secrets design in W3.
+- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
+- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
+- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
 
 ## Successor prompt
 
 ```text
-Execute W2-1 #383. Check-in arrival/departure must reproject future GET /schedule ETAs. Cover EC matrix. API golden + conflict proofs. No handoff.md edits. PR Closes #383. Do not merge. Do not implement W2-2/W2-3.
+Execute #386 (W2-2 notify) and/or #387 (W2-3 mobile check-in) in parallel. Do not edit agent-handoff.md. Do not merge your own PRs.
 ```
