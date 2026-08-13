@@ -10,6 +10,7 @@ import { parseActivityHistoryRef, parsePacingEstimate, type RaceCourseCheckpoint
 import { buildRaceCourseFromGpx, parseGpxTrack } from "@crewcue/map-core";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
+import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { DEFAULT_PACING_ESTIMATE_SEED } from "../lib/pacingEstimate/index.js";
 
 function findPacingFixturesDir(): string {
@@ -52,7 +53,8 @@ async function withApp(
     tokenFor: (sub: string) => string;
   }) => Promise<void>
 ): Promise<void> {
-  resetActivityHistoryStoreForTests();
+  await resetActivityHistoryStoreForTests();
+  await resetPacingEstimateStoreForTests();
   const app = buildApp();
   await app.ready();
   try {
@@ -62,7 +64,8 @@ async function withApp(
     });
   } finally {
     await app.close();
-    resetActivityHistoryStoreForTests();
+    await resetActivityHistoryStoreForTests();
+    await resetPacingEstimateStoreForTests();
   }
 }
 

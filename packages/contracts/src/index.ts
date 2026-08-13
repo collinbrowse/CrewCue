@@ -1,4 +1,4 @@
-import type { RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+import type { PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -303,6 +303,13 @@ export interface RaceRoom {
    * `RaceCourseCheckpoint`. Keyed by `RaceRoomStopPlan.checkpointId`.
    */
   stopPlans?: RaceRoomStopPlan[];
+  /**
+   * Plan-of-record pacing estimate id (W3-4). When set with `pacingEstimate`,
+   * GET /schedule uses estimate moving times as the baseline under dwell/delay overlays.
+   */
+  pacingEstimateId?: string;
+  /** Snapshot of the attached plan-of-record estimate (source of truth for schedule reads). */
+  pacingEstimate?: PacingEstimate;
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */
