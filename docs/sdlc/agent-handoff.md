@@ -12,21 +12,23 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 3 in progress (estimate done; wire + cold-start next).
-- **Branch / PR:** W3-3 [#400](https://github.com/collinbrowse/CrewCue/pull/400) merged (`Closes #398`).
-- **Active next:** Parallel W3-4 [#401](https://github.com/collinbrowse/CrewCue/issues/401) (schedule wire) and W3-5 [#402](https://github.com/collinbrowse/CrewCue/issues/402) (cold-start UX).
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 3 feature packages complete; Wave 3 integration next.
+- **Branch / PR:** W3-4 [#404](https://github.com/collinbrowse/CrewCue/pull/404) and W3-5 [#405](https://github.com/collinbrowse/CrewCue/pull/405) merged (`Closes #401`, `Closes #402`).
+- **Active next:** Execute W3-I [#406](https://github.com/collinbrowse/CrewCue/issues/406).
 
 ## Completed
 
-- Wave 0–2; W2-I integration (#391 / #394).
-- W3-1 GPX → durable `ActivityHistoryRef` ingest + list/get (#393 / #396); postgres test isolation (#397).
-- W3-3 deterministic `POST /pacing-estimates` from history + course (#398 / #400).
+- Wave 0–2; W2-I (#391 / #394).
+- W3-1 GPX history ingest (#393 / #396); W3-3 deterministic estimates (#398 / #400).
+- W3-4 estimate → schedule plan of record (#401 / #404).
+- W3-5 cold-start UX + `crewcue://dev/cold-start` (#402 / #405).
+- W3-2 Strava OAuth deferred (optional / secrets).
 
 ## Next 1-3 tasks
 
-1. Execute W3-4 #401 (wire estimate → schedule plan of record).
-2. Execute W3-5 #402 (cold-start UX) in parallel.
-3. After both: W3-I integration; optionally Ready W3-2 (Strava) if secrets available.
+1. Execute W3-I #406 (history → estimate → schedule + cold-start smoke; unlock Wave 4).
+2. After W3-I: Ready+implement W4-1 (cutoff warnings).
+3. Optionally Ready W3-2 (Strava) if staging secrets available.
 
 ## Open risks/blockers
 
@@ -38,5 +40,5 @@
 ## Successor prompt
 
 ```text
-Execute #401 (W3-4 schedule wire) and/or #402 (W3-5 cold-start UX) in parallel. Do not edit agent-handoff.md. Do not merge your own PRs. Do not implement W3-2.
+Execute #406 (W3-I). Prove history → estimate → schedule attach + DEV cold-start smoke. Update agent-handoff.md. File/mark W4-1 agent-ready. PR with Closes #406. Do not implement Wave 4 features.
 ```
