@@ -77,6 +77,7 @@ import {
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
+import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 
 function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
   void syncRaceRoomStreamChannelMembers(room, log).catch((err) =>
@@ -2765,6 +2766,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs) || departureMs <= arrivalMs) {
       return reply.code(400).send({ error: "departureAt must be after arrivalAt" });
     }
+    // Dynamic import avoids a static raceRooms ↔ raceRoomSchedule cycle.
+    const { closedActualStopSecondsByCheckpointId } = await import("./raceRoomSchedule.js");
+    const beforeClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
+      projectionState.lastProjectionCore.checkpointSplits
+    );
     const manualEntry: CheckpointVisitManualData = {
       arrivalAt: parsed.data.arrivalAt,
       departureAt: parsed.data.departureAt,
@@ -2814,6 +2820,22 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
     syncProjectionAccumulatorStateFromCore(projectionState);
       await saveWs2RuntimeSnapshot(roomId);
+      const afterClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
+        projectionState.lastProjectionCore.checkpointSplits
+      );
+      // W2-2: material later-ETA shift → push notify (prefs + exclude actor). Never fail the write.
+      try {
+        await notifyEntitledMembersOfCheckInEtaShift({
+          room,
+          actorUserId: request.identity.sub,
+          checkpointId,
+          beforeClosedActualByCheckpointId,
+          afterClosedActualByCheckpointId,
+          log: request.log
+        });
+      } catch (err) {
+        request.log.warn({ err, roomId, checkpointId }, "check_in_eta_notify_unexpected_error");
+      }
       const manualStopPayload = { checkpointSplit: split };
       await completeIdempotentMutation(request, parsed.data, 200, manualStopPayload);
       idemManualStopFinished = true;
