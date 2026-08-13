@@ -51,3 +51,30 @@ export function mapScheduleFetchError(error: unknown): string {
   }
   return getErrorMessage("fetchFailed");
 }
+
+/**
+ * Map stop-plan write failures to crew-facing copy.
+ * Invalid delay stays explicit; auth/entitlement reuse catalog patterns.
+ */
+export function mapStopPlanWriteError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return mapApiError(error).message;
+    }
+    if (error.status === 402) {
+      return "This race room needs an active entitlement before stop plans can be edited.";
+    }
+    if (error.status === 400) {
+      const text = readApiErrorText(error);
+      if (text.includes("Invalid stop-plan payload")) {
+        return "Delay must be zero or a positive number of seconds. Notes were not saved.";
+      }
+      return text.length > 0 ? text : "Couldn't save the stop plan. Check your inputs and try again.";
+    }
+  }
+  const mapped = mapApiError(error, "unknown");
+  if (mapped.key === "networkOffline") {
+    return mapped.message;
+  }
+  return mapped.message;
+}

@@ -1,8 +1,13 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-import { createApiClient } from "../api/client";
+import {
+  createApiClient,
+  type StopPlanResponse,
+  type UpsertStopPlanInput
+} from "../api/client";
+import { canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
 import { CrewScheduleSheetView } from "../features/schedule/CrewScheduleSheetView";
-import { mapScheduleFetchError } from "../features/schedule/scheduleErrors";
+import { mapScheduleFetchError, mapStopPlanWriteError } from "../features/schedule/scheduleErrors";
 import { checkpointDisplayTitle } from "../features/pace/timeline";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { CrewScheduleSheet } from "@crewcue/contracts";
@@ -18,14 +23,33 @@ export function CrewScheduleSheetScreen(): ReactElement {
     return map;
   }, [room?.course?.checkpoints]);
 
+  const canEditStopPlans =
+    (s.roomDetail?.permissions?.canEditRaceSetup ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) ===
+    true;
+
   const [sheet, setSheet] = useState<CrewScheduleSheet | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
+  const [editingCheckpointId, setEditingCheckpointId] = useState<string | null>(null);
+  const [editingPlan, setEditingPlan] = useState<StopPlanResponse | null>(null);
+  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [saveError, setSaveError] = useState<string | undefined>(undefined);
+  /** Sheet-level action errors when the inline editor is closed (failed plan load / post-save refetch). */
+  const [actionError, setActionError] = useState<string | undefined>(undefined);
+
+  const client = useMemo(() => {
+    if (!s.auth.accessToken) {
+      return null;
+    }
+    return createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
+  }, [s.auth.accessToken, s.baseUrl]);
+
   const load = useCallback(
     async (mode: "initial" | "refresh") => {
-      if (!room?.id || !s.auth.accessToken) {
+      if (!room?.id || !client) {
         setSheet(null);
         setError(undefined);
         setLoading(false);
@@ -38,8 +62,8 @@ export function CrewScheduleSheetScreen(): ReactElement {
         setRefreshing(true);
       }
       setError(undefined);
+      setActionError(undefined);
       try {
-        const client = createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
         const next = await client.getSchedule(room.id);
         setSheet(next);
       } catch (err) {
@@ -50,13 +74,134 @@ export function CrewScheduleSheetScreen(): ReactElement {
         setRefreshing(false);
       }
     },
-    [room?.id, s.auth.accessToken, s.baseUrl]
+    [room?.id, client]
   );
 
   useFocusEffect(
     useCallback(() => {
       void load("initial");
     }, [load])
+  );
+
+  const refetchAfterWrite = useCallback(async () => {
+    if (!room?.id || !client) {
+      return;
+    }
+    const next = await client.getSchedule(room.id);
+    setSheet(next);
+  }, [room?.id, client]);
+
+  const onEditStop = useCallback(
+    async (checkpointId: string) => {
+      if (!canEditStopPlans || !room?.id || !client) {
+        return;
+      }
+      setEditingCheckpointId(checkpointId);
+      setSaveError(undefined);
+      setActionError(undefined);
+      setLoadingPlan(true);
+      setEditingPlan(null);
+      try {
+        const plan = await client.getStopPlan(room.id, checkpointId);
+        setEditingPlan(plan);
+      } catch (err) {
+        // Do not open an empty editor on load failure — that can overwrite existing notes.
+        setEditingCheckpointId(null);
+        setEditingPlan(null);
+        setActionError(mapStopPlanWriteError(err));
+      } finally {
+        setLoadingPlan(false);
+      }
+    },
+    [canEditStopPlans, room?.id, client]
+  );
+
+  const runWrite = useCallback(
+    async (checkpointId: string, write: () => Promise<unknown>) => {
+      if (!canEditStopPlans || !room?.id || !client || savingPlan) {
+        return;
+      }
+      setSavingPlan(true);
+      setSaveError(undefined);
+      setActionError(undefined);
+      try {
+        await write();
+        // Close editor only after write succeeds; keep overlay/sheet on write failure (EC2).
+        try {
+          await refetchAfterWrite();
+          setEditingCheckpointId(null);
+          setEditingPlan(null);
+        } catch (refetchErr) {
+          // Persist succeeded; clocks may be stale until pull-to-refresh.
+          setEditingCheckpointId(null);
+          setEditingPlan(null);
+          setActionError(
+            `${mapScheduleFetchError(refetchErr)} Pull to refresh to update schedule clocks.`
+          );
+        }
+      } catch (err) {
+        setSaveError(mapStopPlanWriteError(err));
+      } finally {
+        setSavingPlan(false);
+      }
+    },
+    [canEditStopPlans, room?.id, client, savingPlan, refetchAfterWrite]
+  );
+
+  const onSaveStopPlan = useCallback(
+    (checkpointId: string, input: UpsertStopPlanInput) => {
+      if (!client || !room?.id) {
+        return;
+      }
+      void runWrite(checkpointId, () => client.patchStopPlan(room.id, checkpointId, input));
+    },
+    [client, room?.id, runWrite]
+  );
+
+  const onClearStopDelay = useCallback(
+    (checkpointId: string) => {
+      if (!client || !room?.id) {
+        return;
+      }
+      void runWrite(checkpointId, () =>
+        client.patchStopPlan(room.id, checkpointId, { delayOverrideSeconds: null })
+      );
+    },
+    [client, room?.id, runWrite]
+  );
+
+  const onClearAthleteNotes = useCallback(
+    (checkpointId: string) => {
+      if (!client || !room?.id) {
+        return;
+      }
+      void runWrite(checkpointId, () =>
+        client.patchStopPlan(room.id, checkpointId, { athleteNotes: null })
+      );
+    },
+    [client, room?.id, runWrite]
+  );
+
+  const onClearPlanNotes = useCallback(
+    (checkpointId: string) => {
+      if (!client || !room?.id) {
+        return;
+      }
+      void runWrite(checkpointId, () =>
+        client.patchStopPlan(room.id, checkpointId, { planNotes: null })
+      );
+    },
+    [client, room?.id, runWrite]
+  );
+
+  const onClearStopPlan = useCallback(
+    (checkpointId: string) => {
+      if (!client || !room?.id) {
+        return;
+      }
+      void runWrite(checkpointId, () => client.clearStopPlan(room.id, checkpointId));
+    },
+    [client, room?.id, runWrite]
   );
 
   if (!room) {
@@ -78,6 +223,25 @@ export function CrewScheduleSheetScreen(): ReactElement {
       titleByCheckpointId={titleByCheckpointId}
       onRetry={() => void load("initial")}
       onRefresh={() => void load("refresh")}
+      canEditStopPlans={canEditStopPlans}
+      editingCheckpointId={editingCheckpointId}
+      onEditStop={(id) => void onEditStop(id)}
+      onCancelEdit={() => {
+        setEditingCheckpointId(null);
+        setEditingPlan(null);
+        setSaveError(undefined);
+        setActionError(undefined);
+      }}
+      editingPlan={editingPlan}
+      loadingPlan={loadingPlan}
+      savingPlan={savingPlan}
+      saveError={saveError}
+      actionError={actionError}
+      onSaveStopPlan={onSaveStopPlan}
+      onClearStopDelay={onClearStopDelay}
+      onClearAthleteNotes={onClearAthleteNotes}
+      onClearPlanNotes={onClearPlanNotes}
+      onClearStopPlan={onClearStopPlan}
     />
   );
 }
