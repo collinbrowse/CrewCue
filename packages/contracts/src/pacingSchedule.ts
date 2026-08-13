@@ -107,6 +107,27 @@ export interface ScheduleStopNotesRef {
 }
 
 /**
+ * Athlete- or plan-authored note stored on the race-room overlay (not on `RaceCourseCheckpoint`).
+ * Empty `body` (including whitespace-only) clears that note. `id` is stable for `ScheduleStopNotesRef`.
+ */
+export interface StopPlanNote {
+  id: string;
+  body: string;
+}
+
+/**
+ * Plan-scoped overlay for one course checkpoint.
+ * `delayOverrideSeconds` is extra dwell on top of `plannedStopSeconds` / `plannedDwellSeconds`;
+ * it does not replace planned dwell and must not mutate checkpoint geometry or tags.
+ */
+export interface RaceRoomStopPlan {
+  checkpointId: string;
+  delayOverrideSeconds?: number;
+  athleteNotes?: StopPlanNote;
+  planNotes?: StopPlanNote;
+}
+
+/**
  * One row of the crew schedule sheet: clock arrival **and** elapsed, plus dwell.
  * `checkpointId` matches `RaceCourseCheckpoint.id`.
  */

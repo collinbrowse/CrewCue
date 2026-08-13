@@ -1,4 +1,4 @@
-import type { WaypointTag } from "./pacingSchedule.js";
+import type { RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -298,6 +298,11 @@ export interface RaceRoom {
   plannedPaceSecondsPerKm?: number;
   /** Multi-upload map overlays + map-authored checkpoints (optional until clients populate). */
   mapWorkspace?: RaceMapWorkspace;
+  /**
+   * Plan-scoped per-stop notes and delay overrides. Note bodies live here, not on
+   * `RaceCourseCheckpoint`. Keyed by `RaceRoomStopPlan.checkpointId`.
+   */
+  stopPlans?: RaceRoomStopPlan[];
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */
@@ -699,6 +704,8 @@ export {
   type PacingTimePoint,
   type ScheduleStop,
   type ScheduleStopNotesRef,
+  type RaceRoomStopPlan,
+  type StopPlanNote,
   type WaypointTag
 } from "./pacingSchedule.js";
 
