@@ -10,7 +10,8 @@ import {
   View
 } from "react-native";
 import { DSCard, useDSTheme, type DSThemeTokens } from "../../design-system";
-import type { StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
+import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
+import { CheckInEditor } from "./CheckInEditor";
 import { formatDurationSeconds, formatScheduleClock } from "./formatSchedule";
 import { StopPlanEditor } from "./StopPlanEditor";
 
@@ -54,6 +55,14 @@ export type CrewScheduleSheetViewProps = {
   onClearAthleteNotes?: (checkpointId: string) => void;
   onClearPlanNotes?: (checkpointId: string) => void;
   onClearStopPlan?: (checkpointId: string) => void;
+  /** Stoppage editors can submit closed check-in (arrival+departure). */
+  canEditCheckIn?: boolean;
+  checkInCheckpointId?: string | null;
+  onOpenCheckIn?: (checkpointId: string) => void;
+  onCancelCheckIn?: () => void;
+  savingCheckIn?: boolean;
+  checkInError?: string;
+  onSaveCheckIn?: (checkpointId: string, input: ManualCheckpointStopInput) => void;
 };
 
 /**
@@ -66,6 +75,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
   const styles = useMemo(() => createStyles(theme), [theme]);
   const titleByCheckpointId = props.titleByCheckpointId ?? new Map<string, string>();
   const canEdit = props.canEditStopPlans === true;
+  const canCheckIn = props.canEditCheckIn === true;
 
   if (props.emptyRoomMessage && !props.sheet && !props.loading && !props.error) {
     return (
@@ -109,7 +119,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
-      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.actionError ?? ""}`}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
       keyboardShouldPersistTaps="handled"
@@ -130,9 +140,17 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
               Race start {formatScheduleClock(props.sheet.raceStartAt)} · times from the server (not
               recomputed on device)
             </Text>
-            {!canEdit ? (
+            {!canEdit && !canCheckIn ? (
               <Text style={styles.readOnlyHint} accessibilityLabel="Schedule read only">
+                Stop delay, notes, and check-in are read-only for your role.
+              </Text>
+            ) : !canEdit ? (
+              <Text style={styles.readOnlyHint} accessibilityLabel="Schedule stop plans read only">
                 Stop delay and notes are read-only for your role.
+              </Text>
+            ) : !canCheckIn ? (
+              <Text style={styles.readOnlyHint} accessibilityLabel="Schedule check-in read only">
+                Check-in is read-only for your role.
               </Text>
             ) : null}
             {props.actionError ? (
@@ -154,7 +172,8 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
         const elapsedLabel = formatDurationSeconds(item.elapsedSeconds);
         const dwellLabel = formatDurationSeconds(item.plannedDwellSeconds);
         const hasDelay = typeof item.delayOverrideSeconds === "number";
-        const isEditing = props.editingCheckpointId === item.checkpointId;
+        const isEditingPlan = props.editingCheckpointId === item.checkpointId;
+        const isEditingCheckIn = props.checkInCheckpointId === item.checkpointId;
         const noteBits: string[] = [];
         if (item.notes?.athleteNotesId) {
           noteBits.push("athlete notes");
@@ -164,7 +183,10 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
         }
         // When editors can act, keep the row non-accessible so Edit/Save controls stay
         // individually discoverable for VoiceOver / XcodeBuildMCP (parent accessible merges children).
-        const rowAccessible = !canEdit && !isEditing;
+        const rowAccessible = !canEdit && !canCheckIn && !isEditingPlan && !isEditingCheckIn;
+        const defaultDepartureAt = new Date(
+          Date.parse(item.clockArrivalAt) + Math.max(0, item.plannedDwellSeconds) * 1000
+        ).toISOString();
         return (
           <View
             accessible={rowAccessible}
@@ -193,18 +215,32 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
                 <Text style={styles.meta}>Notes: {noteBits.join(", ")}</Text>
               ) : null}
 
-              {canEdit && !isEditing && props.onEditStop ? (
-                <Pressable
-                  onPress={() => props.onEditStop?.(item.checkpointId)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Edit stop delay"
-                  style={styles.editBtn}
-                >
-                  <Text style={styles.editLabel}>Edit delay & notes</Text>
-                </Pressable>
+              {(canEdit || canCheckIn) && !isEditingPlan && !isEditingCheckIn ? (
+                <View style={styles.rowActions}>
+                  {canEdit && props.onEditStop ? (
+                    <Pressable
+                      onPress={() => props.onEditStop?.(item.checkpointId)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit stop delay"
+                      style={styles.editBtn}
+                    >
+                      <Text style={styles.editLabel}>Edit delay & notes</Text>
+                    </Pressable>
+                  ) : null}
+                  {canCheckIn && props.onOpenCheckIn ? (
+                    <Pressable
+                      onPress={() => props.onOpenCheckIn?.(item.checkpointId)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open check-in"
+                      style={styles.editBtn}
+                    >
+                      <Text style={styles.editLabel}>Check in</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
 
-              {isEditing && props.onSaveStopPlan && props.onCancelEdit ? (
+              {isEditingPlan && props.onSaveStopPlan && props.onCancelEdit ? (
                 <StopPlanEditor
                   checkpointId={item.checkpointId}
                   plan={props.editingPlan ?? null}
@@ -218,6 +254,19 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
                   onClearPlanNotes={() => props.onClearPlanNotes?.(item.checkpointId)}
                   onClearAll={() => props.onClearStopPlan?.(item.checkpointId)}
                   onCancel={() => props.onCancelEdit?.()}
+                />
+              ) : null}
+
+              {isEditingCheckIn && props.onSaveCheckIn && props.onCancelCheckIn ? (
+                <CheckInEditor
+                  checkpointId={item.checkpointId}
+                  defaultArrivalAt={item.clockArrivalAt}
+                  defaultDepartureAt={defaultDepartureAt}
+                  saving={Boolean(props.savingCheckIn)}
+                  error={props.checkInError}
+                  canEdit={canCheckIn}
+                  onSave={(input) => props.onSaveCheckIn?.(item.checkpointId, input)}
+                  onCancel={() => props.onCancelCheckIn?.()}
                 />
               ) : null}
             </DSCard>
@@ -319,9 +368,15 @@ function createStyles(theme: DSThemeTokens) {
       marginTop: 4,
       lineHeight: 20
     },
+    rowActions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+      marginTop: 4
+    },
     editBtn: {
       alignSelf: "flex-start",
-      marginTop: 10,
+      marginTop: 6,
       minHeight: theme.spacing.touchTargetMin,
       justifyContent: "center"
     },

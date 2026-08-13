@@ -711,3 +711,88 @@ test("getStopPlan / patchStopPlan delay unit is seconds; clocks remain ISO from 
     globalThis.fetch = prev;
   }
 });
+
+test("postManualCheckpointStop POSTs manual-stop then client can refetch schedule", async () => {
+  const prev = globalThis.fetch;
+  const calls: Array<{ method: string; url: string; body?: string }> = [];
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    calls.push({ method, url, body });
+    if (url.includes("/manual-stop") && method === "POST") {
+      return new Response(
+        JSON.stringify({
+          checkpointSplit: {
+            checkpointId: "aid-1",
+            visits: [
+              {
+                visitIndex: 1,
+                resolvedSource: "manual_crew",
+                activeActualStopSeconds: 480,
+                manualEntry: {
+                  arrivalAt: "2026-08-15T14:10:00.000Z",
+                  departureAt: "2026-08-15T14:18:00.000Z",
+                  actualStopSeconds: 480,
+                  recordedByUserId: "u1"
+                }
+              }
+            ]
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    if (url.endsWith("/schedule")) {
+      return new Response(
+        JSON.stringify({
+          roomId: "room-1",
+          raceStartAt: "2026-08-15T13:00:00.000Z",
+          stops: [
+            {
+              id: "stop-aid-1",
+              checkpointId: "aid-1",
+              clockArrivalAt: "2026-08-15T14:10:00.000Z",
+              elapsedSeconds: 4200,
+              plannedDwellSeconds: 180
+            },
+            {
+              id: "stop-aid-2",
+              checkpointId: "aid-2",
+              clockArrivalAt: "2026-08-15T15:25:00.000Z",
+              elapsedSeconds: 8700,
+              plannedDwellSeconds: 240
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+  try {
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.postManualCheckpointStop("room-1", "aid-1", {
+      arrivalAt: "2026-08-15T14:10:00.000Z",
+      departureAt: "2026-08-15T14:18:00.000Z"
+    });
+    const sheet = await client.getSchedule("room-1");
+    assert.equal(sheet.stops[1]?.clockArrivalAt, "2026-08-15T15:25:00.000Z");
+    assert.equal(calls[0]?.method, "POST");
+    assert.match(calls[0]?.url ?? "", /\/checkpoints\/aid-1\/manual-stop$/);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("postManualCheckpointStop rejects arrival-only before network (EC1)", async () => {
+  const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+  await assert.rejects(
+    () =>
+      client.postManualCheckpointStop("room-1", "aid-1", {
+        arrivalAt: "2026-08-15T14:10:00.000Z",
+        departureAt: ""
+      }),
+    (err: unknown) => err instanceof ApiError && err.status === 400
+  );
+});

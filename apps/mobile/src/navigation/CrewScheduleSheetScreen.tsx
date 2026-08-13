@@ -2,12 +2,20 @@ import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   createApiClient,
+  type ManualCheckpointStopInput,
   type StopPlanResponse,
   type UpsertStopPlanInput
 } from "../api/client";
-import { canEditRaceCourseFromRoomRole } from "../auth/roleGuards";
+import {
+  canEditCheckpointStopsFromRoomRole,
+  canEditRaceCourseFromRoomRole
+} from "../auth/roleGuards";
 import { CrewScheduleSheetView } from "../features/schedule/CrewScheduleSheetView";
-import { mapScheduleFetchError, mapStopPlanWriteError } from "../features/schedule/scheduleErrors";
+import {
+  mapManualStopWriteError,
+  mapScheduleFetchError,
+  mapStopPlanWriteError
+} from "../features/schedule/scheduleErrors";
 import { checkpointDisplayTitle } from "../features/pace/timeline";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { CrewScheduleSheet } from "@crewcue/contracts";
@@ -27,6 +35,10 @@ export function CrewScheduleSheetScreen(): ReactElement {
     (s.roomDetail?.permissions?.canEditRaceSetup ?? canEditRaceCourseFromRoomRole(s.currentRoomRole)) ===
     true;
 
+  const canEditCheckIn =
+    (s.roomDetail?.permissions?.canEditCheckpointStops ??
+      canEditCheckpointStopsFromRoomRole(s.currentRoomRole)) === true;
+
   const [sheet, setSheet] = useState<CrewScheduleSheet | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,6 +51,10 @@ export function CrewScheduleSheetScreen(): ReactElement {
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
   /** Sheet-level action errors when the inline editor is closed (failed plan load / post-save refetch). */
   const [actionError, setActionError] = useState<string | undefined>(undefined);
+
+  const [checkInCheckpointId, setCheckInCheckpointId] = useState<string | null>(null);
+  const [savingCheckIn, setSavingCheckIn] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | undefined>(undefined);
 
   const client = useMemo(() => {
     if (!s.auth.accessToken) {
@@ -96,6 +112,8 @@ export function CrewScheduleSheetScreen(): ReactElement {
       if (!canEditStopPlans || !room?.id || !client) {
         return;
       }
+      setCheckInCheckpointId(null);
+      setCheckInError(undefined);
       setEditingCheckpointId(checkpointId);
       setSaveError(undefined);
       setActionError(undefined);
@@ -114,6 +132,21 @@ export function CrewScheduleSheetScreen(): ReactElement {
       }
     },
     [canEditStopPlans, room?.id, client]
+  );
+
+  const onOpenCheckIn = useCallback(
+    (checkpointId: string) => {
+      if (!canEditCheckIn) {
+        return;
+      }
+      setEditingCheckpointId(null);
+      setEditingPlan(null);
+      setSaveError(undefined);
+      setCheckInCheckpointId(checkpointId);
+      setCheckInError(undefined);
+      setActionError(undefined);
+    },
+    [canEditCheckIn]
   );
 
   const runWrite = useCallback(
@@ -146,6 +179,34 @@ export function CrewScheduleSheetScreen(): ReactElement {
       }
     },
     [canEditStopPlans, room?.id, client, savingPlan, refetchAfterWrite]
+  );
+
+  const onSaveCheckIn = useCallback(
+    async (checkpointId: string, input: ManualCheckpointStopInput) => {
+      if (!canEditCheckIn || !room?.id || !client || savingCheckIn) {
+        return;
+      }
+      setSavingCheckIn(true);
+      setCheckInError(undefined);
+      setActionError(undefined);
+      try {
+        await client.postManualCheckpointStop(room.id, checkpointId, input);
+        try {
+          await refetchAfterWrite();
+          setCheckInCheckpointId(null);
+        } catch (refetchErr) {
+          setCheckInCheckpointId(null);
+          setActionError(
+            `${mapScheduleFetchError(refetchErr)} Pull to refresh to update schedule clocks.`
+          );
+        }
+      } catch (err) {
+        setCheckInError(mapManualStopWriteError(err));
+      } finally {
+        setSavingCheckIn(false);
+      }
+    },
+    [canEditCheckIn, room?.id, client, savingCheckIn, refetchAfterWrite]
   );
 
   const onSaveStopPlan = useCallback(
@@ -242,6 +303,16 @@ export function CrewScheduleSheetScreen(): ReactElement {
       onClearAthleteNotes={onClearAthleteNotes}
       onClearPlanNotes={onClearPlanNotes}
       onClearStopPlan={onClearStopPlan}
+      canEditCheckIn={canEditCheckIn}
+      checkInCheckpointId={checkInCheckpointId}
+      onOpenCheckIn={onOpenCheckIn}
+      onCancelCheckIn={() => {
+        setCheckInCheckpointId(null);
+        setCheckInError(undefined);
+      }}
+      savingCheckIn={savingCheckIn}
+      checkInError={checkInError}
+      onSaveCheckIn={(id, input) => void onSaveCheckIn(id, input)}
     />
   );
 }

@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { StopPlanResponse, UpsertStopPlanInput } from "../api/client";
+import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../api/client";
 import { useDSTheme } from "../design-system";
 import { CrewScheduleSheetView } from "../features/schedule/CrewScheduleSheetView";
 import {
+  applyDevClosedCheckIn,
   applyDevStopPlanUpsert,
   DEV_SCHEDULE_CHECKPOINT_TITLES,
   loadDevScheduleFixtureSheet,
@@ -13,10 +14,10 @@ import {
   seedDevStopPlanOverlays,
   type DevStopPlanOverlay
 } from "../features/schedule/devScheduleFixture";
-import { mapStopPlanWriteError } from "../features/schedule/scheduleErrors";
+import { mapManualStopWriteError, mapStopPlanWriteError } from "../features/schedule/scheduleErrors";
 
 /**
- * __DEV__-only guest screen: schedule sheet with in-memory stop-plan edit for simulator QA.
+ * __DEV__-only guest screen: schedule sheet with in-memory stop-plan + check-in for simulator QA.
  * Entry: `crewcue://dev/schedule-sheet`. Not an Auth0/session bypass.
  * Saves update the displayed sheet (including later clocks) without calling production APIs.
  */
@@ -29,11 +30,19 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
   const [overlays, setOverlays] = useState<Map<string, DevStopPlanOverlay>>(() =>
     seedDevStopPlanOverlays(baseSheet)
   );
-  const sheet = useMemo(() => projectDevSheetWithOverlays(baseSheet, overlays), [baseSheet, overlays]);
+  const [closedActuals, setClosedActuals] = useState<Map<string, number>>(() => new Map());
+  const sheet = useMemo(
+    () => projectDevSheetWithOverlays(baseSheet, overlays, closedActuals),
+    [baseSheet, overlays, closedActuals]
+  );
 
   const [editingCheckpointId, setEditingCheckpointId] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
+
+  const [checkInCheckpointId, setCheckInCheckpointId] = useState<string | null>(null);
+  const [savingCheckIn, setSavingCheckIn] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | undefined>(undefined);
 
   const editingPlan: StopPlanResponse | null = useMemo(() => {
     if (!editingCheckpointId) {
@@ -124,6 +133,30 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
     [runDevWrite]
   );
 
+  const onSaveCheckIn = useCallback(
+    (checkpointId: string, input: ManualCheckpointStopInput) => {
+      if (savingCheckIn) {
+        return;
+      }
+      setSavingCheckIn(true);
+      setCheckInError(undefined);
+      try {
+        const actualSeconds = applyDevClosedCheckIn(input);
+        setClosedActuals((prev) => {
+          const next = new Map(prev);
+          next.set(checkpointId, actualSeconds);
+          return next;
+        });
+        setCheckInCheckpointId(null);
+      } catch (err) {
+        setCheckInError(mapManualStopWriteError(err));
+      } finally {
+        setSavingCheckIn(false);
+      }
+    },
+    [savingCheckIn]
+  );
+
   if (typeof __DEV__ === "undefined" || !__DEV__) {
     return (
       <View style={[styles.blocked, { backgroundColor: theme.color.background, paddingTop: insets.top }]}>
@@ -138,7 +171,7 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
       accessibilityLabel="Dev schedule fixture"
     >
       <Text style={[styles.banner, { color: theme.color.body }]} accessibilityLabel="Dev schedule fixture banner">
-        DEV fixture · editable stop plans · no Auth0 · fixtures/pacing/schedule-expected.json
+        DEV fixture · editable stop plans + check-in · no Auth0 · fixtures/pacing/schedule-expected.json
       </Text>
       <CrewScheduleSheetView
         sheet={sheet}
@@ -147,6 +180,8 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
         canEditStopPlans
         editingCheckpointId={editingCheckpointId}
         onEditStop={(id) => {
+          setCheckInCheckpointId(null);
+          setCheckInError(undefined);
           setEditingCheckpointId(id);
           setSaveError(undefined);
         }}
@@ -163,6 +198,21 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
         onClearAthleteNotes={onClearAthleteNotes}
         onClearPlanNotes={onClearPlanNotes}
         onClearStopPlan={onClearStopPlan}
+        canEditCheckIn
+        checkInCheckpointId={checkInCheckpointId}
+        onOpenCheckIn={(id) => {
+          setEditingCheckpointId(null);
+          setSaveError(undefined);
+          setCheckInCheckpointId(id);
+          setCheckInError(undefined);
+        }}
+        onCancelCheckIn={() => {
+          setCheckInCheckpointId(null);
+          setCheckInError(undefined);
+        }}
+        savingCheckIn={savingCheckIn}
+        checkInError={checkInError}
+        onSaveCheckIn={onSaveCheckIn}
       />
     </View>
   );

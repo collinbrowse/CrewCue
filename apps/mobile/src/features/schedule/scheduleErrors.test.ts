@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getErrorMessage } from "@crewcue/platform-client";
 import { ApiError } from "../../api/client";
-import { mapScheduleFetchError, mapStopPlanWriteError } from "./scheduleErrors";
+import { mapManualStopWriteError, mapScheduleFetchError, mapStopPlanWriteError } from "./scheduleErrors";
 
 test("EC2 maps API 400 no course / no raceStartAt to clear messages", () => {
   assert.equal(
@@ -42,6 +42,29 @@ test("mapStopPlanWriteError maps invalid delay and unauthorized (EC2/EC3)", () =
 test("mapStopPlanWriteError maps offline without silent success (EC4)", () => {
   assert.equal(
     mapStopPlanWriteError(new Error("Failed to fetch — network offline")),
+    getErrorMessage("networkOffline")
+  );
+});
+
+test("schedule 503 hydrate failure surfaces graceful retry copy", () => {
+  assert.match(
+    mapScheduleFetchError(new ApiError(503, { error: "Schedule temporarily unavailable" })),
+    /temporarily unavailable/i
+  );
+});
+
+test("mapManualStopWriteError maps invalid times / auth / offline (EC1/EC2/EC3/EC4)", () => {
+  assert.match(
+    mapManualStopWriteError(new ApiError(400, { error: "departureAt must be after arrivalAt" })),
+    /after arrival/i
+  );
+  assert.match(
+    mapManualStopWriteError(new ApiError(400, { error: "Invalid manual stop payload" })),
+    /both required/i
+  );
+  assert.equal(mapManualStopWriteError(new ApiError(403, { error: "Forbidden" })), getErrorMessage("forbidden"));
+  assert.equal(
+    mapManualStopWriteError(new Error("Failed to fetch — network offline")),
     getErrorMessage("networkOffline")
   );
 });

@@ -275,6 +275,35 @@ export type ManualCheckpointStopInput = {
   note?: string;
 };
 
+/** Preflight closed check-in (both ISO times; departure after arrival). */
+export function assertValidManualCheckpointStopInput(input: ManualCheckpointStopInput): void {
+  const arrivalAt = typeof input.arrivalAt === "string" ? input.arrivalAt.trim() : "";
+  const departureAt = typeof input.departureAt === "string" ? input.departureAt.trim() : "";
+  if (!arrivalAt || !departureAt) {
+    throw new ApiError(
+      400,
+      { error: "Invalid manual stop payload" },
+      "Arrival and departure times are both required for check-in."
+    );
+  }
+  const arrivalMs = Date.parse(arrivalAt);
+  const departureMs = Date.parse(departureAt);
+  if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs)) {
+    throw new ApiError(
+      400,
+      { error: "Invalid manual stop payload" },
+      "Arrival and departure must be valid ISO-8601 times."
+    );
+  }
+  if (departureMs <= arrivalMs) {
+    throw new ApiError(
+      400,
+      { error: "departureAt must be after arrivalAt" },
+      "Departure must be after arrival."
+    );
+  }
+}
+
 export type UpdateCheckpointVisitSourceInput = {
   resolvedSource: "auto" | "manual_crew";
 };
@@ -513,19 +542,21 @@ export function createApiClient(options: ApiClientOptions) {
         `/race-rooms/${roomId}/recommendations/${recommendationId}/reject`
       ),
     getPlanDelta: (roomId: string) => request<{ planDelta: PlanDelta | null }>(options, "GET", `/race-rooms/${roomId}/plan-delta`),
-    postManualCheckpointStop: (
+    postManualCheckpointStop: async (
       roomId: string,
       checkpointId: string,
       input: ManualCheckpointStopInput,
       extras?: RequestExtras
-    ) =>
-      request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
+    ) => {
+      assertValidManualCheckpointStopInput(input);
+      return request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
         options,
         "POST",
         `/race-rooms/${roomId}/checkpoints/${checkpointId}/manual-stop`,
         input,
         extras
-      ),
+      );
+    },
     patchCheckpointVisitResolvedSource: (
       roomId: string,
       checkpointId: string,
