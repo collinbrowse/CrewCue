@@ -1,0 +1,56 @@
+{
+  "policy": {
+    "description": "Deterministic A-B confidence bands around expected finish (W4-2). Not UltraPacer strategy knobs.",
+    "conservativeRatio": 1.15,
+    "aggressiveRatio": 0.885,
+    "expected": "Primary finish — equal to expectedFinishElapsedSeconds / expectedFinishAt",
+    "ordering": "conservative.finishElapsedSeconds >= expected.finishElapsedSeconds >= aggressive.finishElapsedSeconds",
+    "coldStart": "Same ratios as history-backed; bands are coarse because the expected finish is course-only (7:00/km).",
+    "scheduleBaseline": "Crew schedule moving-time / plan-of-record uses expected finish only; bands are informational.",
+    "seed": "crewcue-pacing-v1",
+    "raceStartAt": "2026-08-15T13:00:00.000Z",
+    "courseFixture": "course-50k-with-aids.gpx",
+    "historyFixture": "schedule-expected.json → historyRefs[0] (hist-long-trail)"
+  },
+  "historyBacked": {
+    "id": "est_7178c7d99b4d9b96",
+    "coldStart": false,
+    "expectedFinishAt": "2026-08-15T19:39:33.000Z",
+    "expectedFinishElapsedSeconds": 23973,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T20:39:29.000Z",
+        "finishElapsedSeconds": 27569
+      },
+      "expected": {
+        "finishAt": "2026-08-15T19:39:33.000Z",
+        "finishElapsedSeconds": 23973
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T18:53:36.000Z",
+        "finishElapsedSeconds": 21216
+      }
+    },
+    "historyRefIds": ["hist-long-trail"]
+  },
+  "coldStart": {
+    "id": "est_e8c02fd1ff2d17be",
+    "coldStart": true,
+    "expectedFinishAt": "2026-08-15T18:49:36.000Z",
+    "expectedFinishElapsedSeconds": 20976,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T19:42:02.000Z",
+        "finishElapsedSeconds": 24122
+      },
+      "expected": {
+        "finishAt": "2026-08-15T18:49:36.000Z",
+        "finishElapsedSeconds": 20976
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T18:09:24.000Z",
+        "finishElapsedSeconds": 18564
+      }
+    }
+  }
+}

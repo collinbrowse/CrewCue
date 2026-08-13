@@ -25,9 +25,21 @@ const COLD_START_SECONDS_PER_KM = 420;
 const SIMILARITY_MIN_RATIO = 0.4;
 const SIMILARITY_MAX_RATIO = 1.5;
 
-/** Confidence band spreads around expected finish (deterministic ratios). */
-const CONSERVATIVE_RATIO = 1.15;
-const AGGRESSIVE_RATIO = 0.885;
+/**
+ * Confidence / A-B band spread policy (W4-2 / #411).
+ *
+ * Not UltraPacer strategy knobs — deterministic elapsed multipliers around the
+ * primary (expected) finish only:
+ * - conservative = round(expectedElapsed × {@link PACING_BAND_CONSERVATIVE_RATIO})
+ * - expected     = primary finish (same as `expectedFinishElapsedSeconds`)
+ * - aggressive   = round(expectedElapsed × {@link PACING_BAND_AGGRESSIVE_RATIO})
+ *
+ * Ordering invariant: conservative ≥ expected ≥ aggressive (elapsed seconds).
+ * Cold-start uses the **same** ratios; bands stay coarse because the expected
+ * finish itself is course-only (see `fixtures/pacing/estimate-bands.json`).
+ */
+export const PACING_BAND_CONSERVATIVE_RATIO = 1.15;
+export const PACING_BAND_AGGRESSIVE_RATIO = 0.885;
 
 function roundElapsed(seconds: number): number {
   return Math.max(0, Math.round(seconds));
@@ -228,8 +240,8 @@ export function estimatePacingDeterministic(input: PacingEstimateInput): PacingE
   }
 
   const finishElapsed = roundElapsed(courseDistance * secondsPerMeter);
-  const conservativeElapsed = roundElapsed(finishElapsed * CONSERVATIVE_RATIO);
-  const aggressiveElapsed = roundElapsed(finishElapsed * AGGRESSIVE_RATIO);
+  const conservativeElapsed = roundElapsed(finishElapsed * PACING_BAND_CONSERVATIVE_RATIO);
+  const aggressiveElapsed = roundElapsed(finishElapsed * PACING_BAND_AGGRESSIVE_RATIO);
   const aidEtas = buildAidEtas(aids, raceStartAt, secondsPerMeter);
 
   const candidate: PacingEstimate = {

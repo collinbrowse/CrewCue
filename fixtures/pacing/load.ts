@@ -17,6 +17,7 @@ export const PACING_FIXTURE_FILES = [
   "empty.gpx",
   "schedule-expected.json",
   "estimate-cold-start.json",
+  "estimate-bands.json",
   "cutoff-compare.json",
   "strava-activity-summary.json"
 ] as const;
