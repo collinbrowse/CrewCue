@@ -31,6 +31,8 @@ export type ReadoutsStackParamList = {
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
   CourseSettings: undefined;
+  /** Read-only crew schedule sheet (W1-4). */
+  ScheduleSheet: undefined;
   CourseRaceSetup:
     | {
         mode?: "create" | "edit";

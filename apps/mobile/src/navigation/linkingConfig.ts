@@ -22,6 +22,7 @@ export const authedTabLinkingScreens = {
     screens: {
       ReadoutsHome: "",
       CourseSettings: "settings",
+      ScheduleSheet: "schedule",
       ReadoutsIncidents: "incidents",
       GpxImport: "gpx"
     }

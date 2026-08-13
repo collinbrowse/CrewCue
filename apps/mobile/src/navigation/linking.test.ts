@@ -6,6 +6,7 @@ test("pathFromCrewCueUrl parses crewcue scheme paths", () => {
   assert.equal(pathFromCrewCueUrl("crewcue://guest"), "guest");
   assert.equal(pathFromCrewCueUrl("crewcue://chat"), "chat");
   assert.equal(pathFromCrewCueUrl("crewcue://map/navigate"), "map/navigate");
+  assert.equal(pathFromCrewCueUrl("crewcue://course/schedule"), "course/schedule");
   assert.equal(pathFromCrewCueUrl("crewcue://chat?x=1"), "chat");
 });
 
