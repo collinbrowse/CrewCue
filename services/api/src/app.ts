@@ -10,6 +10,7 @@ import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
 import { raceRoomScheduleRoutes } from "./routes/raceRoomSchedule.js";
+import { activityHistoryRoutes } from "./routes/activityHistory.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
@@ -27,6 +28,7 @@ export function buildApp() {
   app.register(raceRoomRoutes);
   app.register(raceRoomStopPlanRoutes);
   app.register(raceRoomScheduleRoutes);
+  app.register(activityHistoryRoutes);
   app.register(routingRoutes);
   app.register(geocodeRoutes);
   app.register(analyticsRoutes);
