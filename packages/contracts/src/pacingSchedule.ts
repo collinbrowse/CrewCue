@@ -21,6 +21,23 @@ export const PACING_BAND_KINDS = ["conservative", "expected", "aggressive"] as c
 
 export type PacingBandKind = (typeof PACING_BAND_KINDS)[number];
 
+/**
+ * Cutoff comparison on a projected schedule stop (W4-1).
+ * - `ok`: arrival comfortably before cutoff (margin > warn window)
+ * - `warn`: arrival within the documented warn window before cutoff
+ * - `breach`: arrival at or after cutoff
+ * Omit when the checkpoint has no cutoff.
+ */
+export const CUTOFF_WARNING_STATUSES = ["ok", "warn", "breach"] as const;
+
+export type CutoffWarningStatus = (typeof CUTOFF_WARNING_STATUSES)[number];
+
+/**
+ * Seconds before cutoff that still count as `warn` (not `ok`).
+ * Documented race-day policy for schedule projection; clients must not invent a different band.
+ */
+export const CUTOFF_WARN_MARGIN_SECONDS = 900;
+
 const ISO_8601_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,6 +95,10 @@ export function isActivityHistorySource(value: unknown): value is ActivityHistor
 
 export function isPacingBandKind(value: unknown): value is PacingBandKind {
   return typeof value === "string" && (PACING_BAND_KINDS as readonly string[]).includes(value);
+}
+
+export function isCutoffWarningStatus(value: unknown): value is CutoffWarningStatus {
+  return typeof value === "string" && (CUTOFF_WARNING_STATUSES as readonly string[]).includes(value);
 }
 
 /**
@@ -146,6 +167,16 @@ export interface ScheduleStop {
    */
   delayOverrideSeconds?: number;
   notes?: ScheduleStopNotesRef;
+  /**
+   * Cutoff comparison for this projected arrival. Omit when the checkpoint has no cutoff.
+   * Additive: older sheets without these fields remain valid.
+   */
+  cutoffStatus?: CutoffWarningStatus;
+  /**
+   * Seconds until cutoff at projected arrival (`cutoffAt − clockArrivalAt`).
+   * Positive = under; zero/negative = at/after. Omit when `cutoffStatus` is omitted.
+   */
+  cutoffMarginSeconds?: number;
 }
 
 /**
@@ -243,6 +274,21 @@ export function parseScheduleStop(value: unknown, field = "scheduleStop"): Sched
   }
   if (value.notes !== undefined) {
     stop.notes = parseNotesRef(value.notes, `${field}.notes`);
+  }
+  if (value.cutoffStatus !== undefined || value.cutoffMarginSeconds !== undefined) {
+    if (value.cutoffStatus === undefined || value.cutoffMarginSeconds === undefined) {
+      throw new TypeError(
+        `${field}.cutoffStatus and ${field}.cutoffMarginSeconds must both be present when either is set`
+      );
+    }
+    if (!isCutoffWarningStatus(value.cutoffStatus)) {
+      throw new TypeError(`${field}.cutoffStatus must be ok, warn, or breach`);
+    }
+    if (typeof value.cutoffMarginSeconds !== "number" || !Number.isFinite(value.cutoffMarginSeconds)) {
+      throw new TypeError(`${field}.cutoffMarginSeconds must be a finite number of seconds`);
+    }
+    stop.cutoffStatus = value.cutoffStatus;
+    stop.cutoffMarginSeconds = value.cutoffMarginSeconds;
   }
   return stop;
 }

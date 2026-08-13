@@ -15,5 +15,10 @@ The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nes
 | `empty.gpx` | Empty track |
 | `schedule-expected.json` | Golden schedule for course+plan |
 | `estimate-cold-start.json` | Cold-start (`coldStart: true`) estimate + coarse sheet for mobile DEV UX |
+| `cutoff-compare.json` | W4-1 cutoff modes + UTC race-day wall-clock policy notes for schedule warnings |
 | `strava-activity-summary.json` | Mock Strava payload (no live API) |
 | `load.ts` | Fixture path list + GPX inspect / JSON load helpers (`package.json` marks this folder ESM) |
+
+### Cutoff / `time_of_day` policy (W4-1)
+
+Schedule projection resolves `RaceCourseCheckpoint.cutoff` `time_of_day` against the **UTC calendar date** of `raceStartAt` (`YYYY-MM-DD` + `hour:minute:00.000Z`). No venue timezone is applied. Status bands use `CUTOFF_WARN_MARGIN_SECONDS` (900): `ok` when margin > 900s, `warn` when `0 < margin ≤ 900`, `breach` when margin ≤ 0. Omit warning fields when cutoff is absent.

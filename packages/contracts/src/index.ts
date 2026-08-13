@@ -689,9 +689,12 @@ export {
 
 export {
   ACTIVITY_HISTORY_SOURCES,
+  CUTOFF_WARN_MARGIN_SECONDS,
+  CUTOFF_WARNING_STATUSES,
   PACING_BAND_KINDS,
   WAYPOINT_TAGS,
   isActivityHistorySource,
+  isCutoffWarningStatus,
   isPacingBandKind,
   isWaypointTag,
   parseActivityHistoryRef,
@@ -705,6 +708,7 @@ export {
   type ActivityHistoryRef,
   type ActivityHistorySource,
   type CrewScheduleSheet,
+  type CutoffWarningStatus,
   type PacingAidEta,
   type PacingBandKind,
   type PacingEstimate,
