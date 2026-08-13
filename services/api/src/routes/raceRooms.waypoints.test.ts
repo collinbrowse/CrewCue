@@ -643,6 +643,59 @@ test("POST adds a tagged waypoint and DELETE removes an unvisited one", async ()
   await app.close();
 });
 
+test("POST inserts a mid-course waypoint by route progress, not after finish", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w11-insert-order"));
+  const roomId = await createPaidRoom(app, ownerToken, "mid-course insert");
+  const { checkpoints } = load50kCourseWithAids();
+  const putResponse = await put50kCourse(app, roomId, ownerToken, checkpoints);
+  assert.equal(putResponse.statusCode, 200);
+  const before = putResponse.json() as RaceRoom;
+  const start = checkpointById(before, "start");
+  const aid1 = checkpointById(before, "aid-1");
+  const finishBefore = checkpointById(before, "finish");
+  assert.ok((start.distanceMetersFromStart ?? 0) < (aid1.distanceMetersFromStart ?? 0));
+
+  const created = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints`,
+    payload: {
+      id: "water-mid",
+      title: "Creek before Aid 1",
+      latitude: 39.195,
+      longitude: -120.25,
+      tags: ["water"]
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(created.statusCode, 201);
+  const after = created.json() as RaceRoom;
+  const ids = after.course?.checkpoints.map((checkpoint) => checkpoint.id) ?? [];
+  assert.deepEqual(ids, ["start", "water-mid", "aid-1", "aid-2", "aid-3", "finish"]);
+
+  const water = checkpointById(after, "water-mid");
+  const aid1After = checkpointById(after, "aid-1");
+  const finishAfter = checkpointById(after, "finish");
+  assert.equal(typeof water.distanceMetersFromStart, "number");
+  assert.ok((water.distanceMetersFromStart ?? 0) > (start.distanceMetersFromStart ?? 0));
+  assert.ok((water.distanceMetersFromStart ?? 0) < (aid1After.distanceMetersFromStart ?? 0));
+  assert.equal(finishAfter.distanceMetersFromStart, finishBefore.distanceMetersFromStart);
+  assert.deepEqual(water.tags, ["water"]);
+
+  const persisted = await getRoom(app, roomId, ownerToken);
+  assert.deepEqual(
+    persisted.course?.checkpoints.map((checkpoint) => checkpoint.id),
+    ids
+  );
+  assert.ok(
+    (checkpointById(persisted, "water-mid").distanceMetersFromStart ?? 0) <
+      (checkpointById(persisted, "aid-1").distanceMetersFromStart ?? 0)
+  );
+
+  await app.close();
+});
+
 test("DELETE refuses to leave fewer than two checkpoints", async () => {
   const app = buildApp();
   await app.ready();
