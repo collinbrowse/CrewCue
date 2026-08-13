@@ -12,21 +12,22 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 2 feature packages complete; Wave 2 integration next.
-- **Branch / PR:** W2-2 [#389](https://github.com/collinbrowse/CrewCue/pull/389) and W2-3 [#390](https://github.com/collinbrowse/CrewCue/pull/390) merged (`Closes #386`, `Closes #387`).
-- **Active:** Execute W2-I [#391](https://github.com/collinbrowse/CrewCue/issues/391).
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 2 complete; Wave 3 next (W3-1 history ingest).
+- **Branch / PR:** W2-I `feature/391-w2-integration` (Closes #391) — open, do not merge until review.
+- **Active next:** Execute W3-1 [#393](https://github.com/collinbrowse/CrewCue/issues/393) (`agent-ready`).
 
 ## Completed
 
 - Wave 0–1; W2-1 check-in → reproject schedule ETAs (#383 / #385).
 - W2-2 notify on material (≥60s) later-ETA shift via chat push stack (#386 / #389).
 - W2-3 mobile closed check-in → manual-stop → schedule refresh; DEV `crewcue://dev/schedule-sheet` + sample 8-min control (#387 / #390).
+- W2-I integration: API smoke check-in → ETA shift + notify mocks; DEV mobile check-in proof; handoff unlock Wave 3 (#391).
 
 ## Next 1-3 tasks
 
-1. Execute W2-I #391 (integration: check-in moves ETA; crew sees update; handoff → Wave 3).
-2. After W2-I: Ready+implement W3-1 (history ingest) per program DAG.
-3. Keep Wave 3 packages serialized with schedule path conflicts as noted in the program doc.
+1. Execute W3-1 #393 (ingest past GPX → stored `ActivityHistoryRef` history).
+2. After W3-1: Ready+implement W3-3 (pacing estimate) — keep Wave 3 packages serialized with schedule path conflicts as noted in the program doc.
+3. Optionally Ready W3-2 (Strava OAuth) in parallel with W3-1 if secrets/staging env available.
 
 ## Open risks/blockers
 
@@ -38,5 +39,5 @@
 ## Successor prompt
 
 ```text
-Execute #391 (W2-I). Prove API check-in → ETA shift (+ notify mocks) and DEV mobile check-in smoke. Update agent-handoff.md. File/mark W3-1 agent-ready. PR with Closes #391. Do not implement Wave 3 features.
+Execute #393 (W3-1). Ingest past GPX → stored ActivityHistoryRef. Prefer fixtures/pacing/*. Cover EC matrix. Do not implement W3-2+. PR with Closes #393. Run npm run verify.
 ```
