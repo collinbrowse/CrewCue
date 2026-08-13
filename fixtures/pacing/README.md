@@ -14,5 +14,6 @@ The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nes
 | `corrupt.gpx` | Parse failure |
 | `empty.gpx` | Empty track |
 | `schedule-expected.json` | Golden schedule for course+plan |
+| `estimate-cold-start.json` | Cold-start (`coldStart: true`) estimate + coarse sheet for mobile DEV UX |
 | `strava-activity-summary.json` | Mock Strava payload (no live API) |
 | `load.ts` | Fixture path list + GPX inspect / JSON load helpers (`package.json` marks this folder ESM) |

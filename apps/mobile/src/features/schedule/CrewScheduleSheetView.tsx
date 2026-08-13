@@ -1,4 +1,4 @@
-import type { CrewScheduleSheet, ScheduleStop } from "@crewcue/contracts";
+import type { CrewScheduleSheet, PacingEstimate, ScheduleStop } from "@crewcue/contracts";
 import { useMemo, type ReactElement } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
 import { DSCard, useDSTheme, type DSThemeTokens } from "../../design-system";
 import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
 import { CheckInEditor } from "./CheckInEditor";
+import { ColdStartEstimatePanel } from "./ColdStartEstimatePanel";
 import { formatDurationSeconds, formatScheduleClock } from "./formatSchedule";
 import { StopPlanEditor } from "./StopPlanEditor";
 
@@ -63,6 +64,11 @@ export type CrewScheduleSheetViewProps = {
   savingCheckIn?: boolean;
   checkInError?: string;
   onSaveCheckIn?: (checkpointId: string, input: ManualCheckpointStopInput) => void;
+  /** When `coldStart: true`, show coarse estimate + add-history prompt (W3-5). */
+  pacingEstimate?: PacingEstimate | null;
+  addingHistory?: boolean;
+  onAddHistory?: () => void;
+  estimateError?: string;
 };
 
 /**
@@ -119,7 +125,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
-      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}`}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}:${props.pacingEstimate?.id ?? ""}:${props.pacingEstimate?.coldStart ? "1" : "0"}:${props.addingHistory ? "1" : "0"}:${props.estimateError ?? ""}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
       keyboardShouldPersistTaps="handled"
@@ -135,6 +141,14 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       ListHeaderComponent={
         props.sheet ? (
           <View style={styles.header}>
+            {props.pacingEstimate?.coldStart === true ? (
+              <ColdStartEstimatePanel
+                estimate={props.pacingEstimate}
+                addingHistory={props.addingHistory}
+                onAddHistory={props.onAddHistory}
+                error={props.estimateError}
+              />
+            ) : null}
             <Text style={styles.kicker}>Crew schedule</Text>
             <Text style={styles.subtitle}>
               Race start {formatScheduleClock(props.sheet.raceStartAt)} · times from the server (not

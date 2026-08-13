@@ -7,6 +7,7 @@ import { JoinCrewAccountScreen } from "./JoinCrewAccountScreen";
 import { AthleteSetupWizardScreen } from "./AthleteSetupWizardScreen";
 import { OnboardingNotificationsScreen } from "./OnboardingNotificationsScreen";
 import { DevScheduleSheetFixtureScreen } from "./DevScheduleSheetFixtureScreen";
+import { DevColdStartFixtureScreen } from "./DevColdStartFixtureScreen";
 import { useNavColors } from "./navigationTheme";
 import type { GuestStackParamList } from "./types";
 
@@ -33,6 +34,14 @@ export function GuestStack(): ReactElement {
           name="DevScheduleSheet"
           component={DevScheduleSheetFixtureScreen}
           options={{ headerShown: true, title: "Crew schedule (DEV)" }}
+        />
+      ) : null}
+      {/* __DEV__ agent QA: crewcue://dev/cold-start — not an Auth0 bypass */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevColdStart"
+          component={DevColdStartFixtureScreen}
+          options={{ headerShown: true, title: "Cold start (DEV)" }}
         />
       ) : null}
     </Stack.Navigator>
