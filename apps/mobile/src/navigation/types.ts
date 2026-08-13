@@ -9,6 +9,8 @@ export type GuestStackParamList = {
   Notifications: undefined;
   /** __DEV__ only: fixture schedule sheet for simulator QA (crewcue://dev/schedule-sheet). */
   DevScheduleSheet: undefined;
+  /** __DEV__ only: cold-start estimate UX for simulator QA (crewcue://dev/cold-start). */
+  DevColdStart: undefined;
 };
 
 /** Primary map + race operations stack (Map tab). */
