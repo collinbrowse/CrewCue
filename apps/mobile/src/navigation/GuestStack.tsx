@@ -6,6 +6,7 @@ import { JoinCrewPreviewScreen } from "./JoinCrewPreviewScreen";
 import { JoinCrewAccountScreen } from "./JoinCrewAccountScreen";
 import { AthleteSetupWizardScreen } from "./AthleteSetupWizardScreen";
 import { OnboardingNotificationsScreen } from "./OnboardingNotificationsScreen";
+import { DevScheduleSheetFixtureScreen } from "./DevScheduleSheetFixtureScreen";
 import { useNavColors } from "./navigationTheme";
 import type { GuestStackParamList } from "./types";
 
@@ -26,6 +27,14 @@ export function GuestStack(): ReactElement {
       <Stack.Screen name="JoinAccount" component={JoinCrewAccountScreen} />
       <Stack.Screen name="AthleteSetup" component={AthleteSetupWizardScreen} />
       <Stack.Screen name="Notifications" component={OnboardingNotificationsScreen} />
+      {/* __DEV__ agent QA: crewcue://dev/schedule-sheet — not an Auth0 bypass */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevScheduleSheet"
+          component={DevScheduleSheetFixtureScreen}
+          options={{ headerShown: true, title: "Crew schedule (DEV)" }}
+        />
+      ) : null}
     </Stack.Navigator>
   );
 }

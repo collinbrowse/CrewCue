@@ -7,6 +7,8 @@ export type GuestStackParamList = {
   JoinAccount: { roomCode: string; displayName: string };
   AthleteSetup: undefined;
   Notifications: undefined;
+  /** __DEV__ only: fixture schedule sheet for simulator QA (crewcue://dev/schedule-sheet). */
+  DevScheduleSheet: undefined;
 };
 
 /** Primary map + race operations stack (Map tab). */
