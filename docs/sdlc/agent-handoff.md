@@ -13,8 +13,8 @@
 
 - Last updated: 2026-08-13 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 1 complete; Wave 2 unlocked.
-- **Branch / PR:** W1-I [#381](https://github.com/collinbrowse/CrewCue/issues/381) on `feature/381-w1-integration` (open PR; do not merge until staff review).
-- **Active next:** Execute W2-1 [#383](https://github.com/collinbrowse/CrewCue/issues/383) after W1-I merges.
+- **Branch / PR:** W1-I [#381](https://github.com/collinbrowse/CrewCue/issues/381) merged via [#384](https://github.com/collinbrowse/CrewCue/pull/384).
+- **Active next:** Execute W2-1 [#383](https://github.com/collinbrowse/CrewCue/issues/383).
 
 ## Completed
 
@@ -23,9 +23,9 @@
 
 ## Next 1-3 tasks
 
-1. Staff-merge W1-I PR for #381.
-2. Execute W2-1 #383 (check-in arrival/departure → reproject future ETAs).
-3. Then file/Ready W2-2 / W2-3 per program DAG.
+1. Execute W2-1 #383 (check-in arrival/departure → reproject future ETAs).
+2. Then file/Ready W2-2 / W2-3 per program DAG.
+3. (After W2-1) keep schedule projection + check-in path conflicts serialized per program map.
 
 ## Open risks/blockers
 
@@ -36,5 +36,5 @@
 ## Successor prompt
 
 ```text
-After #381 merges: execute W2-1 #383. Check-in arrival/departure must reproject future GET /schedule ETAs. Cover EC matrix. API golden + conflict proofs. No handoff.md edits. PR Closes #383. Do not merge. Do not implement W2-2/W2-3.
+Execute W2-1 #383. Check-in arrival/departure must reproject future GET /schedule ETAs. Cover EC matrix. API golden + conflict proofs. No handoff.md edits. PR Closes #383. Do not merge. Do not implement W2-2/W2-3.
 ```

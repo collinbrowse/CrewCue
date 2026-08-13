@@ -98,26 +98,43 @@ function stopByCheckpoint(sheet: CrewScheduleSheet, checkpointId: string) {
   return stop;
 }
 
+/**
+ * W1-3 clock policy:
+ * - A stop’s own planned dwell / delay does not shift its arrival.
+ * - Later arrivals add cumulative prior planned dwell + delay (delay is extra, not a dwell replacement).
+ */
 function assertLaterStopsShifted(
   baseline: CrewScheduleSheet,
   after: CrewScheduleSheet,
   delaySeconds: number
 ) {
+  const baselineAid1 = stopByCheckpoint(baseline, "aid-1");
+  const afterAid1 = stopByCheckpoint(after, "aid-1");
+  assert.ok(baselineAid1.plannedDwellSeconds > 0, "fixture must expose prior dwell so delay-extra is meaningful");
+  assert.equal(afterAid1.plannedDwellSeconds, baselineAid1.plannedDwellSeconds);
+
   assert.equal(stopByCheckpoint(after, "start").elapsedSeconds, stopByCheckpoint(baseline, "start").elapsedSeconds);
-  assert.equal(stopByCheckpoint(after, "aid-1").elapsedSeconds, stopByCheckpoint(baseline, "aid-1").elapsedSeconds);
-  assert.equal(stopByCheckpoint(after, "aid-1").clockArrivalAt, stopByCheckpoint(baseline, "aid-1").clockArrivalAt);
-  assert.equal(stopByCheckpoint(after, "aid-1").delayOverrideSeconds, delaySeconds);
+  // Own dwell/delay must not move aid-1 arrival.
+  assert.equal(afterAid1.elapsedSeconds, baselineAid1.elapsedSeconds);
+  assert.equal(afterAid1.clockArrivalAt, baselineAid1.clockArrivalAt);
+  assert.equal(afterAid1.delayOverrideSeconds, delaySeconds);
 
   for (const id of ["aid-2", "aid-3", "finish"] as const) {
+    const baselineStop = stopByCheckpoint(baseline, id);
+    const afterStop = stopByCheckpoint(after, id);
+    assert.equal(afterStop.elapsedSeconds, baselineStop.elapsedSeconds + delaySeconds);
     assert.equal(
-      stopByCheckpoint(after, id).elapsedSeconds,
-      stopByCheckpoint(baseline, id).elapsedSeconds + delaySeconds
-    );
-    assert.equal(
-      Date.parse(stopByCheckpoint(after, id).clockArrivalAt),
-      Date.parse(stopByCheckpoint(baseline, id).clockArrivalAt) + delaySeconds * 1000
+      Date.parse(afterStop.clockArrivalAt),
+      Date.parse(baselineStop.clockArrivalAt) + delaySeconds * 1000
     );
   }
+
+  // Inter-stop gap grows by exactly the delay (prior dwell remains in the baseline gap).
+  const baselineGap =
+    stopByCheckpoint(baseline, "aid-2").elapsedSeconds - baselineAid1.elapsedSeconds;
+  const afterGap = stopByCheckpoint(after, "aid-2").elapsedSeconds - afterAid1.elapsedSeconds;
+  assert.ok(baselineGap > baselineAid1.plannedDwellSeconds, "aid-1→aid-2 gap must include prior dwell + moving");
+  assert.equal(afterGap, baselineGap + delaySeconds);
 }
 
 test("W1-I EC1 no delay overlay — schedule returns without delay fields", async () => {
@@ -290,9 +307,17 @@ test("W1-I EC7 deleted checkpoint is absent from schedule", async () => {
   const roomId = await createPaidRoom(app, ownerToken, "W1-I EC7 deleted checkpoint");
   await put50kCourse(app, roomId, ownerToken);
 
+  const noDelay = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  const aid2Dwell = stopByCheckpoint(noDelay, "aid-2").plannedDwellSeconds;
+  assert.ok(aid2Dwell > 0, "deleted-stop dwell must be non-zero so EC7 proves cumulative removal");
+
   await putStopPlan(app, roomId, "aid-2", ownerToken, { delayOverrideSeconds: 60 });
   const before = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
   assert.ok(before.stops.some((stop) => stop.checkpointId === "aid-2"));
+  assert.equal(
+    stopByCheckpoint(before, "aid-3").elapsedSeconds,
+    stopByCheckpoint(noDelay, "aid-3").elapsedSeconds + 60
+  );
 
   const deleted = await app.inject({
     method: "DELETE",
@@ -309,6 +334,19 @@ test("W1-I EC7 deleted checkpoint is absent from schedule", async () => {
   assert.deepEqual(
     after.stops.map((stop) => stop.checkpointId),
     ["start", "aid-1", "aid-3", "finish"]
+  );
+  // Deleting aid-2 removes its prior dwell + delay from later arrivals (not a no-op vs noDelay).
+  assert.equal(
+    stopByCheckpoint(after, "aid-3").elapsedSeconds,
+    stopByCheckpoint(before, "aid-3").elapsedSeconds - aid2Dwell - 60
+  );
+  assert.equal(
+    stopByCheckpoint(after, "finish").elapsedSeconds,
+    stopByCheckpoint(before, "finish").elapsedSeconds - aid2Dwell - 60
+  );
+  assert.equal(
+    stopByCheckpoint(after, "aid-3").elapsedSeconds,
+    stopByCheckpoint(noDelay, "aid-3").elapsedSeconds - aid2Dwell
   );
 
   await app.close();
