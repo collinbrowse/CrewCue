@@ -11,31 +11,30 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-12 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 0 unlock complete; Wave 1 starting.
-- **Branch / PR:** none open for Wave 0. Next: W1-1 [#364](https://github.com/collinbrowse/CrewCue/issues/364).
-- **Active:** Execute W1-1 (API waypoint CRUD + tags).
+- Last updated: 2026-08-13 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 1 in progress.
+- **Branch / PR:** W1-1 [#366](https://github.com/collinbrowse/CrewCue/pull/366) merged (`Closes #364`).
+- **Active:** Execute W1-2 [#367](https://github.com/collinbrowse/CrewCue/issues/367) (per-stop notes + delay overrides).
 
 ## Completed
 
-- W0-1 contracts DTOs (#361 / [#362](https://github.com/collinbrowse/CrewCue/pull/362)).
-- W0-2 fixture pack (#358 / [#363](https://github.com/collinbrowse/CrewCue/pull/363)); staff review aligned golden clocks to moving-time and history climb to parsed GPX.
-- W0-3 labels/milestone/epic (#359). Epic #360 still open.
+- Wave 0 unlock: contracts #362, fixtures #363, process #359.
+- W1-1 waypoint tags + checkpoint CRUD (#364 / #366). Staff review added GET-after-mutate tests.
 
 ## Next 1-3 tasks
 
-1. Execute W1-1 #364 (course waypoint CRUD + tags).
-2. After #364 merges, mark W1-2 Ready (notes + delay overrides).
-3. W1-3 schedule sheet projection may start after W1-1 if it avoids `raceRooms.ts` waypoint handlers.
+1. Execute W1-2 #367 (plan-scoped notes + delay overrides).
+2. After #367 merges, W1-3 schedule sheet projection (read overlays; do not edit stop-plan module).
+3. W1-4 mobile schedule sheet UI after W1-3.
 
 ## Open risks/blockers
 
-- Golden schedule clocks are moving-time only; W1-3 must decide whether dwell shifts later ETAs.
-- Long-trail fixture is synthetic (~4568 m gain); do not treat as a realistic athlete profile.
+- Golden schedule clocks are moving-time only; W1-3 must decide whether dwell + delayOverride shift later ETAs.
+- POST waypoint still appends then forward-projects; mid-course inserts can snap near finish.
 - Strava OAuth / AI model port still need staging secrets design in W3.
 
 ## Successor prompt
 
 ```text
-Execute #364 (W1-1 API waypoint CRUD + tags). Do not start W1-2 until #364 is on main. Prefer fixtures/pacing/course-50k-with-aids.gpx. Do not edit this handoff file; leave a PR Handoff delta.
+Execute #367 (W1-2 stop-plan notes + delay overrides). New routes file; do not edit W1-1 checkpoint CRUD. Cover every EC row with GET-after-mutate. Do not edit agent-handoff.md.
 ```
