@@ -7,6 +7,8 @@ export type GuestStackParamList = {
   JoinAccount: { roomCode: string; displayName: string };
   AthleteSetup: undefined;
   Notifications: undefined;
+  /** __DEV__ only: fixture schedule sheet for simulator QA (crewcue://dev/schedule-sheet). */
+  DevScheduleSheet: undefined;
 };
 
 /** Primary map + race operations stack (Map tab). */
@@ -31,6 +33,8 @@ export type ReadoutsStackParamList = {
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
   CourseSettings: undefined;
+  /** Read-only crew schedule sheet (W1-4). */
+  ScheduleSheet: undefined;
   CourseRaceSetup:
     | {
         mode?: "create" | "edit";

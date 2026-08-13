@@ -427,3 +427,70 @@ test("listMyRaceRooms targets membership-scoped listing endpoint", async () => {
     globalThis.fetch = prev;
   }
 });
+
+test("getSchedule GETs /schedule and parses CrewScheduleSheet (EC1/EC5)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const fixture = {
+      roomId: "room-fixture-50k",
+      raceStartAt: "2026-08-15T13:00:00.000Z",
+      stops: [
+        {
+          id: "stop-start",
+          checkpointId: "start",
+          clockArrivalAt: "2026-08-15T13:00:00.000Z",
+          elapsedSeconds: 0,
+          plannedDwellSeconds: 0
+        },
+        {
+          id: "stop-aid-2",
+          checkpointId: "aid-2",
+          clockArrivalAt: "2026-08-15T15:20:00.000Z",
+          elapsedSeconds: 8400,
+          plannedDwellSeconds: 240,
+          delayOverrideSeconds: 120
+        }
+      ]
+    };
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      assert.equal(String(input), "https://api.example/race-rooms/room-fixture-50k/schedule");
+      assert.equal(init?.method, "GET");
+      const headers = init?.headers as Record<string, string>;
+      assert.equal(headers?.Authorization, "Bearer test-token");
+      return new Response(JSON.stringify(fixture), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const sheet = await client.getSchedule("room-fixture-50k");
+    assert.equal(sheet.roomId, "room-fixture-50k");
+    assert.equal(sheet.stops.length, 2);
+    assert.equal(sheet.stops[0]?.delayOverrideSeconds, undefined);
+    assert.equal(sheet.stops[1]?.delayOverrideSeconds, 120);
+    assert.equal(sheet.stops[1]?.clockArrivalAt, "2026-08-15T15:20:00.000Z");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("getSchedule surfaces API 400 body via ApiError (EC2)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: "raceStartAt required for schedule" }), {
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(
+      () => client.getSchedule("room-1"),
+      (err: unknown) =>
+        err instanceof ApiError && err.status === 400 && err.message === "raceStartAt required for schedule"
+    );
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
