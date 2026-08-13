@@ -57,7 +57,7 @@ async function withApp(
     tokenFor: (sub: string) => string;
   }) => Promise<void>
 ): Promise<void> {
-  resetActivityHistoryStoreForTests();
+  await resetActivityHistoryStoreForTests();
   const app = buildApp();
   await app.ready();
   try {
@@ -67,7 +67,7 @@ async function withApp(
     });
   } finally {
     await app.close();
-    resetActivityHistoryStoreForTests();
+    await resetActivityHistoryStoreForTests();
   }
 }
 
