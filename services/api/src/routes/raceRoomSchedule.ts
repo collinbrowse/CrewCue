@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   CrewScheduleSheet,
+  RaceCheckpointSplitRow,
   RaceCourseCheckpoint,
   RaceRoom,
   RaceRoomStopPlan,
@@ -8,7 +9,65 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
-import { evaluateEntitlement, getRaceRoom } from "./raceRooms.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom } from "./raceRooms.js";
+
+export type ProjectCrewScheduleSheetOptions = {
+  /**
+   * Closed-visit actual stop seconds by checkpoint id.
+   * Incomplete visits (arrival only / null actual) must be omitted — they do not shift ETAs;
+   * the sheet keeps planned dwell + delayOverride until a departure closes the visit.
+   */
+  closedActualStopSecondsByCheckpointId?: ReadonlyMap<string, number> | Readonly<Record<string, number>>;
+};
+
+/**
+ * Closed-visit actual stop seconds per checkpoint for schedule ETA reproject.
+ * Open/incomplete visits (`activeActualStopSeconds === null`) are ignored.
+ *
+ * Last-write-wins (not a sum): prefer the latest `manual_crew` closed visit; otherwise the
+ * latest closed auto visit. Summing would double-apply when a crew check-in coexists with a
+ * prior closed auto visit (or duplicate closed rows) — EC4.
+ */
+export function closedActualStopSecondsByCheckpointId(
+  splits: readonly RaceCheckpointSplitRow[]
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const split of splits) {
+    let latestManual: number | undefined;
+    let latestAnyClosed: number | undefined;
+    for (const visit of split.visits) {
+      const actual = visit.activeActualStopSeconds;
+      if (actual === null || actual === undefined || !Number.isFinite(actual)) {
+        continue;
+      }
+      latestAnyClosed = actual;
+      if (visit.resolvedSource === "manual_crew") {
+        latestManual = actual;
+      }
+    }
+    const chosen = latestManual ?? latestAnyClosed;
+    if (chosen !== undefined) {
+      map.set(split.checkpointId, chosen);
+    }
+  }
+  return map;
+}
+
+function lookupClosedActualSeconds(
+  byCheckpointId: ProjectCrewScheduleSheetOptions["closedActualStopSecondsByCheckpointId"],
+  checkpointId: string
+): number | undefined {
+  if (!byCheckpointId) {
+    return undefined;
+  }
+  if (byCheckpointId instanceof Map) {
+    const value = byCheckpointId.get(checkpointId);
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+  const record = byCheckpointId as Readonly<Record<string, number>>;
+  const value = record[checkpointId];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 async function requireRoomMember(
   app: FastifyInstance,
@@ -80,11 +139,18 @@ function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckp
 }
 
 /**
- * Build a crew schedule sheet from live checkpoints + stop-plan overlays.
- * Clock policy: moving time from distance/pace (or baseline); later arrivals add cumulative
- * prior planned dwell + delay overrides. A stop’s own dwell/delay does not shift its arrival.
+ * Build a crew schedule sheet from live checkpoints + stop-plan overlays + closed check-ins.
+ * Clock policy:
+ * - Moving time from distance/pace (or baseline); a stop’s own dwell/delay/actual does not shift its arrival.
+ * - Later arrivals add cumulative prior planned dwell + delay overrides, unless a **closed** visit exists
+ *   at a prior stop — then that stop contributes `actualStopSeconds` instead
+ *   (equiv. shift delta = actual − plannedDwell − delayOverride; no double-count of delay).
+ * - Incomplete visits (arrival only): omitted from closed-actual inputs → no ETA shift until departure.
  */
-export function projectCrewScheduleSheet(room: RaceRoom): CrewScheduleSheet {
+export function projectCrewScheduleSheet(
+  room: RaceRoom,
+  options?: ProjectCrewScheduleSheetOptions
+): CrewScheduleSheet {
   const course = room.course;
   if (!course) {
     throw new Error("course_required");
@@ -145,8 +211,14 @@ export function projectCrewScheduleSheet(room: RaceRoom): CrewScheduleSheet {
     }
     stops.push(stop);
 
-    cumulativePriorDwellSeconds +=
+    const plannedContribution =
       plannedDwellSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
+    const closedActual = lookupClosedActualSeconds(
+      options?.closedActualStopSecondsByCheckpointId,
+      checkpoint.id
+    );
+    // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
+    cumulativePriorDwellSeconds += closedActual !== undefined ? closedActual : plannedContribution;
   }
 
   return {
@@ -177,8 +249,25 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.code(400).send({ error: "plannedPaceSecondsPerKm required for schedule" });
     }
 
+    let closedActuals: ReturnType<typeof closedActualStopSecondsByCheckpointId> | undefined;
     try {
-      return reply.send(projectCrewScheduleSheet(room));
+      const projection = await getProjectionViewForRoom(roomId);
+      closedActuals = projection
+        ? closedActualStopSecondsByCheckpointId(projection.checkpointSplits)
+        : undefined;
+    } catch (error) {
+      // Do not conflate runtime hydrate failures with schedule math 400s, and do not
+      // silently drop check-in shifts (plan-only would be wrong after a closed visit).
+      request.log.warn({ err: error, roomId }, "schedule_closed_actuals_unavailable");
+      return reply.code(503).send({ error: "Schedule temporarily unavailable" });
+    }
+
+    try {
+      return reply.send(
+        projectCrewScheduleSheet(room, {
+          closedActualStopSecondsByCheckpointId: closedActuals
+        })
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {

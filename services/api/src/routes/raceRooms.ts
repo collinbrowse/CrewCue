@@ -2702,6 +2702,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(view);
   });
 
+  /**
+   * Closed manual check-in (arrival + departure). Feeds schedule reproject on GET /schedule:
+   * closed visits replace planned dwell + delayOverride for subsequent stop clocks
+   * (absolute latest closed actual per CP — LWW overwrite, no double-apply). Incomplete/open
+   * visits are not written here (both timestamps required); open auto visits also do not shift.
+   */
   app.post("/race-rooms/:roomId/checkpoints/:cpId/manual-stop", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -2765,7 +2771,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       actualStopSeconds: (departureMs - arrivalMs) / 1000,
       recordedByUserId: request.identity.sub
     };
-    const overlapVisit =
+    const overlapAutoVisit =
       split.visits.find(
         (visit) =>
           visit.autoDetected?.arrivalRecordedAt &&
@@ -2774,12 +2780,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             ? Date.parse(visit.autoDetected.departureRecordedAt)
             : Number.POSITIVE_INFINITY) >= arrivalMs
       ) ?? null;
-    if (overlapVisit) {
-      overlapVisit.manualEntry = manualEntry;
+    // Last-write-wins for schedule ETAs: prefer existing manual_crew, else overlapping auto,
+    // else latest closed visit (avoid appending beside a prior closed auto → double actual).
+    const existingManualVisit =
+      [...split.visits].reverse().find((visit) => visit.resolvedSource === "manual_crew" && visit.manualEntry) ??
+      null;
+    const latestClosedVisit =
+      [...split.visits]
+        .reverse()
+        .find(
+          (visit) =>
+            visit.activeActualStopSeconds !== null &&
+            visit.activeActualStopSeconds !== undefined &&
+            Number.isFinite(visit.activeActualStopSeconds)
+        ) ?? null;
+    const targetVisit = existingManualVisit ?? overlapAutoVisit ?? latestClosedVisit;
+    if (targetVisit) {
+      targetVisit.manualEntry = manualEntry;
       if (parsed.data.note) {
-        overlapVisit.note = parsed.data.note;
+        targetVisit.note = parsed.data.note;
       }
-      overlapVisit.resolvedSource = "manual_crew";
+      targetVisit.resolvedSource = "manual_crew";
     } else {
       split.visits.push({
         visitIndex: split.visits.length + 1,
