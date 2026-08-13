@@ -3,11 +3,12 @@ const guestLinkingBase = {
   Home: "guest"
 } as const;
 
-/** __DEV__ agent QA: fixture schedule / cold-start without Auth0. Omitted from production linking. */
+/** __DEV__ agent QA: fixture schedule / cold-start / crew-sheet export without Auth0. Omitted from production linking. */
 const guestDevLinkingScreens =
   typeof __DEV__ !== "undefined" && __DEV__
     ? ({
         DevScheduleSheet: "dev/schedule-sheet",
+        DevCrewSheetExport: "dev/crew-sheet-export",
         DevColdStart: "dev/cold-start"
       } as const)
     : ({} as const);
