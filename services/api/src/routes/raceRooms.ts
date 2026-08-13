@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   beginIdempotentMutation,
   completeIdempotentMutation,
@@ -7,28 +7,31 @@ import {
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
 import { z } from "zod";
-import type {
-  AthletePingHistoryEntry,
-  AthletePingRejectReason,
-  CheckpointVisit,
-  CheckpointVisitManualData,
-  CheckpointVisitSource,
-  CheckpointPlan,
-  CrewAssignment,
-  CrewTask,
-  CrewTaskStatus,
-  OpsTimelineEvent,
-  ProtocolNote,
-  MapWorkspaceLayer,
-  RaceMapWorkspace,
-  RaceRoom,
-  RaceRoomInvite,
-  RaceCheckpointSplitRow,
-  RaceRoomJoinPreview,
-  RaceRoomProjection,
-  RaceRoomProjectionCore,
-  RaceCourse,
-  Role
+import {
+  parseWaypointTags,
+  type AthletePingHistoryEntry,
+  type AthletePingRejectReason,
+  type CheckpointVisit,
+  type CheckpointVisitManualData,
+  type CheckpointVisitSource,
+  type CheckpointPlan,
+  type CrewAssignment,
+  type CrewTask,
+  type CrewTaskStatus,
+  type OpsTimelineEvent,
+  type ProtocolNote,
+  type MapWorkspaceLayer,
+  type RaceMapWorkspace,
+  type RaceRoom,
+  type RaceRoomInvite,
+  type RaceCheckpointSplitRow,
+  type RaceRoomJoinPreview,
+  type RaceRoomProjection,
+  type RaceRoomProjectionCore,
+  type RaceCourse,
+  type RaceCourseCheckpoint,
+  type Role,
+  type WaypointTag
 } from "@crewcue/contracts";
 import {
   buildDerivedMetricsFromPolyline,
@@ -102,6 +105,23 @@ const raceCourseCheckpointCutoffInput = z.discriminatedUnion("mode", [
   })
 ]);
 
+/**
+ * Closed waypoint tags (`aid` | `water` | `dropbag` | `crew`). Tags have no clock semantics;
+ * lat/lng stay degrees and distances stay meters. Empty list = untagged landmark. Invalid
+ * strings are rejected (no silent coerce).
+ */
+const waypointTagsInput = z.unknown().transform((value, ctx): WaypointTag[] => {
+  try {
+    return parseWaypointTags(value);
+  } catch (err) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: err instanceof Error ? err.message : "Invalid tags"
+    });
+    return z.NEVER;
+  }
+});
+
 const raceCourseCheckpointInput = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(200).optional(),
@@ -111,8 +131,29 @@ const raceCourseCheckpointInput = z.object({
   plannedStopSeconds: z.number().nonnegative().optional(),
   stoppageRadiusMeters: z.number().positive().optional(),
   slowdownThresholdRatio: z.number().positive().max(1).optional(),
-  cutoff: raceCourseCheckpointCutoffInput.optional()
+  cutoff: raceCourseCheckpointCutoffInput.optional(),
+  tags: waypointTagsInput.optional()
 });
+
+const patchRaceCheckpointInput = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    tags: waypointTagsInput.optional()
+  })
+  .refine((value) => value.title !== undefined || value.tags !== undefined, {
+    message: "Provide title and/or tags"
+  });
+
+const postRaceCheckpointInput = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(200).optional(),
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180),
+  tags: waypointTagsInput.optional()
+});
+
+const COURSE_ROUTE_LINE_REQUIRED_ERROR =
+  "Upload a GPX, JSON, or KML track with a full route line, or save the map workspace with a projection driving layer on a layer that contains the course polyline. Checkpoint-only courses are not supported.";
 
 const raceCourseBaselinePointInput = z.object({
   distanceMetersFromStart: z.number().finite().gte(0),
@@ -1339,6 +1380,123 @@ function courseDependentStateFingerprint(input: {
   });
 }
 
+function syncWorkspaceCheckpoints(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): RaceRoom {
+  if (!room.mapWorkspace) {
+    return room;
+  }
+  return {
+    ...room,
+    mapWorkspace: {
+      ...room.mapWorkspace,
+      checkpoints
+    }
+  };
+}
+
+async function requireCourseEditor(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  roomId: string
+): Promise<RaceRoom | undefined> {
+  if (!request.identity) {
+    await reply.code(401).send({ error: "Unauthorized" });
+    return undefined;
+  }
+  const room = await getRaceRoom(roomId);
+  if (!room) {
+    await reply.code(404).send({ error: "Race room not found" });
+    return undefined;
+  }
+  const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+  if (!membership) {
+    await reply.code(403).send({ error: "Forbidden" });
+    return undefined;
+  }
+  if (!getPermissions(membership.role).canEditRaceSetup) {
+    await reply.code(403).send({ error: "Insufficient permissions" });
+    return undefined;
+  }
+  const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+  if (!entitlement.allowed) {
+    await reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    return undefined;
+  }
+  return room;
+}
+
+function rebuildRoomCourseFromCheckpoints(
+  room: RaceRoom,
+  checkpoints: RaceCourseCheckpoint[]
+): { ok: true; room: RaceRoom } | { ok: false; error: string } {
+  if (!room.course || room.plannedPaceSecondsPerKm === undefined) {
+    return { ok: false, error: COURSE_ROUTE_LINE_REQUIRED_ERROR };
+  }
+  const routePts = resolveRouteMetricPointsFromRaceRoom(room);
+  if (!routePts) {
+    return { ok: false, error: COURSE_ROUTE_LINE_REQUIRED_ERROR };
+  }
+  let recomputedCourse: RaceCourse;
+  try {
+    recomputedCourse = recomputeCourseMetricsForSave({
+      course: { ...room.course, checkpoints },
+      plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+      routeMetricPoints: routePts
+    });
+  } catch {
+    return { ok: false, error: "Course route data is invalid or could not be processed." };
+  }
+  const updatedRoom: RaceRoom = {
+    ...room,
+    course: recomputedCourse,
+    courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters,
+    courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
+    courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters
+  };
+  return { ok: true, room: syncWorkspaceCheckpoints(updatedRoom, recomputedCourse.checkpoints) };
+}
+
+async function persistCourseShapeChange(
+  app: FastifyInstance,
+  roomId: string,
+  previousRoom: RaceRoom,
+  updatedRoom: RaceRoom
+): Promise<void> {
+  const nextCourse = updatedRoom.course;
+  const nextPace = updatedRoom.plannedPaceSecondsPerKm;
+  if (nextCourse && nextPace !== undefined) {
+    const shouldResetCourseDependentState = courseDependentStateNeedsReset({
+      previousRoom,
+      nextCourse,
+      nextPlannedPaceSecondsPerKm: nextPace,
+      nextCourseFileName: updatedRoom.courseFileName,
+      routeOverlayLayer: undefined
+    });
+    if (shouldResetCourseDependentState) {
+      clearTaskBoardLocalState(roomId);
+      await deleteTaskBoardPayload(roomId);
+      await deleteTaskBoardSnapshot(roomId);
+      await deleteWs4AdaptivePayload(roomId);
+      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+      clearWs4RoomLocalState(roomId);
+      await deleteWs5SyncPayload(roomId);
+      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+      clearWs5RoomLocalState(roomId);
+    }
+  }
+  await saveRaceRoom(updatedRoom);
+  if (!getOrInitPingState(roomId).lastAccepted) {
+    roomProjectionState.delete(roomId);
+  }
+  try {
+    await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
+  } catch (err) {
+    app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
+  }
+  await ensureBootstrapProjection(roomId, updatedRoom, true);
+  await saveWs2RuntimeSnapshot(roomId);
+}
+
 function courseDependentStateNeedsReset(input: {
   previousRoom: RaceRoom;
   nextCourse: RaceCourse;
@@ -1604,8 +1762,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       const routePts = resolveRouteMetricPointsForCoursePut(room, parsed.data.routeOverlayLayer);
       if (!routePts) {
         return reply.code(400).send({
-          error:
-            "Upload a GPX, JSON, or KML track with a full route line, or save the map workspace with a projection driving layer on a layer that contains the course polyline. Checkpoint-only courses are not supported."
+          error: COURSE_ROUTE_LINE_REQUIRED_ERROR
         });
       }
       try {
@@ -1684,6 +1841,113 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await releaseIdempotentMutation(request, parsed.data);
       }
     }
+  });
+
+  app.post("/race-rooms/:roomId/checkpoints", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = postRaceCheckpointInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid checkpoint payload" });
+    }
+
+    if (!room.course) {
+      return reply.code(400).send({ error: COURSE_ROUTE_LINE_REQUIRED_ERROR });
+    }
+    if (room.course.checkpoints.some((checkpoint) => checkpoint.id === parsed.data.id)) {
+      return reply.code(400).send({ error: `Checkpoint already exists: ${parsed.data.id}` });
+    }
+
+    const nextCheckpoint: RaceCourseCheckpoint = {
+      id: parsed.data.id,
+      latitude: parsed.data.latitude,
+      longitude: parsed.data.longitude,
+      ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+      ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
+    };
+    const rebuilt = rebuildRoomCourseFromCheckpoints(room, [...room.course.checkpoints, nextCheckpoint]);
+    if (!rebuilt.ok) {
+      return reply.code(400).send({ error: rebuilt.error });
+    }
+    await persistCourseShapeChange(app, roomId, room, rebuilt.room);
+    return reply.code(201).send(rebuilt.room);
+  });
+
+  app.patch("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { checkpointId: string }).checkpointId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = patchRaceCheckpointInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid checkpoint payload" });
+    }
+
+    const existing = room.course?.checkpoints.find((checkpoint) => checkpoint.id === checkpointId);
+    if (!room.course || !existing) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+
+    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
+      if (checkpoint.id !== checkpointId) {
+        return checkpoint;
+      }
+      return {
+        ...checkpoint,
+        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+        ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
+      };
+    });
+    const updatedRoom = syncWorkspaceCheckpoints(
+      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
+      nextCheckpoints
+    );
+    await saveRaceRoom(updatedRoom);
+    return reply.send(updatedRoom);
+  });
+
+  app.delete("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { checkpointId: string }).checkpointId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    if (!room.course) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+    if (!room.course.checkpoints.some((checkpoint) => checkpoint.id === checkpointId)) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+    const prevProjection = roomProjectionState.get(roomId);
+    if (prevProjection) {
+      const visitedIds = visitedCheckpointIdsFromStoredProjection(prevProjection);
+      if (visitedIds.has(checkpointId)) {
+        return reply.code(400).send({ error: `Cannot remove visited checkpoint: ${checkpointId}` });
+      }
+    }
+
+    const remaining = room.course.checkpoints.filter((checkpoint) => checkpoint.id !== checkpointId);
+    if (remaining.length < 2) {
+      return reply.code(400).send({ error: "Course must retain at least two checkpoints" });
+    }
+
+    const rebuilt = rebuildRoomCourseFromCheckpoints(room, remaining);
+    if (!rebuilt.ok) {
+      return reply.code(400).send({ error: rebuilt.error });
+    }
+    await persistCourseShapeChange(app, roomId, room, rebuilt.room);
+    return reply.send(rebuilt.room);
   });
 
   app.get("/race-rooms/:roomId/map-workspace", async (request, reply) => {
