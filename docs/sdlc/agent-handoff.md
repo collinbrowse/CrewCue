@@ -11,31 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-12 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 0 unlock complete; Wave 1 starting.
-- **Branch / PR:** none open for Wave 0. Next: W1-1 [#364](https://github.com/collinbrowse/CrewCue/issues/364).
-- **Active:** Execute W1-1 (API waypoint CRUD + tags).
+- Last updated: 2026-08-13 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — W1-1 merged; W1-2 next.
+- **Branch / PR:** coverage branch `cursor/missing-test-coverage-bc96` (PR pending).
+- **Active:** Coverage follow-up for #366 map-workspace waypoint tag path.
 
 ## Completed
 
 - W0-1 contracts DTOs (#361 / [#362](https://github.com/collinbrowse/CrewCue/pull/362)).
 - W0-2 fixture pack (#358 / [#363](https://github.com/collinbrowse/CrewCue/pull/363)); staff review aligned golden clocks to moving-time and history climb to parsed GPX.
 - W0-3 labels/milestone/epic (#359). Epic #360 still open.
+- W1-1 API waypoint CRUD + tags (#364 / [#366](https://github.com/collinbrowse/CrewCue/pull/366)).
+- Coverage follow-up: `services/api/src/routes/raceRooms.waypoints.test.ts` now covers `PUT /map-workspace` valid tag persistence and invalid-tag non-mutation. Validation: `npm run test:memory -w @crewcue/api`, `npm run verify`.
 
 ## Next 1-3 tasks
 
-1. Execute W1-1 #364 (course waypoint CRUD + tags).
-2. After #364 merges, mark W1-2 Ready (notes + delay overrides).
-3. W1-3 schedule sheet projection may start after W1-1 if it avoids `raceRooms.ts` waypoint handlers.
+1. Review/merge coverage PR for `cursor/missing-test-coverage-bc96`.
+2. Mark W1-2 Ready (notes + delay overrides).
+3. W1-3 schedule sheet projection may start if it avoids any active `raceRooms.ts` waypoint-handler PR.
 
 ## Open risks/blockers
 
 - Golden schedule clocks are moving-time only; W1-3 must decide whether dwell shifts later ETAs.
 - Long-trail fixture is synthetic (~4568 m gain); do not treat as a realistic athlete profile.
 - Strava OAuth / AI model port still need staging secrets design in W3.
+- Coverage automation cannot create the required GitHub issue in this environment because `gh` is read-only and no issue-creation MCP is available.
 
 ## Successor prompt
 
 ```text
-Execute #364 (W1-1 API waypoint CRUD + tags). Do not start W1-2 until #364 is on main. Prefer fixtures/pacing/course-50k-with-aids.gpx. Do not edit this handoff file; leave a PR Handoff delta.
+Review/merge the waypoint tag coverage PR on `cursor/missing-test-coverage-bc96`, then mark W1-2 Ready (notes + delay overrides). Keep any W1-3 schedule projection work clear of active `raceRooms.ts` waypoint-handler changes.
 ```
