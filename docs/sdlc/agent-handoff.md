@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-13 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — W1-1 merged; W1-2 next.
-- **Branch / PR:** coverage branch `cursor/missing-test-coverage-bc96` (PR pending).
+- **Branch / PR:** coverage branch `cursor/missing-test-coverage-bc96` / [#369](https://github.com/collinbrowse/CrewCue/pull/369).
 - **Active:** Coverage follow-up for #366 map-workspace waypoint tag path.
 
 ## Completed
@@ -26,7 +26,7 @@
 
 ## Next 1-3 tasks
 
-1. Review/merge coverage PR for `cursor/missing-test-coverage-bc96`.
+1. Review/merge coverage PR [#369](https://github.com/collinbrowse/CrewCue/pull/369).
 2. Mark W1-2 Ready (notes + delay overrides).
 3. W1-3 schedule sheet projection may start if it avoids any active `raceRooms.ts` waypoint-handler PR.
 
@@ -40,5 +40,5 @@
 ## Successor prompt
 
 ```text
-Review/merge the waypoint tag coverage PR on `cursor/missing-test-coverage-bc96`, then mark W1-2 Ready (notes + delay overrides). Keep any W1-3 schedule projection work clear of active `raceRooms.ts` waypoint-handler changes.
+Review/merge waypoint tag coverage PR #369, then mark W1-2 Ready (notes + delay overrides). Keep any W1-3 schedule projection work clear of active `raceRooms.ts` waypoint-handler changes.
 ```
