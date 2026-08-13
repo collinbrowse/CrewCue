@@ -101,12 +101,19 @@ async function ensureReady(): Promise<void> {
   await initActivityHistoryStore(NOOP_LOGGER);
 }
 
-/** Test helper: clear in-memory rows between cases. */
-export function resetActivityHistoryStoreForTests(): void {
+/**
+ * Test helper: clear in-memory rows and truncate Postgres table between cases.
+ * Must be awaited under PERSISTENCE_MODE=postgres (EC isolation for `test:pg`).
+ */
+export async function resetActivityHistoryStoreForTests(): Promise<void> {
   memoryByKey.clear();
   memoryIdIndex.clear();
   initialized = false;
   initPromise = null;
+  if (pool) {
+    await initActivityHistoryStore(NOOP_LOGGER);
+    await pool.query("TRUNCATE TABLE activity_history_json");
+  }
 }
 
 export type UpsertActivityHistoryResult = {
