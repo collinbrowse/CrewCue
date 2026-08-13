@@ -12,22 +12,21 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 3 feature packages complete; Wave 3 integration next.
-- **Branch / PR:** W3-4 [#404](https://github.com/collinbrowse/CrewCue/pull/404) and W3-5 [#405](https://github.com/collinbrowse/CrewCue/pull/405) merged (`Closes #401`, `Closes #402`).
-- **Active next:** Execute W3-I [#406](https://github.com/collinbrowse/CrewCue/issues/406).
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 3 complete; Wave 4 next.
+- **Branch / PR:** W3-I `feature/406-w3-integration` (open PR `Closes #406`).
+- **Active next:** Execute W4-1 [#408](https://github.com/collinbrowse/CrewCue/issues/408) (`agent-ready`).
 
 ## Completed
 
 - Wave 0–2; W2-I (#391 / #394).
-- W3-1 GPX history ingest (#393 / #396); W3-3 deterministic estimates (#398 / #400).
-- W3-4 estimate → schedule plan of record (#401 / #404).
-- W3-5 cold-start UX + `crewcue://dev/cold-start` (#402 / #405).
+- Wave 3: W3-1 history ingest, W3-3 estimates, W3-4 plan-of-record, W3-5 cold-start UX.
+- W3-I (#406): API E2E history → estimate → schedule; DEV cold-start smoke; Wave 4 unlock.
 - W3-2 Strava OAuth deferred (optional / secrets).
 
 ## Next 1-3 tasks
 
-1. Execute W3-I #406 (history → estimate → schedule + cold-start smoke; unlock Wave 4).
-2. After W3-I: Ready+implement W4-1 (cutoff warnings).
+1. Execute W4-1 #408 (cutoff warnings on schedule / projection).
+2. Ready W4-2 (confidence / A-B bands) after W4-1 path stable.
 3. Optionally Ready W3-2 (Strava) if staging secrets available.
 
 ## Open risks/blockers
@@ -40,5 +39,5 @@
 ## Successor prompt
 
 ```text
-Execute #406 (W3-I). Prove history → estimate → schedule attach + DEV cold-start smoke. Update agent-handoff.md. File/mark W4-1 agent-ready. PR with Closes #406. Do not implement Wave 4 features.
+Execute #408 (W4-1). Cutoff warnings on schedule projection (on/under/over). Additive contracts only. Cover every edge-case row. PR with Closes #408. Do not edit agent-handoff.md. Do not merge. Do not implement W4-2/W4-3.
 ```
