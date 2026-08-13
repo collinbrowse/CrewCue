@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-13 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 2 complete; Wave 3 next (W3-1 history ingest).
-- **Branch / PR:** W2-I [#394](https://github.com/collinbrowse/CrewCue/pull/394) (`feature/391-w2-integration`, Closes #391) — open, do not merge until review.
+- **Branch / PR:** W2-I [#394](https://github.com/collinbrowse/CrewCue/pull/394) merged (`Closes #391`).
 - **Active next:** Execute W3-1 [#393](https://github.com/collinbrowse/CrewCue/issues/393) (`agent-ready`).
 
 ## Completed
