@@ -21,6 +21,10 @@ import {
   PacingEstimateCourseError,
   deterministicPacingEstimator
 } from "../lib/pacingEstimate/index.js";
+import {
+  initPacingEstimateStore,
+  savePacingEstimate
+} from "../lib/pacingEstimateStore.js";
 
 const checkpointInput = z
   .object({
@@ -78,6 +82,7 @@ async function resolveHistory(
 
 export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> {
   await initActivityHistoryStore(app.log);
+  await initPacingEstimateStore(app.log);
 
   app.post("/pacing-estimates", async (request, reply) => {
     if (!request.identity) {
@@ -117,7 +122,9 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         history: historyResult.history,
         seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED
       });
-      return reply.code(200).send(parsePacingEstimate(estimate));
+      const parsed = parsePacingEstimate(estimate);
+      await savePacingEstimate(athleteUserId, parsed);
+      return reply.code(200).send(parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });
