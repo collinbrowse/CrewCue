@@ -224,3 +224,22 @@ test("crew schedule sheet parses fixture-shaped JSON including optional delay an
     /invalid band: heat/
   );
 });
+
+test("W4-1: cutoffStatus + cutoffMarginSeconds are additive and parsed together", () => {
+  const stop = parseScheduleStop({
+    ...requiredStop(),
+    cutoffStatus: "warn",
+    cutoffMarginSeconds: 420
+  });
+  assert.equal(stop.cutoffStatus, "warn");
+  assert.equal(stop.cutoffMarginSeconds, 420);
+
+  assert.throws(
+    () => parseScheduleStop({ ...requiredStop(), cutoffStatus: "ok" }),
+    /must both be present/
+  );
+  assert.throws(
+    () => parseScheduleStop({ ...requiredStop(), cutoffStatus: "late", cutoffMarginSeconds: 1 }),
+    /must be ok, warn, or breach/
+  );
+});

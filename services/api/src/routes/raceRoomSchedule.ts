@@ -12,6 +12,7 @@ import type {
 } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
 import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
+import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
   initPacingEstimateStore,
@@ -312,10 +313,11 @@ export function projectCrewScheduleSheet(
       );
     const elapsedSeconds = movingSeconds + cumulativePriorDwellSeconds;
     const notes = notesRefFromOverlay(overlay);
+    const clockArrivalAt = new Date(raceStartMs + elapsedSeconds * 1000).toISOString();
     const stop: ScheduleStop = {
       id: `stop-${checkpoint.id}`,
       checkpointId: checkpoint.id,
-      clockArrivalAt: new Date(raceStartMs + elapsedSeconds * 1000).toISOString(),
+      clockArrivalAt,
       elapsedSeconds,
       plannedDwellSeconds
     };
@@ -324,6 +326,15 @@ export function projectCrewScheduleSheet(
     }
     if (notes) {
       stop.notes = notes;
+    }
+    const cutoffWarning = compareProjectedArrivalToCutoff({
+      cutoff: checkpoint.cutoff,
+      raceStartAtMs: raceStartMs,
+      clockArrivalAtMs: raceStartMs + elapsedSeconds * 1000
+    });
+    if (cutoffWarning) {
+      stop.cutoffStatus = cutoffWarning.cutoffStatus;
+      stop.cutoffMarginSeconds = cutoffWarning.cutoffMarginSeconds;
     }
     stops.push(stop);
 
