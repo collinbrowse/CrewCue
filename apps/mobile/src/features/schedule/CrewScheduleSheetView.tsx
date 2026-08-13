@@ -1,5 +1,5 @@
 import type { CrewScheduleSheet, PacingEstimate, ScheduleStop } from "@crewcue/contracts";
-import { useMemo, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -13,7 +13,12 @@ import { DSCard, useDSTheme, type DSThemeTokens } from "../../design-system";
 import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
 import { CheckInEditor } from "./CheckInEditor";
 import { ColdStartEstimatePanel } from "./ColdStartEstimatePanel";
+import {
+  buildCrewSheetExportText,
+  type CrewSheetNoteBodies
+} from "./crewSheetExport";
 import { formatDurationSeconds, formatScheduleClock } from "./formatSchedule";
+import { shareCrewSheetText } from "./shareCrewSheet";
 import { StopPlanEditor } from "./StopPlanEditor";
 
 export function stopAccessibilityLabel(
@@ -69,6 +74,13 @@ export type CrewScheduleSheetViewProps = {
   addingHistory?: boolean;
   onAddHistory?: () => void;
   estimateError?: string;
+  /**
+   * Optional note bodies for offline crew-sheet export when the sheet only has note ids.
+   * Export builds plaintext from the in-memory sheet (no network refetch).
+   */
+  noteBodiesByCheckpointId?: ReadonlyMap<string, CrewSheetNoteBodies>;
+  /** When false, hide Share / print. Default true when a sheet model is available. */
+  showCrewSheetExport?: boolean;
 };
 
 /**
@@ -82,6 +94,33 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
   const titleByCheckpointId = props.titleByCheckpointId ?? new Map<string, string>();
   const canEdit = props.canEditStopPlans === true;
   const canCheckIn = props.canEditCheckIn === true;
+  const showExport = props.showCrewSheetExport !== false;
+  const [exportStatus, setExportStatus] = useState<string | undefined>(undefined);
+  const [exporting, setExporting] = useState(false);
+
+  const onShareCrewSheet = useCallback(async () => {
+    if (exporting) {
+      return;
+    }
+    setExporting(true);
+    setExportStatus(undefined);
+    try {
+      const message = buildCrewSheetExportText(props.sheet, {
+        titleByCheckpointId,
+        noteBodiesByCheckpointId: props.noteBodiesByCheckpointId
+      });
+      const result = await shareCrewSheetText(message);
+      if (result.ok) {
+        setExportStatus("Crew sheet shared (offline snapshot).");
+      } else if (result.reason === "dismissed") {
+        setExportStatus(undefined);
+      } else {
+        setExportStatus(result.message ?? "Could not open share sheet.");
+      }
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, props.sheet, props.noteBodiesByCheckpointId, titleByCheckpointId]);
 
   if (props.emptyRoomMessage && !props.sheet && !props.loading && !props.error) {
     return (
@@ -125,7 +164,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
-      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}:${props.pacingEstimate?.id ?? ""}:${props.pacingEstimate?.coldStart ? "1" : "0"}:${props.addingHistory ? "1" : "0"}:${props.estimateError ?? ""}`}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}:${props.pacingEstimate?.id ?? ""}:${props.pacingEstimate?.coldStart ? "1" : "0"}:${props.addingHistory ? "1" : "0"}:${props.estimateError ?? ""}:${exporting ? "1" : "0"}:${exportStatus ?? ""}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
       keyboardShouldPersistTaps="handled"
@@ -154,6 +193,27 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
               Race start {formatScheduleClock(props.sheet.raceStartAt)} · times from the server (not
               recomputed on device)
             </Text>
+            {showExport ? (
+              <Pressable
+                onPress={() => {
+                  void onShareCrewSheet();
+                }}
+                disabled={exporting}
+                accessibilityRole="button"
+                accessibilityLabel="Share crew sheet"
+                accessibilityHint="Exports an offline plaintext snapshot of this schedule"
+                style={styles.shareBtn}
+              >
+                <Text style={styles.shareLabel}>
+                  {exporting ? "Preparing share…" : "Share / print crew sheet"}
+                </Text>
+              </Pressable>
+            ) : null}
+            {exportStatus ? (
+              <Text style={styles.exportStatus} accessibilityLabel="Crew sheet export status">
+                {exportStatus}
+              </Text>
+            ) : null}
             {!canEdit && !canCheckIn ? (
               <Text style={styles.readOnlyHint} accessibilityLabel="Schedule read only">
                 Stop delay, notes, and check-in are read-only for your role.
@@ -327,6 +387,25 @@ function createStyles(theme: DSThemeTokens) {
     subtitle: {
       color: theme.color.body,
       lineHeight: 20
+    },
+    shareBtn: {
+      alignSelf: "flex-start",
+      marginTop: 8,
+      backgroundColor: theme.color.secondaryButton,
+      borderRadius: theme.radius.md,
+      minHeight: theme.spacing.touchTargetMin,
+      paddingHorizontal: 14,
+      justifyContent: "center"
+    },
+    shareLabel: {
+      color: theme.color.text,
+      fontWeight: "700"
+    },
+    exportStatus: {
+      color: theme.color.body,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 4
     },
     readOnlyHint: {
       color: theme.color.body,

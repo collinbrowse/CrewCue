@@ -36,6 +36,14 @@ export function GuestStack(): ReactElement {
           options={{ headerShown: true, title: "Crew schedule (DEV)" }}
         />
       ) : null}
+      {/* __DEV__ agent QA: crewcue://dev/crew-sheet-export — same fixture, export-focused entry */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevCrewSheetExport"
+          component={DevScheduleSheetFixtureScreen}
+          options={{ headerShown: true, title: "Crew sheet export (DEV)" }}
+        />
+      ) : null}
       {/* __DEV__ agent QA: crewcue://dev/cold-start — not an Auth0 bypass */}
       {__DEV__ ? (
         <Stack.Screen

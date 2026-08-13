@@ -36,6 +36,20 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
     [baseSheet, overlays, closedActuals]
   );
 
+  const noteBodiesByCheckpointId = useMemo(() => {
+    const map = new Map<string, { athleteNotes?: string; planNotes?: string }>();
+    for (const [checkpointId, overlay] of overlays) {
+      if (!overlay.athleteNotes && !overlay.planNotes) {
+        continue;
+      }
+      map.set(checkpointId, {
+        ...(overlay.athleteNotes ? { athleteNotes: overlay.athleteNotes.body } : {}),
+        ...(overlay.planNotes ? { planNotes: overlay.planNotes.body } : {})
+      });
+    }
+    return map;
+  }, [overlays]);
+
   const [editingCheckpointId, setEditingCheckpointId] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
@@ -177,6 +191,7 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
         sheet={sheet}
         loading={false}
         titleByCheckpointId={titleByCheckpointId}
+        noteBodiesByCheckpointId={noteBodiesByCheckpointId}
         canEditStopPlans
         editingCheckpointId={editingCheckpointId}
         onEditStop={(id) => {
