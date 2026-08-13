@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  ApiError,
   createApiClient,
   type StopPlanResponse,
   type UpsertStopPlanInput
@@ -38,6 +37,8 @@ export function CrewScheduleSheetScreen(): ReactElement {
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>(undefined);
+  /** Sheet-level action errors when the inline editor is closed (failed plan load / post-save refetch). */
+  const [actionError, setActionError] = useState<string | undefined>(undefined);
 
   const client = useMemo(() => {
     if (!s.auth.accessToken) {
@@ -61,6 +62,7 @@ export function CrewScheduleSheetScreen(): ReactElement {
         setRefreshing(true);
       }
       setError(undefined);
+      setActionError(undefined);
       try {
         const next = await client.getSchedule(room.id);
         setSheet(next);
@@ -96,14 +98,17 @@ export function CrewScheduleSheetScreen(): ReactElement {
       }
       setEditingCheckpointId(checkpointId);
       setSaveError(undefined);
+      setActionError(undefined);
       setLoadingPlan(true);
       setEditingPlan(null);
       try {
         const plan = await client.getStopPlan(room.id, checkpointId);
         setEditingPlan(plan);
       } catch (err) {
-        setSaveError(mapStopPlanWriteError(err));
-        setEditingPlan({ roomId: room.id, checkpointId });
+        // Do not open an empty editor on load failure — that can overwrite existing notes.
+        setEditingCheckpointId(null);
+        setEditingPlan(null);
+        setActionError(mapStopPlanWriteError(err));
       } finally {
         setLoadingPlan(false);
       }
@@ -118,18 +123,24 @@ export function CrewScheduleSheetScreen(): ReactElement {
       }
       setSavingPlan(true);
       setSaveError(undefined);
+      setActionError(undefined);
       try {
         await write();
-        await refetchAfterWrite();
-        setEditingCheckpointId(null);
-        setEditingPlan(null);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 400) {
-          setSaveError(mapStopPlanWriteError(err));
-        } else {
-          setSaveError(mapStopPlanWriteError(err));
+        // Close editor only after write succeeds; keep overlay/sheet on write failure (EC2).
+        try {
+          await refetchAfterWrite();
+          setEditingCheckpointId(null);
+          setEditingPlan(null);
+        } catch (refetchErr) {
+          // Persist succeeded; clocks may be stale until pull-to-refresh.
+          setEditingCheckpointId(null);
+          setEditingPlan(null);
+          setActionError(
+            `${mapScheduleFetchError(refetchErr)} Pull to refresh to update schedule clocks.`
+          );
         }
-        // Overlay / sheet unchanged on failure (EC2).
+      } catch (err) {
+        setSaveError(mapStopPlanWriteError(err));
       } finally {
         setSavingPlan(false);
       }
@@ -219,11 +230,13 @@ export function CrewScheduleSheetScreen(): ReactElement {
         setEditingCheckpointId(null);
         setEditingPlan(null);
         setSaveError(undefined);
+        setActionError(undefined);
       }}
       editingPlan={editingPlan}
       loadingPlan={loadingPlan}
       savingPlan={savingPlan}
       saveError={saveError}
+      actionError={actionError}
       onSaveStopPlan={onSaveStopPlan}
       onClearStopDelay={onClearStopDelay}
       onClearAthleteNotes={onClearAthleteNotes}

@@ -47,6 +47,8 @@ export type CrewScheduleSheetViewProps = {
   loadingPlan?: boolean;
   savingPlan?: boolean;
   saveError?: string;
+  /** Shown in the sheet header when the inline editor is closed (e.g. failed plan load). */
+  actionError?: string;
   onSaveStopPlan?: (checkpointId: string, input: UpsertStopPlanInput) => void;
   onClearStopDelay?: (checkpointId: string) => void;
   onClearAthleteNotes?: (checkpointId: string) => void;
@@ -107,7 +109,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
-      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}`}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.actionError ?? ""}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
       keyboardShouldPersistTaps="handled"
@@ -131,6 +133,11 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
             {!canEdit ? (
               <Text style={styles.readOnlyHint} accessibilityLabel="Schedule read only">
                 Stop delay and notes are read-only for your role.
+              </Text>
+            ) : null}
+            {props.actionError ? (
+              <Text style={styles.actionError} accessibilityLabel="Stop plan action error">
+                {props.actionError}
               </Text>
             ) : null}
           </View>
@@ -262,6 +269,12 @@ function createStyles(theme: DSThemeTokens) {
       color: theme.color.body,
       fontSize: 13,
       marginTop: 4
+    },
+    actionError: {
+      color: theme.color.danger,
+      fontSize: 13,
+      lineHeight: 18,
+      marginTop: 6
     },
     body: {
       color: theme.color.body,
