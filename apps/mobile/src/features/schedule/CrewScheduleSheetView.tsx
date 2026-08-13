@@ -10,7 +10,9 @@ import {
   View
 } from "react-native";
 import { DSCard, useDSTheme, type DSThemeTokens } from "../../design-system";
+import type { StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
 import { formatDurationSeconds, formatScheduleClock } from "./formatSchedule";
+import { StopPlanEditor } from "./StopPlanEditor";
 
 export function stopAccessibilityLabel(
   title: string,
@@ -36,16 +38,32 @@ export type CrewScheduleSheetViewProps = {
   onRefresh?: () => void;
   /** Optional empty-room / setup copy when there is no sheet yet and no error. */
   emptyRoomMessage?: string;
+  /** Course editors can mutate stop-plan overlays; others stay read-only. */
+  canEditStopPlans?: boolean;
+  editingCheckpointId?: string | null;
+  onEditStop?: (checkpointId: string) => void;
+  onCancelEdit?: () => void;
+  editingPlan?: StopPlanResponse | null;
+  loadingPlan?: boolean;
+  savingPlan?: boolean;
+  saveError?: string;
+  onSaveStopPlan?: (checkpointId: string, input: UpsertStopPlanInput) => void;
+  onClearStopDelay?: (checkpointId: string) => void;
+  onClearAthleteNotes?: (checkpointId: string) => void;
+  onClearPlanNotes?: (checkpointId: string) => void;
+  onClearStopPlan?: (checkpointId: string) => void;
 };
 
 /**
- * Presentational crew schedule sheet (read-only). Formats API clocks/durations only —
- * does not recompute arrival from elapsed + raceStartAt.
+ * Presentational crew schedule sheet. Formats API clocks/durations only —
+ * does not recompute arrival from elapsed + raceStartAt after live saves
+ * (parent refetches `getSchedule`). DEV fixture may supply an updated sheet.
  */
 export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactElement {
   const theme = useDSTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const titleByCheckpointId = props.titleByCheckpointId ?? new Map<string, string>();
+  const canEdit = props.canEditStopPlans === true;
 
   if (props.emptyRoomMessage && !props.sheet && !props.loading && !props.error) {
     return (
@@ -89,8 +107,10 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
+      keyboardShouldPersistTaps="handled"
       refreshControl={
         props.onRefresh ? (
           <RefreshControl
@@ -108,6 +128,11 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
               Race start {formatScheduleClock(props.sheet.raceStartAt)} · times from the server (not
               recomputed on device)
             </Text>
+            {!canEdit ? (
+              <Text style={styles.readOnlyHint} accessibilityLabel="Schedule read only">
+                Stop delay and notes are read-only for your role.
+              </Text>
+            ) : null}
           </View>
         ) : null
       }
@@ -122,20 +147,71 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
         const elapsedLabel = formatDurationSeconds(item.elapsedSeconds);
         const dwellLabel = formatDurationSeconds(item.plannedDwellSeconds);
         const hasDelay = typeof item.delayOverrideSeconds === "number";
+        const isEditing = props.editingCheckpointId === item.checkpointId;
+        const noteBits: string[] = [];
+        if (item.notes?.athleteNotesId) {
+          noteBits.push("athlete notes");
+        }
+        if (item.notes?.planNotesId) {
+          noteBits.push("plan notes");
+        }
+        // When editors can act, keep the row non-accessible so Edit/Save controls stay
+        // individually discoverable for VoiceOver / XcodeBuildMCP (parent accessible merges children).
+        const rowAccessible = !canEdit && !isEditing;
         return (
           <View
-            accessible
-            accessibilityLabel={stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, dwellLabel)}
+            accessible={rowAccessible}
+            accessibilityLabel={
+              rowAccessible
+                ? stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, dwellLabel)
+                : undefined
+            }
           >
             <DSCard style={styles.row}>
-              <Text style={styles.rowTitle}>
+              <Text
+                style={styles.rowTitle}
+                accessibilityLabel={stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, dwellLabel)}
+              >
                 {index + 1}. {title}
               </Text>
               <Text style={styles.meta}>Arrival {clockLabel}</Text>
               <Text style={styles.meta}>Elapsed {elapsedLabel}</Text>
               <Text style={styles.meta}>Dwell {dwellLabel}</Text>
               {hasDelay ? (
-                <Text style={styles.delay}>Delay {formatDurationSeconds(item.delayOverrideSeconds!)}</Text>
+                <Text style={styles.delay} accessibilityLabel={`Delay ${item.delayOverrideSeconds} seconds`}>
+                  Delay {formatDurationSeconds(item.delayOverrideSeconds!)}
+                </Text>
+              ) : null}
+              {noteBits.length > 0 ? (
+                <Text style={styles.meta}>Notes: {noteBits.join(", ")}</Text>
+              ) : null}
+
+              {canEdit && !isEditing && props.onEditStop ? (
+                <Pressable
+                  onPress={() => props.onEditStop?.(item.checkpointId)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit stop delay"
+                  style={styles.editBtn}
+                >
+                  <Text style={styles.editLabel}>Edit delay & notes</Text>
+                </Pressable>
+              ) : null}
+
+              {isEditing && props.onSaveStopPlan && props.onCancelEdit ? (
+                <StopPlanEditor
+                  checkpointId={item.checkpointId}
+                  plan={props.editingPlan ?? null}
+                  loadingPlan={Boolean(props.loadingPlan)}
+                  saving={Boolean(props.savingPlan)}
+                  error={props.saveError}
+                  canEdit={canEdit}
+                  onSave={(input) => props.onSaveStopPlan?.(item.checkpointId, input)}
+                  onClearDelay={() => props.onClearStopDelay?.(item.checkpointId)}
+                  onClearAthleteNotes={() => props.onClearAthleteNotes?.(item.checkpointId)}
+                  onClearPlanNotes={() => props.onClearPlanNotes?.(item.checkpointId)}
+                  onClearAll={() => props.onClearStopPlan?.(item.checkpointId)}
+                  onCancel={() => props.onCancelEdit?.()}
+                />
               ) : null}
             </DSCard>
           </View>
@@ -182,6 +258,11 @@ function createStyles(theme: DSThemeTokens) {
       color: theme.color.body,
       lineHeight: 20
     },
+    readOnlyHint: {
+      color: theme.color.body,
+      fontSize: 13,
+      marginTop: 4
+    },
     body: {
       color: theme.color.body,
       lineHeight: 22
@@ -224,6 +305,16 @@ function createStyles(theme: DSThemeTokens) {
       fontWeight: "600",
       marginTop: 4,
       lineHeight: 20
+    },
+    editBtn: {
+      alignSelf: "flex-start",
+      marginTop: 10,
+      minHeight: theme.spacing.touchTargetMin,
+      justifyContent: "center"
+    },
+    editLabel: {
+      color: theme.color.primary,
+      fontWeight: "700"
     }
   });
 }

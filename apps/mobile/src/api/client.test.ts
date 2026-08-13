@@ -494,3 +494,220 @@ test("getSchedule surfaces API 400 body via ApiError (EC2)", async () => {
     globalThis.fetch = prev;
   }
 });
+
+test("patchStopPlan omits unspecified fields and PATCHes partial body (EC1)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    let body: unknown;
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      assert.equal(String(input), "https://api.example/race-rooms/room-1/stop-plans/aid-1");
+      assert.equal(init?.method, "PATCH");
+      body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          roomId: "room-1",
+          checkpointId: "aid-1",
+          delayOverrideSeconds: 90,
+          planNotes: { id: "note-1", body: "keep me" }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    };
+
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const result = await client.patchStopPlan("room-1", "aid-1", { delayOverrideSeconds: 90 });
+    assert.deepEqual(body, { delayOverrideSeconds: 90 });
+    assert.equal(result.delayOverrideSeconds, 90);
+    assert.equal(result.planNotes?.body, "keep me");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("patchStopPlan rejects negative delay before fetch (EC2)", async () => {
+  const prev = globalThis.fetch;
+  let fetched = false;
+  try {
+    globalThis.fetch = async () => {
+      fetched = true;
+      return new Response("{}", { status: 200 });
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(
+      () => client.patchStopPlan("room-1", "aid-1", { delayOverrideSeconds: -1 }),
+      (err: unknown) =>
+        err instanceof ApiError && err.status === 400 && err.message === "Invalid stop-plan payload"
+    );
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("putStopPlan empty object does not send clear nulls (EC7 contrast)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    let body: unknown;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      assert.equal(init?.method, "PUT");
+      body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ roomId: "room-1", checkpointId: "aid-1", delayOverrideSeconds: 120 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.putStopPlan("room-1", "aid-1", {});
+    assert.deepEqual(body, {});
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("patchStopPlan clears delay/notes via null (EC7)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    let body: unknown;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ roomId: "room-1", checkpointId: "aid-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.patchStopPlan("room-1", "aid-1", {
+      delayOverrideSeconds: null,
+      athleteNotes: null,
+      planNotes: null
+    });
+    assert.deepEqual(body, {
+      delayOverrideSeconds: null,
+      athleteNotes: null,
+      planNotes: null
+    });
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("clearStopPlan DELETEs overlay (EC7)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      assert.equal(String(input), "https://api.example/race-rooms/room-1/stop-plans/aid-2");
+      assert.equal(init?.method, "DELETE");
+      assert.equal(init?.body, undefined);
+      return new Response(JSON.stringify({ roomId: "room-1", checkpointId: "aid-2" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const result = await client.clearStopPlan("room-1", "aid-2");
+    assert.equal(result.checkpointId, "aid-2");
+    assert.equal(result.delayOverrideSeconds, undefined);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("patchStopPlan surfaces 403 unauthorized (EC3)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "content-type": "application/json" }
+      });
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(
+      () => client.patchStopPlan("room-1", "aid-1", { delayOverrideSeconds: 30 }),
+      (err: unknown) => err instanceof ApiError && err.status === 403
+    );
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("patchStopPlan surfaces network failure without silent success (EC4)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => {
+      throw new TypeError("Failed to fetch — network offline");
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await assert.rejects(() => client.patchStopPlan("room-1", "aid-1", { delayOverrideSeconds: 30 }));
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("patchStopPlan duplicate save keeps stable note id (EC5)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    const calls: unknown[] = [];
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          roomId: "room-1",
+          checkpointId: "aid-1",
+          planNotes: { id: "note-stable", body: "same" }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const input = { planNotes: { id: "note-stable", body: "same" } };
+    const first = await client.patchStopPlan("room-1", "aid-1", input);
+    const second = await client.patchStopPlan("room-1", "aid-1", input);
+    assert.equal(calls.length, 2);
+    assert.equal(first.planNotes?.id, "note-stable");
+    assert.equal(second.planNotes?.id, "note-stable");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("getStopPlan / patchStopPlan delay unit is seconds; clocks remain ISO from schedule (EC6)", async () => {
+  const prev = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/stop-plans/aid-2") && init?.method === "GET") {
+        return new Response(
+          JSON.stringify({ roomId: "room-1", checkpointId: "aid-2", delayOverrideSeconds: 120 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (url.endsWith("/schedule")) {
+        return new Response(
+          JSON.stringify({
+            roomId: "room-1",
+            raceStartAt: "2026-08-15T13:00:00.000Z",
+            stops: [
+              {
+                id: "stop-aid-2",
+                checkpointId: "aid-2",
+                clockArrivalAt: "2026-08-15T15:20:00.000Z",
+                elapsedSeconds: 8400,
+                plannedDwellSeconds: 240,
+                delayOverrideSeconds: 120
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      throw new Error(`unexpected ${url}`);
+    };
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const plan = await client.getStopPlan("room-1", "aid-2");
+    assert.equal(plan.delayOverrideSeconds, 120);
+    const sheet = await client.getSchedule("room-1");
+    assert.equal(sheet.stops[0]?.clockArrivalAt, "2026-08-15T15:20:00.000Z");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

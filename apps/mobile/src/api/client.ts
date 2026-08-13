@@ -13,6 +13,7 @@ import {
   type CrewScheduleSheet,
   type CrewTask,
   type ExplainabilityRecord,
+  type StopPlanNote,
   type IncidentCategory,
   type IncidentEvent,
   type IncidentSeverity,
@@ -171,6 +172,40 @@ export type UpdateRaceCourseInput = {
   courseFileName?: string;
   routeOverlayLayer?: MapWorkspaceLayer;
 };
+
+/** Note body for stop-plan upsert. Empty/whitespace body clears that notes field on the API. */
+export type StopPlanNoteInput = {
+  id?: string;
+  body: string;
+};
+
+/**
+ * Partial stop-plan upsert (PUT/PATCH). Omit fields to leave unchanged.
+ * Explicit `null` clears delay or a notes field. PUT `{}` does not clear (server semantics).
+ */
+export type UpsertStopPlanInput = {
+  delayOverrideSeconds?: number | null;
+  athleteNotes?: StopPlanNoteInput | null;
+  planNotes?: StopPlanNoteInput | null;
+};
+
+export type StopPlanResponse = {
+  roomId: string;
+  checkpointId: string;
+  delayOverrideSeconds?: number;
+  athleteNotes?: StopPlanNote;
+  planNotes?: StopPlanNote;
+};
+
+/** Reject negative / non-finite delay before network (API also 400s). */
+export function assertValidUpsertStopPlanInput(input: UpsertStopPlanInput): void {
+  if (input.delayOverrideSeconds === undefined || input.delayOverrideSeconds === null) {
+    return;
+  }
+  if (!Number.isFinite(input.delayOverrideSeconds) || input.delayOverrideSeconds < 0) {
+    throw new ApiError(400, { error: "Invalid stop-plan payload" }, "Invalid stop-plan payload");
+  }
+}
 
 export type PostPingInput = {
   latitude: number;
@@ -348,6 +383,53 @@ export function createApiClient(options: ApiClientOptions) {
       const raw = await request<unknown>(options, "GET", `/race-rooms/${roomId}/schedule`);
       return parseCrewScheduleSheet(raw);
     },
+    getStopPlan: (roomId: string, checkpointId: string) =>
+      request<StopPlanResponse>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`
+      ),
+    /** Partial upsert (omit = unchanged; null = clear). Prefer for edit UI. */
+    patchStopPlan: async (
+      roomId: string,
+      checkpointId: string,
+      input: UpsertStopPlanInput,
+      extras?: RequestExtras
+    ): Promise<StopPlanResponse> => {
+      assertValidUpsertStopPlanInput(input);
+      return request<StopPlanResponse>(
+        options,
+        "PATCH",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        input,
+        extras
+      );
+    },
+    /** Same semantics as PATCH on the API (shared upsert handler). */
+    putStopPlan: async (
+      roomId: string,
+      checkpointId: string,
+      input: UpsertStopPlanInput,
+      extras?: RequestExtras
+    ): Promise<StopPlanResponse> => {
+      assertValidUpsertStopPlanInput(input);
+      return request<StopPlanResponse>(
+        options,
+        "PUT",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        input,
+        extras
+      );
+    },
+    /** Clears the entire stop-plan overlay for the checkpoint (null/DELETE path). */
+    clearStopPlan: (roomId: string, checkpointId: string, extras?: RequestExtras) =>
+      request<StopPlanResponse>(
+        options,
+        "DELETE",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        undefined,
+        extras
+      ),
     getTaskBoard: (roomId: string) =>
       request<{ checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] }>(
         options,
