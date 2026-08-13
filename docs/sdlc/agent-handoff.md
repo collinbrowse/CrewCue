@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-13 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#416](https://github.com/collinbrowse/CrewCue/issues/416) on `feature/416-w4-integration` (open PR; do not merge from this note).
+- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
 - **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
