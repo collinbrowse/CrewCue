@@ -120,6 +120,30 @@ export function CheckInEditor(props: CheckInEditorProps): ReactElement {
         >
           <Text style={styles.secondaryLabel}>Cancel</Text>
         </Pressable>
+        {typeof __DEV__ !== "undefined" && __DEV__ ? (
+          <Pressable
+            onPress={() => {
+              const baseArrival = (arrivalAt || props.defaultArrivalAt || "").trim();
+              const arrivalMs = Date.parse(baseArrival);
+              if (!Number.isFinite(arrivalMs)) {
+                setLocalError("Set a valid arrival before applying the sample check-in.");
+                return;
+              }
+              setLocalError(undefined);
+              const nextArrival = new Date(arrivalMs).toISOString();
+              // 8 min dwell (> typical planned) so later DEV clocks visibly shift.
+              const nextDeparture = new Date(arrivalMs + 480_000).toISOString();
+              setArrivalAt(nextArrival);
+              setDepartureAt(nextDeparture);
+            }}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel="Apply sample 8 min check-in"
+            style={styles.secondaryBtn}
+          >
+            <Text style={styles.secondaryLabel}>Sample 8 min</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
