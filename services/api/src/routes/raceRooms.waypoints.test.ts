@@ -71,6 +71,16 @@ async function put50kCourse(
   });
 }
 
+async function getRoom(app: TestApp, roomId: string, ownerToken: string): Promise<RaceRoom> {
+  const getResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(getResponse.statusCode, 200);
+  return (getResponse.json() as { room: RaceRoom }).room;
+}
+
 function withTags(
   checkpoints: RaceCourseCheckpoint[],
   tagsById: Record<string, WaypointTag[] | undefined>
@@ -107,13 +117,7 @@ test("EC1 omitted and empty tags persist as untagged landmarks", async () => {
   );
   assert.equal(putResponse.statusCode, 200);
 
-  const getResponse = await app.inject({
-    method: "GET",
-    url: `/race-rooms/${roomId}`,
-    headers: { authorization: `Bearer ${ownerToken}` }
-  });
-  assert.equal(getResponse.statusCode, 200);
-  const room = (getResponse.json() as { room: RaceRoom }).room;
+  const room = await getRoom(app, roomId, ownerToken);
   const start = checkpointById(room, "start");
   const aid1 = checkpointById(room, "aid-1");
   assert.equal(start.tags, undefined);
@@ -141,22 +145,44 @@ test("EC2 invalid tag strings are rejected with 400 and not persisted", async ()
     assert.equal(putResponse.statusCode, 400, `expected 400 for tag ${invalid}`);
   }
 
-  const getResponse = await app.inject({
-    method: "GET",
-    url: `/race-rooms/${roomId}`,
-    headers: { authorization: `Bearer ${ownerToken}` }
-  });
-  assert.equal(getResponse.statusCode, 200);
-  const room = (getResponse.json() as { room: RaceRoom }).room;
-  assert.equal(room.course, undefined);
+  const beforeCourse = await getRoom(app, roomId, ownerToken);
+  assert.equal(beforeCourse.course, undefined);
 
-  const patchMissingCourse = await app.inject({
+  const putOk = await put50kCourse(
+    app,
+    roomId,
+    ownerToken,
+    withTags(checkpoints, { "aid-1": ["aid"] })
+  );
+  assert.equal(putOk.statusCode, 200);
+
+  const patchInvalid = await app.inject({
     method: "PATCH",
     url: `/race-rooms/${roomId}/checkpoints/aid-1`,
     payload: { tags: ["AID"] },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
-  assert.equal(patchMissingCourse.statusCode, 400);
+  assert.equal(patchInvalid.statusCode, 400);
+
+  const postInvalid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints`,
+    payload: {
+      id: "water-1",
+      latitude: checkpoints[0]!.latitude,
+      longitude: checkpoints[0]!.longitude,
+      tags: ["finish"]
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(postInvalid.statusCode, 400);
+
+  const afterInvalid = await getRoom(app, roomId, ownerToken);
+  assert.deepEqual(checkpointById(afterInvalid, "aid-1").tags, ["aid"]);
+  assert.equal(
+    afterInvalid.course?.checkpoints.some((checkpoint) => checkpoint.id === "water-1"),
+    false
+  );
 
   await app.close();
 });
@@ -336,13 +362,7 @@ test("EC7 multiple tags on one waypoint round-trip through GET", async () => {
   );
   assert.equal(putResponse.statusCode, 200);
 
-  const getResponse = await app.inject({
-    method: "GET",
-    url: `/race-rooms/${roomId}`,
-    headers: { authorization: `Bearer ${ownerToken}` }
-  });
-  assert.equal(getResponse.statusCode, 200);
-  const room = (getResponse.json() as { room: RaceRoom }).room;
+  const room = await getRoom(app, roomId, ownerToken);
   assert.deepEqual(checkpointById(room, "aid-2").tags, ["aid", "crew"]);
 
   const patched = await app.inject({
@@ -356,6 +376,11 @@ test("EC7 multiple tags on one waypoint round-trip through GET", async () => {
   const aid2 = checkpointById(patchedRoom, "aid-2");
   assert.equal(aid2.title, "Crew aid");
   assert.deepEqual(aid2.tags, ["aid", "dropbag", "crew"]);
+
+  const afterPatch = await getRoom(app, roomId, ownerToken);
+  const persistedAid2 = checkpointById(afterPatch, "aid-2");
+  assert.equal(persistedAid2.title, "Crew aid");
+  assert.deepEqual(persistedAid2.tags, ["aid", "dropbag", "crew"]);
 
   await app.close();
 });
@@ -418,12 +443,7 @@ test("EC8 delete visited checkpoint returns 400 and leaves course unchanged", as
   assert.equal(deleted.statusCode, 400);
   assert.match((deleted.json() as { error: string }).error, /visited checkpoint: cp0/);
 
-  const getResponse = await app.inject({
-    method: "GET",
-    url: `/race-rooms/${roomId}`,
-    headers: { authorization: `Bearer ${ownerToken}` }
-  });
-  const after = (getResponse.json() as { room: RaceRoom }).room;
+  const after = await getRoom(app, roomId, ownerToken);
   assert.deepEqual(
     after.course?.checkpoints.map((checkpoint) => checkpoint.id),
     before.course?.checkpoints.map((checkpoint) => checkpoint.id)
@@ -507,7 +527,16 @@ test("POST adds a tagged waypoint and DELETE removes an unvisited one", async ()
   assert.equal(water.title, "Stream crossing");
   assert.deepEqual(water.tags, ["water"]);
   assert.equal(typeof water.distanceMetersFromStart, "number");
-  assert.ok(createdRoom.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-1"));
+  assert.deepEqual(checkpointById(createdRoom, "aid-1").tags, ["aid"]);
+  assert.equal(
+    createdRoom.course?.derivedMetrics?.canonicalDistanceMeters,
+    (putResponse.json() as RaceRoom).course?.derivedMetrics?.canonicalDistanceMeters
+  );
+  assert.ok(createdRoom.mapWorkspace?.drivesProjectionLayerId);
+
+  const afterPost = await getRoom(app, roomId, ownerToken);
+  assert.deepEqual(checkpointById(afterPost, "water-1").tags, ["water"]);
+  assert.deepEqual(checkpointById(afterPost, "aid-1").tags, ["aid"]);
 
   const duplicate = await app.inject({
     method: "POST",
@@ -534,6 +563,60 @@ test("POST adds a tagged waypoint and DELETE removes an unvisited one", async ()
   );
   assert.ok(afterDelete.course?.checkpoints.some((checkpoint) => checkpoint.id === "start"));
   assert.ok(afterDelete.course?.checkpoints.some((checkpoint) => checkpoint.id === "water-1"));
+  assert.deepEqual(checkpointById(afterDelete, "aid-1").tags, ["aid"]);
+
+  const afterDeleteGet = await getRoom(app, roomId, ownerToken);
+  assert.equal(
+    afterDeleteGet.course?.checkpoints.some((checkpoint) => checkpoint.id === "aid-3"),
+    false
+  );
+  assert.deepEqual(checkpointById(afterDeleteGet, "water-1").tags, ["water"]);
+
+  await app.close();
+});
+
+test("DELETE refuses to leave fewer than two checkpoints", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w11-min-cp"));
+  const roomId = await createPaidRoom(app, ownerToken, "min two checkpoints");
+
+  const activate = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 41.0, longitude: -71.0, tags: ["aid"] },
+          { id: "cp1", latitude: 41.01, longitude: -71.0, tags: ["water"] }
+        ]
+      },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
+      ]),
+      plannedPaceSecondsPerKm: 600,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(activate.statusCode, 200);
+
+  const deleted = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${roomId}/checkpoints/cp1`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(deleted.statusCode, 400);
+  assert.match((deleted.json() as { error: string }).error, /at least two checkpoints/);
+
+  const after = await getRoom(app, roomId, ownerToken);
+  assert.deepEqual(
+    after.course?.checkpoints.map((checkpoint) => checkpoint.id),
+    ["cp0", "cp1"]
+  );
+  assert.deepEqual(checkpointById(after, "cp0").tags, ["aid"]);
+  assert.deepEqual(checkpointById(after, "cp1").tags, ["water"]);
 
   await app.close();
 });
