@@ -103,6 +103,29 @@ test("blocks course and map workspace routes when entitlement is unpaid", async 
   assert.equal(putMapResponse.statusCode, 402);
   assert.equal((putMapResponse.json() as { error: string }).error, "Entitlement unpaid");
 
+  const postCheckpoint = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints`,
+    payload: { id: "cp2", latitude: 42.02, longitude: -70.0, tags: ["aid"] },
+    headers
+  });
+  assert.equal(postCheckpoint.statusCode, 402);
+
+  const patchCheckpoint = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${roomId}/checkpoints/cp0`,
+    payload: { tags: ["crew"] },
+    headers
+  });
+  assert.equal(patchCheckpoint.statusCode, 402);
+
+  const deleteCheckpoint = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${roomId}/checkpoints/cp0`,
+    headers
+  });
+  assert.equal(deleteCheckpoint.statusCode, 402);
+
   await app.close();
 });
 
