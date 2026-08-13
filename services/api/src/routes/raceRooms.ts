@@ -38,6 +38,7 @@ import {
   buildPlanBaselineFromModel,
   checkpointsWithProjectedDistances,
   flattenWorkspaceGeometry,
+  geodesicProjectPointToPolyline,
   mergePrimaryCourseRouteLayer,
   normalizeRaceMapWorkspace,
   PRIMARY_COURSE_ROUTE_LAYER_ID,
@@ -1425,6 +1426,38 @@ async function requireCourseEditor(
   return room;
 }
 
+/**
+ * Place a newly POSTed waypoint by unconstrained route progress. Appending then running
+ * {@link checkpointsWithProjectedDistances} would clamp it to the finish because that helper
+ * is forward-only in array order.
+ */
+function insertCheckpointAlongCourse(
+  existing: RaceCourseCheckpoint[],
+  nextCheckpoint: RaceCourseCheckpoint,
+  routePts: CourseMetricPoint[] | null
+): RaceCourseCheckpoint[] {
+  if (existing.length === 0 || !routePts || routePts.length < 2) {
+    return [...existing, nextCheckpoint];
+  }
+  const progress = geodesicProjectPointToPolyline(routePts, nextCheckpoint).progressMeters;
+  let insertAt = existing.length;
+  // Never displace the official start (index 0); insert before the first later stop already past this progress.
+  for (let index = 1; index < existing.length; index += 1) {
+    const stored = existing[index]!.distanceMetersFromStart;
+    const along =
+      typeof stored === "number" && Number.isFinite(stored)
+        ? stored
+        : geodesicProjectPointToPolyline(routePts, existing[index]!).progressMeters;
+    if (progress < along) {
+      insertAt = index;
+      break;
+    }
+  }
+  const next = existing.slice();
+  next.splice(insertAt, 0, nextCheckpoint);
+  return next;
+}
+
 function rebuildRoomCourseFromCheckpoints(
   room: RaceRoom,
   checkpoints: RaceCourseCheckpoint[]
@@ -1462,6 +1495,7 @@ async function persistCourseShapeChange(
   previousRoom: RaceRoom,
   updatedRoom: RaceRoom
 ): Promise<void> {
+  await loadWs2RuntimeIfNeeded(roomId);
   const nextCourse = updatedRoom.course;
   const nextPace = updatedRoom.plannedPaceSecondsPerKm;
   if (nextCourse && nextPace !== undefined) {
@@ -1869,7 +1903,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
       ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
     };
-    const rebuilt = rebuildRoomCourseFromCheckpoints(room, [...room.course.checkpoints, nextCheckpoint]);
+    const rebuilt = rebuildRoomCourseFromCheckpoints(
+      room,
+      insertCheckpointAlongCourse(
+        room.course.checkpoints,
+        nextCheckpoint,
+        resolveRouteMetricPointsFromRaceRoom(room)
+      )
+    );
     if (!rebuilt.ok) {
       return reply.code(400).send({ error: rebuilt.error });
     }
