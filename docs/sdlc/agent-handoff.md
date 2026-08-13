@@ -12,9 +12,9 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 feature packages complete; Wave 4 integration next.
-- **Branch / PR:** W4-2 [#415](https://github.com/collinbrowse/CrewCue/pull/415) and W4-3 [#414](https://github.com/collinbrowse/CrewCue/pull/414) merged (`Closes #411`, `Closes #412`).
-- **Active next:** Execute W4-I [#416](https://github.com/collinbrowse/CrewCue/issues/416).
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
+- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
+- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
 
@@ -22,13 +22,14 @@
 - W4-1 cutoff warnings (#408 / #410).
 - W4-2 deterministic A-B bands on estimates (#411 / #415).
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
+- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
 
 ## Next 1-3 tasks
 
-1. Execute W4-I #416 (cutoff + bands + offline crew-sheet smoke; epic closeout / residual).
-2. Optionally Ready W3-2 (Strava) if staging secrets available.
-3. Epic #360 closeout or residual backlog triage after W4-I.
+1. Optionally Ready W3-2 (Strava) if staging secrets available.
+2. Epic #360 closeout or residual backlog triage after W4-I merge.
+3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
 
 ## Open risks/blockers
 
@@ -36,9 +37,10 @@
 - Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
 - XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
+- W3-2 Strava remains blocked on staging OAuth secrets.
 
 ## Successor prompt
 
 ```text
-Execute #416 (W4-I). Prove cutoff + bands + offline crew-sheet smoke. Update agent-handoff.md. PR with Closes #416. Do not implement new Wave 4 features or W3-2.
+Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
 ```
