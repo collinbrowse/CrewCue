@@ -2705,8 +2705,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Closed manual check-in (arrival + departure). Feeds schedule reproject on GET /schedule:
    * closed visits replace planned dwell + delayOverride for subsequent stop clocks
-   * (absolute actuals — idempotent replay cannot double-apply). Incomplete/open visits
-   * are not written here (both timestamps required); open auto visits also do not shift.
+   * (absolute latest closed actual per CP — LWW overwrite, no double-apply). Incomplete/open
+   * visits are not written here (both timestamps required); open auto visits also do not shift.
    */
   app.post("/race-rooms/:roomId/checkpoints/:cpId/manual-stop", async (request, reply) => {
     if (!request.identity) {
@@ -2780,12 +2780,21 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             ? Date.parse(visit.autoDetected.departureRecordedAt)
             : Number.POSITIVE_INFINITY) >= arrivalMs
       ) ?? null;
-    // Last-write-wins for pure manual check-ins: replace prior manual_crew visit so
-    // schedule reproject cannot sum duplicate closed actuals on retry without an idempotency key.
+    // Last-write-wins for schedule ETAs: prefer existing manual_crew, else overlapping auto,
+    // else latest closed visit (avoid appending beside a prior closed auto → double actual).
     const existingManualVisit =
       [...split.visits].reverse().find((visit) => visit.resolvedSource === "manual_crew" && visit.manualEntry) ??
       null;
-    const targetVisit = overlapAutoVisit ?? existingManualVisit;
+    const latestClosedVisit =
+      [...split.visits]
+        .reverse()
+        .find(
+          (visit) =>
+            visit.activeActualStopSeconds !== null &&
+            visit.activeActualStopSeconds !== undefined &&
+            Number.isFinite(visit.activeActualStopSeconds)
+        ) ?? null;
+    const targetVisit = existingManualVisit ?? overlapAutoVisit ?? latestClosedVisit;
     if (targetVisit) {
       targetVisit.manualEntry = manualEntry;
       if (parsed.data.note) {

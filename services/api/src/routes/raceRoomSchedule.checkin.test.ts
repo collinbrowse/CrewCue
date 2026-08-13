@@ -4,8 +4,8 @@
  * Incomplete visit policy: open visits (arrival only / null activeActualStopSeconds)
  * are omitted from closed-actual inputs and do not shift ETAs. Missing arrival or
  * departure on POST /manual-stop → 400; schedule unchanged.
- * Projection is absolute (derived from current closed actuals), so idempotent replay
- * cannot double-apply a shift.
+ * Projection is absolute (latest closed actual per checkpoint, manual preferred), so
+ * idempotent replay / LWW cannot double-apply a shift by summing visits.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -226,6 +226,92 @@ test("W2-1 helper omits incomplete visits from closed-actual map", () => {
   const map = closedActualStopSecondsByCheckpointId(splits);
   assert.equal(map.has("aid-1"), false, "incomplete visit must not enter closed map");
   assert.equal(map.get("aid-2"), 900);
+});
+
+test("W2-1 helper last-write-wins: closed auto + manual does not sum (EC4)", () => {
+  const splits: RaceCheckpointSplitRow[] = [
+    {
+      checkpointId: "aid-1",
+      distanceMetersFromStart: 10_000,
+      crossedAtRecordedAt: null,
+      plannedElapsedSecondsAtCross: 1000,
+      actualElapsedSecondsAtCross: null,
+      deltaSecondsAtCross: null,
+      plannedStopSeconds: 600,
+      visits: [
+        {
+          visitIndex: 1,
+          resolvedSource: "auto",
+          autoDetected: {
+            arrivalRecordedAt: "2026-08-15T12:00:00.000Z",
+            departureRecordedAt: "2026-08-15T12:01:40.000Z",
+            firstSlowedAt: null,
+            actualStopSeconds: 100
+          },
+          activeActualStopSeconds: 100
+        },
+        {
+          visitIndex: 2,
+          resolvedSource: "manual_crew",
+          manualEntry: {
+            arrivalAt: "2026-08-15T14:00:00.000Z",
+            departureAt: "2026-08-15T14:15:00.000Z",
+            actualStopSeconds: 900,
+            recordedByUserId: "crew-1"
+          },
+          activeActualStopSeconds: 900
+        }
+      ],
+      totalActualStopSeconds: 1000,
+      deltaStopSeconds: 400
+    }
+  ];
+
+  const map = closedActualStopSecondsByCheckpointId(splits);
+  assert.equal(map.get("aid-1"), 900, "manual_crew closed actual must win; must not sum 100+900");
+});
+
+test("W2-1 helper last-write-wins: latest closed auto when no manual", () => {
+  const splits: RaceCheckpointSplitRow[] = [
+    {
+      checkpointId: "aid-1",
+      distanceMetersFromStart: 10_000,
+      crossedAtRecordedAt: null,
+      plannedElapsedSecondsAtCross: 1000,
+      actualElapsedSecondsAtCross: null,
+      deltaSecondsAtCross: null,
+      plannedStopSeconds: 600,
+      visits: [
+        {
+          visitIndex: 1,
+          resolvedSource: "auto",
+          autoDetected: {
+            arrivalRecordedAt: "2026-08-15T12:00:00.000Z",
+            departureRecordedAt: "2026-08-15T12:01:00.000Z",
+            firstSlowedAt: null,
+            actualStopSeconds: 60
+          },
+          activeActualStopSeconds: 60
+        },
+        {
+          visitIndex: 2,
+          resolvedSource: "auto",
+          autoDetected: {
+            arrivalRecordedAt: "2026-08-15T13:00:00.000Z",
+            departureRecordedAt: "2026-08-15T13:05:00.000Z",
+            firstSlowedAt: null,
+            actualStopSeconds: 300
+          },
+          activeActualStopSeconds: 300
+        }
+      ],
+      totalActualStopSeconds: 360,
+      deltaStopSeconds: -240
+    }
+  ];
+
+  const map = closedActualStopSecondsByCheckpointId(splits);
+  assert.equal(map.get("aid-1"), 300, "latest closed auto wins; must not sum");
 });
 
 test("W2-1 EC1 missing arrival/departure → 400; schedule unchanged", async () => {

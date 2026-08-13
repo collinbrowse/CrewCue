@@ -21,28 +21,33 @@ export type ProjectCrewScheduleSheetOptions = {
 };
 
 /**
- * Sum closed-visit actuals per checkpoint. Open/incomplete visits
- * (`activeActualStopSeconds === null`) are ignored so they cannot silently shift ETAs.
+ * Closed-visit actual stop seconds per checkpoint for schedule ETA reproject.
+ * Open/incomplete visits (`activeActualStopSeconds === null`) are ignored.
+ *
+ * Last-write-wins (not a sum): prefer the latest `manual_crew` closed visit; otherwise the
+ * latest closed auto visit. Summing would double-apply when a crew check-in coexists with a
+ * prior closed auto visit (or duplicate closed rows) — EC4.
  */
 export function closedActualStopSecondsByCheckpointId(
   splits: readonly RaceCheckpointSplitRow[]
 ): Map<string, number> {
   const map = new Map<string, number>();
   for (const split of splits) {
-    let sum = 0;
-    let hasClosed = false;
+    let latestManual: number | undefined;
+    let latestAnyClosed: number | undefined;
     for (const visit of split.visits) {
-      if (visit.activeActualStopSeconds === null || visit.activeActualStopSeconds === undefined) {
+      const actual = visit.activeActualStopSeconds;
+      if (actual === null || actual === undefined || !Number.isFinite(actual)) {
         continue;
       }
-      if (!Number.isFinite(visit.activeActualStopSeconds)) {
-        continue;
+      latestAnyClosed = actual;
+      if (visit.resolvedSource === "manual_crew") {
+        latestManual = actual;
       }
-      sum += visit.activeActualStopSeconds;
-      hasClosed = true;
     }
-    if (hasClosed) {
-      map.set(split.checkpointId, sum);
+    const chosen = latestManual ?? latestAnyClosed;
+    if (chosen !== undefined) {
+      map.set(split.checkpointId, chosen);
     }
   }
   return map;
@@ -244,11 +249,20 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.code(400).send({ error: "plannedPaceSecondsPerKm required for schedule" });
     }
 
+    let closedActuals: ReturnType<typeof closedActualStopSecondsByCheckpointId> | undefined;
     try {
       const projection = await getProjectionViewForRoom(roomId);
-      const closedActuals = projection
+      closedActuals = projection
         ? closedActualStopSecondsByCheckpointId(projection.checkpointSplits)
         : undefined;
+    } catch (error) {
+      // Do not conflate runtime hydrate failures with schedule math 400s, and do not
+      // silently drop check-in shifts (plan-only would be wrong after a closed visit).
+      request.log.warn({ err: error, roomId }, "schedule_closed_actuals_unavailable");
+      return reply.code(503).send({ error: "Schedule temporarily unavailable" });
+    }
+
+    try {
       return reply.send(
         projectCrewScheduleSheet(room, {
           closedActualStopSecondsByCheckpointId: closedActuals
