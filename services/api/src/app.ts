@@ -8,6 +8,7 @@ import { chatRoutes } from "./routes/chatRoutes.js";
 import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
+import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
@@ -23,6 +24,7 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(eventRoutes);
   app.register(raceRoomRoutes);
+  app.register(raceRoomStopPlanRoutes);
   app.register(routingRoutes);
   app.register(geocodeRoutes);
   app.register(analyticsRoutes);

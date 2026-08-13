@@ -345,7 +345,7 @@ async function resolveStorageRoomId(input: string): Promise<string | undefined> 
   return trimmed;
 }
 
-async function saveRaceRoom(room: RaceRoom): Promise<void> {
+export async function saveRaceRoom(room: RaceRoom): Promise<void> {
   unindexJoinCodeForRoomId(room.id);
   raceRooms.set(room.id, room);
   indexJoinCode(room);
@@ -1394,7 +1394,7 @@ function syncWorkspaceCheckpoints(room: RaceRoom, checkpoints: RaceCourseCheckpo
   };
 }
 
-async function requireCourseEditor(
+export async function requireCourseEditor(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
