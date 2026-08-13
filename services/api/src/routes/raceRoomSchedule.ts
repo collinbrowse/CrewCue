@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   CrewScheduleSheet,
+  RaceCheckpointSplitRow,
   RaceCourseCheckpoint,
   RaceRoom,
   RaceRoomStopPlan,
@@ -8,7 +9,60 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
-import { evaluateEntitlement, getRaceRoom } from "./raceRooms.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom } from "./raceRooms.js";
+
+export type ProjectCrewScheduleSheetOptions = {
+  /**
+   * Closed-visit actual stop seconds by checkpoint id.
+   * Incomplete visits (arrival only / null actual) must be omitted — they do not shift ETAs;
+   * the sheet keeps planned dwell + delayOverride until a departure closes the visit.
+   */
+  closedActualStopSecondsByCheckpointId?: ReadonlyMap<string, number> | Readonly<Record<string, number>>;
+};
+
+/**
+ * Sum closed-visit actuals per checkpoint. Open/incomplete visits
+ * (`activeActualStopSeconds === null`) are ignored so they cannot silently shift ETAs.
+ */
+export function closedActualStopSecondsByCheckpointId(
+  splits: readonly RaceCheckpointSplitRow[]
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const split of splits) {
+    let sum = 0;
+    let hasClosed = false;
+    for (const visit of split.visits) {
+      if (visit.activeActualStopSeconds === null || visit.activeActualStopSeconds === undefined) {
+        continue;
+      }
+      if (!Number.isFinite(visit.activeActualStopSeconds)) {
+        continue;
+      }
+      sum += visit.activeActualStopSeconds;
+      hasClosed = true;
+    }
+    if (hasClosed) {
+      map.set(split.checkpointId, sum);
+    }
+  }
+  return map;
+}
+
+function lookupClosedActualSeconds(
+  byCheckpointId: ProjectCrewScheduleSheetOptions["closedActualStopSecondsByCheckpointId"],
+  checkpointId: string
+): number | undefined {
+  if (!byCheckpointId) {
+    return undefined;
+  }
+  if (byCheckpointId instanceof Map) {
+    const value = byCheckpointId.get(checkpointId);
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+  const record = byCheckpointId as Readonly<Record<string, number>>;
+  const value = record[checkpointId];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 async function requireRoomMember(
   app: FastifyInstance,
@@ -80,11 +134,18 @@ function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckp
 }
 
 /**
- * Build a crew schedule sheet from live checkpoints + stop-plan overlays.
- * Clock policy: moving time from distance/pace (or baseline); later arrivals add cumulative
- * prior planned dwell + delay overrides. A stop’s own dwell/delay does not shift its arrival.
+ * Build a crew schedule sheet from live checkpoints + stop-plan overlays + closed check-ins.
+ * Clock policy:
+ * - Moving time from distance/pace (or baseline); a stop’s own dwell/delay/actual does not shift its arrival.
+ * - Later arrivals add cumulative prior planned dwell + delay overrides, unless a **closed** visit exists
+ *   at a prior stop — then that stop contributes `actualStopSeconds` instead
+ *   (equiv. shift delta = actual − plannedDwell − delayOverride; no double-count of delay).
+ * - Incomplete visits (arrival only): omitted from closed-actual inputs → no ETA shift until departure.
  */
-export function projectCrewScheduleSheet(room: RaceRoom): CrewScheduleSheet {
+export function projectCrewScheduleSheet(
+  room: RaceRoom,
+  options?: ProjectCrewScheduleSheetOptions
+): CrewScheduleSheet {
   const course = room.course;
   if (!course) {
     throw new Error("course_required");
@@ -145,8 +206,14 @@ export function projectCrewScheduleSheet(room: RaceRoom): CrewScheduleSheet {
     }
     stops.push(stop);
 
-    cumulativePriorDwellSeconds +=
+    const plannedContribution =
       plannedDwellSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
+    const closedActual = lookupClosedActualSeconds(
+      options?.closedActualStopSecondsByCheckpointId,
+      checkpoint.id
+    );
+    // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
+    cumulativePriorDwellSeconds += closedActual !== undefined ? closedActual : plannedContribution;
   }
 
   return {
@@ -178,7 +245,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      return reply.send(projectCrewScheduleSheet(room));
+      const projection = await getProjectionViewForRoom(roomId);
+      const closedActuals = projection
+        ? closedActualStopSecondsByCheckpointId(projection.checkpointSplits)
+        : undefined;
+      return reply.send(
+        projectCrewScheduleSheet(room, {
+          closedActualStopSecondsByCheckpointId: closedActuals
+        })
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {
