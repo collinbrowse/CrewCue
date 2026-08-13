@@ -6,8 +6,9 @@ import {
   type StopPlanNote
 } from "@crewcue/contracts";
 import scheduleExpected from "../../../../../fixtures/pacing/schedule-expected.json";
-import type { StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
+import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../../api/client";
 import { assertValidUpsertStopPlanInput } from "../../api/client";
+import { closedCheckInActualStopSeconds } from "./checkInValidation";
 
 /**
  * DEV-only schedule sheet from `fixtures/pacing/schedule-expected.json`.
@@ -95,6 +96,14 @@ export function applyDevStopPlanUpsert(
   };
 }
 
+/**
+ * Apply a closed check-in (arrival+departure) for the DEV fixture.
+ * Returns absolute actual stop seconds (LWW overwrite for the checkpoint).
+ */
+export function applyDevClosedCheckIn(input: ManualCheckpointStopInput): number {
+  return closedCheckInActualStopSeconds(input);
+}
+
 function notesRefFromOverlay(overlay: DevStopPlanOverlay | undefined): ScheduleStopNotesRef | undefined {
   if (!overlay?.athleteNotes && !overlay?.planNotes) {
     return undefined;
@@ -110,7 +119,8 @@ function notesRefFromOverlay(overlay: DevStopPlanOverlay | undefined): ScheduleS
 }
 
 /**
- * Apply overlay delay delta to later stops' elapsed/clock (same cumulative rule as API projection).
+ * Apply overlay delay delta + closed check-in actuals to later stops' elapsed/clock
+ * (same cumulative rule as API projection: closed actual replaces planned dwell + delay).
  * Used only by the DEV fixture so sim QA can see refreshed clocks without Auth0.
  * Production path must refetch `getSchedule` instead.
  *
@@ -119,17 +129,23 @@ function notesRefFromOverlay(overlay: DevStopPlanOverlay | undefined): ScheduleS
  */
 export function projectDevSheetWithOverlays(
   baseSheet: CrewScheduleSheet,
-  overlays: ReadonlyMap<string, DevStopPlanOverlay>
+  overlays: ReadonlyMap<string, DevStopPlanOverlay>,
+  closedActualStopSecondsByCheckpointId?: ReadonlyMap<string, number>
 ): CrewScheduleSheet {
   const raceStartMs = Date.parse(baseSheet.raceStartAt);
-  let cumulativeDelayDelta = 0;
+  let cumulativeShiftSeconds = 0;
   const stops: ScheduleStop[] = baseSheet.stops.map((stop) => {
     const baseDelay = stop.delayOverrideSeconds ?? 0;
     const hasOverlay = overlays.has(stop.checkpointId);
     const overlay = hasOverlay ? overlays.get(stop.checkpointId) : undefined;
     const nextDelay = hasOverlay ? overlay?.delayOverrideSeconds : stop.delayOverrideSeconds;
-    // Base fixture already baked prior delays into later clocks. Adjust by overlay delta vs base.
-    const elapsedSeconds = stop.elapsedSeconds + cumulativeDelayDelta;
+    const delayForPlan = typeof nextDelay === "number" ? nextDelay : 0;
+    const plannedContribution = stop.plannedDwellSeconds + delayForPlan;
+    const baseContribution = stop.plannedDwellSeconds + baseDelay;
+    const closedActual = closedActualStopSecondsByCheckpointId?.get(stop.checkpointId);
+
+    // Own arrival uses prior cumulative shift only (own dwell/actual does not shift own clock).
+    const elapsedSeconds = stop.elapsedSeconds + cumulativeShiftSeconds;
     const next: ScheduleStop = {
       id: stop.id,
       checkpointId: stop.checkpointId,
@@ -148,8 +164,13 @@ export function projectDevSheetWithOverlays(
     } else if (stop.notes) {
       next.notes = stop.notes;
     }
-    const delayForCumulative = typeof nextDelay === "number" ? nextDelay : 0;
-    cumulativeDelayDelta += delayForCumulative - baseDelay;
+
+    // Shift later stops: closed actual replaces planned+delay; else delay overlay delta vs base.
+    if (typeof closedActual === "number" && Number.isFinite(closedActual)) {
+      cumulativeShiftSeconds += closedActual - baseContribution;
+    } else {
+      cumulativeShiftSeconds += plannedContribution - baseContribution;
+    }
     return next;
   });
 

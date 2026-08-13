@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ApiError } from "../../api/client";
 import {
+  applyDevClosedCheckIn,
   applyDevStopPlanUpsert,
   loadDevScheduleFixtureSheet,
   projectDevSheetWithOverlays,
@@ -85,4 +86,47 @@ test("DEV fixture duplicate note save keeps stable id (EC5)", () => {
     planNotes: { id: "note-stable", body: "hello" }
   });
   assert.equal(second?.planNotes?.id, "note-stable");
+});
+
+test("DEV fixture closed check-in shifts later clocks; own arrival unchanged (EC5/EC7)", () => {
+  const base = loadDevScheduleFixtureSheet();
+  const overlays = seedDevStopPlanOverlays(base);
+  const aid1 = base.stops.find((s) => s.checkpointId === "aid-1")!;
+  const aid2Before = base.stops.find((s) => s.checkpointId === "aid-2")!;
+  const finishBefore = base.stops.find((s) => s.checkpointId === "finish")!;
+
+  // actual = planned dwell (180) + 300 → later stops +300 vs plan path
+  const actualSeconds = applyDevClosedCheckIn({
+    arrivalAt: "2026-08-15T14:10:00.000Z",
+    departureAt: "2026-08-15T14:18:00.000Z"
+  });
+  assert.equal(actualSeconds, 480);
+  const closed = new Map([["aid-1", actualSeconds]]);
+  const projected = projectDevSheetWithOverlays(base, overlays, closed);
+  const aid1After = projected.stops.find((s) => s.checkpointId === "aid-1")!;
+  const aid2After = projected.stops.find((s) => s.checkpointId === "aid-2")!;
+  const finishAfter = projected.stops.find((s) => s.checkpointId === "finish")!;
+
+  assert.equal(aid1After.clockArrivalAt, aid1.clockArrivalAt);
+  assert.equal(aid2After.elapsedSeconds, aid2Before.elapsedSeconds + 300);
+  assert.equal(finishAfter.elapsedSeconds, finishBefore.elapsedSeconds + 300);
+  assert.equal(aid2After.clockArrivalAt, "2026-08-15T15:25:00.000Z");
+});
+
+test("DEV fixture duplicate check-in LWW does not double-shift (EC5)", () => {
+  const base = loadDevScheduleFixtureSheet();
+  const overlays = seedDevStopPlanOverlays(base);
+  const actual = applyDevClosedCheckIn({
+    arrivalAt: "2026-08-15T14:10:00.000Z",
+    departureAt: "2026-08-15T14:18:00.000Z"
+  });
+  const closed = new Map([["aid-1", actual]]);
+  const first = projectDevSheetWithOverlays(base, overlays, closed);
+  // LWW rewrite same absolute actual — schedule must not double-apply.
+  closed.set("aid-1", actual);
+  const second = projectDevSheetWithOverlays(base, overlays, closed);
+  assert.deepEqual(
+    second.stops.map((s) => s.elapsedSeconds),
+    first.stops.map((s) => s.elapsedSeconds)
+  );
 });
