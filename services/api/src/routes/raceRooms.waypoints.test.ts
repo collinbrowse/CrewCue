@@ -385,6 +385,74 @@ test("EC7 multiple tags on one waypoint round-trip through GET", async () => {
   await app.close();
 });
 
+test("map workspace PUT persists valid waypoint tags and rejects invalid tags without clobbering course", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w11-map-tags"));
+  const headers = { authorization: `Bearer ${ownerToken}` };
+  const roomId = await createPaidRoom(app, ownerToken, "map workspace tags");
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "cp0", latitude: 41.0, longitude: -71.0, tags: ["aid", "crew"] },
+    { id: "cp1", latitude: 41.01, longitude: -71.0, tags: [] }
+  ];
+  const routeOverlayLayer = lineStringRouteOverlayForCheckpoints(checkpoints);
+
+  const saved = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    payload: {
+      layers: [routeOverlayLayer],
+      selectedLayerId: routeOverlayLayer.id,
+      drivesProjectionLayerId: routeOverlayLayer.id,
+      checkpoints
+    },
+    headers
+  });
+  assert.equal(saved.statusCode, 200);
+  const savedRoom = saved.json() as RaceRoom;
+  assert.deepEqual(checkpointById(savedRoom, "cp0").tags, ["aid", "crew"]);
+  assert.deepEqual(checkpointById(savedRoom, "cp1").tags, []);
+  assert.deepEqual(savedRoom.mapWorkspace?.checkpoints.find((checkpoint) => checkpoint.id === "cp0")?.tags, [
+    "aid",
+    "crew"
+  ]);
+
+  const invalid = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    payload: {
+      layers: [routeOverlayLayer],
+      selectedLayerId: routeOverlayLayer.id,
+      drivesProjectionLayerId: routeOverlayLayer.id,
+      checkpoints: [
+        checkpoints[0],
+        { id: "cp1", latitude: 41.01, longitude: -71.0, tags: ["finish"] }
+      ]
+    },
+    headers
+  });
+  assert.equal(invalid.statusCode, 400);
+
+  const afterInvalid = await getRoom(app, roomId, ownerToken);
+  assert.deepEqual(checkpointById(afterInvalid, "cp0").tags, ["aid", "crew"]);
+  assert.deepEqual(checkpointById(afterInvalid, "cp1").tags, []);
+
+  const workspace = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    headers
+  });
+  assert.equal(workspace.statusCode, 200);
+  const workspaceBody = workspace.json() as { mapWorkspace: { checkpoints: RaceCourseCheckpoint[] } };
+  assert.deepEqual(workspaceBody.mapWorkspace.checkpoints.find((checkpoint) => checkpoint.id === "cp0")?.tags, [
+    "aid",
+    "crew"
+  ]);
+  assert.deepEqual(workspaceBody.mapWorkspace.checkpoints.find((checkpoint) => checkpoint.id === "cp1")?.tags, []);
+
+  await app.close();
+});
+
 test("EC8 delete visited checkpoint returns 400 and leaves course unchanged", async () => {
   const app = buildApp();
   await app.ready();
