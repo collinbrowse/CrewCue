@@ -171,7 +171,7 @@ test("EC7: long vs short dissimilar history produces predictably different estim
   assert.match(both.explanation, /dissimilar excluded/i);
 });
 
-test("EC8: single history activity still produces a parseable estimate", () => {
+test("EC8: single history activity still produces a parseable estimate with ordered bands", () => {
   const checkpoints = loadCourseCheckpoints();
   const { long } = fixtureHistoryRefs();
   const estimate = estimatePacingDeterministic({
@@ -183,5 +183,16 @@ test("EC8: single history activity still produces a parseable estimate", () => {
   assert.equal(parsed.coldStart, false);
   assert.deepEqual(parsed.historyRefIds, [long.id]);
   assert.ok(parsed.aidEtas.length >= 1);
+  assert.ok(parsed.bands?.conservative);
   assert.ok(parsed.bands?.expected);
+  assert.ok(parsed.bands?.aggressive);
+  assert.equal(parsed.bands?.expected?.finishElapsedSeconds, parsed.expectedFinishElapsedSeconds);
+  assert.ok(
+    (parsed.bands!.conservative!.finishElapsedSeconds as number) >=
+      (parsed.bands!.expected!.finishElapsedSeconds as number)
+  );
+  assert.ok(
+    (parsed.bands!.expected!.finishElapsedSeconds as number) >=
+      (parsed.bands!.aggressive!.finishElapsedSeconds as number)
+  );
 });

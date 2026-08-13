@@ -6,6 +6,8 @@ export {
   type PacingEstimator
 } from "./types.js";
 export {
+  PACING_BAND_AGGRESSIVE_RATIO,
+  PACING_BAND_CONSERVATIVE_RATIO,
   deterministicPacingEstimator,
   estimatePacingDeterministic
 } from "./deterministicEstimator.js";
