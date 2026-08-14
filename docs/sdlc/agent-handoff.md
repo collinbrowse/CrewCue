@@ -11,10 +11,10 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
+- Last updated: 2026-08-14 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- **Branch / PR:** Regression coverage branch `cursor/missing-test-coverage-bc88` — PR pending.
+- **Active next:** Review coverage PR, then residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
 
@@ -24,12 +24,13 @@
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
+- Regression coverage: `services/api/src/lib/pacingEstimateStore.test.ts` covers missing/reset lookup, same-id owner/payload replacement, and invalid replacement rejection without clobbering the prior estimate.
 
 ## Next 1-3 tasks
 
-1. Optionally Ready W3-2 (Strava) if staging secrets available.
-2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
+1. Review/merge regression coverage PR for `pacingEstimateStore` invariants.
+2. Optionally Ready W3-2 (Strava) if staging secrets available.
+3. Epic #360 closeout or residual backlog triage.
 
 ## Open risks/blockers
 
@@ -38,9 +39,15 @@
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
 - XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
 - W3-2 Strava remains blocked on staging OAuth secrets.
+- Coverage automation could not create a linked GitHub issue because this environment exposes read-only `gh` guidance and no issue-creation MCP tool.
+
+## Validation evidence
+
+- `npm run test:memory -w @crewcue/api` — pass (254 pass, 4 skipped).
+- `npm run verify` — pass.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+Review/merge regression coverage PR on `cursor/missing-test-coverage-bc88`; it only adds `pacingEstimateStore` tests and passed API memory tests plus root verify. Afterward, optionally Ready W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals.
 ```
