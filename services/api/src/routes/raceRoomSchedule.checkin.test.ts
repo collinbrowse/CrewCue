@@ -640,3 +640,88 @@ test("W2-1 crew_member may write check-in and GET schedule reflects shift", asyn
 
   await app.close();
 });
+
+test("closed check-in without GPS pings survives adding a waypoint and re-saving course", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w21-course-shape-preserve"));
+  const roomId = await createPaidRoom(app, ownerToken, "W2-1 preserve check-in on course shape");
+  await put50kCourse(app, roomId, ownerToken);
+
+  const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  const deltaSeconds = 240;
+  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const arrivalAt = "2026-08-15T14:00:00.000Z";
+  const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
+  const posted = await postManualStop(app, roomId, "aid-1", ownerToken, { arrivalAt, departureAt });
+  assert.equal(posted.statusCode, 200);
+
+  const afterCheckIn = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  assertLaterStopsShiftedBy(baseline, afterCheckIn, deltaSeconds);
+
+  const fixture = load50kCourseWithAids();
+  const aid1 = fixture.checkpoints.find((checkpoint) => checkpoint.id === "aid-1");
+  const aid2 = fixture.checkpoints.find((checkpoint) => checkpoint.id === "aid-2");
+  assert.ok(aid1 && aid2);
+  const addWaypoint = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints`,
+    payload: {
+      id: "water-mid",
+      title: "Water mid",
+      latitude: (aid1.latitude + aid2.latitude) / 2,
+      longitude: (aid1.longitude + aid2.longitude) / 2,
+      tags: ["water"]
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(addWaypoint.statusCode, 201);
+
+  const roomAfterAdd = addWaypoint.json() as RaceRoom;
+  const afterWaypoint = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  const expectedAfterWaypoint = projectCrewScheduleSheet(roomAfterAdd, {
+    closedActualStopSecondsByCheckpointId: { "aid-1": actualStopSeconds }
+  });
+  assert.deepEqual(
+    afterWaypoint.stops.map((stop) => [stop.checkpointId, stop.elapsedSeconds]),
+    expectedAfterWaypoint.stops.map((stop) => [stop.checkpointId, stop.elapsedSeconds]),
+    "adding an unvisited waypoint must not drop the closed check-in shift"
+  );
+
+  const putAgain = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
+      course: { checkpoints: roomAfterAdd.course!.checkpoints },
+      routeOverlayLayer: fixture.routeOverlayLayer,
+      raceStartAt: RACE_START_AT
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(putAgain.statusCode, 200);
+
+  const roomAfterPut = putAgain.json() as RaceRoom;
+  const afterPut = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  const expectedAfterPut = projectCrewScheduleSheet(roomAfterPut, {
+    closedActualStopSecondsByCheckpointId: { "aid-1": actualStopSeconds }
+  });
+  assert.deepEqual(
+    afterPut.stops.map((stop) => [stop.checkpointId, stop.elapsedSeconds]),
+    expectedAfterPut.stops.map((stop) => [stop.checkpointId, stop.elapsedSeconds]),
+    "re-saving course without GPS pings must not drop the closed check-in shift"
+  );
+
+  const projection = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/projection`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(projection.statusCode, 200);
+  const splits = (projection.json() as { checkpointSplits: RaceCheckpointSplitRow[] }).checkpointSplits;
+  const aid1Split = splits.find((row) => row.checkpointId === "aid-1");
+  assert.equal(aid1Split?.visits[0]?.resolvedSource, "manual_crew");
+  assert.equal(aid1Split?.visits[0]?.activeActualStopSeconds, actualStopSeconds);
+
+  await app.close();
+});
