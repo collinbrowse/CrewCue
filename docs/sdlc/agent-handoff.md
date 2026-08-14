@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-14 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) merged).
-- **Branch / PR:** critical bug hunt on `cursor/critical-bug-investigation-f530` — preserve closed check-ins across course-shape writes when no GPS ping exists.
+- **Branch / PR:** critical bug hunt — [PR #419](https://github.com/collinbrowse/CrewCue/pull/419) on `cursor/critical-bug-investigation-f530` — preserve closed check-ins across course-shape writes when no GPS ping exists.
 - **Active next:** Merge the check-in preservation fix; then residual W3-2 / epic #360 triage.
 
 ## Completed
