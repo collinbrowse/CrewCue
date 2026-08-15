@@ -535,7 +535,7 @@ test("estimate projection interpolates unanchored checkpoints and stacks their d
     raceStartAt: RACE_START_AT,
     activatedAt: RACE_START_AT,
     memberships: [],
-    entitlement: { status: "paid" },
+    entitlement: { status: "paid", lastUpdatedAt: RACE_START_AT, source: "manual" },
     course: {
       checkpoints,
       derivedMetrics: {
