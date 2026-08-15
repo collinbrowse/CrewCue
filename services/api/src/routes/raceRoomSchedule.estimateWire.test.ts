@@ -11,6 +11,7 @@ import {
   parsePacingEstimate,
   type CrewScheduleSheet,
   type PacingEstimate,
+  type RaceCourseCheckpoint,
   type RaceRoom
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
@@ -18,7 +19,7 @@ import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.j
 import { resetPacingEstimateStoreForTests, savePacingEstimate } from "../lib/pacingEstimateStore.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
-import { projectCrewScheduleSheet } from "./raceRoomSchedule.js";
+import { movingElapsedSecondsFromEstimate, projectCrewScheduleSheet } from "./raceRoomSchedule.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
@@ -489,4 +490,104 @@ test("clearing room estimate field restores pace baseline (unit)", async () => {
     assert.equal(without.pacingEstimateId, undefined);
     assert.deepEqual(without, projectCrewScheduleSheet(cleared));
   });
+});
+
+test("estimate projection interpolates unanchored checkpoints and stacks their dwell", () => {
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0, plannedStopSeconds: 30 },
+    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000, plannedStopSeconds: 60 },
+    {
+      id: "landmark",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 15_000,
+      plannedStopSeconds: 120
+    },
+    { id: "aid-2", latitude: 0, longitude: 0, distanceMetersFromStart: 20_000, plannedStopSeconds: 90 },
+    { id: "finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000, plannedStopSeconds: 0 }
+  ];
+  const estimate: PacingEstimate = {
+    id: "est_interpolate_unanchored",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T17:00:00.000Z",
+    expectedFinishElapsedSeconds: 14_400,
+    aidEtas: [
+      {
+        checkpointId: "aid-1",
+        clockArrivalAt: "2026-08-15T14:00:00.000Z",
+        elapsedSeconds: 3600
+      },
+      {
+        checkpointId: "aid-2",
+        clockArrivalAt: "2026-08-15T15:00:00.000Z",
+        elapsedSeconds: 7200
+      }
+    ],
+    explanation: "Synthetic estimate with a gap between aid anchors."
+  };
+  const room = {
+    id: "room-estimate-interpolation",
+    teamId: "team-1",
+    athleteId: "athlete-1",
+    name: "Estimate interpolation",
+    status: "active",
+    createdAt: RACE_START_AT,
+    raceStartAt: RACE_START_AT,
+    activatedAt: RACE_START_AT,
+    memberships: [],
+    entitlement: { status: "paid" },
+    course: {
+      checkpoints,
+      derivedMetrics: {
+        canonicalDistanceMeters: 40_000,
+        elevationGainMeters: 0,
+        elevationLossMeters: 0,
+        elevationSource: "none",
+        metricsVersion: 1
+      }
+    },
+    plannedPaceSecondsPerKm: 600,
+    pacingEstimateId: estimate.id,
+    pacingEstimate: estimate
+  } as RaceRoom;
+
+  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
+  assert.equal(moving.get("landmark"), 5400);
+
+  const sheet = projectCrewScheduleSheet(room);
+  assert.equal(stopByCheckpoint(sheet, "aid-1").elapsedSeconds, 3600 + 30);
+  assert.equal(stopByCheckpoint(sheet, "landmark").elapsedSeconds, 5400 + 30 + 60);
+  assert.equal(stopByCheckpoint(sheet, "aid-2").elapsedSeconds, 7200 + 30 + 60 + 120);
+  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, 14_400 + 30 + 60 + 120 + 90);
+});
+
+test("estimate projection treats farthest checkpoint as finish when finish id is absent", () => {
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
+    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000 },
+    { id: "last-aid", latitude: 0, longitude: 0, distanceMetersFromStart: 30_000 }
+  ];
+  const estimate: PacingEstimate = {
+    id: "est_no_finish_id",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T16:20:00.000Z",
+    expectedFinishElapsedSeconds: 12_000,
+    aidEtas: [
+      {
+        checkpointId: "aid-1",
+        clockArrivalAt: "2026-08-15T14:00:00.000Z",
+        elapsedSeconds: 3600
+      },
+      {
+        checkpointId: "last-aid",
+        clockArrivalAt: "2026-08-15T15:45:00.000Z",
+        elapsedSeconds: 9900
+      }
+    ],
+    explanation: "Synthetic estimate for a course whose terminal checkpoint is not named finish."
+  };
+
+  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 30_000);
+  assert.equal(moving.get("aid-1"), 3600);
+  assert.equal(moving.get("last-aid"), 12_000);
 });
