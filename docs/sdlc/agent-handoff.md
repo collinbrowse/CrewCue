@@ -11,9 +11,9 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
+- Last updated: 2026-08-19 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; residual coverage hardening in progress.
+- **Branch / PR:** Coverage automation branch `cursor/missing-test-coverage-f3b7`; PR pending from this branch. No linked issue was created because this automation environment has read-only `gh` and no issue-creation MCP.
 - **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
@@ -23,6 +23,7 @@
 - W4-2 deterministic A-B bands on estimates (#411 / #415).
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
+- Coverage hardening: `POST /pacing-estimates` now tests explicit `historyRefIds` scoping (cross-athlete IDs) and missing-ID 404 behavior.
 - W3-2 Strava OAuth deferred (optional / secrets).
 
 ## Next 1-3 tasks
@@ -38,9 +39,11 @@
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
 - XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
 - W3-2 Strava remains blocked on staging OAuth secrets.
+- Coverage automation issue creation remains blocked by tool policy (read-only `gh`; no issue MCP).
+- Validation 2026-08-19: `npm run test:memory -w @crewcue/api` and `npm run verify` passed after `npm ci`.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+Wave 4 is complete; continue residual triage. If running coverage automation, inspect recent merged production code for high-risk untested branches, prefer API/shared deterministic tests, and avoid reopening feature scope.
 ```
