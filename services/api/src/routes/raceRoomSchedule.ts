@@ -155,6 +155,14 @@ function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckp
 
 type MovingAnchor = { distanceMeters: number; elapsedSeconds: number };
 
+type ScheduleProjectionLoader = typeof getProjectionViewForRoom;
+
+let scheduleProjectionLoader: ScheduleProjectionLoader = getProjectionViewForRoom;
+
+export function setScheduleProjectionLoaderForTests(loader?: ScheduleProjectionLoader): void {
+  scheduleProjectionLoader = loader ?? getProjectionViewForRoom;
+}
+
 /**
  * Build moving-time anchors from an estimate: start=0, aid ETAs, finish=expectedFinish.
  * Unknown checkpoints interpolate by distance between neighboring anchors.
@@ -470,7 +478,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     let closedActuals: ReturnType<typeof closedActualStopSecondsByCheckpointId> | undefined;
     try {
-      const projection = await getProjectionViewForRoom(roomId);
+      const projection = await scheduleProjectionLoader(roomId);
       closedActuals = projection
         ? closedActualStopSecondsByCheckpointId(projection.checkpointSplits)
         : undefined;

@@ -4,7 +4,7 @@ import { parseCrewScheduleSheet, type CrewScheduleSheet, type RaceRoom } from "@
 import { buildApp } from "../app.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
-import { projectCrewScheduleSheet } from "./raceRoomSchedule.js";
+import { projectCrewScheduleSheet, setScheduleProjectionLoaderForTests } from "./raceRoomSchedule.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
@@ -361,4 +361,28 @@ test("EC8 delay on last stop leaves last arrival unchanged", async () => {
   }
 
   await app.close();
+});
+
+test("EC9 projection hydrate failure returns 503 rather than a plan-only schedule", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-w13-ec9"));
+  const roomId = await createPaidRoom(app, ownerToken, "EC9 projection hydrate unavailable");
+  await put50kCourse(app, roomId, ownerToken);
+
+  let requestedRoomId: string | undefined;
+  setScheduleProjectionLoaderForTests(async (id) => {
+    requestedRoomId = id;
+    throw new Error("projection unavailable for test");
+  });
+
+  try {
+    const response = await getSchedule(app, roomId, ownerToken);
+    assert.equal(response.statusCode, 503);
+    assert.deepEqual(response.json(), { error: "Schedule temporarily unavailable" });
+    assert.equal(requestedRoomId, roomId);
+  } finally {
+    setScheduleProjectionLoaderForTests();
+    await app.close();
+  }
 });
