@@ -11,36 +11,33 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- Last updated: 2026-08-20 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete on `main`; residual hardening / coverage.
+- **Branch / PR:** Coverage [#423](https://github.com/collinbrowse/CrewCue/pull/423) on `cursor/missing-test-coverage-6ce4` — open.
+- **Active acceptance:** Cover one meaningful recent regression risk with deterministic tests, avoid duplicate open coverage PRs, run relevant validation.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- W3-2 Strava OAuth deferred (optional / secrets).
+- API coverage PR #423: `GET /race-rooms/:roomId/schedule` now has regression coverage for projection hydrate failure returning 503 instead of stale plan-only schedule.
+- Added a resettable test-only schedule projection loader seam in `raceRoomSchedule.ts`; production default remains `getProjectionViewForRoom`.
+- Validation passed: focused schedule route test, full API memory suite, and root `npm run verify`.
 
 ## Next 1-3 tasks
 
-1. Optionally Ready W3-2 (Strava) if staging secrets available.
-2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
+1. Review/merge open residual PRs as appropriate: #419 bugfix, #420-#423 coverage.
+2. Continue coverage automation on non-conflicting API gaps (e.g. estimate + check-in + cutoff triple-stack, or notify-after-estimate attach).
+3. Epic #360 closeout / residual backlog triage; Ready W3-2 Strava only if staging OAuth secrets exist.
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
+- Several coverage/bugfix PRs are open concurrently; avoid overlapping `raceRoomSchedule*` edits until merge order is clear.
+- Automation has read-only `gh` guidance and no issue-creation MCP tool, so #423 has no linked issue.
 - Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
 - W3-2 Strava remains blocked on staging OAuth secrets.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+After #423, continue residual coverage only on non-conflicting API gaps. First check open PR paths (#419-#423), then choose one high-risk untested branch and run scoped tests plus `npm run verify`.
 ```
