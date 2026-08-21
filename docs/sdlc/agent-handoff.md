@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-21 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** Coverage automation branch `cursor/missing-test-coverage-92a9` (PR pending via automation). No issue was created because this environment documents `gh` as read-only and no issue-creation MCP tool is available.
+- **Branch / PR:** Coverage automation [#424](https://github.com/collinbrowse/CrewCue/pull/424) on `cursor/missing-test-coverage-92a9`. No issue was created because this environment documents `gh` as read-only and no issue-creation MCP tool is available.
 - **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
