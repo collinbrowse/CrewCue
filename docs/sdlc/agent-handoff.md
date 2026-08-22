@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-22 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; residual triage / regression hardening.
-- **Branch / PR:** Coverage automation on `cursor/missing-test-coverage-8cb3`; PR pending automation open. No linked issue available in this run because `gh` is read-only here.
+- **Branch / PR:** Coverage automation [#425](https://github.com/collinbrowse/CrewCue/pull/425) on `cursor/missing-test-coverage-8cb3`. No linked issue available in this run because `gh` is read-only here.
 - **Active next:** Continue residual triage / targeted regression coverage; optionally Ready W3-2 (Strava) if secrets become available.
 
 ## Completed
