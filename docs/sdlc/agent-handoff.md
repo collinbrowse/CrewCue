@@ -11,9 +11,9 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
+- Last updated: 2026-08-23 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
+- **Branch / PR:** `main` at `0df38b0` (W4-I #418 merged). Critical-bug re-audit on `cursor/critical-bug-investigation-d918` — no new PR.
 - **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
@@ -33,6 +33,7 @@
 
 ## Open risks/blockers
 
+- Critical bug re-audit (2026-08-23): no **new** live-trigger criticals in Wave 3/4 pacing/GPX/cutoff/crew-sheet scope; mobile/web still do not POST `/pacing-estimates` or attach-by-id (API tests + DEV fixtures only). Known below-bar items unchanged (#353, estimate ID collision/#420, projection 503, UTC cutoff policy).
 - GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
 - Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
