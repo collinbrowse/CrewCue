@@ -33,7 +33,7 @@
 
 ## Open risks/blockers
 
-- Critical bug re-audit (2026-08-23): no **new** live-trigger criticals in Wave 3/4 pacing/GPX/cutoff/crew-sheet scope; mobile/web still do not POST `/pacing-estimates` or attach-by-id (API tests + DEV fixtures only). Known below-bar items unchanged (#353, estimate ID collision/#420, projection 503, UTC cutoff policy).
+- Critical bug re-audit (2026-08-23, pass 2): **one new live-trigger critical** — concurrent `POST .../manual-stop` (or ping + check-in) can lose a visit when overlapping `saveWs2RuntimeSnapshot` persists complete out of order (`raceRooms.ts:587-601`, `roomPersistence.ts:527-540`). Not covered by open #339 (hydrate single-flight). Wave 3/4 pacing/GPX/cutoff/crew-sheet authz OK; known drafts unchanged (#353–#342, #419, estimate ID/#420, projection 503).
 - GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
 - Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
