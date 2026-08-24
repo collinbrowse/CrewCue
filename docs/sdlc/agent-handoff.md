@@ -11,10 +11,10 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- Last updated: 2026-08-24 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I merged as #418).
+- **Branch / PR:** Critical bug hunt — list cache clobber can roll back stop-plan writes.
+- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage. Merge unmerged critical drafts (#353, #419) independently.
 
 ## Completed
 
@@ -24,12 +24,13 @@
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
+- 2026-08-24 bug hunt: GET `/race-rooms/mine` no longer clobbers a newer in-memory room write (stop-plan data loss).
 
 ## Next 1-3 tasks
 
 1. Optionally Ready W3-2 (Strava) if staging secrets available.
 2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
+3. Merge unmerged critical drafts: ping authz #353, no-ping check-in wipe #419.
 
 ## Open risks/blockers
 
