@@ -11,10 +11,10 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
+- Last updated: 2026-08-24 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- **Branch / PR:** Coverage automation on `cursor/missing-test-coverage-ba94` — PR pending/opened by automation; no issue created because this environment has read-only `gh`.
+- **Active next:** Review/merge the coverage PR if CI is green; then continue residual triage (optional W3-2 Strava if secrets, else epic #360 closeout).
 
 ## Completed
 
@@ -24,12 +24,13 @@
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
+- Coverage automation (2026-08-24): strengthened deterministic estimator tests for invalid UTC race-start validation and all-dissimilar usable history staying history-backed with parseable bands.
 
 ## Next 1-3 tasks
 
-1. Optionally Ready W3-2 (Strava) if staging secrets available.
-2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
+1. Review/merge coverage automation PR after CI.
+2. Optionally Ready W3-2 (Strava) if staging secrets available.
+3. Epic #360 closeout or residual backlog triage; keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list.
 
 ## Open risks/blockers
 
@@ -38,9 +39,11 @@
 - Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
 - XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
 - W3-2 Strava remains blocked on staging OAuth secrets.
+- GitHub issue creation was not performed for this coverage automation run because `gh` is read-only and no issue-creation MCP tool is available.
+- Validation evidence: focused deterministic estimator test passed; `npm run test:memory -w @crewcue/api` passed; `npm run verify` passed.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+Review/merge the 2026-08-24 coverage automation PR if CI is green. Then continue residual triage: optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
 ```
