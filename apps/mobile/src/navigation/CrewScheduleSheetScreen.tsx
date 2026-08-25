@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import type { CompositeNavigationProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
   createApiClient,
   type ManualCheckpointStopInput,
@@ -19,9 +22,16 @@ import {
 import { checkpointDisplayTitle } from "../features/pace/timeline";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import type { CrewScheduleSheet } from "@crewcue/contracts";
+import type { CrewMainTabParamList, ReadoutsStackParamList } from "./types";
+
+type ScheduleNav = CompositeNavigationProp<
+  NativeStackNavigationProp<ReadoutsStackParamList, "ScheduleSheet">,
+  BottomTabNavigationProp<CrewMainTabParamList>
+>;
 
 export function CrewScheduleSheetScreen(): ReactElement {
   const s = useAuthedShell();
+  const navigation = useNavigation<ScheduleNav>();
   const room = s.room;
   const titleByCheckpointId = useMemo(() => {
     const map = new Map<string, string>();
@@ -265,6 +275,11 @@ export function CrewScheduleSheetScreen(): ReactElement {
     [client, room?.id, runWrite]
   );
 
+  /** Cold-start CTA → Profile Connect Strava (W3-2). */
+  const onAddHistory = useCallback(() => {
+    navigation.navigate("Profile", { screen: "ProfileHome" });
+  }, [navigation]);
+
   if (!room) {
     return (
       <CrewScheduleSheetView
@@ -313,6 +328,7 @@ export function CrewScheduleSheetScreen(): ReactElement {
       savingCheckIn={savingCheckIn}
       checkInError={checkInError}
       onSaveCheckIn={(id, input) => void onSaveCheckIn(id, input)}
+      onAddHistory={onAddHistory}
     />
   );
 }

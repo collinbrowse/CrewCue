@@ -615,7 +615,28 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "DELETE",
         `/chat/rooms/${encodeURIComponent(roomId)}/messages`
-      )
+      ),
+
+    // --- Strava activity history (W3-2) ---
+    startStravaOAuth: () =>
+      request<{ authorizeUrl: string; state: string }>(options, "GET", "/strava/oauth/start"),
+    completeStravaOAuth: (input: { code: string; state: string }) =>
+      request<{ connected: boolean; athleteId: string }>(
+        options,
+        "POST",
+        "/strava/oauth/callback",
+        input
+      ),
+    getStravaConnection: () =>
+      request<{ connected: boolean; athleteId?: string }>(options, "GET", "/strava/connection"),
+    syncStravaActivities: () =>
+      request<{ syncedCount: number; createdCount: number; items: unknown[] }>(
+        options,
+        "POST",
+        "/strava/sync"
+      ),
+    disconnectStrava: () =>
+      request<{ connected: boolean }>(options, "DELETE", "/strava/connection")
   };
 }
 

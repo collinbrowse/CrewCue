@@ -54,14 +54,14 @@ export function ColdStartEstimatePanel(props: ColdStartEstimatePanelProps): Reac
             onPress={props.onAddHistory}
             disabled={adding}
             accessibilityRole="button"
-            accessibilityLabel="Add activity history"
+            accessibilityLabel="Connect Strava"
             accessibilityState={{ disabled: adding, busy: adding }}
             style={[styles.cta, adding ? styles.ctaDisabled : null]}
           >
             {adding ? (
               <ActivityIndicator accessibilityLabel="Adding activity history" color={theme.color.text} />
             ) : (
-              <Text style={styles.ctaLabel}>Add activity history</Text>
+              <Text style={styles.ctaLabel}>Connect Strava</Text>
             )}
           </Pressable>
         ) : null}
