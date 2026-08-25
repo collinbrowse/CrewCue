@@ -11,6 +11,7 @@ import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
 import { raceRoomScheduleRoutes } from "./routes/raceRoomSchedule.js";
 import { activityHistoryRoutes } from "./routes/activityHistory.js";
+import { stravaRoutes } from "./routes/stravaRoutes.js";
 import { pacingEstimateRoutes } from "./routes/pacingEstimates.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
@@ -30,6 +31,7 @@ export function buildApp() {
   app.register(raceRoomStopPlanRoutes);
   app.register(raceRoomScheduleRoutes);
   app.register(activityHistoryRoutes);
+  app.register(stravaRoutes);
   app.register(pacingEstimateRoutes);
   app.register(routingRoutes);
   app.register(geocodeRoutes);

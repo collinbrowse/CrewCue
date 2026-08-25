@@ -796,3 +796,32 @@ test("postManualCheckpointStop rejects arrival-only before network (EC1)", async
     (err: unknown) => err instanceof ApiError && err.status === 400
   );
 });
+
+test("Strava client methods hit /strava/* paths", async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const prev = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ method: init?.method ?? "GET", url });
+    return new Response(JSON.stringify({ connected: false, authorizeUrl: "https://strava.test", state: "s" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  try {
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.startStravaOAuth();
+    await client.getStravaConnection();
+    await client.completeStravaOAuth({ code: "c", state: "s" });
+    await client.syncStravaActivities();
+    await client.disconnectStrava();
+    assert.equal(calls[0]?.url, "https://api.example/strava/oauth/start");
+    assert.equal(calls[1]?.url, "https://api.example/strava/connection");
+    assert.equal(calls[2]?.method, "POST");
+    assert.equal(calls[2]?.url, "https://api.example/strava/oauth/callback");
+    assert.equal(calls[3]?.url, "https://api.example/strava/sync");
+    assert.equal(calls[4]?.method, "DELETE");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

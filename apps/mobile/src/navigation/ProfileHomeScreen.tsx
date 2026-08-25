@@ -9,6 +9,9 @@ import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/offlineMaps";
 import type { CrewMainTabParamList, ProfileStackParamList } from "./types";
+import { createApiClient } from "../api/client";
+import { StravaConnectionCard } from "../features/strava/StravaConnectionCard";
+import { useStravaConnection } from "../features/strava/useStravaConnection";
 
 const RUNNER_AVATAR = require("../../assets/onboarding/crew-cue-onboarding-runner.png");
 
@@ -32,6 +35,12 @@ export function ProfileHomeScreen(): ReactElement {
   const [signingOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState<string | undefined>(undefined);
   const [offlineMapsUnlocked, setOfflineMapsUnlockedState] = useState(false);
+
+  const apiClient = useMemo(() => {
+    if (!s.auth.accessToken) return undefined;
+    return createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
+  }, [s.auth.accessToken, s.baseUrl]);
+  const strava = useStravaConnection(apiClient);
 
   useEffect(() => {
     void getOfflineMapsUnlocked().then(setOfflineMapsUnlockedState);
@@ -112,6 +121,10 @@ export function ProfileHomeScreen(): ReactElement {
             </DSButton>
           </View>
         </DSCard>
+
+        <View style={styles.section}>
+          <StravaConnectionCard strava={strava} enabled={Boolean(apiClient)} />
+        </View>
 
         <DSCard style={[s.styles.summaryCard, styles.section]}>
           <Text style={s.styles.summaryTitle}>Design system</Text>
