@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
+import { Linking } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/client";
-import { parseStravaOAuthCallbackUrl } from "./stravaOAuth";
+import {
+  isStravaOAuthDeepLink,
+  parseStravaOAuthCallbackResult,
+  STRAVA_DEEP_LINK_REDIRECT_URI
+} from "./stravaOAuth";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -62,29 +67,36 @@ export function useStravaConnection(client: ApiClient | undefined): StravaConnec
     setError(undefined);
     setLastSyncMessage(undefined);
     let connectError: string | undefined;
+    let deepLinkUrl: string | undefined;
+    const linkSub = Linking.addEventListener("url", ({ url }) => {
+      if (isStravaOAuthDeepLink(url)) {
+        deepLinkUrl = url;
+      }
+    });
     try {
       const start = await client.startStravaOAuth();
-      const redirectUri = start.redirectUri?.trim();
-      if (!redirectUri) {
-        connectError = "Strava redirect URI missing from API";
-        return;
-      }
-      const result = await WebBrowser.openAuthSessionAsync(start.authorizeUrl, redirectUri);
-      if (result.type !== "success" || !("url" in result) || !result.url) {
+      // Strava authorize URL uses HTTPS redirect_uri; session completes on crewcue://strava bounce.
+      const result = await WebBrowser.openAuthSessionAsync(
+        start.authorizeUrl,
+        STRAVA_DEEP_LINK_REDIRECT_URI
+      );
+      const resultUrl =
+        result.type === "success" && "url" in result && result.url ? result.url : deepLinkUrl;
+      if (!resultUrl) {
         if (result.type === "cancel" || result.type === "dismiss") {
           connectError =
-            "Strava sign-in was cancelled. If you approved in the browser but landed on an error page, check STRAVA_REDIRECT_URI matches your Strava app callback domain.";
+            "Strava authorization did not return to CrewCue. If you saw a success page in the browser, the API may need redeploying — then try Connect again.";
           return;
         }
         connectError = "Strava sign-in did not complete";
         return;
       }
-      const params = parseStravaOAuthCallbackUrl(result.url);
-      if (!params) {
-        connectError = `Strava callback was missing code or state (${result.url})`;
+      const callback = parseStravaOAuthCallbackResult(resultUrl);
+      if (!callback.ok) {
+        connectError = callback.message;
         return;
       }
-      const status = await client.completeStravaOAuth(params);
+      const status = await client.completeStravaOAuth(callback.params);
       setConnected(status.connected);
       setAthleteId(status.athleteId);
       const syncResult = await client.syncStravaActivities();
@@ -99,6 +111,7 @@ export function useStravaConnection(client: ApiClient | undefined): StravaConnec
             ? err.message
             : "Unable to connect Strava";
     } finally {
+      linkSub.remove();
       setBusy(false);
       if (connectError) {
         setError(connectError);

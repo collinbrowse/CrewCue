@@ -237,6 +237,31 @@ test("oauth start → callback → sync → idempotent re-sync (EC5) → disconn
   });
 });
 
+test("oauth redirect bounces success to crewcue deep link", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=auth-code&state=abc123"
+    });
+    assert.equal(response.statusCode, 302);
+    assert.equal(response.headers.location, "crewcue://strava?code=auth-code&state=abc123");
+  });
+});
+
+test("oauth redirect bounces Strava error to crewcue deep link", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?error=access_denied&error_description=User%20denied"
+    });
+    assert.equal(response.statusCode, 302);
+    assert.equal(
+      response.headers.location,
+      "crewcue://strava?error=access_denied&error_description=User+denied"
+    );
+  });
+});
+
 test("oauth start returns 503 when Strava is not configured", async () => {
   await withApp(
     async ({ app, tokenFor }) => {
