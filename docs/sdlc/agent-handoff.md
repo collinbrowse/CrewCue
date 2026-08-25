@@ -11,9 +11,9 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
+- Last updated: 2026-08-25 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
+- **Branch / PR:** Test coverage automation on `cursor/missing-test-coverage-c77e` — PR to be opened by automation; no issue created because this environment's `gh` guidance is read-only and no issue-create MCP is configured.
 - **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
 
 ## Completed
@@ -24,6 +24,13 @@
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
+- Coverage automation (2026-08-25): added regression tests for non-finite cutoff warning inputs in API helper and contracts parser.
+
+## Validation evidence
+
+- `npm run test -w @crewcue/contracts` — pass.
+- `npm run test:memory -w @crewcue/api` — pass.
+- `npm run verify` — pass.
 
 ## Next 1-3 tasks
 
@@ -42,5 +49,5 @@
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+Continue residual triage after the cutoff-warning coverage PR. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
 ```

@@ -34,6 +34,21 @@ test("absent cutoff yields undefined instant and warning", () => {
   );
 });
 
+test("non-finite cutoff comparison inputs do not emit misleading warning fields", () => {
+  assert.equal(
+    cutoffInstantMs({ mode: "elapsed_from_start", seconds: 3600 }, Number.NaN),
+    undefined
+  );
+  assert.equal(
+    compareProjectedArrivalToCutoff({
+      cutoff: { mode: "time_of_day", hour: 14, minute: 0 },
+      raceStartAtMs: RACE_START_MS,
+      clockArrivalAtMs: Number.NaN
+    }),
+    undefined
+  );
+});
+
 test("classifyCutoffMargin bands: ok / warn / breach", () => {
   assert.equal(classifyCutoffMargin(CUTOFF_WARN_MARGIN_SECONDS + 1), "ok");
   assert.equal(classifyCutoffMargin(CUTOFF_WARN_MARGIN_SECONDS), "warn");
