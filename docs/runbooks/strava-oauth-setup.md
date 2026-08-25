@@ -7,33 +7,54 @@ Staging-first athlete history sync. Secrets stay on the API; mobile never receiv
 1. Open [Strava API settings](https://www.strava.com/settings/api).
 2. Create an application (or use an existing staging app).
 3. Note **Client ID** and **Client Secret**.
-4. Set **Authorization Callback Domain** / redirect URI to match the API env value (default deep link):
+4. Set **Authorization Callback Domain** to your API host (no path), e.g.:
 
-   - `crewcue://strava`
+   - `crewcue-staging.up.railway.app`
 
-   The exact `STRAVA_REDIRECT_URI` string must match what the API puts in the authorize URL and what Strava allows.
+   Strava only allows **http/https** redirect URIs on that domain (not custom URL schemes like `crewcue://`).
 
 ## 2) Place secrets (never commit)
 
 | Location | Vars |
 | --- | --- |
-| Repo-root `.env.local` / `.env.staging` (via `npm run env:local` / `env:staging` → active `.env`) | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REDIRECT_URI` |
+| Repo-root `.env.local` / `.env.staging` | `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `STRAVA_REDIRECT_URI` |
 | Railway staging dashboard | Same three vars for the deployed API |
 
-Templates (empty placeholders only): `.env.local.example`, `.env.staging.example`.
+**Staging redirect URI (required):**
+
+```bash
+STRAVA_REDIRECT_URI=https://crewcue-staging.up.railway.app/strava/oauth/redirect
+```
+
+**Local API against Strava (optional):**
+
+```bash
+STRAVA_REDIRECT_URI=http://127.0.0.1:4000/strava/oauth/redirect
+```
+
+Use the same host in Strava **Authorization Callback Domain** (`127.0.0.1` or your Railway host).
+
+Templates (empty placeholders): `.env.local.example`, `.env.staging.example`.
 
 ## 3) Scopes
 
-Authorize URL requests `activity:read_all` (read athlete activities including private, with consent). If your Strava app is limited to public activities only, switch the API client scope to `activity:read` and re-consent.
+Authorize URL requests `activity:read_all`. If your Strava app is limited to public activities, switch the API client scope to `activity:read`.
 
 ## 4) Flow (product)
 
-1. Mobile calls `GET /strava/oauth/start` (Bearer Auth0/API JWT).
-2. Opens returned `authorizeUrl` in the system browser.
-3. Strava redirects to `crewcue://strava?code=…&state=…`.
+1. Mobile calls `GET /strava/oauth/start` → `{ authorizeUrl, state, redirectUri }`.
+2. Opens `authorizeUrl` in the system browser; `redirectUri` must match Strava app settings.
+3. Strava redirects to `…/strava/oauth/redirect?code=…&state=…`.
 4. Mobile posts `POST /strava/oauth/callback` with `code` + `state`.
-5. Mobile calls `POST /strava/sync` to upsert `ActivityHistoryRef` rows (`source: "strava"`).
+5. Mobile calls `POST /strava/sync` to upsert history rows.
 
-## 5) Production
+## 5) Troubleshooting “Not connected”
+
+- **Railway `STRAVA_REDIRECT_URI` must be HTTPS** on your API host, not `crewcue://strava`.
+- Strava **Authorization Callback Domain** must match that host.
+- After Connect, Profile should show a red error line if token exchange failed (check Railway logs).
+- Redeploy API after changing env vars.
+
+## 6) Production
 
 Do not enable production Strava until staging OAuth + sync has soaked (staging-first cloud rule).

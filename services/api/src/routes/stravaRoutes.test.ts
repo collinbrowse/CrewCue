@@ -154,9 +154,10 @@ test("oauth start → callback → sync → idempotent re-sync (EC5) → disconn
       headers: { authorization: `Bearer ${token}` }
     });
     assert.equal(start.statusCode, 200);
-    const startBody = start.json() as { authorizeUrl: string; state: string };
+    const startBody = start.json() as { authorizeUrl: string; state: string; redirectUri: string };
     assert.match(startBody.authorizeUrl, /strava\.com\/oauth\/authorize/);
     assert.ok(startBody.state.length > 8);
+    assert.equal(startBody.redirectUri, "crewcue://strava");
 
     const callback = await app.inject({
       method: "POST",

@@ -619,7 +619,11 @@ export function createApiClient(options: ApiClientOptions) {
 
     // --- Strava activity history (W3-2) ---
     startStravaOAuth: () =>
-      request<{ authorizeUrl: string; state: string }>(options, "GET", "/strava/oauth/start"),
+      request<{ authorizeUrl: string; state: string; redirectUri: string }>(
+        options,
+        "GET",
+        "/strava/oauth/start"
+      ),
     completeStravaOAuth: (input: { code: string; state: string }) =>
       request<{ connected: boolean; athleteId: string }>(
         options,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/client";
-import { parseStravaOAuthCallbackUrl, STRAVA_REDIRECT_URI } from "./stravaOAuth";
+import { parseStravaOAuthCallbackUrl } from "./stravaOAuth";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -35,7 +35,6 @@ export function useStravaConnection(client: ApiClient | undefined): StravaConnec
       return;
     }
     setLoading(true);
-    setError(undefined);
     try {
       const status = await client.getStravaConnection();
       setConnected(status.connected);
@@ -62,20 +61,27 @@ export function useStravaConnection(client: ApiClient | undefined): StravaConnec
     setBusy(true);
     setError(undefined);
     setLastSyncMessage(undefined);
+    let connectError: string | undefined;
     try {
-      const { authorizeUrl } = await client.startStravaOAuth();
-      const result = await WebBrowser.openAuthSessionAsync(authorizeUrl, STRAVA_REDIRECT_URI);
+      const start = await client.startStravaOAuth();
+      const redirectUri = start.redirectUri?.trim();
+      if (!redirectUri) {
+        connectError = "Strava redirect URI missing from API";
+        return;
+      }
+      const result = await WebBrowser.openAuthSessionAsync(start.authorizeUrl, redirectUri);
       if (result.type !== "success" || !("url" in result) || !result.url) {
         if (result.type === "cancel" || result.type === "dismiss") {
-          setError(undefined);
+          connectError =
+            "Strava sign-in was cancelled. If you approved in the browser but landed on an error page, check STRAVA_REDIRECT_URI matches your Strava app callback domain.";
           return;
         }
-        setError("Strava sign-in did not complete");
+        connectError = "Strava sign-in did not complete";
         return;
       }
       const params = parseStravaOAuthCallbackUrl(result.url);
       if (!params) {
-        setError("Strava callback was missing code or state");
+        connectError = `Strava callback was missing code or state (${result.url})`;
         return;
       }
       const status = await client.completeStravaOAuth(params);
@@ -86,16 +92,19 @@ export function useStravaConnection(client: ApiClient | undefined): StravaConnec
         `Synced ${syncResult.syncedCount} activit${syncResult.syncedCount === 1 ? "y" : "ies"} (${syncResult.createdCount} new)`
       );
     } catch (err) {
-      const message =
+      connectError =
         err instanceof ApiError
           ? err.message
           : err instanceof Error
             ? err.message
             : "Unable to connect Strava";
-      setError(message);
     } finally {
       setBusy(false);
-      await refresh();
+      if (connectError) {
+        setError(connectError);
+      } else {
+        await refresh();
+      }
     }
   }, [busy, client, refresh]);
 
