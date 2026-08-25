@@ -74,7 +74,34 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     const state = randomBytes(24).toString("hex");
     await saveOAuthPendingState(state, request.identity.sub);
     const authorizeUrl = buildStravaAuthorizeUrl(config, state);
-    return reply.code(200).send({ authorizeUrl, state });
+    return reply.code(200).send({
+      authorizeUrl,
+      state,
+      /** Must match `openAuthSessionAsync` redirect on mobile and Strava app settings. */
+      redirectUri: config.redirectUri
+    });
+  });
+
+  /**
+   * Strava redirects here after consent (HTTPS callback domain).
+   * Mobile `openAuthSessionAsync` captures this URL; browser fallback shows a close hint.
+   */
+  app.get("/strava/oauth/redirect", async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
+    if (query.error) {
+      const message = query.error_description?.trim() || query.error;
+      return reply
+        .type("text/html")
+        .code(400)
+        .send(
+          `<!doctype html><html><body><p>Strava authorization failed: ${message}</p><p>Return to CrewCue and try again.</p></body></html>`
+        );
+    }
+    return reply
+      .type("text/html")
+      .send(
+        `<!doctype html><html><body><p>Strava authorization complete.</p><p>Return to CrewCue to finish connecting.</p></body></html>`
+      );
   });
 
   app.post("/strava/oauth/callback", async (request, reply) => {

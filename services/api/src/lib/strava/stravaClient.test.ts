@@ -84,9 +84,11 @@ test("ensureFreshStravaAccessToken skips refresh when token still valid", async 
   assert.equal(result.tokens.accessToken, "a");
 });
 
-test("exchangeStravaAuthorizationCode requires athlete id", async () => {
-  const fetchImpl = mockFetch(async () =>
-    new Response(
+test("exchangeStravaAuthorizationCode requires athlete id and sends redirect_uri", async () => {
+  let body = "";
+  const fetchImpl = mockFetch(async (_url, init) => {
+    body = String(init?.body ?? "");
+    return new Response(
       JSON.stringify({
         access_token: "a",
         refresh_token: "r",
@@ -94,10 +96,12 @@ test("exchangeStravaAuthorizationCode requires athlete id", async () => {
         athlete: { id: 77 }
       }),
       { status: 200 }
-    )
-  );
+    );
+  });
   const tokens = await exchangeStravaAuthorizationCode(baseConfig(fetchImpl), "code-1");
   assert.equal(tokens.athleteId, "77");
+  assert.match(body, /"redirect_uri":"crewcue:\/\/strava"/);
+  assert.match(body, /"grant_type":"authorization_code"/);
 });
 
 test("refreshStravaAccessToken posts grant_type refresh_token", async () => {
