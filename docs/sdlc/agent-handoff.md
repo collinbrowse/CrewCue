@@ -24,11 +24,11 @@
 - W4-3 printable/shareable offline crew sheet (#412 / #414).
 - W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
 - W3-2 Strava OAuth deferred (optional / secrets).
-- Coverage automation (2026-08-25): added regression tests for non-finite cutoff warning inputs in API helper and contracts parser.
+- Coverage automation (2026-08-25): added W4 integration coverage for `time_of_day` cutoff margin/status when an attached pacing estimate drives schedule clocks.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/contracts` — pass.
+- `npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/routes/raceRoomSchedule.w4Integration.test.js` — pass.
 - `npm run test:memory -w @crewcue/api` — pass.
 - `npm run verify` — pass.
 

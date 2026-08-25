@@ -439,6 +439,19 @@ test("EC6: estimate + cutoff schedule clocks remain ISO-Z", async () => {
     for (const stop of sheet.stops) {
       assert.match(stop.clockArrivalAt, ISO_Z);
     }
+    const aid2 = stopByCheckpoint(sheet, "aid-2");
+    const expectedAid2Margin = Math.round(
+      (Date.parse("2026-08-15T18:00:00.000Z") - Date.parse(aid2.clockArrivalAt)) / 1000
+    );
+    assert.equal(aid2.cutoffMarginSeconds, expectedAid2Margin);
+    assert.equal(
+      aid2.cutoffStatus,
+      expectedAid2Margin <= 0
+        ? "breach"
+        : expectedAid2Margin <= CUTOFF_WARN_MARGIN_SECONDS
+          ? "warn"
+          : "ok"
+    );
     assert.match(estimate.expectedFinishAt, ISO_Z);
     assert.match(estimate.bands!.conservative!.finishAt, ISO_Z);
     assert.match(estimate.bands!.aggressive!.finishAt, ISO_Z);
