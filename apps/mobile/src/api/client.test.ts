@@ -816,6 +816,7 @@ test("Strava client methods hit /strava/* paths", async () => {
     await client.syncStravaActivities();
     await client.disconnectStrava();
     assert.equal(calls[0]?.url, "https://api.example/strava/oauth/start");
+    assert.equal(JSON.parse(calls[0]?.body ?? "null") ?? null, null);
     assert.equal(calls[1]?.url, "https://api.example/strava/connection");
     assert.equal(calls[2]?.method, "POST");
     assert.equal(calls[2]?.url, "https://api.example/strava/oauth/callback");

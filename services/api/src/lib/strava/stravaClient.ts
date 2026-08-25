@@ -110,8 +110,16 @@ async function postToken(
     parsed = text;
   }
   if (!res.ok) {
+    const detail =
+      parsed && typeof parsed === "object" && "message" in parsed
+        ? String((parsed as { message?: unknown }).message)
+        : typeof parsed === "string" && parsed.length > 0
+          ? parsed
+          : undefined;
     throw new StravaClientError(
-      `Strava token request failed (${res.status})`,
+      detail
+        ? `Strava token request failed (${res.status}): ${detail}`
+        : `Strava token request failed (${res.status})`,
       "strava_token_http",
       res.status
     );
@@ -123,7 +131,11 @@ export async function exchangeStravaAuthorizationCode(
   config: StravaClientConfig,
   code: string
 ): Promise<StravaTokenBundle> {
-  const tokens = await postToken(config, { code, grant_type: "authorization_code" });
+  const tokens = await postToken(config, {
+    code,
+    grant_type: "authorization_code",
+    redirect_uri: config.redirectUri
+  });
   if (!tokens.athleteId) {
     throw new StravaClientError("Token response missing athlete id", "strava_token_invalid");
   }
