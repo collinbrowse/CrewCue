@@ -13,8 +13,8 @@
 
 - Last updated: 2026-08-26 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; Strava disconnect deauthorize shipping.
-- **Branch / PR:** `feature/strava-deauthorize-on-disconnect` → issue [#439](https://github.com/collinbrowse/CrewCue/issues/439).
-- **Active next:** Merge deauthorize PR; fix Strava API **Website** field; optional `approval_prompt=force` follow-up.
+- **Branch / PR:** [#440](https://github.com/collinbrowse/CrewCue/pull/440) on `feature/strava-deauthorize-on-disconnect` — Closes [#439](https://github.com/collinbrowse/CrewCue/issues/439).
+- **Active next:** Merge #440 after CI green; fix Strava API **Website** field; optional `approval_prompt=force` follow-up.
 
 ## Completed
 
@@ -24,7 +24,7 @@
 
 ## Next 1-3 tasks
 
-1. Commit/PR Strava deauthorize-on-disconnect; merge after CI green.
+1. Merge [#440](https://github.com/collinbrowse/CrewCue/pull/440) (Strava revoke on disconnect).
 2. In Strava API settings, set **Website** to CrewCue (not Reframe GitHub) so consent UI is correct.
 3. Epic #360 residual triage; optional follow-up: `approval_prompt=force` + validate granted scopes.
 
@@ -34,12 +34,12 @@
 
 ## Open risks/blockers
 
-- Agent shell lacked `gh`; issue number not filed yet — create issue when opening PR.
+- Agent shell lacked `gh` (resolved — #439 / #440 filed).
 - Live Strava soak still needs staging secrets + redeploy after merge.
 - Prior 403 sync may need reconnect with activity scopes after revoke lands.
 
 ## Successor prompt
 
 ```text
-On feature/strava-deauthorize-on-disconnect: create GitHub issue, commit, open PR with Closes #N, push, verify CI. Remind human to fix Strava API Website field away from Reframe GitHub.
+After #440 merges: redeploy staging, Disconnect then Connect Strava, confirm sync and that CrewCue leaves Strava authorized apps. Fix Website field on Strava API settings. Then triage epic #360 residuals.
 ```
