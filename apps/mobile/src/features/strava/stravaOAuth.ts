@@ -5,6 +5,8 @@ export const STRAVA_DEEP_LINK_REDIRECT_URI = "crewcue://strava";
 export type StravaOAuthCallbackParams = {
   code: string;
   state: string;
+  /** Granted scopes from Strava redirect when present. */
+  scope?: string;
 };
 
 export type StravaOAuthCallbackResult =
@@ -17,7 +19,8 @@ function readOAuthQueryParams(parsed: URL): StravaOAuthCallbackParams | undefine
   if (!code || !state) {
     return undefined;
   }
-  return { code, state };
+  const scope = parsed.searchParams.get("scope")?.trim() ?? "";
+  return scope ? { code, state, scope } : { code, state };
 }
 
 function isStravaOAuthCallbackPath(parsed: URL): boolean {

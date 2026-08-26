@@ -14,6 +14,7 @@ import {
   type StravaActivitySummary
 } from "../lib/strava/mapStravaActivity.js";
 import {
+  assertStravaActivityReadScope,
   buildStravaAuthorizeUrl,
   exchangeStravaAuthorizationCode,
   ensureFreshStravaAccessToken,
@@ -35,7 +36,9 @@ import {
 const callbackBody = z
   .object({
     code: z.string().min(1),
-    state: z.string().min(1)
+    state: z.string().min(1),
+    /** Granted scopes from Strava redirect query (forwarded via deep-link bounce). */
+    scope: z.string().min(1).optional()
   })
   .strict();
 
@@ -102,7 +105,13 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
    * Immediately bounces to `crewcue://strava` so mobile auth session auto-closes on iOS.
    */
   app.get("/strava/oauth/redirect", async (request, reply) => {
-    const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
+    const query = request.query as {
+      code?: string;
+      state?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
     if (query.error) {
       return reply.redirect(
         buildStravaAppRedirectUrl({
@@ -114,7 +123,9 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     const code = query.code?.trim();
     const state = query.state?.trim();
     if (code && state) {
-      return reply.redirect(buildStravaAppRedirectUrl({ code, state }));
+      return reply.redirect(
+        buildStravaAppRedirectUrl({ code, state, scope: query.scope?.trim() })
+      );
     }
     return reply
       .type("text/html")
@@ -148,6 +159,15 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       const tokens = await exchangeStravaAuthorizationCode(config, parsed.data.code);
+      const grantedScope = parsed.data.scope ?? tokens.scope;
+      try {
+        assertStravaActivityReadScope(grantedScope);
+      } catch (scopeErr) {
+        if (scopeErr instanceof StravaClientError) {
+          return reply.code(400).send({ error: scopeErr.message, code: scopeErr.code });
+        }
+        throw scopeErr;
+      }
       await upsertStravaConnection(request.identity.sub, tokens);
       return reply.code(200).send({
         connected: true,

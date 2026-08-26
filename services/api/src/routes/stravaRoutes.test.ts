@@ -66,7 +66,8 @@ async function withApp(
               access_token: "access-1",
               refresh_token: "refresh-1",
               expires_at: Math.floor(Date.now() / 1000) + 3600,
-              athlete: { id: 4242 }
+              athlete: { id: 4242 },
+              scope: "read,activity:read_all"
             }),
             { status: 200 }
           );
@@ -114,11 +115,14 @@ test("oauth redirect bounces success to crewcue deep link", async () => {
   await withApp(async ({ app }) => {
     const response = await app.inject({
       method: "GET",
-      url: "/strava/oauth/redirect?code=auth-code&state=state-1"
+      url: "/strava/oauth/redirect?code=auth-code&state=state-1&scope=read,activity:read_all"
     });
 
     assert.equal(response.statusCode, 302);
-    assert.equal(response.headers.location, "crewcue://strava?code=auth-code&state=state-1");
+    assert.equal(
+      response.headers.location,
+      "crewcue://strava?code=auth-code&state=state-1&scope=read%2Cactivity%3Aread_all"
+    );
   });
 });
 
@@ -171,6 +175,29 @@ test("EC2: callback with missing/invalid state returns 400", async () => {
     });
     assert.equal(invalid.statusCode, 400);
     assert.equal((invalid.json() as { code?: string }).code, "strava_oauth_state_invalid");
+  });
+});
+
+test("callback rejects when Strava granted scopes omit activity read", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-scope");
+    const start = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/start",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const startBody = start.json() as { state: string; authorizeUrl: string };
+    assert.match(startBody.authorizeUrl, /approval_prompt=force/);
+    assert.match(startBody.authorizeUrl, /activity%3Aread_all|activity:read_all/);
+
+    const callback = await app.inject({
+      method: "POST",
+      url: "/strava/oauth/callback",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { code: "auth-code", state: startBody.state, scope: "read" }
+    });
+    assert.equal(callback.statusCode, 400);
+    assert.equal((callback.json() as { code?: string }).code, "strava_scope_insufficient");
   });
 });
 

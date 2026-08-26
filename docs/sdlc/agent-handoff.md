@@ -12,31 +12,33 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; W3-2 Strava on `main` (#431 / #433 / #435).
-- **Branch / PR:** [#436](https://github.com/collinbrowse/CrewCue/pull/436) expanding for [#438](https://github.com/collinbrowse/CrewCue/issues/438) — run-only ingest + last-year sync + Profile copy.
-- **Active next:** Finish #436/#438, then epic #360 residual triage.
+- **Roadmap phase:** Crew schedule + AI pacing — Strava sync 403 scope fix in flight.
+- **Branch / PR:** [#442](https://github.com/collinbrowse/CrewCue/pull/442) on `feature/441-strava-scope-force-validate` — Closes [#441](https://github.com/collinbrowse/CrewCue/issues/441); related revoke [#440](https://github.com/collinbrowse/CrewCue/pull/440).
+- **Active next:** Merge/redeploy #442 (+ #440), then Disconnect → Connect → Sync with private activities checked.
 
 ## Completed
 
-- Wave 0–4 (incl. W4-I #418).
-- W3-2 Strava OAuth + sync (#431), staging connect (#433), deep-link bounce (#435).
-- #437 redirect coverage merged into the bounce path.
+- Wave 0–4; W3-2 Strava OAuth/sync on main.
+- #441 implementation: force consent, `read,activity:read_all`, scope validation, redirect scope bounce, Strava 403 detail.
 
 ## Next 1-3 tasks
 
-1. Land #436 / #438: sport filter, last-year paginated sync, Profile copy.
-2. Epic #360 closeout or residual backlog triage.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list.
+1. Merge/redeploy [#442](https://github.com/collinbrowse/CrewCue/pull/442) and [#440](https://github.com/collinbrowse/CrewCue/pull/440).
+2. Human: Strava API **Website** field; Disconnect → Connect → Sync on staging.
+3. Epic #360 residual triage.
+
+## Validation evidence
+
+- `npm run test:memory -w @crewcue/api` — pass (0 fail).
+- `npm test -w @crewcue/mobile` — pass (0 fail).
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- First-write-wins history: non-run rows synced before sport filter stay until a later cleanup.
-- Live Strava soak still needs staging secrets + redeploy after #436.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
+- Live 403 persists until staging has this build; existing weak tokens need reconnect.
+- Authed Pace E2E / schedule 503 remain on residual list.
 
 ## Successor prompt
 
 ```text
-After #436/#438 merges: redeploy staging, Connect Strava, confirm sync covers ~1y of runs only and Profile copy matches. Then triage epic #360 residuals. Do not reopen OAuth bounce (#435) unless soak finds a bug.
+Merge #441 and #440, redeploy staging, then Disconnect/Connect Strava with private activities checked and confirm sync. If 403 remains, read the new error detail (activity:read_permission) and check Railway logs.
 ```

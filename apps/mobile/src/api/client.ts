@@ -624,7 +624,7 @@ export function createApiClient(options: ApiClientOptions) {
         "GET",
         "/strava/oauth/start"
       ),
-    completeStravaOAuth: (input: { code: string; state: string }) =>
+    completeStravaOAuth: (input: { code: string; state: string; scope?: string }) =>
       request<{ connected: boolean; athleteId: string }>(
         options,
         "POST",

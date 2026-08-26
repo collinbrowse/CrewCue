@@ -38,7 +38,17 @@ Templates (empty placeholders): `.env.local.example`, `.env.staging.example`.
 
 ## 3) Scopes
 
-Authorize URL requests `activity:read_all`. If your Strava app is limited to public activities, switch the API client scope to `activity:read`.
+Authorize URL requests `read,activity:read_all` with `approval_prompt=force` so reconnect always shows consent (needed to upgrade a prior weak grant). Callback rejects connects that omit activity read scopes.
+
+If your Strava app is limited to public activities only, set the API client scope override to `read,activity:read` (code default still requests `activity:read_all`).
+
+### Troubleshooting sync `403`
+
+`Strava activities request failed (403)` means the access token lacks `activity:read` / `activity:read_all` (Strava often reports `activity:read_permission missing`).
+
+1. Disconnect in CrewCue (after [#440](https://github.com/collinbrowse/CrewCue/pull/440) merges, this also revokes at Strava).
+2. Connect again — leave **View data about your private activities** checked.
+3. Sync again. If the error includes Strava’s detail string, that confirms the scope gap.
 
 ## 4) Flow (product)
 
