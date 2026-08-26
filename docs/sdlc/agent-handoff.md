@@ -12,25 +12,26 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — #444 merged; upload status UX (#445) in progress.
-- **Branch / PR:** `feature/activity-gpx-upload-status` for #445.
-- **Active next:** Merge #445; redeploy staging API for metrics ingest; soak upload + Strava.
+- **Roadmap phase:** Crew schedule + AI pacing — #444 merged; upload status UX (#445) + next-step (#447) on PR #446.
+- **Branch / PR:** `feature/activity-gpx-upload-status` → https://github.com/collinbrowse/CrewCue/pull/446
+- **Active next:** Commit/push next-step UX; sim QA; merge #446; redeploy staging API.
 
 ## Completed
 
 - #443/#444: activity GPX upload (metrics path + Profile card).
-- #445 in progress: staged progress copy (reading/parsing/uploading).
+- #445: staged progress; duplicate skip-before-parse; single overall %.
+- #447 (in progress): next-step hint + Open Pace when historyCount > 0.
 
 ## Next 1-3 tasks
 
-1. Merge #445 (upload progress status).
-2. Redeploy staging API; verify GPX upload end-to-end.
+1. Finish #447 on PR #446 (verify Open Pace on sim; push).
+2. Merge #445/#447 PR; redeploy staging API for metrics ingest.
 3. Epic #360 residual / Strava soak if still open.
 
 ## Validation evidence
 
-- #444 on `main` (`60f8ea3`).
-- #445: unit tests for `formatActivityUploadProgress`.
+- Unit: `activityHistoryNextStepHint`, upload progress formatters.
+- Sim: pending for Open Pace CTA visibility.
 
 ## Open risks/blockers
 
@@ -40,5 +41,5 @@
 ## Successor prompt
 
 ```text
-Merge PR for #445 if open. Redeploy staging API, reload mobile from main, upload a timed GPX and confirm progress stages then history count updates.
+On feature/activity-gpx-upload-status: confirm Profile shows next-step + Open Pace when history > 0; commit/push; update PR #446 with Closes #445 and Closes #447; merge after CI green; redeploy staging API.
 ```

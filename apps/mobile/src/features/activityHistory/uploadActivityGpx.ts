@@ -123,6 +123,14 @@ export class ActivityGpxParseError extends Error {
   }
 }
 
+/**
+ * Persistent hint when history already exists — Profile otherwise dead-ends after upload.
+ */
+export function activityHistoryNextStepHint(historyCount: number): string | undefined {
+  if (historyCount <= 0) return undefined;
+  return "Next: open Pace to see tighter finish estimates for your race.";
+}
+
 /** Build a short status line after a multi-file upload attempt. */
 export function summarizeActivityGpxUploadBatch(
   results: ActivityGpxUploadFileResult[]

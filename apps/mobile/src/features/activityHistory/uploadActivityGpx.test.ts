@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  activityHistoryNextStepHint,
   activityUploadProgressRatio,
   formatActivityUploadNetworkError,
   formatActivityUploadProgress,
@@ -140,6 +141,11 @@ test("activityUploadProgressRatio advances across stages and files", () => {
   assert.ok(parseEnd <= read2);
   assert.ok(read2 < refresh);
   assert.ok(refresh < 1);
+});
+
+test("activityHistoryNextStepHint only when history exists", () => {
+  assert.equal(activityHistoryNextStepHint(0), undefined);
+  assert.match(activityHistoryNextStepHint(4) ?? "", /open Pace/i);
 });
 
 test("formatActivityUploadProgress omits inline parse percent (bar owns %)", () => {

@@ -2,11 +2,14 @@ import { useMemo, type ReactElement } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { DSButton, DSCard, useDSTheme, type DSThemeTokens } from "../../design-system";
 import type { ActivityHistoryUploadState } from "./useActivityHistoryUpload";
+import { activityHistoryNextStepHint } from "./uploadActivityGpx";
 
 export type ActivityHistoryUploadCardProps = {
   upload: ActivityHistoryUploadState;
   /** When false, hide actions (no API client / not signed in). */
   enabled?: boolean;
+  /** Opens Pace tab so the athlete can see history-backed estimates. */
+  onOpenPace?: () => void;
 };
 
 /**
@@ -20,6 +23,7 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
   const showProgress = upload.busy && Boolean(upload.progressMessage);
   const ratio = Math.max(0, Math.min(1, upload.progressRatio ?? 0));
   const percentLabel = `${Math.round(ratio * 100)}%`;
+  const nextStep = activityHistoryNextStepHint(upload.historyCount);
 
   return (
     <View accessibilityLabel="Activity GPX upload">
@@ -63,14 +67,24 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
             {upload.lastMessage}
           </Text>
         ) : null}
+        {!showProgress && nextStep ? (
+          <Text style={styles.nextStep} accessibilityLabel="Activity history next step">
+            {nextStep}
+          </Text>
+        ) : null}
         {!showProgress && upload.error ? (
           <Text style={styles.error} accessibilityLabel="Activity GPX upload error">
             {upload.error}
           </Text>
         ) : null}
         <View style={styles.actions}>
+          {!showProgress && nextStep && props.onOpenPace ? (
+            <DSButton preset="primary" onPress={props.onOpenPace} disabled={!enabled || upload.busy}>
+              Open Pace
+            </DSButton>
+          ) : null}
           <DSButton
-            preset="primary"
+            preset={nextStep ? "secondary" : "primary"}
             onPress={() => void upload.uploadGpxFiles()}
             disabled={!enabled || upload.busy || upload.loading}
           >
@@ -131,6 +145,12 @@ function createStyles(theme: DSThemeTokens) {
     meta: {
       color: theme.color.body,
       fontSize: 13
+    },
+    nextStep: {
+      color: theme.color.text,
+      fontSize: 14,
+      fontWeight: "500",
+      lineHeight: 20
     },
     error: {
       color: theme.color.danger,
