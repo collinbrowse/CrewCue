@@ -56,6 +56,15 @@ function isStravaActivitySummary(value: unknown): value is StravaActivitySummary
   return typeof id === "number" || typeof id === "string";
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export async function stravaRoutes(app: FastifyInstance): Promise<void> {
   await initStravaConnectionStore(app.log);
   await initActivityHistoryStore(app.log);
@@ -89,7 +98,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
   app.get("/strava/oauth/redirect", async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
     if (query.error) {
-      const message = query.error_description?.trim() || query.error;
+      const message = escapeHtml(query.error_description?.trim() || query.error);
       return reply
         .type("text/html")
         .code(400)

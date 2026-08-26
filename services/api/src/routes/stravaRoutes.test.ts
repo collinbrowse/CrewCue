@@ -109,6 +109,36 @@ test("EC3: Strava routes require auth", async () => {
   });
 });
 
+test("oauth redirect renders a public completion page for Strava browser fallback", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=auth-code&state=state-1"
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.headers["content-type"] ?? "", /text\/html/);
+    assert.match(response.body, /Strava authorization complete/);
+    assert.match(response.body, /Return to CrewCue to finish connecting/);
+  });
+});
+
+test("oauth redirect escapes provider error text before rendering HTML", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/strava/oauth/redirect?error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E%20%26%20%22no%22"
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.headers["content-type"] ?? "", /text\/html/);
+    assert.doesNotMatch(response.body, /<script>/);
+    assert.match(response.body, /&lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; &quot;no&quot;/);
+    assert.match(response.body, /Return to CrewCue and try again/);
+  });
+});
+
 test("EC2: callback with missing/invalid state returns 400", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
