@@ -71,7 +71,7 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
             onPress={() => void upload.uploadGpxFiles()}
             disabled={!enabled || upload.busy || upload.loading}
           >
-            {upload.busy ? "Working…" : "Choose GPX files"}
+            {upload.busy ? (upload.progressMessage ? "Working…" : "Choose files…") : "Choose GPX files"}
           </DSButton>
         </View>
       </DSCard>

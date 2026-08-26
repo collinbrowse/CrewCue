@@ -95,8 +95,9 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
     setBusy(true);
     setError(undefined);
     setLastMessage(undefined);
+    clearProgress();
     try {
-      await setProgress({ stage: "picking" });
+      // Do not show the progress bar until the Files picker dismisses with selections.
       const result = await DocumentPicker.getDocumentAsync({
         // iOS Files picker can hide GPX exports when MIME filters are too strict.
         type: "*/*",
