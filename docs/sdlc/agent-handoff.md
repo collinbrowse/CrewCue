@@ -12,33 +12,34 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Strava sync 403 scope fix in flight.
-- **Branch / PR:** [#442](https://github.com/collinbrowse/CrewCue/pull/442) on `feature/441-strava-scope-force-validate` — Closes [#441](https://github.com/collinbrowse/CrewCue/issues/441); related revoke [#440](https://github.com/collinbrowse/CrewCue/pull/440).
-- **Active next:** Merge/redeploy #442 (+ #440), then Disconnect → Connect → Sync with private activities checked.
+- **Roadmap phase:** Crew schedule + AI pacing — Strava scope fix on `main` (#442); revoke-on-disconnect conflict resolution for #440.
+- **Branch / PR:** [#440](https://github.com/collinbrowse/CrewCue/pull/440) on `feature/strava-deauthorize-on-disconnect` (merging `main` / #442).
+- **Active next:** Push conflict fix, merge #440 when CI green, redeploy staging, Disconnect → Connect → Sync.
 
 ## Completed
 
-- Wave 0–4; W3-2 Strava OAuth/sync on main.
-- #441 implementation: force consent, `read,activity:read_all`, scope validation, redirect scope bounce, Strava 403 detail.
+- Wave 0–4; W3-2 Strava OAuth/sync.
+- #442 merged: force consent, activity scope validation, 403 detail.
+- #440: Disconnect calls Strava `POST /oauth/revoke` (best-effort) then clears local tokens — conflicts with #442 resolved in-branch.
 
 ## Next 1-3 tasks
 
-1. Merge/redeploy [#442](https://github.com/collinbrowse/CrewCue/pull/442) and [#440](https://github.com/collinbrowse/CrewCue/pull/440).
-2. Human: Strava API **Website** field; Disconnect → Connect → Sync on staging.
+1. Merge [#440](https://github.com/collinbrowse/CrewCue/pull/440) after CI green; redeploy staging.
+2. Human: Disconnect → Connect (private activities checked) → Sync; fix Strava API **Website** if still Reframe.
 3. Epic #360 residual triage.
 
 ## Validation evidence
 
-- `npm run test:memory -w @crewcue/api` — pass (0 fail).
-- `npm test -w @crewcue/mobile` — pass (0 fail).
+- Conflict resolution: combined revoke mock + scope token fixtures in `stravaRoutes.test.ts`.
+- Run Strava API tests after merge commit before claiming green.
 
 ## Open risks/blockers
 
-- Live 403 persists until staging has this build; existing weak tokens need reconnect.
+- Staging must redeploy #442/#440 before live soak.
 - Authed Pace E2E / schedule 503 remain on residual list.
 
 ## Successor prompt
 
 ```text
-Merge #441 and #440, redeploy staging, then Disconnect/Connect Strava with private activities checked and confirm sync. If 403 remains, read the new error detail (activity:read_permission) and check Railway logs.
+After #440 merges: redeploy staging, Disconnect/Connect Strava with private activities checked, confirm sync and that CrewCue leaves Strava authorized apps. Then triage epic #360 residuals.
 ```

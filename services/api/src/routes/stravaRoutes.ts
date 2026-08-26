@@ -16,6 +16,7 @@ import {
 import {
   assertStravaActivityReadScope,
   buildStravaAuthorizeUrl,
+  deauthorizeStravaAccess,
   exchangeStravaAuthorizationCode,
   ensureFreshStravaAccessToken,
   listStravaAthleteActivitiesSince,
@@ -243,6 +244,19 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/strava/connection", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const existing = await getStravaConnection(request.identity.sub);
+    const config = resolveConfig();
+    if (existing && config) {
+      try {
+        await deauthorizeStravaAccess(config, existing);
+      } catch (err) {
+        // Best-effort: always clear local connection so Disconnect cannot strand the UI.
+        request.log.warn(
+          { err, athleteUserId: request.identity.sub },
+          "Strava deauthorize failed; clearing local connection anyway"
+        );
+      }
     }
     await deleteStravaConnection(request.identity.sub);
     return reply.code(200).send({ connected: false });

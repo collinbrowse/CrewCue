@@ -53,6 +53,8 @@ export class StravaClientError extends Error {
 const AUTHORIZE_BASE = "https://www.strava.com/oauth/authorize";
 const TOKEN_URL = "https://www.strava.com/oauth/token";
 const ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities";
+/** Recommended deauthorization endpoint (Strava docs; preferred over /oauth/deauthorize). */
+const REVOKE_URL = "https://www.strava.com/oauth/revoke";
 
 export function readStravaEnvConfig(): StravaClientConfig | undefined {
   const clientId = process.env.STRAVA_CLIENT_ID?.trim();
@@ -212,6 +214,40 @@ export async function ensureFreshStravaAccessToken(
     athleteId: next.athleteId || tokens.athleteId
   };
   return { tokens: merged, refreshed: true };
+}
+
+/**
+ * Revoke the athlete's OAuth grant for this app (invalidates access + refresh tokens).
+ * Uses POST /oauth/revoke with HTTP Basic (client_id:client_secret).
+ * Prefer the refresh token so revoke still works if the access token already expired.
+ */
+export async function deauthorizeStravaAccess(
+  config: StravaClientConfig,
+  tokens: Pick<StravaTokenBundle, "accessToken" | "refreshToken">
+): Promise<void> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const basic = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
+  const body = new URLSearchParams({
+    token: tokens.refreshToken || tokens.accessToken,
+    token_type_hint: tokens.refreshToken ? "refresh_token" : "access_token"
+  });
+  const res = await fetchImpl(REVOKE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json"
+    },
+    body: body.toString()
+  });
+  // Strava returns 200 whether or not the token was found; treat other statuses as failure.
+  if (!res.ok) {
+    throw new StravaClientError(
+      `Strava deauthorize request failed (${res.status})`,
+      "strava_deauthorize_http",
+      res.status
+    );
+  }
 }
 
 export async function listStravaAthleteActivities(
