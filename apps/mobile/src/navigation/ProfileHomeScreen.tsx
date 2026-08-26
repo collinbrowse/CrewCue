@@ -10,6 +10,8 @@ import { useAuthedShell } from "../shell/AuthedShellContext";
 import { getOfflineMapsUnlocked, setOfflineMapsUnlocked } from "../preferences/offlineMaps";
 import type { CrewMainTabParamList, ProfileStackParamList } from "./types";
 import { createApiClient } from "../api/client";
+import { ActivityHistoryUploadCard } from "../features/activityHistory/ActivityHistoryUploadCard";
+import { useActivityHistoryUpload } from "../features/activityHistory/useActivityHistoryUpload";
 import { StravaConnectionCard } from "../features/strava/StravaConnectionCard";
 import { useStravaConnection } from "../features/strava/useStravaConnection";
 
@@ -41,6 +43,7 @@ export function ProfileHomeScreen(): ReactElement {
     return createApiClient({ baseUrl: s.baseUrl, accessToken: s.auth.accessToken });
   }, [s.auth.accessToken, s.baseUrl]);
   const strava = useStravaConnection(apiClient);
+  const activityHistoryUpload = useActivityHistoryUpload(apiClient);
 
   useEffect(() => {
     void getOfflineMapsUnlocked().then(setOfflineMapsUnlockedState);
@@ -121,6 +124,10 @@ export function ProfileHomeScreen(): ReactElement {
             </DSButton>
           </View>
         </DSCard>
+
+        <View style={styles.section}>
+          <ActivityHistoryUploadCard upload={activityHistoryUpload} enabled={Boolean(apiClient)} />
+        </View>
 
         <View style={styles.section}>
           <StravaConnectionCard strava={strava} enabled={Boolean(apiClient)} />

@@ -43,7 +43,7 @@ export function DevColdStartFixtureScreen(): ReactElement {
     // DEV: brief busy state so sim can assert EC8 (CTA disabled / busy).
     setTimeout(() => {
       setAddingHistory(false);
-      setCtaHint("Connect Strava from Profile when signed in. DEV: use Simulate history arrived for EC5.");
+      setCtaHint("Upload GPX or Connect Strava from Profile when signed in. DEV: use Simulate history arrived for EC5.");
     }, 600);
   }, [addingHistory]);
 
