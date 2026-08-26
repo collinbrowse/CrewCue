@@ -109,6 +109,48 @@ test("EC3: Strava routes require auth", async () => {
   });
 });
 
+test("oauth redirect bounces success to crewcue deep link", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=auth-code&state=state-1"
+    });
+
+    assert.equal(response.statusCode, 302);
+    assert.equal(response.headers.location, "crewcue://strava?code=auth-code&state=state-1");
+  });
+});
+
+test("oauth redirect bounces provider error to deep link without raw HTML", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/strava/oauth/redirect?error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E%20%26%20%22no%22"
+    });
+
+    assert.equal(response.statusCode, 302);
+    const location = String(response.headers.location ?? "");
+    assert.match(location, /^crewcue:\/\/strava\?/);
+    assert.match(location, /error=access_denied/);
+    assert.doesNotMatch(location, /<script>/);
+    assert.match(location, /error_description=/);
+  });
+});
+
+test("oauth redirect returns HTML 400 when code or state is missing", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=only-code"
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.headers["content-type"] ?? "", /text\/html/);
+    assert.match(response.body, /missing code or state/i);
+  });
+});
+
 test("EC2: callback with missing/invalid state returns 400", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
@@ -234,31 +276,6 @@ test("oauth start → callback → sync → idempotent re-sync (EC5) → disconn
       headers: { authorization: `Bearer ${token}` }
     });
     assert.equal((historyAfter.json() as { items: unknown[] }).items.length, 1);
-  });
-});
-
-test("oauth redirect bounces success to crewcue deep link", async () => {
-  await withApp(async ({ app }) => {
-    const response = await app.inject({
-      method: "GET",
-      url: "/strava/oauth/redirect?code=auth-code&state=abc123"
-    });
-    assert.equal(response.statusCode, 302);
-    assert.equal(response.headers.location, "crewcue://strava?code=auth-code&state=abc123");
-  });
-});
-
-test("oauth redirect bounces Strava error to crewcue deep link", async () => {
-  await withApp(async ({ app }) => {
-    const response = await app.inject({
-      method: "GET",
-      url: "/strava/oauth/redirect?error=access_denied&error_description=User%20denied"
-    });
-    assert.equal(response.statusCode, 302);
-    assert.equal(
-      response.headers.location,
-      "crewcue://strava?error=access_denied&error_description=User+denied"
-    );
   });
 });
 
