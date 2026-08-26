@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-26 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; scheduled regression-coverage hardening in progress.
-- **Branch / PR:** `cursor/missing-test-coverage-02ff` — PR pending for Strava OAuth redirect coverage.
+- **Branch / PR:** [#437](https://github.com/collinbrowse/CrewCue/pull/437) on `cursor/missing-test-coverage-02ff` — Strava OAuth redirect coverage.
 - **Active next:** Review/merge the Strava redirect coverage PR, then continue residual epic #360 closeout / backlog triage.
 
 ## Completed
