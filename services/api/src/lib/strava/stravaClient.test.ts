@@ -5,6 +5,7 @@ import {
   ensureFreshStravaAccessToken,
   exchangeStravaAuthorizationCode,
   listStravaAthleteActivities,
+  listStravaAthleteActivitiesSince,
   refreshStravaAccessToken,
   type StravaClientConfig,
   type StravaTokenBundle
@@ -124,4 +125,31 @@ test("listStravaAthleteActivities returns array", async () => {
   );
   const items = await listStravaAthleteActivities(baseConfig(fetchImpl), "tok");
   assert.equal(items.length, 1);
+});
+
+test("listStravaAthleteActivitiesSince paginates with after lookback", async () => {
+  const requested: string[] = [];
+  const fetchImpl = mockFetch(async (url) => {
+    requested.push(url);
+    const parsed = new URL(url);
+    const page = Number(parsed.searchParams.get("page") ?? "1");
+    if (page === 1) {
+      return new Response(
+        JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ id: i + 1 }))),
+        { status: 200 }
+      );
+    }
+    return new Response(JSON.stringify([{ id: 201 }]), { status: 200 });
+  });
+  const items = await listStravaAthleteActivitiesSince(baseConfig(fetchImpl), "tok", {
+    nowSeconds: 1_700_000_000,
+    afterSeconds: 1_700_000_000 - 365 * 24 * 60 * 60
+  });
+  assert.equal(items.length, 201);
+  assert.equal(requested.length, 2);
+  const first = new URL(requested[0]!);
+  assert.equal(first.searchParams.get("after"), String(1_700_000_000 - 365 * 24 * 60 * 60));
+  assert.equal(first.searchParams.get("per_page"), "200");
+  assert.equal(first.searchParams.get("page"), "1");
+  assert.equal(new URL(requested[1]!).searchParams.get("page"), "2");
 });

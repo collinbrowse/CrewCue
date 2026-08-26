@@ -173,7 +173,7 @@ export async function ensureFreshStravaAccessToken(
 export async function listStravaAthleteActivities(
   config: StravaClientConfig,
   accessToken: string,
-  options?: { page?: number; perPage?: number }
+  options?: { page?: number; perPage?: number; after?: number }
 ): Promise<unknown[]> {
   const fetchImpl = config.fetchImpl ?? fetch;
   const page = options?.page ?? 1;
@@ -181,6 +181,9 @@ export async function listStravaAthleteActivities(
   const url = new URL(ACTIVITIES_URL);
   url.searchParams.set("page", String(page));
   url.searchParams.set("per_page", String(perPage));
+  if (options?.after !== undefined) {
+    url.searchParams.set("after", String(options.after));
+  }
   const res = await fetchImpl(url.toString(), {
     method: "GET",
     headers: {
@@ -206,4 +209,42 @@ export async function listStravaAthleteActivities(
     throw new StravaClientError("Activities response must be an array", "strava_activities_invalid");
   }
   return parsed;
+}
+
+/** Lookback window for pacing history sync (~1 calendar year). */
+export const STRAVA_SYNC_LOOKBACK_SECONDS = 365 * 24 * 60 * 60;
+
+/** Strava allows up to 200 activities per page. */
+export const STRAVA_ACTIVITIES_PER_PAGE = 200;
+
+/** Safety cap so a buggy client cannot loop forever. */
+const STRAVA_SYNC_MAX_PAGES = 50;
+
+/**
+ * List athlete activities after `afterSeconds` (default: now − 1 year), paginating until exhausted.
+ * Sport filtering happens in the mapper; this returns the raw Strava window.
+ */
+export async function listStravaAthleteActivitiesSince(
+  config: StravaClientConfig,
+  accessToken: string,
+  options?: { afterSeconds?: number; perPage?: number; nowSeconds?: number }
+): Promise<unknown[]> {
+  const nowSeconds = options?.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const after = options?.afterSeconds ?? nowSeconds - STRAVA_SYNC_LOOKBACK_SECONDS;
+  const perPage = options?.perPage ?? STRAVA_ACTIVITIES_PER_PAGE;
+  const collected: unknown[] = [];
+
+  for (let page = 1; page <= STRAVA_SYNC_MAX_PAGES; page += 1) {
+    const batch = await listStravaAthleteActivities(config, accessToken, {
+      page,
+      perPage,
+      after
+    });
+    collected.push(...batch);
+    if (batch.length < perPage) {
+      break;
+    }
+  }
+
+  return collected;
 }

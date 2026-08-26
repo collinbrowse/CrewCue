@@ -17,7 +17,7 @@ import {
   buildStravaAuthorizeUrl,
   exchangeStravaAuthorizationCode,
   ensureFreshStravaAccessToken,
-  listStravaAthleteActivities,
+  listStravaAthleteActivitiesSince,
   readStravaEnvConfig,
   StravaClientError,
   type StravaClientConfig
@@ -193,10 +193,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
       if (refreshed) {
         await upsertStravaConnection(request.identity.sub, tokens);
       }
-      const activities = await listStravaAthleteActivities(config, tokens.accessToken, {
-        page: 1,
-        perPage: 30
-      });
+      const activities = await listStravaAthleteActivitiesSince(config, tokens.accessToken);
       const refs: ActivityHistoryRef[] = [];
       let createdCount = 0;
       for (const item of activities) {

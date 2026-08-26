@@ -42,7 +42,8 @@ export function ColdStartEstimatePanel(props: ColdStartEstimatePanelProps): Reac
           Elapsed {finishElapsed} (course-only)
         </Text>
         <Text style={styles.body} accessibilityLabel="Cold start explanation">
-          {props.estimate.explanation}
+          {props.estimate.explanation} Connect Strava to sync your last year of runs for better pacing
+          estimates.
         </Text>
         {props.error ? (
           <Text style={styles.error} accessibilityLabel="Cold start estimate error">
