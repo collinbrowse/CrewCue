@@ -12,31 +12,34 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; W3-2 Strava on `main` (#431 / #433 / #435).
-- **Branch / PR:** [#436](https://github.com/collinbrowse/CrewCue/pull/436) expanding for [#438](https://github.com/collinbrowse/CrewCue/issues/438) — run-only ingest + last-year sync + Profile copy.
-- **Active next:** Finish #436/#438, then epic #360 residual triage.
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; Strava disconnect deauthorize shipping.
+- **Branch / PR:** `feature/strava-deauthorize-on-disconnect` → issue [#439](https://github.com/collinbrowse/CrewCue/issues/439).
+- **Active next:** Merge deauthorize PR; fix Strava API **Website** field; optional `approval_prompt=force` follow-up.
 
 ## Completed
 
 - Wave 0–4 (incl. W4-I #418).
 - W3-2 Strava OAuth + sync (#431), staging connect (#433), deep-link bounce (#435).
-- #437 redirect coverage merged into the bounce path.
+- Implemented: `DELETE /strava/connection` calls Strava `POST /oauth/revoke` (best-effort) then clears local tokens; unit tests; runbook Website + disconnect notes.
 
 ## Next 1-3 tasks
 
-1. Land #436 / #438: sport filter, last-year paginated sync, Profile copy.
-2. Epic #360 closeout or residual backlog triage.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list.
+1. Commit/PR Strava deauthorize-on-disconnect; merge after CI green.
+2. In Strava API settings, set **Website** to CrewCue (not Reframe GitHub) so consent UI is correct.
+3. Epic #360 residual triage; optional follow-up: `approval_prompt=force` + validate granted scopes.
+
+## Validation evidence
+
+- `npm run test:memory -w @crewcue/api` — pass (279 tests, 275 pass, 0 fail; 4 skipped), including deauthorize client + disconnect revoke-best-effort tests.
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- First-write-wins history: non-run rows synced before sport filter stay until a later cleanup.
-- Live Strava soak still needs staging secrets + redeploy after #436.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
+- Agent shell lacked `gh`; issue number not filed yet — create issue when opening PR.
+- Live Strava soak still needs staging secrets + redeploy after merge.
+- Prior 403 sync may need reconnect with activity scopes after revoke lands.
 
 ## Successor prompt
 
 ```text
-After #436/#438 merges: redeploy staging, Connect Strava, confirm sync covers ~1y of runs only and Profile copy matches. Then triage epic #360 residuals. Do not reopen OAuth bounce (#435) unless soak finds a bug.
+On feature/strava-deauthorize-on-disconnect: create GitHub issue, commit, open PR with Closes #N, push, verify CI. Remind human to fix Strava API Website field away from Reframe GitHub.
 ```

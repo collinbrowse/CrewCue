@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildStravaAuthorizeUrl,
+  deauthorizeStravaAccess,
   ensureFreshStravaAccessToken,
   exchangeStravaAuthorizationCode,
   listStravaAthleteActivities,
@@ -152,4 +153,42 @@ test("listStravaAthleteActivitiesSince paginates with after lookback", async () 
   assert.equal(first.searchParams.get("per_page"), "200");
   assert.equal(first.searchParams.get("page"), "1");
   assert.equal(new URL(requested[1]!).searchParams.get("page"), "2");
+});
+
+test("deauthorizeStravaAccess posts refresh token to /oauth/revoke with Basic auth", async () => {
+  let seenUrl = "";
+  let seenInit: RequestInit | undefined;
+  const fetchImpl = mockFetch(async (url, init) => {
+    seenUrl = url;
+    seenInit = init;
+    return new Response(null, { status: 200 });
+  });
+  await deauthorizeStravaAccess(baseConfig(fetchImpl), {
+    accessToken: "access-x",
+    refreshToken: "refresh-x"
+  });
+  assert.equal(seenUrl, "https://www.strava.com/oauth/revoke");
+  assert.equal(seenInit?.method, "POST");
+  const headers = seenInit?.headers as Record<string, string>;
+  const expectedBasic = Buffer.from("cid:csecret").toString("base64");
+  assert.equal(headers.Authorization, `Basic ${expectedBasic}`);
+  assert.equal(headers["Content-Type"], "application/x-www-form-urlencoded");
+  const body = String(seenInit?.body ?? "");
+  assert.match(body, /token=refresh-x/);
+  assert.match(body, /token_type_hint=refresh_token/);
+});
+
+test("deauthorizeStravaAccess throws on non-OK status", async () => {
+  const fetchImpl = mockFetch(async () => new Response("nope", { status: 401 }));
+  await assert.rejects(
+    () =>
+      deauthorizeStravaAccess(baseConfig(fetchImpl), {
+        accessToken: "a",
+        refreshToken: "r"
+      }),
+    (err: unknown) =>
+      err instanceof Error &&
+      err.name === "StravaClientError" &&
+      (err as { code?: string }).code === "strava_deauthorize_http"
+  );
 });

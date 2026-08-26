@@ -48,7 +48,11 @@ async function withApp(
     app: ReturnType<typeof buildApp>;
     tokenFor: (sub: string) => string;
   }) => Promise<void>,
-  options?: { configureStrava?: boolean; activities?: unknown[] }
+  options?: {
+    configureStrava?: boolean;
+    activities?: unknown[];
+    fetchOverride?: typeof fetch;
+  }
 ): Promise<void> {
   await resetActivityHistoryStoreForTests();
   await resetStravaConnectionStoreForTests();
@@ -59,24 +63,29 @@ async function withApp(
       clientId: "test-client",
       clientSecret: "test-secret",
       redirectUri: "crewcue://strava",
-      fetchImpl: mockFetch(async (url) => {
-        if (url.includes("/oauth/token")) {
-          return new Response(
-            JSON.stringify({
-              access_token: "access-1",
-              refresh_token: "refresh-1",
-              expires_at: Math.floor(Date.now() / 1000) + 3600,
-              athlete: { id: 4242 }
-            }),
-            { status: 200 }
-          );
-        }
-        if (url.includes("/athlete/activities")) {
-          const payload = options?.activities ?? [fixtureSummary];
-          return new Response(JSON.stringify(payload), { status: 200 });
-        }
-        return new Response("not found", { status: 404 });
-      })
+      fetchImpl:
+        options?.fetchOverride ??
+        mockFetch(async (url) => {
+          if (url.includes("/oauth/token")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "access-1",
+                refresh_token: "refresh-1",
+                expires_at: Math.floor(Date.now() / 1000) + 3600,
+                athlete: { id: 4242 }
+              }),
+              { status: 200 }
+            );
+          }
+          if (url.includes("/oauth/revoke") || url.includes("/oauth/deauthorize")) {
+            return new Response(null, { status: 200 });
+          }
+          if (url.includes("/athlete/activities")) {
+            const payload = options?.activities ?? [fixtureSummary];
+            return new Response(JSON.stringify(payload), { status: 200 });
+          }
+          return new Response("not found", { status: 404 });
+        })
     });
   }
 
@@ -350,6 +359,64 @@ test("sync skips non-run Strava sports so rides cannot poison pacing history", a
       assert.equal(await countActivityHistoryRows(), 3);
     },
     { activities: [ride, fixtureSummary, swim, shortRun, longRun] }
+  );
+});
+
+test("disconnect calls Strava revoke then clears local connection even if revoke fails", async () => {
+  let revokeCalls = 0;
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-revoke");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const disconnect = await app.inject({
+        method: "DELETE",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(disconnect.statusCode, 200);
+      assert.deepEqual(disconnect.json(), { connected: false });
+      assert.equal(revokeCalls, 1);
+
+      const after = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(after.json(), { connected: false });
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-1",
+              refresh_token: "refresh-1",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 99 }
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/oauth/revoke")) {
+          revokeCalls += 1;
+          return new Response("unauthorized", { status: 401 });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
   );
 });
 

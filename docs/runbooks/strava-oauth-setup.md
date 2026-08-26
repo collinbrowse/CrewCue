@@ -13,6 +13,8 @@ Staging-first athlete history sync. Secrets stay on the API; mobile never receiv
 
    Strava only allows **http/https** redirect URIs on that domain (not custom URL schemes like `crewcue://`).
 
+5. Set **Website** (and optional club/app name) to your product site — e.g. `https://crewcue.app` or this repo’s public homepage. That value is shown as a link under “Authorize CrewCue…” on Strava’s consent screen; it is **not** rendered by the mobile app. Do not leave an unrelated GitHub URL there.
+
 ## 2) Place secrets (never commit)
 
 | Location | Vars |
@@ -49,6 +51,7 @@ Authorize URL requests `activity:read_all`. If your Strava app is limited to pub
 5. Mobile posts `POST /strava/oauth/callback` with `code` + `state`.
 6. Mobile calls `POST /strava/sync` to upsert history rows.
 7. Sync pulls **~1 year** of Strava activities (paginated), keeps **Run / TrailRun / VirtualRun** only (every distance), and upserts into activity history for pacing estimates.
+8. **Disconnect** (`DELETE /strava/connection`) calls Strava `POST /oauth/revoke` (best-effort) then deletes the local connection so the app disappears from the athlete’s authorized apps.
 
 ## 5) Troubleshooting “Not connected”
 
@@ -56,6 +59,7 @@ Authorize URL requests `activity:read_all`. If your Strava app is limited to pub
 - Strava **Authorization Callback Domain** must match that host.
 - After Connect, Profile should show a red error line if token exchange failed (check Railway logs).
 - Redeploy API after changing env vars.
+- Weird GitHub (or other) link on the Strava consent page → edit **Website** under [API settings](https://www.strava.com/settings/api).
 
 ## 6) Production
 
