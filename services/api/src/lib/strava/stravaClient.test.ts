@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertStravaActivityReadScope,
   buildStravaAuthorizeUrl,
   ensureFreshStravaAccessToken,
   exchangeStravaAuthorizationCode,
   listStravaAthleteActivities,
   listStravaAthleteActivitiesSince,
   refreshStravaAccessToken,
+  stravaScopeIncludesActivityRead,
   type StravaClientConfig,
   type StravaTokenBundle
 } from "./stravaClient.js";
@@ -35,8 +37,20 @@ test("buildStravaAuthorizeUrl includes client_id, redirect, state, scope", () =>
   assert.equal(parsed.searchParams.get("client_id"), "cid");
   assert.equal(parsed.searchParams.get("redirect_uri"), "crewcue://strava");
   assert.equal(parsed.searchParams.get("state"), "abc123");
-  assert.equal(parsed.searchParams.get("scope"), "activity:read_all");
+  assert.equal(parsed.searchParams.get("scope"), "read,activity:read_all");
+  assert.equal(parsed.searchParams.get("approval_prompt"), "force");
   assert.equal(parsed.searchParams.get("response_type"), "code");
+});
+
+test("stravaScopeIncludesActivityRead accepts activity read scopes", () => {
+  assert.equal(stravaScopeIncludesActivityRead("read,activity:read_all"), true);
+  assert.equal(stravaScopeIncludesActivityRead("activity:read"), true);
+  assert.equal(stravaScopeIncludesActivityRead("read"), false);
+  assert.throws(
+    () => assertStravaActivityReadScope("read"),
+    (err: unknown) =>
+      err instanceof Error && (err as { code?: string }).code === "strava_scope_insufficient"
+  );
 });
 
 test("EC6: ensureFreshStravaAccessToken refreshes when near expiry", async () => {
@@ -125,6 +139,25 @@ test("listStravaAthleteActivities returns array", async () => {
   );
   const items = await listStravaAthleteActivities(baseConfig(fetchImpl), "tok");
   assert.equal(items.length, 1);
+});
+
+test("listStravaAthleteActivities includes Strava error detail on failure", async () => {
+  const fetchImpl = mockFetch(async () =>
+    new Response(
+      JSON.stringify({
+        message: "Authorization Error",
+        errors: [{ resource: "AccessToken", field: "activity:read_permission", code: "missing" }]
+      }),
+      { status: 403 }
+    )
+  );
+  await assert.rejects(
+    () => listStravaAthleteActivities(baseConfig(fetchImpl), "tok"),
+    (err: unknown) =>
+      err instanceof Error &&
+      err.message.includes("403") &&
+      err.message.includes("activity:read_permission")
+  );
 });
 
 test("listStravaAthleteActivitiesSince paginates with after lookback", async () => {
