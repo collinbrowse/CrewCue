@@ -10,11 +10,19 @@ export type ActivityGpxFileInput = {
 };
 
 export type ActivityGpxUploadFileResult =
-  | { fileName: string; ok: true; historyId: string; created: boolean }
+  | {
+      fileName: string;
+      ok: true;
+      historyId: string;
+      created: boolean;
+      /** True when content hash already exists in history (parse skipped). */
+      skippedDuplicate?: boolean;
+    }
   | { fileName: string; ok: false; message: string };
 
 export type ActivityGpxUploadBatchSummary = {
   uploadedCount: number;
+  skippedCount: number;
   failedCount: number;
   message: string;
   results: ActivityGpxUploadFileResult[];
@@ -69,7 +77,7 @@ export function activityUploadProgressRatio(progress: ActivityGpxUploadProgress)
 
 /** Human-readable status line for an in-progress upload (never empty). */
 export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress): string {
-  const { stage, fileName, fileIndex, fileCount, stageRatio } = progress;
+  const { stage, fileName, fileIndex, fileCount } = progress;
   const hasBatch =
     typeof fileIndex === "number" &&
     typeof fileCount === "number" &&
@@ -83,13 +91,8 @@ export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress
       return "Waiting for file selection…";
     case "reading":
       return `Reading${filePart}${batchPart}…`;
-    case "parsing": {
-      const pct =
-        typeof stageRatio === "number" && Number.isFinite(stageRatio)
-          ? ` · ${Math.round(clamp01(stageRatio) * 100)}%`
-          : "";
-      return `Parsing GPX${filePart}${batchPart}${pct}…`;
-    }
+    case "parsing":
+      return `Parsing GPX${filePart}${batchPart}…`;
     case "uploading":
       return `Sending metrics${filePart}${batchPart}…`;
     case "refreshing":
@@ -124,12 +127,18 @@ export class ActivityGpxParseError extends Error {
 export function summarizeActivityGpxUploadBatch(
   results: ActivityGpxUploadFileResult[]
 ): ActivityGpxUploadBatchSummary {
-  const uploadedCount = results.filter((r) => r.ok).length;
-  const failedCount = results.length - uploadedCount;
+  const uploadedCount = results.filter((r) => r.ok && r.created && !r.skippedDuplicate).length;
+  const skippedCount = results.filter((r) => r.ok && r.skippedDuplicate === true).length;
+  const failedCount = results.filter((r) => !r.ok).length;
   const parts: string[] = [];
   if (uploadedCount > 0) {
     parts.push(
       `Uploaded ${uploadedCount} activit${uploadedCount === 1 ? "y" : "ies"}`
+    );
+  }
+  if (skippedCount > 0) {
+    parts.push(
+      `Skipped ${skippedCount} duplicate${skippedCount === 1 ? "" : "s"} (already in history)`
     );
   }
   if (failedCount > 0) {
@@ -145,6 +154,7 @@ export function summarizeActivityGpxUploadBatch(
   }
   return {
     uploadedCount,
+    skippedCount,
     failedCount,
     message: parts.join(" · "),
     results

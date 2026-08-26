@@ -13,15 +13,29 @@ export async function fingerprintGpxExternalId(gpxXml: string): Promise<string> 
   return digest.slice(0, 32);
 }
 
+export type BuildActivityHistoryMetricsOptions = {
+  /** When set (after a duplicate check), skip hashing again. */
+  externalId?: string;
+  /** 0..1 across parse (and fingerprint when externalId is not precomputed). */
+  onProgress?: (ratio: number) => void | Promise<void>;
+};
+
 /**
- * Parse + fingerprint for `POST /activity-history`.
- * `onProgress` is 0..1 across parse (0–0.9) then fingerprint (0.9–1).
+ * Parse (+ fingerprint unless provided) for `POST /activity-history`.
  */
 export async function buildActivityHistoryMetricsIngest(
   gpxXml: string,
-  onProgress?: (ratio: number) => void | Promise<void>
+  options?: BuildActivityHistoryMetricsOptions
 ): Promise<ActivityHistoryMetricsIngest> {
   const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
+  const onProgress = options?.onProgress;
+  const precomputedId = options?.externalId?.trim();
+
+  if (precomputedId) {
+    const metrics = await parseActivityGpxMetricsAsync(trimmed, onProgress);
+    return { ...metrics, externalId: precomputedId };
+  }
+
   const metrics = await parseActivityGpxMetricsAsync(trimmed, async (parseRatio) => {
     await onProgress?.(parseRatio * 0.9);
   });

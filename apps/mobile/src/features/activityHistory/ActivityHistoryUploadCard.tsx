@@ -51,7 +51,10 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
               <View style={[styles.progressFill, { width: `${Math.round(ratio * 1000) / 10}%` }]} />
             </View>
             <Text style={styles.progress} accessibilityLabel="Activity GPX upload status">
-              {upload.progressMessage} · {percentLabel}
+              {upload.progressMessage}
+            </Text>
+            <Text style={styles.progressPercent} accessibilityLabel="Activity GPX upload percent">
+              {percentLabel}
             </Text>
           </View>
         ) : null}
@@ -119,6 +122,11 @@ function createStyles(theme: DSThemeTokens) {
       fontSize: 14,
       fontWeight: "500",
       lineHeight: 20
+    },
+    progressPercent: {
+      color: theme.color.body,
+      fontSize: 13,
+      fontWeight: "600"
     },
     meta: {
       color: theme.color.body,

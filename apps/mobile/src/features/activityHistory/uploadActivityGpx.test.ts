@@ -24,12 +24,14 @@ test("summarizeActivityGpxUploadBatch reports mixed success", () => {
   const results: ActivityGpxUploadFileResult[] = [
     { fileName: "a.gpx", ok: true, historyId: "h1", created: true },
     { fileName: "b.gpx", ok: false, message: "GPX file is empty" },
-    { fileName: "c.gpx", ok: true, historyId: "h2", created: false }
+    { fileName: "c.gpx", ok: true, historyId: "h2", created: false, skippedDuplicate: true }
   ];
   const summary = summarizeActivityGpxUploadBatch(results);
-  assert.equal(summary.uploadedCount, 2);
+  assert.equal(summary.uploadedCount, 1);
+  assert.equal(summary.skippedCount, 1);
   assert.equal(summary.failedCount, 1);
-  assert.match(summary.message, /Uploaded 2 activities/);
+  assert.match(summary.message, /Uploaded 1 activity/);
+  assert.match(summary.message, /Skipped 1 duplicate/);
   assert.match(summary.message, /b\.gpx: GPX file is empty/);
 });
 
@@ -140,8 +142,8 @@ test("activityUploadProgressRatio advances across stages and files", () => {
   assert.ok(refresh < 1);
 });
 
-test("formatActivityUploadProgress includes parse stage percent", () => {
-  assert.match(
+test("formatActivityUploadProgress omits inline parse percent (bar owns %)", () => {
+  assert.equal(
     formatActivityUploadProgress({
       stage: "parsing",
       fileName: "long.gpx",
@@ -149,6 +151,6 @@ test("formatActivityUploadProgress includes parse stage percent", () => {
       fileCount: 1,
       stageRatio: 0.42
     }),
-    /Parsing GPX “long\.gpx” \(1 of 1\) · 42%/
+    "Parsing GPX “long.gpx” (1 of 1)…"
   );
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import type { ApiClient } from "../../api/client";
@@ -12,7 +12,10 @@ import {
   type ActivityGpxUploadFileResult,
   type ActivityGpxUploadProgress
 } from "./uploadActivityGpx";
-import { buildActivityHistoryMetricsIngest } from "./buildActivityHistoryMetrics";
+import {
+  buildActivityHistoryMetricsIngest,
+  fingerprintGpxExternalId
+} from "./buildActivityHistoryMetrics";
 
 export type ActivityHistoryUploadState = {
   historyCount: number;
@@ -56,6 +59,8 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
   const [lastMessage, setLastMessage] = useState<string | undefined>(undefined);
   const [progressMessage, setProgressMessage] = useState<string | undefined>(undefined);
   const [progressRatio, setProgressRatio] = useState<number | undefined>(undefined);
+  /** externalId → history id for duplicate short-circuit (skip parse). */
+  const historyByExternalIdRef = useRef<Map<string, string>>(new Map());
 
   const setProgress = useCallback(async (progress: ActivityGpxUploadProgress) => {
     setProgressMessage(formatActivityUploadProgress(progress));
@@ -71,12 +76,20 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
   const refresh = useCallback(async () => {
     if (!client) {
       setHistoryCount(0);
+      historyByExternalIdRef.current = new Map();
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
       const listed = await client.listActivityHistory();
+      const byExternalId = new Map<string, string>();
+      for (const item of listed.items) {
+        if (item.externalId && item.id) {
+          byExternalId.set(item.externalId, item.id);
+        }
+      }
+      historyByExternalIdRef.current = byExternalId;
       setHistoryCount(listed.items.length);
       setError(undefined);
     } catch (err) {
@@ -122,24 +135,49 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
         try {
           await setProgress({ stage: "reading", fileName, fileIndex, fileCount });
           const gpxXml = await FileSystemLegacy.readAsStringAsync(asset.uri);
-
-          await setProgress({ stage: "parsing", fileName, fileIndex, fileCount, stageRatio: 0 });
-          let lastParsePct = -1;
-          const metrics = await buildActivityHistoryMetricsIngest(gpxXml, async (stageRatio) => {
-            const pct = Math.round(stageRatio * 100);
-            if (pct === lastParsePct) return;
-            lastParsePct = pct;
+          const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
+          const externalId = await fingerprintGpxExternalId(trimmed);
+          const existingId = historyByExternalIdRef.current.get(externalId);
+          if (existingId) {
+            fileResults.push({
+              fileName,
+              ok: true,
+              historyId: existingId,
+              created: false,
+              skippedDuplicate: true
+            });
+            // Advance bar as if this file finished without parsing.
             await setProgress({
-              stage: "parsing",
+              stage: "uploading",
               fileName,
               fileIndex,
               fileCount,
-              stageRatio
+              stageRatio: 1
             });
+            continue;
+          }
+
+          await setProgress({ stage: "parsing", fileName, fileIndex, fileCount, stageRatio: 0 });
+          let lastParsePct = -1;
+          const metrics = await buildActivityHistoryMetricsIngest(gpxXml, {
+            externalId,
+            onProgress: async (stageRatio) => {
+              const pct = Math.round(stageRatio * 100);
+              if (pct === lastParsePct) return;
+              lastParsePct = pct;
+              await setProgress({
+                stage: "parsing",
+                fileName,
+                fileIndex,
+                fileCount,
+                stageRatio
+              });
+            }
           });
 
           await setProgress({ stage: "uploading", fileName, fileIndex, fileCount });
           const ref = await client.ingestActivityHistoryMetrics(metrics);
+          historyByExternalIdRef.current.set(externalId, ref.id);
           fileResults.push({
             fileName,
             ok: true,
@@ -153,7 +191,7 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
 
       const summary = summarizeActivityGpxUploadBatch(fileResults);
       setLastMessage(summary.message);
-      if (summary.failedCount > 0 && summary.uploadedCount === 0) {
+      if (summary.failedCount > 0 && summary.uploadedCount === 0 && summary.skippedCount === 0) {
         setError(summary.message);
       }
 
