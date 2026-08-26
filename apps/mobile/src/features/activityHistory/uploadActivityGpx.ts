@@ -20,6 +20,49 @@ export type ActivityGpxUploadBatchSummary = {
   results: ActivityGpxUploadFileResult[];
 };
 
+/** In-flight stage shown on Profile while a GPX batch runs. */
+export type ActivityGpxUploadProgressStage =
+  | "picking"
+  | "reading"
+  | "parsing"
+  | "uploading"
+  | "refreshing";
+
+export type ActivityGpxUploadProgress = {
+  stage: ActivityGpxUploadProgressStage;
+  /** 1-based index when working a file in a multi-select batch. */
+  fileIndex?: number;
+  fileCount?: number;
+  fileName?: string;
+};
+
+/** Human-readable status line for an in-progress upload (never empty). */
+export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress): string {
+  const { stage, fileName, fileIndex, fileCount } = progress;
+  const hasBatch =
+    typeof fileIndex === "number" &&
+    typeof fileCount === "number" &&
+    fileCount > 0 &&
+    fileIndex >= 1;
+  const filePart = fileName ? ` “${fileName}”` : "";
+  const batchPart = hasBatch ? ` (${fileIndex} of ${fileCount})` : "";
+
+  switch (stage) {
+    case "picking":
+      return "Waiting for file selection…";
+    case "reading":
+      return `Reading${filePart}${batchPart}…`;
+    case "parsing":
+      return `Parsing GPX${filePart}${batchPart}…`;
+    case "uploading":
+      return `Sending metrics${filePart}${batchPart}…`;
+    case "refreshing":
+      return "Refreshing activity history…";
+    default:
+      return "Working…";
+  }
+}
+
 /** Metrics payload for `POST /activity-history` (server fills id / ingestedAt / source). */
 export type ActivityHistoryMetricsIngest = {
   externalId: string;

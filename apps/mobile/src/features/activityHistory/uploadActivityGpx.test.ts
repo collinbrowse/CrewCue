@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   formatActivityUploadNetworkError,
+  formatActivityUploadProgress,
   looksLikeGpxXml,
   parseActivityGpxMetrics,
   summarizeActivityGpxUploadBatch,
@@ -75,4 +76,22 @@ test("formatActivityUploadNetworkError maps RN fetch failure", () => {
     /could not reach the API/i
   );
   assert.equal(formatActivityUploadNetworkError(new Error("other")), undefined);
+});
+
+test("formatActivityUploadProgress names stages and batch position", () => {
+  assert.equal(formatActivityUploadProgress({ stage: "picking" }), "Waiting for file selection…");
+  assert.match(
+    formatActivityUploadProgress({
+      stage: "parsing",
+      fileName: "long.gpx",
+      fileIndex: 2,
+      fileCount: 3
+    }),
+    /Parsing GPX “long\.gpx” \(2 of 3\)/
+  );
+  assert.equal(
+    formatActivityUploadProgress({ stage: "uploading", fileName: "a.gpx", fileIndex: 1, fileCount: 1 }),
+    "Sending metrics “a.gpx” (1 of 1)…"
+  );
+  assert.equal(formatActivityUploadProgress({ stage: "refreshing" }), "Refreshing activity history…");
 });

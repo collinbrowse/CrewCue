@@ -17,6 +17,7 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { upload } = props;
   const enabled = props.enabled !== false;
+  const showProgress = upload.busy && Boolean(upload.progressMessage);
 
   return (
     <View accessibilityLabel="Activity GPX upload">
@@ -28,7 +29,7 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
           Add past runs as GPX files (with track timestamps) to tighten pacing estimates. Files are
           parsed on this device; only distance/time metrics are sent — same history store as Strava.
         </Text>
-        {upload.loading ? (
+        {upload.loading && !upload.busy ? (
           <ActivityIndicator accessibilityLabel="Loading activity history" color={theme.color.text} />
         ) : (
           <Text style={styles.status} accessibilityLabel="Activity history count">
@@ -37,12 +38,23 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
               : `${upload.historyCount} activit${upload.historyCount === 1 ? "y" : "ies"} in history`}
           </Text>
         )}
-        {upload.lastMessage ? (
+        {showProgress ? (
+          <View style={styles.progressRow} accessibilityLabel="Activity GPX upload progress">
+            <ActivityIndicator
+              accessibilityLabel="Activity GPX upload in progress"
+              color={theme.color.primary}
+            />
+            <Text style={styles.progress} accessibilityLabel="Activity GPX upload status">
+              {upload.progressMessage}
+            </Text>
+          </View>
+        ) : null}
+        {!showProgress && upload.lastMessage ? (
           <Text style={styles.meta} accessibilityLabel="Activity GPX upload result">
             {upload.lastMessage}
           </Text>
         ) : null}
-        {upload.error ? (
+        {!showProgress && upload.error ? (
           <Text style={styles.error} accessibilityLabel="Activity GPX upload error">
             {upload.error}
           </Text>
@@ -53,7 +65,7 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
             onPress={() => void upload.uploadGpxFiles()}
             disabled={!enabled || upload.busy || upload.loading}
           >
-            {upload.busy ? "Uploading…" : "Choose GPX files"}
+            {upload.busy ? "Working…" : "Choose GPX files"}
           </DSButton>
         </View>
       </DSCard>
@@ -80,6 +92,19 @@ function createStyles(theme: DSThemeTokens) {
       color: theme.color.text,
       fontSize: 14,
       fontWeight: "500"
+    },
+    progressRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 2
+    },
+    progress: {
+      flex: 1,
+      color: theme.color.text,
+      fontSize: 14,
+      fontWeight: "500",
+      lineHeight: 20
     },
     meta: {
       color: theme.color.body,
