@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseActivityHistoryRef } from "@crewcue/contracts";
 import {
+  isStravaRunLikeActivity,
   mapStravaActivityToHistoryRef,
   stravaExternalId
 } from "./mapStravaActivity.js";
@@ -32,7 +33,9 @@ test("EC1: map fixture summary → valid ActivityHistoryRef", () => {
     elapsed_time: fixture.elapsed_time as number,
     moving_time: fixture.moving_time as number,
     total_elevation_gain: fixture.total_elevation_gain as number,
-    start_date: fixture.start_date as string
+    start_date: fixture.start_date as string,
+    type: fixture.type as string,
+    sport_type: fixture.sport_type as string
   });
   const replay = parseActivityHistoryRef(ref);
   assert.equal(replay.source, "strava");
@@ -47,4 +50,28 @@ test("EC1: map fixture summary → valid ActivityHistoryRef", () => {
 test("stravaExternalId normalizes id and accepts prefixed form", () => {
   assert.equal(stravaExternalId(42), "strava:42");
   assert.equal(stravaExternalId("strava:99"), "strava:99");
+});
+
+test("isStravaRunLikeActivity accepts run sports and rejects rides/swims", () => {
+  assert.equal(isStravaRunLikeActivity({ id: 1, type: "Run" }), true);
+  assert.equal(isStravaRunLikeActivity({ id: 1, sport_type: "TrailRun" }), true);
+  assert.equal(isStravaRunLikeActivity({ id: 1, type: "VirtualRun" }), true);
+  assert.equal(isStravaRunLikeActivity({ id: 1 }), true);
+  assert.equal(isStravaRunLikeActivity({ id: 1, type: "Ride", sport_type: "MountainBikeRide" }), false);
+  assert.equal(isStravaRunLikeActivity({ id: 1, type: "Swim" }), false);
+  assert.equal(isStravaRunLikeActivity({ id: 1, type: "Hike" }), false);
+});
+
+test("mapStravaActivityToHistoryRef rejects non-run sports", () => {
+  assert.throws(
+    () =>
+      mapStravaActivityToHistoryRef({
+        id: 99,
+        distance: 40_000,
+        elapsed_time: 4800,
+        type: "Ride",
+        sport_type: "Ride"
+      }),
+    /not a run-like sport/
+  );
 });

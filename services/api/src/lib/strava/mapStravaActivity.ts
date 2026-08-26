@@ -12,7 +12,34 @@ export type StravaActivitySummary = {
   total_elevation_gain?: number;
   start_date?: string;
   external_id?: string;
+  /** Legacy Strava activity type (e.g. Run, Ride). */
+  type?: string;
+  /** Current Strava sport_type (e.g. TrailRun, MountainBikeRide). */
+  sport_type?: string;
 };
+
+/**
+ * Sport labels the pacing estimator can treat as running history.
+ * Rides/swims of similar distance would otherwise be selected as "similar"
+ * activities and pull crew ETAs hours early.
+ */
+const STRAVA_RUN_LIKE_TYPES = new Set(["run", "trailrun", "virtualrun"]);
+
+function normalizeSportLabel(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+/**
+ * True when the summary is run-like, or when Strava omitted type fields
+ * (incomplete payloads / older fixtures). Non-run sports must be skipped.
+ */
+export function isStravaRunLikeActivity(summary: StravaActivitySummary): boolean {
+  const labels = [summary.sport_type, summary.type].map(normalizeSportLabel).filter((label) => label.length > 0);
+  if (labels.length === 0) {
+    return true;
+  }
+  return labels.some((label) => STRAVA_RUN_LIKE_TYPES.has(label));
+}
 
 function requireFiniteNonNegative(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null) return undefined;
@@ -51,6 +78,9 @@ export function mapStravaActivityToHistoryRef(
 ): ActivityHistoryRef {
   if (summary.id === undefined || summary.id === null || String(summary.id).trim() === "") {
     throw new TypeError("Strava activity id is required");
+  }
+  if (!isStravaRunLikeActivity(summary)) {
+    throw new TypeError("Strava activity is not a run-like sport");
   }
 
   const ingestedAt = options?.ingestedAt ?? new Date().toISOString();

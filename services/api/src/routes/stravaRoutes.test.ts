@@ -48,7 +48,7 @@ async function withApp(
     app: ReturnType<typeof buildApp>;
     tokenFor: (sub: string) => string;
   }) => Promise<void>,
-  options?: { configureStrava?: boolean }
+  options?: { configureStrava?: boolean; activities?: unknown[] }
 ): Promise<void> {
   await resetActivityHistoryStoreForTests();
   await resetStravaConnectionStoreForTests();
@@ -72,7 +72,8 @@ async function withApp(
           );
         }
         if (url.includes("/athlete/activities")) {
-          return new Response(JSON.stringify([fixtureSummary]), { status: 200 });
+          const payload = options?.activities ?? [fixtureSummary];
+          return new Response(JSON.stringify(payload), { status: 200 });
         }
         return new Response("not found", { status: 404 });
       })
@@ -235,6 +236,59 @@ test("oauth start → callback → sync → idempotent re-sync (EC5) → disconn
     });
     assert.equal((historyAfter.json() as { items: unknown[] }).items.length, 1);
   });
+});
+
+test("sync skips non-run Strava sports so rides cannot poison pacing history", async () => {
+  const ride = {
+    id: 111,
+    distance: 40_000,
+    elapsed_time: 4800,
+    moving_time: 4700,
+    total_elevation_gain: 200,
+    type: "Ride",
+    sport_type: "Ride",
+    start_date: "2026-05-11T15:00:00Z"
+  };
+  const swim = {
+    id: 222,
+    distance: 2500,
+    elapsed_time: 2700,
+    type: "Swim",
+    sport_type: "Swim",
+    start_date: "2026-05-12T15:00:00Z"
+  };
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-mixed");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(start.statusCode, 200);
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const sync = await app.inject({
+        method: "POST",
+        url: "/strava/sync",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(sync.statusCode, 200);
+      const body = sync.json() as { syncedCount: number; createdCount: number; items: ActivityHistoryRef[] };
+      assert.equal(body.syncedCount, 1);
+      assert.equal(body.createdCount, 1);
+      assert.equal(body.items[0]?.externalId, `strava:${fixtureSummary.id}`);
+      assert.equal(await countActivityHistoryRows(), 1);
+    },
+    { activities: [ride, fixtureSummary, swim] }
+  );
 });
 
 test("oauth start returns 503 when Strava is not configured", async () => {

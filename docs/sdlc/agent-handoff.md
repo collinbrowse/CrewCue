@@ -11,36 +11,31 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-13 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** W4-I [#418](https://github.com/collinbrowse/CrewCue/pull/418) (`Closes #416`) on `feature/416-w4-integration` — open; do not merge from this note.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- Last updated: 2026-08-26 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; W3-2 Strava merged (#431 / #433).
+- **Branch / PR:** critical bug hunt on `cursor/critical-bug-investigation-8607` — Strava sync was ingesting non-run sports into pacing history.
+- **Active next:** Merge Strava OAuth bounce #435; do not duplicate unmerged critical drafts.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- W3-2 Strava OAuth deferred (optional / secrets).
+- W3-2 Strava OAuth + sync is on `main` (#431, staging connect fix #433).
+- Bug hunt 2026-08-26: Strava `POST /strava/sync` imported Ride/Swim/etc. The estimator selects history by distance ratio only, so a distance-similar bike ride becomes the plan-of-record pace and crew ETAs can be hours early.
 
 ## Next 1-3 tasks
 
-1. Optionally Ready W3-2 (Strava) if staging secrets available.
-2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Keep GET `/schedule` 503 / Auth0 Pace E2E blockers on the residual list (not Wave 4 scope).
+1. Merge #435 (Strava HTTPS callback → `crewcue://strava` bounce) after Railway redeploy soak.
+2. Do not duplicate unmerged critical drafts: #353 (ping authz), #419 (course-change wipe), #427 (list cache clobber).
+3. Epic #360 residual triage; GET `/schedule` 503 / Auth0 Pace E2E remain residual.
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
-- W3-2 Strava remains blocked on staging OAuth secrets.
+- Strava list endpoint has no sport filter; ingest must keep skipping non-runs.
+- First-write-wins history: rides already synced before this fix stay until a later cleanup (out of scope).
+- GET `/schedule` may 503 if projection hydrate fails.
+- Live Strava Connect still needs staging secrets + #435 deploy for auto-close UX.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+After the Strava run-only ingest PR merges: do not reopen sport filtering. Next: merge/soak #435 OAuth bounce, or pick the next unmerged critical draft (#353 / #419 / #427). Do not duplicate those PRs.
 ```
