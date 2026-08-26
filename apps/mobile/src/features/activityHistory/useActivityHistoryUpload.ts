@@ -4,10 +4,12 @@ import * as FileSystemLegacy from "expo-file-system/legacy";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/client";
 import {
-  looksLikeGpxXml,
+  ActivityGpxParseError,
+  formatActivityUploadNetworkError,
   summarizeActivityGpxUploadBatch,
   type ActivityGpxUploadFileResult
 } from "./uploadActivityGpx";
+import { buildActivityHistoryMetricsIngest } from "./buildActivityHistoryMetrics";
 
 export type ActivityHistoryUploadState = {
   historyCount: number;
@@ -20,6 +22,11 @@ export type ActivityHistoryUploadState = {
 };
 
 function formatUploadError(err: unknown): string {
+  const network = formatActivityUploadNetworkError(err);
+  if (network) return network;
+  if (err instanceof ActivityGpxParseError) {
+    return err.message;
+  }
   if (err instanceof ApiError) {
     return err.message;
   }
@@ -81,17 +88,8 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
         const fileName = asset.name || "activity.gpx";
         try {
           const gpxXml = await FileSystemLegacy.readAsStringAsync(asset.uri);
-          if (!looksLikeGpxXml(gpxXml)) {
-            fileResults.push({
-              fileName,
-              ok: false,
-              message: "Not a GPX file. Export a GPX track with timestamps and try again."
-            });
-            continue;
-          }
-          const ref = await client.ingestActivityHistoryGpx({ gpxXml });
-          // API returns 201 for create and 200 for idempotent replay; client does not expose status.
-          // Treat successful ingest as created for messaging; list refresh shows true count.
+          const metrics = await buildActivityHistoryMetricsIngest(gpxXml);
+          const ref = await client.ingestActivityHistoryMetrics(metrics);
           fileResults.push({
             fileName,
             ok: true,

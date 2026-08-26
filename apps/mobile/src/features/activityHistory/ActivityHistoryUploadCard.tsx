@@ -25,8 +25,8 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
           Upload activity GPX
         </Text>
         <Text style={styles.body} accessibilityLabel="Activity GPX upload explanation">
-          Add past runs as GPX files (with track timestamps) to tighten pacing estimates. Same history
-          store as Strava sync — export from your watch or other apps if you are not connecting Strava.
+          Add past runs as GPX files (with track timestamps) to tighten pacing estimates. Files are
+          parsed on this device; only distance/time metrics are sent — same history store as Strava.
         </Text>
         {upload.loading ? (
           <ActivityIndicator accessibilityLabel="Loading activity history" color={theme.color.text} />

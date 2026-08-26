@@ -18,9 +18,13 @@ import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 import { ws7PlatformRoutes } from "./routes/ws7PlatformRoutes.js";
 
+/** GPX activity XML as JSON can exceed Fastify’s 1MB default; mobile may still prefer metrics-only ingest. */
+const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
 export function buildApp() {
   const app = Fastify({
-    logger: true
+    logger: true,
+    bodyLimit: BODY_LIMIT_BYTES
   });
 
   app.register(authPlugin);

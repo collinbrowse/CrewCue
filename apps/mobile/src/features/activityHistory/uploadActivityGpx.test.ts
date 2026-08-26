@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  formatActivityUploadNetworkError,
   looksLikeGpxXml,
+  parseActivityGpxMetrics,
   summarizeActivityGpxUploadBatch,
   type ActivityGpxUploadFileResult
 } from "./uploadActivityGpx";
@@ -48,4 +53,26 @@ test("summarizeActivityGpxUploadBatch empty list", () => {
   const summary = summarizeActivityGpxUploadBatch([]);
   assert.equal(summary.uploadedCount, 0);
   assert.equal(summary.message, "No files uploaded");
+});
+
+test("parseActivityGpxMetrics reads fixture activity with timestamps", () => {
+  const xml = readFileSync(
+    resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      "../../../../../fixtures/pacing/activity-short-road.gpx"
+    ),
+    "utf8"
+  );
+  const metrics = parseActivityGpxMetrics(xml);
+  assert.ok(metrics.distanceMeters > 0);
+  assert.ok((metrics.elapsedSeconds ?? 0) > 0);
+  assert.ok(metrics.recordedAt);
+});
+
+test("formatActivityUploadNetworkError maps RN fetch failure", () => {
+  assert.match(
+    formatActivityUploadNetworkError(new Error("Network request failed")) ?? "",
+    /could not reach the API/i
+  );
+  assert.equal(formatActivityUploadNetworkError(new Error("other")), undefined);
 });
