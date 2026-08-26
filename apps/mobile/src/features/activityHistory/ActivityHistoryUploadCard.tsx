@@ -18,6 +18,8 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
   const { upload } = props;
   const enabled = props.enabled !== false;
   const showProgress = upload.busy && Boolean(upload.progressMessage);
+  const ratio = Math.max(0, Math.min(1, upload.progressRatio ?? 0));
+  const percentLabel = `${Math.round(ratio * 100)}%`;
 
   return (
     <View accessibilityLabel="Activity GPX upload">
@@ -39,13 +41,17 @@ export function ActivityHistoryUploadCard(props: ActivityHistoryUploadCardProps)
           </Text>
         )}
         {showProgress ? (
-          <View style={styles.progressRow} accessibilityLabel="Activity GPX upload progress">
-            <ActivityIndicator
-              accessibilityLabel="Activity GPX upload in progress"
-              color={theme.color.primary}
-            />
+          <View
+            style={styles.progressBlock}
+            accessibilityLabel="Activity GPX upload progress"
+            accessibilityRole="progressbar"
+            accessibilityValue={{ min: 0, max: 100, now: Math.round(ratio * 100), text: percentLabel }}
+          >
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${Math.round(ratio * 1000) / 10}%` }]} />
+            </View>
             <Text style={styles.progress} accessibilityLabel="Activity GPX upload status">
-              {upload.progressMessage}
+              {upload.progressMessage} · {percentLabel}
             </Text>
           </View>
         ) : null}
@@ -93,14 +99,22 @@ function createStyles(theme: DSThemeTokens) {
       fontSize: 14,
       fontWeight: "500"
     },
-    progressRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
+    progressBlock: {
+      gap: 8,
       marginTop: 2
     },
+    progressTrack: {
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.color.border,
+      overflow: "hidden"
+    },
+    progressFill: {
+      height: "100%",
+      borderRadius: 4,
+      backgroundColor: theme.color.primary
+    },
     progress: {
-      flex: 1,
       color: theme.color.text,
       fontSize: 14,
       fontWeight: "500",

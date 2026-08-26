@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  activityUploadProgressRatio,
   formatActivityUploadNetworkError,
   formatActivityUploadProgress,
   looksLikeGpxXml,
@@ -92,4 +93,32 @@ test("formatActivityUploadProgress names stages and batch position", () => {
     "Sending metrics “a.gpx” (1 of 1)…"
   );
   assert.equal(formatActivityUploadProgress({ stage: "refreshing" }), "Refreshing activity history…");
+});
+
+test("activityUploadProgressRatio advances across stages and files", () => {
+  const pick = activityUploadProgressRatio({ stage: "picking" });
+  const read1 = activityUploadProgressRatio({
+    stage: "reading",
+    fileIndex: 1,
+    fileCount: 2,
+    fileName: "a.gpx"
+  });
+  const parse1 = activityUploadProgressRatio({
+    stage: "parsing",
+    fileIndex: 1,
+    fileCount: 2,
+    fileName: "a.gpx"
+  });
+  const read2 = activityUploadProgressRatio({
+    stage: "reading",
+    fileIndex: 2,
+    fileCount: 2,
+    fileName: "b.gpx"
+  });
+  const refresh = activityUploadProgressRatio({ stage: "refreshing" });
+  assert.ok(pick < read1);
+  assert.ok(read1 < parse1);
+  assert.ok(parse1 < read2);
+  assert.ok(read2 < refresh);
+  assert.ok(refresh < 1);
 });

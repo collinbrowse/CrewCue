@@ -36,6 +36,27 @@ export type ActivityGpxUploadProgress = {
   fileName?: string;
 };
 
+const FILE_STAGE_ORDER: ActivityGpxUploadProgressStage[] = ["reading", "parsing", "uploading"];
+
+/**
+ * Determinate 0..1 progress for the upload bar.
+ * Spreads work across files; within each file: reading → parsing → uploading.
+ */
+export function activityUploadProgressRatio(progress: ActivityGpxUploadProgress): number {
+  const { stage, fileIndex, fileCount } = progress;
+  if (stage === "picking") return 0.02;
+  if (stage === "refreshing") return 0.96;
+
+  const count = typeof fileCount === "number" && fileCount > 0 ? fileCount : 1;
+  const index =
+    typeof fileIndex === "number" && fileIndex >= 1 ? Math.min(fileIndex, count) : 1;
+  const stageIdx = FILE_STAGE_ORDER.indexOf(stage);
+  const withinFile = stageIdx >= 0 ? stageIdx / FILE_STAGE_ORDER.length : 0;
+  const raw = ((index - 1) + withinFile) / count;
+  // Keep bar between picking and refreshing.
+  return Math.min(0.94, Math.max(0.04, 0.04 + raw * 0.9));
+}
+
 /** Human-readable status line for an in-progress upload (never empty). */
 export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress): string {
   const { stage, fileName, fileIndex, fileCount } = progress;

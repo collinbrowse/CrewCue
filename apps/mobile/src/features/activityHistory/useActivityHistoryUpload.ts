@@ -5,6 +5,7 @@ import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/client";
 import {
   ActivityGpxParseError,
+  activityUploadProgressRatio,
   formatActivityUploadNetworkError,
   formatActivityUploadProgress,
   summarizeActivityGpxUploadBatch,
@@ -21,6 +22,8 @@ export type ActivityHistoryUploadState = {
   lastMessage?: string;
   /** Live status while busy (reading / parsing / uploading). */
   progressMessage?: string;
+  /** 0..1 determinate bar while busy. */
+  progressRatio?: number;
   refresh: () => Promise<void>;
   uploadGpxFiles: () => Promise<void>;
 };
@@ -52,10 +55,17 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
   const [error, setError] = useState<string | undefined>(undefined);
   const [lastMessage, setLastMessage] = useState<string | undefined>(undefined);
   const [progressMessage, setProgressMessage] = useState<string | undefined>(undefined);
+  const [progressRatio, setProgressRatio] = useState<number | undefined>(undefined);
 
   const setProgress = useCallback(async (progress: ActivityGpxUploadProgress) => {
     setProgressMessage(formatActivityUploadProgress(progress));
+    setProgressRatio(activityUploadProgressRatio(progress));
     await yieldForUi();
+  }, []);
+
+  const clearProgress = useCallback(() => {
+    setProgressMessage(undefined);
+    setProgressRatio(undefined);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -96,7 +106,7 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
 
       if (result.canceled) {
         setLastMessage("Upload canceled");
-        setProgressMessage(undefined);
+        clearProgress();
         return;
       }
 
@@ -139,10 +149,10 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
     } catch (err) {
       setError(formatUploadError(err));
     } finally {
-      setProgressMessage(undefined);
+      clearProgress();
       setBusy(false);
     }
-  }, [busy, client, refresh, setProgress]);
+  }, [busy, clearProgress, client, refresh, setProgress]);
 
   return {
     historyCount,
@@ -151,6 +161,7 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
     error,
     lastMessage,
     progressMessage,
+    progressRatio,
     refresh,
     uploadGpxFiles
   };
