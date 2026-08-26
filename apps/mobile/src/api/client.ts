@@ -1,5 +1,6 @@
 import {
   parseCrewScheduleSheet,
+  type ActivityHistoryRef,
   type AthletePingAcceptedResponse,
   type AthletePingRejectedResponse,
   type ChatNotificationPref,
@@ -616,6 +617,12 @@ export function createApiClient(options: ApiClientOptions) {
         "DELETE",
         `/chat/rooms/${encodeURIComponent(roomId)}/messages`
       ),
+
+    // --- Activity history ingest (W3-1 GPX upload + W3-2 Strava) ---
+    ingestActivityHistoryGpx: (input: { gpxXml: string; externalId?: string }) =>
+      request<ActivityHistoryRef>(options, "POST", "/activity-history/gpx", input),
+    listActivityHistory: () =>
+      request<{ items: ActivityHistoryRef[] }>(options, "GET", "/activity-history"),
 
     // --- Strava activity history (W3-2) ---
     startStravaOAuth: () =>

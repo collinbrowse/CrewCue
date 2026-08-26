@@ -42,8 +42,8 @@ export function ColdStartEstimatePanel(props: ColdStartEstimatePanelProps): Reac
           Elapsed {finishElapsed} (course-only)
         </Text>
         <Text style={styles.body} accessibilityLabel="Cold start explanation">
-          {props.estimate.explanation} Connect Strava to sync your last year of runs for better pacing
-          estimates.
+          {props.estimate.explanation} Upload similar GPX runs or connect Strava to sync your last
+          year of activities for better pacing estimates.
         </Text>
         {props.error ? (
           <Text style={styles.error} accessibilityLabel="Cold start estimate error">
@@ -55,14 +55,14 @@ export function ColdStartEstimatePanel(props: ColdStartEstimatePanelProps): Reac
             onPress={props.onAddHistory}
             disabled={adding}
             accessibilityRole="button"
-            accessibilityLabel="Connect Strava"
+            accessibilityLabel="Add activity history"
             accessibilityState={{ disabled: adding, busy: adding }}
             style={[styles.cta, adding ? styles.ctaDisabled : null]}
           >
             {adding ? (
               <ActivityIndicator accessibilityLabel="Adding activity history" color={theme.color.text} />
             ) : (
-              <Text style={styles.ctaLabel}>Connect Strava</Text>
+              <Text style={styles.ctaLabel}>Add activity history</Text>
             )}
           </Pressable>
         ) : null}

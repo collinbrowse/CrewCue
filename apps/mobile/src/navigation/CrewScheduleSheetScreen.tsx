@@ -275,7 +275,7 @@ export function CrewScheduleSheetScreen(): ReactElement {
     [client, room?.id, runWrite]
   );
 
-  /** Cold-start CTA → Profile Connect Strava (W3-2). */
+  /** Cold-start CTA → Profile (upload GPX or Connect Strava). */
   const onAddHistory = useCallback(() => {
     navigation.navigate("Profile", { screen: "ProfileHome" });
   }, [navigation]);
