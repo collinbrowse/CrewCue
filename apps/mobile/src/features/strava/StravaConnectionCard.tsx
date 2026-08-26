@@ -24,9 +24,10 @@ export function StravaConnectionCard(props: StravaConnectionCardProps): ReactEle
       <Text style={styles.title} accessibilityLabel="Strava connection title">
         Strava activity history
       </Text>
-      <Text style={styles.body}>
-        Connect Strava to import past runs into pacing history. Secrets stay on the API; this app only
-        opens Strava consent.
+      <Text style={styles.body} accessibilityLabel="Strava connection explanation">
+        Sync your last year of Strava runs (all distances; rides and other sports are skipped). Those
+        runs are used to build your pacing estimates. Secrets stay on the API; this app only opens
+        Strava consent.
       </Text>
       {strava.loading ? (
         <ActivityIndicator accessibilityLabel="Loading Strava connection" color={theme.color.text} />

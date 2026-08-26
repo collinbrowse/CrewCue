@@ -19,9 +19,9 @@ export type StravaActivitySummary = {
 };
 
 /**
- * Sport labels the pacing estimator can treat as running history.
- * Rides/swims of similar distance would otherwise be selected as "similar"
- * activities and pull crew ETAs hours early.
+ * Sport labels treated as running history for pacing.
+ * Non-run sports are skipped at ingest. Every run distance in the sync window is stored;
+ * the estimator may still prefer distance-similar runs when building ETAs.
  */
 const STRAVA_RUN_LIKE_TYPES = new Set(["run", "trailrun", "virtualrun"]);
 

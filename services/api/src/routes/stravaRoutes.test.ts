@@ -110,6 +110,48 @@ test("EC3: Strava routes require auth", async () => {
   });
 });
 
+test("oauth redirect bounces success to crewcue deep link", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=auth-code&state=state-1"
+    });
+
+    assert.equal(response.statusCode, 302);
+    assert.equal(response.headers.location, "crewcue://strava?code=auth-code&state=state-1");
+  });
+});
+
+test("oauth redirect bounces provider error to deep link without raw HTML", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/strava/oauth/redirect?error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E%20%26%20%22no%22"
+    });
+
+    assert.equal(response.statusCode, 302);
+    const location = String(response.headers.location ?? "");
+    assert.match(location, /^crewcue:\/\/strava\?/);
+    assert.match(location, /error=access_denied/);
+    assert.doesNotMatch(location, /<script>/);
+    assert.match(location, /error_description=/);
+  });
+});
+
+test("oauth redirect returns HTML 400 when code or state is missing", async () => {
+  await withApp(async ({ app }) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/strava/oauth/redirect?code=only-code"
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.headers["content-type"] ?? "", /text\/html/);
+    assert.match(response.body, /missing code or state/i);
+  });
+});
+
 test("EC2: callback with missing/invalid state returns 400", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
@@ -257,6 +299,22 @@ test("sync skips non-run Strava sports so rides cannot poison pacing history", a
     sport_type: "Swim",
     start_date: "2026-05-12T15:00:00Z"
   };
+  const shortRun = {
+    id: 333,
+    distance: 800,
+    elapsed_time: 300,
+    type: "Run",
+    sport_type: "Run",
+    start_date: "2026-05-13T15:00:00Z"
+  };
+  const longRun = {
+    id: 444,
+    distance: 75_000,
+    elapsed_time: 27_000,
+    type: "TrailRun",
+    sport_type: "TrailRun",
+    start_date: "2026-05-14T15:00:00Z"
+  };
   await withApp(
     async ({ app, tokenFor }) => {
       const token = tokenFor("athlete-mixed");
@@ -282,12 +340,16 @@ test("sync skips non-run Strava sports so rides cannot poison pacing history", a
       });
       assert.equal(sync.statusCode, 200);
       const body = sync.json() as { syncedCount: number; createdCount: number; items: ActivityHistoryRef[] };
-      assert.equal(body.syncedCount, 1);
-      assert.equal(body.createdCount, 1);
-      assert.equal(body.items[0]?.externalId, `strava:${fixtureSummary.id}`);
-      assert.equal(await countActivityHistoryRows(), 1);
+      assert.equal(body.syncedCount, 3);
+      assert.equal(body.createdCount, 3);
+      const externalIds = new Set(body.items.map((item) => item.externalId));
+      assert.equal(externalIds.has(`strava:${fixtureSummary.id}`), true);
+      assert.equal(externalIds.has("strava:333"), true);
+      assert.equal(externalIds.has("strava:444"), true);
+      assert.equal(externalIds.has("strava:111"), false);
+      assert.equal(await countActivityHistoryRows(), 3);
     },
-    { activities: [ride, fixtureSummary, swim] }
+    { activities: [ride, fixtureSummary, swim, shortRun, longRun] }
   );
 });
 

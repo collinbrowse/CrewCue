@@ -75,3 +75,24 @@ test("mapStravaActivityToHistoryRef rejects non-run sports", () => {
     /not a run-like sport/
   );
 });
+
+test("mapStravaActivityToHistoryRef accepts short and long runs with no distance limit", () => {
+  const short = mapStravaActivityToHistoryRef({
+    id: 1,
+    distance: 400,
+    elapsed_time: 120,
+    type: "Run",
+    sport_type: "Run",
+    start_date: "2026-01-01T10:00:00Z"
+  });
+  const long = mapStravaActivityToHistoryRef({
+    id: 2,
+    distance: 80_000,
+    elapsed_time: 28_800,
+    type: "TrailRun",
+    sport_type: "TrailRun",
+    start_date: "2026-01-02T10:00:00Z"
+  });
+  assert.equal(short.distanceMeters, 400);
+  assert.equal(long.distanceMeters, 80_000);
+});

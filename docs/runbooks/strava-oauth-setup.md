@@ -43,10 +43,12 @@ Authorize URL requests `activity:read_all`. If your Strava app is limited to pub
 ## 4) Flow (product)
 
 1. Mobile calls `GET /strava/oauth/start` → `{ authorizeUrl, state, redirectUri }`.
-2. Opens `authorizeUrl` in the system browser; `redirectUri` must match Strava app settings.
+2. Opens `authorizeUrl` in the system browser; **`redirectUri` in the response is the Strava-registered HTTPS URL** (not passed to `openAuthSessionAsync`).
 3. Strava redirects to `…/strava/oauth/redirect?code=…&state=…`.
-4. Mobile posts `POST /strava/oauth/callback` with `code` + `state`.
-5. Mobile calls `POST /strava/sync` to upsert history rows.
+4. API immediately **302 redirects** to `crewcue://strava?code=…&state=…` so the auth session auto-closes on iOS.
+5. Mobile posts `POST /strava/oauth/callback` with `code` + `state`.
+6. Mobile calls `POST /strava/sync` to upsert history rows.
+7. Sync pulls **~1 year** of Strava activities (paginated), keeps **Run / TrailRun / VirtualRun** only (every distance), and upserts into activity history for pacing estimates.
 
 ## 5) Troubleshooting “Not connected”
 

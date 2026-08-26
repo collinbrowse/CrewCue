@@ -17,7 +17,7 @@ import {
   buildStravaAuthorizeUrl,
   exchangeStravaAuthorizationCode,
   ensureFreshStravaAccessToken,
-  listStravaAthleteActivities,
+  listStravaAthleteActivitiesSince,
   readStravaEnvConfig,
   StravaClientError,
   type StravaClientConfig
@@ -38,6 +38,21 @@ const callbackBody = z
     state: z.string().min(1)
   })
   .strict();
+
+/** Bounce Strava HTTPS callback into the app so ASWebAuthenticationSession auto-dismisses. */
+const STRAVA_APP_REDIRECT_URI = "crewcue://strava";
+
+function buildStravaAppRedirectUrl(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      search.set(key, trimmed);
+    }
+  }
+  const query = search.toString();
+  return query.length > 0 ? `${STRAVA_APP_REDIRECT_URI}?${query}` : STRAVA_APP_REDIRECT_URI;
+}
 
 /** Injectable Strava config + fetch for tests. */
 let testConfigOverride: StravaClientConfig | undefined;
@@ -84,23 +99,28 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Strava redirects here after consent (HTTPS callback domain).
-   * Mobile `openAuthSessionAsync` captures this URL; browser fallback shows a close hint.
+   * Immediately bounces to `crewcue://strava` so mobile auth session auto-closes on iOS.
    */
   app.get("/strava/oauth/redirect", async (request, reply) => {
     const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
     if (query.error) {
-      const message = query.error_description?.trim() || query.error;
-      return reply
-        .type("text/html")
-        .code(400)
-        .send(
-          `<!doctype html><html><body><p>Strava authorization failed: ${message}</p><p>Return to CrewCue and try again.</p></body></html>`
-        );
+      return reply.redirect(
+        buildStravaAppRedirectUrl({
+          error: query.error,
+          error_description: query.error_description
+        })
+      );
+    }
+    const code = query.code?.trim();
+    const state = query.state?.trim();
+    if (code && state) {
+      return reply.redirect(buildStravaAppRedirectUrl({ code, state }));
     }
     return reply
       .type("text/html")
+      .code(400)
       .send(
-        `<!doctype html><html><body><p>Strava authorization complete.</p><p>Return to CrewCue to finish connecting.</p></body></html>`
+        `<!doctype html><html><body><p>Strava callback was missing code or state.</p><p>Return to CrewCue and try Connect again.</p></body></html>`
       );
   });
 
@@ -173,10 +193,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
       if (refreshed) {
         await upsertStravaConnection(request.identity.sub, tokens);
       }
-      const activities = await listStravaAthleteActivities(config, tokens.accessToken, {
-        page: 1,
-        perPage: 30
-      });
+      const activities = await listStravaAthleteActivitiesSince(config, tokens.accessToken);
       const refs: ActivityHistoryRef[] = [];
       let createdCount = 0;
       for (const item of activities) {
