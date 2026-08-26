@@ -57,9 +57,9 @@ test("summarizeActivityGpxUploadBatch empty list", () => {
 });
 
 test("parseActivityGpxMetrics reads fixture activity with timestamps", () => {
-  const here = fileURLToPath(import.meta.url);
+  const hereDir = resolve(fileURLToPath(import.meta.url), "..");
   const xml = readFileSync(
-    resolve(here, "../../../../../fixtures/pacing/activity-short-road.gpx"),
+    resolve(hereDir, "../../../../../fixtures/pacing/activity-short-road.gpx"),
     "utf8"
   );
   const metrics = parseActivityGpxMetrics(xml);
