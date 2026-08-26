@@ -12,6 +12,13 @@ test("parseStravaOAuthCallbackUrl reads code and state from crewcue://strava", (
   assert.deepEqual(parsed, { code: "abc", state: "xyz" });
 });
 
+test("parseStravaOAuthCallbackUrl forwards granted scope when present", () => {
+  const parsed = parseStravaOAuthCallbackUrl(
+    "crewcue://strava?code=abc&state=xyz&scope=read%2Cactivity%3Aread_all"
+  );
+  assert.deepEqual(parsed, { code: "abc", state: "xyz", scope: "read,activity:read_all" });
+});
+
 test("parseStravaOAuthCallbackUrl reads HTTPS API redirect path", () => {
   const parsed = parseStravaOAuthCallbackUrl(
     "https://crewcue-staging.up.railway.app/strava/oauth/redirect?code=abc&state=xyz"

@@ -8,16 +8,36 @@ export type StravaTokenBundle = {
   /** Unix seconds when the access token expires. */
   expiresAt: number;
   athleteId: string;
+  /** Granted scopes from token response when Strava includes them. */
+  scope?: string;
 };
 
 export type StravaClientConfig = {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  /** Default: activity:read_all */
+  /** Default: read,activity:read_all */
   scope?: string;
   fetchImpl?: typeof fetch;
 };
+
+/** Scopes required to list athlete activities for pacing history. */
+export const STRAVA_DEFAULT_AUTHORIZE_SCOPE = "read,activity:read_all";
+
+/** True when granted scopes include activity:read or activity:read_all. */
+export function stravaScopeIncludesActivityRead(scope: string | undefined): boolean {
+  if (!scope?.trim()) return false;
+  const parts = scope.split(/[\s,]+/).map((part) => part.trim()).filter(Boolean);
+  return parts.includes("activity:read") || parts.includes("activity:read_all");
+}
+
+export function assertStravaActivityReadScope(scope: string | undefined): void {
+  if (stravaScopeIncludesActivityRead(scope)) return;
+  throw new StravaClientError(
+    "Strava did not grant activity read access. Disconnect, then Connect again and leave private activities checked.",
+    "strava_scope_insufficient"
+  );
+}
 
 export class StravaClientError extends Error {
   readonly code: string;
@@ -50,12 +70,13 @@ export function buildStravaAuthorizeUrl(
   config: StravaClientConfig,
   state: string
 ): string {
-  const scope = config.scope ?? "activity:read_all";
+  const scope = config.scope ?? STRAVA_DEFAULT_AUTHORIZE_SCOPE;
   const url = new URL(AUTHORIZE_BASE);
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("approval_prompt", "auto");
+  // Force consent so reconnect can upgrade scopes (auto reuses a prior weak grant).
+  url.searchParams.set("approval_prompt", "force");
   url.searchParams.set("scope", scope);
   url.searchParams.set("state", state);
   return url.toString();
@@ -66,6 +87,7 @@ type TokenResponse = {
   refresh_token?: string;
   expires_at?: number;
   athlete?: { id?: number | string };
+  scope?: string;
 };
 
 function parseTokenResponse(body: unknown): StravaTokenBundle {
@@ -82,12 +104,39 @@ function parseTokenResponse(body: unknown): StravaTokenBundle {
     throw new StravaClientError("Incomplete token response", "strava_token_invalid");
   }
   const athleteId = data.athlete?.id !== undefined ? String(data.athlete.id) : "";
+  const scope = typeof data.scope === "string" && data.scope.trim() ? data.scope.trim() : undefined;
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.expires_at,
-    athleteId
+    athleteId,
+    scope
   };
+}
+
+function stravaHttpErrorDetail(parsed: unknown, text: string): string | undefined {
+  if (parsed && typeof parsed === "object") {
+    const message =
+      "message" in parsed && typeof (parsed as { message?: unknown }).message === "string"
+        ? (parsed as { message: string }).message.trim()
+        : "";
+    const errors = "errors" in parsed ? (parsed as { errors?: unknown }).errors : undefined;
+    let fieldHint = "";
+    if (Array.isArray(errors) && errors.length > 0 && errors[0] && typeof errors[0] === "object") {
+      const first = errors[0] as { field?: unknown; code?: unknown };
+      const field = typeof first.field === "string" ? first.field : "";
+      const code = typeof first.code === "string" ? first.code : "";
+      if (field || code) {
+        fieldHint = [field, code].filter(Boolean).join(" ");
+      }
+    }
+    if (message && fieldHint) return `${message} (${fieldHint})`;
+    if (message) return message;
+    if (fieldHint) return fieldHint;
+  }
+  if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
+  if (text.trim()) return text.trim().slice(0, 200);
+  return undefined;
 }
 
 async function postToken(
@@ -112,12 +161,7 @@ async function postToken(
     parsed = text;
   }
   if (!res.ok) {
-    const detail =
-      parsed && typeof parsed === "object" && "message" in parsed
-        ? String((parsed as { message?: unknown }).message)
-        : typeof parsed === "string" && parsed.length > 0
-          ? parsed
-          : undefined;
+    const detail = stravaHttpErrorDetail(parsed, text);
     throw new StravaClientError(
       detail
         ? `Strava token request failed (${res.status}): ${detail}`
@@ -235,8 +279,11 @@ export async function listStravaAthleteActivities(
     parsed = text;
   }
   if (!res.ok) {
+    const detail = stravaHttpErrorDetail(parsed, text);
     throw new StravaClientError(
-      `Strava activities request failed (${res.status})`,
+      detail
+        ? `Strava activities request failed (${res.status}): ${detail}`
+        : `Strava activities request failed (${res.status})`,
       "strava_activities_http",
       res.status
     );
