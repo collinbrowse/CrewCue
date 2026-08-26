@@ -3,7 +3,7 @@
  */
 import * as Crypto from "expo-crypto";
 import {
-  parseActivityGpxMetrics,
+  parseActivityGpxMetricsAsync,
   type ActivityHistoryMetricsIngest
 } from "./uploadActivityGpx";
 
@@ -13,14 +13,23 @@ export async function fingerprintGpxExternalId(gpxXml: string): Promise<string> 
   return digest.slice(0, 32);
 }
 
-/** Parse + fingerprint for `POST /activity-history`. */
+/**
+ * Parse + fingerprint for `POST /activity-history`.
+ * `onProgress` is 0..1 across parse (0–0.9) then fingerprint (0.9–1).
+ */
 export async function buildActivityHistoryMetricsIngest(
-  gpxXml: string
+  gpxXml: string,
+  onProgress?: (ratio: number) => void | Promise<void>
 ): Promise<ActivityHistoryMetricsIngest> {
   const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
-  const metrics = parseActivityGpxMetrics(trimmed);
+  const metrics = await parseActivityGpxMetricsAsync(trimmed, async (parseRatio) => {
+    await onProgress?.(parseRatio * 0.9);
+  });
+  await onProgress?.(0.92);
+  const externalId = await fingerprintGpxExternalId(trimmed);
+  await onProgress?.(1);
   return {
     ...metrics,
-    externalId: await fingerprintGpxExternalId(trimmed)
+    externalId
   };
 }

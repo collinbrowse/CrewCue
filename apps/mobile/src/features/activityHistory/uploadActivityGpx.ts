@@ -2,7 +2,7 @@
  * Helpers for athlete activity GPX upload → shared ActivityHistoryRef store.
  * Parse on-device so we POST small metrics (staging rejects ~1MB+ JSON GPX bodies).
  */
-import { computeElevationGainMeters, parseGpxTrack } from "@crewcue/map-core";
+import { computeElevationGainMeters, parseGpxTrack, parseGpxTrackAsync } from "@crewcue/map-core";
 
 export type ActivityGpxFileInput = {
   fileName: string;
@@ -34,16 +34,24 @@ export type ActivityGpxUploadProgress = {
   fileIndex?: number;
   fileCount?: number;
   fileName?: string;
+  /** 0..1 progress within the current stage (e.g. GPX parse scan). */
+  stageRatio?: number;
 };
 
 const FILE_STAGE_ORDER: ActivityGpxUploadProgressStage[] = ["reading", "parsing", "uploading"];
 
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
 /**
  * Determinate 0..1 progress for the upload bar.
  * Spreads work across files; within each file: reading → parsing → uploading.
+ * `stageRatio` fills the current stage (used while parsing large GPX files).
  */
 export function activityUploadProgressRatio(progress: ActivityGpxUploadProgress): number {
-  const { stage, fileIndex, fileCount } = progress;
+  const { stage, fileIndex, fileCount, stageRatio } = progress;
   if (stage === "picking") return 0.02;
   if (stage === "refreshing") return 0.96;
 
@@ -51,7 +59,9 @@ export function activityUploadProgressRatio(progress: ActivityGpxUploadProgress)
   const index =
     typeof fileIndex === "number" && fileIndex >= 1 ? Math.min(fileIndex, count) : 1;
   const stageIdx = FILE_STAGE_ORDER.indexOf(stage);
-  const withinFile = stageIdx >= 0 ? stageIdx / FILE_STAGE_ORDER.length : 0;
+  const stageStart = stageIdx >= 0 ? stageIdx / FILE_STAGE_ORDER.length : 0;
+  const stageEnd = stageIdx >= 0 ? (stageIdx + 1) / FILE_STAGE_ORDER.length : 1;
+  const withinFile = stageStart + (stageEnd - stageStart) * clamp01(stageRatio ?? 0);
   const raw = ((index - 1) + withinFile) / count;
   // Keep bar between picking and refreshing.
   return Math.min(0.94, Math.max(0.04, 0.04 + raw * 0.9));
@@ -59,7 +69,7 @@ export function activityUploadProgressRatio(progress: ActivityGpxUploadProgress)
 
 /** Human-readable status line for an in-progress upload (never empty). */
 export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress): string {
-  const { stage, fileName, fileIndex, fileCount } = progress;
+  const { stage, fileName, fileIndex, fileCount, stageRatio } = progress;
   const hasBatch =
     typeof fileIndex === "number" &&
     typeof fileCount === "number" &&
@@ -73,8 +83,13 @@ export function formatActivityUploadProgress(progress: ActivityGpxUploadProgress
       return "Waiting for file selection…";
     case "reading":
       return `Reading${filePart}${batchPart}…`;
-    case "parsing":
-      return `Parsing GPX${filePart}${batchPart}…`;
+    case "parsing": {
+      const pct =
+        typeof stageRatio === "number" && Number.isFinite(stageRatio)
+          ? ` · ${Math.round(clamp01(stageRatio) * 100)}%`
+          : "";
+      return `Parsing GPX${filePart}${batchPart}${pct}…`;
+    }
     case "uploading":
       return `Sending metrics${filePart}${batchPart}…`;
     case "refreshing":
@@ -161,6 +176,7 @@ function classifyParseFailure(err: unknown): ActivityGpxParseError {
 
 /**
  * Parse activity GPX into metrics (no network). Caller adds `externalId` via fingerprint.
+ * Sync helper for unit tests; prefer {@link parseActivityGpxMetricsAsync} in the UI.
  */
 export function parseActivityGpxMetrics(gpxXml: string): ParsedActivityGpxMetrics {
   const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
@@ -184,6 +200,53 @@ export function parseActivityGpxMetrics(gpxXml: string): ParsedActivityGpxMetric
     throw classifyParseFailure(err);
   }
 
+  return metricsFromParsedTrack(parsed);
+}
+
+/**
+ * Progressive activity GPX parse for determinate upload UI.
+ * `onProgress` is 0..1 across track-point extraction (skips course waypoints).
+ */
+export async function parseActivityGpxMetricsAsync(
+  gpxXml: string,
+  onProgress?: (ratio: number) => void | Promise<void>
+): Promise<ParsedActivityGpxMetrics> {
+  const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
+  if (!trimmed) {
+    throw new ActivityGpxParseError(
+      "gpx_empty",
+      "GPX file is empty. Export a valid GPX track and try again."
+    );
+  }
+  if (!looksLikeGpxXml(trimmed)) {
+    throw new ActivityGpxParseError(
+      "gpx_parse_failed",
+      "Not a GPX file. Export a GPX track with timestamps and try again."
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = await parseGpxTrackAsync(trimmed, {
+      includeWaypoints: false,
+      yieldEveryPoints: 200,
+      onProgress: async ({ ratio }) => {
+        await onProgress?.(ratio);
+      }
+    });
+  } catch (err) {
+    throw classifyParseFailure(err);
+  }
+
+  return metricsFromParsedTrack(parsed);
+}
+
+function metricsFromParsedTrack(parsed: {
+  points: Array<{ elevationMeters: number | null; timestampMs: number | null; latitude: number; longitude: number }>;
+  totalDistanceMeters: number;
+  startTimestampMs: number;
+  totalDurationSeconds: number;
+}): ParsedActivityGpxMetrics {
   const hasTimestamps =
     parsed.points.filter((point) => point.timestampMs !== null).length >= 2 &&
     parsed.startTimestampMs > 0;

@@ -123,8 +123,20 @@ export function useActivityHistoryUpload(client: ApiClient | undefined): Activit
           await setProgress({ stage: "reading", fileName, fileIndex, fileCount });
           const gpxXml = await FileSystemLegacy.readAsStringAsync(asset.uri);
 
-          await setProgress({ stage: "parsing", fileName, fileIndex, fileCount });
-          const metrics = await buildActivityHistoryMetricsIngest(gpxXml);
+          await setProgress({ stage: "parsing", fileName, fileIndex, fileCount, stageRatio: 0 });
+          let lastParsePct = -1;
+          const metrics = await buildActivityHistoryMetricsIngest(gpxXml, async (stageRatio) => {
+            const pct = Math.round(stageRatio * 100);
+            if (pct === lastParsePct) return;
+            lastParsePct = pct;
+            await setProgress({
+              stage: "parsing",
+              fileName,
+              fileIndex,
+              fileCount,
+              stageRatio
+            });
+          });
 
           await setProgress({ stage: "uploading", fileName, fileIndex, fileCount });
           const ref = await client.ingestActivityHistoryMetrics(metrics);

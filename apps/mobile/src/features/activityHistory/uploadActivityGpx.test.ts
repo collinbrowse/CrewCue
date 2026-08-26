@@ -103,11 +103,26 @@ test("activityUploadProgressRatio advances across stages and files", () => {
     fileCount: 2,
     fileName: "a.gpx"
   });
-  const parse1 = activityUploadProgressRatio({
+  const parseStart = activityUploadProgressRatio({
     stage: "parsing",
     fileIndex: 1,
     fileCount: 2,
-    fileName: "a.gpx"
+    fileName: "a.gpx",
+    stageRatio: 0
+  });
+  const parseMid = activityUploadProgressRatio({
+    stage: "parsing",
+    fileIndex: 1,
+    fileCount: 2,
+    fileName: "a.gpx",
+    stageRatio: 0.5
+  });
+  const parseEnd = activityUploadProgressRatio({
+    stage: "parsing",
+    fileIndex: 1,
+    fileCount: 2,
+    fileName: "a.gpx",
+    stageRatio: 1
   });
   const read2 = activityUploadProgressRatio({
     stage: "reading",
@@ -117,8 +132,23 @@ test("activityUploadProgressRatio advances across stages and files", () => {
   });
   const refresh = activityUploadProgressRatio({ stage: "refreshing" });
   assert.ok(pick < read1);
-  assert.ok(read1 < parse1);
-  assert.ok(parse1 < read2);
+  assert.ok(read1 <= parseStart);
+  assert.ok(parseStart < parseMid);
+  assert.ok(parseMid < parseEnd);
+  assert.ok(parseEnd <= read2);
   assert.ok(read2 < refresh);
   assert.ok(refresh < 1);
+});
+
+test("formatActivityUploadProgress includes parse stage percent", () => {
+  assert.match(
+    formatActivityUploadProgress({
+      stage: "parsing",
+      fileName: "long.gpx",
+      fileIndex: 1,
+      fileCount: 1,
+      stageRatio: 0.42
+    }),
+    /Parsing GPX “long\.gpx” \(1 of 1\) · 42%/
+  );
 });
