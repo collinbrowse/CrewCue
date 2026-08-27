@@ -11,7 +11,9 @@ import {
   formatDistance,
   formatPace,
   parseGpxActivityTrack,
-  parseGpxTrack
+  parseGpxActivityTrackAsync,
+  parseGpxTrack,
+  parseGpxTrackAsync
 } from "./courseParse.js";
 import { checkpointsWithProjectedDistances } from "./courseMetrics.js";
 import { parsedTrackToWorkspaceLayer } from "./mapWorkspace.js";
@@ -42,6 +44,26 @@ test("parseGpxTrack parses points and pace from valid GPX", () => {
   assert.ok(parsed.totalDistanceMeters > 2000);
   assert.equal(parsed.totalDurationSeconds, 900);
   assert.ok(parsed.averagePaceSecondsPerKm > 300);
+});
+
+test("parseGpxTrackAsync matches sync parse and reports rising progress", async () => {
+  const ratios: number[] = [];
+  const asyncParsed = await parseGpxTrackAsync(validGpx, {
+    includeWaypoints: false,
+    yieldEveryPoints: 1,
+    onProgress: ({ ratio }) => {
+      ratios.push(ratio);
+    }
+  });
+  const syncParsed = parseGpxTrack(validGpx);
+  assert.equal(asyncParsed.points.length, syncParsed.points.length);
+  assert.equal(asyncParsed.totalDistanceMeters, syncParsed.totalDistanceMeters);
+  assert.equal(asyncParsed.totalDurationSeconds, syncParsed.totalDurationSeconds);
+  assert.ok(ratios.length > 0);
+  assert.ok(ratios[ratios.length - 1]! >= 0.99);
+  for (let i = 1; i < ratios.length; i += 1) {
+    assert.ok(ratios[i]! + 1e-9 >= ratios[i - 1]!);
+  }
 });
 
 test("buildExpectedSplits creates kilometer split rows", () => {
@@ -95,6 +117,25 @@ test("parseGpxActivityTrack ignores planned rtept when a recorded trk exists", (
     courseCombined.totalDistanceMeters > fromMixed.totalDistanceMeters * 2,
     "course parser may still concatenate rte+trk; activity parser must not"
   );
+});
+
+test("parseGpxActivityTrackAsync matches sync activity parse on mixed rte+trk", async () => {
+  const mixed = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1">
+  <rte>
+    <rtept lat="39.15" lon="-120.25"></rtept>
+    <rtept lat="39.60" lon="-120.25"></rtept>
+  </rte>
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const syncParsed = parseGpxActivityTrack(mixed);
+  const asyncParsed = await parseGpxActivityTrackAsync(mixed, { includeWaypoints: false });
+  assert.equal(asyncParsed.points.length, syncParsed.points.length);
+  assert.equal(asyncParsed.totalDurationSeconds, syncParsed.totalDurationSeconds);
+  assert.ok(Math.abs(asyncParsed.totalDistanceMeters - syncParsed.totalDistanceMeters) < 1);
 });
 
 test("parseGpxActivityTrack still accepts route-only activity exports", () => {

@@ -126,7 +126,11 @@ export function ProfileHomeScreen(): ReactElement {
         </DSCard>
 
         <View style={styles.section}>
-          <ActivityHistoryUploadCard upload={activityHistoryUpload} enabled={Boolean(apiClient)} />
+          <ActivityHistoryUploadCard
+            upload={activityHistoryUpload}
+            enabled={Boolean(apiClient)}
+            onOpenPace={() => navigation.navigate("Pace", { screen: "ReadoutsHome" })}
+          />
         </View>
 
         <View style={styles.section}>
