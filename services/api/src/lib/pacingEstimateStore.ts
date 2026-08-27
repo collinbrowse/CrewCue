@@ -1,10 +1,11 @@
 /**
  * Durable pacing-estimate store for Wave 3 (W3-4 attach-by-id).
  * Ownership: athleteUserId (creator). Memory for PERSISTENCE_MODE=memory; Postgres JSON when postgres.
+ * Payload may include optional baselineTrack (micro-model moving plan) alongside the estimate.
  */
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
-import type { PacingEstimate } from "@crewcue/contracts";
+import type { PacingEstimate, RaceCourseBaselineTrack } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
 
 type Mode = "memory" | "postgres";
@@ -27,6 +28,8 @@ let initialized = false;
 export type StoredPacingEstimate = {
   athleteUserId: string;
   estimate: PacingEstimate;
+  /** Micro-model expected moving curve; written to course.baselineTrack on attach. */
+  baselineTrack?: RaceCourseBaselineTrack;
 };
 
 /** estimateId → stored row */
@@ -100,13 +103,38 @@ export async function resetPacingEstimateStoreForTests(): Promise<void> {
   }
 }
 
+type StoredPayload = {
+  estimate: PacingEstimate;
+  baselineTrack?: RaceCourseBaselineTrack;
+};
+
+function parseStoredPayload(raw: unknown): { estimate: PacingEstimate; baselineTrack?: RaceCourseBaselineTrack } {
+  if (raw && typeof raw === "object" && "estimate" in (raw as object)) {
+    const envelope = raw as StoredPayload;
+    return {
+      estimate: parsePacingEstimate(envelope.estimate),
+      ...(envelope.baselineTrack ? { baselineTrack: envelope.baselineTrack } : {})
+    };
+  }
+  return { estimate: parsePacingEstimate(raw) };
+}
+
 export async function savePacingEstimate(
   athleteUserId: string,
-  estimate: PacingEstimate
+  estimate: PacingEstimate,
+  baselineTrack?: RaceCourseBaselineTrack
 ): Promise<StoredPacingEstimate> {
   await ensureReady();
   const parsed = parsePacingEstimate(estimate);
-  const row: StoredPacingEstimate = { athleteUserId, estimate: parsed };
+  const row: StoredPacingEstimate = {
+    athleteUserId,
+    estimate: parsed,
+    ...(baselineTrack ? { baselineTrack } : {})
+  };
+  const payload: StoredPayload = {
+    estimate: parsed,
+    ...(baselineTrack ? { baselineTrack } : {})
+  };
 
   if (!pool) {
     memoryById.set(parsed.id, row);
@@ -122,7 +150,7 @@ export async function savePacingEstimate(
       payload = EXCLUDED.payload,
       updated_at = NOW()
     `,
-    [parsed.id, athleteUserId, JSON.stringify(parsed)]
+    [parsed.id, athleteUserId, JSON.stringify(payload)]
   );
   return row;
 }
@@ -140,8 +168,10 @@ export async function getPacingEstimateById(estimateId: string): Promise<StoredP
   if (!row) {
     return undefined;
   }
+  const parsed = parseStoredPayload(row.payload);
   return {
     athleteUserId: row.athlete_user_id,
-    estimate: parsePacingEstimate(row.payload)
+    estimate: parsed.estimate,
+    ...(parsed.baselineTrack ? { baselineTrack: parsed.baselineTrack } : {})
   };
 }

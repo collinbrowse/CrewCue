@@ -14,7 +14,7 @@ export type CheckInEditorProps = {
   checkpointId: string;
   /** Prefill arrival (typically schedule clockArrivalAt). */
   defaultArrivalAt?: string;
-  /** Prefill departure (typically arrival + planned dwell). */
+  /** Prefill departure (typically arrival + planned stoppage). */
   defaultDepartureAt?: string;
   saving: boolean;
   error?: string;
@@ -131,7 +131,7 @@ export function CheckInEditor(props: CheckInEditorProps): ReactElement {
               }
               setLocalError(undefined);
               const nextArrival = new Date(arrivalMs).toISOString();
-              // 8 min dwell (> typical planned) so later DEV clocks visibly shift.
+              // 8 min stoppage (> typical planned) so later DEV clocks visibly shift.
               const nextDeparture = new Date(arrivalMs + 480_000).toISOString();
               setArrivalAt(nextArrival);
               setDepartureAt(nextDeparture);

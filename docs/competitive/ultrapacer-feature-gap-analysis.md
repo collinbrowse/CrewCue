@@ -119,7 +119,7 @@
 
 Steal these as **crew-facing planning/ops artifacts**, not as a full UltraPacer clone:
 
-1. **Crew schedule sheet** — aid arrivals as clock time + elapsed, with expected dwell.
+1. **Crew schedule sheet** — aid arrivals as clock time + elapsed, with expected stoppage.
 2. **Waypoint taxonomy** — Aid / Water / Dropbag / Crew-access tags on course points.
 3. **Per-stop crew notes** — gear, nutrition, pacer pickup, drop-bag actions (markdown or structured).
 4. **Per-stop delay overrides** — longer crew stop vs quick water fill.

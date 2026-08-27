@@ -22,8 +22,10 @@ import {
 const COLD_START_SECONDS_PER_KM = 420;
 
 /** Keep history whose distance is within this fraction of course distance. */
-const SIMILARITY_MIN_RATIO = 0.4;
-const SIMILARITY_MAX_RATIO = 1.5;
+const SIMILARITY_MIN_RATIO = 0.02;
+const SIMILARITY_MAX_RATIO = 2.0;
+const SIMILARITY_MIN_DISTANCE_METERS = 5000;
+const SIMILARITY_PREFER_MIN_DISTANCE_METERS = 20_000;
 
 /**
  * Confidence / A-B band spread policy (W4-2 / #411).
@@ -150,19 +152,29 @@ function similarHistory(
   usable: ActivityHistoryRef[],
   courseDistance: number
 ): ActivityHistoryRef[] {
-  return usable.filter((row) => {
-    const ratio = (row.distanceMeters as number) / courseDistance;
+  const inWindow = usable.filter((row) => {
+    const distanceMeters = row.distanceMeters as number;
+    if (distanceMeters < SIMILARITY_MIN_DISTANCE_METERS) {
+      return false;
+    }
+    const ratio = distanceMeters / courseDistance;
     return ratio >= SIMILARITY_MIN_RATIO && ratio <= SIMILARITY_MAX_RATIO;
   });
+  const preferred = inWindow.filter(
+    (row) => (row.distanceMeters as number) >= SIMILARITY_PREFER_MIN_DISTANCE_METERS
+  );
+  return preferred.length > 0 ? preferred : inWindow;
 }
 
-/** Mean seconds-per-meter from selected history (equal weight per activity). */
+/** Distance-weighted mean pace. */
 function meanSecondsPerMeter(selected: ActivityHistoryRef[]): number {
-  let sum = 0;
+  let elapsedSum = 0;
+  let distanceSum = 0;
   for (const row of selected) {
-    sum += (row.elapsedSeconds as number) / (row.distanceMeters as number);
+    elapsedSum += row.elapsedSeconds as number;
+    distanceSum += row.distanceMeters as number;
   }
-  return sum / selected.length;
+  return elapsedSum / distanceSum;
 }
 
 function buildEstimateId(parts: {
@@ -230,13 +242,13 @@ export function estimatePacingDeterministic(input: PacingEstimateInput): PacingE
     const excluded = usable.length - similar.length;
     explanation =
       excluded > 0
-        ? `History-backed from ${similar.length} similar activit${similar.length === 1 ? "y" : "ies"}; ${excluded} dissimilar excluded.`
+        ? `History-backed from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window; ${excluded} outside the window excluded.`
         : `History-backed from ${similar.length} activit${similar.length === 1 ? "y" : "ies"}.`;
   } else {
-    // Usable but all dissimilar — still produce an estimate (no throw); note coarseness.
+    // Usable but all outside window — still produce an estimate (no throw); note coarseness.
     secondsPerMeter = meanSecondsPerMeter(usable);
     historyRefIds = usable.map((row) => row.id);
-    explanation = `History present but dissimilar to course distance; estimate uses available pace (coarse).`;
+    explanation = `History present but outside the similarity window; estimate uses available pace (coarse).`;
   }
 
   const finishElapsed = roundElapsed(courseDistance * secondsPerMeter);

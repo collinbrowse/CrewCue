@@ -16,14 +16,12 @@ import {
   type RaceCourseCheckpoint,
   type RaceRoom
 } from "@crewcue/contracts";
-import { buildRaceCourseFromGpx, parseGpxTrack } from "@crewcue/map-core";
+import { buildRaceCourseFromGpx, flattenWorkspaceGeometry, parseGpxTrack } from "@crewcue/map-core";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
 import {
   DEFAULT_PACING_ESTIMATE_SEED,
-  PACING_BAND_AGGRESSIVE_RATIO,
-  PACING_BAND_CONSERVATIVE_RATIO,
-  estimatePacingDeterministic
+  estimatePacingMicroModelWithArtifacts
 } from "../lib/pacingEstimate/index.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
@@ -46,8 +44,9 @@ const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 
 type BandPack = {
   policy: {
-    conservativeRatio: number;
-    aggressiveRatio: number;
+    bandMethod?: string;
+    conservativeRatio?: number;
+    aggressiveRatio?: number;
   };
   historyBacked: {
     id: string;
@@ -74,6 +73,30 @@ function loadCourseCheckpoints(): RaceCourseCheckpoint[] {
   const xml = readFileSync(resolve(pacingDir, "course-50k-with-aids.gpx"), "utf8");
   const { course } = buildRaceCourseFromGpx(parseGpxTrack(xml));
   return course.checkpoints;
+}
+
+function routeMetricPointsFor50k() {
+  const { routeOverlayLayer } = load50kCourseWithAids();
+  return flattenWorkspaceGeometry(routeOverlayLayer.geometry).map((coord) => {
+    const t = coord as [number, number, number?];
+    return {
+      longitude: t[0],
+      latitude: t[1],
+      elevationMeters: typeof t[2] === "number" ? t[2] : null
+    };
+  });
+}
+
+function estimateMicro(history: import("@crewcue/contracts").ActivityHistoryRef[]) {
+  const { checkpoints } = load50kCourseWithAids();
+  return estimatePacingMicroModelWithArtifacts({
+    raceStartAt: RACE_START,
+    checkpoints,
+    history,
+    seed: DEFAULT_PACING_ESTIMATE_SEED,
+    routeMetricPoints: routeMetricPointsFor50k(),
+    courseLengthMeters: checkpoints[checkpoints.length - 1]?.distanceMetersFromStart
+  }).estimate;
 }
 
 function fixtureLongHistory() {
@@ -209,23 +232,15 @@ function stopByCheckpoint(sheet: CrewScheduleSheet, checkpointId: string) {
   return stop;
 }
 
-test("spread policy constants match estimate-bands fixture", () => {
+test("spread policy uses scenario re-sims (estimate-bands fixture)", () => {
   const pack = loadBandPack();
-  assert.equal(PACING_BAND_CONSERVATIVE_RATIO, pack.policy.conservativeRatio);
-  assert.equal(PACING_BAND_AGGRESSIVE_RATIO, pack.policy.aggressiveRatio);
-  assert.equal(PACING_BAND_CONSERVATIVE_RATIO, 1.15);
-  assert.equal(PACING_BAND_AGGRESSIVE_RATIO, 0.885);
+  assert.equal(pack.policy.bandMethod, "scenario_resim");
 });
 
 test("EC1: history-backed estimate has three bands; expected matches primary finish (fixture)", () => {
   const pack = loadBandPack();
   const long = fixtureLongHistory();
-  const estimate = estimatePacingDeterministic({
-    raceStartAt: RACE_START,
-    checkpoints: loadCourseCheckpoints(),
-    history: [long],
-    seed: DEFAULT_PACING_ESTIMATE_SEED
-  });
+  const estimate = estimateMicro([long]);
   assert.equal(estimate.coldStart, false);
   assertThreeBands(estimate);
   assert.equal(estimate.id, pack.historyBacked.id);
@@ -258,25 +273,12 @@ test("EC1 API: POST /pacing-estimates history-backed returns three bands", async
 
 test("EC2: coldStart estimate returns three coarse bands (same spread policy)", () => {
   const pack = loadBandPack();
-  const estimate = estimatePacingDeterministic({
-    raceStartAt: RACE_START,
-    checkpoints: loadCourseCheckpoints(),
-    history: [],
-    seed: DEFAULT_PACING_ESTIMATE_SEED
-  });
+  const estimate = estimateMicro([]);
   assert.equal(estimate.coldStart, true);
   assertThreeBands(estimate);
   assert.equal(estimate.id, pack.coldStart.id);
   assert.deepEqual(estimate.bands, pack.coldStart.bands);
-  // Same policy ratios applied to cold-start expected finish.
-  assert.equal(
-    estimate.bands!.conservative!.finishElapsedSeconds,
-    Math.round(estimate.expectedFinishElapsedSeconds * PACING_BAND_CONSERVATIVE_RATIO)
-  );
-  assert.equal(
-    estimate.bands!.aggressive!.finishElapsedSeconds,
-    Math.round(estimate.expectedFinishElapsedSeconds * PACING_BAND_AGGRESSIVE_RATIO)
-  );
+  assertBandOrdering(estimate);
 });
 
 test("EC2 API: empty history still returns three bands", async () => {
@@ -351,7 +353,7 @@ test("EC4: unauthorized estimate returns 401; wrong athleteUserId returns 403", 
 
 test("EC5: N/A offline — in-process estimator (documented)", () => {
   // Offline / network retry is N/A for the pure in-process estimator + HTTP inject tests.
-  assert.equal(typeof estimatePacingDeterministic, "function");
+  assert.equal(typeof estimatePacingMicroModelWithArtifacts, "function");
 });
 
 test("EC6: re-estimate yields identical bands; re-attach returns same estimate bands", async () => {
@@ -403,18 +405,8 @@ test("EC6: re-estimate yields identical bands; re-attach returns same estimate b
 });
 
 test("EC7: all band clocks are ISO-Z", () => {
-  const history = estimatePacingDeterministic({
-    raceStartAt: RACE_START,
-    checkpoints: loadCourseCheckpoints(),
-    history: [fixtureLongHistory()],
-    seed: DEFAULT_PACING_ESTIMATE_SEED
-  });
-  const cold = estimatePacingDeterministic({
-    raceStartAt: RACE_START,
-    checkpoints: loadCourseCheckpoints(),
-    history: [],
-    seed: DEFAULT_PACING_ESTIMATE_SEED
-  });
+  const history = estimateMicro([fixtureLongHistory()]);
+  const cold = estimateMicro([]);
   assertBandClocksIsoZ(history);
   assertBandClocksIsoZ(cold);
 });
@@ -427,12 +419,7 @@ test("EC8: band ordering conservative ≥ expected ≥ aggressive (fixture + liv
     const a = sample.bands.aggressive!.finishElapsedSeconds;
     assert.ok(c >= e && e >= a, JSON.stringify(sample.bands));
   }
-  const estimate = estimatePacingDeterministic({
-    raceStartAt: RACE_START,
-    checkpoints: loadCourseCheckpoints(),
-    history: [fixtureLongHistory()],
-    seed: DEFAULT_PACING_ESTIMATE_SEED
-  });
+  const estimate = estimateMicro([fixtureLongHistory()]);
   assertBandOrdering(estimate);
 });
 
@@ -479,15 +466,15 @@ test("EC9: schedule moving-time uses expected baseline; bands informational on a
     const sheet = parseCrewScheduleSheet(scheduleResponse.json());
     assert.equal(sheet.pacingEstimateId, estimate.id);
 
-    // Finish moving time (before dwell stack) comes from expected, not conservative/aggressive.
-    let priorDwell = 0;
+    // Finish moving time (before stoppage stack) comes from expected, not conservative/aggressive.
+    let priorStoppage = 0;
     for (const id of ["start", "aid-1", "aid-2", "aid-3"] as const) {
       const stop = stopByCheckpoint(sheet, id);
-      priorDwell += stop.plannedDwellSeconds + (stop.delayOverrideSeconds ?? 0);
+      priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
     const finishElapsed = stopByCheckpoint(sheet, "finish").elapsedSeconds;
-    assert.equal(finishElapsed, estimate.expectedFinishElapsedSeconds + priorDwell);
-    assert.notEqual(finishElapsed, estimate.bands!.conservative!.finishElapsedSeconds + priorDwell);
-    assert.notEqual(finishElapsed, estimate.bands!.aggressive!.finishElapsedSeconds + priorDwell);
+    assert.equal(finishElapsed, estimate.expectedFinishElapsedSeconds + priorStoppage);
+    assert.notEqual(finishElapsed, estimate.bands!.conservative!.finishElapsedSeconds + priorStoppage);
+    assert.notEqual(finishElapsed, estimate.bands!.aggressive!.finishElapsedSeconds + priorStoppage);
   });
 });

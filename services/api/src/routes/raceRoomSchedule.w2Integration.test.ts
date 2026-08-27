@@ -31,7 +31,7 @@ import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-const AID1_PLANNED_DWELL = 600;
+const AID1_PLANNED_STOPPAGE = 600;
 
 function buildClaims(sub: string) {
   return {
@@ -163,7 +163,7 @@ function assertLaterStopsShiftedBy(
     assert.equal(
       stopByCheckpoint(after, id).elapsedSeconds,
       stopByCheckpoint(baseline, id).elapsedSeconds,
-      `${id} must not shift from own/prior check-in dwell`
+      `${id} must not shift from own/prior check-in stoppage`
     );
     assert.equal(
       stopByCheckpoint(after, id).clockArrivalAt,
@@ -192,7 +192,7 @@ function assertLaterStopsShiftedBy(
 }
 
 function closedPayload(deltaSeconds: number) {
-  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + deltaSeconds;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   return { arrivalAt, departureAt, actualStopSeconds, deltaSeconds };
@@ -228,7 +228,7 @@ test("W2-I EC7+notify: mid-course closed check-in shifts later clocks and notifi
     const baselineRes = await getSchedule(app, roomId, ownerToken);
     assert.equal(baselineRes.statusCode, 200);
     const baseline = parseCrewScheduleSheet(baselineRes.json());
-    assert.equal(stopByCheckpoint(baseline, "aid-1").plannedDwellSeconds, AID1_PLANNED_DWELL);
+    assert.equal(stopByCheckpoint(baseline, "aid-1").plannedStoppageSeconds, AID1_PLANNED_STOPPAGE);
 
     const deltaSeconds = 120;
     assert.ok(deltaSeconds >= CHECK_IN_ETA_NOTIFY_THRESHOLD_SECONDS);

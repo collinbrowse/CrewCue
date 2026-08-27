@@ -47,7 +47,7 @@ function latestAutoVisitInProgress(split: RaceCheckpointSplitRow): boolean {
 }
 
 /** True when the latest auto visit indicates the athlete is stopped at this checkpoint (not yet departed). */
-export function isAutoDwellAtCheckpoint(split: RaceCheckpointSplitRow | undefined): boolean {
+export function isAutoStoppageAtCheckpoint(split: RaceCheckpointSplitRow | undefined): boolean {
   return split != null && latestAutoVisitInProgress(split);
 }
 
@@ -324,11 +324,11 @@ export function plannedFinishElapsedSeconds(
 
 export type PaceRailRowModel = {
   isActiveLeg: boolean;
-  /** 0 = marker at top of band, 1 = bottom (in-leg or dwell progress). */
+  /** 0 = marker at top of band, 1 = bottom (in-leg or stoppage progress). */
   fraction01: number;
 };
 
-function dwellStopFraction01(split: RaceCheckpointSplitRow, plannedStopSeconds: number, nowMs: number): number {
+function stoppageFraction01(split: RaceCheckpointSplitRow, plannedStopSeconds: number, nowMs: number): number {
   const withAuto = split.visits.filter((v) => v.autoDetected);
   const last = withAuto[withAuto.length - 1]?.autoDetected;
   if (!last?.arrivalRecordedAt || last.departureRecordedAt != null) {
@@ -346,7 +346,7 @@ function dwellStopFraction01(split: RaceCheckpointSplitRow, plannedStopSeconds: 
 /**
  * Pace timeline rail: the row for checkpoint `rowIndex` shows the leg ending at that checkpoint
  * (from previous CP along-course distance to this CP). When that leg is current, the rail is “live”
- * (purple trunk + marker progress). Dwell at the station uses planned stop time vs wall clock.
+ * (purple trunk + marker progress). Stoppage at the station uses planned stop time vs wall clock.
  * When inactive, the marker rests at the **top** for upcoming legs, or **bottom** once that checkpoint
  * is departed or the race focus has moved past this row (`checkpointCompleted` or `rowIndex < currentIx`).
  */
@@ -357,7 +357,7 @@ export function paceRailCheckpointRowModel(
   cumMetersAtCp: number[],
   progressMeters: number,
   split: RaceCheckpointSplitRow | undefined,
-  plannedStopSecondsForDwell: number,
+  plannedStopSecondsForStoppage: number,
   nowMs: number,
   checkpointCompleted: boolean
 ): PaceRailRowModel {
@@ -366,8 +366,8 @@ export function paceRailCheckpointRowModel(
     return { isActiveLeg: false, fraction01: legDone ? 1 : 0 };
   }
   if (split && latestAutoVisitInProgress(split)) {
-    const planned = plannedStopSecondsForDwell > 0 ? plannedStopSecondsForDwell : split.plannedStopSeconds ?? 600;
-    return { isActiveLeg: true, fraction01: dwellStopFraction01(split, planned, nowMs) };
+    const planned = plannedStopSecondsForStoppage > 0 ? plannedStopSecondsForStoppage : split.plannedStopSeconds ?? 600;
+    return { isActiveLeg: true, fraction01: stoppageFraction01(split, planned, nowMs) };
   }
   const j = rowIndex;
   const prev = j > 0 ? (cumMetersAtCp[j - 1] ?? 0) : 0;

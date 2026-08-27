@@ -95,7 +95,7 @@ test("DEV fixture closed check-in shifts later clocks; own arrival unchanged (EC
   const aid2Before = base.stops.find((s) => s.checkpointId === "aid-2")!;
   const finishBefore = base.stops.find((s) => s.checkpointId === "finish")!;
 
-  // actual = planned dwell (180) + 300 → later stops +300 vs plan path
+  // actual = planned stoppage (180) + 300 → later stops +300 vs plan path
   const actualSeconds = applyDevClosedCheckIn({
     arrivalAt: "2026-08-15T14:10:00.000Z",
     departureAt: "2026-08-15T14:18:00.000Z"
