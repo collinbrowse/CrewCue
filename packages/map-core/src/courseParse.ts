@@ -75,12 +75,35 @@ export function parseCourseTrack(fileContents: string, fileName: string): Parsed
 }
 
 export function parseGpxTrack(gpxXml: string): ParsedGpxTrack {
+  return parseGpxXmlToTrack(gpxXml, "all");
+}
+
+/**
+ * Activity-history GPX (pace ingest). Prefer recorded `<trkpt>` so a planned
+ * `<rte>` in the same file cannot inflate distance against the track's elapsed
+ * time (crew ETAs hours early). Route-only exports still fall back to `<rtept>`.
+ */
+export function parseGpxActivityTrack(gpxXml: string): ParsedGpxTrack {
   const normalizedXml = gpxXml.replace(/^\uFEFF/, "");
   if (!normalizedXml.trim()) {
     throw new Error("GPX file is empty. Export a valid GPX track and try again.");
   }
+  const recorded = extractTrackPoints(normalizedXml, "trk");
+  if (recorded.length >= 2) {
+    return finishParsedGpxTrack(normalizedXml, recorded);
+  }
+  return parseGpxXmlToTrack(gpxXml, "all");
+}
 
-  const points = extractTrackPoints(normalizedXml);
+function parseGpxXmlToTrack(gpxXml: string, mode: GpxPointTagMode): ParsedGpxTrack {
+  const normalizedXml = gpxXml.replace(/^\uFEFF/, "");
+  if (!normalizedXml.trim()) {
+    throw new Error("GPX file is empty. Export a valid GPX track and try again.");
+  }
+  return finishParsedGpxTrack(normalizedXml, extractTrackPoints(normalizedXml, mode));
+}
+
+function finishParsedGpxTrack(normalizedXml: string, points: GpxTrackPoint[]): ParsedGpxTrack {
   const waypoints = extractWaypointsFromXml(normalizedXml);
   if (points.length < 2) {
     throw new Error("GPX must include at least two track points.");
@@ -264,8 +287,14 @@ export function buildExpectedAidStationSplitsFromCourse(
   return { totalDistanceMeters, totalDurationSeconds, splits };
 }
 
-function extractTrackPoints(gpxXml: string): GpxTrackPoint[] {
-  const trackPointPattern = /<(?:[\w-]+:)?(?:trkpt|rtept)\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?(?:trkpt|rtept)>/gi;
+type GpxPointTagMode = "all" | "trk" | "rte";
+
+function extractTrackPoints(gpxXml: string, mode: GpxPointTagMode = "all"): GpxTrackPoint[] {
+  const tag = mode === "trk" ? "trkpt" : mode === "rte" ? "rtept" : "(?:trkpt|rtept)";
+  const trackPointPattern = new RegExp(
+    `<(?:[\\w-]+:)?${tag}\\b([^>]*)>([\\s\\S]*?)<\\/(?:[\\w-]+:)?${tag}>`,
+    "gi"
+  );
   const points: GpxTrackPoint[] = [];
 
   for (const match of gpxXml.matchAll(trackPointPattern)) {

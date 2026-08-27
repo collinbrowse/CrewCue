@@ -2,7 +2,7 @@
  * Helpers for athlete activity GPX upload → shared ActivityHistoryRef store.
  * Parse on-device so we POST small metrics (staging rejects ~1MB+ JSON GPX bodies).
  */
-import { computeElevationGainMeters, parseGpxTrack } from "@crewcue/map-core";
+import { computeElevationGainMeters, parseGpxActivityTrack } from "@crewcue/map-core";
 
 export type ActivityGpxFileInput = {
   fileName: string;
@@ -115,7 +115,7 @@ export function parseActivityGpxMetrics(gpxXml: string): ParsedActivityGpxMetric
 
   let parsed;
   try {
-    parsed = parseGpxTrack(trimmed);
+    parsed = parseGpxActivityTrack(trimmed);
   } catch (err) {
     throw classifyParseFailure(err);
   }
