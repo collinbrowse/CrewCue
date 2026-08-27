@@ -309,3 +309,41 @@ test("list/get are scoped to the authenticated athlete", async () => {
     assert.equal(getB.statusCode, 404);
   });
 });
+
+test("POST /activity-history accepts metrics-only ingest (mobile path)", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-metrics");
+    const response = await app.inject({
+      method: "POST",
+      url: "/activity-history",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        externalId: "metrics:short-road",
+        recordedAt: "2026-05-10T15:30:00.000Z",
+        distanceMeters: 10000,
+        elapsedSeconds: 3600,
+        elevationGainMeters: 120
+      }
+    });
+    assert.equal(response.statusCode, 201);
+    const ref = parseActivityHistoryRef(response.json());
+    assert.equal(ref.source, "gpx_upload");
+    assert.equal(ref.externalId, "metrics:short-road");
+    assert.equal(ref.distanceMeters, 10000);
+    assert.equal(ref.elapsedSeconds, 3600);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/activity-history",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        externalId: "metrics:short-road",
+        distanceMeters: 10000,
+        elapsedSeconds: 3600
+      }
+    });
+    assert.equal(replay.statusCode, 200);
+    assert.equal(parseActivityHistoryRef(replay.json()).id, ref.id);
+    assert.equal(await countActivityHistoryRows(), 1);
+  });
+});

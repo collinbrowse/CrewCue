@@ -372,6 +372,44 @@ export async function saveRaceRoom(room: RaceRoom): Promise<void> {
   await persistRaceRoom(persisted);
 }
 
+/**
+ * Hydrate the live room cache from a DB list without rolling back a newer in-process write.
+ *
+ * GET `/race-rooms/mine` and team listing previously `raceRooms.set` every listed row. A
+ * SELECT that started before `saveRaceRoom` committed could resume after the write and
+ * replace memory with that stale snapshot. The next read-modify-write (stop-plan, join,
+ * course, estimate attach, …) then persisted the rollback.
+ */
+function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[]): void {
+  for (const room of rooms) {
+    if (!raceRooms.has(room.id)) {
+      raceRooms.set(room.id, room);
+    }
+    indexJoinCode(room);
+  }
+}
+
+/** Test helper: simulate a late list payload against the live room cache. */
+export function ingestPersistedRaceRoomsWithoutClobberForTests(rooms: readonly RaceRoom[]): void {
+  ingestPersistedRaceRoomsWithoutClobber(rooms);
+}
+
+function mergeListedRaceRooms(
+  persisted: readonly RaceRoom[],
+  include: (room: RaceRoom) => boolean
+): RaceRoom[] {
+  const merged = new Map<string, RaceRoom>();
+  for (const room of persisted) {
+    merged.set(room.id, room);
+  }
+  for (const room of raceRooms.values()) {
+    if (include(room)) {
+      merged.set(room.id, room);
+    }
+  }
+  return [...merged.values()];
+}
+
 async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
   if (room.joinCode && /^\d{6}$/.test(room.joinCode)) {
     indexJoinCode(room);
@@ -1021,38 +1059,27 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
 
 /** All race rooms for a team id (WS6 aggregate scope). */
 export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]> {
-  const local = [...raceRooms.values()].filter((r) => r.teamId === teamId);
   if (!isRoomPersistenceEnabled()) {
-    return local;
+    return [...raceRooms.values()].filter((r) => r.teamId === teamId);
   }
   const persisted = await listPersistedRaceRoomsByTeamId(teamId);
-  for (const room of persisted) {
-    raceRooms.set(room.id, room);
-    indexJoinCode(room);
-  }
-  const merged = new Map<string, RaceRoom>();
-  for (const room of [...persisted, ...local]) {
-    merged.set(room.id, room);
-  }
-  return [...merged.values()];
+  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  return mergeListedRaceRooms(persisted, (r) => r.teamId === teamId);
 }
 
 export async function listRaceRoomsForMember(userId: string): Promise<RaceRoom[]> {
-  const local = [...raceRooms.values()].filter((r) => r.memberships.some((m) => m.userId === userId));
+  const isMember = (r: RaceRoom) => r.memberships.some((m) => m.userId === userId);
   if (!isRoomPersistenceEnabled()) {
-    const sorted = local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const sorted = [...raceRooms.values()]
+      .filter(isMember)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
   }
   const persisted = await listPersistedRaceRoomsForMember(userId);
-  for (const room of persisted) {
-    raceRooms.set(room.id, room);
-    indexJoinCode(room);
-  }
-  const merged = new Map<string, RaceRoom>();
-  for (const room of [...persisted, ...local]) {
-    merged.set(room.id, room);
-  }
-  const sorted = [...merged.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  const sorted = mergeListedRaceRooms(persisted, isMember).sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
+  );
   return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
 }
 

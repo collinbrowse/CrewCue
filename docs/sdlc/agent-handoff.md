@@ -11,45 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-23 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** Test coverage automation [#426](https://github.com/collinbrowse/CrewCue/pull/426) on `cursor/missing-test-coverage-a4b5`.
-- **Active next:** Review coverage PR, then residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — landing bot backlog.
+- **Branch / PR:** `cursor/missing-test-coverage-a4b5` → https://github.com/collinbrowse/CrewCue/pull/426
+- **Active next:** Merge #426 cutoff tests; then #428 estimator tests; confirm CI on `main`.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- Regression coverage: same-day UTC `time_of_day` cutoff before race start + strict paired/finite cutoff warning contract parsing.
-- W3-2 Strava OAuth deferred (optional / secrets).
+- #427 on `main`: list rooms no longer clobbers live room cache.
+- #426 (in progress): cutoff warning regression coverage.
 
 ## Next 1-3 tasks
 
-1. Review/merge coverage PR for cutoff warning regression tests.
-2. Optionally Ready W3-2 (Strava) if staging secrets available.
-3. Epic #360 closeout or residual backlog triage.
+1. Land #426, then #428.
+2. Confirm `main` CI green.
+3. Redeploy staging API; smoke GPX + Strava.
 
 ## Validation evidence
 
-- `npm run test -w @crewcue/contracts` — pass (19/19).
-- `npm run test:memory -w @crewcue/api` — pass (252 pass, 4 skipped).
-- `npm run verify` — pass.
+- #427 merged (`811453c`).
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- GET `/schedule` 503 / Auth0 Pace E2E blockers remain residual only (not Wave 4 scope).
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
-- W3-2 Strava remains blocked on staging OAuth secrets.
-- Coverage automation cannot create GitHub issues in this environment (`gh` is read-only; no issue-create MCP tool).
+- Staging may still need Railway redeploy.
 
 ## Successor prompt
 
 ```text
-Review/merge the coverage PR from cursor/missing-test-coverage-a4b5. Then optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+Merge #428 after #426. Confirm main CI green, then redeploy staging.
 ```
