@@ -3,7 +3,7 @@
  */
 import * as Crypto from "expo-crypto";
 import {
-  parseActivityGpxMetrics,
+  parseActivityGpxMetricsAsync,
   type ActivityHistoryMetricsIngest
 } from "./uploadActivityGpx";
 
@@ -13,14 +13,37 @@ export async function fingerprintGpxExternalId(gpxXml: string): Promise<string> 
   return digest.slice(0, 32);
 }
 
-/** Parse + fingerprint for `POST /activity-history`. */
+export type BuildActivityHistoryMetricsOptions = {
+  /** When set (after a duplicate check), skip hashing again. */
+  externalId?: string;
+  /** 0..1 across parse (and fingerprint when externalId is not precomputed). */
+  onProgress?: (ratio: number) => void | Promise<void>;
+};
+
+/**
+ * Parse (+ fingerprint unless provided) for `POST /activity-history`.
+ */
 export async function buildActivityHistoryMetricsIngest(
-  gpxXml: string
+  gpxXml: string,
+  options?: BuildActivityHistoryMetricsOptions
 ): Promise<ActivityHistoryMetricsIngest> {
   const trimmed = gpxXml.replace(/^\uFEFF/, "").trim();
-  const metrics = parseActivityGpxMetrics(trimmed);
+  const onProgress = options?.onProgress;
+  const precomputedId = options?.externalId?.trim();
+
+  if (precomputedId) {
+    const metrics = await parseActivityGpxMetricsAsync(trimmed, onProgress);
+    return { ...metrics, externalId: precomputedId };
+  }
+
+  const metrics = await parseActivityGpxMetricsAsync(trimmed, async (parseRatio) => {
+    await onProgress?.(parseRatio * 0.9);
+  });
+  await onProgress?.(0.92);
+  const externalId = await fingerprintGpxExternalId(trimmed);
+  await onProgress?.(1);
   return {
     ...metrics,
-    externalId: await fingerprintGpxExternalId(trimmed)
+    externalId
   };
 }

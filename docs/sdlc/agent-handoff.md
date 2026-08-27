@@ -12,38 +12,34 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — post-#443 coverage hardening.
-- **Branch / PR:** `cursor/missing-test-coverage-1792` → coverage PR pending/open for scheduled automation.
-- **Active next:** Review/merge coverage PR; merge #443 if still open; staging soak Strava revoke (#440) if still pending.
+- **Roadmap phase:** Crew schedule + AI pacing — #444/#446/#448 on `main`.
+- **Branch / PR:** `cursor/missing-test-coverage-1792` → https://github.com/collinbrowse/CrewCue/pull/449
+- **Active next:** Merge #449 (course-update idempotency coverage); redeploy staging API; Strava soak.
 
 ## Completed
 
-- Wave 0–4; W3-2 Strava OAuth/sync; #442/#440 on `main`.
-- #443 impl: mobile `ingestActivityHistoryGpx` / `listActivityHistory`, Profile Upload GPX card, cold-start copy.
-- Scheduled coverage hardening: API course-update idempotency release/replay regression test; mobile activity GPX test path type fix so full verify passes.
+- #443/#444: activity GPX upload.
+- #445/#447/#450 via #446: upload progress UX + serial `test:pg`.
+- #448: activity GPX prefers `<trkpt>` over planned `<rte>` (pace poison fix).
+- #449 (in progress): course PUT idempotency release/replay regression test.
 
 ## Next 1-3 tasks
 
-1. Review/merge scheduled coverage PR.
-2. Review/merge PR for #443 if still pending.
-3. Redeploy staging API; Strava Disconnect → Connect → Sync soak (#440/#442).
+1. Merge PR #449 after CI green.
+2. Redeploy staging API (metrics ingest + GPX parse fix).
+3. Staging soak: GPX upload → Open Pace; Strava Disconnect → Connect → Sync.
 
 ## Validation evidence
 
-- `npm run verify` green on feature branch.
-- Simulator: Profile Upload activity GPX card + Choose GPX opens Files picker (OCR); full fixture select blocked by AXe/tap tooling.
-- `npm run test:memory -w @crewcue/api` green (280 pass, 4 skip).
-- `npm run lint -w @crewcue/mobile` green.
-- `npm run verify` green.
+- #446/#448 merged to `main` (`32b0541`, `6b2f139`).
+- #449: route-level course idempotency release test + conflict resolve with main.
 
 ## Open risks/blockers
 
-- Agent Files-picker file selection needs better UI automation (AXe SimulatorKit arch / MCP tap missing).
-- Staging Strava soak still needs Railway redeploy confirmation.
-- No mobile UI behavior changed in coverage PR; simulator not re-run for test-only type fix.
+- Staging may still need Railway redeploy for latest API.
 
 ## Successor prompt
 
 ```text
-Review/merge scheduled coverage PR for course-update idempotency release coverage. Then continue #443 merge/staging Strava soak tasks from the roadmap.
+Merge PR #449 if CI green. Redeploy staging API from main. Smoke Profile GPX upload → Open Pace and Strava reconnect against staging.
 ```
