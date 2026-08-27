@@ -103,6 +103,71 @@ export function parseGpxTrack(gpxXml: string): ParsedGpxTrack {
   };
 }
 
+export type ParseGpxTrackProgress = {
+  /** 0..1 across point extraction (and optional waypoint scan). */
+  ratio: number;
+};
+
+export type ParseGpxTrackAsyncOptions = {
+  /** Defaults to true. Activity history can skip waypoints for speed. */
+  includeWaypoints?: boolean;
+  /** Called periodically so UIs can paint a determinate bar. */
+  onProgress?: (progress: ParseGpxTrackProgress) => void | Promise<void>;
+  /** Yield to the event loop after this many track points (default 300). */
+  yieldEveryPoints?: number;
+};
+
+/**
+ * Async GPX parse with progress. Same result shape as {@link parseGpxTrack}.
+ * Progress is driven by regex scan position through the XML (point extraction).
+ */
+export async function parseGpxTrackAsync(
+  gpxXml: string,
+  options?: ParseGpxTrackAsyncOptions
+): Promise<ParsedGpxTrack> {
+  const normalizedXml = gpxXml.replace(/^\uFEFF/, "");
+  if (!normalizedXml.trim()) {
+    throw new Error("GPX file is empty. Export a valid GPX track and try again.");
+  }
+
+  const includeWaypoints = options?.includeWaypoints !== false;
+  const yieldEveryPoints = options?.yieldEveryPoints ?? 300;
+  const onProgress = options?.onProgress;
+
+  const points = await extractTrackPointsProgressive(normalizedXml, {
+    onProgress: async (extractRatio) => {
+      // Reserve the top of the bar for waypoint/distance finish work.
+      await onProgress?.({ ratio: extractRatio * (includeWaypoints ? 0.85 : 0.92) });
+    },
+    yieldEveryPoints
+  });
+
+  if (points.length < 2) {
+    throw new Error("GPX must include at least two track points.");
+  }
+
+  await onProgress?.({ ratio: includeWaypoints ? 0.88 : 0.94 });
+  const waypoints = includeWaypoints ? extractWaypointsFromXml(normalizedXml) : [];
+
+  await onProgress?.({ ratio: 0.96 });
+  const totalDistanceMeters = calculateTotalDistance(points);
+  if (totalDistanceMeters <= 0) {
+    throw new Error("GPX track distance is zero. Use a GPX with movement data.");
+  }
+  const timing = deriveTimingFromPoints(points, totalDistanceMeters);
+  await onProgress?.({ ratio: 1 });
+
+  return {
+    points,
+    waypoints,
+    totalDistanceMeters,
+    startTimestampMs: timing.startTimestampMs,
+    endTimestampMs: timing.endTimestampMs,
+    totalDurationSeconds: timing.totalDurationSeconds,
+    averagePaceSecondsPerKm: timing.totalDurationSeconds / (totalDistanceMeters / METERS_PER_KILOMETER)
+  };
+}
+
 function parseKmlTrack(kml: string): ParsedGpxTrack {
   const normalized = kml.replace(/^\uFEFF/, "");
   if (!normalized.trim()) {
@@ -283,6 +348,45 @@ function extractTrackPoints(gpxXml: string): GpxTrackPoint[] {
     points.push({ latitude, longitude, elevationMeters, timestampMs });
   }
 
+  return points;
+}
+
+async function extractTrackPointsProgressive(
+  gpxXml: string,
+  options: {
+    onProgress?: (ratio: number) => void | Promise<void>;
+    yieldEveryPoints: number;
+  }
+): Promise<GpxTrackPoint[]> {
+  const trackPointPattern = /<(?:[\w-]+:)?(?:trkpt|rtept)\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?(?:trkpt|rtept)>/gi;
+  const points: GpxTrackPoint[] = [];
+  const totalBytes = Math.max(1, gpxXml.length);
+  let sinceYield = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = trackPointPattern.exec(gpxXml)) !== null) {
+    const attributes = match[1] ?? "";
+    const body = match[2] ?? "";
+    const latitude = extractCoordinate(attributes, "lat");
+    const longitude = extractCoordinate(attributes, "lon");
+    const elevationMeters = extractOptionalNumericTag(body, "ele");
+    const timestampMs = extractOptionalTimestamp(body);
+
+    if (latitude !== null && longitude !== null) {
+      points.push({ latitude, longitude, elevationMeters, timestampMs });
+    }
+
+    sinceYield += 1;
+    if (sinceYield >= options.yieldEveryPoints) {
+      sinceYield = 0;
+      const ratio = Math.min(1, trackPointPattern.lastIndex / totalBytes);
+      await options.onProgress?.(ratio);
+      // Let React Native paint between heavy regex batches.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  await options.onProgress?.(1);
   return points;
 }
 

@@ -11,34 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — activity GPX upload (#443) in progress.
-- **Branch / PR:** `feature/activity-history-gpx-upload` → open PR for #443.
-- **Active next:** Merge #443; staging soak Strava revoke (#440) if still pending.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — upload UX on PR #446; CI flake #450.
+- **Branch / PR:** `feature/activity-gpx-upload-status` → https://github.com/collinbrowse/CrewCue/pull/446
+- **Active next:** Land #450 (`test:pg --test-concurrency=1`); merge #446; redeploy staging API.
 
 ## Completed
 
-- Wave 0–4; W3-2 Strava OAuth/sync; #442/#440 on `main`.
-- #443 impl: mobile `ingestActivityHistoryGpx` / `listActivityHistory`, Profile Upload GPX card, cold-start copy.
+- #443/#444: activity GPX upload.
+- #445/#447: upload progress, duplicate skip, next-step + Open Pace.
+- #450 (in progress): serialize `test:pg` to stop shared-TRUNCATE flakes.
 
 ## Next 1-3 tasks
 
-1. Review/merge PR for #443.
-2. Redeploy staging API; Strava Disconnect → Connect → Sync soak (#440/#442).
-3. Epic #360 residual triage.
+1. Confirm `api-postgres-integration` green after concurrency=1.
+2. Merge PR #446 (Closes #445 #447 #450).
+3. Redeploy staging API for metrics ingest.
 
 ## Validation evidence
 
-- `npm run verify` green on feature branch.
-- Simulator: Profile Upload activity GPX card + Choose GPX opens Files picker (OCR); full fixture select blocked by AXe/tap tooling.
+- CI flake: EC6 404 / EC7 400 from parallel TRUNCATE of `activity_history_json`.
+- Fix: `node --test --test-concurrency=1` in `services/api` `test:pg`.
 
 ## Open risks/blockers
 
-- Agent Files-picker file selection needs better UI automation (AXe SimulatorKit arch / MCP tap missing).
-- Staging Strava soak still needs Railway redeploy confirmation.
+- Staging must be redeployed for `POST /activity-history` metrics route.
 
 ## Successor prompt
 
 ```text
-Review/merge PR for #443 (mobile activity GPX upload into shared history). Then confirm Railway staging redeploy after #440/#442 and soak Strava Disconnect/Connect/Sync.
+Confirm PR #446 api-postgres-integration is green after test:pg concurrency=1; merge; redeploy staging API.
 ```
