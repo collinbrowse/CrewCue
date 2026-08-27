@@ -63,6 +63,87 @@ test("race room creation replays idempotent retries and rejects conflicting reus
   await app.close();
 });
 
+test("PUT course releases idempotency key after validation failure", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-idempotent"));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Course idempotency room",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": "course-validation-release"
+  };
+  const basePayload = {
+    plannedPaceSecondsPerKm: 600,
+    course: {
+      checkpoints: [
+        { id: "cp0", latitude: 41.0, longitude: -71.0 },
+        { id: "cp1", latitude: 41.01, longitude: -71.0 }
+      ]
+    },
+    raceStartAt: "2026-05-12T16:00:00.000Z"
+  };
+
+  const rejected = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: basePayload,
+    headers
+  });
+  assert.equal(rejected.statusCode, 400);
+  assert.match((rejected.json() as { error: string }).error, /Upload a GPX, JSON, or KML track/);
+
+  const validPayload = {
+    ...basePayload,
+    routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+      { latitude: 41.0, longitude: -71.0 },
+      { latitude: 41.01, longitude: -71.0 }
+    ])
+  };
+  const accepted = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: validPayload,
+    headers
+  });
+  assert.equal(accepted.statusCode, 200);
+  const acceptedBody = accepted.json() as { id: string; course: { checkpoints: Array<{ id: string }> } };
+  assert.equal(acceptedBody.id, roomId);
+  assert.equal(acceptedBody.course.checkpoints.length, 2);
+
+  const replay = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: validPayload,
+    headers
+  });
+  assert.equal(replay.statusCode, 200);
+  assert.deepEqual(replay.json(), acceptedBody);
+
+  await app.close();
+});
+
 test("issues and accepts invite with role assignment", async () => {
   const app = buildApp();
   await app.ready();

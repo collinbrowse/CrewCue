@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   formatActivityUploadNetworkError,
@@ -58,7 +58,7 @@ test("summarizeActivityGpxUploadBatch empty list", () => {
 test("parseActivityGpxMetrics reads fixture activity with timestamps", () => {
   const xml = readFileSync(
     resolve(
-      fileURLToPath(new URL(".", import.meta.url)),
+      dirname(fileURLToPath(import.meta.url)),
       "../../../../../fixtures/pacing/activity-short-road.gpx"
     ),
     "utf8"
