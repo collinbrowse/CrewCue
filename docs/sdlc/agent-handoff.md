@@ -12,33 +12,34 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — upload UX on PR #446; CI flake #450.
-- **Branch / PR:** `feature/activity-gpx-upload-status` → https://github.com/collinbrowse/CrewCue/pull/446
-- **Active next:** Land #450 (`test:pg --test-concurrency=1`); merge #446; redeploy staging API.
+- **Roadmap phase:** Crew schedule + AI pacing — #444/#446/#448 on `main`.
+- **Branch / PR:** `cursor/missing-test-coverage-1792` → https://github.com/collinbrowse/CrewCue/pull/449
+- **Active next:** Merge #449 (course-update idempotency coverage); redeploy staging API; Strava soak.
 
 ## Completed
 
 - #443/#444: activity GPX upload.
-- #445/#447: upload progress, duplicate skip, next-step + Open Pace.
-- #450 (in progress): serialize `test:pg` to stop shared-TRUNCATE flakes.
+- #445/#447/#450 via #446: upload progress UX + serial `test:pg`.
+- #448: activity GPX prefers `<trkpt>` over planned `<rte>` (pace poison fix).
+- #449 (in progress): course PUT idempotency release/replay regression test.
 
 ## Next 1-3 tasks
 
-1. Confirm `api-postgres-integration` green after concurrency=1.
-2. Merge PR #446 (Closes #445 #447 #450).
-3. Redeploy staging API for metrics ingest.
+1. Merge PR #449 after CI green.
+2. Redeploy staging API (metrics ingest + GPX parse fix).
+3. Staging soak: GPX upload → Open Pace; Strava Disconnect → Connect → Sync.
 
 ## Validation evidence
 
-- CI flake: EC6 404 / EC7 400 from parallel TRUNCATE of `activity_history_json`.
-- Fix: `node --test --test-concurrency=1` in `services/api` `test:pg`.
+- #446/#448 merged to `main` (`32b0541`, `6b2f139`).
+- #449: route-level course idempotency release test + conflict resolve with main.
 
 ## Open risks/blockers
 
-- Staging must be redeployed for `POST /activity-history` metrics route.
+- Staging may still need Railway redeploy for latest API.
 
 ## Successor prompt
 
 ```text
-Confirm PR #446 api-postgres-integration is green after test:pg concurrency=1; merge; redeploy staging API.
+Merge PR #449 if CI green. Redeploy staging API from main. Smoke Profile GPX upload → Open Pace and Strava reconnect against staging.
 ```
