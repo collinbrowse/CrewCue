@@ -11,35 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-26 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — #444 merged; upload status UX (#445) + next-step (#447) on PR #446.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — upload UX on PR #446; CI flake #450.
 - **Branch / PR:** `feature/activity-gpx-upload-status` → https://github.com/collinbrowse/CrewCue/pull/446
-- **Active next:** Commit/push next-step UX; sim QA; merge #446; redeploy staging API.
+- **Active next:** Land #450 (`test:pg --test-concurrency=1`); merge #446; redeploy staging API.
 
 ## Completed
 
-- #443/#444: activity GPX upload (metrics path + Profile card).
-- #445: staged progress; duplicate skip-before-parse; single overall %.
-- #447 (in progress): next-step hint + Open Pace when historyCount > 0.
+- #443/#444: activity GPX upload.
+- #445/#447: upload progress, duplicate skip, next-step + Open Pace.
+- #450 (in progress): serialize `test:pg` to stop shared-TRUNCATE flakes.
 
 ## Next 1-3 tasks
 
-1. Finish #447 on PR #446 (verify Open Pace on sim; push).
-2. Merge #445/#447 PR; redeploy staging API for metrics ingest.
-3. Epic #360 residual / Strava soak if still open.
+1. Confirm `api-postgres-integration` green after concurrency=1.
+2. Merge PR #446 (Closes #445 #447 #450).
+3. Redeploy staging API for metrics ingest.
 
 ## Validation evidence
 
-- Unit: `activityHistoryNextStepHint`, upload progress formatters.
-- Sim: pending for Open Pace CTA visibility.
+- CI flake: EC6 404 / EC7 400 from parallel TRUNCATE of `activity_history_json`.
+- Fix: `node --test --test-concurrency=1` in `services/api` `test:pg`.
 
 ## Open risks/blockers
 
 - Staging must be redeployed for `POST /activity-history` metrics route.
-- Files-picker agent automation still limited.
 
 ## Successor prompt
 
 ```text
-On feature/activity-gpx-upload-status: confirm Profile shows next-step + Open Pace when history > 0; commit/push; update PR #446 with Closes #445 and Closes #447; merge after CI green; redeploy staging API.
+Confirm PR #446 api-postgres-integration is green after test:pg concurrency=1; merge; redeploy staging API.
 ```
