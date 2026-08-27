@@ -310,7 +310,8 @@ test("EC6: estimate-backed schedule clocks remain ISO-Z (W3-I smoke)", async () 
     const room = await put50kCourse(app, roomId, ownerToken);
     const long = await ingestGpx(app, ownerToken, "activity-long-trail.gpx", "gpx:w3i-ec6");
     const estimate = await postEstimate(app, ownerToken, room, { historyRefIds: [long.id] });
-    assert.equal((await attachEstimate(app, roomId, ownerToken, estimate.id)).statusCode, 200);
+    const attached = await attachEstimate(app, roomId, ownerToken, estimate.id);
+    assert.equal(attached.statusCode, 200, attached.body);
 
     const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
     for (const stop of sheet.stops) {
@@ -326,7 +327,8 @@ test("EC7: estimate + delay overlay shifts later clocks (W3-I smoke)", async () 
     const room = await put50kCourse(app, roomId, ownerToken);
     const long = await ingestGpx(app, ownerToken, "activity-long-trail.gpx", "gpx:w3i-ec7");
     const estimate = await postEstimate(app, ownerToken, room, { historyRefIds: [long.id] });
-    assert.equal((await attachEstimate(app, roomId, ownerToken, estimate.id)).statusCode, 200);
+    const attached = await attachEstimate(app, roomId, ownerToken, estimate.id);
+    assert.equal(attached.statusCode, 200, attached.body);
 
     const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
     const delaySeconds = 180;
@@ -336,7 +338,7 @@ test("EC7: estimate + delay overlay shifts later clocks (W3-I smoke)", async () 
       payload: { delayOverrideSeconds: delaySeconds },
       headers: { authorization: `Bearer ${ownerToken}` }
     });
-    assert.equal(put.statusCode, 200);
+    assert.equal(put.statusCode, 200, put.body);
 
     const after = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
     assert.equal(after.pacingEstimateId, estimate.id);
