@@ -12,33 +12,31 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — bot backlog #427/#426/#428 on `main`.
-- **Branch / PR:** `main` (`db3d43b` + CI fix PR).
-- **Active next:** Confirm CI green after checks-on-push fix; redeploy staging; soak.
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- #427: list rooms no longer clobbers live room cache.
-- #426: cutoff warning regression coverage.
-- #428: pacing estimator validation edges.
-- CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Confirm tip-of-`main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
-2. Redeploy staging API.
-3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- Merged: #427 (`811453c`), #426 (`d794a52`), #428 (`db3d43b`).
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
 
 ## Open risks/blockers
 
-- Staging may still need Railway redeploy.
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Confirm tip-of-main CI green. Redeploy staging API. Smoke GPX upload → Open Pace against staging.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
