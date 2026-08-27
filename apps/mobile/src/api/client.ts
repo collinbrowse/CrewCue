@@ -1,5 +1,6 @@
 import {
   parseCrewScheduleSheet,
+  type ActivityHistoryRef,
   type AthletePingAcceptedResponse,
   type AthletePingRejectedResponse,
   type ChatNotificationPref,
@@ -615,7 +616,47 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "DELETE",
         `/chat/rooms/${encodeURIComponent(roomId)}/messages`
-      )
+      ),
+
+    // --- Activity history ingest (W3-1 GPX upload + W3-2 Strava) ---
+    /** Preferred: small metrics body (mobile parses GPX on-device). */
+    ingestActivityHistoryMetrics: (input: {
+      externalId: string;
+      recordedAt?: string;
+      distanceMeters: number;
+      elapsedSeconds?: number;
+      elevationGainMeters?: number;
+    }) => request<ActivityHistoryRef>(options, "POST", "/activity-history", input),
+    /** Raw GPX XML — keep for tests/tools; large files may fail on gateways with ~1MB limits. */
+    ingestActivityHistoryGpx: (input: { gpxXml: string; externalId?: string }) =>
+      request<ActivityHistoryRef>(options, "POST", "/activity-history/gpx", input),
+    listActivityHistory: () =>
+      request<{ items: ActivityHistoryRef[] }>(options, "GET", "/activity-history"),
+
+    // --- Strava activity history (W3-2) ---
+    startStravaOAuth: () =>
+      request<{ authorizeUrl: string; state: string; redirectUri: string }>(
+        options,
+        "GET",
+        "/strava/oauth/start"
+      ),
+    completeStravaOAuth: (input: { code: string; state: string; scope?: string }) =>
+      request<{ connected: boolean; athleteId: string }>(
+        options,
+        "POST",
+        "/strava/oauth/callback",
+        input
+      ),
+    getStravaConnection: () =>
+      request<{ connected: boolean; athleteId?: string }>(options, "GET", "/strava/connection"),
+    syncStravaActivities: () =>
+      request<{ syncedCount: number; createdCount: number; items: unknown[] }>(
+        options,
+        "POST",
+        "/strava/sync"
+      ),
+    disconnectStrava: () =>
+      request<{ connected: boolean }>(options, "DELETE", "/strava/connection")
   };
 }
 

@@ -11,37 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-24 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I merged as #418).
-- **Branch / PR:** Critical bug hunt — list cache clobber can roll back stop-plan writes.
-- **Active next:** Residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage. Merge unmerged critical drafts (#353, #419) independently.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — merging bot backlog (#427/#426/#428).
+- **Branch / PR:** `cursor/critical-bug-investigation-bd45` → https://github.com/collinbrowse/CrewCue/pull/427
+- **Active next:** Merge #427 (list-cache clobber fix); then #426 cutoff tests; then #428 estimator tests; confirm CI on `main`.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- W3-2 Strava OAuth deferred (optional / secrets).
-- 2026-08-24 bug hunt: GET `/race-rooms/mine` no longer clobbers a newer in-memory room write (stop-plan data loss).
+- #443/#444/#446/#448/#449 on `main`.
+- #427 (in progress): do not clobber live room cache when listing rooms.
 
 ## Next 1-3 tasks
 
-1. Optionally Ready W3-2 (Strava) if staging secrets available.
-2. Epic #360 closeout or residual backlog triage after W4-I merge.
-3. Merge unmerged critical drafts: ping authz #353, no-ping check-in wipe #419.
+1. Land #427, then #426, then #428 (rebase each onto updated `main`).
+2. Confirm `main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
+3. Redeploy staging API; smoke GPX upload + Strava soak.
+
+## Validation evidence
+
+- #427: stop-plan notes survive concurrent `GET /race-rooms/mine` hydrate.
 
 ## Open risks/blockers
 
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
-- W3-2 Strava remains blocked on staging OAuth secrets.
+- Staging may still need Railway redeploy for latest API.
 
 ## Successor prompt
 
 ```text
-Wave 4 is complete after W4-I (#416) merges. Optionally Ready/execute W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals. Do not reopen Wave 4 feature scope.
+After #427/#426/#428 are on main, confirm CI green. Redeploy staging API and smoke Profile GPX upload → Open Pace.
 ```

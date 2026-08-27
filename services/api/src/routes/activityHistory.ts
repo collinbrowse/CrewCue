@@ -31,12 +31,62 @@ const ingestGpxInput = z
   })
   .strict();
 
+/** Metrics-only ingest (preferred for mobile — avoids multi‑MB JSON GPX bodies). */
+const ingestMetricsInput = z
+  .object({
+    /** Stable upload fingerprint / provider id (idempotency with source). */
+    externalId: z.string().min(1),
+    recordedAt: z.string().min(1).optional(),
+    distanceMeters: z.number().positive(),
+    elapsedSeconds: z.number().positive().optional(),
+    elevationGainMeters: z.number().nonnegative().optional(),
+    athleteUserId: z.string().min(1).optional()
+  })
+  .strict();
+
 function toIsoNow(): string {
   return new Date().toISOString();
 }
 
 export async function activityHistoryRoutes(app: FastifyInstance): Promise<void> {
   await initActivityHistoryStore(app.log);
+
+  app.post("/activity-history", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const parsedBody = ingestMetricsInput.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply.code(400).send({ error: "Invalid activity history metrics payload" });
+    }
+
+    const athleteUserId = request.identity.sub;
+    if (parsedBody.data.athleteUserId !== undefined && parsedBody.data.athleteUserId !== athleteUserId) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const ingestedAt = toIsoNow();
+    const recordedAt = parsedBody.data.recordedAt ?? ingestedAt;
+    const candidate: ActivityHistoryRef = {
+      id: randomUUID(),
+      source: "gpx_upload",
+      externalId: parsedBody.data.externalId,
+      recordedAt,
+      ingestedAt,
+      distanceMeters: parsedBody.data.distanceMeters,
+      ...(parsedBody.data.elapsedSeconds !== undefined
+        ? { elapsedSeconds: parsedBody.data.elapsedSeconds }
+        : {}),
+      ...(parsedBody.data.elevationGainMeters !== undefined
+        ? { elevationGainMeters: parsedBody.data.elevationGainMeters }
+        : {})
+    };
+
+    const validated = parseActivityHistoryRef(candidate);
+    const result = await upsertActivityHistory(athleteUserId, validated);
+    return reply.code(result.created ? 201 : 200).send(result.ref);
+  });
 
   app.post("/activity-history/gpx", async (request, reply) => {
     if (!request.identity) {
