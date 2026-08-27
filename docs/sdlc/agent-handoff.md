@@ -12,27 +12,24 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — #444/#446/#448 on `main`.
-- **Branch / PR:** `cursor/missing-test-coverage-1792` → https://github.com/collinbrowse/CrewCue/pull/449
-- **Active next:** Merge #449 (course-update idempotency coverage); redeploy staging API; Strava soak.
+- **Roadmap phase:** Crew schedule + AI pacing — merging bot backlog (#427/#426/#428).
+- **Branch / PR:** `cursor/critical-bug-investigation-bd45` → https://github.com/collinbrowse/CrewCue/pull/427
+- **Active next:** Merge #427 (list-cache clobber fix); then #426 cutoff tests; then #428 estimator tests; confirm CI on `main`.
 
 ## Completed
 
-- #443/#444: activity GPX upload.
-- #445/#447/#450 via #446: upload progress UX + serial `test:pg`.
-- #448: activity GPX prefers `<trkpt>` over planned `<rte>` (pace poison fix).
-- #449 (in progress): course PUT idempotency release/replay regression test.
+- #443/#444/#446/#448/#449 on `main`.
+- #427 (in progress): do not clobber live room cache when listing rooms.
 
 ## Next 1-3 tasks
 
-1. Merge PR #449 after CI green.
-2. Redeploy staging API (metrics ingest + GPX parse fix).
-3. Staging soak: GPX upload → Open Pace; Strava Disconnect → Connect → Sync.
+1. Land #427, then #426, then #428 (rebase each onto updated `main`).
+2. Confirm `main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
+3. Redeploy staging API; smoke GPX upload + Strava soak.
 
 ## Validation evidence
 
-- #446/#448 merged to `main` (`32b0541`, `6b2f139`).
-- #449: route-level course idempotency release test + conflict resolve with main.
+- #427: stop-plan notes survive concurrent `GET /race-rooms/mine` hydrate.
 
 ## Open risks/blockers
 
@@ -41,5 +38,5 @@
 ## Successor prompt
 
 ```text
-Merge PR #449 if CI green. Redeploy staging API from main. Smoke Profile GPX upload → Open Pace and Strava reconnect against staging.
+After #427/#426/#428 are on main, confirm CI green. Redeploy staging API and smoke Profile GPX upload → Open Pace.
 ```
