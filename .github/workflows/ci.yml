@@ -95,6 +95,12 @@ jobs:
       - run: npm install
       - run: npm run verify:dual-client
   checks:
+    # On push to main, pr-decision-doc-guard is skipped; still run checks after dual-client-guard.
+    if: >-
+      always()
+      && needs.dual-client-guard.result == 'success'
+      && (needs.pr-decision-doc-guard.result == 'success'
+          || needs.pr-decision-doc-guard.result == 'skipped')
     needs: [pr-decision-doc-guard, dual-client-guard]
     runs-on: ubuntu-latest
     env:
