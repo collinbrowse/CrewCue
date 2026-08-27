@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
@@ -92,7 +93,7 @@ test("PUT course releases idempotency key after validation failure", async () =>
 
   const headers = {
     authorization: `Bearer ${ownerToken}`,
-    "idempotency-key": "course-validation-release"
+    "idempotency-key": `course-validation-release-${randomUUID()}`
   };
   const basePayload = {
     plannedPaceSecondsPerKm: 600,

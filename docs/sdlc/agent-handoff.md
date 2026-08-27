@@ -12,25 +12,26 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — landing bot backlog.
-- **Branch / PR:** `cursor/missing-test-coverage-ba94` → https://github.com/collinbrowse/CrewCue/pull/428
-- **Active next:** Merge #428; confirm CI on `main`.
+- **Roadmap phase:** Crew schedule + AI pacing — bot backlog #427/#426/#428 on `main`.
+- **Branch / PR:** `main` (`db3d43b` + CI fix PR).
+- **Active next:** Confirm CI green after checks-on-push fix; redeploy staging; soak.
 
 ## Completed
 
-- #427 on `main`: list rooms no longer clobbers live room cache.
-- #426 on `main`: cutoff warning regression coverage.
-- #428 (in progress): pacing estimator validation edges.
+- #427: list rooms no longer clobbers live room cache.
+- #426: cutoff warning regression coverage.
+- #428: pacing estimator validation edges.
+- CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
 
 ## Next 1-3 tasks
 
-1. Land #428.
-2. Confirm `main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
-3. Redeploy staging API; smoke GPX + Strava.
+1. Confirm tip-of-`main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
+2. Redeploy staging API.
+3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
 
 ## Validation evidence
 
-- #427 merged (`811453c`); #426 merged (`d794a52`).
+- Merged: #427 (`811453c`), #426 (`d794a52`), #428 (`db3d43b`).
 
 ## Open risks/blockers
 
@@ -39,5 +40,5 @@
 ## Successor prompt
 
 ```text
-Confirm main CI green after #427/#426/#428. Redeploy staging API and smoke Profile GPX upload → Open Pace.
+Confirm tip-of-main CI green. Redeploy staging API. Smoke GPX upload → Open Pace against staging.
 ```
