@@ -310,7 +310,8 @@ test("EC6: estimate-backed schedule clocks remain ISO-Z (W3-I smoke)", async () 
     const room = await put50kCourse(app, roomId, ownerToken);
     const long = await ingestGpx(app, ownerToken, "activity-long-trail.gpx", "gpx:w3i-ec6");
     const estimate = await postEstimate(app, ownerToken, room, { historyRefIds: [long.id] });
-    assert.equal((await attachEstimate(app, roomId, ownerToken, estimate.id)).statusCode, 200);
+    const attached = await attachEstimate(app, roomId, ownerToken, estimate.id);
+    assert.equal(attached.statusCode, 200, attached.body);
 
     const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
     for (const stop of sheet.stops) {
