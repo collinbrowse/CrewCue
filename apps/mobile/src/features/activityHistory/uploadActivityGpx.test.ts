@@ -60,6 +60,31 @@ test("summarizeActivityGpxUploadBatch empty list", () => {
   assert.equal(summary.message, "No files uploaded");
 });
 
+test("parseActivityGpxMetrics ignores planned rtept when a recorded trk exists", () => {
+  const recorded = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1">
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const mixed = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1">
+  <rte>
+    <rtept lat="39.15" lon="-120.25"></rtept>
+    <rtept lat="39.60" lon="-120.25"></rtept>
+  </rte>
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const trackMetrics = parseActivityGpxMetrics(recorded);
+  const mixedMetrics = parseActivityGpxMetrics(mixed);
+  assert.equal(mixedMetrics.elapsedSeconds, trackMetrics.elapsedSeconds);
+  assert.ok(Math.abs(mixedMetrics.distanceMeters - trackMetrics.distanceMeters) < 1);
+});
+
 test("parseActivityGpxMetrics reads fixture activity with timestamps", () => {
   const hereDir = resolve(fileURLToPath(import.meta.url), "..");
   const xml = readFileSync(
