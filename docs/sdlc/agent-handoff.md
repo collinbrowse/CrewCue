@@ -12,31 +12,31 @@
 ## Session status snapshot
 
 - Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — merging bot backlog (#427/#426/#428).
-- **Branch / PR:** `cursor/critical-bug-investigation-bd45` → https://github.com/collinbrowse/CrewCue/pull/427
-- **Active next:** Merge #427 (list-cache clobber fix); then #426 cutoff tests; then #428 estimator tests; confirm CI on `main`.
+- **Roadmap phase:** Crew schedule + AI pacing — landing bot backlog.
+- **Branch / PR:** `cursor/missing-test-coverage-a4b5` → https://github.com/collinbrowse/CrewCue/pull/426
+- **Active next:** Merge #426 cutoff tests; then #428 estimator tests; confirm CI on `main`.
 
 ## Completed
 
-- #443/#444/#446/#448/#449 on `main`.
-- #427 (in progress): do not clobber live room cache when listing rooms.
+- #427 on `main`: list rooms no longer clobbers live room cache.
+- #426 (in progress): cutoff warning regression coverage.
 
 ## Next 1-3 tasks
 
-1. Land #427, then #426, then #428 (rebase each onto updated `main`).
-2. Confirm `main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
-3. Redeploy staging API; smoke GPX upload + Strava soak.
+1. Land #426, then #428.
+2. Confirm `main` CI green.
+3. Redeploy staging API; smoke GPX + Strava.
 
 ## Validation evidence
 
-- #427: stop-plan notes survive concurrent `GET /race-rooms/mine` hydrate.
+- #427 merged (`811453c`).
 
 ## Open risks/blockers
 
-- Staging may still need Railway redeploy for latest API.
+- Staging may still need Railway redeploy.
 
 ## Successor prompt
 
 ```text
-After #427/#426/#428 are on main, confirm CI green. Redeploy staging API and smoke Profile GPX upload → Open Pace.
+Merge #428 after #426. Confirm main CI green, then redeploy staging.
 ```

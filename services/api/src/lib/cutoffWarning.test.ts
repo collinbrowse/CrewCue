@@ -17,6 +17,11 @@ test("time_of_day uses UTC race-day wall clock of raceStartAt", () => {
   assert.equal(ms, Date.parse("2026-08-15T17:30:00.000Z"));
 });
 
+test("time_of_day earlier than race start stays on the same UTC race day", () => {
+  const ms = cutoffInstantMs({ mode: "time_of_day", hour: 7, minute: 45 }, RACE_START_MS);
+  assert.equal(ms, Date.parse("2026-08-15T07:45:00.000Z"));
+});
+
 test("elapsed_from_start adds seconds to raceStartAt", () => {
   const ms = cutoffInstantMs({ mode: "elapsed_from_start", seconds: 14_400 }, RACE_START_MS);
   assert.equal(ms, Date.parse("2026-08-15T17:00:00.000Z"));
@@ -56,6 +61,16 @@ test("compareProjectedArrivalToCutoff returns margin and status", () => {
     clockArrivalAtMs: Date.parse("2026-08-15T13:50:00.000Z")
   });
   assert.deepEqual(warn, { cutoffStatus: "warn", cutoffMarginSeconds: 600 });
+
+  const earlierSameDayBreach = compareProjectedArrivalToCutoff({
+    cutoff: { mode: "time_of_day", hour: 7, minute: 45 },
+    raceStartAtMs: RACE_START_MS,
+    clockArrivalAtMs: RACE_START_MS + 30 * 60 * 1000
+  });
+  assert.deepEqual(earlierSameDayBreach, {
+    cutoffStatus: "breach",
+    cutoffMarginSeconds: -20_700
+  });
 
   const breach = compareProjectedArrivalToCutoff({
     cutoff: { mode: "elapsed_from_start", seconds: 3600 },
