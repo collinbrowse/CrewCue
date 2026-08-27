@@ -440,14 +440,14 @@ test("getSchedule GETs /schedule and parses CrewScheduleSheet (EC1/EC5)", async 
           checkpointId: "start",
           clockArrivalAt: "2026-08-15T13:00:00.000Z",
           elapsedSeconds: 0,
-          plannedDwellSeconds: 0
+          plannedStoppageSeconds: 0
         },
         {
           id: "stop-aid-2",
           checkpointId: "aid-2",
           clockArrivalAt: "2026-08-15T15:20:00.000Z",
           elapsedSeconds: 8400,
-          plannedDwellSeconds: 240,
+          plannedStoppageSeconds: 240,
           delayOverrideSeconds: 120
         }
       ]
@@ -692,7 +692,7 @@ test("getStopPlan / patchStopPlan delay unit is seconds; clocks remain ISO from 
                 checkpointId: "aid-2",
                 clockArrivalAt: "2026-08-15T15:20:00.000Z",
                 elapsedSeconds: 8400,
-                plannedDwellSeconds: 240,
+                plannedStoppageSeconds: 240,
                 delayOverrideSeconds: 120
               }
             ]
@@ -754,14 +754,14 @@ test("postManualCheckpointStop POSTs manual-stop then client can refetch schedul
               checkpointId: "aid-1",
               clockArrivalAt: "2026-08-15T14:10:00.000Z",
               elapsedSeconds: 4200,
-              plannedDwellSeconds: 180
+              plannedStoppageSeconds: 180
             },
             {
               id: "stop-aid-2",
               checkpointId: "aid-2",
               clockArrivalAt: "2026-08-15T15:25:00.000Z",
               elapsedSeconds: 8700,
-              plannedDwellSeconds: 240
+              plannedStoppageSeconds: 240
             }
           ]
         }),

@@ -220,22 +220,22 @@ function assertEstimateBaseline(sheet: CrewScheduleSheet, estimate: PacingEstima
     assert.match(stop.clockArrivalAt, ISO_Z);
   }
 
-  const startDwell = stopByCheckpoint(sheet, "start").plannedDwellSeconds;
+  const startStoppage = stopByCheckpoint(sheet, "start").plannedStoppageSeconds;
   const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
   assert.ok(aid1Eta);
   assert.equal(
     stopByCheckpoint(sheet, "aid-1").elapsedSeconds,
-    aid1Eta.elapsedSeconds + startDwell
+    aid1Eta.elapsedSeconds + startStoppage
   );
 
   const finishMoving = estimate.expectedFinishElapsedSeconds;
-  let priorDwell = 0;
+  let priorStoppage = 0;
   for (const id of GOLDEN_CHECKPOINT_IDS) {
     if (id === "finish") break;
     const stop = stopByCheckpoint(sheet, id);
-    priorDwell += stop.plannedDwellSeconds + (stop.delayOverrideSeconds ?? 0);
+    priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
   }
-  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorDwell);
+  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorStoppage);
 }
 
 async function withApp(run: (ctx: { app: TestApp; tokenFor: (sub: string) => string }) => Promise<void>) {
@@ -290,15 +290,15 @@ test("EC1: estimate + bands + schedule — bands present; expected baseline", as
     assertEstimateBaseline(sheet, estimate);
 
     // Schedule uses expected baseline only — not conservative/aggressive (informational).
-    let priorDwell = 0;
+    let priorStoppage = 0;
     for (const id of ["start", "aid-1", "aid-2", "aid-3"] as const) {
       const stop = stopByCheckpoint(sheet, id);
-      priorDwell += stop.plannedDwellSeconds + (stop.delayOverrideSeconds ?? 0);
+      priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
     const finishElapsed = stopByCheckpoint(sheet, "finish").elapsedSeconds;
-    assert.equal(finishElapsed, estimate.expectedFinishElapsedSeconds + priorDwell);
-    assert.notEqual(finishElapsed, estimate.bands!.conservative!.finishElapsedSeconds + priorDwell);
-    assert.notEqual(finishElapsed, estimate.bands!.aggressive!.finishElapsedSeconds + priorDwell);
+    assert.equal(finishElapsed, estimate.expectedFinishElapsedSeconds + priorStoppage);
+    assert.notEqual(finishElapsed, estimate.bands!.conservative!.finishElapsedSeconds + priorStoppage);
+    assert.notEqual(finishElapsed, estimate.bands!.aggressive!.finishElapsedSeconds + priorStoppage);
   });
 });
 

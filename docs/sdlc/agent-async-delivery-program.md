@@ -121,7 +121,7 @@ Agents **must** prefer these paths; if a new fixture is needed, add it in the sa
 | --- | --- | --- | --- | --- |
 | W1-1 | API: course waypoints CRUD + tags (Aid/Water/Dropbag/Crew) | W0 | Y | API tests + EC matrix |
 | W1-2 | API: per-stop notes + delay overrides (plan-scoped) | W0, W1-1 | after W1-1 | API tests |
-| W1-3 | API: schedule sheet projection (clock + elapsed + dwell) | W0, W1-1 | Y w/ W1-1 if contract-stable | golden fixture assert |
+| W1-3 | API: schedule sheet projection (clock + elapsed + stoppage) | W0, W1-1 | Y w/ W1-1 if contract-stable | golden fixture assert |
 | W1-4 | Mobile: schedule sheet UI (read) | W1-3 | after W1-3 | sim QA + verify |
 | W1-5 | Mobile: edit stop notes/delays | W1-2, W1-4 | after both | sim QA |
 | W1-I | Integration: schedule E2E seed → sheet → note edit | W1-* | serial | verify + sim |

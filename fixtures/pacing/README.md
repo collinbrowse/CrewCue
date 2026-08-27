@@ -4,7 +4,7 @@ Shared Wave 0 pack. Prefer these paths over one-off GPX/JSON in later PRs.
 
 Units: distances in meters, durations in seconds, clock times ISO-8601 UTC (`…Z`).
 
-The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nested objects with the W0-1 helpers; the file root is not a `CrewScheduleSheet`. Clock arrivals equal `raceStartAt + elapsedSeconds` (planned dwell is after arrival and does not shift later clocks in this golden).
+The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nested objects with the W0-1 helpers; the file root is not a `CrewScheduleSheet`. Clock arrivals equal `raceStartAt + elapsedSeconds` (planned stoppage is after arrival and does not shift later clocks in this golden).
 
 | File | Purpose |
 | --- | --- |
@@ -20,15 +20,15 @@ The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nes
 | `strava-activity-summary.json` | Mock Strava payload (no live API) |
 | `load.ts` | Fixture path list + GPX inspect / JSON load helpers (`package.json` marks this folder ESM) |
 
-### Confidence / A-B bands (W4-2)
+### Confidence / A-B bands
 
-Estimator policy (see `PACING_BAND_*_RATIO` in the API estimator and the estimate-bands golden above):
+Bands come from **three deterministic micro-model scenario re-sims** (see `services/api/src/lib/pacingEstimate/microModel/CONSTANTS_FOR_APPROVAL.md`), not fixed finish-time multipliers:
 
-- `conservative` = round(expectedElapsed × **1.15**)
-- `expected` = primary finish (`expectedFinishElapsedSeconds`)
-- `aggressive` = round(expectedElapsed × **0.885**)
+- `expected` — nominal GAP / fatigue / altitude
+- `conservative` — slower GAP + higher fatigue/altitude knobs
+- `aggressive` — faster GAP + lower fatigue/altitude knobs
 - Ordering: conservative ≥ expected ≥ aggressive (elapsed)
-- Cold-start uses the **same** ratios (expected itself is coarse course-only pace)
+- Cold-start uses GAP **10:00/mi** with the same scenario knobs
 - Schedule plan-of-record / moving-time uses **expected** only; bands are informational
 
 ### Cutoff / `time_of_day` policy (W4-1)

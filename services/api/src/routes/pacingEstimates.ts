@@ -1,6 +1,7 @@
 /**
- * POST /pacing-estimates — history + course → PacingEstimate (W3-3).
- * Uses athlete activity-history store + deterministic estimator (no live LLM).
+ * POST /pacing-estimates — history + room course → micro-model PacingEstimate.
+ * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
+ * bodies still work with a sparse polyline from checkpoint centers.
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -11,6 +12,7 @@ import {
   type ActivityHistoryRef,
   type RaceCourseCheckpoint
 } from "@crewcue/contracts";
+import type { CourseMetricPoint } from "@crewcue/map-core";
 import {
   getActivityHistoryForAthlete,
   initActivityHistoryStore,
@@ -19,12 +21,13 @@ import {
 import {
   DEFAULT_PACING_ESTIMATE_SEED,
   PacingEstimateCourseError,
-  deterministicPacingEstimator
+  estimatePacingMicroModelWithArtifacts
 } from "../lib/pacingEstimate/index.js";
 import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
   .object({
@@ -42,8 +45,10 @@ const checkpointInput = z
 
 const estimateBody = z
   .object({
-    raceStartAt: z.string().min(1),
-    checkpoints: z.array(checkpointInput).min(2),
+    /** Preferred: load course geometry + checkpoints from this race room. */
+    roomId: z.string().min(1).optional(),
+    raceStartAt: z.string().min(1).optional(),
+    checkpoints: z.array(checkpointInput).min(2).optional(),
     /**
      * Optional subset of the athlete's history ids. When omitted, all stored
      * history for the authenticated athlete is used.
@@ -56,7 +61,10 @@ const estimateBody = z
      */
     athleteUserId: z.string().min(1).optional()
   })
-  .strict();
+  .strict()
+  .refine((b) => b.roomId !== undefined || (b.checkpoints !== undefined && b.raceStartAt !== undefined), {
+    message: "roomId or (checkpoints + raceStartAt) required"
+  });
 
 async function resolveHistory(
   athleteUserId: string,
@@ -80,6 +88,14 @@ async function resolveHistory(
   return { ok: true, history };
 }
 
+function routeFromCheckpoints(checkpoints: RaceCourseCheckpoint[]): CourseMetricPoint[] {
+  return checkpoints.map((cp) => ({
+    latitude: cp.latitude,
+    longitude: cp.longitude,
+    elevationMeters: null
+  }));
+}
+
 export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> {
   await initActivityHistoryStore(app.log);
   await initPacingEstimateStore(app.log);
@@ -99,8 +115,51 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    let raceStartAt = parsedBody.data.raceStartAt;
+    let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
+    let routeMetricPoints: CourseMetricPoint[] | null = null;
+    let courseLengthMeters: number | undefined;
+
+    if (parsedBody.data.roomId) {
+      const room = await getRaceRoom(parsedBody.data.roomId);
+      if (!room) {
+        return reply.code(404).send({ error: "Race room not found", code: "room_not_found" });
+      }
+      const membership = room.memberships.find((m) => m.userId === athleteUserId);
+      if (!membership) {
+        return reply.code(403).send({ error: "Forbidden" });
+      }
+      if (!room.course || room.course.checkpoints.length < 2) {
+        return reply.code(400).send({
+          error: "Room course with at least two checkpoints is required",
+          code: "course_incomplete"
+        });
+      }
+      checkpoints = room.course.checkpoints;
+      raceStartAt = raceStartAt ?? room.raceStartAt;
+      if (!raceStartAt) {
+        return reply.code(400).send({
+          error: "raceStartAt required (set on room or request body)",
+          code: "race_start_invalid"
+        });
+      }
+      routeMetricPoints = resolveRouteMetricPointsFromRaceRoomExport(room);
+      courseLengthMeters =
+        room.course.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters;
+      if (!routeMetricPoints) {
+        return reply.code(400).send({
+          error: "Room course route geometry is required for micro-model pacing",
+          code: "course_incomplete"
+        });
+      }
+    }
+
+    if (!raceStartAt || !checkpoints) {
+      return reply.code(400).send({ error: "Invalid pacing estimate payload", code: "invalid_payload" });
+    }
+
     try {
-      parseIso8601Utc(parsedBody.data.raceStartAt, "raceStartAt");
+      parseIso8601Utc(raceStartAt, "raceStartAt");
     } catch {
       return reply.code(400).send({
         error: "raceStartAt must be an ISO-8601 UTC string",
@@ -113,17 +172,21 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       return reply.code(historyResult.status).send({ error: historyResult.error });
     }
 
-    const checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[];
+    if (!routeMetricPoints) {
+      routeMetricPoints = routeFromCheckpoints(checkpoints);
+    }
 
     try {
-      const estimate = deterministicPacingEstimator.estimate({
-        raceStartAt: parsedBody.data.raceStartAt,
+      const artifacts = estimatePacingMicroModelWithArtifacts({
+        raceStartAt,
         checkpoints,
         history: historyResult.history,
-        seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED
+        seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED,
+        routeMetricPoints,
+        courseLengthMeters
       });
-      const parsed = parsePacingEstimate(estimate);
-      await savePacingEstimate(athleteUserId, parsed);
+      const parsed = parsePacingEstimate(artifacts.estimate);
+      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack);
       return reply.code(200).send(parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {

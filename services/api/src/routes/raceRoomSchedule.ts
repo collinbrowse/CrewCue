@@ -24,12 +24,12 @@ export type ProjectCrewScheduleSheetOptions = {
   /**
    * Closed-visit actual stop seconds by checkpoint id.
    * Incomplete visits (arrival only / null actual) must be omitted — they do not shift ETAs;
-   * the sheet keeps planned dwell + delayOverride until a departure closes the visit.
+   * the sheet keeps planned stoppage + delayOverride until a departure closes the visit.
    */
   closedActualStopSecondsByCheckpointId?: ReadonlyMap<string, number> | Readonly<Record<string, number>>;
   /**
    * Plan-of-record estimate. When set, moving-time baselines come from estimate aid/finish
-   * ETAs (plus distance interpolation for unmarked checkpoints). Dwell/delay/closed-actual
+   * ETAs (plus distance interpolation for unmarked checkpoints). Stoppage/delay/closed-actual
    * overlays still stack on later clocks.
    */
   pacingEstimate?: PacingEstimate;
@@ -249,11 +249,11 @@ export function movingElapsedSecondsFromEstimate(
 /**
  * Build a crew schedule sheet from live checkpoints + stop-plan overlays + closed check-ins.
  * Clock policy:
- * - Moving time from distance/pace (or estimate plan-of-record); a stop’s own dwell/delay/actual
+ * - Moving time from distance/pace (or estimate plan-of-record); a stop’s own stoppage/delay/actual
  *   does not shift its arrival.
- * - Later arrivals add cumulative prior planned dwell + delay overrides, unless a **closed** visit
+ * - Later arrivals add cumulative prior planned stoppage + delay overrides, unless a **closed** visit
  *   exists at a prior stop — then that stop contributes `actualStopSeconds` instead
- *   (equiv. shift delta = actual − plannedDwell − delayOverride; no double-count of delay).
+ *   (equiv. shift delta = actual − plannedStoppage − delayOverride; no double-count of delay).
  * - Incomplete visits (arrival only): omitted from closed-actual inputs → no ETA shift until departure.
  */
 export function projectCrewScheduleSheet(
@@ -294,12 +294,12 @@ export function projectCrewScheduleSheet(
       ? movingElapsedSecondsFromEstimate(estimate, ordered, courseLengthMeters)
       : undefined;
 
-  let cumulativePriorDwellSeconds = 0;
+  let cumulativePriorStoppageSeconds = 0;
   const stops: ScheduleStop[] = [];
 
   for (const checkpoint of ordered) {
     const overlay = overlays.get(checkpoint.id);
-    const plannedDwellSeconds = Math.max(0, checkpoint.plannedStopSeconds ?? 0);
+    const plannedStoppageSeconds = Math.max(0, checkpoint.plannedStopSeconds ?? 0);
     const delayOverrideSeconds = overlay?.delayOverrideSeconds;
     const movingSeconds =
       estimateMoving?.get(checkpoint.id) ??
@@ -311,7 +311,7 @@ export function projectCrewScheduleSheet(
           courseLengthMeters
         })
       );
-    const elapsedSeconds = movingSeconds + cumulativePriorDwellSeconds;
+    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds;
     const notes = notesRefFromOverlay(overlay);
     const clockArrivalAt = new Date(raceStartMs + elapsedSeconds * 1000).toISOString();
     const stop: ScheduleStop = {
@@ -319,7 +319,7 @@ export function projectCrewScheduleSheet(
       checkpointId: checkpoint.id,
       clockArrivalAt,
       elapsedSeconds,
-      plannedDwellSeconds
+      plannedStoppageSeconds
     };
     if (delayOverrideSeconds !== undefined) {
       stop.delayOverrideSeconds = delayOverrideSeconds;
@@ -339,13 +339,13 @@ export function projectCrewScheduleSheet(
     stops.push(stop);
 
     const plannedContribution =
-      plannedDwellSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
+      plannedStoppageSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
     const closedActual = lookupClosedActualSeconds(
       options?.closedActualStopSecondsByCheckpointId,
       checkpoint.id
     );
     // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
-    cumulativePriorDwellSeconds += closedActual !== undefined ? closedActual : plannedContribution;
+    cumulativePriorStoppageSeconds += closedActual !== undefined ? closedActual : plannedContribution;
   }
 
   const sheet: CrewScheduleSheet = {
@@ -398,6 +398,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     const athleteUserId = request.identity!.sub;
     let estimate: PacingEstimate;
+    let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
 
     if (parsedBody.data.pacingEstimateId !== undefined) {
       const stored = await getPacingEstimateById(parsedBody.data.pacingEstimateId);
@@ -408,6 +409,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(403).send({ error: "Forbidden" });
       }
       estimate = stored.estimate;
+      storedBaseline = stored.baselineTrack;
     } else {
       try {
         estimate = parsePacingEstimate(parsedBody.data.estimate);
@@ -420,6 +422,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       }
       if (!existing) {
         await savePacingEstimate(athleteUserId, estimate);
+      } else {
+        storedBaseline = existing.baselineTrack;
       }
     }
 
@@ -436,7 +440,14 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const updated: RaceRoom = {
       ...room,
       pacingEstimateId: estimate.id,
-      pacingEstimate: estimate
+      pacingEstimate: estimate,
+      ...(storedBaseline
+        ? {
+            course: room.course
+              ? { ...room.course, baselineTrack: storedBaseline }
+              : room.course
+          }
+        : {})
     };
     await saveRaceRoom(updated);
 

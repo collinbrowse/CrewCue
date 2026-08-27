@@ -408,7 +408,7 @@ export function createApiClient(options: ApiClientOptions) {
       request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input),
     getProjection: (roomId: string) =>
       request<RaceRoomProjection>(options, "GET", `/race-rooms/${roomId}/projection`),
-    /** Crew schedule sheet (clock + elapsed + dwell). Displays API values; do not recompute clocks client-side. */
+    /** Crew schedule sheet (clock + elapsed + stoppage). Displays API values; do not recompute clocks client-side. */
     getSchedule: async (roomId: string): Promise<CrewScheduleSheet> => {
       const raw = await request<unknown>(options, "GET", `/race-rooms/${roomId}/schedule`);
       return parseCrewScheduleSheet(raw);

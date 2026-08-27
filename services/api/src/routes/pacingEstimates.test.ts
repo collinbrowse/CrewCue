@@ -216,6 +216,6 @@ test("fixture history + course returns parseable PacingEstimate with aid ETAs", 
     assert.deepEqual(estimate.historyRefIds, [long.id]);
     assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
     assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
-    assert.match(estimate.explanation, /dissimilar excluded/i);
+    assert.match(estimate.explanation, /outside the window excluded|similarity window/i);
   });
 });

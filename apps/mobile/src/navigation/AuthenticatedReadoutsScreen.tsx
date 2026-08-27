@@ -23,7 +23,7 @@ import {
   formatSignedMinutesDelta,
   paceRemainingVsPlanDisplay,
   isCheckpointCompletedUi,
-  isAutoDwellAtCheckpoint,
+  isAutoStoppageAtCheckpoint,
   milesFromMeters,
   paceRailCheckpointRowModel,
   paceRailFinishRowModel,
@@ -510,8 +510,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const clock =
             !Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, projElapsed) : "—";
-          const plannedStopForDwell = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
-          const dwellHere = Boolean(split && isAutoDwellAtCheckpoint(split) && isCurrent && !completed);
+          const plannedStopForStoppage = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
+          const stoppageHere = Boolean(split && isAutoStoppageAtCheckpoint(split) && isCurrent && !completed);
           const railModel = paceRailCheckpointRowModel(
             index,
             currentIx,
@@ -519,7 +519,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             cumMetersAtCp,
             progressMeters,
             split,
-            plannedStopForDwell,
+            plannedStopForStoppage,
             segmentClockMs,
             completed
           );
@@ -551,8 +551,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               <View
                 style={[
                   paceStyles.cpCardShell,
-                  dwellHere && paceStyles.cpCardAtStation,
-                  isCurrent && !dwellHere && paceStyles.cpCardCurrent,
+                  stoppageHere && paceStyles.cpCardAtStation,
+                  isCurrent && !stoppageHere && paceStyles.cpCardCurrent,
                   completed && paceStyles.cpCardPast
                 ]}
               >
@@ -562,7 +562,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                   </Text>
                   {inProgressHere ? (
                     <View style={paceStyles.inProgressBadge}>
-                      <Text style={paceStyles.inProgressBadgeText}>{dwellHere ? "At station" : "In progress"}</Text>
+                      <Text style={paceStyles.inProgressBadgeText}>{stoppageHere ? "At station" : "In progress"}</Text>
                     </View>
                   ) : null}
                 </View>

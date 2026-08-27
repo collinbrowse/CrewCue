@@ -2,7 +2,7 @@
  * W3-4 (#401): attach PacingEstimate as plan of record → GET /schedule baseline.
  *
  * Policy: estimate moving times (aid/finish) replace pace-based moving baseline;
- * planned dwell, delay overrides, and closed check-in actuals still shift later clocks.
+ * planned stoppage, delay overrides, and closed check-in actuals still shift later clocks.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -254,7 +254,7 @@ test("EC5 re-attach same estimate is idempotent", async () => {
   });
 });
 
-test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving + dwell stack", async () => {
+test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving + stoppage stack", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-ec6");
     const roomId = await createPaidRoom(app, ownerToken, "EC6 iso clocks");
@@ -275,13 +275,13 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
       assert.match(stop.clockArrivalAt, ISO_Z);
     }
 
-    // Moving baselines from estimate; dwell from prior stops still stacks.
-    const startDwell = stopByCheckpoint(sheet, "start").plannedDwellSeconds;
+    // Moving baselines from estimate; stoppage from prior stops still stacks.
+    const startStoppage = stopByCheckpoint(sheet, "start").plannedStoppageSeconds;
     const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
     assert.ok(aid1Eta);
     assert.equal(
       stopByCheckpoint(sheet, "aid-1").elapsedSeconds,
-      aid1Eta.elapsedSeconds + startDwell
+      aid1Eta.elapsedSeconds + startStoppage
     );
 
     const aid1 = stopByCheckpoint(sheet, "aid-1");
@@ -289,17 +289,17 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     assert.ok(aid2Eta);
     assert.equal(
       stopByCheckpoint(sheet, "aid-2").elapsedSeconds,
-      aid2Eta.elapsedSeconds + startDwell + aid1.plannedDwellSeconds
+      aid2Eta.elapsedSeconds + startStoppage + aid1.plannedStoppageSeconds
     );
 
     const finishMoving = estimate.expectedFinishElapsedSeconds;
-    let priorDwell = 0;
+    let priorStoppage = 0;
     for (const id of GOLDEN_CHECKPOINT_IDS) {
       if (id === "finish") break;
       const stop = stopByCheckpoint(sheet, id);
-      priorDwell += stop.plannedDwellSeconds + (stop.delayOverrideSeconds ?? 0);
+      priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
-    assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorDwell);
+    assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorStoppage);
   });
 });
 
@@ -360,7 +360,7 @@ test("EC8 estimate + closed check-in actual shifts later clocks", async () => {
     assert.equal(baselineResponse.statusCode, 200);
     const baseline = parseCrewScheduleSheet(baselineResponse.json());
     const plannedAid1 =
-      stopByCheckpoint(baseline, "aid-1").plannedDwellSeconds +
+      stopByCheckpoint(baseline, "aid-1").plannedStoppageSeconds +
       (stopByCheckpoint(baseline, "aid-1").delayOverrideSeconds ?? 0);
     const deltaSeconds = 240;
     const actualStopSeconds = plannedAid1 + deltaSeconds;
@@ -428,8 +428,8 @@ test("attach by estimate body works and seeds store ownership", async () => {
 
     const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
     assert.equal(sheet.pacingEstimateId, estimate.id);
-    const startDwell = stopByCheckpoint(sheet, "start").plannedDwellSeconds;
-    assert.equal(stopByCheckpoint(sheet, "aid-1").elapsedSeconds, 7200 + startDwell);
+    const startStoppage = stopByCheckpoint(sheet, "start").plannedStoppageSeconds;
+    assert.equal(stopByCheckpoint(sheet, "aid-1").elapsedSeconds, 7200 + startStoppage);
 
     // Re-attach by id after body seeded the store.
     const again = await attachEstimate(app, roomId, ownerToken, {

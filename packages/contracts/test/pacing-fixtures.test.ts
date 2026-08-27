@@ -83,7 +83,7 @@ test("EC6: golden schedule JSON matches W0-1 units and parses as schedule + esti
   for (const stop of sheet.stops) {
     assert.match(stop.clockArrivalAt, /Z$/);
     assert.equal(typeof stop.elapsedSeconds, "number");
-    assert.equal(typeof stop.plannedDwellSeconds, "number");
+    assert.equal(typeof stop.plannedStoppageSeconds, "number");
     assert.equal(
       (Date.parse(stop.clockArrivalAt) - raceStartMs) / 1000,
       stop.elapsedSeconds,

@@ -37,7 +37,7 @@ test("paceRailCheckpointRowModel: approach leg uses along-course distances", () 
   assert.ok(Math.abs(m.fraction01 - 0.5) < 0.0001);
 });
 
-test("paceRailCheckpointRowModel: dwell uses arrival vs now", () => {
+test("paceRailCheckpointRowModel: stoppage uses arrival vs now", () => {
   const nowMs = Date.parse("2026-01-01T12:05:00.000Z");
   const arrival = "2026-01-01T12:00:00.000Z";
   const split: RaceCheckpointSplitRow = {

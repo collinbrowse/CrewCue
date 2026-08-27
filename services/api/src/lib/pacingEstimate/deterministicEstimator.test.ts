@@ -156,7 +156,7 @@ test("EC6: clocks are ISO-Z and match raceStartAt + elapsedSeconds", () => {
   assert.equal(typeof estimate.expectedFinishElapsedSeconds, "number");
 });
 
-test("EC7: long vs short dissimilar history produces predictably different estimates", () => {
+test("EC7: long vs short history — prefer long; short alone still usable via wide window", () => {
   const checkpoints = loadCourseCheckpoints();
   const { long, short } = fixtureHistoryRefs();
   const fromLong = estimatePacingDeterministic({
@@ -172,7 +172,7 @@ test("EC7: long vs short dissimilar history produces predictably different estim
   const parsedShort = parsePacingEstimate(fromShort);
   assert.equal(parsedShort.coldStart, false);
   assert.deepEqual(parsedShort.historyRefIds, [short.id]);
-  assert.match(parsedShort.explanation, /dissimilar to course distance/i);
+  assert.match(parsedShort.explanation, /History-backed/i);
   assert.ok(parsedShort.bands?.conservative);
   assert.equal(
     parsedShort.bands?.expected?.finishElapsedSeconds,
@@ -186,10 +186,10 @@ test("EC7: long vs short dissimilar history produces predictably different estim
     checkpoints,
     history: [long, short]
   });
-  // Short road is dissimilar to ~50k; only long should back the estimate.
+  // Prefer ≥20 km efforts when present; short road dropped.
   assert.deepEqual(both.historyRefIds, [long.id]);
   assert.equal(both.expectedFinishElapsedSeconds, fromLong.expectedFinishElapsedSeconds);
-  assert.match(both.explanation, /dissimilar excluded/i);
+  assert.match(both.explanation, /outside the window excluded|similarity window/i);
 });
 
 test("EC8: single history activity still produces a parseable estimate with ordered bands", () => {

@@ -26,7 +26,7 @@ import {
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-const AID1_PLANNED_DWELL = 600;
+const AID1_PLANNED_STOPPAGE = 600;
 
 function buildClaims(sub: string) {
   return {
@@ -144,7 +144,7 @@ function assertLaterStopsShiftedBy(
     assert.equal(
       stopByCheckpoint(after, id).elapsedSeconds,
       stopByCheckpoint(baseline, id).elapsedSeconds,
-      `${id} must not shift from own/prior check-in dwell`
+      `${id} must not shift from own/prior check-in stoppage`
     );
     assert.equal(
       stopByCheckpoint(after, id).clockArrivalAt,
@@ -465,7 +465,7 @@ test("W2-1 EC4/EC5 idempotent replay does not double-apply ETA shift; last-write
   await put50kCourse(app, roomId, ownerToken);
 
   const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
-  const actualStopSeconds = AID1_PLANNED_DWELL + 240;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + 240;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   const payload = { arrivalAt, departureAt };
@@ -485,7 +485,7 @@ test("W2-1 EC4/EC5 idempotent replay does not double-apply ETA shift; last-write
   assert.deepEqual(afterReplay, afterFirst, "idempotent replay must not double-shift");
 
   // Last-write-wins: different payload without key overwrites actual; schedule uses latest absolute actual.
-  const shorterActual = AID1_PLANNED_DWELL + 60;
+  const shorterActual = AID1_PLANNED_STOPPAGE + 60;
   const rewrite = await postManualStop(app, roomId, "aid-1", ownerToken, {
     arrivalAt,
     departureAt: new Date(Date.parse(arrivalAt) + shorterActual * 1000).toISOString()
@@ -504,7 +504,7 @@ test("W2-1 EC6 clocks remain ISO-8601 UTC Z; durations in seconds after check-in
   const roomId = await createPaidRoom(app, ownerToken, "W2-1 EC6 units");
   await put50kCourse(app, roomId, ownerToken);
 
-  const actualStopSeconds = AID1_PLANNED_DWELL + 120;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + 120;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   const posted = await postManualStop(app, roomId, "aid-1", ownerToken, { arrivalAt, departureAt });
@@ -516,7 +516,7 @@ test("W2-1 EC6 clocks remain ISO-8601 UTC Z; durations in seconds after check-in
     assert.match(stop.clockArrivalAt, ISO_Z);
     assert.ok(stop.clockArrivalAt.endsWith("Z"));
     assert.equal(Number.isInteger(stop.elapsedSeconds), true);
-    assert.equal(Number.isInteger(stop.plannedDwellSeconds), true);
+    assert.equal(Number.isInteger(stop.plannedStoppageSeconds), true);
     assert.equal(
       Date.parse(stop.clockArrivalAt),
       Date.parse(sheet.raceStartAt) + stop.elapsedSeconds * 1000
@@ -534,10 +534,10 @@ test("W2-1 EC7 mid-course aid check-in shifts later stops only; own arrival unch
   await put50kCourse(app, roomId, ownerToken);
 
   const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
-  assert.equal(stopByCheckpoint(baseline, "aid-1").plannedDwellSeconds, AID1_PLANNED_DWELL);
+  assert.equal(stopByCheckpoint(baseline, "aid-1").plannedStoppageSeconds, AID1_PLANNED_STOPPAGE);
 
   const deltaSeconds = 300;
-  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + deltaSeconds;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
 
@@ -582,7 +582,7 @@ test("W2-1 EC8 check-in + delayOverride combines without double-counting delay",
   // actual = planned + delay + extra → later stops move by `extra` vs delay-baseline
   // (not planned+delay+extra again).
   const extraBeyondPlanAndDelay = 90;
-  const actualStopSeconds = AID1_PLANNED_DWELL + delaySeconds + extraBeyondPlanAndDelay;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + delaySeconds + extraBeyondPlanAndDelay;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   const posted = await postManualStop(app, roomId, "aid-1", ownerToken, { arrivalAt, departureAt });
@@ -593,7 +593,7 @@ test("W2-1 EC8 check-in + delayOverride combines without double-counting delay",
   assert.equal(
     stopByCheckpoint(afterCheckin, "aid-1").elapsedSeconds,
     stopByCheckpoint(withDelay, "aid-1").elapsedSeconds,
-    "own arrival not shifted by own actual dwell"
+    "own arrival not shifted by own actual stoppage"
   );
   assertLaterStopsShiftedBy(withDelay, afterCheckin, extraBeyondPlanAndDelay);
 
@@ -628,7 +628,7 @@ test("W2-1 crew_member may write check-in and GET schedule reflects shift", asyn
 
   const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, crewToken)).json());
   const deltaSeconds = 150;
-  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + deltaSeconds;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
 

@@ -11,3 +11,10 @@ export {
   deterministicPacingEstimator,
   estimatePacingDeterministic
 } from "./deterministicEstimator.js";
+export {
+  estimatePacingMicroModel,
+  estimatePacingMicroModelWithArtifacts,
+  microModelPacingEstimator,
+  type MicroModelEstimateInput,
+  type MicroModelEstimateArtifacts
+} from "./microModel/index.js";

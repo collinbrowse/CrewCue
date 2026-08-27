@@ -21,7 +21,7 @@ import {
 } from "../lib/chatPushDispatch.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 
-const AID1_PLANNED_DWELL = 600;
+const AID1_PLANNED_STOPPAGE = 600;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
 
 function buildClaims(sub: string) {
@@ -137,7 +137,7 @@ async function postManualStop(
 }
 
 function closedPayload(deltaSeconds: number) {
-  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + deltaSeconds;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   return { arrivalAt, departureAt, actualStopSeconds, deltaSeconds };
