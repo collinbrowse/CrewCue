@@ -9,6 +9,12 @@ import { ApiError, createApiClient } from "../api/client";
 import { DSButton, DSCard, DSTextInput, useDSTheme } from "../design-system";
 import { RaceStartSchedulePicker } from "../features/raceStart/RaceStartSchedulePicker";
 import { defaultSuggestedRaceStartIso, normalizeRaceStartIso } from "../features/raceStart/raceStartSchedule";
+import { CourseImportProgressBar } from "../features/gpx/CourseImportProgressBar";
+import {
+  COURSE_IMPORT_PROGRESS,
+  yieldForCourseImportPaint,
+  type CourseImportProgressStage
+} from "../features/gpx/courseImportProgress";
 import {
   buildRaceCourseFromGpx,
   computeElevationGainMeters,
@@ -20,13 +26,19 @@ import {
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
 import { hashIdempotencyPayload } from "../api/idempotencyKey";
-import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
+import { mapApiError } from "@crewcue/platform-client";
 import { useAction } from "../platform/useAction";
 import { useAuthedShell } from "../shell/AuthedShellContext";
 
 type ImportState =
   | { status: "idle" }
-  | { status: "loading" }
+  | { status: "picking" }
+  | {
+      status: "calculating";
+      fileName: string;
+      ratio: number;
+      message: string;
+    }
   | {
       status: "success";
       fileName: string;
@@ -118,7 +130,7 @@ export function GpxImportScreen(): ReactElement {
       return;
     }
     setImportState((current) => {
-      if (current.status === "loading") {
+      if (current.status === "picking" || current.status === "calculating") {
         return current;
       }
       return buildImportStateFromCourse({
@@ -147,6 +159,7 @@ export function GpxImportScreen(): ReactElement {
     });
   }, [isCreateMode, activeUnit, s.room?.course, s.room?.courseDistanceMeters, s.room?.courseElevationGainMeters, s.room?.courseFileName]);
   const visibleImportState = importState.status === "success" ? importState : persistedCourseState;
+  const importBusy = importState.status === "picking" || importState.status === "calculating";
 
   const uploadFeedback = useMemo(() => {
     if (importState.status === "error") {
@@ -161,11 +174,34 @@ export function GpxImportScreen(): ReactElement {
     raceName.trim().length > 0 &&
     creatorName.trim().length > 0 &&
     !finishingSetup &&
+    !importBusy &&
     normalizedRaceStart !== null &&
     (!replaceCourseFileMode || pendingCourseUpload !== undefined);
 
+  const restoreImportStateAfterCancel = (): void => {
+    if (pendingCourseUpload) {
+      setImportState({
+        status: "success",
+        fileName: pendingCourseUpload.fileName,
+        totalDistanceLabel: formatDistance(pendingCourseUpload.totalDistanceMeters, activeUnit),
+        elevationLabel: formatElevationGainFromMeters(pendingCourseUpload.elevationGainMeters)
+      });
+      return;
+    }
+    if (persistedCourseState) {
+      setImportState(persistedCourseState);
+      return;
+    }
+    setImportState({ status: "idle" });
+  };
+
+  const setCalculatingStage = (fileName: string, stage: CourseImportProgressStage): void => {
+    const { ratio, message } = COURSE_IMPORT_PROGRESS[stage];
+    setImportState({ status: "calculating", fileName, ratio, message });
+  };
+
   const onImportGpx = async (): Promise<void> => {
-    setImportState({ status: "loading" });
+    setImportState({ status: "picking" });
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -177,27 +213,34 @@ export function GpxImportScreen(): ReactElement {
       });
 
       if (result.canceled) {
-        setImportState({
-          status: "error",
-          message: "Upload canceled. Choose a route file when you are ready."
-        });
+        restoreImportStateAfterCancel();
         return;
       }
 
       const selectedFile = result.assets[0];
+      const fileName = selectedFile.name || "route.gpx";
+
+      setCalculatingStage(fileName, "reading");
+      await yieldForCourseImportPaint();
       const fileContents = await FileSystemLegacy.readAsStringAsync(selectedFile.uri);
-      const parsed = parseCourseTrack(fileContents, selectedFile.name);
+
+      setCalculatingStage(fileName, "parsing");
+      await yieldForCourseImportPaint();
+      const parsed = parseCourseTrack(fileContents, fileName);
+
+      setCalculatingStage(fileName, "calculating");
+      await yieldForCourseImportPaint();
       const unit: DistanceUnit = "mi";
       const { course, plannedPaceSecondsPerKm } = buildRaceCourseFromGpx(parsed);
       setPendingCourseUpload({
-        fileName: selectedFile.name,
+        fileName,
         course,
         plannedPaceSecondsPerKm,
         totalDistanceMeters: parsed.totalDistanceMeters,
         elevationGainMeters: computeElevationGainMeters(parsed.points),
-        routeOverlayLayer: parsedTrackToWorkspaceLayer(selectedFile.name, parsed)
+        routeOverlayLayer: parsedTrackToWorkspaceLayer(fileName, parsed)
       });
-      setImportState(buildImportStateFromParsedTrack(selectedFile.name, parsed, unit));
+      setImportState(buildImportStateFromParsedTrack(fileName, parsed, unit));
     } catch (error) {
       setPendingCourseUpload(undefined);
       const message = resolveImportErrorMessage(error, "We could not read that file. Please choose GPX, KML, or JSON and try again.");
@@ -381,7 +424,13 @@ export function GpxImportScreen(): ReactElement {
         <Text style={s.styles.body}>
           Uploading GPX, KML, or JSON generates shared course distance, aid-station split timing, and pacing metadata for your crew.
         </Text>
-        {visibleImportState ? (
+        {importState.status === "calculating" ? (
+          <CourseImportProgressBar
+            ratio={importState.ratio}
+            message={importState.message}
+            fileName={importState.fileName}
+          />
+        ) : visibleImportState ? (
           <View style={localStyles.fileDetails}>
             <Text style={s.styles.successText}>{visibleImportState.fileName}</Text>
             <Text style={s.styles.body}>
@@ -389,8 +438,8 @@ export function GpxImportScreen(): ReactElement {
             </Text>
             <View style={localStyles.actionsRow}>
               <View style={localStyles.actionCell}>
-                <DSButton preset="secondary" onPress={() => void onImportGpx()}>
-                  Select new file
+                <DSButton preset="secondary" onPress={() => void onImportGpx()} disabled={importBusy}>
+                  {importState.status === "picking" ? "Opening files…" : "Select new file"}
                 </DSButton>
               </View>
             </View>
@@ -398,8 +447,8 @@ export function GpxImportScreen(): ReactElement {
         ) : (
           <View style={localStyles.actionsRow}>
             <View style={localStyles.actionCell}>
-              <DSButton preset="secondary" onPress={() => void onImportGpx()} disabled={importState.status === "loading"}>
-                {importState.status === "loading" ? "Uploading..." : "Choose route file"}
+              <DSButton preset="secondary" onPress={() => void onImportGpx()} disabled={importBusy}>
+                {importState.status === "picking" ? "Opening files…" : "Choose route file"}
               </DSButton>
             </View>
           </View>

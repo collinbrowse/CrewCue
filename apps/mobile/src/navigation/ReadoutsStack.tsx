@@ -6,6 +6,7 @@ import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
 import { CourseSettingsScreen } from "./CourseSettingsScreen";
 import { CrewScheduleSheetScreen } from "./CrewScheduleSheetScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
+import { DevGpxImportProgressScreen } from "./DevGpxImportProgressScreen";
 import { useNavColors } from "./navigationTheme";
 import { ReadoutsIncidentsScreen } from "./ReadoutsIncidentsScreen";
 import type { ReadoutsStackParamList } from "./types";
@@ -60,6 +61,13 @@ export function ReadoutsStack(): ReactElement {
       <Stack.Screen name="CourseSettings" component={CourseSettingsScreen} options={{ title: "Course settings" }} />
       <Stack.Screen name="ScheduleSheet" component={CrewScheduleSheetScreen} options={{ title: "Crew schedule" }} />
       <Stack.Screen name="CourseRaceSetup" component={GpxImportScreen} options={{ title: "Race setup" }} />
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevGpxImportProgress"
+          component={DevGpxImportProgressScreen}
+          options={{ title: "GPX import progress (DEV)" }}
+        />
+      ) : null}
     </Stack.Navigator>
   );
 }
