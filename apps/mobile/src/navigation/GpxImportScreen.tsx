@@ -130,7 +130,15 @@ export function GpxImportScreen(): ReactElement {
       return;
     }
     setImportState((current) => {
-      if (current.status === "picking" || current.status === "calculating") {
+      // Do not clobber in-flight pick/parse, visible errors, or a local file waiting on Finish.
+      if (
+        current.status === "picking" ||
+        current.status === "calculating" ||
+        current.status === "error"
+      ) {
+        return current;
+      }
+      if (pendingCourseUpload && current.status === "success") {
         return current;
       }
       return buildImportStateFromCourse({
@@ -141,7 +149,15 @@ export function GpxImportScreen(): ReactElement {
         unit: activeUnit
       });
     });
-  }, [isCreateMode, activeUnit, s.room?.course, s.room?.courseDistanceMeters, s.room?.courseElevationGainMeters]);
+  }, [
+    isCreateMode,
+    activeUnit,
+    pendingCourseUpload,
+    s.room?.course,
+    s.room?.courseDistanceMeters,
+    s.room?.courseElevationGainMeters,
+    s.room?.courseFileName
+  ]);
 
   const persistedCourseState = useMemo(() => {
     if (isCreateMode) {
@@ -158,7 +174,23 @@ export function GpxImportScreen(): ReactElement {
       unit: activeUnit
     });
   }, [isCreateMode, activeUnit, s.room?.course, s.room?.courseDistanceMeters, s.room?.courseElevationGainMeters, s.room?.courseFileName]);
-  const visibleImportState = importState.status === "success" ? importState : persistedCourseState;
+
+  /** Prefer a locally chosen pending file over the previously saved room course. */
+  const visibleImportState = useMemo(() => {
+    if (pendingCourseUpload) {
+      return {
+        status: "success" as const,
+        fileName: pendingCourseUpload.fileName,
+        totalDistanceLabel: formatDistance(pendingCourseUpload.totalDistanceMeters, activeUnit),
+        elevationLabel: formatElevationGainFromMeters(pendingCourseUpload.elevationGainMeters)
+      };
+    }
+    if (importState.status === "success") {
+      return importState;
+    }
+    return persistedCourseState;
+  }, [pendingCourseUpload, importState, persistedCourseState, activeUnit]);
+
   const importBusy = importState.status === "picking" || importState.status === "calculating";
 
   const uploadFeedback = useMemo(() => {
@@ -207,7 +239,7 @@ export function GpxImportScreen(): ReactElement {
       const result = await DocumentPicker.getDocumentAsync({
         // iOS Files picker can hide GPX exports when MIME filters are too strict.
         // Allow selection broadly, then validate GPX content after read.
-        type: "*/*",
+        type: ["*/*", "application/gpx+xml", "application/octet-stream", "text/xml"],
         multiple: false,
         copyToCacheDirectory: true
       });
@@ -218,7 +250,23 @@ export function GpxImportScreen(): ReactElement {
       }
 
       const selectedFile = result.assets[0];
+      if (!selectedFile?.uri) {
+        setImportState({
+          status: "error",
+          message: "We could not open that file. Choose a GPX, KML, or JSON route and try again."
+        });
+        return;
+      }
+
       const fileName = selectedFile.name || "route.gpx";
+      const byteSize = selectedFile.size;
+      if (typeof byteSize === "number" && byteSize > 25 * 1024 * 1024) {
+        setImportState({
+          status: "error",
+          message: "That route file is larger than 25 MB. Export a simpler track (fewer points) and try again."
+        });
+        return;
+      }
 
       setCalculatingStage(fileName, "reading");
       await yieldForCourseImportPaint();
@@ -242,8 +290,11 @@ export function GpxImportScreen(): ReactElement {
       });
       setImportState(buildImportStateFromParsedTrack(fileName, parsed, unit));
     } catch (error) {
-      setPendingCourseUpload(undefined);
-      const message = resolveImportErrorMessage(error, "We could not read that file. Please choose GPX, KML, or JSON and try again.");
+      // Keep any prior pendingCourseUpload so a failed re-pick does not wipe a good local selection.
+      const message = resolveImportErrorMessage(
+        error,
+        "We could not read that file. Please choose GPX, KML, or JSON and try again."
+      );
       setImportState({ status: "error", message });
     }
   };
@@ -423,6 +474,7 @@ export function GpxImportScreen(): ReactElement {
         <Text style={[localStyles.fieldTitle, { color: theme.color.text }]}>Upload route file (optional)</Text>
         <Text style={s.styles.body}>
           Uploading GPX, KML, or JSON generates shared course distance, aid-station split timing, and pacing metadata for your crew.
+          In Files, open the folder that holds your export, tap the file, then Open — you should see a progress bar while splits calculate.
         </Text>
         {importState.status === "calculating" ? (
           <CourseImportProgressBar
