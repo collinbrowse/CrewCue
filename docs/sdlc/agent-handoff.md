@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-28 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — regression coverage pass after Strava/GPX merges.
-- **Branch / PR:** `cursor/missing-test-coverage-cf20` / PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-cf20` / PR #459.
 - **Active next:** Open coverage PR, confirm CI green, then continue staging redeploy/smoke queue.
 
 ## Completed
