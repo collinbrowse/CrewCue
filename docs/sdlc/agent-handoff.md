@@ -11,34 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — bot backlog #427/#426/#428 on `main`.
-- **Branch / PR:** `main` (`db3d43b` + CI fix PR).
-- **Active next:** Confirm CI green after checks-on-push fix; redeploy staging; soak.
+- Last updated: 2026-08-28 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — regression coverage pass after Strava/GPX merges.
+- **Branch / PR:** `cursor/missing-test-coverage-cf20` / PR pending.
+- **Active next:** Open coverage PR, confirm CI green, then continue staging redeploy/smoke queue.
 
 ## Completed
 
-- #427: list rooms no longer clobbers live room cache.
-- #426: cutoff warning regression coverage.
-- #428: pacing estimator validation edges.
-- CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
+- Added API route coverage for mixed GPX files so planned `<rte>` distance cannot inflate recorded `<trk>` activity metrics.
+- Added API route coverage for Strava activity-list 403 failures so `/strava/sync` returns `strava_activities_http` and creates no history rows.
 
 ## Next 1-3 tasks
 
-1. Confirm tip-of-`main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
+1. Confirm PR CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
 2. Redeploy staging API.
 3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
 
 ## Validation evidence
 
-- Merged: #427 (`811453c`), #426 (`d794a52`), #428 (`db3d43b`).
+- Focused: `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/activityHistory.test.js services/api/dist/services/api/src/routes/stravaRoutes.test.js` (22/22 pass).
+- Full: `npm run verify` (pass).
 
 ## Open risks/blockers
 
+- No GitHub issue created: this automation environment has read-only `gh` guidance and no issue-creation MCP tool.
 - Staging may still need Railway redeploy.
 
 ## Successor prompt
 
 ```text
-Confirm tip-of-main CI green. Redeploy staging API. Smoke GPX upload → Open Pace against staging.
+Confirm the coverage PR CI is green, then redeploy staging API and smoke GPX upload → Open Pace plus Strava reconnect.
 ```

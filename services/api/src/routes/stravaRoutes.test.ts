@@ -389,6 +389,67 @@ test("sync skips non-run Strava sports so rides cannot poison pacing history", a
   );
 });
 
+test("sync returns Strava activity-list failures without creating history rows", async () => {
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-activity-403");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(start.statusCode, 200);
+      const startBody = start.json() as { state: string };
+
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const sync = await app.inject({
+        method: "POST",
+        url: "/strava/sync",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(sync.statusCode, 502);
+      const body = sync.json() as { code?: string; error?: string };
+      assert.equal(body.code, "strava_activities_http");
+      assert.match(String(body.error), /403/);
+      assert.match(String(body.error), /activity:read_permission/);
+      assert.equal(await countActivityHistoryRows(), 0);
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-activity-403",
+              refresh_token: "refresh-activity-403",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 403 },
+              scope: "read,activity:read_all"
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/athlete/activities")) {
+          return new Response(
+            JSON.stringify({
+              message: "Authorization Error",
+              errors: [{ resource: "Activity", field: "activity:read_permission", code: "missing" }]
+            }),
+            { status: 403 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
 test("disconnect calls Strava revoke then clears local connection even if revoke fails", async () => {
   let revokeCalls = 0;
   await withApp(
