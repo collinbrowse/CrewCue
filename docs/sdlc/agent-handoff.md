@@ -13,7 +13,7 @@
 
 - Last updated: 2026-08-29 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — regression coverage follow-up on `main`.
-- **Branch / PR:** `cursor/missing-test-coverage-ec94` (PR to be opened).
+- **Branch / PR:** `cursor/missing-test-coverage-ec94` / PR #461.
 - **Active next:** Review/merge metrics-only activity-history coverage; then confirm CI green and continue staging soak tasks.
 
 ## Completed
