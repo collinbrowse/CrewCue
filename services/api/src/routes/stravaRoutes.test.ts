@@ -210,6 +210,53 @@ test("callback rejects when Strava granted scopes omit activity read", async () 
   });
 });
 
+test("callback rejects weak token-response scope when redirect scope is absent", async () => {
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-token-scope");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 400);
+      assert.equal((callback.json() as { code?: string }).code, "strava_scope_insufficient");
+
+      const connection = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(connection.json(), { connected: false });
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-weak",
+              refresh_token: "refresh-weak",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 4242 },
+              scope: "read"
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
 test("EC4: sync without connection returns 409", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
