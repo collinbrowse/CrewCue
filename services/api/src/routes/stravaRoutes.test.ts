@@ -9,7 +9,10 @@ import {
   countActivityHistoryRows,
   resetActivityHistoryStoreForTests
 } from "../lib/activityHistoryStore.js";
-import { resetStravaConnectionStoreForTests } from "../lib/stravaConnectionStore.js";
+import {
+  resetStravaConnectionStoreForTests,
+  upsertStravaConnection
+} from "../lib/stravaConnectionStore.js";
 import { setStravaClientConfigForTests } from "./stravaRoutes.js";
 
 function findPacingFixturesDir(): string {
@@ -445,6 +448,102 @@ test("disconnect calls Strava revoke then clears local connection even if revoke
         return new Response("not found", { status: 404 });
       })
     }
+  );
+});
+
+test("disconnect clears local connection when Strava revoke throws", async () => {
+  let revokeCalls = 0;
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-revoke-throw");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const disconnect = await app.inject({
+        method: "DELETE",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(disconnect.statusCode, 200);
+      assert.deepEqual(disconnect.json(), { connected: false });
+      assert.equal(revokeCalls, 1);
+
+      const after = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(after.json(), { connected: false });
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-1",
+              refresh_token: "refresh-1",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 99 },
+              scope: "read,activity:read_all"
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/oauth/revoke")) {
+          revokeCalls += 1;
+          throw new Error("network down");
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
+test("disconnect clears stale local connection when Strava is not configured", async () => {
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-unconfigured-disconnect");
+      await upsertStravaConnection("athlete-unconfigured-disconnect", {
+        accessToken: "access-stale",
+        refreshToken: "refresh-stale",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        athleteId: "stale-99"
+      });
+
+      const before = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(before.json(), { connected: true, athleteId: "stale-99" });
+
+      const disconnect = await app.inject({
+        method: "DELETE",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(disconnect.statusCode, 200);
+      assert.deepEqual(disconnect.json(), { connected: false });
+
+      const after = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(after.json(), { connected: false });
+    },
+    { configureStrava: false }
   );
 });
 

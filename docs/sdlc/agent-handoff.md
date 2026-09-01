@@ -11,10 +11,10 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — bot backlog #427/#426/#428 on `main`.
-- **Branch / PR:** `main` (`db3d43b` + CI fix PR).
-- **Active next:** Confirm CI green after checks-on-push fix; redeploy staging; soak.
+- Last updated: 2026-09-01 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing — post-backlog coverage hardening on `main`.
+- **Branch / PR:** `cursor/missing-test-coverage-9d01` (coverage PR pending).
+- **Active next:** Merge Strava disconnect edge-case coverage; redeploy staging; soak.
 
 ## Completed
 
@@ -22,23 +22,26 @@
 - #426: cutoff warning regression coverage.
 - #428: pacing estimator validation edges.
 - CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
+- Coverage automation: Strava disconnect now has API route regression tests proving local cleanup when remote revoke throws and when Strava config is absent.
 
 ## Next 1-3 tasks
 
-1. Confirm tip-of-`main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
+1. Review/merge the Strava disconnect edge-case coverage PR.
 2. Redeploy staging API.
 3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
 
 ## Validation evidence
 
-- Merged: #427 (`811453c`), #426 (`d794a52`), #428 (`db3d43b`).
+- `npm run test:memory -w @crewcue/api` — pass (285 pass / 4 skipped).
+- `npm run verify` — pass.
 
 ## Open risks/blockers
 
 - Staging may still need Railway redeploy.
+- No GitHub issue was created for this automation run because this environment documents `gh` as read-only and has no issue-creation MCP tool.
 
 ## Successor prompt
 
 ```text
-Confirm tip-of-main CI green. Redeploy staging API. Smoke GPX upload → Open Pace against staging.
+Review/merge the Strava disconnect edge-case coverage PR. Then redeploy staging API and smoke GPX upload → Open Pace plus Strava reconnect against staging.
 ```
