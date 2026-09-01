@@ -14,7 +14,7 @@
 - Last updated: 2026-09-01 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — post-backlog coverage hardening on `main`.
 - **Branch / PR:** `cursor/missing-test-coverage-9d01` / PR #464.
-- **Active next:** Merge Strava disconnect edge-case coverage; redeploy staging; soak.
+- **Active next:** Merge Strava route coverage; redeploy staging; soak.
 
 ## Completed
 
@@ -22,17 +22,17 @@
 - #426: cutoff warning regression coverage.
 - #428: pacing estimator validation edges.
 - CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
-- Coverage automation: Strava disconnect now has API route regression tests proving local cleanup when remote revoke throws and when Strava config is absent.
+- Coverage automation: Strava routes now have regression tests for paginated sync persistence, activity-permission 403 surfacing, disconnect cleanup when revoke throws, and disconnect cleanup when config is absent.
 
 ## Next 1-3 tasks
 
-1. Review/merge the Strava disconnect edge-case coverage PR.
+1. Review/merge the Strava route coverage PR.
 2. Redeploy staging API.
 3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
 
 ## Validation evidence
 
-- `npm run test:memory -w @crewcue/api` — pass (285 pass / 4 skipped).
+- `npm run test:memory -w @crewcue/api` — pass (287 pass / 4 skipped).
 - `npm run verify` — pass.
 
 ## Open risks/blockers
@@ -43,5 +43,5 @@
 ## Successor prompt
 
 ```text
-Review/merge the Strava disconnect edge-case coverage PR. Then redeploy staging API and smoke GPX upload → Open Pace plus Strava reconnect against staging.
+Review/merge the Strava route coverage PR. Then redeploy staging API and smoke GPX upload → Open Pace plus Strava reconnect against staging.
 ```
