@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-01 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing — post-backlog coverage hardening on `main`.
-- **Branch / PR:** `cursor/missing-test-coverage-9d01` (coverage PR pending).
+- **Branch / PR:** `cursor/missing-test-coverage-9d01` / PR #464.
 - **Active next:** Merge Strava disconnect edge-case coverage; redeploy staging; soak.
 
 ## Completed
