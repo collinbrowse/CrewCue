@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-02 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing - coverage hardening on `main`.
-- **Branch / PR:** `cursor/missing-test-coverage-map-core-async-route-gpx` (PR pending automation publish).
+- **Branch / PR:** `cursor/missing-test-coverage-map-core-async-route-gpx` / PR #465.
 - **Active next:** Review/merge async route-only activity GPX coverage; then continue CI/staging smoke.
 
 ## Completed
