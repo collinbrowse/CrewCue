@@ -152,6 +152,26 @@ test("parseGpxActivityTrack still accepts route-only activity exports", () => {
   assert.equal(parsed.totalDurationSeconds, 600);
 });
 
+test("parseGpxActivityTrackAsync still accepts route-only activity exports", async () => {
+  const namespacedGpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="device-export" xmlns:ns="http://example.com/ns">
+  <wpt lat="40.700000" lon="-74.020000"><name>Course-only marker</name></wpt>
+  <rte>
+    <ns:rtept lat="40.712776" lon="-74.005974"><ns:time>2026-04-29T12:00:00Z</ns:time></ns:rtept>
+    <ns:rtept lat="40.717776" lon="-74.000974"><ns:time>2026-04-29T12:05:00Z</ns:time></ns:rtept>
+    <ns:rtept lat="40.722776" lon="-73.995974"><ns:time>2026-04-29T12:10:00Z</ns:time></ns:rtept>
+  </rte>
+</gpx>`;
+  const parsed = await parseGpxActivityTrackAsync(namespacedGpx, {
+    includeWaypoints: false,
+    yieldEveryPoints: 1
+  });
+
+  assert.equal(parsed.points.length, 3);
+  assert.equal(parsed.waypoints.length, 0);
+  assert.equal(parsed.totalDurationSeconds, 600);
+});
+
 test("parseGpxTrack accepts namespaced GPX route points", () => {
   const namespacedGpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="device-export" xmlns:ns="http://example.com/ns">
