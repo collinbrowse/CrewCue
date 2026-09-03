@@ -9,7 +9,8 @@ const guestDevLinkingScreens =
     ? ({
         DevScheduleSheet: "dev/schedule-sheet",
         DevCrewSheetExport: "dev/crew-sheet-export",
-        DevColdStart: "dev/cold-start"
+        DevColdStart: "dev/cold-start",
+        DevGpxImportProgress: "dev/gpx-import-progress"
       } as const)
     : ({} as const);
 
@@ -39,7 +40,8 @@ export const authedTabLinkingScreens = {
       CourseSettings: "settings",
       ScheduleSheet: "schedule",
       ReadoutsIncidents: "incidents",
-      GpxImport: "gpx"
+      GpxImport: "gpx",
+      ...(__DEV__ ? { DevGpxImportProgress: "dev-gpx-import-progress" } : {})
     }
   },
   Chat: {

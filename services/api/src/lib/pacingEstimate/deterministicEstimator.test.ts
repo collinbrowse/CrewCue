@@ -107,6 +107,18 @@ test("EC2: missing / incomplete course throws typed 4xx-mappable error", () => {
     (err: unknown) =>
       err instanceof PacingEstimateCourseError && err.code === "course_distance_missing"
   );
+  assert.throws(
+    () =>
+      estimatePacingDeterministic({
+        raceStartAt: "2026-08-15T13:00:00",
+        checkpoints: [
+          { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
+          { id: "finish", latitude: 1, longitude: 1, distanceMetersFromStart: 1000 }
+        ],
+        history: []
+      }),
+    (err: unknown) => err instanceof PacingEstimateCourseError && err.code === "race_start_invalid"
+  );
 });
 
 test("EC5: duplicate estimate request yields identical body", () => {
@@ -157,6 +169,15 @@ test("EC7: long vs short dissimilar history produces predictably different estim
     checkpoints,
     history: [short]
   });
+  const parsedShort = parsePacingEstimate(fromShort);
+  assert.equal(parsedShort.coldStart, false);
+  assert.deepEqual(parsedShort.historyRefIds, [short.id]);
+  assert.match(parsedShort.explanation, /dissimilar to course distance/i);
+  assert.ok(parsedShort.bands?.conservative);
+  assert.equal(
+    parsedShort.bands?.expected?.finishElapsedSeconds,
+    parsedShort.expectedFinishElapsedSeconds
+  );
   assert.notEqual(fromLong.expectedFinishElapsedSeconds, fromShort.expectedFinishElapsedSeconds);
   assert.ok(fromLong.expectedFinishElapsedSeconds > fromShort.expectedFinishElapsedSeconds);
 
