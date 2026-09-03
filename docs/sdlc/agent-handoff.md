@@ -11,33 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-29 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing.
-- **Branch / PR:** `cursor/critical-bug-investigation-cfd3` (getRaceRoom cache-miss clobber; sibling of #427).
-- **Active next:** Merge this hydrate fix; redeploy staging; soak.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- #427: list rooms no longer clobbers live room cache.
-- This branch: `getRaceRoom` cache-miss load no longer `raceRooms.set` a stale SELECT over a newer in-process write.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Merge getRaceRoom hydrate fix; confirm CI green.
-2. Redeploy staging API.
-3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- Targeted: `raceRoomStopPlans.test.ts` getRaceRoom hydrate + existing list-clobber cases.
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
 
 ## Open risks/blockers
 
-- Staging may still need Railway redeploy.
-- Known drafts unchanged: #353 ping authz, #419 course-change wipe, #455 GPX stick.
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Merge getRaceRoom hydrate fix. Redeploy staging API. Smoke stop-plan save overlapping room GET after restart.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
