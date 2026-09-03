@@ -11,38 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-29 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — regression coverage follow-up on `main`.
-- **Branch / PR:** `cursor/missing-test-coverage-ec94` / PR #461.
-- **Active next:** Review/merge metrics-only activity-history coverage; then confirm CI green and continue staging soak tasks.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- #427: list rooms no longer clobbers live room cache.
-- #426: cutoff warning regression coverage.
-- #428: pacing estimator validation edges.
-- CI: `checks` job now runs on `main` push (was skipped when PR-only guard skipped).
-- Coverage automation: metrics-only `POST /activity-history` now covers changed-value idempotent replay and same-`externalId` athlete scoping.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Merge coverage PR after CI is green.
-2. Confirm tip-of-`main` CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
-3. Redeploy staging API; smoke Profile GPX upload → Open Pace and Strava reconnect.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- Merged: #427 (`811453c`), #426 (`d794a52`), #428 (`db3d43b`).
-- Local: `npm run test -w @crewcue/api` passed (287 tests: 283 pass, 4 skipped).
-- Local: `npm run verify` passed.
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
 
 ## Open risks/blockers
 
-- Staging may still need Railway redeploy.
-- This automation environment has no safe issue-creation tool; PR body should note no linked issue was created.
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-After coverage PR merge, confirm tip-of-main CI green. Redeploy staging API and smoke GPX upload → Open Pace against staging.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
