@@ -51,6 +51,26 @@ const GPX_NO_ELEVATION = `<?xml version="1.0" encoding="UTF-8"?>
   </trk>
 </gpx>`;
 
+const RECORDED_SHORT_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
+const MIXED_LONG_ROUTE_AND_RECORDED_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <rte>
+    <rtept lat="39.15" lon="-120.25"></rtept>
+    <rtept lat="39.60" lon="-120.25"></rtept>
+  </rte>
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
 async function withApp(
   run: (ctx: {
     app: ReturnType<typeof buildApp>;
@@ -259,6 +279,40 @@ test("EC6: recordedAt/ingestedAt are ISO-Z; metrics use meters and seconds", asy
   });
 });
 
+test("mixed planned route plus recorded track stores recorded-track activity metrics", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-mixed-gpx");
+    const recorded = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        gpxXml: RECORDED_SHORT_TRACK_GPX,
+        externalId: "recorded-short-track"
+      }
+    });
+    assert.equal(recorded.statusCode, 201);
+    const recordedRef = parseActivityHistoryRef(recorded.json());
+
+    const mixed = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        gpxXml: MIXED_LONG_ROUTE_AND_RECORDED_TRACK_GPX,
+        externalId: "mixed-long-route-recorded-track"
+      }
+    });
+    assert.equal(mixed.statusCode, 201);
+    const mixedRef = parseActivityHistoryRef(mixed.json());
+
+    assert.equal(mixedRef.elapsedSeconds, recordedRef.elapsedSeconds);
+    assert.ok((mixedRef.distanceMeters ?? 0) < 10_000);
+    assert.ok(Math.abs((mixedRef.distanceMeters ?? 0) - (recordedRef.distanceMeters ?? 0)) < 1);
+    assert.equal(await countActivityHistoryRows(), 2);
+  });
+});
+
 test("EC7: long trail and short road ingest independently with differing metrics", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
@@ -360,7 +414,7 @@ test("list/get are scoped to the authenticated athlete", async () => {
   });
 });
 
-test("POST /activity-history accepts metrics-only ingest (mobile path)", async () => {
+test("POST /activity-history metrics-only ingest is idempotent and athlete-scoped", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-metrics");
     const response = await app.inject({
@@ -382,18 +436,38 @@ test("POST /activity-history accepts metrics-only ingest (mobile path)", async (
     assert.equal(ref.distanceMeters, 10000);
     assert.equal(ref.elapsedSeconds, 3600);
 
-    const replay = await app.inject({
+    const changedReplay = await app.inject({
       method: "POST",
       url: "/activity-history",
       headers: { authorization: `Bearer ${token}` },
       payload: {
         externalId: "metrics:short-road",
-        distanceMeters: 10000,
-        elapsedSeconds: 3600
+        recordedAt: "2026-05-10T16:00:00.000Z",
+        distanceMeters: 99999,
+        elapsedSeconds: 120,
+        elevationGainMeters: 1
       }
     });
-    assert.equal(replay.statusCode, 200);
-    assert.equal(parseActivityHistoryRef(replay.json()).id, ref.id);
+    assert.equal(changedReplay.statusCode, 200);
+    assert.deepEqual(parseActivityHistoryRef(changedReplay.json()), ref);
     assert.equal(await countActivityHistoryRows(), 1);
+
+    const otherAthlete = await app.inject({
+      method: "POST",
+      url: "/activity-history",
+      headers: { authorization: `Bearer ${tokenFor("athlete-metrics-other")}` },
+      payload: {
+        externalId: "metrics:short-road",
+        recordedAt: "2026-05-10T15:30:00.000Z",
+        distanceMeters: 25000,
+        elapsedSeconds: 7200
+      }
+    });
+    assert.equal(otherAthlete.statusCode, 201);
+    const otherRef = parseActivityHistoryRef(otherAthlete.json());
+    assert.equal(otherRef.externalId, ref.externalId);
+    assert.notEqual(otherRef.id, ref.id);
+    assert.equal(otherRef.distanceMeters, 25000);
+    assert.equal(await countActivityHistoryRows(), 2);
   });
 });

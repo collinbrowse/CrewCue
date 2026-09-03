@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { isRoomPersistenceEnabled, loadRaceRoom } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
-import { ingestPersistedRaceRoomsWithoutClobberForTests } from "./raceRooms.js";
+import {
+  ingestPersistedRaceRoomWithoutClobberForTests,
+  ingestPersistedRaceRoomsWithoutClobberForTests
+} from "./raceRooms.js";
 import type { RaceCourseCheckpoint, RaceRoom, RaceRoomStopPlan, StopPlanNote } from "@crewcue/contracts";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
@@ -601,6 +604,55 @@ test("stale GET /mine snapshot does not wipe a newer stop-plan on the next write
   delete staleListSnapshot.stopPlans;
   // Late list continuation: a SELECT started before the aid-1 write committed.
   ingestPersistedRaceRoomsWithoutClobberForTests([staleListSnapshot]);
+
+  const second = await putStopPlan(app, roomId, "aid-2", ownerToken, {
+    planNotes: { id: "note-aid-2", body: "Crew at aid 2" }
+  });
+  assert.equal(second.statusCode, 200);
+
+  const plans = await getStopPlans(app, roomId, ownerToken);
+  assert.equal(plans.statusCode, 200);
+  const overlay = (plans.json() as { stopPlans: RaceRoomStopPlan[] }).stopPlans;
+  assert.equal(overlay.find((plan) => plan.checkpointId === "aid-1")?.planNotes?.body, "Drop bag at aid 1");
+  assert.equal(overlay.find((plan) => plan.checkpointId === "aid-2")?.planNotes?.body, "Crew at aid 2");
+
+  if (isRoomPersistenceEnabled()) {
+    const persisted = await loadRaceRoom(roomId);
+    assert.equal(
+      persisted?.stopPlans?.find((plan) => plan.checkpointId === "aid-1")?.planNotes?.body,
+      "Drop bag at aid 1"
+    );
+    assert.equal(
+      persisted?.stopPlans?.find((plan) => plan.checkpointId === "aid-2")?.planNotes?.body,
+      "Crew at aid 2"
+    );
+  }
+
+  await app.close();
+});
+
+test("stale getRaceRoom hydrate does not wipe a newer stop-plan on the next write", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-get-clobber"));
+  const roomId = await createPaidRoom(app, ownerToken, "getRaceRoom cache clobber");
+  await put50kCourse(app, roomId, ownerToken);
+
+  const first = await putStopPlan(app, roomId, "aid-1", ownerToken, {
+    planNotes: { id: "note-aid-1", body: "Drop bag at aid 1" }
+  });
+  assert.equal(first.statusCode, 200);
+
+  const roomAfterFirst = await getRoom(app, roomId, ownerToken);
+  const staleGetSnapshot: RaceRoom = { ...roomAfterFirst };
+  delete staleGetSnapshot.stopPlans;
+  // Late getRaceRoom continuation: cache-miss SELECT started before the aid-1 write
+  // committed (typical after API restart when schedule/course GETs race a stop-plan PUT).
+  const liveAfterHydrate = ingestPersistedRaceRoomWithoutClobberForTests(staleGetSnapshot);
+  assert.equal(
+    liveAfterHydrate.stopPlans?.find((plan) => plan.checkpointId === "aid-1")?.planNotes?.body,
+    "Drop bag at aid 1"
+  );
 
   const second = await putStopPlan(app, roomId, "aid-2", ownerToken, {
     planNotes: { id: "note-aid-2", body: "Crew at aid 2" }
