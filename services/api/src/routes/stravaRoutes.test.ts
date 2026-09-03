@@ -9,7 +9,10 @@ import {
   countActivityHistoryRows,
   resetActivityHistoryStoreForTests
 } from "../lib/activityHistoryStore.js";
-import { resetStravaConnectionStoreForTests } from "../lib/stravaConnectionStore.js";
+import {
+  resetStravaConnectionStoreForTests,
+  upsertStravaConnection
+} from "../lib/stravaConnectionStore.js";
 import { setStravaClientConfigForTests } from "./stravaRoutes.js";
 
 function findPacingFixturesDir(): string {
@@ -436,6 +439,141 @@ test("sync skips non-run Strava sports so rides cannot poison pacing history", a
   );
 });
 
+test("sync persists multiple Strava activity pages from the one-year lookback", async () => {
+  const requestedPages: string[] = [];
+  const requestedAfter: string[] = [];
+  const buildRun = (id: number) => ({
+    id,
+    distance: 10_000 + id,
+    elapsed_time: 3600 + id,
+    total_elevation_gain: 100,
+    type: "Run",
+    sport_type: "Run",
+    start_date: "2026-05-13T15:00:00Z"
+  });
+
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-paged-sync");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const sync = await app.inject({
+        method: "POST",
+        url: "/strava/sync",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(sync.statusCode, 200);
+      const body = sync.json() as { syncedCount: number; createdCount: number; items: ActivityHistoryRef[] };
+      assert.equal(body.syncedCount, 201);
+      assert.equal(body.createdCount, 201);
+      assert.equal(body.items.length, 201);
+      assert.deepEqual(requestedPages, ["1", "2"]);
+      assert.equal(new Set(requestedAfter).size, 1);
+      assert.ok(Number(requestedAfter[0]) > 0);
+      assert.equal(await countActivityHistoryRows(), 201);
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-1",
+              refresh_token: "refresh-1",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 99 },
+              scope: "read,activity:read_all"
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/athlete/activities")) {
+          const parsed = new URL(url);
+          requestedPages.push(parsed.searchParams.get("page") ?? "");
+          requestedAfter.push(parsed.searchParams.get("after") ?? "");
+          assert.equal(parsed.searchParams.get("per_page"), "200");
+          const page = Number(parsed.searchParams.get("page") ?? "1");
+          const activities =
+            page === 1
+              ? Array.from({ length: 200 }, (_, i) => buildRun(i + 1))
+              : [buildRun(201)];
+          return new Response(JSON.stringify(activities), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
+test("sync surfaces Strava activity permission errors from activities fetch", async () => {
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-sync-403");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const sync = await app.inject({
+        method: "POST",
+        url: "/strava/sync",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(sync.statusCode, 502);
+      const body = sync.json() as { code?: string; error?: string };
+      assert.equal(body.code, "strava_activities_http");
+      assert.match(String(body.error), /activity:read_permission/);
+      assert.equal(await countActivityHistoryRows(), 0);
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-1",
+              refresh_token: "refresh-1",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 99 },
+              scope: "read,activity:read_all"
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/athlete/activities")) {
+          return new Response(
+            JSON.stringify({
+              message: "Authorization Error",
+              errors: [{ resource: "AccessToken", field: "activity:read_permission", code: "missing" }]
+            }),
+            { status: 403 }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
 test("disconnect calls Strava revoke then clears local connection even if revoke fails", async () => {
   let revokeCalls = 0;
   await withApp(
@@ -492,6 +630,102 @@ test("disconnect calls Strava revoke then clears local connection even if revoke
         return new Response("not found", { status: 404 });
       })
     }
+  );
+});
+
+test("disconnect clears local connection when Strava revoke throws", async () => {
+  let revokeCalls = 0;
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-revoke-throw");
+      const start = await app.inject({
+        method: "GET",
+        url: "/strava/oauth/start",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      const startBody = start.json() as { state: string };
+      const callback = await app.inject({
+        method: "POST",
+        url: "/strava/oauth/callback",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { code: "auth-code", state: startBody.state }
+      });
+      assert.equal(callback.statusCode, 200);
+
+      const disconnect = await app.inject({
+        method: "DELETE",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(disconnect.statusCode, 200);
+      assert.deepEqual(disconnect.json(), { connected: false });
+      assert.equal(revokeCalls, 1);
+
+      const after = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(after.json(), { connected: false });
+    },
+    {
+      fetchOverride: mockFetch(async (url) => {
+        if (url.includes("/oauth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-1",
+              refresh_token: "refresh-1",
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+              athlete: { id: 99 },
+              scope: "read,activity:read_all"
+            }),
+            { status: 200 }
+          );
+        }
+        if (url.includes("/oauth/revoke")) {
+          revokeCalls += 1;
+          throw new Error("network down");
+        }
+        return new Response("not found", { status: 404 });
+      })
+    }
+  );
+});
+
+test("disconnect clears stale local connection when Strava is not configured", async () => {
+  await withApp(
+    async ({ app, tokenFor }) => {
+      const token = tokenFor("athlete-unconfigured-disconnect");
+      await upsertStravaConnection("athlete-unconfigured-disconnect", {
+        accessToken: "access-stale",
+        refreshToken: "refresh-stale",
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        athleteId: "stale-99"
+      });
+
+      const before = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(before.json(), { connected: true, athleteId: "stale-99" });
+
+      const disconnect = await app.inject({
+        method: "DELETE",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(disconnect.statusCode, 200);
+      assert.deepEqual(disconnect.json(), { connected: false });
+
+      const after = await app.inject({
+        method: "GET",
+        url: "/strava/connection",
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.deepEqual(after.json(), { connected: false });
+    },
+    { configureStrava: false }
   );
 });
 
