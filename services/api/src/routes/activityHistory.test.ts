@@ -206,6 +206,56 @@ test("EC4/EC5: idempotent replay of same source+externalId does not duplicate", 
   });
 });
 
+test("idempotent replay keeps first metrics; externalId is athlete-scoped", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const externalId = "shared-provider-id";
+    const athleteAToken = tokenFor("athlete-idem-a");
+    const athleteBToken = tokenFor("athlete-idem-b");
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${athleteAToken}` },
+      payload: {
+        gpxXml: readPacingGpx("activity-short-road.gpx"),
+        externalId
+      }
+    });
+    assert.equal(first.statusCode, 201);
+    const firstRef = parseActivityHistoryRef(first.json());
+
+    const changedReplay = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${athleteAToken}` },
+      payload: {
+        gpxXml: readPacingGpx("activity-long-trail.gpx"),
+        externalId
+      }
+    });
+    assert.equal(changedReplay.statusCode, 200);
+    const replayRef = parseActivityHistoryRef(changedReplay.json());
+    assert.deepEqual(replayRef, firstRef);
+    assert.equal(await countActivityHistoryRows(), 1);
+
+    const otherAthlete = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${athleteBToken}` },
+      payload: {
+        gpxXml: readPacingGpx("activity-long-trail.gpx"),
+        externalId
+      }
+    });
+    assert.equal(otherAthlete.statusCode, 201);
+    const otherRef = parseActivityHistoryRef(otherAthlete.json());
+    assert.notEqual(otherRef.id, firstRef.id);
+    assert.equal(otherRef.externalId, externalId);
+    assert.ok((otherRef.distanceMeters ?? 0) > (firstRef.distanceMeters ?? 0));
+    assert.equal(await countActivityHistoryRows(), 2);
+  });
+});
+
 test("EC6: recordedAt/ingestedAt are ISO-Z; metrics use meters and seconds", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
