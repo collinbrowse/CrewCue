@@ -11,34 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-28 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — regression coverage pass after Strava/GPX merges.
-- **Branch / PR:** `cursor/missing-test-coverage-cf20` / PR #459.
-- **Active next:** Open coverage PR, confirm CI green, then continue staging redeploy/smoke queue.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- Added API route coverage for mixed GPX files so planned `<rte>` distance cannot inflate recorded `<trk>` activity metrics.
-- Added API route coverage for Strava activity-list 403 failures so `/strava/sync` returns `strava_activities_http` and creates no history rows.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Confirm PR CI green (`checks`, `dual-client-guard`, `api-postgres-integration`).
-2. Redeploy staging API.
-3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- Focused: `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/activityHistory.test.js services/api/dist/services/api/src/routes/stravaRoutes.test.js` (22/22 pass).
-- Full: `npm run verify` (pass).
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
 
 ## Open risks/blockers
 
-- No GitHub issue created: this automation environment has read-only `gh` guidance and no issue-creation MCP tool.
-- Staging may still need Railway redeploy.
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Confirm the coverage PR CI is green, then redeploy staging API and smoke GPX upload → Open Pace plus Strava reconnect.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
