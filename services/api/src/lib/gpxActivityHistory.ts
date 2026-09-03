@@ -3,7 +3,7 @@
  * Reuses map-core track parsing; maps clear errors for empty/corrupt uploads.
  */
 import { createHash } from "node:crypto";
-import { computeElevationGainMeters, parseGpxTrack } from "@crewcue/map-core";
+import { computeElevationGainMeters, parseGpxActivityTrack } from "@crewcue/map-core";
 
 export type GpxActivityParseErrorCode = "gpx_empty" | "gpx_corrupt" | "gpx_parse_failed";
 
@@ -63,7 +63,7 @@ export function parseGpxActivityMetrics(gpxXml: string): ParsedGpxActivityMetric
 
   let parsed;
   try {
-    parsed = parseGpxTrack(trimmed);
+    parsed = parseGpxActivityTrack(trimmed);
   } catch (err) {
     throw classifyParseFailure(err);
   }
