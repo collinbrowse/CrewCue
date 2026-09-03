@@ -11,43 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-14 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete (W4-1/2/3 + W4-I).
-- **Branch / PR:** Regression coverage [#420](https://github.com/collinbrowse/CrewCue/pull/420) on `cursor/missing-test-coverage-bc88` — open.
-- **Active next:** Review coverage PR, then residual — optionally Ready W3-2 (Strava) if secrets; else epic #360 closeout / residual triage.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- W3-2 Strava OAuth deferred (optional / secrets).
-- Regression coverage: `services/api/src/lib/pacingEstimateStore.test.ts` covers missing/reset lookup, same-id owner/payload replacement, and invalid replacement rejection without clobbering the prior estimate.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Review/merge regression coverage PR for `pacingEstimateStore` invariants.
-2. Optionally Ready W3-2 (Strava) if staging secrets available.
-3. Epic #360 closeout or residual backlog triage.
-
-## Open risks/blockers
-
-- GET `/schedule` may 503 if projection hydrate fails — clients should degrade gracefully.
-- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
-- W3-2 Strava remains blocked on staging OAuth secrets.
-- Coverage automation could not create a linked GitHub issue because this environment exposes read-only `gh` guidance and no issue-creation MCP tool.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- `npm run test:memory -w @crewcue/api` — pass (254 pass, 4 skipped).
-- `npm run verify` — pass.
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+
+## Open risks/blockers
+
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Review/merge regression coverage PR on `cursor/missing-test-coverage-bc88`; it only adds `pacingEstimateStore` tests and passed API memory tests plus root verify. Afterward, optionally Ready W3-2 Strava if staging secrets exist; otherwise close or triage epic #360 residuals.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
