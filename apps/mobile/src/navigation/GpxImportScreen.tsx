@@ -25,27 +25,17 @@ import {
   type GpxTrackPoint,
   type ParsedGpxTrack
 } from "../features/gpx/gpxImport";
+import {
+  buildImportStateFromCourse,
+  formatElevationGainFromMeters,
+  selectVisibleCourseImportState,
+  shouldPreserveLocalImportStateOnHydrate,
+  type CourseImportState
+} from "../features/gpx/courseImportState";
 import { hashIdempotencyPayload } from "../api/idempotencyKey";
 import { mapApiError } from "@crewcue/platform-client";
 import { useAction } from "../platform/useAction";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-
-type ImportState =
-  | { status: "idle" }
-  | { status: "picking" }
-  | {
-      status: "calculating";
-      fileName: string;
-      ratio: number;
-      message: string;
-    }
-  | {
-      status: "success";
-      fileName: string;
-      totalDistanceLabel: string;
-      elevationLabel: string;
-    }
-  | { status: "error"; message: string };
 
 type PendingCourseUpload = {
   fileName: string;
@@ -65,7 +55,7 @@ export function GpxImportScreen(): ReactElement {
   const mode = routeParams?.mode ?? "edit";
   const isCreateMode = mode === "create";
   const replaceCourseFileMode = routeParams?.replaceCourseFile === true && !isCreateMode;
-  const [importState, setImportState] = useState<ImportState>({ status: "idle" });
+  const [importState, setImportState] = useState<CourseImportState>({ status: "idle" });
   const [raceName, setRaceName] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [raceDescription, setRaceDescription] = useState("");
@@ -130,15 +120,7 @@ export function GpxImportScreen(): ReactElement {
       return;
     }
     setImportState((current) => {
-      // Do not clobber in-flight pick/parse, visible errors, or a local file waiting on Finish.
-      if (
-        current.status === "picking" ||
-        current.status === "calculating" ||
-        current.status === "error"
-      ) {
-        return current;
-      }
-      if (pendingCourseUpload && current.status === "success") {
+      if (shouldPreserveLocalImportStateOnHydrate(current, pendingCourseUpload)) {
         return current;
       }
       return buildImportStateFromCourse({
@@ -177,18 +159,12 @@ export function GpxImportScreen(): ReactElement {
 
   /** Prefer a locally chosen pending file over the previously saved room course. */
   const visibleImportState = useMemo(() => {
-    if (pendingCourseUpload) {
-      return {
-        status: "success" as const,
-        fileName: pendingCourseUpload.fileName,
-        totalDistanceLabel: formatDistance(pendingCourseUpload.totalDistanceMeters, activeUnit),
-        elevationLabel: formatElevationGainFromMeters(pendingCourseUpload.elevationGainMeters)
-      };
-    }
-    if (importState.status === "success") {
-      return importState;
-    }
-    return persistedCourseState;
+    return selectVisibleCourseImportState({
+      pendingCourseUpload,
+      importState,
+      persistedCourseState,
+      unit: activeUnit
+    });
   }, [pendingCourseUpload, importState, persistedCourseState, activeUnit]);
 
   const importBusy = importState.status === "picking" || importState.status === "calculating";
@@ -599,7 +575,7 @@ function buildImportStateFromParsedTrack(
   fileName: string,
   parsedTrack: ParsedGpxTrack,
   unit: DistanceUnit
-): Extract<ImportState, { status: "success" }> {
+): Extract<CourseImportState, { status: "success" }> {
   return {
     status: "success",
     fileName,
@@ -608,42 +584,8 @@ function buildImportStateFromParsedTrack(
   };
 }
 
-function buildImportStateFromCourse({
-  fileName,
-  course,
-  storedDistanceMeters,
-  storedElevationGainMeters,
-  unit
-}: {
-  fileName: string;
-  course?: RaceCourse;
-  storedDistanceMeters?: number;
-  storedElevationGainMeters?: number;
-  unit: DistanceUnit;
-}): Extract<ImportState, { status: "success" }> {
-  const totalDistanceMeters =
-    storedDistanceMeters ?? course?.baselineTrack?.points?.[course.baselineTrack.points.length - 1]?.distanceMetersFromStart ?? 0;
-  return {
-    status: "success",
-    fileName,
-    totalDistanceLabel: formatDistance(totalDistanceMeters, unit),
-    elevationLabel: formatElevationGainFromMeters(storedElevationGainMeters)
-  };
-}
-
 function formatElevationGain(points: GpxTrackPoint[]): string {
   return formatElevationGainFromMeters(computeElevationGainMeters(points));
-}
-
-function formatElevationGainFromMeters(gainMeters: number | undefined): string {
-  if (typeof gainMeters !== "number" || !Number.isFinite(gainMeters)) {
-    return "Vert --";
-  }
-  if (gainMeters <= 0) {
-    return "0 ft gain";
-  }
-  const gainFeet = Math.round(gainMeters * 3.28084);
-  return `${gainFeet.toLocaleString()} ft gain`;
 }
 
 const localStyles = StyleSheet.create({
