@@ -51,6 +51,26 @@ const GPX_NO_ELEVATION = `<?xml version="1.0" encoding="UTF-8"?>
   </trk>
 </gpx>`;
 
+const RECORDED_SHORT_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
+const MIXED_LONG_ROUTE_AND_RECORDED_TRACK_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <rte>
+    <rtept lat="39.15" lon="-120.25"></rtept>
+    <rtept lat="39.60" lon="-120.25"></rtept>
+  </rte>
+  <trk><trkseg>
+    <trkpt lat="37.78" lon="-122.42"><time>2026-05-10T15:30:00Z</time></trkpt>
+    <trkpt lat="37.85" lon="-122.42"><time>2026-05-10T16:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+
 async function withApp(
   run: (ctx: {
     app: ReturnType<typeof buildApp>;
@@ -206,6 +226,40 @@ test("EC6: recordedAt/ingestedAt are ISO-Z; metrics use meters and seconds", asy
     assert.ok(typeof ref.distanceMeters === "number" && ref.distanceMeters > 40_000);
     assert.ok(typeof ref.elapsedSeconds === "number" && ref.elapsedSeconds > 0);
     assert.ok(typeof ref.elevationGainMeters === "number" && ref.elevationGainMeters > 0);
+  });
+});
+
+test("mixed planned route plus recorded track stores recorded-track activity metrics", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-mixed-gpx");
+    const recorded = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        gpxXml: RECORDED_SHORT_TRACK_GPX,
+        externalId: "recorded-short-track"
+      }
+    });
+    assert.equal(recorded.statusCode, 201);
+    const recordedRef = parseActivityHistoryRef(recorded.json());
+
+    const mixed = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        gpxXml: MIXED_LONG_ROUTE_AND_RECORDED_TRACK_GPX,
+        externalId: "mixed-long-route-recorded-track"
+      }
+    });
+    assert.equal(mixed.statusCode, 201);
+    const mixedRef = parseActivityHistoryRef(mixed.json());
+
+    assert.equal(mixedRef.elapsedSeconds, recordedRef.elapsedSeconds);
+    assert.ok((mixedRef.distanceMeters ?? 0) < 10_000);
+    assert.ok(Math.abs((mixedRef.distanceMeters ?? 0) - (recordedRef.distanceMeters ?? 0)) < 1);
+    assert.equal(await countActivityHistoryRows(), 2);
   });
 });
 
