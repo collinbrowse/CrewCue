@@ -373,18 +373,33 @@ export async function saveRaceRoom(room: RaceRoom): Promise<void> {
 }
 
 /**
- * Hydrate the live room cache from a DB list without rolling back a newer in-process write.
+ * Hydrate the live room cache from a DB row without rolling back a newer in-process write.
  *
- * GET `/race-rooms/mine` and team listing previously `raceRooms.set` every listed row. A
- * SELECT that started before `saveRaceRoom` committed could resume after the write and
- * replace memory with that stale snapshot. The next read-modify-write (stop-plan, join,
- * course, estimate attach, …) then persisted the rollback.
+ * GET `/race-rooms/mine`, team listing, and `getRaceRoom` cache-miss loads previously
+ * `raceRooms.set` every persisted row. A SELECT that started before `saveRaceRoom`
+ * committed could resume after the write and replace memory with that stale snapshot.
+ * The next read-modify-write (stop-plan, join, course, estimate attach, …) then
+ * persisted the rollback.
+ *
+ * After deploy the cache is empty, so the first GET of a room (schedule, course, …)
+ * overlaps in-flight writes the same way listing did.
+ */
+function rememberRaceRoomIfAbsent(room: RaceRoom): RaceRoom {
+  const live = raceRooms.get(room.id);
+  if (live) {
+    return live;
+  }
+  raceRooms.set(room.id, room);
+  indexJoinCode(room);
+  return room;
+}
+
+/**
+ * Hydrate the live room cache from a DB list without rolling back a newer in-process write.
  */
 function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[]): void {
   for (const room of rooms) {
-    if (!raceRooms.has(room.id)) {
-      raceRooms.set(room.id, room);
-    }
+    rememberRaceRoomIfAbsent(room);
     indexJoinCode(room);
   }
 }
@@ -392,6 +407,11 @@ function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[]): voi
 /** Test helper: simulate a late list payload against the live room cache. */
 export function ingestPersistedRaceRoomsWithoutClobberForTests(rooms: readonly RaceRoom[]): void {
   ingestPersistedRaceRoomsWithoutClobber(rooms);
+}
+
+/** Test helper: simulate a late `getRaceRoom` SELECT completing against the live cache. */
+export function ingestPersistedRaceRoomWithoutClobberForTests(room: RaceRoom): RaceRoom {
+  return rememberRaceRoomIfAbsent(room);
 }
 
 function mergeListedRaceRooms(
@@ -433,9 +453,10 @@ export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | unde
   }
   let room = raceRooms.get(resolvedId);
   if (!room) {
-    room = await loadRaceRoom(resolvedId);
-    if (room) {
-      raceRooms.set(resolvedId, room);
+    const loaded = await loadRaceRoom(resolvedId);
+    if (loaded) {
+      // Re-check live cache after the await — a concurrent saveRaceRoom may have won.
+      room = rememberRaceRoomIfAbsent(loaded);
     }
   }
   if (!room) {
@@ -450,9 +471,14 @@ async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefi
     return cached;
   }
   const loaded = await loadRaceRoomInvite(token);
-  if (loaded) {
-    raceRoomInvites.set(token, loaded);
+  if (!loaded) {
+    return undefined;
   }
+  const live = raceRoomInvites.get(token);
+  if (live) {
+    return live;
+  }
+  raceRoomInvites.set(token, loaded);
   return loaded;
 }
 
