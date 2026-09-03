@@ -11,32 +11,36 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-03 (UTC)
+- **Roadmap phase:** Coverage automation for recent merged GPX/mobile setup behavior.
+- **Branch / PR:** `cursor/missing-test-coverage-73bc-strava-sports` -> PR pending.
+- **Active issue:** Not created; automation has no issue-creation MCP tool and `gh` write operations are disallowed in this environment.
+- **Active next:** Open PR, let CI run, and fill linked issue if one is created manually before merge.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added regression coverage for the GPX import screen state helper so room hydration cannot overwrite a locally selected unsaved route file.
+- Extracted GPX import display-state selection into `apps/mobile/src/features/gpx/courseImportState.ts` for deterministic unit coverage.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Review/merge the coverage PR after CI is green.
+2. If repository policy requires an issue before merge, create one manually and add the `Closes #...` line to the PR body.
+3. Re-run iOS simulator proof on macOS if this UI-adjacent state coverage needs manual confirmation.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run test -w @crewcue/mobile` passed.
+- `npm run typecheck -w @crewcue/mobile` passed.
+- `npm run verify` passed.
+- `npm run agent:ios:ready` failed on Linux with `agent:ios:ready requires macOS`.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- iOS simulator validation is blocked by the Linux host. Options: run `npm run agent:ios:ready` and simulator QA on macOS, add a non-simulator E2E harness for this state transition, or accept focused unit coverage for this non-rendering helper refactor.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review PR for GPX import state coverage. If needed, create/link a GitHub issue, rerun iOS simulator QA on macOS, and merge after CI is green.
 ```
