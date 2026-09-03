@@ -11,44 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-22 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — Wave 4 complete; residual triage / regression hardening.
-- **Branch / PR:** Coverage automation [#425](https://github.com/collinbrowse/CrewCue/pull/425) on `cursor/missing-test-coverage-8cb3`. No linked issue available in this run because `gh` is read-only here.
-- **Active next:** Continue residual triage / targeted regression coverage; optionally Ready W3-2 (Strava) if secrets become available.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- Wave 0–3; W3-I (#406 / #409).
-- W4-1 cutoff warnings (#408 / #410).
-- W4-2 deterministic A-B bands on estimates (#411 / #415).
-- W4-3 printable/shareable offline crew sheet (#412 / #414).
-- W4-I integration smoke (#416): cutoff + bands + schedule baseline API; DEV crew-sheet export sim.
-- W3-2 Strava OAuth deferred (optional / secrets).
-- Coverage automation (2026-08-22): added API route regression coverage proving GPX activity-history idempotency keeps the first row immutable for changed same-athlete `externalId` replays and scopes the same `externalId` independently across athletes.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Continue targeted regression coverage on recent merged API/client changes with production-code-only or edge-case gaps.
-2. Optionally Ready W3-2 (Strava) if staging OAuth secrets become available.
-3. Epic #360 closeout or residual backlog triage; keep Auth0 Pace E2E blockers visible.
-
-## Open risks/blockers
-
-- Arrival-only HTTP check-in still 400; closed visits need arrival+departure.
-- Authed Pace E2E still needs a test account; prefer DEV deeplink for mobile sim.
-- XcodeBuildMCP MCP `tap` may be unavailable; bundled AXe CLI works for sim QA.
-- W3-2 Strava remains blocked on staging OAuth secrets.
-- GitHub issue creation is unavailable to this automation because `gh` is read-only and no issue MCP tool is configured.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- `npm ci` (dependencies were absent initially; install completed, with existing audit warnings).
-- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/activityHistory.test.js`.
-- `npm run test:memory -w @crewcue/api`.
-- `npm run verify`.
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+
+## Open risks/blockers
+
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Continue residual triage / regression hardening after the GPX activity-history idempotency coverage PR merges. Prioritize recent production diffs with untested parsing, idempotency, permissions, or data-validation behavior; avoid reopening Wave 4 feature scope.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
