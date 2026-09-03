@@ -11,36 +11,32 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-30 (UTC)
-- **Roadmap phase:** Crew schedule + AI pacing — post-W4 hardening and regression coverage.
-- **Branch / PR:** `cursor/missing-test-coverage-2754` (PR pending).
-- **Active next:** Review/merge Strava connection store coverage, then continue staging redeploy and smoke checks.
+- Last updated: 2026-08-27 (UTC)
+- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
+- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
+- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
 
 ## Completed
 
-- Added `services/api/src/lib/stravaConnectionStore.test.ts` to cover OAuth state scoping/single-use and per-athlete token isolation/public visibility.
-- Confirmed recent open coverage PRs already own activity-history and Strava sync route gaps; this run avoided those paths.
-- Root verification passed locally after restoring dependencies with `npm ci`.
+- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
 
 ## Next 1-3 tasks
 
-1. Review and merge the Strava connection store coverage PR once CI is green.
-2. Redeploy staging API.
-3. Smoke Profile GPX upload → Open Pace; Strava reconnect.
+1. Merge PR for #456 after CI green.
+2. Merge #455 (GPX progress bar) if still open.
+3. Restore micro-model calibration stash on physiology branch.
 
 ## Validation evidence
 
-- `PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/lib/stravaConnectionStore.test.js` — pass.
-- `npm run test:memory -w @crewcue/api` — pass (285 pass, 4 skipped).
-- `npm run verify` — pass.
+- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
+- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
 
 ## Open risks/blockers
 
-- No issue could be created from this automation because the available GitHub CLI path is read-only and no issue-creation MCP tool is configured.
-- Staging may still need Railway redeploy.
+- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
 
 ## Successor prompt
 
 ```text
-Review/merge the Strava connection store coverage PR after CI. Then redeploy staging API and smoke GPX upload → Open Pace against staging.
+Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
 ```
