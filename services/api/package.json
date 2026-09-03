@@ -13,7 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run test:memory",
     "test:memory": "PERSISTENCE_MODE=memory sh -c 'npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run build && node --test $(find dist/services/api/src -name \"*.test.js\" | sort)'",
-    "test:pg": "PERSISTENCE_MODE=postgres sh -c 'npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run build && node --test $(find dist/services/api/src -name \"*.test.js\" | sort)'",
+    "test:pg": "PERSISTENCE_MODE=postgres sh -c 'npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run build && node --test --test-concurrency=1 $(find dist/services/api/src -name \"*.test.js\" | sort)'",
     "test:pg:fresh": "./scripts/test-pg-fresh.sh",
     "db:migrate": "node ./scripts/apply-sql-migrations.mjs"
   },

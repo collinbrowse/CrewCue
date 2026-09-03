@@ -6,7 +6,8 @@ import {
   formatSignedHoursMinutesDelta,
   paceRailCheckpointRowModel,
   paceRailFinishRowModel,
-  paceRemainingVsPlanDisplay
+  paceRemainingVsPlanDisplay,
+  paceTimeRemainingFromRaceStartLabel
 } from "./timeline";
 
 test("paceRailCheckpointRowModel: upcoming inactive row keeps marker at top", () => {
@@ -83,6 +84,12 @@ test("formatElapsedHoursMinutes: hours and minutes, minutes-only, seconds edge",
   assert.equal(formatElapsedHoursMinutes(0), "0m");
   assert.equal(formatElapsedHoursMinutes(45), "45s");
   assert.equal(formatElapsedHoursMinutes(NaN), "—");
+});
+
+test("paceTimeRemainingFromRaceStartLabel matches elapsed-from-start formatting", () => {
+  assert.equal(paceTimeRemainingFromRaceStartLabel(2 * 3600 + 15 * 60), "2h 15m");
+  assert.equal(paceTimeRemainingFromRaceStartLabel(90 * 60), "1h 30m");
+  assert.equal(paceTimeRemainingFromRaceStartLabel(0), "0m");
 });
 
 test("formatSignedHoursMinutesDelta: sign and rounding", () => {

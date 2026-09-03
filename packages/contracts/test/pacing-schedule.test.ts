@@ -239,7 +239,15 @@ test("W4-1: cutoffStatus + cutoffMarginSeconds are additive and parsed together"
     /must both be present/
   );
   assert.throws(
+    () => parseScheduleStop({ ...requiredStop(), cutoffMarginSeconds: 60 }),
+    /must both be present/
+  );
+  assert.throws(
     () => parseScheduleStop({ ...requiredStop(), cutoffStatus: "late", cutoffMarginSeconds: 1 }),
     /must be ok, warn, or breach/
+  );
+  assert.throws(
+    () => parseScheduleStop({ ...requiredStop(), cutoffStatus: "breach", cutoffMarginSeconds: Number.NaN }),
+    /finite number of seconds/
   );
 });

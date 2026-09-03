@@ -796,3 +796,92 @@ test("postManualCheckpointStop rejects arrival-only before network (EC1)", async
     (err: unknown) => err instanceof ApiError && err.status === 400
   );
 });
+
+test("Strava client methods hit /strava/* paths", async () => {
+  const calls: Array<{ method: string; url: string }> = [];
+  const prev = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ method: init?.method ?? "GET", url });
+    return new Response(JSON.stringify({ connected: false, authorizeUrl: "https://strava.test", state: "s" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  try {
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    await client.startStravaOAuth();
+    await client.getStravaConnection();
+    await client.completeStravaOAuth({ code: "c", state: "s" });
+    await client.syncStravaActivities();
+    await client.disconnectStrava();
+    assert.equal(calls[0]?.url, "https://api.example/strava/oauth/start");
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(calls[1]?.url, "https://api.example/strava/connection");
+    assert.equal(calls[2]?.method, "POST");
+    assert.equal(calls[2]?.url, "https://api.example/strava/oauth/callback");
+    assert.equal(calls[3]?.url, "https://api.example/strava/sync");
+    assert.equal(calls[4]?.method, "DELETE");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("activity history client methods hit /activity-history paths", async () => {
+  const calls: Array<{ method: string; url: string; body?: string }> = [];
+  const prev = globalThis.fetch;
+  const historyRef = {
+    id: "hist-1",
+    source: "gpx_upload",
+    externalId: "gpx:test",
+    recordedAt: "2026-01-01T12:00:00.000Z",
+    ingestedAt: "2026-01-02T12:00:00.000Z",
+    distanceMeters: 10000,
+    elapsedSeconds: 3600
+  };
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({
+      method: init?.method ?? "GET",
+      url,
+      body: typeof init?.body === "string" ? init.body : undefined
+    });
+    if (url.endsWith("/activity-history/gpx") || (url.endsWith("/activity-history") && (init?.method ?? "GET") === "POST")) {
+      return new Response(JSON.stringify(historyRef), {
+        status: 201,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return new Response(JSON.stringify({ items: [historyRef] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }) as typeof fetch;
+  try {
+    const client = createApiClient({ baseUrl: "https://api.example", accessToken: "test-token" });
+    const metricsIngested = await client.ingestActivityHistoryMetrics({
+      externalId: "gpx:test",
+      distanceMeters: 10000,
+      elapsedSeconds: 3600
+    });
+    const ingested = await client.ingestActivityHistoryGpx({
+      gpxXml: "<gpx></gpx>",
+      externalId: "gpx:test"
+    });
+    const listed = await client.listActivityHistory();
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[0]?.url, "https://api.example/activity-history");
+    assert.match(calls[0]?.body ?? "", /distanceMeters/);
+    assert.equal(metricsIngested.id, "hist-1");
+    assert.equal(calls[1]?.method, "POST");
+    assert.equal(calls[1]?.url, "https://api.example/activity-history/gpx");
+    assert.match(calls[1]?.body ?? "", /gpxXml/);
+    assert.equal(ingested.id, "hist-1");
+    assert.equal(calls[2]?.method, "GET");
+    assert.equal(calls[2]?.url, "https://api.example/activity-history");
+    assert.equal(listed.items.length, 1);
+    assert.equal(listed.items[0]?.source, "gpx_upload");
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

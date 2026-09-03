@@ -185,6 +185,14 @@ export function formatElapsedHoursMinutes(totalSeconds: number): string {
   return `${s}s`;
 }
 
+/**
+ * Pace card **Time remaining** primary value: duration from race start to the station
+ * (projected or actual elapsed). Not a wall-clock countdown from now.
+ */
+export function paceTimeRemainingFromRaceStartLabel(elapsedSecondsFromRaceStart: number): string {
+  return formatElapsedHoursMinutes(elapsedSecondsFromRaceStart);
+}
+
 /** Signed delta vs plan using hours/minutes when large, e.g. "+2h 5m", "-45m". */
 export function formatSignedHoursMinutesDelta(deltaSeconds: number): string {
   if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) {
