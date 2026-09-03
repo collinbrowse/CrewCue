@@ -8,6 +8,7 @@ import { AthleteSetupWizardScreen } from "./AthleteSetupWizardScreen";
 import { OnboardingNotificationsScreen } from "./OnboardingNotificationsScreen";
 import { DevScheduleSheetFixtureScreen } from "./DevScheduleSheetFixtureScreen";
 import { DevColdStartFixtureScreen } from "./DevColdStartFixtureScreen";
+import { DevGpxImportProgressScreen } from "./DevGpxImportProgressScreen";
 import { useNavColors } from "./navigationTheme";
 import type { GuestStackParamList } from "./types";
 
@@ -50,6 +51,14 @@ export function GuestStack(): ReactElement {
           name="DevColdStart"
           component={DevColdStartFixtureScreen}
           options={{ headerShown: true, title: "Cold start (DEV)" }}
+        />
+      ) : null}
+      {/* __DEV__ agent QA: crewcue://dev/gpx-import-progress — not an Auth0 bypass */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevGpxImportProgress"
+          component={DevGpxImportProgressScreen}
+          options={{ headerShown: true, title: "GPX import progress (DEV)" }}
         />
       ) : null}
     </Stack.Navigator>
