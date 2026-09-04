@@ -363,6 +363,30 @@ test("EC8 delay on last stop leaves last arrival unchanged", async () => {
   await app.close();
 });
 
+test("projection loader without a snapshot returns the plan-only schedule", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-schedule-no-projection"));
+  const roomId = await createPaidRoom(app, ownerToken, "Schedule no projection snapshot");
+  const seeded = await put50kCourse(app, roomId, ownerToken);
+
+  let requestedRoomId: string | undefined;
+  setScheduleProjectionLoaderForTests(async (id) => {
+    requestedRoomId = id;
+    return undefined;
+  });
+
+  try {
+    const response = await getSchedule(app, roomId, ownerToken);
+    assert.equal(response.statusCode, 200);
+    assert.equal(requestedRoomId, roomId);
+    assert.deepEqual(parseCrewScheduleSheet(response.json()), projectCrewScheduleSheet(seeded));
+  } finally {
+    setScheduleProjectionLoaderForTests();
+    await app.close();
+  }
+});
+
 test("EC9 projection hydrate failure returns 503 rather than a plan-only schedule", async () => {
   const app = buildApp();
   await app.ready();
