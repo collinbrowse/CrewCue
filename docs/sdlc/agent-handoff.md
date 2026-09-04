@@ -13,8 +13,8 @@
 
 - Last updated: 2026-09-04 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing hardening; daily test coverage automation.
-- **Branch / PR:** `cursor/missing-test-coverage-8861` -> PR pending.
-- **Active next:** Open/merge this coverage PR after CI green.
+- **Branch / PR:** `cursor/missing-test-coverage-8861` -> PR #467.
+- **Active next:** Merge PR #467 after CI green.
 
 ## Completed
 
@@ -23,7 +23,7 @@
 
 ## Next 1-3 tasks
 
-1. Merge `cursor/missing-test-coverage-8861` after CI green.
+1. Merge PR #467 after CI green.
 2. Continue monitoring recent production merges for untested schedule/projection, Strava, and activity-history edges.
 3. If a GitHub issue is created manually for this run, add `Closes #<issue>` to the PR before merge.
 
