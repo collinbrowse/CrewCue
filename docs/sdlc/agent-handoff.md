@@ -11,32 +11,37 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-04 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing hardening; daily test coverage automation.
+- **Branch / PR:** `cursor/missing-test-coverage-8861` -> PR #467.
+- **Active next:** Merge PR #467 after CI green.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added API regression coverage for `GET /race-rooms/:roomId/schedule` when the projection loader has no snapshot yet.
+- The new test locks the intended plan-only schedule fallback while adjacent coverage still asserts projection hydrate failures return 503.
+- Added map-core coverage for waypoint cutoff parsing, including time-of-day, elapsed-from-start, invalid/no-hint descriptions, and GPX waypoint-to-checkpoint integration.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge PR #467 after CI green.
+2. Continue monitoring recent production merges for untested pace anchor math, activity GPX fallback, and stale cache list/read edges.
+3. If a GitHub issue is created manually for this run, add `Closes #<issue>` to the PR before merge.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/raceRoomSchedule.test.js` - pass.
+- `npm run test:memory` - pass.
+- `npm run test -w @crewcue/map-core` - pass.
+- `npm run verify` - pass.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- No issue was created: this automation environment has no issue-creation MCP tool and `gh` write operations are disallowed.
+- No mobile UI changed; iOS simulator QA is N/A.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review and merge the schedule projection no-snapshot coverage PR after CI passes. If a manual issue exists, add Closes #<issue> to the PR body before merge.
 ```

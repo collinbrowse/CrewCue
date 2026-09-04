@@ -13,7 +13,8 @@ import {
   parseGpxActivityTrack,
   parseGpxActivityTrackAsync,
   parseGpxTrack,
-  parseGpxTrackAsync
+  parseGpxTrackAsync,
+  tryParseCheckpointCutoffFromDescription
 } from "./courseParse.js";
 import { checkpointsWithProjectedDistances } from "./courseMetrics.js";
 import { parsedTrackToWorkspaceLayer } from "./mapWorkspace.js";
@@ -184,6 +185,55 @@ test("buildRaceCourseFromGpx uses waypoint checkpoints and baseline track", () =
   assert.ok((course.baselineTrack?.points.length ?? 0) >= 2);
   assert.ok((course.baselineTrack?.points.length ?? 0) <= 220);
   assert.ok(plannedPaceSecondsPerKm > 0);
+});
+
+test("tryParseCheckpointCutoffFromDescription distinguishes clock and elapsed cutoffs", () => {
+  assert.deepEqual(tryParseCheckpointCutoffFromDescription("Cutoff 2:30 PM"), {
+    mode: "time_of_day",
+    hour: 14,
+    minute: 30
+  });
+  assert.deepEqual(tryParseCheckpointCutoffFromDescription("Must leave by 14:30:00"), {
+    mode: "time_of_day",
+    hour: 14,
+    minute: 30
+  });
+  assert.deepEqual(tryParseCheckpointCutoffFromDescription("Time limit 24:30:00"), {
+    mode: "elapsed_from_start",
+    seconds: 88_200
+  });
+  assert.deepEqual(tryParseCheckpointCutoffFromDescription("Cutoff 10:30 from start"), {
+    mode: "elapsed_from_start",
+    seconds: 37_800
+  });
+  assert.equal(tryParseCheckpointCutoffFromDescription("Aid opens at 2:30 PM"), undefined);
+  assert.equal(tryParseCheckpointCutoffFromDescription("Cutoff 12:99"), undefined);
+});
+
+test("buildRaceCourseFromGpx carries waypoint description cutoffs into checkpoints", () => {
+  const gpxWithCutoffs = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.712776" lon="-74.005974">
+    <name>Aid 1</name>
+    <desc>Cutoff 2:00 PM</desc>
+  </wpt>
+  <wpt lat="40.722776" lon="-73.995974">
+    <name>Aid 2</name>
+    <desc>Time limit 3h 15m from start</desc>
+  </wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"><time>2026-04-29T12:00:00Z</time></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"><time>2026-04-29T12:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const parsed = parseGpxTrack(gpxWithCutoffs);
+  const { course } = buildRaceCourseFromGpx(parsed);
+
+  assert.deepEqual(course.checkpoints[0]?.cutoff, { mode: "time_of_day", hour: 14, minute: 0 });
+  assert.deepEqual(course.checkpoints[1]?.cutoff, {
+    mode: "elapsed_from_start",
+    seconds: 11_700
+  });
 });
 
 test("buildExpectedAidStationSplitsFromCourse computes checkpoint splits", () => {
