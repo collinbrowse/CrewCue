@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import { ingestPersistedRaceRoomInviteWithoutClobberForTests } from "./raceRooms.js";
+import type { RaceRoomInvite } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
   return {
@@ -307,6 +309,88 @@ test("rejects expired invite token", async () => {
     }
   });
   assert.equal(acceptResponse.statusCode, 410);
+
+  await app.close();
+});
+
+test("stale invite hydrate does not reopen an accepted invite", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-stale-invite"));
+  const inviteeToken = app.jwt.sign(buildClaims("invitee-stale-invite"));
+  const replayToken = app.jwt.sign(buildClaims("replay-stale-invite"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Invite hydrate room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites`,
+    payload: {
+      email: "Crew@Example.com",
+      role: "crew_member"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const issued = issueResponse.json() as {
+    token: string;
+    roomId: string;
+    email: string;
+    role: RaceRoomInvite["role"];
+    expiresAt: string;
+  };
+  const stalePendingInvite: RaceRoomInvite = {
+    ...issued,
+    status: "pending",
+    invitedBy: "owner-stale-invite",
+    invitedAt: "2026-08-15T13:00:00.000Z"
+  };
+
+  const accepted = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: { token: issued.token },
+    headers: { authorization: `Bearer ${inviteeToken}` }
+  });
+  assert.equal(accepted.statusCode, 200);
+
+  const liveAfterHydrate = ingestPersistedRaceRoomInviteWithoutClobberForTests(stalePendingInvite);
+  assert.equal(liveAfterHydrate.status, "accepted");
+  assert.equal(liveAfterHydrate.acceptedBy, "invitee-stale-invite");
+
+  const replayAccept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: { token: issued.token },
+    headers: { authorization: `Bearer ${replayToken}` }
+  });
+  assert.equal(replayAccept.statusCode, 409);
+  assert.match((replayAccept.json() as { error: string }).error, /not pending/);
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(listResponse.statusCode, 200);
+  const listed = listResponse.json() as { invites: RaceRoomInvite[] };
+  const listedInvite = listed.invites.find((invite) => invite.token === issued.token);
+  assert.equal(listedInvite?.status, "accepted");
+  assert.equal(listedInvite?.acceptedBy, "invitee-stale-invite");
 
   await app.close();
 });

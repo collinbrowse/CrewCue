@@ -414,6 +414,20 @@ export function ingestPersistedRaceRoomWithoutClobberForTests(room: RaceRoom): R
   return rememberRaceRoomIfAbsent(room);
 }
 
+function rememberRaceRoomInviteIfAbsent(invite: RaceRoomInvite): RaceRoomInvite {
+  const live = raceRoomInvites.get(invite.token);
+  if (live) {
+    return live;
+  }
+  raceRoomInvites.set(invite.token, invite);
+  return invite;
+}
+
+/** Test helper: simulate a late invite SELECT completing against the live cache. */
+export function ingestPersistedRaceRoomInviteWithoutClobberForTests(invite: RaceRoomInvite): RaceRoomInvite {
+  return rememberRaceRoomInviteIfAbsent(invite);
+}
+
 function mergeListedRaceRooms(
   persisted: readonly RaceRoom[],
   include: (room: RaceRoom) => boolean
@@ -474,12 +488,7 @@ async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefi
   if (!loaded) {
     return undefined;
   }
-  const live = raceRoomInvites.get(token);
-  if (live) {
-    return live;
-  }
-  raceRoomInvites.set(token, loaded);
-  return loaded;
+  return rememberRaceRoomInviteIfAbsent(loaded);
 }
 
 function toJoinPreview(room: RaceRoom): RaceRoomJoinPreview {

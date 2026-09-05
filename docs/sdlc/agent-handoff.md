@@ -11,32 +11,36 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-05 (UTC)
+- **Roadmap phase:** Test coverage automation follow-up on recent API race-room cache bug fixes.
+- **Branch / PR:** `cursor/missing-test-coverage-8c7a` -> PR pending.
+- **Active issue:** None created; this automation environment has read-only `gh` guidance and no issue-creation MCP tool.
+- **Acceptance criteria:** add focused deterministic tests for recent high-risk merged code without changing product behavior; run touched-area tests and root verify.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added API regression coverage for stale persisted invite hydrate snapshots so they cannot reopen an already accepted race-room invite.
+- Refactored invite cache hydration through `rememberRaceRoomInviteIfAbsent`, mirroring the existing room hydrate helper and preserving live accepted invite state.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge the invite hydrate coverage PR after CI is green.
+2. Continue coverage triage on future production-only bug fixes with API route/state races first.
+3. Revisit any remaining Strava/activity-history edge cases only if new code lands without tests.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test /workspace/services/api/dist/services/api/src/routes/raceRooms.test.js` - pass.
+- `npm run test:memory -w @crewcue/api` - pass (301 pass, 4 skipped).
+- `npm run verify` - pass.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- GitHub issue auto-close is not wired for this automation run because issue creation is unavailable in the configured toolset.
+- `npm ci` reported pre-existing dependency audit findings; no dependency changes were made.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review recent merged production-only PRs after invite hydrate coverage, prioritize API cache/persistence race edges, add one focused deterministic test, then run npm run verify.
 ```
