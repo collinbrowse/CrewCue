@@ -11,32 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-06 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing stabilization; regression coverage automation.
+- **Branch / PR:** `cursor/missing-test-coverage-strava-pagination-cap` → PR pending.
+- **Active next:** Merge this coverage PR after CI; continue the next daily sweep for production-only fixes without targeted tests.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added Strava activity sync pagination coverage for the safety page cap when every Strava page is full.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge `cursor/missing-test-coverage-strava-pagination-cap` after CI green.
+2. Continue coverage automation against recent API sync/idempotency and pacing estimate edges.
+3. Revisit issue creation workflow if a write-capable issue tool becomes available.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run build -w @crewcue/api && node --test services/api/dist/services/api/src/lib/strava/stravaClient.test.js` passed.
+- `npm run test:memory -w @crewcue/api` passed.
+- `npm run verify` passed.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- No pre-filed GitHub issue: this automation environment has read-only `gh` guidance and no issue-creation MCP tool.
+- Existing dependency audit findings remain from `npm ci`; not introduced by this test-only change.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review and merge the Strava pagination-cap coverage PR after CI. Next coverage sweep: inspect recent production-only API sync/idempotency changes and add one focused deterministic regression test where risk is highest.
 ```
