@@ -11,32 +11,34 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-07 (UTC)
+- **Roadmap phase:** Regression coverage automation.
+- **Branch / PR:** `cursor/missing-test-coverage-5ffa` -> #470.
+- **Active next:** Review/merge this coverage PR after CI is green.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added API regression coverage for stale persisted `/race-rooms/mine` list hydration after a newer live stop-plan write.
+- The test now proves the caller-visible room list retains the live `stopPlans` overlay before a subsequent write can mask stale-cache regressions.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge the coverage PR after CI is green.
+2. Continue cron coverage inspection on future recent merged production changes.
+3. Consider a separate API bug-fix issue for stale persisted list rows that no longer match live membership filters.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run test:memory -w @crewcue/api` passed.
+- `npm run verify` passed.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- No issue was created for this cron task because this automation environment has no configured issue-creation tool and `gh` is read-only here.
+- Potential follow-up: when persistence returns a stale member list row after a live membership removal, `/race-rooms/mine` may still include the stale persisted row; handle separately because it is a production behavior fix, not a pure coverage addition.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Continue regression coverage automation from main. Prioritize recent merged production changes; avoid duplicating stop-plan stale-cache coverage added on cursor/missing-test-coverage-5ffa.
 ```
