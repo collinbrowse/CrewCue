@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-07 (UTC)
 - **Roadmap phase:** Regression coverage automation.
-- **Branch / PR:** `cursor/missing-test-coverage-5ffa` -> PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-5ffa` -> #470.
 - **Active next:** Review/merge this coverage PR after CI is green.
 
 ## Completed
