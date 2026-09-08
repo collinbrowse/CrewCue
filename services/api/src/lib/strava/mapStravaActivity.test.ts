@@ -96,3 +96,20 @@ test("mapStravaActivityToHistoryRef accepts short and long runs with no distance
   assert.equal(short.distanceMeters, 400);
   assert.equal(long.distanceMeters, 80_000);
 });
+
+test("mapStravaActivityToHistoryRef uses moving_time when elapsed_time is absent", () => {
+  const ref = mapStravaActivityToHistoryRef({
+    id: 77,
+    distance: 12_000,
+    moving_time: 4_200,
+    total_elevation_gain: 350,
+    type: "TrailRun",
+    sport_type: "TrailRun",
+    start_date: "2026-05-01T12:00:00Z"
+  });
+
+  assert.equal(ref.externalId, "strava:77");
+  assert.equal(ref.elapsedSeconds, 4_200);
+  assert.equal(ref.distanceMeters, 12_000);
+  assert.equal(ref.elevationGainMeters, 350);
+});

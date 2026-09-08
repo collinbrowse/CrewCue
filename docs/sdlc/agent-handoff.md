@@ -11,32 +11,36 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-08 (UTC)
+- **Roadmap phase:** Crew schedule + AI pacing; Strava activity-history coverage hardening.
+- **Branch / PR:** `cursor/missing-test-coverage-cab6` → PR #471.
+- **Active next:** Open/merge coverage PR after CI; then continue daily recent-merge coverage review.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added API Strava unit coverage for `moving_time` fallback when `elapsed_time` is absent.
+- Added Strava activity pagination safety-cap coverage when every page is full.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge the Strava coverage PR after CI is green.
+2. Continue daily coverage review of newly merged production changes.
+3. If GitHub write tooling becomes available, create issues before implementation per workflow.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run build -w @crewcue/api`
+- `PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/lib/strava/mapStravaActivity.test.js services/api/dist/services/api/src/lib/strava/stravaClient.test.js`
+- `npm run test:memory -w @crewcue/api`
+- `npm run verify`
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- GitHub issue creation is unavailable in this automation environment (`gh` is read-only; no issue MCP tool).
+- `npm ci` reports existing dependency audit warnings; no dependencies were changed.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review/merge the Strava coverage PR. Next daily run should inspect new merged production changes and add only high-signal missing tests.
 ```
