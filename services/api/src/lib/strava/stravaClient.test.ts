@@ -188,6 +188,25 @@ test("listStravaAthleteActivitiesSince paginates with after lookback", async () 
   assert.equal(new URL(requested[1]!).searchParams.get("page"), "2");
 });
 
+test("listStravaAthleteActivitiesSince stops at the safety page cap", async () => {
+  const requestedPages: string[] = [];
+  const fetchImpl = mockFetch(async (url) => {
+    const parsed = new URL(url);
+    requestedPages.push(parsed.searchParams.get("page") ?? "");
+    return new Response(JSON.stringify([{ id: "a" }, { id: "b" }]), { status: 200 });
+  });
+
+  const items = await listStravaAthleteActivitiesSince(baseConfig(fetchImpl), "tok", {
+    nowSeconds: 1_700_000_000,
+    perPage: 2
+  });
+
+  assert.equal(items.length, 100);
+  assert.equal(requestedPages.length, 50);
+  assert.equal(requestedPages[0], "1");
+  assert.equal(requestedPages.at(-1), "50");
+});
+
 test("deauthorizeStravaAccess posts refresh token to /oauth/revoke with Basic auth", async () => {
   let seenUrl = "";
   let seenInit: RequestInit | undefined;
