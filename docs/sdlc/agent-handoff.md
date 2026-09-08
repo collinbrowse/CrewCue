@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-08 (UTC)
 - **Roadmap phase:** Crew schedule + AI pacing; Strava activity-history coverage hardening.
-- **Branch / PR:** `cursor/missing-test-coverage-cab6` → PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-cab6` → PR #471.
 - **Active next:** Open/merge coverage PR after CI; then continue daily recent-merge coverage review.
 
 ## Completed
