@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-09 (UTC)
 - **Roadmap phase:** Regression coverage automation over recent API race-condition fixes.
-- **Branch / PR:** `cursor/missing-test-coverage-a2a7` → PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-a2a7` → PR #472.
 - **Active next:** Open coverage PR, then keep scanning recent merged production fixes for untested edge cases.
 
 ## Completed
