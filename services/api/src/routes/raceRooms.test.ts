@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import { ingestPersistedRaceRoomsWithoutClobberForTests } from "./raceRooms.js";
+import type { RaceRoom } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
   return {
@@ -549,6 +551,115 @@ test("joins room by room code and creates membership", async () => {
   const joined = joinResponse.json() as { assignedRole: string; room: { memberships: Array<{ userId: string }> } };
   assert.equal(joined.assignedRole, "crew_member");
   assert.equal(joined.room.memberships.some((membership) => membership.userId === "joiner-user"), true);
+
+  await app.close();
+});
+
+test("stale list hydrate does not re-add a removed member", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-member-hydrate"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-member-hydrate"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-member-hydrate",
+      name: "Member hydrate room",
+      creatorName: "Owner User",
+      creatorRole: "athlete"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode?: string };
+  assert.ok(room.joinCode && /^\d{6}$/.test(room.joinCode), "create assigns 6-digit joinCode");
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const joinResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms/join-by-code",
+    payload: {
+      roomCode: room.joinCode
+    },
+    headers: {
+      authorization: `Bearer ${joinerToken}`
+    }
+  });
+  assert.equal(joinResponse.statusCode, 200);
+  const joined = joinResponse.json() as { room: RaceRoom };
+  assert.equal(
+    joined.room.memberships.some((membership) => membership.userId === "joiner-member-hydrate"),
+    true
+  );
+  const staleListSnapshot: RaceRoom = { ...joined.room, memberships: [...joined.room.memberships] };
+
+  const removeResponse = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${room.id}/members/joiner-member-hydrate`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(removeResponse.statusCode, 200);
+  const afterRemove = removeResponse.json() as { room: RaceRoom };
+  assert.equal(
+    afterRemove.room.memberships.some((membership) => membership.userId === "joiner-member-hydrate"),
+    false
+  );
+
+  // Late list continuation: a SELECT started before the member removal committed.
+  ingestPersistedRaceRoomsWithoutClobberForTests([staleListSnapshot]);
+
+  const secondRemoveResponse = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${room.id}/members/joiner-member-hydrate`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(secondRemoveResponse.statusCode, 404);
+
+  const joinerRoomsResponse = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: {
+      authorization: `Bearer ${joinerToken}`
+    }
+  });
+  assert.equal(joinerRoomsResponse.statusCode, 200);
+  const joinerRooms = joinerRoomsResponse.json() as { rooms: Array<{ id: string }> };
+  assert.equal(joinerRooms.rooms.some((visibleRoom) => visibleRoom.id === room.id), false);
+
+  const ownerRoomResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(ownerRoomResponse.statusCode, 200);
+  const ownerRoom = ownerRoomResponse.json() as { room: RaceRoom };
+  assert.equal(
+    ownerRoom.room.memberships.some((membership) => membership.userId === "joiner-member-hydrate"),
+    false
+  );
 
   await app.close();
 });

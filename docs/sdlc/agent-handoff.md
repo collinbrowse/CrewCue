@@ -11,32 +11,35 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-09 (UTC)
+- **Roadmap phase:** Regression coverage automation over recent API room-hydration fixes.
+- **Branch / PR:** `cursor/missing-test-coverage-a2a7` → PR #472.
+- **Active next:** Review PR #472 after CI, then keep scanning recent merged production fixes for untested edge cases.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added API regression coverage for PR #427/#460's list-hydrate race: a stale persisted room list cannot re-add a member after live removal.
+- Left production behavior unchanged; the test uses the existing `ingestPersistedRaceRoomsWithoutClobberForTests` helper.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge PR #472 after CI is green.
+2. Continue daily coverage scan for recent merged production-only bug fixes.
+3. Avoid duplicating open PR #468's invite-hydrate coverage; retarget future runs to unclaimed gaps.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test services/api/dist/services/api/src/routes/raceRooms.test.js`
+- `npm run test:memory -w @crewcue/api`
+- `npm run verify`
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- GitHub issue was not created: this automation environment documents `gh` as read-only and exposes no issue-creation MCP tool.
+- API-only coverage; no mobile UI or simulator validation required.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review PR #472 membership-removal hydrate coverage after CI passes. Then scan recent merged production fixes for the next unclaimed high-risk missing regression test; do not duplicate open PR #468 invite-hydrate coverage.
 ```
