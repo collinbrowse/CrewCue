@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import { ingestPersistedRaceRoomInviteWithoutClobberForTests } from "./raceRooms.js";
+import type { RaceRoomInvite } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
   return {
@@ -217,6 +219,129 @@ test("issues and accepts invite with role assignment", async () => {
     }
   });
   assert.equal(getResponse.statusCode, 200);
+
+  await app.close();
+});
+
+test("stale persisted invite hydrate does not reopen an accepted invite", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-invite-hydrate"));
+  const inviteeToken = app.jwt.sign(buildClaims("invitee-invite-hydrate"));
+  const replayToken = app.jwt.sign(buildClaims("replay-invite-hydrate"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Invite hydrate room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites`,
+    payload: {
+      email: "Crew@Example.com",
+      role: "crew_member"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const issued = issueResponse.json() as {
+    token: string;
+    roomId: string;
+    email: string;
+    role: RaceRoomInvite["role"];
+    expiresAt: string;
+  };
+
+  const acceptResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: {
+      token: issued.token
+    },
+    headers: {
+      authorization: `Bearer ${inviteeToken}`
+    }
+  });
+  assert.equal(acceptResponse.statusCode, 200);
+
+  const stalePendingInvite: RaceRoomInvite = {
+    token: issued.token,
+    roomId: issued.roomId,
+    email: issued.email,
+    role: issued.role,
+    expiresAt: issued.expiresAt,
+    status: "pending",
+    invitedBy: "owner-invite-hydrate",
+    invitedAt: "2026-01-01T00:00:00.000Z"
+  };
+  const liveAfterHydrate = ingestPersistedRaceRoomInviteWithoutClobberForTests(stalePendingInvite);
+  assert.equal(liveAfterHydrate.status, "accepted");
+  assert.equal(liveAfterHydrate.acceptedBy, "invitee-invite-hydrate");
+
+  const replayAccept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: {
+      token: issued.token
+    },
+    headers: {
+      authorization: `Bearer ${replayToken}`
+    }
+  });
+  assert.equal(replayAccept.statusCode, 409);
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/invites`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(listResponse.statusCode, 200);
+  const listed = listResponse.json() as { invites: RaceRoomInvite[] };
+  assert.equal(listed.invites.length, 1);
+  assert.equal(listed.invites[0]?.status, "accepted");
+  assert.equal(listed.invites[0]?.acceptedBy, "invitee-invite-hydrate");
+
+  const roomResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}`,
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(roomResponse.statusCode, 200);
+  const roomBody = roomResponse.json() as { room: { memberships: Array<{ userId: string }> } };
+  assert.equal(roomBody.room.memberships.some((member) => member.userId === "invitee-invite-hydrate"), true);
+  assert.equal(roomBody.room.memberships.some((member) => member.userId === "replay-invite-hydrate"), false);
 
   await app.close();
 });
