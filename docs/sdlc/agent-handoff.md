@@ -12,20 +12,20 @@
 ## Session status snapshot
 
 - Last updated: 2026-09-09 (UTC)
-- **Roadmap phase:** Regression coverage automation over recent API race-condition fixes.
+- **Roadmap phase:** Regression coverage automation over recent API room-hydration fixes.
 - **Branch / PR:** `cursor/missing-test-coverage-a2a7` → PR #472.
-- **Active next:** Open coverage PR, then keep scanning recent merged production fixes for untested edge cases.
+- **Active next:** Review PR #472 after CI, then keep scanning recent merged production fixes for untested edge cases.
 
 ## Completed
 
-- Added API regression coverage for PR #460's invite-cache hydrate race: a stale persisted pending invite cannot reopen an already accepted invite.
-- Added a test-only helper that mirrors the live invite hydrate await/recheck path without changing production behavior.
+- Added API regression coverage for PR #427/#460's list-hydrate race: a stale persisted room list cannot re-add a member after live removal.
+- Left production behavior unchanged; the test uses the existing `ingestPersistedRaceRoomsWithoutClobberForTests` helper.
 
 ## Next 1-3 tasks
 
-1. Merge the coverage PR after CI is green.
+1. Merge PR #472 after CI is green.
 2. Continue daily coverage scan for recent merged production-only bug fixes.
-3. Revisit stale persisted member-list hydration after live membership removal if a behavior fix is needed before tests.
+3. Avoid duplicating open PR #468's invite-hydrate coverage; retarget future runs to unclaimed gaps.
 
 ## Validation evidence
 
@@ -41,5 +41,5 @@
 ## Successor prompt
 
 ```text
-Review and merge the invite hydrate coverage PR after CI passes. Then scan recent merged production fixes for the next highest-risk missing regression test, especially member-list hydration removal behavior.
+Review PR #472 membership-removal hydrate coverage after CI passes. Then scan recent merged production fixes for the next unclaimed high-risk missing regression test; do not duplicate open PR #468 invite-hydrate coverage.
 ```

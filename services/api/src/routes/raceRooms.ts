@@ -414,16 +414,6 @@ export function ingestPersistedRaceRoomWithoutClobberForTests(room: RaceRoom): R
   return rememberRaceRoomIfAbsent(room);
 }
 
-/** Test helper: simulate a late invite SELECT completing against the live cache. */
-export function ingestPersistedRaceRoomInviteWithoutClobberForTests(invite: RaceRoomInvite): RaceRoomInvite {
-  const live = raceRoomInvites.get(invite.token);
-  if (live) {
-    return live;
-  }
-  raceRoomInvites.set(invite.token, invite);
-  return invite;
-}
-
 function mergeListedRaceRooms(
   persisted: readonly RaceRoom[],
   include: (room: RaceRoom) => boolean
