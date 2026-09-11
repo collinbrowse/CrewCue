@@ -11,32 +11,38 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Pace UX (#456); GPX progress (#454 / PR #455) still open; micro-model stash pending.
-- **Branch / PR:** `feature/pace-time-remaining-from-race-start` → #456.
-- **Active next:** Open/merge PR for #456; then #455 / physiology stash.
+- Last updated: 2026-09-11 (UTC)
+- **Roadmap phase:** Test coverage automation for recent merged API/mobile-facing changes.
+- **Branch / PR:** `cursor/missing-test-coverage-ff3a` -> PR pending.
+- **Active issue:** No pre-filed issue; this environment has read-only `gh` guidance and no issue-creation MCP tool.
+- **Acceptance:** Inspect recent merged code, add high-signal deterministic tests for a meaningful uncovered risk, avoid production behavior changes, and validate focused/API/root targets.
+- **Guardrails:** Do not duplicate open PR #468/#472 invite-hydrate coverage; no mobile UI, contract, schema, or production route changes in this coverage PR.
 
 ## Completed
 
-- #456: Pace aid **Time remaining** uses elapsed from race start (not now→ETA countdown).
+- Added metrics-only `/activity-history` route regression coverage for unauthenticated requests, wrong `athleteUserId`, invalid numeric values, and strict-schema unknown fields.
+- Confirmed rejected metrics-only writes leave the activity-history store empty.
+- Reviewed recent merged PRs and skipped already-covered/open-owned race-room invite hydrate paths.
 
 ## Next 1-3 tasks
 
-1. Merge PR for #456 after CI green.
-2. Merge #455 (GPX progress bar) if still open.
-3. Restore micro-model calibration stash on physiology branch.
+1. Merge the metrics-only activity-history validation coverage PR after CI is green.
+2. Continue deconflicting with open coverage PRs (#467-#472) before touching overlapping API test files.
+3. After open coverage PRs settle, revisit remaining activity-history edge cases such as invalid `recordedAt` error mapping if still untested.
 
 ## Validation evidence
 
-- Timeline unit test for `paceTimeRemainingFromRaceStartLabel`.
-- Sim Pace: CP2 Est. arrival 6:54 AM, race start 6:00 AM, Time remaining **54m** (matches start→aid, not wall clock 2:58).
+- `npm run build -w @crewcue/api && PERSISTENCE_MODE=memory node --test /workspace/services/api/dist/services/api/src/routes/activityHistory.test.js` -> pass (12/12).
+- `npm run test:memory -w @crewcue/api` -> pass (301 pass, 4 skipped).
+- `npm run verify` -> pass.
 
 ## Open risks/blockers
 
-- XcodeBuildMCP `tap` still unavailable; deeplink + screenshot used for Pace proof.
+- GitHub issue was not created because `gh` is read-only in this automation environment and no issue-creation MCP tool is configured.
+- Mobile simulator proof is N/A: API test-only change under `services/api/**`.
 
 ## Successor prompt
 
 ```text
-Merge PRs for #456 and #455. Then restore stash on feature/physiology-micro-model-estimator for calibration.
+Review recent merged code after #467-#472 settle; avoid owned paths, add one focused deterministic regression test for the highest-risk uncovered API/client utility edge, then run focused tests plus npm run verify.
 ```
