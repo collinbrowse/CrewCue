@@ -1,8 +1,9 @@
 /**
  * Physiology micro-model constants (proposed for product approval).
  *
- * Cold-start grade-adjusted pace: 10:00 per mile.
- * Surface complexity C_i is fixed at 1.0 until a reliable map surface source exists.
+ * Cold-start grade-adjusted pace: 10:00 per mile (true flat GAP).
+ * History-backed estimates treat summary pace as already trail-inclusive and only
+ * apply a fraction of grade/altitude cost (avoids double-counting hills).
  *
  * Scenario bands are three deterministic re-sims (not finish-time ratio stretch).
  */
@@ -16,7 +17,7 @@ export const METERS_PER_KILOMETER = 1000;
 /** Target micro-segment length along the route (meters). */
 export const MICRO_SEGMENT_TARGET_METERS = 100;
 
-/** Surface complexity — always 1 until a better data source exists. */
+/** Surface complexity — always 1 until a reliable map surface source exists. */
 export const SURFACE_COMPLEXITY = 1;
 
 /**
@@ -29,7 +30,15 @@ export const ALTITUDE_PENALTY_PER_300M = 0.01;
 /** Technical downhill grade threshold (rise/run); steeper than this adds a braking penalty. */
 export const TECHNICAL_DOWNHILL_GRADE = -0.15;
 /** Extra cost multiplier on top of M(g) when grade < TECHNICAL_DOWNHILL_GRADE. */
-export const TECHNICAL_DOWNHILL_EXTRA = 1.12;
+export const TECHNICAL_DOWNHILL_EXTRA = 1.08;
+
+/**
+ * How much of the grade/altitude cost model to apply beyond the baseline pace.
+ * 1 = full model (cold-start true GAP). History summaries already include typical
+ * trail cost, so we blend toward 1.0 to avoid double-counting hills/altitude.
+ */
+export const GRADE_COST_BLEND_COLD_START = 0.55;
+export const GRADE_COST_BLEND_HISTORY = 0.22;
 
 /**
  * Default terrain efficiency E(g) = 1 (no athlete-specific fit; training summaries only).

@@ -1,12 +1,12 @@
 {
   "policy": {
-    "description": "Three deterministic micro-model scenario re-sims (not finish-time ratio stretch). Surface C_i=1; cold-start GAP 10:00/mi.",
+    "description": "Three deterministic micro-model scenario re-sims (not finish-time ratio stretch). Surface C_i=1; cold-start GAP 10:00/mi. History pace is trail-inclusive with dampened grade/altitude.",
     "bandMethod": "scenario_resim",
     "conservative": "GAP×1.06, γ1×1.35, γ2×1.4, altitude penalty×1.15",
     "aggressive": "GAP×0.94, γ1×0.75, γ2×0.7, altitude penalty×0.9",
     "expected": "Primary finish — equal to expectedFinishElapsedSeconds / expectedFinishAt",
     "ordering": "conservative.finishElapsedSeconds >= expected.finishElapsedSeconds >= aggressive.finishElapsedSeconds",
-    "coldStart": "Same scenario knobs; expected finish uses GAP 10:00/mi + course mesh/fatigue",
+    "coldStart": "Same scenario knobs; expected finish uses GAP 10:00/mi + soft grade blend + course mesh/fatigue",
     "scheduleBaseline": "Crew schedule moving-time / plan-of-record uses expected finish only; bands are informational.",
     "seed": "crewcue-pacing-v1",
     "raceStartAt": "2026-08-15T13:00:00.000Z",
@@ -14,43 +14,45 @@
     "historyFixture": "schedule-expected.json → historyRefs[0] (hist-long-trail)"
   },
   "historyBacked": {
-    "id": "est_7f7c9f1ed5fbf245",
+    "id": "est_0226dde9e64d627a",
     "coldStart": false,
-    "expectedFinishAt": "2026-08-15T19:49:03.000Z",
-    "expectedFinishElapsedSeconds": 24543,
+    "expectedFinishAt": "2026-08-15T19:43:00.000Z",
+    "expectedFinishElapsedSeconds": 24180,
     "bands": {
       "conservative": {
-        "finishAt": "2026-08-15T20:14:42.000Z",
-        "finishElapsedSeconds": 26082
+        "finishAt": "2026-08-15T20:08:16.000Z",
+        "finishElapsedSeconds": 25696
       },
       "expected": {
-        "finishAt": "2026-08-15T19:49:03.000Z",
-        "finishElapsedSeconds": 24543
+        "finishAt": "2026-08-15T19:43:00.000Z",
+        "finishElapsedSeconds": 24180
       },
       "aggressive": {
-        "finishAt": "2026-08-15T19:23:48.000Z",
-        "finishElapsedSeconds": 23028
+        "finishAt": "2026-08-15T19:18:08.000Z",
+        "finishElapsedSeconds": 22688
       }
     },
-    "historyRefIds": ["hist-long-trail"]
+    "historyRefIds": [
+      "hist-long-trail"
+    ]
   },
   "coldStart": {
-    "id": "est_deb6a55f3446f2b5",
+    "id": "est_75393116f14516a0",
     "coldStart": true,
-    "expectedFinishAt": "2026-08-15T18:17:43.000Z",
-    "expectedFinishElapsedSeconds": 19063,
+    "expectedFinishAt": "2026-08-15T18:13:41.000Z",
+    "expectedFinishElapsedSeconds": 18821,
     "bands": {
       "conservative": {
-        "finishAt": "2026-08-15T18:37:38.000Z",
-        "finishElapsedSeconds": 20258
+        "finishAt": "2026-08-15T18:33:22.000Z",
+        "finishElapsedSeconds": 20002
       },
       "expected": {
-        "finishAt": "2026-08-15T18:17:43.000Z",
-        "finishElapsedSeconds": 19063
+        "finishAt": "2026-08-15T18:13:41.000Z",
+        "finishElapsedSeconds": 18821
       },
       "aggressive": {
-        "finishAt": "2026-08-15T17:58:06.000Z",
-        "finishElapsedSeconds": 17886
+        "finishAt": "2026-08-15T17:54:20.000Z",
+        "finishElapsedSeconds": 17660
       }
     }
   }
