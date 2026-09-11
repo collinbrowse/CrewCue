@@ -50,11 +50,13 @@ test("buildCourseMicroSegments creates ~100m chunks", () => {
   assert.ok(segments.some((s) => s.grade > 0));
 });
 
-test("runner profile cold-start vs history", () => {
+test("runner profile cold-start vs history (C4: full grade model applied both ways)", () => {
   const cold = buildRunnerProfile({ history: [], courseDistanceMeters: 50000 });
   assert.equal(cold.coldStart, true);
   assert.ok(Math.abs(cold.gapSecondsPerMeter - coldStartGapSecondsPerMeter()) < 1e-12);
-  assert.ok(cold.gradeCostBlend > 0.4);
+  // C4 (#483): full physiological grade model applies to both cold start and history.
+  assert.equal(cold.gradeCostBlend, 1);
+  assert.equal(cold.enduranceFactor, 1);
 
   const hist = buildRunnerProfile({
     courseDistanceMeters: 50000,
@@ -72,38 +74,79 @@ test("runner profile cold-start vs history", () => {
   });
   assert.equal(hist.coldStart, false);
   assert.ok(hist.gapSecondsPerMeter < cold.gapSecondsPerMeter);
-  assert.ok(hist.gradeCostBlend < cold.gradeCostBlend);
+  // Both blends are 1.0 now that C1 removes the double-counting the old damping compensated for.
+  assert.equal(hist.gradeCostBlend, 1);
+  assert.equal(cold.gradeCostBlend, hist.gradeCostBlend);
 });
 
-test("history-backed hilly course is less pessimistic than full grade on trail pace", () => {
-  const points = [];
-  for (let i = 0; i <= 40; i++) {
-    points.push({
-      latitude: 39.5 + i * 0.0009,
-      longitude: -106.5,
-      elevationMeters: 2000 + i * 15
-    });
-  }
-  const segments = buildCourseMicroSegments(points);
-  const trailPace = 0.45; // ~12:00/mi wall-clock already includes hills
-  const hist = buildRunnerProfile({
+test("C1: elevation gain lowers the flat-equivalent GAP below raw trail pace", () => {
+  const trailPace = 0.45; // wall-clock s/m over a hilly effort
+  const flat = buildRunnerProfile({
     courseDistanceMeters: 50000,
     history: [
       {
-        id: "trail",
+        id: "flat",
         source: "gpx_upload",
-        externalId: "t1",
+        externalId: "f1",
         recordedAt: "2026-01-01T00:00:00.000Z",
         ingestedAt: "2026-01-02T00:00:00.000Z",
         distanceMeters: 40000,
         elapsedSeconds: 40000 * trailPace
+        // no elevationGainMeters -> treated as already flat
       }
     ]
   });
-  const fullGrade = { ...hist, gradeCostBlend: 1 };
-  const withBlend = runScenarioSims({ segments, profile: hist }).expected.state.elapsedSeconds;
-  const withoutBlend = runScenarioSims({ segments, profile: fullGrade }).expected.state.elapsedSeconds;
-  assert.ok(withBlend < withoutBlend * 0.92, "blend should cut double-counted climb cost");
+  // Same pace + distance but 1200 m of climb: the climb is charged as flat-equivalent distance,
+  // so the flat-equivalent GAP is faster than the raw trail pace.
+  const hilly = buildRunnerProfile({
+    courseDistanceMeters: 50000,
+    history: [
+      {
+        id: "hilly",
+        source: "gpx_upload",
+        externalId: "h1",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        ingestedAt: "2026-01-02T00:00:00.000Z",
+        distanceMeters: 40000,
+        elapsedSeconds: 40000 * trailPace,
+        elevationGainMeters: 1200
+      }
+    ]
+  });
+  assert.ok(Math.abs(flat.gapSecondsPerMeter - trailPace) < 1e-9);
+  assert.ok(hilly.gapSecondsPerMeter < trailPace);
+  assert.ok(hilly.gapSecondsPerMeter < flat.gapSecondsPerMeter);
+});
+
+test("C2: longer-than-typical course raises the endurance factor above 1", () => {
+  const twentyK = {
+    id: "20k",
+    source: "gpx_upload" as const,
+    externalId: "e1",
+    recordedAt: "2026-01-01T00:00:00.000Z",
+    ingestedAt: "2026-01-02T00:00:00.000Z",
+    distanceMeters: 20000,
+    elapsedSeconds: 20000 * 0.4
+  };
+  const hundredMiles = buildRunnerProfile({ history: [twentyK], courseDistanceMeters: 160934 });
+  const similarLength = buildRunnerProfile({ history: [twentyK], courseDistanceMeters: 20000 });
+  assert.ok(hundredMiles.enduranceFactor > 1.3, "100 mi from 20 km history should scale pace up");
+  assert.equal(similarLength.enduranceFactor, 1);
+});
+
+test("C3+C4: hilly course is slower than an equal-length flat course for the same profile", () => {
+  const flatPoints = [];
+  const hillyPoints = [];
+  for (let i = 0; i <= 40; i++) {
+    flatPoints.push({ latitude: 39.5 + i * 0.0009, longitude: -106.5, elevationMeters: 2000 });
+    hillyPoints.push({ latitude: 39.5 + i * 0.0009, longitude: -106.5, elevationMeters: 2000 + i * 15 });
+  }
+  const flatSegments = buildCourseMicroSegments(flatPoints);
+  const hillySegments = buildCourseMicroSegments(hillyPoints);
+  const profile = buildRunnerProfile({ history: [], courseDistanceMeters: 50000 });
+  const flatFinish = runScenarioSims({ segments: flatSegments, profile }).expected.state.elapsedSeconds;
+  const hillyFinish = runScenarioSims({ segments: hillySegments, profile }).expected.state.elapsedSeconds;
+  assert.ok(hillyFinish > flatFinish, "full grade model should make the climb cost time");
 });
 
 test("100–250 mi course can use weekday training when no ultra-length history exists", () => {

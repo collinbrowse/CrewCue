@@ -33,12 +33,47 @@ export const TECHNICAL_DOWNHILL_GRADE = -0.15;
 export const TECHNICAL_DOWNHILL_EXTRA = 1.08;
 
 /**
- * How much of the grade/altitude cost model to apply beyond the baseline pace.
- * 1 = full model (cold-start true GAP). History summaries already include typical
- * trail cost, so we blend toward 1.0 to avoid double-counting hills/altitude.
+ * Restored physiological relative grade cost M(g) = cost(g)/cost(flat), g = rise/run.
+ * Separate uphill/downhill quadratics (running is asymmetric): uphill costs rise steeply,
+ * shallow downhill is cheaper than flat (energy return) before eccentric braking dominates.
+ *
+ *   uphill  (g ≥ 0): 1 + 1.7·g + 13·g²   → +12% @5%, +30% @10%, +55% @15%
+ *   downhill (g < 0): 1 + 2.4·g + 12·g²  → ~0.88 min near −10%, back to ~1 by −20%
+ *
+ * C1 removes the athlete's own training terrain from GAP (flat-equivalent), so the full model is
+ * applied on the course (blend 1.0) without double-counting — see #483 / pacing-accuracy-program.md.
  */
-export const GRADE_COST_BLEND_COLD_START = 0.55;
-export const GRADE_COST_BLEND_HISTORY = 0.22;
+export const MINETTI_UPHILL_LINEAR = 1.7;
+export const MINETTI_UPHILL_QUADRATIC = 13;
+export const MINETTI_DOWNHILL_LINEAR = 2.4;
+export const MINETTI_DOWNHILL_QUADRATIC = 12;
+/** Floor on the relative grade cost (very steep downhill never becomes free). */
+export const GRADE_COST_MIN_MULTIPLIER = 0.7;
+
+/**
+ * How much of the grade/altitude cost model to apply beyond the baseline pace.
+ * Both are 1.0 (full model): C1 derives a flat-equivalent GAP from summary distance + gain, so the
+ * course grade/altitude model no longer double-counts terrain baked into history pace. The blend
+ * plumbing is retained for a future athlete-specific slope-efficiency E(g).
+ */
+export const GRADE_COST_BLEND_COLD_START = 1.0;
+export const GRADE_COST_BLEND_HISTORY = 1.0;
+
+/**
+ * C1 — flat-equivalent GAP from summary elevation. Treat each meter of climb in a history summary
+ * as this many meters of flat-equivalent distance, so the athlete's baseline pace is decoupled from
+ * the terrain of the runs it was measured on: flatEquivPace = Σ elapsed / Σ (distance + c·gain).
+ * ≈ average (M(g)−1)/g over typical 8–12% climbs; provisional pending field re-derivation.
+ */
+export const GAIN_FLAT_EQUIVALENT_METERS_PER_METER = 4.0;
+
+/**
+ * C2 — Riegel endurance scaling. Predicted time T2 = T1·(D2/D1)^k, so the pace factor over a course
+ * longer than the athlete's reference distance is (D_course/D_ref)^(k−1). This exponent is (k−1);
+ * 0.19 gives ≈1.5× at 100 mi from a 20 km reference (the textbook 1.06 → only ~1.13× is too small
+ * now that fatigue is shape-only). Only scales up (never predicts faster than the reference pace).
+ */
+export const RIEGEL_ENDURANCE_PACE_EXPONENT = 0.19;
 
 /**
  * Default terrain efficiency E(g) = 1 (no athlete-specific fit; training summaries only).
@@ -47,9 +82,10 @@ export const GRADE_COST_BLEND_HISTORY = 0.22;
 export const DEFAULT_TERRAIN_EFFICIENCY = 1;
 
 /**
- * Fatigue: P = P0 × (1 + γ1 · W_cum + γ2 · D_down).
+ * Fatigue SHAPE: P ∝ (1 + γ1 · W_cum + γ2 · D_down). C3 renormalizes this across the course so it
+ * only redistributes the endurance-scaled total (later segments slower, earlier faster) and does
+ * NOT inflate the finish time — endurance (C2) owns the total, γ owns the shape, M(g) owns terrain.
  * W_cum accumulates relative energy cost × distance (m); D_down accumulates descent impact (m).
- * Tuned so a 50 km / ~1500 m gain effort adds on the order of ~8–12% late-race slowdown.
  */
 export const FATIGUE_GAMMA1_PER_METER_WORK = 2.5e-7;
 export const FATIGUE_GAMMA2_PER_METER_DESCENT = 4e-5;

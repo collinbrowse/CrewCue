@@ -207,7 +207,7 @@ export function estimatePacingMicroModelWithArtifacts(
   const aids = selectAidCheckpoints(checkpoints, courseDistance);
   const aidEtas: PacingAidEta[] = aids.map((cp) => {
     const elapsedSeconds = expectedElapsedByCp.get(cp.id) ?? roundElapsed(
-      (cp.distanceMetersFromStart as number) * profile.gapSecondsPerMeter
+      (cp.distanceMetersFromStart as number) * profile.gapSecondsPerMeter * profile.enduranceFactor
     );
     return {
       checkpointId: cp.id,

@@ -4,6 +4,11 @@
 import {
   ALTITUDE_PENALTY_PER_300M,
   ALTITUDE_PENALTY_START_METERS,
+  GRADE_COST_MIN_MULTIPLIER,
+  MINETTI_DOWNHILL_LINEAR,
+  MINETTI_DOWNHILL_QUADRATIC,
+  MINETTI_UPHILL_LINEAR,
+  MINETTI_UPHILL_QUADRATIC,
   TECHNICAL_DOWNHILL_EXTRA,
   TECHNICAL_DOWNHILL_GRADE
 } from "./constants.js";
@@ -43,13 +48,18 @@ export type SimulationResult = {
 };
 
 /**
- * Softer running-oriented relative cost vs flat (g = rise/run).
- * Full Minetti walking polynomials were over-penalizing early-race climbs.
+ * Physiological relative running cost vs flat (g = rise/run), restored in C4 (#483).
+ * Asymmetric uphill/downhill quadratics: uphill rises steeply; shallow downhill is cheaper than
+ * flat before eccentric braking dominates. C1's flat-equivalent GAP means this full curve applies
+ * without double-counting the terrain already in history pace.
  */
 export function minettiRelativeCost(grade: number): number {
   const g = Math.max(-0.45, Math.min(0.45, grade));
-  // Milder than classic Minetti walk curve: ~+18% at 10% grade, ~+35% at 15%.
-  return Math.max(0.7, 1 + 1.5 * g + 3.5 * g * g + 6 * g * g * g);
+  const relative =
+    g >= 0
+      ? 1 + MINETTI_UPHILL_LINEAR * g + MINETTI_UPHILL_QUADRATIC * g * g
+      : 1 + MINETTI_DOWNHILL_LINEAR * g + MINETTI_DOWNHILL_QUADRATIC * g * g;
+  return Math.max(GRADE_COST_MIN_MULTIPLIER, relative);
 }
 
 export function altitudeFactor(altitudeMeters: number, penaltyMultiplier = 1): number {
@@ -77,31 +87,34 @@ export function gradeCostMultiplier(
   }
   const blend = Math.max(0, Math.min(1, gradeCostBlend));
   const blended = 1 + (m - 1) * blend;
-  return Math.max(0.7, blended);
+  return Math.max(GRADE_COST_MIN_MULTIPLIER, blended);
 }
 
-function segmentDurationSeconds(input: {
+/**
+ * Per-segment terrain-adjusted base duration (endurance-scaled, no fatigue) and the fatigue SHAPE
+ * multiplier at the segment's cumulative state. C3 keeps these separate so fatigue can be
+ * renormalized to redistribute the total rather than inflate it.
+ */
+function segmentComponents(input: {
   segment: CourseMicroSegment;
   profile: RunnerProfile;
   knobs: ScenarioKnobs;
   state: SimulationState;
-}): { duration: number; workAdd: number; descentAdd: number } {
+}): { baseDuration: number; fatigue: number; workAdd: number; descentAdd: number } {
   const { segment, profile, knobs, state } = input;
   const mGrade = gradeCostMultiplier(segment.grade, profile.terrainEfficiency, profile.gradeCostBlend);
   const fAltRaw = altitudeFactor(segment.altitudeMeters, knobs.altitudePenaltyMultiplier);
   const fAlt = 1 + (fAltRaw - 1) * profile.gradeCostBlend;
   const c = Math.max(1, segment.surfaceComplexity);
-  const gapSpm = profile.gapSecondsPerMeter * knobs.gapMultiplier;
-  const vBase = 1 / gapSpm;
-  const vSegmentBase = vBase / (mGrade * c * Math.max(0.7, fAlt));
+  // C2: endurance scales the baseline pace toward the course distance.
+  const gapSpm = profile.gapSecondsPerMeter * profile.enduranceFactor * knobs.gapMultiplier;
+  const baseDuration = gapSpm * mGrade * c * Math.max(GRADE_COST_MIN_MULTIPLIER, fAlt) * segment.deltaXMeters;
   const gamma1 = profile.gamma1 * knobs.gamma1Multiplier;
   const gamma2 = profile.gamma2 * knobs.gamma2Multiplier;
-  const fatigue = 1 + gamma1 * state.workCum + gamma2 * state.descentCum;
-  const paceSpm = (1 / Math.max(0.2, vSegmentBase)) * Math.max(1, fatigue);
-  const duration = paceSpm * segment.deltaXMeters;
+  const fatigue = Math.max(1, 1 + gamma1 * state.workCum + gamma2 * state.descentCum);
   const workAdd = mGrade * segment.deltaXMeters;
   const descentAdd = Math.max(0, -segment.grade) * segment.deltaXMeters;
-  return { duration, workAdd, descentAdd };
+  return { baseDuration, fatigue, workAdd, descentAdd };
 }
 
 /**
@@ -116,7 +129,7 @@ export function simulateMovingTime(input: {
   initialState?: SimulationState;
 }): SimulationResult {
   const fromDistance = Math.max(0, input.fromDistanceMeters ?? 0);
-  let state: SimulationState = input.initialState
+  const state: SimulationState = input.initialState
     ? { ...input.initialState }
     : { workCum: 0, descentCum: 0, elapsedSeconds: 0 };
 
@@ -125,7 +138,7 @@ export function simulateMovingTime(input: {
     for (const segment of input.segments) {
       const endMeters = segment.startMeters + segment.deltaXMeters;
       if (endMeters <= fromDistance + 1e-6) {
-        const partial = segmentDurationSeconds({
+        const partial = segmentComponents({
           segment,
           profile: input.profile,
           knobs: input.knobs,
@@ -133,7 +146,7 @@ export function simulateMovingTime(input: {
         });
         state.workCum += partial.workAdd;
         state.descentCum += partial.descentAdd;
-        state.elapsedSeconds += partial.duration;
+        state.elapsedSeconds += partial.baseDuration * partial.fatigue;
       } else if (segment.startMeters < fromDistance) {
         const frac = (fromDistance - segment.startMeters) / segment.deltaXMeters;
         const clipped: CourseMicroSegment = {
@@ -141,7 +154,7 @@ export function simulateMovingTime(input: {
           deltaXMeters: fromDistance - segment.startMeters,
           deltaZMeters: segment.deltaZMeters * frac
         };
-        const partial = segmentDurationSeconds({
+        const partial = segmentComponents({
           segment: clipped,
           profile: input.profile,
           knobs: input.knobs,
@@ -149,20 +162,25 @@ export function simulateMovingTime(input: {
         });
         state.workCum += partial.workAdd;
         state.descentCum += partial.descentAdd;
-        state.elapsedSeconds += partial.duration;
+        state.elapsedSeconds += partial.baseDuration * partial.fatigue;
       }
     }
     // Elapsed at resume is "actual" only when caller sets initialState; for warm-up we keep model elapsed.
   }
 
-  const results: SegmentPaceResult[] = [];
-  const curve: SimulationResult["distanceElapsedCurve"] = [
-    {
-      distanceMetersFromStart: fromDistance,
-      referenceElapsedSeconds: state.elapsedSeconds
-    }
-  ];
-
+  // Pass 1: per-segment endurance-scaled terrain base duration + fatigue shape, accumulating the raw
+  // fatigue state (work/descent). Fatigue is not applied to state yet, so accumulation stays exact.
+  type EmittedSegment = {
+    index: number;
+    startMeters: number;
+    endMeters: number;
+    deltaXMeters: number;
+    baseDuration: number;
+    fatigue: number;
+  };
+  const emitted: EmittedSegment[] = [];
+  let baseTotal = 0;
+  let fatiguedTotal = 0;
   for (const segment of input.segments) {
     const endMeters = segment.startMeters + segment.deltaXMeters;
     if (endMeters <= fromDistance + 1e-6) {
@@ -180,7 +198,7 @@ export function simulateMovingTime(input: {
       };
     }
 
-    const { duration, workAdd, descentAdd } = segmentDurationSeconds({
+    const { baseDuration, fatigue, workAdd, descentAdd } = segmentComponents({
       segment: seg,
       profile: input.profile,
       knobs: input.knobs,
@@ -188,17 +206,44 @@ export function simulateMovingTime(input: {
     });
     state.workCum += workAdd;
     state.descentCum += descentAdd;
+    baseTotal += baseDuration;
+    fatiguedTotal += baseDuration * fatigue;
+    emitted.push({
+      index: seg.index,
+      startMeters: seg.startMeters,
+      endMeters: seg.startMeters + seg.deltaXMeters,
+      deltaXMeters: seg.deltaXMeters,
+      baseDuration,
+      fatigue
+    });
+  }
+
+  // C3 (#483): renormalize fatigue so it only redistributes the endurance-scaled terrain total
+  // (baseTotal) across the course — later segments slower, earlier faster — without inflating the
+  // finish. Endurance (C2) owns the total; γ owns the shape.
+  const fatigueNorm = fatiguedTotal > 0 ? baseTotal / fatiguedTotal : 1;
+
+  const results: SegmentPaceResult[] = [];
+  const curve: SimulationResult["distanceElapsedCurve"] = [
+    {
+      distanceMetersFromStart: fromDistance,
+      referenceElapsedSeconds: state.elapsedSeconds
+    }
+  ];
+  // Pass 2: apply renormalized fatigue to build per-segment results and the distance/elapsed curve.
+  for (const seg of emitted) {
+    const duration = seg.baseDuration * seg.fatigue * fatigueNorm;
     state.elapsedSeconds += duration;
     results.push({
       segmentIndex: seg.index,
       startMeters: seg.startMeters,
-      endMeters: seg.startMeters + seg.deltaXMeters,
+      endMeters: seg.endMeters,
       durationSeconds: duration,
-      paceSecondsPerMeter: duration / seg.deltaXMeters,
+      paceSecondsPerMeter: seg.deltaXMeters > 0 ? duration / seg.deltaXMeters : 0,
       elapsedAtEndSeconds: state.elapsedSeconds
     });
     curve.push({
-      distanceMetersFromStart: seg.startMeters + seg.deltaXMeters,
+      distanceMetersFromStart: seg.endMeters,
       referenceElapsedSeconds: state.elapsedSeconds
     });
   }
