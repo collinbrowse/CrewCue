@@ -414,6 +414,57 @@ test("list/get are scoped to the authenticated athlete", async () => {
   });
 });
 
+test("POST /activity-history metrics-only rejects authz and invalid payloads without storing rows", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const validMetricsPayload = {
+      externalId: "metrics-validation",
+      recordedAt: "2026-05-10T15:30:00.000Z",
+      distanceMeters: 10000,
+      elapsedSeconds: 3600,
+      elevationGainMeters: 120
+    };
+
+    const unauthenticated = await app.inject({
+      method: "POST",
+      url: "/activity-history",
+      payload: validMetricsPayload
+    });
+    assert.equal(unauthenticated.statusCode, 401);
+    assert.equal(await countActivityHistoryRows(), 0);
+
+    const athleteToken = tokenFor("athlete-metrics-validation");
+    const wrongAthlete = await app.inject({
+      method: "POST",
+      url: "/activity-history",
+      headers: { authorization: `Bearer ${athleteToken}` },
+      payload: {
+        ...validMetricsPayload,
+        externalId: "metrics-validation-wrong-athlete",
+        athleteUserId: "athlete-other"
+      }
+    });
+    assert.equal(wrongAthlete.statusCode, 403);
+    assert.equal(await countActivityHistoryRows(), 0);
+
+    for (const invalidPayload of [
+      { ...validMetricsPayload, externalId: "" },
+      { ...validMetricsPayload, distanceMeters: 0 },
+      { ...validMetricsPayload, elapsedSeconds: 0 },
+      { ...validMetricsPayload, elevationGainMeters: -1 },
+      { ...validMetricsPayload, unexpected: true }
+    ]) {
+      const invalid = await app.inject({
+        method: "POST",
+        url: "/activity-history",
+        headers: { authorization: `Bearer ${athleteToken}` },
+        payload: invalidPayload
+      });
+      assert.equal(invalid.statusCode, 400, `expected 400 for ${JSON.stringify(invalidPayload)}`);
+    }
+    assert.equal(await countActivityHistoryRows(), 0);
+  });
+});
+
 test("POST /activity-history metrics-only ingest is idempotent and athlete-scoped", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-metrics");
