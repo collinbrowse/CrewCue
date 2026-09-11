@@ -341,6 +341,11 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
     midSegmentBody.projection.etaFinishPlanIso,
     new Date(activatedAtMs + 100_000).toISOString()
   );
+  const remaining = midSegmentBody.projection.remainingCheckpointEtas ?? [];
+  assert.ok(
+    remaining.some((row) => row.checkpointId === "cp2"),
+    "live remaining overlay should include checkpoints still ahead"
+  );
 
   const laterSegmentPingResponse = await app.inject({
     method: "POST",

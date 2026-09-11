@@ -50,6 +50,7 @@ import {
   type ProjectionPing,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
+import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
@@ -216,6 +217,8 @@ const updateRaceCourseInput = z.object({
   courseDistanceMeters: z.number().finite().nonnegative().optional(),
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
   courseFileName: z.string().trim().min(1).optional(),
+  /** Raw course GPX XML for reprocess / audit. */
+  courseGpxXml: z.string().min(1).optional(),
   routeOverlayLayer: mapWorkspaceLayerInput.optional(),
   /** Required: official race clock anchor for projection / Pace (ISO datetime). */
   raceStartAt: z.iso.datetime()
@@ -715,13 +718,19 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
       routeMetricPoints,
       canonicalCourseLengthMeters: room.courseDistanceMeters
     });
+    const enrichedCore = enrichProjectionWithLiveRemaining(
+      nextProjectionCore,
+      room,
+      routeMetricPoints,
+      anchor
+    );
     roomProjectionState.set(roomId, {
       lastProgressMeters: state.lastProgressMeters,
       splitCrossedAt: { ...state.splitCrossedAt },
       visitStates: structuredClone(state.visitStates),
       visitMeta: structuredClone(state.visitMeta),
       rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-      lastProjectionCore: nextProjectionCore
+      lastProjectionCore: enrichedCore
     });
     if (persistSnapshot) {
       await saveWs2RuntimeSnapshot(roomId);
@@ -1222,11 +1231,17 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     routeMetricPoints,
     canonicalCourseLengthMeters: room.courseDistanceMeters
   });
+  const enrichedCore = enrichProjectionWithLiveRemaining(
+    nextProjectionCore,
+    room,
+    routeMetricPoints,
+    anchor
+  );
   const allowed = new Set(room.course.checkpoints.map((c) => c.id));
   const prunedBase = pruneProjectionStateMaps(nextStateRaw, allowed);
   roomProjectionState.set(roomId, {
     ...prunedBase,
-    lastProjectionCore: nextProjectionCore
+    lastProjectionCore: enrichedCore
   });
 }
 
@@ -1360,6 +1375,54 @@ function resolveMapWorkspace(room: RaceRoom): RaceMapWorkspace {
     layers: [],
     checkpoints: room.course?.checkpoints ? room.course.checkpoints.map((checkpoint) => ({ ...checkpoint })) : []
   };
+}
+
+/** Full route polyline for projection / course metrics; null if missing or degenerate. */
+export function resolveRouteMetricPointsFromRaceRoomExport(room: RaceRoom): CourseMetricPoint[] | null {
+  return resolveRouteMetricPointsFromRaceRoom(room);
+}
+
+/**
+ * Overlay live remaining-course micro-model ETAs onto a projection core (frozen plan vs live).
+ * On failure, returns the core unchanged so GPS split math still ships.
+ */
+function enrichProjectionWithLiveRemaining(
+  core: RaceRoomProjectionCore,
+  room: RaceRoom,
+  routeMetricPoints: CourseMetricPoint[],
+  raceAnchorIso: string
+): RaceRoomProjectionCore {
+  if (!room.course || typeof room.plannedPaceSecondsPerKm !== "number") {
+    return core;
+  }
+  try {
+    const raceStartMs = Date.parse(raceAnchorIso);
+    const recordedMs = Date.parse(core.asOfRecordedAt);
+    if (Number.isNaN(raceStartMs) || Number.isNaN(recordedMs)) {
+      return core;
+    }
+    const actualElapsedSeconds = Math.max(0, (recordedMs - raceStartMs) / 1000);
+    const live = computeLiveRemainingProjection({
+      routeMetricPoints,
+      checkpoints: room.course.checkpoints,
+      courseLengthMeters: core.courseLengthMeters,
+      progressMeters: core.progressMeters,
+      actualElapsedSeconds,
+      raceStartAtIso: raceAnchorIso,
+      recordedAtIso: core.asOfRecordedAt,
+      plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+      frozenBaselineTrack: room.course.baselineTrack,
+      remainingPlannedStoppageSecondsAhead: core.stoppageSummary.remainingPlannedStopSeconds
+    });
+    return {
+      ...core,
+      // Keep anchored plan-pace / baseline-track finish on etaFinishPlanIso.
+      // Live remaining-course ETAs are additive on remainingCheckpointEtas.
+      remainingCheckpointEtas: live.remainingCheckpointEtas
+    };
+  } catch {
+    return core;
+  }
 }
 
 /** Full route polyline for projection / course metrics; null if missing or degenerate. */
@@ -1897,6 +1960,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
       courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
+      courseGpxXml: parsed.data.courseGpxXml ?? room.courseGpxXml,
       raceStartAt: parsed.data.raceStartAt,
       activatedAt: parsed.data.raceStartAt
     };
@@ -2665,9 +2729,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             routeMetricPoints,
             canonicalCourseLengthMeters: room.courseDistanceMeters
           });
+          const enrichedCore = enrichProjectionWithLiveRemaining(
+            nextProjectionCore,
+            room,
+            routeMetricPoints,
+            raceAnchor
+          );
         const evaluatedAtMs = Date.now();
         projection = attachProjectionTimeliness(
-          nextProjectionCore,
+          enrichedCore,
           recordedAtMs,
           evaluatedAtMs,
           pingState.lastUploadIntervalSeconds
@@ -2678,15 +2748,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           visitStates: structuredClone(state.visitStates),
           visitMeta: structuredClone(state.visitMeta),
           rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-          lastProjectionCore: nextProjectionCore
+          lastProjectionCore: enrichedCore
         });
         app.log.info(
           {
             projection_recompute: {
               roomId,
               pingId,
-              progressMeters: nextProjectionCore.progressMeters,
-              courseLengthMeters: nextProjectionCore.courseLengthMeters
+              progressMeters: enrichedCore.progressMeters,
+              courseLengthMeters: enrichedCore.courseLengthMeters
             }
           },
           "projection_recompute"
@@ -2758,7 +2828,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Closed manual check-in (arrival + departure). Feeds schedule reproject on GET /schedule:
-   * closed visits replace planned dwell + delayOverride for subsequent stop clocks
+   * closed visits replace planned stoppage + delayOverride for subsequent stop clocks
    * (absolute latest closed actual per CP — LWW overwrite, no double-apply). Incomplete/open
    * visits are not written here (both timestamps required); open auto visits also do not shift.
    */
@@ -2871,6 +2941,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
+    {
+      const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+      if (routeForLive) {
+        projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
+          projectionState.lastProjectionCore,
+          room,
+          routeForLive,
+          raceAnchor
+        );
+      }
+    }
     syncProjectionAccumulatorStateFromCore(projectionState);
       await saveWs2RuntimeSnapshot(roomId);
       const afterClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
@@ -2959,6 +3040,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     visit.resolvedSource = parsed.data.resolvedSource;
     refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
+    {
+      const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+      if (routeForLive) {
+        projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
+          projectionState.lastProjectionCore,
+          room,
+          routeForLive,
+          raceAnchor
+        );
+      }
+    }
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
     return reply.send({ checkpointSplit: split });

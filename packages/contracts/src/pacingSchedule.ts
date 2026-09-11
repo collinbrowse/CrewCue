@@ -138,8 +138,8 @@ export interface StopPlanNote {
 
 /**
  * Plan-scoped overlay for one course checkpoint.
- * `delayOverrideSeconds` is extra dwell on top of `plannedStopSeconds` / `plannedDwellSeconds`;
- * it does not replace planned dwell and must not mutate checkpoint geometry or tags.
+ * `delayOverrideSeconds` is extra stoppage on top of `plannedStopSeconds` / `plannedStoppageSeconds`;
+ * it does not replace planned stoppage and must not mutate checkpoint geometry or tags.
  */
 export interface RaceRoomStopPlan {
   checkpointId: string;
@@ -149,7 +149,7 @@ export interface RaceRoomStopPlan {
 }
 
 /**
- * One row of the crew schedule sheet: clock arrival **and** elapsed, plus dwell.
+ * One row of the crew schedule sheet: clock arrival **and** elapsed, plus stoppage.
  * `checkpointId` matches `RaceCourseCheckpoint.id`.
  */
 export interface ScheduleStop {
@@ -159,11 +159,11 @@ export interface ScheduleStop {
   clockArrivalAt: string;
   /** Elapsed seconds from race start. */
   elapsedSeconds: number;
-  /** Planned dwell at this stop, seconds. */
-  plannedDwellSeconds: number;
+  /** Planned stoppage at this stop, seconds. */
+  plannedStoppageSeconds: number;
   /**
-   * Optional extra dwell seconds beyond `plannedDwellSeconds` (crew meetup, drop-bag, etc.).
-   * Omit when the typical dwell applies.
+   * Optional extra stoppage seconds beyond `plannedStoppageSeconds` (crew meetup, drop-bag, etc.).
+   * Omit when the typical stoppage applies.
    */
   delayOverrideSeconds?: number;
   notes?: ScheduleStopNotesRef;
@@ -264,7 +264,7 @@ export function parseScheduleStop(value: unknown, field = "scheduleStop"): Sched
     checkpointId: requireNonEmptyString(value.checkpointId, `${field}.checkpointId`),
     clockArrivalAt: parseIso8601Utc(value.clockArrivalAt, `${field}.clockArrivalAt`),
     elapsedSeconds: parseDurationSeconds(value.elapsedSeconds, `${field}.elapsedSeconds`),
-    plannedDwellSeconds: parseDurationSeconds(value.plannedDwellSeconds, `${field}.plannedDwellSeconds`)
+    plannedStoppageSeconds: parseDurationSeconds(value.plannedStoppageSeconds, `${field}.plannedStoppageSeconds`)
   };
   if (value.delayOverrideSeconds !== undefined) {
     stop.delayOverrideSeconds = parseDurationSeconds(

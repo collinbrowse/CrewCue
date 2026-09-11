@@ -26,13 +26,13 @@ export function stopAccessibilityLabel(
   stop: ScheduleStop,
   clockLabel: string,
   elapsedLabel: string,
-  dwellLabel: string
+  stoppageLabel: string
 ): string {
   const delay =
     typeof stop.delayOverrideSeconds === "number"
       ? `, delay ${formatDurationSeconds(stop.delayOverrideSeconds)}`
       : "";
-  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}, dwell ${dwellLabel}${delay}`;
+  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}, stoppage ${stoppageLabel}${delay}`;
 }
 
 export type CrewScheduleSheetViewProps = {
@@ -244,7 +244,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
         const title = titleByCheckpointId.get(item.checkpointId) ?? item.checkpointId;
         const clockLabel = formatScheduleClock(item.clockArrivalAt);
         const elapsedLabel = formatDurationSeconds(item.elapsedSeconds);
-        const dwellLabel = formatDurationSeconds(item.plannedDwellSeconds);
+        const stoppageLabel = formatDurationSeconds(item.plannedStoppageSeconds);
         const hasDelay = typeof item.delayOverrideSeconds === "number";
         const isEditingPlan = props.editingCheckpointId === item.checkpointId;
         const isEditingCheckIn = props.checkInCheckpointId === item.checkpointId;
@@ -259,27 +259,27 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
         // individually discoverable for VoiceOver / XcodeBuildMCP (parent accessible merges children).
         const rowAccessible = !canEdit && !canCheckIn && !isEditingPlan && !isEditingCheckIn;
         const defaultDepartureAt = new Date(
-          Date.parse(item.clockArrivalAt) + Math.max(0, item.plannedDwellSeconds) * 1000
+          Date.parse(item.clockArrivalAt) + Math.max(0, item.plannedStoppageSeconds) * 1000
         ).toISOString();
         return (
           <View
             accessible={rowAccessible}
             accessibilityLabel={
               rowAccessible
-                ? stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, dwellLabel)
+                ? stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, stoppageLabel)
                 : undefined
             }
           >
             <DSCard style={styles.row}>
               <Text
                 style={styles.rowTitle}
-                accessibilityLabel={stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, dwellLabel)}
+                accessibilityLabel={stopAccessibilityLabel(title, item, clockLabel, elapsedLabel, stoppageLabel)}
               >
                 {index + 1}. {title}
               </Text>
               <Text style={styles.meta}>Arrival {clockLabel}</Text>
               <Text style={styles.meta}>Elapsed {elapsedLabel}</Text>
-              <Text style={styles.meta}>Dwell {dwellLabel}</Text>
+              <Text style={styles.meta}>Stoppage {stoppageLabel}</Text>
               {hasDelay ? (
                 <Text style={styles.delay} accessibilityLabel={`Delay ${item.delayOverrideSeconds} seconds`}>
                   Delay {formatDurationSeconds(item.delayOverrideSeconds!)}

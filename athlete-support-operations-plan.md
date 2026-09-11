@@ -243,7 +243,7 @@ Use this template to expand any WS into a dedicated implementation plan:
 - **Weeks 13-16:** WS6 team command center and multi-athlete concurrency hardening
 
 ## Master Validation Metrics
-- aid-station dwell time reduction vs baseline workflow
+- aid-station stoppage time reduction vs baseline workflow
 - task completion rate per checkpoint and per role
 - incident-to-plan-update latency
 - percentage of race-critical updates delivered under low connectivity

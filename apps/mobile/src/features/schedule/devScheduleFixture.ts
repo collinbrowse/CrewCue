@@ -120,7 +120,7 @@ function notesRefFromOverlay(overlay: DevStopPlanOverlay | undefined): ScheduleS
 
 /**
  * Apply overlay delay delta + closed check-in actuals to later stops' elapsed/clock
- * (same cumulative rule as API projection: closed actual replaces planned dwell + delay).
+ * (same cumulative rule as API projection: closed actual replaces planned stoppage + delay).
  * Used only by the DEV fixture so sim QA can see refreshed clocks without Auth0.
  * Production path must refetch `getSchedule` instead.
  *
@@ -140,18 +140,18 @@ export function projectDevSheetWithOverlays(
     const overlay = hasOverlay ? overlays.get(stop.checkpointId) : undefined;
     const nextDelay = hasOverlay ? overlay?.delayOverrideSeconds : stop.delayOverrideSeconds;
     const delayForPlan = typeof nextDelay === "number" ? nextDelay : 0;
-    const plannedContribution = stop.plannedDwellSeconds + delayForPlan;
-    const baseContribution = stop.plannedDwellSeconds + baseDelay;
+    const plannedContribution = stop.plannedStoppageSeconds + delayForPlan;
+    const baseContribution = stop.plannedStoppageSeconds + baseDelay;
     const closedActual = closedActualStopSecondsByCheckpointId?.get(stop.checkpointId);
 
-    // Own arrival uses prior cumulative shift only (own dwell/actual does not shift own clock).
+    // Own arrival uses prior cumulative shift only (own stoppage/actual does not shift own clock).
     const elapsedSeconds = stop.elapsedSeconds + cumulativeShiftSeconds;
     const next: ScheduleStop = {
       id: stop.id,
       checkpointId: stop.checkpointId,
       clockArrivalAt: new Date(raceStartMs + elapsedSeconds * 1000).toISOString(),
       elapsedSeconds,
-      plannedDwellSeconds: stop.plannedDwellSeconds
+      plannedStoppageSeconds: stop.plannedStoppageSeconds
     };
     if (typeof nextDelay === "number") {
       next.delayOverrideSeconds = nextDelay;

@@ -61,7 +61,7 @@ function formatStopBlock(
     `${index}. ${title}`,
     `   Arrival: ${stop.clockArrivalAt} (${formatUtcHhMm(stop.clockArrivalAt)})`,
     `   Elapsed: ${formatDurationSeconds(stop.elapsedSeconds)}`,
-    `   Dwell: ${formatDurationSeconds(stop.plannedDwellSeconds)}`
+    `   Stoppage: ${formatDurationSeconds(stop.plannedStoppageSeconds)}`
   ];
   if (typeof stop.delayOverrideSeconds === "number") {
     lines.push(`   Delay: ${formatDurationSeconds(stop.delayOverrideSeconds)}`);

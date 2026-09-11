@@ -30,7 +30,7 @@ function requiredStop(): ScheduleStop {
     checkpointId: "cp-aid-1",
     clockArrivalAt: AID_CLOCK,
     elapsedSeconds: 12_600,
-    plannedDwellSeconds: 180
+    plannedStoppageSeconds: 180
   };
 }
 
@@ -129,11 +129,11 @@ test("EC6: clock times are ISO-8601 UTC; durations seconds; distances meters", (
     ...requiredStop(),
     clockArrivalAt: "2026-08-12T16:30:00Z",
     elapsedSeconds: 12_600,
-    plannedDwellSeconds: 240.5
+    plannedStoppageSeconds: 240.5
   });
   assert.equal(stop.clockArrivalAt, "2026-08-12T16:30:00Z");
   assert.equal(stop.elapsedSeconds, 12_600);
-  assert.equal(stop.plannedDwellSeconds, 240.5);
+  assert.equal(stop.plannedStoppageSeconds, 240.5);
 });
 
 test("EC7: multiple tags are allowed; empty tag list is an untagged landmark", () => {

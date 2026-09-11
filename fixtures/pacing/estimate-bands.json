@@ -1,11 +1,12 @@
 {
   "policy": {
-    "description": "Deterministic A-B confidence bands around expected finish (W4-2). Not UltraPacer strategy knobs.",
-    "conservativeRatio": 1.15,
-    "aggressiveRatio": 0.885,
+    "description": "Three deterministic micro-model scenario re-sims (not finish-time ratio stretch). Surface C_i=1; cold-start GAP 10:00/mi.",
+    "bandMethod": "scenario_resim",
+    "conservative": "GAP×1.06, γ1×1.35, γ2×1.4, altitude penalty×1.15",
+    "aggressive": "GAP×0.94, γ1×0.75, γ2×0.7, altitude penalty×0.9",
     "expected": "Primary finish — equal to expectedFinishElapsedSeconds / expectedFinishAt",
     "ordering": "conservative.finishElapsedSeconds >= expected.finishElapsedSeconds >= aggressive.finishElapsedSeconds",
-    "coldStart": "Same ratios as history-backed; bands are coarse because the expected finish is course-only (7:00/km).",
+    "coldStart": "Same scenario knobs; expected finish uses GAP 10:00/mi + course mesh/fatigue",
     "scheduleBaseline": "Crew schedule moving-time / plan-of-record uses expected finish only; bands are informational.",
     "seed": "crewcue-pacing-v1",
     "raceStartAt": "2026-08-15T13:00:00.000Z",
@@ -13,43 +14,43 @@
     "historyFixture": "schedule-expected.json → historyRefs[0] (hist-long-trail)"
   },
   "historyBacked": {
-    "id": "est_7178c7d99b4d9b96",
+    "id": "est_7f7c9f1ed5fbf245",
     "coldStart": false,
-    "expectedFinishAt": "2026-08-15T19:39:33.000Z",
-    "expectedFinishElapsedSeconds": 23973,
+    "expectedFinishAt": "2026-08-15T19:49:03.000Z",
+    "expectedFinishElapsedSeconds": 24543,
     "bands": {
       "conservative": {
-        "finishAt": "2026-08-15T20:39:29.000Z",
-        "finishElapsedSeconds": 27569
+        "finishAt": "2026-08-15T20:14:42.000Z",
+        "finishElapsedSeconds": 26082
       },
       "expected": {
-        "finishAt": "2026-08-15T19:39:33.000Z",
-        "finishElapsedSeconds": 23973
+        "finishAt": "2026-08-15T19:49:03.000Z",
+        "finishElapsedSeconds": 24543
       },
       "aggressive": {
-        "finishAt": "2026-08-15T18:53:36.000Z",
-        "finishElapsedSeconds": 21216
+        "finishAt": "2026-08-15T19:23:48.000Z",
+        "finishElapsedSeconds": 23028
       }
     },
     "historyRefIds": ["hist-long-trail"]
   },
   "coldStart": {
-    "id": "est_e8c02fd1ff2d17be",
+    "id": "est_deb6a55f3446f2b5",
     "coldStart": true,
-    "expectedFinishAt": "2026-08-15T18:49:36.000Z",
-    "expectedFinishElapsedSeconds": 20976,
+    "expectedFinishAt": "2026-08-15T18:17:43.000Z",
+    "expectedFinishElapsedSeconds": 19063,
     "bands": {
       "conservative": {
-        "finishAt": "2026-08-15T19:42:02.000Z",
-        "finishElapsedSeconds": 24122
+        "finishAt": "2026-08-15T18:37:38.000Z",
+        "finishElapsedSeconds": 20258
       },
       "expected": {
-        "finishAt": "2026-08-15T18:49:36.000Z",
-        "finishElapsedSeconds": 20976
+        "finishAt": "2026-08-15T18:17:43.000Z",
+        "finishElapsedSeconds": 19063
       },
       "aggressive": {
-        "finishAt": "2026-08-15T18:09:24.000Z",
-        "finishElapsedSeconds": 18564
+        "finishAt": "2026-08-15T17:58:06.000Z",
+        "finishElapsedSeconds": 17886
       }
     }
   }

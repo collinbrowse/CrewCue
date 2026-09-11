@@ -233,6 +233,17 @@ export interface ProjectionWeatherStub {
   assumedHeadwindMps: number;
 }
 
+/**
+ * Live remaining-course ETA for one checkpoint (additive; older clients ignore).
+ * `deltaSecondsVsFrozenPlan` = liveProjectedElapsed − frozenPlanElapsed (+ = behind plan).
+ */
+export interface RemainingCheckpointEta {
+  checkpointId: string;
+  liveProjectedElapsedSeconds: number;
+  frozenPlanElapsedSeconds: number;
+  deltaSecondsVsFrozenPlan: number;
+}
+
 /** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
 export interface RaceRoomProjectionCore {
   roomId: string;
@@ -245,6 +256,11 @@ export interface RaceRoomProjectionCore {
   checkpointSplits: RaceCheckpointSplitRow[];
   stoppageSummary: CheckpointStoppageSummary;
   weatherStub?: ProjectionWeatherStub;
+  /**
+   * Remaining checkpoints re-simulated from current progress (expected scenario).
+   * Compare to frozen plan-of-record moving times for ahead/behind.
+   */
+  remainingCheckpointEtas?: RemainingCheckpointEta[];
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
@@ -294,6 +310,8 @@ export interface RaceRoom {
   courseElevationLossMeters?: number;
   /** Original uploaded filename for route metadata display. */
   courseFileName?: string;
+  /** Raw course GPX XML when uploaded (reprocess / audit); parsed geometry remains authoritative for routing. */
+  courseGpxXml?: string;
   /** Seconds per kilometre for plan baseline (smaller = faster plan). */
   plannedPaceSecondsPerKm?: number;
   /** Multi-upload map overlays + map-authored checkpoints (optional until clients populate). */
@@ -305,7 +323,7 @@ export interface RaceRoom {
   stopPlans?: RaceRoomStopPlan[];
   /**
    * Plan-of-record pacing estimate id (W3-4). When set with `pacingEstimate`,
-   * GET /schedule uses estimate moving times as the baseline under dwell/delay overlays.
+   * GET /schedule uses estimate moving times as the baseline under stoppage/delay overlays.
    */
   pacingEstimateId?: string;
   /** Snapshot of the attached plan-of-record estimate (source of truth for schedule reads). */

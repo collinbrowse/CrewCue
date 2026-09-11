@@ -8,7 +8,7 @@
  *
  * Threshold: any later-stop clock shift of ≥ {@link CHECK_IN_ETA_NOTIFY_THRESHOLD_SECONDS}.
  * Shift magnitude follows W2-1 contribution math: closed actual replaces
- * planned dwell + delayOverride at the check-in checkpoint (LWW absolute).
+ * planned stoppage + delayOverride at the check-in checkpoint (LWW absolute).
  */
 import type { FastifyBaseLogger } from "fastify";
 import {
@@ -64,10 +64,10 @@ function checkpointDistanceMeters(room: RaceRoom, checkpointId: string): number 
 
 function plannedContributionSeconds(room: RaceRoom, checkpointId: string): number {
   const checkpoint = room.course?.checkpoints.find((row) => row.id === checkpointId);
-  const plannedDwellSeconds = Math.max(0, checkpoint?.plannedStopSeconds ?? 0);
+  const plannedStoppageSeconds = Math.max(0, checkpoint?.plannedStopSeconds ?? 0);
   const delayOverrideSeconds = room.stopPlans?.find((plan) => plan.checkpointId === checkpointId)
     ?.delayOverrideSeconds;
-  return plannedDwellSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
+  return plannedStoppageSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
 }
 
 function contributionSeconds(

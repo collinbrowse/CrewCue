@@ -125,7 +125,7 @@ function interpolateReferenceElapsedSeconds(
 
 /**
  * Moving-time elapsed (seconds) to a distance along the course — baseline track when usable,
- * otherwise distance × planned pace. Does not include planned dwell or delay overrides.
+ * otherwise distance × planned pace. Does not include planned stoppage or delay overrides.
  */
 export function plannedElapsedSecondsForDistance(input: {
   distanceMetersFromStart: number;

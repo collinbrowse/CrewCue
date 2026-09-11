@@ -2,15 +2,15 @@
  * Display helpers for crew schedule sheet rows.
  *
  * Clocks: format the API's ISO-8601 UTC `clockArrivalAt` for local display only.
- * Do **not** recompute arrival from elapsed + raceStartAt — GPX may stamp planned dwell
- * on start (e.g. 600s), and the API projection already accounts for cumulative dwell/delay.
+ * Do **not** recompute arrival from elapsed + raceStartAt — GPX may stamp planned stoppage
+ * on start (e.g. 600s), and the API projection already accounts for cumulative stoppage/delay.
  *
  * Durations: API values are whole seconds; render as mm:ss (or h:mm:ss when ≥ 1 hour).
  */
 
 /**
  * Format a duration in seconds as `mm:ss` or `h:mm:ss`.
- * @param totalSeconds non-negative duration from the API (elapsed, dwell, delay).
+ * @param totalSeconds non-negative duration from the API (elapsed, stoppage, delay).
  */
 export function formatDurationSeconds(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) {

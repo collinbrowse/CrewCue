@@ -9,21 +9,21 @@
         "checkpointId": "start",
         "clockArrivalAt": "2026-08-15T13:00:00.000Z",
         "elapsedSeconds": 0,
-        "plannedDwellSeconds": 0
+        "plannedStoppageSeconds": 0
       },
       {
         "id": "stop-aid-1",
         "checkpointId": "aid-1",
         "clockArrivalAt": "2026-08-15T14:10:00.000Z",
         "elapsedSeconds": 4200,
-        "plannedDwellSeconds": 180
+        "plannedStoppageSeconds": 180
       },
       {
         "id": "stop-aid-2",
         "checkpointId": "aid-2",
         "clockArrivalAt": "2026-08-15T15:20:00.000Z",
         "elapsedSeconds": 8400,
-        "plannedDwellSeconds": 240,
+        "plannedStoppageSeconds": 240,
         "delayOverrideSeconds": 120,
         "notes": {
           "planNotesId": "note-plan-aid-2"
@@ -34,7 +34,7 @@
         "checkpointId": "aid-3",
         "clockArrivalAt": "2026-08-15T17:05:00.000Z",
         "elapsedSeconds": 14700,
-        "plannedDwellSeconds": 480,
+        "plannedStoppageSeconds": 480,
         "notes": {
           "athleteNotesId": "note-athlete-aid-3",
           "planNotesId": "note-plan-aid-3"
@@ -45,7 +45,7 @@
         "checkpointId": "finish",
         "clockArrivalAt": "2026-08-15T18:50:00.000Z",
         "elapsedSeconds": 21000,
-        "plannedDwellSeconds": 0
+        "plannedStoppageSeconds": 0
       }
     ]
   },
@@ -85,7 +85,7 @@
         "finishElapsedSeconds": 18600
       }
     },
-    "explanation": "History-backed from long-trail GPX; short-road activity excluded as dissimilar.",
+    "explanation": "History-backed from long-trail GPX; short-road activity excluded when a longer effort is present.",
     "historyRefIds": ["hist-long-trail"]
   },
   "historyRefs": [

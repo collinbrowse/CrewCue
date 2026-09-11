@@ -9,35 +9,35 @@
         "checkpointId": "start",
         "clockArrivalAt": "2026-08-15T13:00:00.000Z",
         "elapsedSeconds": 0,
-        "plannedDwellSeconds": 0
+        "plannedStoppageSeconds": 0
       },
       {
         "id": "stop-aid-1",
         "checkpointId": "aid-1",
         "clockArrivalAt": "2026-08-15T14:09:55.000Z",
         "elapsedSeconds": 4195,
-        "plannedDwellSeconds": 180
+        "plannedStoppageSeconds": 180
       },
       {
         "id": "stop-aid-2",
         "checkpointId": "aid-2",
         "clockArrivalAt": "2026-08-15T15:19:51.000Z",
         "elapsedSeconds": 8391,
-        "plannedDwellSeconds": 240
+        "plannedStoppageSeconds": 240
       },
       {
         "id": "stop-aid-3",
         "checkpointId": "aid-3",
         "clockArrivalAt": "2026-08-15T17:04:43.000Z",
         "elapsedSeconds": 14683,
-        "plannedDwellSeconds": 480
+        "plannedStoppageSeconds": 480
       },
       {
         "id": "stop-finish",
         "checkpointId": "finish",
         "clockArrivalAt": "2026-08-15T18:49:36.000Z",
         "elapsedSeconds": 20976,
-        "plannedDwellSeconds": 0
+        "plannedStoppageSeconds": 0
       }
     ]
   },

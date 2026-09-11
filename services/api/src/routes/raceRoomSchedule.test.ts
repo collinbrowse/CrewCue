@@ -115,7 +115,7 @@ test("EC1 no overlays still returns a parseable sheet omitting delay/notes", asy
     assert.equal(stop.id, `stop-${stop.checkpointId}`);
     assert.equal("delayOverrideSeconds" in stop, false);
     assert.equal("notes" in stop, false);
-    assert.equal(typeof stop.plannedDwellSeconds, "number");
+    assert.equal(typeof stop.plannedStoppageSeconds, "number");
     assert.equal(typeof stop.elapsedSeconds, "number");
   }
 
@@ -285,7 +285,7 @@ test("EC6 clocks are ISO-8601 UTC Z and durations are seconds", async () => {
     assert.match(stop.clockArrivalAt, ISO_Z);
     assert.ok(stop.clockArrivalAt.endsWith("Z"));
     assert.equal(Number.isInteger(stop.elapsedSeconds), true);
-    assert.equal(Number.isInteger(stop.plannedDwellSeconds), true);
+    assert.equal(Number.isInteger(stop.plannedStoppageSeconds), true);
     assert.equal(
       Date.parse(stop.clockArrivalAt),
       Date.parse(sheet.raceStartAt) + stop.elapsedSeconds * 1000
