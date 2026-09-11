@@ -11,24 +11,25 @@
 
 ## Session status snapshot
 
-- Last updated: 2026-08-27 (UTC)
-- **Roadmap phase:** Physiology micro-model pacing estimator (#451).
-- **Branch / PR:** `feature/physiology-micro-model-estimator` (issue #451; PR not opened yet).
-- **Active next:** Commit/push; open PR with constants approval note; `npm run verify` already green locally.
+- Last updated: 2026-09-11 (UTC)
+- **Roadmap phase:** Physiology micro-model pacing estimator (#451 / PR #453).
+- **Branch / PR:** `feature/physiology-micro-model-estimator` → #453.
+- **Active next:** Merge origin/main into #453; get CI green; do not merge until constants are approved.
 
 ## Completed
 
 - #451 implementation on branch: dwell→stoppage rename; micro-model estimator + 3 scenario bands; roomId/course GPX; attach writes `baselineTrack`; live remaining ETAs on ping/visit.
+- Pace UX (#456) and GPX progress (#455) are on `main`.
 
 ## Next 1-3 tasks
 
-1. Commit + `gh pr create` with `Closes #451` and constants approval section.
-2. Staging soak for course GPX blob + projection remaining ETAs after merge.
-3. Optional follow-up: mobile UI for `remainingCheckpointEtas` ahead/behind copy.
+1. Finish merge of `main` into #453 and restore CI.
+2. Product-approve constants in `microModel/CONSTANTS_FOR_APPROVAL.md`.
+3. Staging soak for course GPX blob + remaining ETAs after merge.
 
 ## Validation evidence
 
-- `npm run verify` exit 0 (local).
+- `npm run verify` was green locally before the merge.
 - Micro-model unit tests + pacing band tests updated for scenario re-sims.
 
 ## Open risks/blockers
@@ -39,5 +40,5 @@
 ## Successor prompt
 
 ```text
-On feature/physiology-micro-model-estimator: review CONSTANTS_FOR_APPROVAL.md, commit if needed, open PR Closes #451, merge after CI green, redeploy staging API.
+On feature/physiology-micro-model-estimator / PR 453: confirm CI green after merging main, then review CONSTANTS_FOR_APPROVAL.md. Do not restore the calibration stash unless calibration work is requested.
 ```

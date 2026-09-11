@@ -145,6 +145,46 @@ test("EC2 API: corrupt / missing course returns 400", async () => {
   });
 });
 
+test("historyRefIds are scoped to authenticated athlete and missing ids return 404", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("athlete-history-owner");
+    const otherToken = tokenFor("athlete-history-other");
+    const ownerHistory = await ingestGpx(
+      app,
+      ownerToken,
+      "activity-long-trail.gpx",
+      "gpx:activity-long-trail-owner"
+    );
+    const checkpoints = loadCourseCheckpoints();
+
+    const crossAthlete = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${otherToken}` },
+      payload: {
+        raceStartAt: RACE_START,
+        checkpoints,
+        historyRefIds: [ownerHistory.id]
+      }
+    });
+    assert.equal(crossAthlete.statusCode, 404);
+    assert.match((crossAthlete.json() as { error?: string }).error ?? "", /Activity history not found/);
+
+    const missingId = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: {
+        raceStartAt: RACE_START,
+        checkpoints,
+        historyRefIds: ["hist_does_not_exist"]
+      }
+    });
+    assert.equal(missingId.statusCode, 404);
+    assert.match((missingId.json() as { error?: string }).error ?? "", /hist_does_not_exist/);
+  });
+});
+
 test("EC1 API: empty history yields cold-start estimate (200, no throw)", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");

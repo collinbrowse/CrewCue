@@ -13,6 +13,8 @@ export type GuestStackParamList = {
   DevCrewSheetExport: undefined;
   /** __DEV__ only: cold-start estimate UX for simulator QA (crewcue://dev/cold-start). */
   DevColdStart: undefined;
+  /** __DEV__ only: course GPX import progress bar (crewcue://dev/gpx-import-progress). */
+  DevGpxImportProgress: undefined;
 };
 
 /** Primary map + race operations stack (Map tab). */
@@ -45,6 +47,8 @@ export type ReadoutsStackParamList = {
         replaceCourseFile?: boolean;
       }
     | undefined;
+  /** __DEV__ only: course GPX import progress (crewcue://course/dev-gpx-import-progress). */
+  DevGpxImportProgress: undefined;
 };
 
 export type ChatStackParamList = {
