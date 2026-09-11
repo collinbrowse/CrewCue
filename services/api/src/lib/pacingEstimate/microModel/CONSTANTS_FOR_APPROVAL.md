@@ -68,9 +68,15 @@ Ordering invariant: conservative ≥ expected ≥ aggressive (elapsed seconds).
 
 ---
 
-## Calibration note (early-course bias)
+## Calibration note (early-course bias) — RETRACTED, see #478
 
-First field use projected first aid ~44 min late. Root cause: treating history mean elapsed/distance as flat GAP, then re-applying Minetti-style hills → double-counted terrain. Fix: softer M(g) + history blend **0.22** / cold blend **0.55**.
+The original note read: *"First field use projected first aid ~44 min late. Root cause: treating history mean elapsed/distance as flat GAP, then re-applying Minetti-style hills → double-counted terrain. Fix: softer M(g) + history blend 0.22 / cold blend 0.55."*
+
+**That attribution was wrong, and the micro-model was not the source of the error.** Verified against the deployed database: `pacingEstimateId` is NULL on every race room and `pacing_estimate_json` is empty, so no estimate has ever been generated or attached. Every schedule observed in the field came from the fallback path instead — `plannedPaceSecondsPerKm` (the hardcoded 6:00/km default, since planned course GPX carries no timestamps) plus `buildPlanBaselineFromModel`.
+
+The real cause was that fallback's climb penalty of 8 s per meter of gain, roughly double a defensible running value. On a nearly flat 50 km with 348 m of gain it alone added 46 minutes. Corrected to 3.6 s/m in #478.
+
+**Consequence for the constants below:** the softened `M(g)` and the history blend of 0.22 were fitted to an error produced by a different code path, so neither is validated by field evidence. Both should be reverted and re-derived against a backtest harness before being trusted.
 
 ---
 
@@ -78,6 +84,6 @@ First field use projected first aid ~44 min late. Root cause: treating history m
 
 - [x] Cold-start GAP (10:00/mi)
 - [x] Surface held at 1.0
-- [ ] Grade / downhill / altitude formulas (+ blend) — field calibration; needs product re-approval
+- [ ] Grade / downhill / altitude formulas (+ blend) — **calibration retracted (#478); revert and re-derive from a backtest harness, then re-approve**
 - [x] Fatigue \gamma_1, \gamma_2
 - [x] Scenario knob table
