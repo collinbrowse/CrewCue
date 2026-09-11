@@ -12,33 +12,33 @@
 ## Session status snapshot
 
 - Last updated: 2026-09-11 (UTC)
-- **Roadmap phase:** Physiology micro-model pacing estimator (#451 / PR #453).
-- **Branch / PR:** `feature/physiology-micro-model-estimator` → #453.
-- **Active next:** Confirm CI green after merging `main`; do not merge until constants are approved.
+- **Roadmap phase:** Physiology micro-model is on `main` (#451 / PR #453 merged).
+- **Branch / PR:** Local `main` matches `origin/main` (`129ca36`). Feature branch deleted.
+- **Active next:** Product-approve micro-model constants; then staging soak.
 
 ## Completed
 
-- Merged `origin/main` into #453 (handoff conflict resolved).
-- Kept `etaFinishPlanIso` as anchored plan-pace finish; live remaining stays on `remainingCheckpointEtas`.
-- Cold-start W4 estimate now sends `roomId` so band goldens use room route geometry.
+- PR #453 merged; #451 closed.
+- Deleted local and remote `feature/physiology-micro-model-estimator`.
 
 ## Next 1-3 tasks
 
-1. Confirm GitHub CI is green on #453.
-2. Product-approve constants in `microModel/CONSTANTS_FOR_APPROVAL.md`.
-3. Staging soak for course GPX blob + remaining ETAs after merge.
+1. Product-approve constants in `services/api/src/lib/pacingEstimate/microModel/CONSTANTS_FOR_APPROVAL.md`.
+2. Staging soak: course GPX blob → estimate via `roomId` → attach plan → ping remaining ETAs vs frozen plan.
+3. Optional follow-up: mobile UI for `remainingCheckpointEtas` ahead/behind copy.
 
 ## Validation evidence
 
-- Memory-mode: `raceRoomProjection.test.ts`, `raceRoomSchedule.w4Integration.test.ts`, `pacingEstimateBands.test.ts`, related projection/pacing tests — pass.
+- PR #453 required checks were green before merge (`pr-decision-doc-guard`, `dual-client-guard`, `checks`, `api-postgres-integration`).
 
 ## Open risks/blockers
 
-- Numeric constants in `microModel/CONSTANTS_FOR_APPROVAL.md` need product approval before treating as final.
-- Sparse checkpoint-only estimate path (no room route) is degraded vs roomId+polyline.
+- Numeric constants still need product approval before treating as final.
+- Local stash `wip: micro-model calibration` remains; do not restore unless calibration work is requested.
+- Sparse checkpoint-only estimate path (no room route) is degraded vs `roomId`+polyline.
 
 ## Successor prompt
 
 ```text
-On feature/physiology-micro-model-estimator / PR 453: confirm CI green after merging main, then review CONSTANTS_FOR_APPROVAL.md. Do not restore the calibration stash unless calibration work is requested.
+Physiology micro-model is on main (PR 453 merged). Review CONSTANTS_FOR_APPROVAL.md for product approval, then staging-soak course GPX + remaining ETAs. Do not restore stash "wip: micro-model calibration" unless calibration is requested.
 ```
