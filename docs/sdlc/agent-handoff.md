@@ -12,33 +12,34 @@
 ## Session status snapshot
 
 - Last updated: 2026-09-11 (UTC)
-- **Roadmap phase:** Physiology micro-model is on `main` (#451 / PR #453 merged).
-- **Branch / PR:** Local `main` matches `origin/main` (`129ca36`). Feature branch deleted.
-- **Active next:** Product-approve micro-model constants; then staging soak.
+- **Roadmap phase:** Unblock PR #333 (map error-banner loop), then micro-model calibration.
+- **Branch / PR:** `fix/332-map-error-banner-loop` → #333 (`Closes #332`).
+- **Active next:** Merge #333 when CI green; apply calibration stash on a new branch from `main`.
 
 ## Completed
 
-- PR #453 merged; #451 closed.
-- Deleted local and remote `feature/physiology-micro-model-estimator`.
+- Merged `origin/main` into #333 (handoff conflict resolved). Banner fix still present: roomId-only effect, quiet auto-fetch, noticeBus post-dismiss dedupe.
+- Physiology micro-model is on `main` (#451 / PR #453).
 
 ## Next 1-3 tasks
 
-1. Product-approve constants in `services/api/src/lib/pacingEstimate/microModel/CONSTANTS_FOR_APPROVAL.md`.
-2. Staging soak: course GPX blob → estimate via `roomId` → attach plan → ping remaining ETAs vs frozen plan.
-3. Optional follow-up: mobile UI for `remainingCheckpointEtas` ahead/behind copy.
+1. Merge #333 when CI green (signed-in map smoke still Auth0-blocked).
+2. Apply stash `wip: micro-model calibration` onto a new branch from `main` (grade-cost blend; first-aid ~44 min late).
+3. Staging soak: course GPX blob → estimate via `roomId` → remaining ETAs vs frozen plan.
 
 ## Validation evidence
 
-- PR #453 required checks were green before merge (`pr-decision-doc-guard`, `dual-client-guard`, `checks`, `api-postgres-integration`).
+- PR #453 required checks were green before merge.
+- #333 previously green on 2026-07-22; needs a fresh run after this merge.
 
 ## Open risks/blockers
 
-- Numeric constants still need product approval before treating as final.
-- Local stash `wip: micro-model calibration` remains; do not restore unless calibration work is requested.
-- Sparse checkpoint-only estimate path (no room route) is degraded vs `roomId`+polyline.
+- Auth0 blocks unattended sim proof for #333 banner absence.
+- Calibration stash changes numeric constants that still need product approval.
+- Sparse checkpoint-only estimate path is degraded vs `roomId`+polyline.
 
 ## Successor prompt
 
 ```text
-Physiology micro-model is on main (PR 453 merged). Review CONSTANTS_FOR_APPROVAL.md for product approval, then staging-soak course GPX + remaining ETAs. Do not restore stash "wip: micro-model calibration" unless calibration is requested.
+Merge PR 333 when CI green. Then restore stash "wip: micro-model calibration" onto a new branch from main (do not reuse the deleted physiology branch). Review CONSTANTS_FOR_APPROVAL.md after applying.
 ```

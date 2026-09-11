@@ -1002,14 +1002,17 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
   }, []);
 
   const fetchRoomDetails = useCallback(
-    async (explicitRoomId?: string) => {
+    async (explicitRoomId?: string, options?: { quiet?: boolean }) => {
       const roomId = explicitRoomId ?? room?.id;
       if (!auth.accessToken || !roomId) return;
+      const quiet = options?.quiet === true;
       try {
         const token = auth.accessToken;
         const result = await appActionRegistry.run(`shell:fetch-room:${roomId}`, "ignoreIfBusy", async () => {
-          setBusy(true);
-          setApiError(undefined);
+          if (!quiet) {
+            setBusy(true);
+            setApiError(undefined);
+          }
           try {
             const client = createApiClient({ baseUrl, accessToken: token });
             const detail = await client.getRaceRoom(roomId);
@@ -1027,33 +1030,47 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
               copy[idx] = { ...copy[idx]!, ...detail.room };
               return copy;
             });
-            setStatusSuccess("Room details fetched.");
+            if (!quiet) {
+              setStatusSuccess("Room details fetched.");
+            }
           } finally {
-            setBusy(false);
+            if (!quiet) {
+              setBusy(false);
+            }
           }
         });
         if (result.status === "skipped") {
           return;
         }
       } catch (err) {
-        setBusy(false);
-        setStatusError(err);
+        if (!quiet) {
+          setBusy(false);
+          setStatusError(err);
+        }
       }
     },
     [auth.accessToken, room?.id, baseUrl, setStatusError, setStatusSuccess]
   );
 
-  const fetchInvites = useCallback(async () => {
-    if (!auth.accessToken || !room) return;
-    setApiError(undefined);
-    try {
-      const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-      const { invites: nextInvites } = await client.getInvites(room.id);
-      setInvites(nextInvites);
-    } catch (err) {
-      setStatusError(err);
-    }
-  }, [auth.accessToken, room, baseUrl, setStatusError]);
+  const fetchInvites = useCallback(
+    async (options?: { quiet?: boolean }) => {
+      if (!auth.accessToken || !room) return;
+      const quiet = options?.quiet === true;
+      if (!quiet) {
+        setApiError(undefined);
+      }
+      try {
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        const { invites: nextInvites } = await client.getInvites(room.id);
+        setInvites(nextInvites);
+      } catch (err) {
+        if (!quiet) {
+          setStatusError(err);
+        }
+      }
+    },
+    [auth.accessToken, room, baseUrl, setStatusError]
+  );
 
   const issueInvite = useCallback(
     async (input: { email: string; role: RaceRoomInvite["role"] }) => {
