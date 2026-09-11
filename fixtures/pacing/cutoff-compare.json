@@ -1,0 +1,31 @@
+{
+  "description": "W4-1 cutoff compare cases for schedule projection. time_of_day uses UTC race-day wall clock of raceStartAt (same UTC calendar date + hour/minute Z). Warn band = CUTOFF_WARN_MARGIN_SECONDS (900).",
+  "raceStartAt": "2026-08-15T13:00:00.000Z",
+  "warnMarginSeconds": 900,
+  "cases": [
+    {
+      "id": "elapsed-under-ok",
+      "mode": "elapsed_from_start",
+      "cutoff": { "mode": "elapsed_from_start", "seconds": 20000 },
+      "note": "Projected arrival well before elapsed cutoff → ok"
+    },
+    {
+      "id": "time-of-day-afternoon",
+      "mode": "time_of_day",
+      "cutoff": { "mode": "time_of_day", "hour": 15, "minute": 30 },
+      "note": "UTC wall clock 15:30Z on race day vs projected aid arrival"
+    },
+    {
+      "id": "elapsed-at-cutoff-breach",
+      "mode": "elapsed_from_start",
+      "cutoff": { "mode": "elapsed_from_start", "seconds": "equal_to_projected_elapsed" },
+      "note": "marginSeconds === 0 → breach"
+    },
+    {
+      "id": "time-of-day-before-start-breach",
+      "mode": "time_of_day",
+      "cutoff": { "mode": "time_of_day", "hour": 12, "minute": 0 },
+      "note": "12:00Z on race day is before 13:00Z start → breach under UTC race-day policy"
+    }
+  ]
+}

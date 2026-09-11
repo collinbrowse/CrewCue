@@ -28,6 +28,11 @@ coverage/
 # Ephemeral agent simulator artifacts — attach to PR only, never commit
 .agent-pr-evidence/
 
+# Accidental tsc emit next to the pacing fixture helper (import the .ts from tests)
+fixtures/pacing/*.js
+fixtures/pacing/*.d.ts
+fixtures/pacing/*.d.ts.map
+
 # Expo prebuild output when run from repo root
 /android/
 /ios/

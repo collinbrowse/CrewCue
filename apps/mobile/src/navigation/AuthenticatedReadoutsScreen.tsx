@@ -19,11 +19,11 @@ import {
   finishDeviationSeconds,
   formatClockFromElapsed,
   formatCutoffClockOnly,
-  formatElapsedHoursMinutes,
   formatSignedMinutesDelta,
   paceRemainingVsPlanDisplay,
+  paceTimeRemainingFromRaceStartLabel,
   isCheckpointCompletedUi,
-  isAutoDwellAtCheckpoint,
+  isAutoStoppageAtCheckpoint,
   milesFromMeters,
   paceRailCheckpointRowModel,
   paceRailFinishRowModel,
@@ -510,8 +510,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
           const cutoffClock = formatCutoffClockOnly(cp.cutoff, Number.isNaN(raceAnchorMs) ? null : raceAnchorMs);
           const clock =
             !Number.isNaN(raceAnchorMs) ? formatClockFromElapsed(raceAnchorMs, projElapsed) : "—";
-          const plannedStopForDwell = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
-          const dwellHere = Boolean(split && isAutoDwellAtCheckpoint(split) && isCurrent && !completed);
+          const plannedStopForStoppage = split?.plannedStopSeconds ?? cp.plannedStopSeconds ?? DEFAULT_PLANNED_STOP;
+          const stoppageHere = Boolean(split && isAutoStoppageAtCheckpoint(split) && isCurrent && !completed);
           const railModel = paceRailCheckpointRowModel(
             index,
             currentIx,
@@ -519,7 +519,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             cumMetersAtCp,
             progressMeters,
             split,
-            plannedStopForDwell,
+            plannedStopForStoppage,
             segmentClockMs,
             completed
           );
@@ -528,16 +528,11 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             completed && split?.actualElapsedSecondsAtCross != null
               ? split.actualElapsedSecondsAtCross
               : projElapsed;
-          const elapsedPrimaryLabel = formatElapsedHoursMinutes(displayElapsedSeconds);
+          // Time remaining = race-clock duration from start to this station (not wall-clock countdown from now).
+          const timeRemainLabel = paceTimeRemainingFromRaceStartLabel(displayElapsedSeconds);
           const vsPlanUnderTimeRemain = paceRemainingVsPlanDisplay(displayElapsedSeconds - plannedElapsed);
           const vsPlanUnderTimeRemainColor =
             vsPlanUnderTimeRemain.kind === "slower" ? theme.color.danger : theme.color.paceDeltaAhead;
-          const etaMs =
-            !Number.isNaN(raceAnchorMs) && Number.isFinite(projElapsed) ? raceAnchorMs + projElapsed * 1000 : NaN;
-          const secondsUntilEta =
-            !Number.isNaN(etaMs) && Number.isFinite(etaMs) ? Math.max(0, (etaMs - segmentClockMs) / 1000) : null;
-          const timeRemainLabel =
-            secondsUntilEta != null && Number.isFinite(secondsUntilEta) ? formatElapsedHoursMinutes(secondsUntilEta) : "—";
 
           return (
             <View key={cp.id} style={paceStyles.timelineRow} onLayout={onRowLayout(cp.id)}>
@@ -551,8 +546,8 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
               <View
                 style={[
                   paceStyles.cpCardShell,
-                  dwellHere && paceStyles.cpCardAtStation,
-                  isCurrent && !dwellHere && paceStyles.cpCardCurrent,
+                  stoppageHere && paceStyles.cpCardAtStation,
+                  isCurrent && !stoppageHere && paceStyles.cpCardCurrent,
                   completed && paceStyles.cpCardPast
                 ]}
               >
@@ -562,7 +557,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                   </Text>
                   {inProgressHere ? (
                     <View style={paceStyles.inProgressBadge}>
-                      <Text style={paceStyles.inProgressBadgeText}>{dwellHere ? "At station" : "In progress"}</Text>
+                      <Text style={paceStyles.inProgressBadgeText}>{stoppageHere ? "At station" : "In progress"}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -635,7 +630,6 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                       <View style={paceStyles.triCol}>
                         <Text style={paceStyles.microLabel}>Est. arrival</Text>
                         <Text style={paceStyles.timePrimary}>{clock}</Text>
-                        <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{elapsedPrimaryLabel}</Text>
                       </View>
                       <View style={paceStyles.triCol}>
                         {cutoffClock ? (
@@ -652,7 +646,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                       </View>
                       <View style={paceStyles.triCol}>
                         <Text style={paceStyles.microLabel}>Time remaining</Text>
-                        <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
+                        <Text
+                          style={paceStyles.timeSecondary}
+                          accessibilityLabel={`Time remaining from race start ${timeRemainLabel}`}
+                        >
+                          {timeRemainLabel}
+                        </Text>
                         <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: vsPlanUnderTimeRemainColor }]}>
                           {vsPlanUnderTimeRemain.label}
                         </Text>
@@ -673,7 +672,6 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                     <View style={paceStyles.triCol}>
                       <Text style={paceStyles.microLabel}>Est. arrival</Text>
                       <Text style={[paceStyles.timePrimary, completed && paceStyles.mainTimePast]}>{clock}</Text>
-                      <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12 }]}>{elapsedPrimaryLabel}</Text>
                     </View>
                     <View style={paceStyles.triCol}>
                       {cutoffClock ? (
@@ -690,7 +688,12 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                     </View>
                     <View style={paceStyles.triCol}>
                       <Text style={paceStyles.microLabel}>Time remaining</Text>
-                      <Text style={paceStyles.timeSecondary}>{timeRemainLabel}</Text>
+                      <Text
+                        style={paceStyles.timeSecondary}
+                        accessibilityLabel={`Time remaining from race start ${timeRemainLabel}`}
+                      >
+                        {timeRemainLabel}
+                      </Text>
                       <Text style={[paceStyles.timeMuted, { marginTop: 2, fontSize: 12, color: vsPlanUnderTimeRemainColor }]}>
                         {vsPlanUnderTimeRemain.label}
                       </Text>

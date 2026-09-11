@@ -1,6 +1,22 @@
 /** Guest stack only — must not include tab routes (Map/Chat/…) or RN dispatches NAVIGATE to missing screens. */
-export const guestLinkingScreens = {
+const guestLinkingBase = {
   Home: "guest"
+} as const;
+
+/** __DEV__ agent QA: fixture schedule / cold-start / crew-sheet export without Auth0. Omitted from production linking. */
+const guestDevLinkingScreens =
+  typeof __DEV__ !== "undefined" && __DEV__
+    ? ({
+        DevScheduleSheet: "dev/schedule-sheet",
+        DevCrewSheetExport: "dev/crew-sheet-export",
+        DevColdStart: "dev/cold-start",
+        DevGpxImportProgress: "dev/gpx-import-progress"
+      } as const)
+    : ({} as const);
+
+export const guestLinkingScreens = {
+  ...guestLinkingBase,
+  ...guestDevLinkingScreens
 } as const;
 
 /** Bottom tabs + nested stacks when `CrewMainTabs` is the root navigator. */
@@ -22,8 +38,10 @@ export const authedTabLinkingScreens = {
     screens: {
       ReadoutsHome: "",
       CourseSettings: "settings",
+      ScheduleSheet: "schedule",
       ReadoutsIncidents: "incidents",
-      GpxImport: "gpx"
+      GpxImport: "gpx",
+      ...(__DEV__ ? { DevGpxImportProgress: "dev-gpx-import-progress" } : {})
     }
   },
   Chat: {

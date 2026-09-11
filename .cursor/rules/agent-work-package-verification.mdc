@@ -1,0 +1,29 @@
+---
+description: Agent work packages must be Ready, edge-case complete, and self-verified before Done.
+alwaysApply: true
+---
+
+# Agent work-package verification
+
+When implementing a GitHub issue labeled `agent-ready` or filed from **Agent work package**:
+
+## Before coding
+
+1. Read `docs/sdlc/agent-async-delivery-program.md` and the issue body.
+2. If Ready fields are incomplete (objective, scope, out of scope, acceptance, edge-case matrix, fixtures, depends, verification), **do not implement** — comment `blocked: not Ready`.
+3. Restate scope in ≤ 8 bullets (goal, issue, in-scope files, out-of-scope, acceptance, verification).
+
+## During coding
+
+- One issue → one branch → one PR. Do not expand into sibling wave packages.
+- Every edge-case matrix row needs a test, simulator step, or explicit N/A + reason before Done.
+- Prefer shared `fixtures/pacing/*` over ad-hoc samples.
+- Do not edit `docs/sdlc/agent-handoff.md` unless you are the wave integration agent; put a **Handoff delta** note in the PR instead.
+- Respect path conflict map on the issue; if another PR owns the same paths, wait or coordinate via issue comment.
+
+## Before claiming Done
+
+- Run the issue Verification commands (`npm run verify` minimum).
+- Mobile UI: `npm run agent:ios:ready` + ios-simulator-agent-qa; evidence on PR only (not under `docs/`).
+- PR must include `Closes #<issue>` and list edge-case proofs.
+- If blocked by secrets/login/human-only steps: stop with what was verified + options to proceed — never fake a pass.

@@ -1,0 +1,57 @@
+{
+  "policy": {
+    "description": "Three deterministic micro-model scenario re-sims (not finish-time ratio stretch). Surface C_i=1; cold-start GAP 10:00/mi.",
+    "bandMethod": "scenario_resim",
+    "conservative": "GAP×1.06, γ1×1.35, γ2×1.4, altitude penalty×1.15",
+    "aggressive": "GAP×0.94, γ1×0.75, γ2×0.7, altitude penalty×0.9",
+    "expected": "Primary finish — equal to expectedFinishElapsedSeconds / expectedFinishAt",
+    "ordering": "conservative.finishElapsedSeconds >= expected.finishElapsedSeconds >= aggressive.finishElapsedSeconds",
+    "coldStart": "Same scenario knobs; expected finish uses GAP 10:00/mi + course mesh/fatigue",
+    "scheduleBaseline": "Crew schedule moving-time / plan-of-record uses expected finish only; bands are informational.",
+    "seed": "crewcue-pacing-v1",
+    "raceStartAt": "2026-08-15T13:00:00.000Z",
+    "courseFixture": "course-50k-with-aids.gpx",
+    "historyFixture": "schedule-expected.json → historyRefs[0] (hist-long-trail)"
+  },
+  "historyBacked": {
+    "id": "est_7f7c9f1ed5fbf245",
+    "coldStart": false,
+    "expectedFinishAt": "2026-08-15T19:49:03.000Z",
+    "expectedFinishElapsedSeconds": 24543,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T20:14:42.000Z",
+        "finishElapsedSeconds": 26082
+      },
+      "expected": {
+        "finishAt": "2026-08-15T19:49:03.000Z",
+        "finishElapsedSeconds": 24543
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T19:23:48.000Z",
+        "finishElapsedSeconds": 23028
+      }
+    },
+    "historyRefIds": ["hist-long-trail"]
+  },
+  "coldStart": {
+    "id": "est_deb6a55f3446f2b5",
+    "coldStart": true,
+    "expectedFinishAt": "2026-08-15T18:17:43.000Z",
+    "expectedFinishElapsedSeconds": 19063,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T18:37:38.000Z",
+        "finishElapsedSeconds": 20258
+      },
+      "expected": {
+        "finishAt": "2026-08-15T18:17:43.000Z",
+        "finishElapsedSeconds": 19063
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T17:58:06.000Z",
+        "finishElapsedSeconds": 17886
+      }
+    }
+  }
+}

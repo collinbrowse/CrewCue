@@ -6,6 +6,7 @@ import {
   isAuthedTabDeepLinkPath,
   pathFromCrewCueUrl
 } from "./linkingPaths";
+import { isStravaOAuthDeepLink } from "../features/strava/stravaOAuth";
 
 export { CREW_CUE_LINKING_PREFIXES, isAuthedTabDeepLinkPath, pathFromCrewCueUrl } from "./linkingPaths";
 
@@ -46,6 +47,7 @@ export function buildCrewCueLinking(options: BuildCrewCueLinkingOptions): Linkin
     async getInitialURL() {
       const url = await Linking.getInitialURL();
       if (!url) return undefined;
+      if (isStravaOAuthDeepLink(url)) return undefined;
       if (shouldDeferAuthedUrl(url)) {
         onDeferAuthedDeepLink?.(url);
         return undefined;
@@ -54,6 +56,7 @@ export function buildCrewCueLinking(options: BuildCrewCueLinkingOptions): Linkin
     },
     subscribe(listener) {
       const onReceive = ({ url }: { url: string }) => {
+        if (isStravaOAuthDeepLink(url)) return;
         if (shouldDeferAuthedUrl(url)) {
           onDeferAuthedDeepLink?.(url);
           return;

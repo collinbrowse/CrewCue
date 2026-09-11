@@ -6,6 +6,13 @@ test("pathFromCrewCueUrl parses crewcue scheme paths", () => {
   assert.equal(pathFromCrewCueUrl("crewcue://guest"), "guest");
   assert.equal(pathFromCrewCueUrl("crewcue://chat"), "chat");
   assert.equal(pathFromCrewCueUrl("crewcue://map/navigate"), "map/navigate");
+  assert.equal(pathFromCrewCueUrl("crewcue://course/schedule"), "course/schedule");
+  assert.equal(pathFromCrewCueUrl("crewcue://dev/schedule-sheet"), "dev/schedule-sheet");
+  assert.equal(pathFromCrewCueUrl("crewcue://dev/crew-sheet-export"), "dev/crew-sheet-export");
+  assert.equal(pathFromCrewCueUrl("crewcue://dev/cold-start"), "dev/cold-start");
+  assert.equal(pathFromCrewCueUrl("crewcue://dev/gpx-import-progress"), "dev/gpx-import-progress");
+  assert.equal(pathFromCrewCueUrl("crewcue://course/dev-gpx-import-progress"), "course/dev-gpx-import-progress");
+  assert.equal(pathFromCrewCueUrl("crewcue://strava?code=x&state=y"), "strava");
   assert.equal(pathFromCrewCueUrl("crewcue://chat?x=1"), "chat");
 });
 
@@ -13,4 +20,9 @@ test("isAuthedTabDeepLinkPath recognizes tab roots only", () => {
   assert.equal(isAuthedTabDeepLinkPath("chat"), true);
   assert.equal(isAuthedTabDeepLinkPath("map/navigate"), true);
   assert.equal(isAuthedTabDeepLinkPath("guest"), false);
+  assert.equal(isAuthedTabDeepLinkPath("strava"), false);
+  assert.equal(isAuthedTabDeepLinkPath("dev/schedule-sheet"), false);
+  assert.equal(isAuthedTabDeepLinkPath("dev/crew-sheet-export"), false);
+  assert.equal(isAuthedTabDeepLinkPath("dev/cold-start"), false);
+  assert.equal(isAuthedTabDeepLinkPath("dev/gpx-import-progress"), false);
 });

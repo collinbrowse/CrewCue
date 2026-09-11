@@ -1,3 +1,5 @@
+import type { PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
 export interface IdentityClaims {
@@ -57,6 +59,11 @@ export interface RaceCourseCheckpoint {
   slowdownThresholdRatio?: number;
   /** Parsed from course file description or set manually in Pace edit mode. */
   cutoff?: RaceCourseCheckpointCutoff;
+  /**
+   * Operational tags (aid / water / dropbag / crew). Omit or `[]` for an untagged landmark.
+   * Additive: older payloads without `tags` remain valid.
+   */
+  tags?: WaypointTag[];
 }
 
 /** Optional non-linear baseline profile used for WS2 planned split / ETA projections. */
@@ -226,6 +233,17 @@ export interface ProjectionWeatherStub {
   assumedHeadwindMps: number;
 }
 
+/**
+ * Live remaining-course ETA for one checkpoint (additive; older clients ignore).
+ * `deltaSecondsVsFrozenPlan` = liveProjectedElapsed − frozenPlanElapsed (+ = behind plan).
+ */
+export interface RemainingCheckpointEta {
+  checkpointId: string;
+  liveProjectedElapsedSeconds: number;
+  frozenPlanElapsedSeconds: number;
+  deltaSecondsVsFrozenPlan: number;
+}
+
 /** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
 export interface RaceRoomProjectionCore {
   roomId: string;
@@ -238,6 +256,11 @@ export interface RaceRoomProjectionCore {
   checkpointSplits: RaceCheckpointSplitRow[];
   stoppageSummary: CheckpointStoppageSummary;
   weatherStub?: ProjectionWeatherStub;
+  /**
+   * Remaining checkpoints re-simulated from current progress (expected scenario).
+   * Compare to frozen plan-of-record moving times for ahead/behind.
+   */
+  remainingCheckpointEtas?: RemainingCheckpointEta[];
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
@@ -287,10 +310,24 @@ export interface RaceRoom {
   courseElevationLossMeters?: number;
   /** Original uploaded filename for route metadata display. */
   courseFileName?: string;
+  /** Raw course GPX XML when uploaded (reprocess / audit); parsed geometry remains authoritative for routing. */
+  courseGpxXml?: string;
   /** Seconds per kilometre for plan baseline (smaller = faster plan). */
   plannedPaceSecondsPerKm?: number;
   /** Multi-upload map overlays + map-authored checkpoints (optional until clients populate). */
   mapWorkspace?: RaceMapWorkspace;
+  /**
+   * Plan-scoped per-stop notes and delay overrides. Note bodies live here, not on
+   * `RaceCourseCheckpoint`. Keyed by `RaceRoomStopPlan.checkpointId`.
+   */
+  stopPlans?: RaceRoomStopPlan[];
+  /**
+   * Plan-of-record pacing estimate id (W3-4). When set with `pacingEstimate`,
+   * GET /schedule uses estimate moving times as the baseline under stoppage/delay overlays.
+   */
+  pacingEstimateId?: string;
+  /** Snapshot of the attached plan-of-record estimate (source of truth for schedule reads). */
+  pacingEstimate?: PacingEstimate;
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */
@@ -667,6 +704,39 @@ export {
   type DesignSystemMode,
   type DesignSystemVariant
 } from "./designSystems.js";
+
+export {
+  ACTIVITY_HISTORY_SOURCES,
+  CUTOFF_WARN_MARGIN_SECONDS,
+  CUTOFF_WARNING_STATUSES,
+  PACING_BAND_KINDS,
+  WAYPOINT_TAGS,
+  isActivityHistorySource,
+  isCutoffWarningStatus,
+  isPacingBandKind,
+  isWaypointTag,
+  parseActivityHistoryRef,
+  parseCrewScheduleSheet,
+  parseDistanceMeters,
+  parseDurationSeconds,
+  parseIso8601Utc,
+  parsePacingEstimate,
+  parseScheduleStop,
+  parseWaypointTags,
+  type ActivityHistoryRef,
+  type ActivityHistorySource,
+  type CrewScheduleSheet,
+  type CutoffWarningStatus,
+  type PacingAidEta,
+  type PacingBandKind,
+  type PacingEstimate,
+  type PacingTimePoint,
+  type ScheduleStop,
+  type ScheduleStopNotesRef,
+  type RaceRoomStopPlan,
+  type StopPlanNote,
+  type WaypointTag
+} from "./pacingSchedule.js";
 
 export type StaffingOverlapSeverity = "warning" | "blocking";
 

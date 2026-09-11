@@ -1,39 +1,43 @@
-import type {
-  AthletePingAcceptedResponse,
-  AthletePingRejectedResponse,
-  ChatNotificationPref,
-  ChatNotificationPrefRecord,
-  ChatPushPlatform,
-  ChatPushTokenRecord,
-  ChatRetentionResult,
-  ChatStreamTokenResponse,
-  CheckpointPlan,
-  CrewAssignment,
-  CrewTask,
-  ExplainabilityRecord,
-  IncidentCategory,
-  IncidentEvent,
-  IncidentSeverity,
-  MergeRecord,
-  MergeStrategyKind,
-  GeocodeSearchResultItem,
-  NavigationRoutingMode,
-  PostNavigationRouteResponse,
-  OpsTimelineEvent,
-  PlanDelta,
-  ProtocolNote,
-  ProtocolNoteCategory,
-  MapWorkspaceLayer,
-  RaceMapWorkspace,
-  RaceRoom,
-  RaceRoomInvite,
-  RaceRoomJoinPreview,
-  RaceCourse,
-  RaceRoomEntitlement,
-  RaceRoomProjection,
-  Recommendation,
-  SyncQueueDiagnostics,
-  SyncStatus
+import {
+  parseCrewScheduleSheet,
+  type ActivityHistoryRef,
+  type AthletePingAcceptedResponse,
+  type AthletePingRejectedResponse,
+  type ChatNotificationPref,
+  type ChatNotificationPrefRecord,
+  type ChatPushPlatform,
+  type ChatPushTokenRecord,
+  type ChatRetentionResult,
+  type ChatStreamTokenResponse,
+  type CheckpointPlan,
+  type CrewAssignment,
+  type CrewScheduleSheet,
+  type CrewTask,
+  type ExplainabilityRecord,
+  type StopPlanNote,
+  type IncidentCategory,
+  type IncidentEvent,
+  type IncidentSeverity,
+  type MergeRecord,
+  type MergeStrategyKind,
+  type GeocodeSearchResultItem,
+  type NavigationRoutingMode,
+  type PostNavigationRouteResponse,
+  type OpsTimelineEvent,
+  type PlanDelta,
+  type ProtocolNote,
+  type ProtocolNoteCategory,
+  type MapWorkspaceLayer,
+  type RaceMapWorkspace,
+  type RaceRoom,
+  type RaceRoomInvite,
+  type RaceRoomJoinPreview,
+  type RaceCourse,
+  type RaceRoomEntitlement,
+  type RaceRoomProjection,
+  type Recommendation,
+  type SyncQueueDiagnostics,
+  type SyncStatus
 } from "@crewcue/contracts";
 
 export class ApiError extends Error {
@@ -170,6 +174,40 @@ export type UpdateRaceCourseInput = {
   routeOverlayLayer?: MapWorkspaceLayer;
 };
 
+/** Note body for stop-plan upsert. Empty/whitespace body clears that notes field on the API. */
+export type StopPlanNoteInput = {
+  id?: string;
+  body: string;
+};
+
+/**
+ * Partial stop-plan upsert (PUT/PATCH). Omit fields to leave unchanged.
+ * Explicit `null` clears delay or a notes field. PUT `{}` does not clear (server semantics).
+ */
+export type UpsertStopPlanInput = {
+  delayOverrideSeconds?: number | null;
+  athleteNotes?: StopPlanNoteInput | null;
+  planNotes?: StopPlanNoteInput | null;
+};
+
+export type StopPlanResponse = {
+  roomId: string;
+  checkpointId: string;
+  delayOverrideSeconds?: number;
+  athleteNotes?: StopPlanNote;
+  planNotes?: StopPlanNote;
+};
+
+/** Reject negative / non-finite delay before network (API also 400s). */
+export function assertValidUpsertStopPlanInput(input: UpsertStopPlanInput): void {
+  if (input.delayOverrideSeconds === undefined || input.delayOverrideSeconds === null) {
+    return;
+  }
+  if (!Number.isFinite(input.delayOverrideSeconds) || input.delayOverrideSeconds < 0) {
+    throw new ApiError(400, { error: "Invalid stop-plan payload" }, "Invalid stop-plan payload");
+  }
+}
+
 export type PostPingInput = {
   latitude: number;
   longitude: number;
@@ -237,6 +275,35 @@ export type ManualCheckpointStopInput = {
   departureAt: string;
   note?: string;
 };
+
+/** Preflight closed check-in (both ISO times; departure after arrival). */
+export function assertValidManualCheckpointStopInput(input: ManualCheckpointStopInput): void {
+  const arrivalAt = typeof input.arrivalAt === "string" ? input.arrivalAt.trim() : "";
+  const departureAt = typeof input.departureAt === "string" ? input.departureAt.trim() : "";
+  if (!arrivalAt || !departureAt) {
+    throw new ApiError(
+      400,
+      { error: "Invalid manual stop payload" },
+      "Arrival and departure times are both required for check-in."
+    );
+  }
+  const arrivalMs = Date.parse(arrivalAt);
+  const departureMs = Date.parse(departureAt);
+  if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs)) {
+    throw new ApiError(
+      400,
+      { error: "Invalid manual stop payload" },
+      "Arrival and departure must be valid ISO-8601 times."
+    );
+  }
+  if (departureMs <= arrivalMs) {
+    throw new ApiError(
+      400,
+      { error: "departureAt must be after arrivalAt" },
+      "Departure must be after arrival."
+    );
+  }
+}
 
 export type UpdateCheckpointVisitSourceInput = {
   resolvedSource: "auto" | "manual_crew";
@@ -341,6 +408,58 @@ export function createApiClient(options: ApiClientOptions) {
       request<PingResponse>(options, "POST", `/race-rooms/${roomId}/pings`, input),
     getProjection: (roomId: string) =>
       request<RaceRoomProjection>(options, "GET", `/race-rooms/${roomId}/projection`),
+    /** Crew schedule sheet (clock + elapsed + stoppage). Displays API values; do not recompute clocks client-side. */
+    getSchedule: async (roomId: string): Promise<CrewScheduleSheet> => {
+      const raw = await request<unknown>(options, "GET", `/race-rooms/${roomId}/schedule`);
+      return parseCrewScheduleSheet(raw);
+    },
+    getStopPlan: (roomId: string, checkpointId: string) =>
+      request<StopPlanResponse>(
+        options,
+        "GET",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`
+      ),
+    /** Partial upsert (omit = unchanged; null = clear). Prefer for edit UI. */
+    patchStopPlan: async (
+      roomId: string,
+      checkpointId: string,
+      input: UpsertStopPlanInput,
+      extras?: RequestExtras
+    ): Promise<StopPlanResponse> => {
+      assertValidUpsertStopPlanInput(input);
+      return request<StopPlanResponse>(
+        options,
+        "PATCH",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        input,
+        extras
+      );
+    },
+    /** Same semantics as PATCH on the API (shared upsert handler). */
+    putStopPlan: async (
+      roomId: string,
+      checkpointId: string,
+      input: UpsertStopPlanInput,
+      extras?: RequestExtras
+    ): Promise<StopPlanResponse> => {
+      assertValidUpsertStopPlanInput(input);
+      return request<StopPlanResponse>(
+        options,
+        "PUT",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        input,
+        extras
+      );
+    },
+    /** Clears the entire stop-plan overlay for the checkpoint (null/DELETE path). */
+    clearStopPlan: (roomId: string, checkpointId: string, extras?: RequestExtras) =>
+      request<StopPlanResponse>(
+        options,
+        "DELETE",
+        `/race-rooms/${roomId}/stop-plans/${encodeURIComponent(checkpointId)}`,
+        undefined,
+        extras
+      ),
     getTaskBoard: (roomId: string) =>
       request<{ checkpointPlans: CheckpointPlan[]; tasks: CrewTask[]; assignments: CrewAssignment[] }>(
         options,
@@ -424,19 +543,21 @@ export function createApiClient(options: ApiClientOptions) {
         `/race-rooms/${roomId}/recommendations/${recommendationId}/reject`
       ),
     getPlanDelta: (roomId: string) => request<{ planDelta: PlanDelta | null }>(options, "GET", `/race-rooms/${roomId}/plan-delta`),
-    postManualCheckpointStop: (
+    postManualCheckpointStop: async (
       roomId: string,
       checkpointId: string,
       input: ManualCheckpointStopInput,
       extras?: RequestExtras
-    ) =>
-      request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
+    ) => {
+      assertValidManualCheckpointStopInput(input);
+      return request<{ checkpointSplit: RaceRoomProjection["checkpointSplits"][number] }>(
         options,
         "POST",
         `/race-rooms/${roomId}/checkpoints/${checkpointId}/manual-stop`,
         input,
         extras
-      ),
+      );
+    },
     patchCheckpointVisitResolvedSource: (
       roomId: string,
       checkpointId: string,
@@ -495,7 +616,47 @@ export function createApiClient(options: ApiClientOptions) {
         options,
         "DELETE",
         `/chat/rooms/${encodeURIComponent(roomId)}/messages`
-      )
+      ),
+
+    // --- Activity history ingest (W3-1 GPX upload + W3-2 Strava) ---
+    /** Preferred: small metrics body (mobile parses GPX on-device). */
+    ingestActivityHistoryMetrics: (input: {
+      externalId: string;
+      recordedAt?: string;
+      distanceMeters: number;
+      elapsedSeconds?: number;
+      elevationGainMeters?: number;
+    }) => request<ActivityHistoryRef>(options, "POST", "/activity-history", input),
+    /** Raw GPX XML — keep for tests/tools; large files may fail on gateways with ~1MB limits. */
+    ingestActivityHistoryGpx: (input: { gpxXml: string; externalId?: string }) =>
+      request<ActivityHistoryRef>(options, "POST", "/activity-history/gpx", input),
+    listActivityHistory: () =>
+      request<{ items: ActivityHistoryRef[] }>(options, "GET", "/activity-history"),
+
+    // --- Strava activity history (W3-2) ---
+    startStravaOAuth: () =>
+      request<{ authorizeUrl: string; state: string; redirectUri: string }>(
+        options,
+        "GET",
+        "/strava/oauth/start"
+      ),
+    completeStravaOAuth: (input: { code: string; state: string; scope?: string }) =>
+      request<{ connected: boolean; athleteId: string }>(
+        options,
+        "POST",
+        "/strava/oauth/callback",
+        input
+      ),
+    getStravaConnection: () =>
+      request<{ connected: boolean; athleteId?: string }>(options, "GET", "/strava/connection"),
+    syncStravaActivities: () =>
+      request<{ syncedCount: number; createdCount: number; items: unknown[] }>(
+        options,
+        "POST",
+        "/strava/sync"
+      ),
+    disconnectStrava: () =>
+      request<{ connected: boolean }>(options, "DELETE", "/strava/connection")
   };
 }
 

@@ -7,6 +7,14 @@ export type GuestStackParamList = {
   JoinAccount: { roomCode: string; displayName: string };
   AthleteSetup: undefined;
   Notifications: undefined;
+  /** __DEV__ only: fixture schedule sheet for simulator QA (crewcue://dev/schedule-sheet). */
+  DevScheduleSheet: undefined;
+  /** __DEV__ only: same fixture via export-focused deeplink (crewcue://dev/crew-sheet-export). */
+  DevCrewSheetExport: undefined;
+  /** __DEV__ only: cold-start estimate UX for simulator QA (crewcue://dev/cold-start). */
+  DevColdStart: undefined;
+  /** __DEV__ only: course GPX import progress bar (crewcue://dev/gpx-import-progress). */
+  DevGpxImportProgress: undefined;
 };
 
 /** Primary map + race operations stack (Map tab). */
@@ -31,12 +39,16 @@ export type ReadoutsStackParamList = {
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
   CourseSettings: undefined;
+  /** Read-only crew schedule sheet (W1-4). */
+  ScheduleSheet: undefined;
   CourseRaceSetup:
     | {
         mode?: "create" | "edit";
         replaceCourseFile?: boolean;
       }
     | undefined;
+  /** __DEV__ only: course GPX import progress (crewcue://course/dev-gpx-import-progress). */
+  DevGpxImportProgress: undefined;
 };
 
 export type ChatStackParamList = {

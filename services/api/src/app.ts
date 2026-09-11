@@ -8,14 +8,23 @@ import { chatRoutes } from "./routes/chatRoutes.js";
 import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
+import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
+import { raceRoomScheduleRoutes } from "./routes/raceRoomSchedule.js";
+import { activityHistoryRoutes } from "./routes/activityHistory.js";
+import { stravaRoutes } from "./routes/stravaRoutes.js";
+import { pacingEstimateRoutes } from "./routes/pacingEstimates.js";
 import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 import { ws7PlatformRoutes } from "./routes/ws7PlatformRoutes.js";
 
+/** GPX activity XML as JSON can exceed Fastify’s 1MB default; mobile may still prefer metrics-only ingest. */
+const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
 export function buildApp() {
   const app = Fastify({
-    logger: true
+    logger: true,
+    bodyLimit: BODY_LIMIT_BYTES
   });
 
   app.register(authPlugin);
@@ -23,6 +32,11 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(eventRoutes);
   app.register(raceRoomRoutes);
+  app.register(raceRoomStopPlanRoutes);
+  app.register(raceRoomScheduleRoutes);
+  app.register(activityHistoryRoutes);
+  app.register(stravaRoutes);
+  app.register(pacingEstimateRoutes);
   app.register(routingRoutes);
   app.register(geocodeRoutes);
   app.register(analyticsRoutes);

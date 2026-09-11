@@ -1,6 +1,5 @@
 import { useState, type ReactElement } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,12 @@ import * as SecureStore from "../storage/secureStorage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DSButton, DSTextInput, useDSTheme } from "../design-system";
 import { useAuthedShell } from "../shell/AuthedShellContext";
+import { CourseImportProgressBar } from "../features/gpx/CourseImportProgressBar";
+import {
+  COURSE_IMPORT_PROGRESS,
+  yieldForCourseImportPaint,
+  type CourseImportProgressStage
+} from "../features/gpx/courseImportProgress";
 import {
   buildExpectedSplits,
   buildRaceCourseFromGpx,
@@ -38,13 +43,22 @@ export function AthleteSetupWizardScreen(): ReactElement {
   const [fileName, setFileName] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [pickingFile, setPickingFile] = useState(false);
+  const [calcProgress, setCalcProgress] = useState<
+    { fileName: string; ratio: number; message: string } | undefined
+  >(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [raceStartIso, setRaceStartIso] = useState(() =>
     defaultSuggestedRaceStartIso(Localization.getCalendars()[0]?.timeZone ?? "UTC")
   );
 
+  const setCalculatingStage = (nameForFile: string, stage: CourseImportProgressStage): void => {
+    const { ratio, message } = COURSE_IMPORT_PROGRESS[stage];
+    setCalcProgress({ fileName: nameForFile, ratio, message });
+  };
+
   const onPick = async () => {
     setPickingFile(true);
+    setCalcProgress(undefined);
     setError(undefined);
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple: false, copyToCacheDirectory: true });
@@ -52,14 +66,31 @@ export function AthleteSetupWizardScreen(): ReactElement {
         return;
       }
       const selected = result.assets[0];
+      const selectedName = selected.name || "route.gpx";
+      setPickingFile(false);
+
+      setCalculatingStage(selectedName, "reading");
+      await yieldForCourseImportPaint();
       const raw = await FileSystemLegacy.readAsStringAsync(selected.uri);
-      const parsedTrack = parseCourseTrack(raw, selected.name);
+
+      setCalculatingStage(selectedName, "parsing");
+      await yieldForCourseImportPaint();
+      const parsedTrack = parseCourseTrack(raw, selectedName);
+
+      setCalculatingStage(selectedName, "calculating");
+      await yieldForCourseImportPaint();
+      // Touch split builder so the "calculating" stage covers the same work the preview uses.
+      void buildExpectedSplits(parsedTrack, "mi");
+
       setParsed(parsedTrack);
-      setFileName(selected.name);
+      setFileName(selectedName);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that file.");
+      setParsed(undefined);
+      setFileName(undefined);
     } finally {
       setPickingFile(false);
+      setCalcProgress(undefined);
     }
   };
 
@@ -113,10 +144,14 @@ export function AthleteSetupWizardScreen(): ReactElement {
   const canAdvanceFromPage0 = name.trim().length > 0;
   const canAdvanceFromPage1 = raceName.trim().length > 0;
   const raceStartOk = !parsed || normalizeRaceStartIso(raceStartIso) !== null;
-  const canFinish = name.trim().length > 0 && raceName.trim().length > 0 && raceStartOk;
+  const canFinish = name.trim().length > 0 && raceName.trim().length > 0 && raceStartOk && !calcProgress;
 
   const primaryNavDisabled =
-    page === 2 ? busy || !canFinish : page === 0 ? !canAdvanceFromPage0 : !canAdvanceFromPage1;
+    page === 2
+      ? busy || !canFinish
+      : page === 0
+        ? !canAdvanceFromPage0
+        : !canAdvanceFromPage1 || Boolean(calcProgress);
 
   const primaryNavLabel =
     page === 2 ? (busy ? "Finishing..." : "Finish setup") : "Next";
@@ -147,18 +182,28 @@ export function AthleteSetupWizardScreen(): ReactElement {
           <Text style={[styles.heading, { color: theme.color.authAccent }]}>Page 2: Race and GPX</Text>
           <DSTextInput value={raceName} onChangeText={setRaceName} placeholder="Silverton 100" autoCapitalize="words" />
           <Pressable
-            style={[styles.secondaryButton, pickingFile && styles.buttonDisabled]}
-            disabled={pickingFile}
+            style={[styles.secondaryButton, (pickingFile || calcProgress) && styles.buttonDisabled]}
+            disabled={pickingFile || Boolean(calcProgress)}
             onPress={() => void onPick()}
+            accessibilityLabel="Upload GPX route file"
           >
-            {pickingFile ? (
-              <ActivityIndicator accessibilityLabel="Opening file picker" color={theme.color.authHeading} />
-            ) : (
-              <Text style={[styles.secondaryText, { color: theme.color.authSecondaryActionText }]}>
-                {fileName ? `Selected: ${fileName}` : "Upload GPX / route file"}
-              </Text>
-            )}
+            <Text style={[styles.secondaryText, { color: theme.color.authSecondaryActionText }]}>
+              {pickingFile
+                ? "Opening files…"
+                : calcProgress
+                  ? "Working…"
+                  : fileName
+                    ? `Selected: ${fileName}`
+                    : "Upload GPX / route file"}
+            </Text>
           </Pressable>
+          {calcProgress ? (
+            <CourseImportProgressBar
+              ratio={calcProgress.ratio}
+              message={calcProgress.message}
+              fileName={calcProgress.fileName}
+            />
+          ) : null}
         </View>
       ) : null}
       {page === 2 ? (
