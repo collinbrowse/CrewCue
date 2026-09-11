@@ -43,13 +43,13 @@ export type SimulationResult = {
 };
 
 /**
- * Minetti-inspired relative metabolic cost vs flat (g = rise/run).
- * Flat → 1. Polynomial approximation for |g| ≤ 0.45.
+ * Softer running-oriented relative cost vs flat (g = rise/run).
+ * Full Minetti walking polynomials were over-penalizing early-race climbs.
  */
 export function minettiRelativeCost(grade: number): number {
   const g = Math.max(-0.45, Math.min(0.45, grade));
-  // Relative cost ≈ 1 + c1 g + c2 g² + c3 g³ (running-oriented heuristic).
-  return Math.max(0.55, 1 + 3.6 * g + 14 * g * g + 22 * g * g * g);
+  // Milder than classic Minetti walk curve: ~+18% at 10% grade, ~+35% at 15%.
+  return Math.max(0.7, 1 + 1.5 * g + 3.5 * g * g + 6 * g * g * g);
 }
 
 export function altitudeFactor(altitudeMeters: number, penaltyMultiplier = 1): number {
@@ -62,12 +62,22 @@ export function altitudeFactor(altitudeMeters: number, penaltyMultiplier = 1): n
   return 1 - deficit * penaltyMultiplier;
 }
 
-export function gradeCostMultiplier(grade: number, terrainEfficiency: number): number {
+/**
+ * Effective grade cost after terrain efficiency, downhill penalty, and profile blend.
+ * blend=1 → full model; blend=0 → always 1 (ignore grade).
+ */
+export function gradeCostMultiplier(
+  grade: number,
+  terrainEfficiency: number,
+  gradeCostBlend = 1
+): number {
   let m = minettiRelativeCost(grade) * terrainEfficiency;
   if (grade < TECHNICAL_DOWNHILL_GRADE) {
     m *= TECHNICAL_DOWNHILL_EXTRA;
   }
-  return Math.max(0.5, m);
+  const blend = Math.max(0, Math.min(1, gradeCostBlend));
+  const blended = 1 + (m - 1) * blend;
+  return Math.max(0.7, blended);
 }
 
 function segmentDurationSeconds(input: {
@@ -77,8 +87,9 @@ function segmentDurationSeconds(input: {
   state: SimulationState;
 }): { duration: number; workAdd: number; descentAdd: number } {
   const { segment, profile, knobs, state } = input;
-  const mGrade = gradeCostMultiplier(segment.grade, profile.terrainEfficiency);
-  const fAlt = altitudeFactor(segment.altitudeMeters, knobs.altitudePenaltyMultiplier);
+  const mGrade = gradeCostMultiplier(segment.grade, profile.terrainEfficiency, profile.gradeCostBlend);
+  const fAltRaw = altitudeFactor(segment.altitudeMeters, knobs.altitudePenaltyMultiplier);
+  const fAlt = 1 + (fAltRaw - 1) * profile.gradeCostBlend;
   const c = Math.max(1, segment.surfaceComplexity);
   const gapSpm = profile.gapSecondsPerMeter * knobs.gapMultiplier;
   const vBase = 1 / gapSpm;

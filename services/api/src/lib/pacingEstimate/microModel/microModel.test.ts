@@ -54,6 +54,7 @@ test("runner profile cold-start vs history", () => {
   const cold = buildRunnerProfile({ history: [], courseDistanceMeters: 50000 });
   assert.equal(cold.coldStart, true);
   assert.ok(Math.abs(cold.gapSecondsPerMeter - coldStartGapSecondsPerMeter()) < 1e-12);
+  assert.ok(cold.gradeCostBlend > 0.4);
 
   const hist = buildRunnerProfile({
     courseDistanceMeters: 50000,
@@ -71,6 +72,38 @@ test("runner profile cold-start vs history", () => {
   });
   assert.equal(hist.coldStart, false);
   assert.ok(hist.gapSecondsPerMeter < cold.gapSecondsPerMeter);
+  assert.ok(hist.gradeCostBlend < cold.gradeCostBlend);
+});
+
+test("history-backed hilly course is less pessimistic than full grade on trail pace", () => {
+  const points = [];
+  for (let i = 0; i <= 40; i++) {
+    points.push({
+      latitude: 39.5 + i * 0.0009,
+      longitude: -106.5,
+      elevationMeters: 2000 + i * 15
+    });
+  }
+  const segments = buildCourseMicroSegments(points);
+  const trailPace = 0.45; // ~12:00/mi wall-clock already includes hills
+  const hist = buildRunnerProfile({
+    courseDistanceMeters: 50000,
+    history: [
+      {
+        id: "trail",
+        source: "gpx_upload",
+        externalId: "t1",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        ingestedAt: "2026-01-02T00:00:00.000Z",
+        distanceMeters: 40000,
+        elapsedSeconds: 40000 * trailPace
+      }
+    ]
+  });
+  const fullGrade = { ...hist, gradeCostBlend: 1 };
+  const withBlend = runScenarioSims({ segments, profile: hist }).expected.state.elapsedSeconds;
+  const withoutBlend = runScenarioSims({ segments, profile: fullGrade }).expected.state.elapsedSeconds;
+  assert.ok(withBlend < withoutBlend * 0.92, "blend should cut double-counted climb cost");
 });
 
 test("100–250 mi course can use weekday training when no ultra-length history exists", () => {

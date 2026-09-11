@@ -7,6 +7,8 @@ import {
   DEFAULT_TERRAIN_EFFICIENCY,
   FATIGUE_GAMMA1_PER_METER_WORK,
   FATIGUE_GAMMA2_PER_METER_DESCENT,
+  GRADE_COST_BLEND_COLD_START,
+  GRADE_COST_BLEND_HISTORY,
   HISTORY_SIMILARITY_MAX_RATIO,
   HISTORY_SIMILARITY_MIN_DISTANCE_METERS,
   HISTORY_SIMILARITY_MIN_RATIO,
@@ -15,11 +17,20 @@ import {
 } from "./constants.js";
 
 export type RunnerProfile = {
-  /** Grade-adjusted baseline pace (seconds per meter on flat equivalent). */
+  /**
+   * Baseline pace (seconds per meter).
+   * Cold start: true flat GAP. History: distance-weighted mean of activity summaries
+   * (already includes typical trail cost — do not treat as pure flat GAP).
+   */
   gapSecondsPerMeter: number;
   /** Flat-equivalent speed (m/s). */
   vBaseMps: number;
   terrainEfficiency: number;
+  /**
+   * Fraction of grade/altitude cost model to apply (0–1).
+   * History-backed uses a low blend to avoid double-counting hills already in summary pace.
+   */
+  gradeCostBlend: number;
   gamma1: number;
   gamma2: number;
   coldStart: boolean;
@@ -70,7 +81,8 @@ export function coldStartGapSecondsPerMeter(): number {
 
 /**
  * Build a runner profile from activity summaries (no track fit).
- * Cold start → GAP 10:00/mi. Similar history → mean sec/m as GAP proxy.
+ * Cold start → GAP 10:00/mi with fuller grade model.
+ * History → mean sec/m treated as trail-inclusive with dampened grade/altitude costs.
  */
 export function buildRunnerProfile(input: {
   history: ActivityHistoryRef[];
@@ -83,27 +95,31 @@ export function buildRunnerProfile(input: {
   let coldStart: boolean;
   let historyRefIds: string[] | undefined;
   let explanation: string;
+  let gradeCostBlend: number;
 
   if (usable.length === 0) {
     coldStart = true;
+    gradeCostBlend = GRADE_COST_BLEND_COLD_START;
     gapSecondsPerMeter = coldStartGapSecondsPerMeter();
     explanation =
       "Cold start: grade-adjusted baseline 10:00/mi with default terrain/fatigue coefficients. Upload similar history for a tighter plan.";
   } else if (similar.length > 0) {
     coldStart = false;
+    gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = meanSecondsPerMeter(similar);
     historyRefIds = similar.map((row) => row.id);
     const excluded = usable.length - similar.length;
     explanation =
       excluded > 0
-        ? `History-backed GAP from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (summaries); ${excluded} outside the window excluded. Default terrain/fatigue coefficients.`
-        : `History-backed GAP from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (summaries). Default terrain/fatigue coefficients.`;
+        ? `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (summaries; trail cost mostly baked in); ${excluded} outside the window excluded. Default fatigue coefficients.`
+        : `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (summaries; trail cost mostly baked in). Default fatigue coefficients.`;
   } else {
     coldStart = false;
+    gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = meanSecondsPerMeter(usable);
     historyRefIds = usable.map((row) => row.id);
     explanation =
-      "History present but outside the similarity window; GAP from available summaries (coarse). Default terrain/fatigue coefficients.";
+      "History present but outside the similarity window; pace from available summaries (coarse; trail cost mostly baked in). Default fatigue coefficients.";
   }
 
   const vBaseMps = 1 / gapSecondsPerMeter;
@@ -111,6 +127,7 @@ export function buildRunnerProfile(input: {
     gapSecondsPerMeter,
     vBaseMps,
     terrainEfficiency: DEFAULT_TERRAIN_EFFICIENCY,
+    gradeCostBlend,
     gamma1: FATIGUE_GAMMA1_PER_METER_WORK,
     gamma2: FATIGUE_GAMMA2_PER_METER_DESCENT,
     coldStart,

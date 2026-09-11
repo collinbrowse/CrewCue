@@ -11,7 +11,7 @@ Proposed numeric defaults for the physiology pacing estimator. Treat as provisio
 
 | Constant                  | Value                         | Role                                                       |
 | ------------------------- | ----------------------------- | ---------------------------------------------------------- |
-| Cold-start GAP            | **10:00 / mi** (600 s/mi)     | Grade-adjusted flat pace when there is no usable history   |
+| Cold-start GAP            | **10:00 / mi** (600 s/mi)     | True flat GAP when there is no usable history              |
 | Surface C_i               | **1.0**                       | Surface factor disabled until a reliable map source exists |
 | Micro-segment target      | **100 m**                     | Route mesh step for slope / altitude samples               |
 | Terrain efficiency E(g)   | **1.0**                       | No athlete-specific slope fit (summaries only this epic)   |
@@ -26,10 +26,14 @@ Proposed numeric defaults for the physiology pacing estimator. Treat as provisio
 
 | Constant              | Value                                                                        | Role                                          |
 | --------------------- | ---------------------------------------------------------------------------- | --------------------------------------------- |
-| Minetti-relative M(g) | 1 + 3.6g + 14g^2 + 22g^3 (clamped)                                           | Metabolic cost vs flat; g = rise/run          |
-| Technical downhill    | g < -15 → **×1.12** extra                                                    | Braking / eccentric penalty on steep descents |
-| Altitude F_{alt}      | 1 - 0.01 \times \frac{\mathrm{Alt} - 1500}{300} for Alt > 1500 m; else **1** | Oxygen / altitude slowdown                    |
+| Soft relative M(g)    | 1 + 1.5g + 3.5g² + 6g³ (clamped ≥ 0.7)                                       | Running-oriented cost vs flat; g = rise/run   |
+| Grade cost blend (cold) | **0.55**                                                                   | Fraction of M(g) / altitude applied on cold start |
+| Grade cost blend (history) | **0.22**                                                                | History summaries already include trail cost — dampen grade/altitude to avoid double-counting |
+| Technical downhill    | g < -15 → **×1.08** extra                                                    | Braking / eccentric penalty on steep descents |
+| Altitude F_{alt}      | 1 - 0.01 \times \frac{\mathrm{Alt} - 1500}{300} for Alt > 1500 m; else **1** | Oxygen / altitude slowdown (also blended)     |
 
+
+Effective cost: `1 + (M(g)·E(g)·[downhill] − 1) × blend` (same blend on altitude deficit).
 
 ---
 
@@ -64,10 +68,16 @@ Ordering invariant: conservative ≥ expected ≥ aggressive (elapsed seconds).
 
 ---
 
+## Calibration note (early-course bias)
+
+First field use projected first aid ~44 min late. Root cause: treating history mean elapsed/distance as flat GAP, then re-applying Minetti-style hills → double-counted terrain. Fix: softer M(g) + history blend **0.22** / cold blend **0.55**.
+
+---
+
 ## Approval
 
 - [x] Cold-start GAP (10:00/mi)
 - [x] Surface held at 1.0
-- [x] Grade / downhill / altitude formulas
+- [ ] Grade / downhill / altitude formulas (+ blend) — field calibration; needs product re-approval
 - [x] Fatigue \gamma_1, \gamma_2
 - [x] Scenario knob table
