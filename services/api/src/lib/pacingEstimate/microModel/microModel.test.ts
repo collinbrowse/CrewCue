@@ -218,6 +218,48 @@ test("scenario bands: conservative >= expected >= aggressive", () => {
   assert.ok(exp >= agg);
 });
 
+test("PR D: aid ETA fallback emits only planned-stop checkpoints when none are aid-like", () => {
+  const route = [];
+  for (let i = 0; i <= 40; i++) {
+    route.push({ latitude: 40 + i * 0.0008, longitude: -105.2, elevationMeters: 1700 + i * 2 });
+  }
+  // No checkpoint is aid-tagged or aid-named. Only "crew-b" carries a planned stop.
+  const checkpoints = [
+    { id: "start", latitude: route[0]!.latitude, longitude: route[0]!.longitude, distanceMetersFromStart: 0 },
+    {
+      id: "waypoint-a",
+      title: "Overlook",
+      latitude: route[10]!.latitude,
+      longitude: route[10]!.longitude,
+      distanceMetersFromStart: 1000,
+      plannedStopSeconds: 0
+    },
+    {
+      id: "crew-b",
+      title: "Crew meetup",
+      latitude: route[20]!.latitude,
+      longitude: route[20]!.longitude,
+      distanceMetersFromStart: 2000,
+      plannedStopSeconds: 300
+    },
+    {
+      id: "finish",
+      latitude: route[40]!.latitude,
+      longitude: route[40]!.longitude,
+      distanceMetersFromStart: 4000
+    }
+  ];
+  const { estimate } = estimatePacingMicroModelWithArtifacts({
+    raceStartAt: "2026-08-01T06:00:00.000Z",
+    checkpoints,
+    history: [],
+    routeMetricPoints: route,
+    courseLengthMeters: 4000
+  });
+  const ids = estimate.aidEtas.map((eta) => eta.checkpointId);
+  assert.deepEqual(ids, ["crew-b"]);
+});
+
 test("estimatePacingMicroModelWithArtifacts returns parseable estimate + baseline", () => {
   const route = [];
   for (let i = 0; i <= 40; i++) {

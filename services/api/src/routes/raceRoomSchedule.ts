@@ -328,6 +328,8 @@ export function projectCrewScheduleSheet(
       checkpointId: checkpoint.id,
       clockArrivalAt,
       elapsedSeconds,
+      // PR D (#484): expose moving-only elapsed so crews see moving vs cumulative dwell on the row.
+      movingElapsedSeconds: movingSeconds,
       plannedStoppageSeconds
     };
     if (delayOverrideSeconds !== undefined) {

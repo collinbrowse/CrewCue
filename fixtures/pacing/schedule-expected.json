@@ -9,6 +9,7 @@
         "checkpointId": "start",
         "clockArrivalAt": "2026-08-15T13:00:00.000Z",
         "elapsedSeconds": 0,
+        "movingElapsedSeconds": 0,
         "plannedStoppageSeconds": 0
       },
       {
@@ -16,6 +17,7 @@
         "checkpointId": "aid-1",
         "clockArrivalAt": "2026-08-15T14:10:00.000Z",
         "elapsedSeconds": 4200,
+        "movingElapsedSeconds": 4200,
         "plannedStoppageSeconds": 180
       },
       {
@@ -23,6 +25,7 @@
         "checkpointId": "aid-2",
         "clockArrivalAt": "2026-08-15T15:20:00.000Z",
         "elapsedSeconds": 8400,
+        "movingElapsedSeconds": 8220,
         "plannedStoppageSeconds": 240,
         "delayOverrideSeconds": 120,
         "notes": {
@@ -34,6 +37,7 @@
         "checkpointId": "aid-3",
         "clockArrivalAt": "2026-08-15T17:05:00.000Z",
         "elapsedSeconds": 14700,
+        "movingElapsedSeconds": 14160,
         "plannedStoppageSeconds": 480,
         "notes": {
           "athleteNotesId": "note-athlete-aid-3",
@@ -45,6 +49,7 @@
         "checkpointId": "finish",
         "clockArrivalAt": "2026-08-15T18:50:00.000Z",
         "elapsedSeconds": 21000,
+        "movingElapsedSeconds": 19980,
         "plannedStoppageSeconds": 0
       }
     ]

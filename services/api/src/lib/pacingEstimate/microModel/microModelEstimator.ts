@@ -135,6 +135,12 @@ function isAidLike(cp: RaceCourseCheckpoint): boolean {
   return /\baid\b/.test(id) || id.startsWith("aid") || /\baid\b/.test(title);
 }
 
+/**
+ * Mid-course checkpoints that should get an aid ETA. Prefer explicitly aid-tagged/named stops.
+ * PR D (#484): the old fallback emitted an ETA for *every* mid-course checkpoint, fabricating aid
+ * arrivals for arbitrary markers (summit, gate). Tighten the fallback to checkpoints that carry a
+ * planned stop (`plannedStopSeconds > 0`) — a real crew/aid stop — and otherwise emit none.
+ */
 function selectAidCheckpoints(
   checkpoints: RaceCourseCheckpoint[],
   courseDistance: number
@@ -144,7 +150,10 @@ function selectAidCheckpoints(
     return d > 0 && d < courseDistance;
   });
   const taggedOrNamed = midCourse.filter(isAidLike);
-  return taggedOrNamed.length > 0 ? taggedOrNamed : midCourse;
+  if (taggedOrNamed.length > 0) {
+    return taggedOrNamed;
+  }
+  return midCourse.filter((cp) => (cp.plannedStopSeconds ?? 0) > 0);
 }
 
 function buildEstimateId(parts: {

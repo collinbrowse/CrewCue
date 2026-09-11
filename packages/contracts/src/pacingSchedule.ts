@@ -157,8 +157,14 @@ export interface ScheduleStop {
   checkpointId: string;
   /** Planned clock arrival (ISO-8601 UTC). */
   clockArrivalAt: string;
-  /** Elapsed seconds from race start. */
+  /** Elapsed seconds from race start (moving time + all cumulative prior stoppage). */
   elapsedSeconds: number;
+  /**
+   * Moving-only elapsed seconds from race start to this arrival (excludes all stoppage).
+   * `elapsedSeconds − movingElapsedSeconds` is the cumulative dwell before this stop, so crews can
+   * see moving vs waiting. Additive/optional: older sheets without it remain valid. (PR D, #484)
+   */
+  movingElapsedSeconds?: number;
   /** Planned stoppage at this stop, seconds. */
   plannedStoppageSeconds: number;
   /**
@@ -266,6 +272,12 @@ export function parseScheduleStop(value: unknown, field = "scheduleStop"): Sched
     elapsedSeconds: parseDurationSeconds(value.elapsedSeconds, `${field}.elapsedSeconds`),
     plannedStoppageSeconds: parseDurationSeconds(value.plannedStoppageSeconds, `${field}.plannedStoppageSeconds`)
   };
+  if (value.movingElapsedSeconds !== undefined) {
+    stop.movingElapsedSeconds = parseDurationSeconds(
+      value.movingElapsedSeconds,
+      `${field}.movingElapsedSeconds`
+    );
+  }
   if (value.delayOverrideSeconds !== undefined) {
     stop.delayOverrideSeconds = parseDurationSeconds(
       value.delayOverrideSeconds,

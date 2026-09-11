@@ -32,7 +32,13 @@ export function stopAccessibilityLabel(
     typeof stop.delayOverrideSeconds === "number"
       ? `, delay ${formatDurationSeconds(stop.delayOverrideSeconds)}`
       : "";
-  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}, stoppage ${stoppageLabel}${delay}`;
+  const split =
+    typeof stop.movingElapsedSeconds === "number"
+      ? `, moving ${formatDurationSeconds(stop.movingElapsedSeconds)}, waited ${formatDurationSeconds(
+          Math.max(0, stop.elapsedSeconds - stop.movingElapsedSeconds)
+        )}`
+      : "";
+  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}${split}, stoppage ${stoppageLabel}${delay}`;
 }
 
 export type CrewScheduleSheetViewProps = {
@@ -317,6 +323,12 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
               </Text>
               <Text style={styles.meta}>Arrival {clockLabel}</Text>
               <Text style={styles.meta}>Elapsed {elapsedLabel}</Text>
+              {typeof item.movingElapsedSeconds === "number" ? (
+                <Text style={styles.meta} accessibilityLabel="Moving vs waiting split">
+                  Moving {formatDurationSeconds(item.movingElapsedSeconds)} · Waited{" "}
+                  {formatDurationSeconds(Math.max(0, item.elapsedSeconds - item.movingElapsedSeconds))}
+                </Text>
+              ) : null}
               <Text style={styles.meta}>Stoppage {stoppageLabel}</Text>
               {hasDelay ? (
                 <Text style={styles.delay} accessibilityLabel={`Delay ${item.delayOverrideSeconds} seconds`}>

@@ -304,7 +304,18 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
       const stop = stopByCheckpoint(sheet, id);
       priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
-    assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorStoppage);
+    const finishStop = stopByCheckpoint(sheet, "finish");
+    assert.equal(finishStop.elapsedSeconds, finishMoving + priorStoppage);
+
+    // PR D (#484): movingElapsedSeconds is the moving-only baseline; elapsed − moving == cumulative
+    // prior dwell (0 at the start, growing as prior stoppage stacks).
+    assert.equal(finishStop.movingElapsedSeconds, finishMoving);
+    assert.equal(finishStop.elapsedSeconds - (finishStop.movingElapsedSeconds ?? 0), priorStoppage);
+    assert.equal(stopByCheckpoint(sheet, "start").movingElapsedSeconds, 0);
+    assert.equal(
+      stopByCheckpoint(sheet, "aid-1").movingElapsedSeconds,
+      aid1Eta.elapsedSeconds
+    );
   });
 });
 

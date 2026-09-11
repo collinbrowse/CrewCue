@@ -134,6 +134,19 @@ test("EC6: clock times are ISO-8601 UTC; durations seconds; distances meters", (
   assert.equal(stop.clockArrivalAt, "2026-08-12T16:30:00Z");
   assert.equal(stop.elapsedSeconds, 12_600);
   assert.equal(stop.plannedStoppageSeconds, 240.5);
+  // PR D (#484): movingElapsedSeconds is optional/additive; absent by default, parsed when present.
+  assert.equal(stop.movingElapsedSeconds, undefined);
+  const withMoving = parseScheduleStop({
+    ...requiredStop(),
+    elapsedSeconds: 12_600,
+    movingElapsedSeconds: 12_000,
+    plannedStoppageSeconds: 240.5
+  });
+  assert.equal(withMoving.movingElapsedSeconds, 12_000);
+  assert.throws(
+    () => parseScheduleStop({ ...requiredStop(), movingElapsedSeconds: -1 }),
+    /movingElapsedSeconds/
+  );
 });
 
 test("EC7: multiple tags are allowed; empty tag list is an untagged landmark", () => {
