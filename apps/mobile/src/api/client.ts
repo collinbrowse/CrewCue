@@ -1,5 +1,6 @@
 import {
   parseCrewScheduleSheet,
+  parsePacingEstimate,
   type ActivityHistoryRef,
   type AthletePingAcceptedResponse,
   type AthletePingRejectedResponse,
@@ -24,6 +25,7 @@ import {
   type NavigationRoutingMode,
   type PostNavigationRouteResponse,
   type OpsTimelineEvent,
+  type PacingEstimate,
   type PlanDelta,
   type ProtocolNote,
   type ProtocolNoteCategory,
@@ -350,6 +352,12 @@ export type PostRoomRouteInput = {
   checkpointIds?: string[];
 };
 
+export type AttachPacingEstimateResponse = {
+  roomId: string;
+  pacingEstimateId: string;
+  estimate: PacingEstimate;
+};
+
 export function createApiClient(options: ApiClientOptions) {
   return {
     health: () => request<{ status: string }>(options, "GET", "/health/live"),
@@ -413,6 +421,32 @@ export function createApiClient(options: ApiClientOptions) {
       const raw = await request<unknown>(options, "GET", `/race-rooms/${roomId}/schedule`);
       return parseCrewScheduleSheet(raw);
     },
+    /**
+     * Micro-model pacing estimate from the room course + the athlete's uploaded history.
+     * Server saves the baseline track alongside the estimate. Attach by the returned `id`
+     * (see `attachPacingEstimate`) — never inline — so the stored baseline reaches the course.
+     */
+    createPacingEstimate: async (roomId: string, extras?: RequestExtras): Promise<PacingEstimate> => {
+      const raw = await request<unknown>(options, "POST", "/pacing-estimates", { roomId }, extras);
+      return parsePacingEstimate(raw);
+    },
+    /**
+     * Attach an estimate as the room plan of record. Attach **by id** (Trap 1): only the stored-id
+     * path carries `baselineTrack` into `course.baselineTrack` and re-derives `plannedPaceSecondsPerKm`,
+     * so schedule, map, and Pace clocks agree.
+     */
+    attachPacingEstimate: (
+      roomId: string,
+      pacingEstimateId: string,
+      extras?: RequestExtras
+    ): Promise<AttachPacingEstimateResponse> =>
+      request<AttachPacingEstimateResponse>(
+        options,
+        "PUT",
+        `/race-rooms/${roomId}/pacing-estimate`,
+        { pacingEstimateId },
+        extras
+      ),
     getStopPlan: (roomId: string, checkpointId: string) =>
       request<StopPlanResponse>(
         options,

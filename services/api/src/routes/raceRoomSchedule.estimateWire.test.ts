@@ -16,7 +16,11 @@ import {
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
-import { resetPacingEstimateStoreForTests, savePacingEstimate } from "../lib/pacingEstimateStore.js";
+import {
+  getPacingEstimateById,
+  resetPacingEstimateStoreForTests,
+  savePacingEstimate
+} from "../lib/pacingEstimateStore.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
 import { movingElapsedSecondsFromEstimate, projectCrewScheduleSheet } from "./raceRoomSchedule.js";
@@ -301,6 +305,34 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
       priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
     assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorStoppage);
+  });
+});
+
+test("Trap 2: attach-by-id derives plannedPaceSecondsPerKm from the estimate baseline", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-trap2");
+    const roomId = await createPaidRoom(app, ownerToken, "Trap2 planned pace");
+    const room = await put50kCourse(app, roomId, ownerToken);
+    const beforePace = room.plannedPaceSecondsPerKm;
+    const estimate = await createEstimateViaApi(app, ownerToken, room);
+
+    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    assert.equal(attach.statusCode, 200);
+
+    const stored = await getPacingEstimateById(estimate.id);
+    assert.ok(stored?.baselineTrack && stored.baselineTrack.points.length >= 2);
+    const last = stored.baselineTrack.points[stored.baselineTrack.points.length - 1]!;
+    const expectedPace = last.referenceElapsedSeconds / (last.distanceMetersFromStart / 1000);
+
+    const persisted = await getRaceRoom(roomId);
+    assert.ok(persisted);
+    assert.equal(typeof persisted.plannedPaceSecondsPerKm, "number");
+    assert.ok(
+      Math.abs((persisted.plannedPaceSecondsPerKm as number) - expectedPace) < 1e-6,
+      `expected derived pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`
+    );
+    // The estimate now drives the plan of record, not the timestamped-GPX fallback pace.
+    assert.notEqual(persisted.plannedPaceSecondsPerKm, beforePace);
   });
 });
 
