@@ -1416,7 +1416,8 @@ function enrichProjectionWithLiveRemaining(
     });
     return {
       ...core,
-      etaFinishPlanIso: live.etaFinishPlanIso,
+      // Keep anchored plan-pace / baseline-track finish on etaFinishPlanIso.
+      // Live remaining-course ETAs are additive on remainingCheckpointEtas.
       remainingCheckpointEtas: live.remainingCheckpointEtas
     };
   } catch {

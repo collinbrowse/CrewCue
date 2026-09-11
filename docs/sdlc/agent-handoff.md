@@ -14,23 +14,23 @@
 - Last updated: 2026-09-11 (UTC)
 - **Roadmap phase:** Physiology micro-model pacing estimator (#451 / PR #453).
 - **Branch / PR:** `feature/physiology-micro-model-estimator` → #453.
-- **Active next:** Merge origin/main into #453; get CI green; do not merge until constants are approved.
+- **Active next:** Confirm CI green after merging `main`; do not merge until constants are approved.
 
 ## Completed
 
-- #451 implementation on branch: dwell→stoppage rename; micro-model estimator + 3 scenario bands; roomId/course GPX; attach writes `baselineTrack`; live remaining ETAs on ping/visit.
-- Pace UX (#456) and GPX progress (#455) are on `main`.
+- Merged `origin/main` into #453 (handoff conflict resolved).
+- Kept `etaFinishPlanIso` as anchored plan-pace finish; live remaining stays on `remainingCheckpointEtas`.
+- Cold-start W4 estimate now sends `roomId` so band goldens use room route geometry.
 
 ## Next 1-3 tasks
 
-1. Finish merge of `main` into #453 and restore CI.
+1. Confirm GitHub CI is green on #453.
 2. Product-approve constants in `microModel/CONSTANTS_FOR_APPROVAL.md`.
 3. Staging soak for course GPX blob + remaining ETAs after merge.
 
 ## Validation evidence
 
-- `npm run verify` was green locally before the merge.
-- Micro-model unit tests + pacing band tests updated for scenario re-sims.
+- Memory-mode: `raceRoomProjection.test.ts`, `raceRoomSchedule.w4Integration.test.ts`, `pacingEstimateBands.test.ts`, related projection/pacing tests — pass.
 
 ## Open risks/blockers
 

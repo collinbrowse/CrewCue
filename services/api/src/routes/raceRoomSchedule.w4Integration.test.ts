@@ -168,6 +168,7 @@ async function postEstimate(
     url: "/pacing-estimates",
     headers: { authorization: `Bearer ${token}` },
     payload: {
+      roomId: room.id,
       raceStartAt: RACE_START_AT,
       checkpoints: room.course.checkpoints,
       historyRefIds: opts?.historyRefIds,
