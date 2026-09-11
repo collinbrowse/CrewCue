@@ -12,34 +12,35 @@
 ## Session status snapshot
 
 - Last updated: 2026-09-11 (UTC)
-- **Roadmap phase:** Micro-model grade-cost calibration (#475) plus map banner loop (#333).
-- **Branch / PR:** `feature/micro-model-grade-cost-blend` → #475.
-- **Active next:** Open/merge calibration PR; merge #333 when CI green.
+- **Roadmap phase:** Physiology micro-model + grade-cost blend on `main`; map banner loop fixed.
+- **Branch / PR:** Local `main` matches `origin/main` (`b223c5a`). Feature branches deleted.
+- **Active next:** Product-approve updated grade/blend constants; then staging soak.
 
 ## Completed
 
-- Restored stash `wip: micro-model calibration` onto a new branch from `main`.
-- Merged `main` into #333 (handoff conflict only).
+- PR #333 merged; #332 closed (quiet map auto-fetch; noticeBus post-dismiss dedupe).
+- PR #476 merged; #475 closed (softer M(g) + cold/history grade-cost blends).
+- Deleted local `fix/332-map-error-banner-loop` and `feature/micro-model-grade-cost-blend`.
 
 ## Next 1-3 tasks
 
-1. Land #475 (grade-cost blend) after tests/CI.
-2. Merge #333 when CI green (Auth0 still blocks signed-in map smoke).
-3. Product-approve updated grade/blend constants, then staging soak.
+1. Product-approve grade/blend constants in `services/api/src/lib/pacingEstimate/microModel/CONSTANTS_FOR_APPROVAL.md`.
+2. Staging soak: course GPX blob → estimate via `roomId` → attach plan → ping remaining ETAs vs frozen plan.
+3. Optional follow-up: mobile UI for `remainingCheckpointEtas` ahead/behind copy.
 
 ## Validation evidence
 
-- #333: platform-client tests + mobile typecheck after merge of `main`.
-- #475: apply tests next (`microModel.test.ts`, band goldens).
+- PR #333 and #476 required checks were green before merge.
 
 ## Open risks/blockers
 
-- Grade/blend constants need product re-approval after this calibration.
-- Auth0 blocks unattended sim proof for #333.
+- Grade/blend knobs still need product re-approval after the field calibration.
+- Auth0 still blocks unattended signed-in map smoke.
 - Sparse checkpoint-only estimate path is degraded vs `roomId`+polyline.
+- Unrelated leftover stashes remain; do not restore unless requested.
 
 ## Successor prompt
 
 ```text
-Land PR for #475 (micro-model grade-cost blend) and merge #333 when CI green. Do not restore leftover stashes unless explicitly requested.
+Physiology micro-model, grade-cost blend, and map banner-loop fix are on main (PRs 453, 476, 333). Review CONSTANTS_FOR_APPROVAL.md, then staging-soak course GPX + remaining ETAs. Do not restore leftover stashes unless requested.
 ```
