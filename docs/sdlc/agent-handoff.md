@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-11 (UTC)
 - **Roadmap phase:** Test coverage automation for recent merged API/mobile-facing changes.
-- **Branch / PR:** `cursor/missing-test-coverage-ff3a` -> PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-ff3a` -> PR #473.
 - **Active issue:** No pre-filed issue; this environment has read-only `gh` guidance and no issue-creation MCP tool.
 - **Acceptance:** Inspect recent merged code, add high-signal deterministic tests for a meaningful uncovered risk, avoid production behavior changes, and validate focused/API/root targets.
 - **Guardrails:** Do not duplicate open PR #468/#472 invite-hydrate coverage; no mobile UI, contract, schema, or production route changes in this coverage PR.
