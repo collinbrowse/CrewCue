@@ -13,7 +13,7 @@
 
 - Last updated: 2026-09-12 (UTC)
 - **Roadmap phase:** Pacing prediction accuracy. #333 and #479 are merged.
-- **Branch / PR:** `cursor/missing-test-coverage-21c7` → coverage PR pending.
+- **Branch / PR:** `cursor/missing-test-coverage-21c7` → #486.
 - **Active next:** Review/land micro-model resume coverage, then wire the mobile client to the pacing estimator.
 
 ## Completed
@@ -25,14 +25,14 @@
 
 ## Next 1-3 tasks
 
-1. Review/land the micro-model resume coverage PR.
+1. Review/land #486 (micro-model resume coverage).
 2. Wire `createPacingEstimate` + `attachPacingEstimate` into `apps/mobile/src/api/client.ts` so history reaches the plan. Attach **by `pacingEstimateId`**, not inline estimate: only the stored-id path carries `baselineTrack` into `course.baselineTrack` (`raceRoomSchedule.ts` ~447-459). Also derive `plannedPaceSecondsPerKm` from the estimate, or the PACE badge keeps reading 9:39.
 3. Offline backtest harness over `fixtures/pacing/` printing predicted vs actual per aid and finish with MAE, so model tuning stops costing a real race.
 
 ## Validation evidence
 
-- Coverage PR: `npm run test:memory -w @crewcue/api` passes.
-- Coverage PR: `npm run verify` passes after `npm ci` installed missing workspace dev tools.
+- #486: `npm run test:memory -w @crewcue/api` passes.
+- #486: `npm run verify` passes after `npm ci` installed missing workspace dev tools.
 
 ## Open risks/blockers
 
@@ -44,7 +44,7 @@
 ## Successor prompt
 
 ```text
-Review/land the micro-model resume coverage PR, then implement the next task:
+Review/land #486 (micro-model resume coverage), then implement the next task:
 add createPacingEstimate and attachPacingEstimate to apps/mobile/src/api/client.ts so uploaded
 history actually drives the race plan. Attach by pacingEstimateId (not an inline estimate body),
 and derive plannedPaceSecondsPerKm from the estimate. Do not restore leftover stashes.
