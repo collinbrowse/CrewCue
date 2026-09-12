@@ -1,29 +1,29 @@
 # Agent handoff source of truth
 
-Update at **PR/wave boundaries**, not every chat. Current state only.
+Update at **PR/wave boundaries**, not every chat. Current state only. Feature agents: PR **Handoff delta** only.
 
 ## Snapshot
 
 - Last updated: 2026-09-12 (UTC)
-- **On `main`:** Pacing diagnosis + #475/#333 context; fallback climb work may still be in flight on feature branches.
-- **Active feature line:** `feature/pacing-accuracy-program` (estimator wiring, backtest, model C1–C4, aid dwell) — prefer that branch’s commits/PR over this file for pacing detail until merged.
-- **Process:** Always-on agent ceremony slimmed (#488) — fast path by default; handoff/issue/work-package/staging rules are opt-in or path-triggered.
+- **On `main`:** Process slim (#488/#489) + agent harness gates in flight (#490): Ready/Done scripts, scoped verify, hooks, Ready lint Action, `crewcue://dev/pace-estimate`.
+- **Active feature line:** `feature/pacing-accuracy-program` for pacing product; prefer that branch/PR for pacing detail until merged.
+- **Process:** Fast path default; machine gates (`agent:issue:ready`, `agent:pr:done`, `agent:ios:ready`) over prose re-reads.
 
 ## Next 1-3 tasks
 
-1. Merge process slim-down (#488) when CI is green.
-2. Land / merge pacing accuracy program PR(s) from `feature/pacing-accuracy-program`.
-3. Single field validation via `npm run pacing:backtest` with a real-effort fixture after pacing PR merges.
+1. Merge #490 (agent harness gates) when CI green.
+2. Land / merge pacing accuracy program from `feature/pacing-accuracy-program`.
+3. After pacing merge: real-effort `npm run pacing:backtest` fixture + tune constants from evidence.
 
 ## Blockers
 
-- Auth0 still blocks unattended mobile simulator proof for estimator UI.
-- Leave unrelated stashes alone (`wip-387-orphan`, `w2-3-local-wip-do-not-touch`, PR 296 fix, plus any `wip-pacing-*` stash).
+- Production-auth mobile paths still need Auth0; schedule/pace **fixture** proof uses `crewcue://dev/*` (no login).
+- Leave unrelated stashes alone.
 
 ## Successor prompt
 
 ```text
-Prefer fast path: no mandatory SDLC triple-read. For pacing product work, checkout
-feature/pacing-accuracy-program (or the open PR) and continue from its commits / PR body
-Handoff delta — not from stale narrative here. After merge: real-effort backtest fixture.
+Prefer fast path + machine gates (agent:issue:ready / agent:pr:done / scoped verify:*).
+For pacing product: feature/pacing-accuracy-program. After #490 merge: use Auth0-free
+crewcue://dev/pace-estimate|schedule-sheet for sim proof. Integration agent owns handoff.
 ```

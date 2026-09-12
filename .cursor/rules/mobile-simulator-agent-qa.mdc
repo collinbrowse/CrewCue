@@ -17,9 +17,10 @@ Never report a mobile UI task complete without simulator proof.
 
 ## Loop
 
-1. `npm run agent:ios:ready` — fix harness failures before UI steps.
+1. `npm run agent:ios:ready` — Metro required; fix failures before UI steps. Prefer `--deeplink crewcue://dev/schedule-sheet|cold-start|pace-estimate` (Auth0-free).
 2. Skill **ios-simulator-agent-qa**: `snapshot_ui` → act by accessibility label → assert → screenshot on fail/pass.
 3. Fail → fix code → re-run harness if needed → repeat (cap **5** sim iterations, then stop with a blocker report).
+4. Before Done: `npm run agent:pr:done -- <pr>`.
 
 ## Evidence (PR only)
 

@@ -30,14 +30,16 @@ Wave 0 (serial unlock)
 
 1. **One issue = one agent = one PR.** No multi-issue chats.
 2. **No PR without a closed edge-case matrix** (every row: test or explicit “N/A + why”).
-3. **Self-verify before “done”:** `npm run verify` always; mobile UI also `npm run agent:ios:ready` + simulator QA skill; API/contracts also package tests.
+3. **Self-verify before “done”:** mid-slice `verify:api|mobile|contracts`; full `npm run verify` pre-PR; mobile also `agent:ios:ready` + sim QA; then `npm run agent:pr:done -- <pr>`.
 4. **Contract-first:** Wave 0 lands shared types/fixtures before parallel feature agents.
 5. **Merge only when CI green** (`checks` + `dual-client-guard`). Rebase on `main`; no force-push to `main`.
-6. **Do not claim done** if a human-only step blocked proof — file blocker comment with options (per mobile sim QA rule).
+6. **Do not claim done** if a human-only step blocked proof — file blocker comment with options (per mobile sim QA rule). Prefer `crewcue://dev/*` over Auth0.
 
 ---
 
 ## 2) Definition of Ready (issue may be picked by an agent)
+
+**Machine gate:** `npm run agent:issue:ready -- <n>` (exit 0 required). Script stdout replaces re-reading this checklist. CI also comments when `agent-ready` is labeled but the body fails the gate.
 
 An issue is **Ready** only if it has all of:
 
@@ -45,27 +47,29 @@ An issue is **Ready** only if it has all of:
 - [ ] In-scope files / packages (bounded)
 - [ ] Out of scope (explicit)
 - [ ] Acceptance criteria (testable bullets, ≤ 8)
-- [ ] **Edge-case matrix** (table; ≥ 5 rows for feature work; ≥ 3 for pure docs/infra)
+- [ ] **Edge-case matrix** (table; ≥ 5 rows for feature work; ≥ 3 for pure docs/infra; Proof column filled)
 - [ ] **Verification commands** (copy-pasteable)
 - [ ] **Fixtures** named (or “create under `…` as part of this issue”)
 - [ ] **Depends on** issue numbers (or `none`)
-- [ ] **Conflicts with** paths other open PRs must avoid (or `none`)
+- [ ] **Conflicts with** / path conflict map (or `none`)
 - [ ] Labels: `agent-ready` + surface (`api` / `mobile` / `contracts` / `docs`) + wave (`wave-0` …)
 - [ ] Successor prompt ≤ 25 lines (paste into next agent if blocked mid-flight)
 
-If any checkbox is missing, agents **must refuse to implement** and comment `blocked: not Ready`.
+If the Ready script fails, agents **must refuse to implement** and comment `blocked: not Ready`.
 
 ---
 
 ## 3) Definition of Done (agent may stop)
 
+**Machine gate:** `npm run agent:pr:done -- <pr>` (exit 0).
+
 - [ ] All acceptance criteria met
 - [ ] Every edge-case row has a test, fixture assertion, or documented N/A
 - [ ] `npm run verify` green locally
-- [ ] Mobile UI: simulator proof on PR (not committed under `docs/`); harness green
+- [ ] Mobile UI: simulator proof on PR (prefer `crewcue://dev/*`); harness green
 - [ ] PR body: `Closes #<n>`, decision/assumption sections filled, verification evidence listed
 - [ ] No new secrets in repo; Strava/Auth0 via env only
-- [ ] `docs/sdlc/agent-handoff.md` updated **only by integration agent** (feature agents leave a short PR note for handoff delta)
+- [ ] `docs/sdlc/agent-handoff.md` updated **only by integration agent** (feature agents leave a short PR **Handoff delta**)
 
 ---
 

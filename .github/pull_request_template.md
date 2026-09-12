@@ -59,16 +59,20 @@ List each relevant acceptance criterion and how this PR satisfies it.
 
 ## Test Plan
 
-- npm run lint
-- npm run typecheck
-- npm run build
-- npm run test
-- npm run smoke:mobile:ios (macOS local smoke; if mobile/deep-link navigation changed)
-- npm run verify (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**)
+- Mid-slice (optional): `npm run verify:contracts` / `verify:api` / `verify:mobile`
+- `npm run lint`
+- `npm run typecheck`
+- `npm run build`
+- `npm run test`
+- `npm run smoke:mobile:ios` (macOS local smoke; if mobile/deep-link navigation changed)
+- `npm run verify` (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**, harness unit tests)
+- Agent packages: `npm run agent:pr:done -- <pr>` (or `--body-file` with this body)
 
 ## iOS simulator evidence (required if `apps/mobile` UI changed)
 
 Attach proof here or in PR comments (screenshots, key `snapshot_ui` labels). **Do not commit** evidence files to the repo — it is discarded when the PR closes.
+
+Prefer Auth0-free: `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet` (or `cold-start` / `pace-estimate`).
 
 - [ ] `npm run agent:ios:ready` — pass (or **Blocker** below with options)
 - [ ] Acceptance criteria exercised on simulator (XcodeBuildMCP / Maestro)
@@ -101,8 +105,10 @@ Attach proof here or in PR comments (screenshots, key `snapshot_ui` labels). **D
 
 - Prompt/task used:
 - What was reviewed manually:
-- Handoff doc updated (`docs/sdlc/agent-handoff.md`): yes / no
+- **Handoff delta** (feature agents — ≤5 lines; do not edit `agent-handoff.md` mid-wave):
+- Integration agent updated `docs/sdlc/agent-handoff.md`: yes / no / N/A
 - Successor next-step prompt prepared: yes / no
+- `npm run agent:pr:done`: pass / n/a
 
 ## Agent Handoff Continuity Checklist (required for agent-assisted PRs)
 

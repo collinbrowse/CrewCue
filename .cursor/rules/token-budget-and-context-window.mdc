@@ -6,7 +6,8 @@ alwaysApply: true
 # Token budget (always on, short)
 
 - Prefer targeted file reads over broad doc scans.
-- **Fast path (default):** implement → verify → done. No mandatory doc pack, scope restatement, issue, or handoff update.
-- **Non-trivial / multi-session work:** read `docs/sdlc/agent-handoff.md` only if continuity matters; pull other rules by description when needed.
+- **Fast path (default):** implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. No mandatory doc pack, scope restatement, issue, or handoff update.
+- **agent-ready / waves:** `npm run agent:issue:ready -- <n>` then issue body; script stdout replaces Ready-doc re-reads.
+- **Non-trivial / multi-session:** read `docs/sdlc/agent-handoff.md` only if continuity matters; feature agents use PR **Handoff delta**, not handoff edits.
 - Keep replies concise: status, evidence, next 1–3 steps.
 - Do not paste large docs into the chat when paths already exist in-repo.

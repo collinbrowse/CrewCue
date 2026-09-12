@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { execFile as execFileCb } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,7 +11,32 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const BUNDLE_ID = "com.crewcue.mobile";
 const WORKSPACE = path.join(repoRoot, "apps/mobile/ios/CrewCue.xcworkspace");
 const CONFIG_PATH = path.join(repoRoot, ".xcodebuildmcp/config.yaml");
-const GUEST_DEEPLINK = "crewcue://guest";
+
+/** Auth0-free __DEV__ QA entries (guest stack). Prefer these over login for agent proof. */
+const AUTH0_FREE_DEEPLINKS = [
+  "crewcue://guest",
+  "crewcue://dev/schedule-sheet",
+  "crewcue://dev/cold-start",
+  "crewcue://dev/pace-estimate",
+  "crewcue://dev/crew-sheet-export",
+  "crewcue://dev/gpx-import-progress"
+];
+
+function parseArgs(argv) {
+  let deeplink = process.env.AGENT_IOS_DEEPLINK?.trim() || "crewcue://guest";
+  let requireMetro = process.env.AGENT_IOS_ALLOW_NO_METRO !== "1";
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--deeplink") deeplink = argv[++i];
+    else if (a.startsWith("--deeplink=")) deeplink = a.slice("--deeplink=".length);
+    else if (a === "--allow-no-metro") requireMetro = false;
+    else if (a === "--list-deeplinks") {
+      for (const u of AUTH0_FREE_DEEPLINKS) process.stdout.write(`${u}\n`);
+      process.exit(0);
+    }
+  }
+  return { deeplink, requireMetro };
+}
 
 async function run(command, args) {
   const { stdout, stderr } = await execFile(command, args, { encoding: "utf8" });
@@ -90,10 +116,25 @@ async function isMetroUp() {
   }
 }
 
+function printNextSteps(udid, deeplink) {
+  const lines = [
+    `agent-ios-ready: simulatorId=${udid}`,
+    `agent-ios-ready: opened ${deeplink}`,
+    "agent-ios-ready: next — XcodeBuildMCP snapshot_ui → tap by AXLabel → screenshot",
+    "agent-ios-ready: Auth0-free: crewcue://dev/schedule-sheet | cold-start | pace-estimate",
+    "agent-ios-ready: ok"
+  ];
+  for (const line of lines.slice(0, 10)) {
+    process.stdout.write(`${line}\n`);
+  }
+}
+
 async function main() {
   if (process.platform !== "darwin") {
     throw new Error("agent:ios:ready requires macOS.");
   }
+
+  const { deeplink, requireMetro } = parseArgs(process.argv.slice(2));
 
   try {
     await run("xcrun", ["--version"]);
@@ -102,9 +143,7 @@ async function main() {
   }
 
   if (!fs.existsSync(WORKSPACE)) {
-    throw new Error(
-      `Missing ${WORKSPACE}. From apps/mobile run: npx expo prebuild`
-    );
+    throw new Error(`Missing ${WORKSPACE}. From apps/mobile run: npx expo prebuild`);
   }
 
   const simulatorName = readSimulatorName();
@@ -119,24 +158,25 @@ async function main() {
 
   const metro = await isMetroUp();
   if (!metro) {
-    process.stdout.write(
-      "agent-ios-ready: WARN Metro not detected on :8081. Start: REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 npm run dev:mobile\n"
-    );
+    if (requireMetro) {
+      throw new Error(
+        "Metro not detected on :8081. Start: REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 npm run dev:mobile (or pass --allow-no-metro / AGENT_IOS_ALLOW_NO_METRO=1)."
+      );
+    }
+    process.stdout.write("agent-ios-ready: WARN Metro not detected on :8081 (allowed)\n");
   } else {
     process.stdout.write("agent-ios-ready: Metro OK on :8081\n");
   }
 
   try {
-    await run("xcrun", ["simctl", "openurl", udid, GUEST_DEEPLINK]);
-    process.stdout.write(`agent-ios-ready: opened ${GUEST_DEEPLINK}\n`);
+    await run("xcrun", ["simctl", "openurl", udid, deeplink]);
   } catch (e) {
-    process.stdout.write(
-      `agent-ios-ready: WARN could not open guest deeplink (${e instanceof Error ? e.message : e}). Open the CrewCue dev client manually.\n`
+    throw new Error(
+      `Could not open ${deeplink} (${e instanceof Error ? e.message : e}). Is the CrewCue dev client installed?`
     );
   }
 
-  process.stdout.write(`agent-ios-ready: simulatorId=${udid}\n`);
-  process.stdout.write("agent-ios-ready: ok — use XcodeBuildMCP with this UDID if needed\n");
+  printNextSteps(udid, deeplink);
 }
 
 main().catch((error) => {

@@ -53,6 +53,14 @@ export function GuestStack(): ReactElement {
           options={{ headerShown: true, title: "Cold start (DEV)" }}
         />
       ) : null}
+      {/* __DEV__ agent QA: crewcue://dev/pace-estimate — same cold-start fixture, clearer agent entry */}
+      {__DEV__ ? (
+        <Stack.Screen
+          name="DevPaceEstimate"
+          component={DevColdStartFixtureScreen}
+          options={{ headerShown: true, title: "Pace estimate (DEV)" }}
+        />
+      ) : null}
       {/* __DEV__ agent QA: crewcue://dev/gpx-import-progress — not an Auth0 bypass */}
       {__DEV__ ? (
         <Stack.Screen
