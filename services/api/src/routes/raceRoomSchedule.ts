@@ -19,7 +19,7 @@ import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
-import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -503,6 +503,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         : {})
     };
     await saveRaceRoom(updated);
+    // Pace / map read planned splits from the stored projection; schedule rebuilds from the
+    // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
+    await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
 
     const body: AttachResponse = {
       roomId,
