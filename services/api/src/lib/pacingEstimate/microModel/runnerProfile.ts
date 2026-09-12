@@ -7,28 +7,35 @@ import {
   DEFAULT_TERRAIN_EFFICIENCY,
   FATIGUE_GAMMA1_PER_METER_WORK,
   FATIGUE_GAMMA2_PER_METER_DESCENT,
+  GAIN_FLAT_EQUIVALENT_METERS_PER_METER,
   GRADE_COST_BLEND_COLD_START,
   GRADE_COST_BLEND_HISTORY,
   HISTORY_SIMILARITY_MAX_RATIO,
   HISTORY_SIMILARITY_MIN_DISTANCE_METERS,
   HISTORY_SIMILARITY_MIN_RATIO,
   HISTORY_SIMILARITY_PREFER_MIN_DISTANCE_METERS,
-  METERS_PER_MILE
+  METERS_PER_MILE,
+  RIEGEL_ENDURANCE_PACE_EXPONENT
 } from "./constants.js";
 
 export type RunnerProfile = {
   /**
-   * Baseline pace (seconds per meter).
-   * Cold start: true flat GAP. History: distance-weighted mean of activity summaries
-   * (already includes typical trail cost — do not treat as pure flat GAP).
+   * Flat-equivalent baseline pace (seconds per meter). C1 (#483) converts trail summary pace to a
+   * flat-equivalent GAP by charging elevation gain as extra flat distance, so the full physiological
+   * M(g) curve (blend 1.0, C4) can apply on the course without double-counting terrain.
    */
   gapSecondsPerMeter: number;
   /** Flat-equivalent speed (m/s). */
   vBaseMps: number;
+  /**
+   * C2 (#483) Riegel endurance multiplier: scales the flat-equivalent baseline toward the course
+   * distance ( (courseDistance / referenceDistance)^k ), clamped ≥ 1. Cold start = 1.
+   */
+  enduranceFactor: number;
   terrainEfficiency: number;
   /**
-   * Fraction of grade/altitude cost model to apply (0–1).
-   * History-backed uses a low blend to avoid double-counting hills already in summary pace.
+   * Fraction of grade/altitude cost model to apply (0–1). C4 (#483) sets this to 1.0 for both cold
+   * start and history now that C1 removes the double-counting that motivated the old damping.
    */
   gradeCostBlend: number;
   gamma1: number;
@@ -64,15 +71,49 @@ function similarHistory(usable: ActivityHistoryRef[], courseDistance: number): A
   return preferred.length > 0 ? preferred : inWindow;
 }
 
-/** Distance-weighted mean pace (longer activities dominate without dropping shorter ones when preferred). */
-function meanSecondsPerMeter(selected: ActivityHistoryRef[]): number {
+/**
+ * C1 (#483): flat-equivalent pace (seconds per meter). Each activity's elevation gain is charged as
+ * extra flat distance (GAIN_FLAT_EQUIVALENT_METERS_PER_METER m of flat per m climbed), so the summary
+ * pace becomes a flat-equivalent GAP. Distance-weighted across the selected activities. Rows without
+ * elevationGainMeters contribute 0 gain (pace treated as already flat).
+ */
+function flatEquivalentSecondsPerMeter(selected: ActivityHistoryRef[]): number {
   let elapsedSum = 0;
-  let distanceSum = 0;
+  let flatEquivalentDistanceSum = 0;
   for (const row of selected) {
+    const distanceMeters = row.distanceMeters as number;
+    const gainMeters = typeof row.elevationGainMeters === "number" ? row.elevationGainMeters : 0;
     elapsedSum += row.elapsedSeconds as number;
-    distanceSum += row.distanceMeters as number;
+    flatEquivalentDistanceSum += distanceMeters + GAIN_FLAT_EQUIVALENT_METERS_PER_METER * gainMeters;
   }
-  return elapsedSum / distanceSum;
+  return elapsedSum / flatEquivalentDistanceSum;
+}
+
+/**
+ * Distance-weighted reference distance (Σ D² / Σ D) — the "typical" effort length the flat-equivalent
+ * pace represents. Used as the Riegel anchor so C2 scales pace by course-vs-typical distance.
+ */
+function referenceDistanceMeters(selected: ActivityHistoryRef[]): number {
+  let distanceSum = 0;
+  let distanceSquaredSum = 0;
+  for (const row of selected) {
+    const distanceMeters = row.distanceMeters as number;
+    distanceSum += distanceMeters;
+    distanceSquaredSum += distanceMeters * distanceMeters;
+  }
+  return distanceSum > 0 ? distanceSquaredSum / distanceSum : 0;
+}
+
+/**
+ * C2 (#483): Riegel endurance multiplier on the flat-equivalent baseline. Longer-than-typical courses
+ * are paced slower per the endurance exponent; shorter courses are clamped to 1 (no speed-up beyond
+ * the observed pace). Cold start returns 1 (no reference distance).
+ */
+function enduranceFactorFor(referenceDistance: number, courseDistanceMeters: number): number {
+  if (referenceDistance <= 0 || courseDistanceMeters <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.pow(courseDistanceMeters / referenceDistance, RIEGEL_ENDURANCE_PACE_EXPONENT));
 }
 
 export function coldStartGapSecondsPerMeter(): number {
@@ -96,36 +137,41 @@ export function buildRunnerProfile(input: {
   let historyRefIds: string[] | undefined;
   let explanation: string;
   let gradeCostBlend: number;
+  let enduranceFactor: number;
 
   if (usable.length === 0) {
     coldStart = true;
     gradeCostBlend = GRADE_COST_BLEND_COLD_START;
     gapSecondsPerMeter = coldStartGapSecondsPerMeter();
+    enduranceFactor = 1;
     explanation =
       "Cold start: grade-adjusted baseline 10:00/mi with default terrain/fatigue coefficients. Upload similar history for a tighter plan.";
   } else if (similar.length > 0) {
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
-    gapSecondsPerMeter = meanSecondsPerMeter(similar);
+    gapSecondsPerMeter = flatEquivalentSecondsPerMeter(similar);
+    enduranceFactor = enduranceFactorFor(referenceDistanceMeters(similar), input.courseDistanceMeters);
     historyRefIds = similar.map((row) => row.id);
     const excluded = usable.length - similar.length;
     explanation =
       excluded > 0
-        ? `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (summaries; trail cost mostly baked in); ${excluded} outside the window excluded. Default fatigue coefficients.`
-        : `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (summaries; trail cost mostly baked in). Default fatigue coefficients.`;
+        ? `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (flat-equivalent GAP with full grade model); ${excluded} outside the window excluded. Default fatigue coefficients.`
+        : `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (flat-equivalent GAP with full grade model). Default fatigue coefficients.`;
   } else {
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
-    gapSecondsPerMeter = meanSecondsPerMeter(usable);
+    gapSecondsPerMeter = flatEquivalentSecondsPerMeter(usable);
+    enduranceFactor = enduranceFactorFor(referenceDistanceMeters(usable), input.courseDistanceMeters);
     historyRefIds = usable.map((row) => row.id);
     explanation =
-      "History present but outside the similarity window; pace from available summaries (coarse; trail cost mostly baked in). Default fatigue coefficients.";
+      "History present but outside the similarity window; flat-equivalent GAP from available summaries (coarse). Default fatigue coefficients.";
   }
 
   const vBaseMps = 1 / gapSecondsPerMeter;
   return {
     gapSecondsPerMeter,
     vBaseMps,
+    enduranceFactor,
     terrainEfficiency: DEFAULT_TERRAIN_EFFICIENCY,
     gradeCostBlend,
     gamma1: FATIGUE_GAMMA1_PER_METER_WORK,

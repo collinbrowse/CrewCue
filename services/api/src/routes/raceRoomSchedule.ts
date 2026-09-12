@@ -4,6 +4,7 @@ import type {
   CrewScheduleSheet,
   PacingEstimate,
   RaceCheckpointSplitRow,
+  RaceCourseBaselineTrack,
   RaceCourseCheckpoint,
   RaceRoom,
   RaceRoomStopPlan,
@@ -18,7 +19,7 @@ import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
-import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -327,6 +328,8 @@ export function projectCrewScheduleSheet(
       checkpointId: checkpoint.id,
       clockArrivalAt,
       elapsedSeconds,
+      // PR D (#484): expose moving-only elapsed so crews see moving vs cumulative dwell on the row.
+      movingElapsedSeconds: movingSeconds,
       plannedStoppageSeconds
     };
     if (delayOverrideSeconds !== undefined) {
@@ -383,6 +386,44 @@ type AttachResponse = {
   pacingEstimateId: string;
   estimate: PacingEstimate;
 };
+
+/**
+ * Trap 2 (docs/sdlc/pacing-accuracy-program.md, PR A): attaching an estimate does not by itself
+ * touch `plannedPaceSecondsPerKm`, so it stays at the 6:00/km GPX fallback (planned course GPX has
+ * no timestamps). That value still seeds the PACE badge, `rollingMovingSpeedMps`, the non-baseline
+ * ETA branch, and `frozenElapsedAt` in live remaining — so without this the badge keeps reading
+ * 9:39/mi next to corrected aid clocks. Derive an average MOVING pace from the estimate so those
+ * surfaces agree with the attached plan.
+ *
+ * Prefer the stored micro-model baseline (the authoritative moving curve); otherwise fall back to
+ * the estimate's moving finish over the course length. Returns undefined when nothing usable is
+ * available so the caller leaves the existing value untouched.
+ */
+function derivePlannedPaceSecondsPerKm(
+  estimate: PacingEstimate,
+  baseline: RaceCourseBaselineTrack | undefined,
+  room: RaceRoom
+): number | undefined {
+  if (baseline && baseline.points.length >= 2) {
+    const last = baseline.points[baseline.points.length - 1]!;
+    const km = last.distanceMetersFromStart / 1000;
+    if (km > 0 && last.referenceElapsedSeconds > 0) {
+      return last.referenceElapsedSeconds / km;
+    }
+  }
+  const checkpoints = room.course?.checkpoints;
+  if (Array.isArray(checkpoints) && checkpoints.length >= 2) {
+    try {
+      const km = resolveCourseLengthMeters(room, checkpoints) / 1000;
+      if (km > 0 && estimate.expectedFinishElapsedSeconds > 0) {
+        return estimate.expectedFinishElapsedSeconds / km;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
 
 export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void> {
   await initPacingEstimateStore(app.log);
@@ -445,10 +486,14 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.send(body);
     }
 
+    const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, room);
     const updated: RaceRoom = {
       ...room,
       pacingEstimateId: estimate.id,
       pacingEstimate: estimate,
+      ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
+        ? { plannedPaceSecondsPerKm: derivedPlannedPace }
+        : {}),
       ...(storedBaseline
         ? {
             course: room.course
@@ -458,6 +503,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         : {})
     };
     await saveRaceRoom(updated);
+    // Pace / map read planned splits from the stored projection; schedule rebuilds from the
+    // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
+    await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
 
     const body: AttachResponse = {
       roomId,

@@ -32,7 +32,13 @@ export function stopAccessibilityLabel(
     typeof stop.delayOverrideSeconds === "number"
       ? `, delay ${formatDurationSeconds(stop.delayOverrideSeconds)}`
       : "";
-  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}, stoppage ${stoppageLabel}${delay}`;
+  const split =
+    typeof stop.movingElapsedSeconds === "number"
+      ? `, moving ${formatDurationSeconds(stop.movingElapsedSeconds)}, waited ${formatDurationSeconds(
+          Math.max(0, stop.elapsedSeconds - stop.movingElapsedSeconds)
+        )}`
+      : "";
+  return `Schedule stop ${title}, arrival ${clockLabel}, elapsed ${elapsedLabel}${split}, stoppage ${stoppageLabel}${delay}`;
 }
 
 export type CrewScheduleSheetViewProps = {
@@ -74,6 +80,9 @@ export type CrewScheduleSheetViewProps = {
   addingHistory?: boolean;
   onAddHistory?: () => void;
   estimateError?: string;
+  /** Re-run the micro-model from the athlete's uploaded history (course editors only). */
+  onRecalculateFromHistory?: () => void;
+  recalculating?: boolean;
   /**
    * Optional note bodies for offline crew-sheet export when the sheet only has note ids.
    * Export builds plaintext from the in-memory sheet (no network refetch).
@@ -164,7 +173,7 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
       style={styles.list}
       contentContainerStyle={styles.listContent}
       data={stops}
-      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}:${props.pacingEstimate?.id ?? ""}:${props.pacingEstimate?.coldStart ? "1" : "0"}:${props.addingHistory ? "1" : "0"}:${props.estimateError ?? ""}:${exporting ? "1" : "0"}:${exportStatus ?? ""}`}
+      extraData={`${props.sheet?.raceStartAt ?? ""}:${stops.map((s) => `${s.checkpointId}:${s.delayOverrideSeconds ?? ""}:${s.clockArrivalAt}`).join("|")}:${props.editingCheckpointId ?? ""}:${props.checkInCheckpointId ?? ""}:${props.savingPlan ? "1" : "0"}:${props.savingCheckIn ? "1" : "0"}:${props.actionError ?? ""}:${props.pacingEstimate?.id ?? ""}:${props.pacingEstimate?.coldStart ? "1" : "0"}:${props.addingHistory ? "1" : "0"}:${props.recalculating ? "1" : "0"}:${props.estimateError ?? ""}:${exporting ? "1" : "0"}:${exportStatus ?? ""}`}
       keyExtractor={(item) => item.id}
       accessibilityLabel="Schedule sheet"
       keyboardShouldPersistTaps="handled"
@@ -187,6 +196,41 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
                 onAddHistory={props.onAddHistory}
                 error={props.estimateError}
               />
+            ) : null}
+            {props.pacingEstimate && props.pacingEstimate.coldStart !== true ? (
+              <Text
+                style={styles.estimateExplanation}
+                accessibilityLabel="Pacing estimate explanation"
+              >
+                {props.pacingEstimate.explanation}
+              </Text>
+            ) : null}
+            {props.onRecalculateFromHistory ? (
+              <Pressable
+                onPress={props.onRecalculateFromHistory}
+                disabled={props.recalculating === true}
+                accessibilityRole="button"
+                accessibilityLabel="Recalculate from my history"
+                accessibilityState={{
+                  disabled: props.recalculating === true,
+                  busy: props.recalculating === true
+                }}
+                style={[styles.recalcBtn, props.recalculating ? styles.recalcBtnDisabled : null]}
+              >
+                {props.recalculating ? (
+                  <ActivityIndicator
+                    accessibilityLabel="Recalculating from history"
+                    color={theme.color.text}
+                  />
+                ) : (
+                  <Text style={styles.recalcLabel}>Recalculate from my history</Text>
+                )}
+              </Pressable>
+            ) : null}
+            {props.estimateError && props.pacingEstimate?.coldStart !== true ? (
+              <Text style={styles.actionError} accessibilityLabel="Pacing estimate error">
+                {props.estimateError}
+              </Text>
             ) : null}
             <Text style={styles.kicker}>Crew schedule</Text>
             <Text style={styles.subtitle}>
@@ -279,6 +323,12 @@ export function CrewScheduleSheetView(props: CrewScheduleSheetViewProps): ReactE
               </Text>
               <Text style={styles.meta}>Arrival {clockLabel}</Text>
               <Text style={styles.meta}>Elapsed {elapsedLabel}</Text>
+              {typeof item.movingElapsedSeconds === "number" ? (
+                <Text style={styles.meta} accessibilityLabel="Moving vs waiting split">
+                  Moving {formatDurationSeconds(item.movingElapsedSeconds)} · Waited{" "}
+                  {formatDurationSeconds(Math.max(0, item.elapsedSeconds - item.movingElapsedSeconds))}
+                </Text>
+              ) : null}
               <Text style={styles.meta}>Stoppage {stoppageLabel}</Text>
               {hasDelay ? (
                 <Text style={styles.delay} accessibilityLabel={`Delay ${item.delayOverrideSeconds} seconds`}>
@@ -417,6 +467,27 @@ function createStyles(theme: DSThemeTokens) {
       fontSize: 13,
       lineHeight: 18,
       marginTop: 6
+    },
+    estimateExplanation: {
+      color: theme.color.body,
+      lineHeight: 20,
+      marginBottom: 4
+    },
+    recalcBtn: {
+      alignSelf: "flex-start",
+      marginTop: 4,
+      backgroundColor: theme.color.secondaryButton,
+      borderRadius: theme.radius.md,
+      minHeight: theme.spacing.touchTargetMin,
+      paddingHorizontal: 14,
+      justifyContent: "center"
+    },
+    recalcBtnDisabled: {
+      opacity: 0.55
+    },
+    recalcLabel: {
+      color: theme.color.text,
+      fontWeight: "700"
     },
     body: {
       color: theme.color.body,

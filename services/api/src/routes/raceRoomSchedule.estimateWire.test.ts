@@ -16,7 +16,11 @@ import {
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
-import { resetPacingEstimateStoreForTests, savePacingEstimate } from "../lib/pacingEstimateStore.js";
+import {
+  getPacingEstimateById,
+  resetPacingEstimateStoreForTests,
+  savePacingEstimate
+} from "../lib/pacingEstimateStore.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
 import { movingElapsedSecondsFromEstimate, projectCrewScheduleSheet } from "./raceRoomSchedule.js";
@@ -300,7 +304,120 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
       const stop = stopByCheckpoint(sheet, id);
       priorStoppage += stop.plannedStoppageSeconds + (stop.delayOverrideSeconds ?? 0);
     }
-    assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, finishMoving + priorStoppage);
+    const finishStop = stopByCheckpoint(sheet, "finish");
+    assert.equal(finishStop.elapsedSeconds, finishMoving + priorStoppage);
+
+    // PR D (#484): movingElapsedSeconds is the moving-only baseline; elapsed − moving == cumulative
+    // prior dwell (0 at the start, growing as prior stoppage stacks).
+    assert.equal(finishStop.movingElapsedSeconds, finishMoving);
+    assert.equal(finishStop.elapsedSeconds - (finishStop.movingElapsedSeconds ?? 0), priorStoppage);
+    assert.equal(stopByCheckpoint(sheet, "start").movingElapsedSeconds, 0);
+    assert.equal(
+      stopByCheckpoint(sheet, "aid-1").movingElapsedSeconds,
+      aid1Eta.elapsedSeconds
+    );
+  });
+});
+
+test("Trap 2: attach-by-id derives plannedPaceSecondsPerKm from the estimate baseline", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-trap2");
+    const roomId = await createPaidRoom(app, ownerToken, "Trap2 planned pace");
+    const room = await put50kCourse(app, roomId, ownerToken);
+    const beforePace = room.plannedPaceSecondsPerKm;
+    const estimate = await createEstimateViaApi(app, ownerToken, room);
+
+    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    assert.equal(attach.statusCode, 200);
+
+    const stored = await getPacingEstimateById(estimate.id);
+    assert.ok(stored?.baselineTrack && stored.baselineTrack.points.length >= 2);
+    const last = stored.baselineTrack.points[stored.baselineTrack.points.length - 1]!;
+    const expectedPace = last.referenceElapsedSeconds / (last.distanceMetersFromStart / 1000);
+
+    const persisted = await getRaceRoom(roomId);
+    assert.ok(persisted);
+    assert.equal(typeof persisted.plannedPaceSecondsPerKm, "number");
+    assert.ok(
+      Math.abs((persisted.plannedPaceSecondsPerKm as number) - expectedPace) < 1e-6,
+      `expected derived pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`
+    );
+    // The estimate now drives the plan of record, not the timestamped-GPX fallback pace.
+    assert.notEqual(persisted.plannedPaceSecondsPerKm, beforePace);
+  });
+});
+
+test("attach refreshes projection so Pace planned splits match the estimate baseline", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-pace-proj");
+    const roomId = await createPaidRoom(app, ownerToken, "Pace projection refresh");
+    const room = await put50kCourse(app, roomId, ownerToken);
+
+    // Seed the bootstrap projection (Pace's data source) against the pre-attach plan.
+    const beforeProj = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(beforeProj.statusCode, 200, beforeProj.body);
+    const beforeBody = beforeProj.json() as {
+      plannedPaceSecondsPerKm: number;
+      checkpointSplits: Array<{ checkpointId: string; plannedElapsedSecondsAtCross: number }>;
+    };
+    const beforeAid1 = beforeBody.checkpointSplits.find((s) => s.checkpointId === "aid-1");
+    assert.ok(beforeAid1);
+
+    // Prefer roomId so the estimate baseline matches the course polyline Pace uses.
+    const estimateResponse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId }
+    });
+    assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
+    const estimate = parsePacingEstimate(estimateResponse.json());
+
+    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    assert.equal(attach.statusCode, 200);
+
+    const afterProj = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(afterProj.statusCode, 200, afterProj.body);
+    const afterBody = afterProj.json() as {
+      plannedPaceSecondsPerKm: number;
+      checkpointSplits: Array<{ checkpointId: string; plannedElapsedSecondsAtCross: number }>;
+    };
+    const afterAid1 = afterBody.checkpointSplits.find((s) => s.checkpointId === "aid-1");
+    assert.ok(afterAid1);
+
+    const persisted = await getRaceRoom(roomId);
+    assert.ok(persisted?.plannedPaceSecondsPerKm);
+    assert.equal(afterBody.plannedPaceSecondsPerKm, persisted.plannedPaceSecondsPerKm);
+    assert.notEqual(
+      afterAid1.plannedElapsedSecondsAtCross,
+      beforeAid1.plannedElapsedSecondsAtCross,
+      "Pace planned split must change when the estimate attaches"
+    );
+
+    // Aid ETA from the estimate is the moving baseline; projection planned elapsed should match it.
+    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    assert.ok(aid1Eta);
+    assert.ok(
+      Math.abs(afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
+      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+    );
+
+    // Finish planned elapsed on the last split should track the estimate finish (moving).
+    const finishSplit = afterBody.checkpointSplits.find((s) => s.checkpointId === "finish");
+    assert.ok(finishSplit);
+    assert.ok(
+      Math.abs(finishSplit.plannedElapsedSecondsAtCross - estimate.expectedFinishElapsedSeconds) <= 2,
+      `projection finish planned ${finishSplit.plannedElapsedSecondsAtCross} vs estimate ${estimate.expectedFinishElapsedSeconds}`
+    );
+    assert.ok(room.id);
   });
 });
 

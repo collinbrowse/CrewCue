@@ -4,6 +4,8 @@ Update at **PR/wave boundaries**, not every chat. Current state only. Feature ag
 
 ## Snapshot
 
+## Session status snapshot
+
 - Last updated: 2026-09-12 (UTC)
 - **On `main`:** Process slim (#488/#489) + agent harness gates in flight (#490): Ready/Done scripts, scoped verify, hooks, Ready lint Action, `crewcue://dev/pace-estimate`.
 - **Active feature line:** `feature/pacing-accuracy-program` for pacing product; prefer that branch/PR for pacing detail until merged.

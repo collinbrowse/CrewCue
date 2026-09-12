@@ -31,7 +31,8 @@ import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
 const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-const AID1_PLANNED_STOPPAGE = 600;
+// 50k fixture aids inherit DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS (PR D #484: 120s).
+const AID1_PLANNED_STOPPAGE = 120;
 
 function buildClaims(sub: string) {
   return {

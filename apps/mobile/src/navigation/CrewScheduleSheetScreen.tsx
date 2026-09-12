@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { CompositeNavigationProp } from "@react-navigation/native";
@@ -19,9 +19,17 @@ import {
   mapScheduleFetchError,
   mapStopPlanWriteError
 } from "../features/schedule/scheduleErrors";
+import { mapPacingEstimateError } from "../features/schedule/pacingEstimateErrors";
+import {
+  EMPTY_ESTIMATE_HISTORY_RECORD,
+  decideEstimateRecompute,
+  usableActivityHistory,
+  usableHistoryFingerprint,
+  type EstimateHistoryRecord
+} from "../features/schedule/estimateRecompute";
 import { checkpointDisplayTitle } from "../features/pace/timeline";
 import { useAuthedShell } from "../shell/AuthedShellContext";
-import type { CrewScheduleSheet } from "@crewcue/contracts";
+import type { CrewScheduleSheet, PacingEstimate } from "@crewcue/contracts";
 import type { CrewMainTabParamList, ReadoutsStackParamList } from "./types";
 
 type ScheduleNav = CompositeNavigationProp<
@@ -66,6 +74,19 @@ export function CrewScheduleSheetScreen(): ReactElement {
   const [savingCheckIn, setSavingCheckIn] = useState(false);
   const [checkInError, setCheckInError] = useState<string | undefined>(undefined);
 
+  /** Freshly generated estimate (shown before the shared room refreshes). */
+  const [createdEstimate, setCreatedEstimate] = useState<PacingEstimate | null>(null);
+  const [estimateBusy, setEstimateBusy] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | undefined>(undefined);
+  /** Auto-generate the estimate at most once per room per mount (avoids retry loops on failure). */
+  const autoEstimateRoomRef = useRef<string | null>(null);
+  /** Usable-history signature (fingerprint + count) so we recompute when history changes (#487). */
+  const [historySignature, setHistorySignature] = useState<
+    { fingerprint: string; usableCount: number } | undefined
+  >(undefined);
+  /** Fingerprint recorded for the currently observed estimate (auto-recompute loop guard). */
+  const estimateHistoryRecordRef = useRef<EstimateHistoryRecord>(EMPTY_ESTIMATE_HISTORY_RECORD);
+
   const client = useMemo(() => {
     if (!s.auth.accessToken) {
       return null;
@@ -99,6 +120,17 @@ export function CrewScheduleSheetScreen(): ReactElement {
         setLoading(false);
         setRefreshing(false);
       }
+      // Load a usable-history signature so we can recompute the estimate when the athlete's history
+      // changes (#487). Non-fatal: without it we simply fall back to manual "Recalculate".
+      try {
+        const listed = await client.listActivityHistory();
+        setHistorySignature({
+          fingerprint: usableHistoryFingerprint(listed.items),
+          usableCount: usableActivityHistory(listed.items).length
+        });
+      } catch {
+        // Ignore — history signature is best-effort and must not block the schedule.
+      }
     },
     [room?.id, client]
   );
@@ -116,6 +148,112 @@ export function CrewScheduleSheetScreen(): ReactElement {
     const next = await client.getSchedule(room.id);
     setSheet(next);
   }, [room?.id, client]);
+
+  const applyRaceRoomFromServer = s.onApplyRaceRoomFromServer;
+  const fetchProjection = s.onFetchProjection;
+
+  /**
+   * Connect uploaded history to the plan (PR A): create the micro-model estimate, attach it
+   * **by id** (so the stored baseline reaches `course.baselineTrack` and the server re-derives
+   * `plannedPaceSecondsPerKm`), then refresh the shared room + projection + schedule so map,
+   * Pace, and schedule clocks agree. Auto-runs once when no estimate is attached; `force` powers
+   * the explicit "Recalculate from my history" action. Only course editors may attach.
+   */
+  const runEstimate = useCallback(
+    async (force: boolean) => {
+      if (!room?.id || !client || !canEditStopPlans || estimateBusy) {
+        return;
+      }
+      if (!force && (room.pacingEstimateId || createdEstimate)) {
+        return;
+      }
+      setEstimateBusy(true);
+      setEstimateError(undefined);
+      try {
+        const estimate = await client.createPacingEstimate(room.id);
+        await client.attachPacingEstimate(room.id, estimate.id);
+        setCreatedEstimate(estimate);
+        // Refresh the shared room (new estimate + baseline + plannedPace) and projection so the
+        // map and Pace screens agree with the schedule, then refetch schedule clocks.
+        try {
+          const refreshed = await client.getRaceRoom(room.id);
+          applyRaceRoomFromServer(refreshed.room);
+        } catch {
+          // Non-fatal: the estimate is attached; shared room refresh can catch up on next focus.
+        }
+        fetchProjection();
+        await refetchAfterWrite();
+      } catch (err) {
+        setEstimateError(mapPacingEstimateError(err));
+      } finally {
+        setEstimateBusy(false);
+      }
+    },
+    [
+      room?.id,
+      room?.pacingEstimateId,
+      client,
+      canEditStopPlans,
+      estimateBusy,
+      createdEstimate,
+      applyRaceRoomFromServer,
+      fetchProjection,
+      refetchAfterWrite
+    ]
+  );
+
+  const onRecalculateFromHistory = useCallback(() => {
+    void runEstimate(true);
+  }, [runEstimate]);
+
+  // Reset local estimate state when switching rooms.
+  useEffect(() => {
+    setCreatedEstimate(null);
+    setEstimateError(undefined);
+    setHistorySignature(undefined);
+    estimateHistoryRecordRef.current = EMPTY_ESTIMATE_HISTORY_RECORD;
+  }, [room?.id]);
+
+  // Auto-generate a plan-of-record estimate once when the loaded schedule has none, so a racer
+  // never sees a silent 6:00/km fallback (no history yields the cold-start estimate + prompt).
+  useEffect(() => {
+    if (!room?.id || autoEstimateRoomRef.current === room.id) {
+      return;
+    }
+    if (sheet && !sheet.pacingEstimateId && canEditStopPlans && !createdEstimate && !estimateBusy) {
+      autoEstimateRoomRef.current = room.id;
+      void runEstimate(false);
+    }
+  }, [room?.id, sheet, canEditStopPlans, createdEstimate, estimateBusy, runEstimate]);
+
+  // Recompute + re-attach when the attached estimate is stale for the athlete's current history:
+  // a cold-start estimate that locked in before an upload, or new/changed history this session
+  // (#487). Loop-safe via the recorded fingerprint; only course editors attach a plan of record.
+  useEffect(() => {
+    const active = createdEstimate ?? room?.pacingEstimate ?? null;
+    const decision = decideEstimateRecompute({
+      canEdit: canEditStopPlans,
+      busy: estimateBusy,
+      estimateId: active?.id,
+      coldStart: active?.coldStart,
+      usableHistoryCount: historySignature?.usableCount ?? 0,
+      historyFingerprint: historySignature?.fingerprint,
+      record: estimateHistoryRecordRef.current
+    });
+    estimateHistoryRecordRef.current = decision.nextRecord;
+    if (decision.recompute) {
+      void runEstimate(true);
+    }
+  }, [
+    canEditStopPlans,
+    estimateBusy,
+    createdEstimate,
+    room?.pacingEstimate,
+    historySignature,
+    runEstimate
+  ]);
+
+  const pacingEstimate: PacingEstimate | null = createdEstimate ?? room?.pacingEstimate ?? null;
 
   const onEditStop = useCallback(
     async (checkpointId: string) => {
@@ -329,6 +467,11 @@ export function CrewScheduleSheetScreen(): ReactElement {
       checkInError={checkInError}
       onSaveCheckIn={(id, input) => void onSaveCheckIn(id, input)}
       onAddHistory={onAddHistory}
+      pacingEstimate={pacingEstimate}
+      addingHistory={estimateBusy}
+      estimateError={estimateError}
+      onRecalculateFromHistory={canEditStopPlans ? onRecalculateFromHistory : undefined}
+      recalculating={estimateBusy}
     />
   );
 }
