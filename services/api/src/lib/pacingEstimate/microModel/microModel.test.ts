@@ -7,8 +7,11 @@ import {
   coldStartGapSecondsPerMeter,
   COLD_START_GAP_SECONDS_PER_MILE,
   estimatePacingMicroModelWithArtifacts,
+  interpolateElapsedAtDistance,
   minettiRelativeCost,
   runScenarioSims,
+  SCENARIO_EXPECTED,
+  simulateMovingTime,
   SURFACE_COMPLEXITY
 } from "./index.js";
 import { METERS_PER_MILE } from "./constants.js";
@@ -173,6 +176,112 @@ test("scenario bands: conservative >= expected >= aggressive", () => {
   const agg = sims.aggressive.state.elapsedSeconds;
   assert.ok(cons >= exp);
   assert.ok(exp >= agg);
+});
+
+test("simulateMovingTime warms up to mid-segment resume and clips the remaining segment", () => {
+  const profile = buildRunnerProfile({ history: [], courseDistanceMeters: 300 });
+  const segments = [
+    {
+      index: 0,
+      startMeters: 0,
+      deltaXMeters: 100,
+      deltaZMeters: 10,
+      grade: 0.1,
+      altitudeMeters: 1550,
+      surfaceComplexity: 1
+    },
+    {
+      index: 1,
+      startMeters: 100,
+      deltaXMeters: 100,
+      deltaZMeters: -20,
+      grade: -0.2,
+      altitudeMeters: 1545,
+      surfaceComplexity: 1
+    },
+    {
+      index: 2,
+      startMeters: 200,
+      deltaXMeters: 100,
+      deltaZMeters: 0,
+      grade: 0,
+      altitudeMeters: 1540,
+      surfaceComplexity: 1
+    }
+  ];
+
+  const full = simulateMovingTime({ segments, profile, knobs: SCENARIO_EXPECTED });
+  const resumed = simulateMovingTime({
+    segments,
+    profile,
+    knobs: SCENARIO_EXPECTED,
+    fromDistanceMeters: 150
+  });
+
+  assert.equal(resumed.segments.length, 2);
+  assert.equal(resumed.segments[0]!.segmentIndex, 1);
+  assert.equal(resumed.segments[0]!.startMeters, 150);
+  assert.equal(resumed.segments[0]!.endMeters, 200);
+  assert.equal(resumed.segments[1]!.segmentIndex, 2);
+  assert.equal(resumed.distanceElapsedCurve[0]!.distanceMetersFromStart, 150);
+
+  const expectedAtResume = interpolateElapsedAtDistance(full.distanceElapsedCurve, 150);
+  assert.ok(Math.abs(resumed.distanceElapsedCurve[0]!.referenceElapsedSeconds - expectedAtResume) < 1e-9);
+  assert.equal(
+    resumed.distanceElapsedCurve[resumed.distanceElapsedCurve.length - 1]!.distanceMetersFromStart,
+    300
+  );
+});
+
+test("simulateMovingTime uses provided initial state as the live remaining clock origin", () => {
+  const profile = buildRunnerProfile({ history: [], courseDistanceMeters: 300 });
+  const segments = [
+    {
+      index: 0,
+      startMeters: 0,
+      deltaXMeters: 100,
+      deltaZMeters: 5,
+      grade: 0.05,
+      altitudeMeters: 1600,
+      surfaceComplexity: 1
+    },
+    {
+      index: 1,
+      startMeters: 100,
+      deltaXMeters: 100,
+      deltaZMeters: -10,
+      grade: -0.1,
+      altitudeMeters: 1595,
+      surfaceComplexity: 1
+    },
+    {
+      index: 2,
+      startMeters: 200,
+      deltaXMeters: 100,
+      deltaZMeters: 0,
+      grade: 0,
+      altitudeMeters: 1590,
+      surfaceComplexity: 1
+    }
+  ];
+  const initialState = { workCum: 42, descentCum: 7, elapsedSeconds: 1234 };
+
+  const resumed = simulateMovingTime({
+    segments,
+    profile,
+    knobs: SCENARIO_EXPECTED,
+    fromDistanceMeters: 150,
+    initialState
+  });
+
+  assert.equal(resumed.distanceElapsedCurve[0]!.distanceMetersFromStart, 150);
+  assert.equal(resumed.distanceElapsedCurve[0]!.referenceElapsedSeconds, 1234);
+  assert.equal(resumed.segments[0]!.startMeters, 150);
+  assert.equal(resumed.segments[0]!.endMeters, 200);
+  assert.ok(resumed.state.elapsedSeconds > initialState.elapsedSeconds);
+  assert.ok(resumed.state.workCum > initialState.workCum);
+  assert.ok(resumed.state.descentCum > initialState.descentCum);
+  assert.deepEqual(initialState, { workCum: 42, descentCum: 7, elapsedSeconds: 1234 });
 });
 
 test("estimatePacingMicroModelWithArtifacts returns parseable estimate + baseline", () => {
