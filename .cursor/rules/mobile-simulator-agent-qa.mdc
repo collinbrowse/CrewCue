@@ -1,6 +1,7 @@
 ---
-description: Require iOS simulator validation via XcodeBuildMCP before completing mobile UI work
-alwaysApply: true
+description: iOS simulator QA via XcodeBuildMCP before completing mobile UI work
+globs: apps/mobile/**
+alwaysApply: false
 ---
 
 # Mobile simulator agent QA
@@ -22,20 +23,13 @@ Never report a mobile UI task complete without simulator proof.
 
 ## Evidence (PR only)
 
-- Put screenshots, `snapshot_ui` excerpts, and pass/fail notes in the **PR description or PR comments** (image uploads OK).
+- Put screenshots, `snapshot_ui` excerpts, and pass/fail notes in the **PR description or PR comments**.
 - **Do not** commit evidence under `docs/` or permanent repo paths. Ephemeral local files only under `.agent-pr-evidence/` (gitignored).
-- When the PR closes, evidence goes away with it — do not archive simulator screenshots in the repo.
 
 ## Human blocker
 
-Stop (do not claim done) if the sim cannot proceed without human-only steps (login, MFA, missing dev client, prebuild, Xcode/runtime). Report:
-
-- What blocked testing
-- What was already verified
-- **Options to proceed** (e.g. add deeplink/fixture, extend Maestro, rebuild dev client, provide test account, defer to staging)
-
-Goal: remove each blocker over time so agents can run full validation without human intervention.
+Stop (do not claim done) if the sim cannot proceed without human-only steps. Report what blocked, what was verified, and options to proceed.
 
 ## Out of scope
 
-- API-only / web-only changes: use existing test plans; no iOS sim required.
+- API-only / web-only changes: existing test plans; no iOS sim required.

@@ -1,17 +1,17 @@
 ---
-description: Agent work packages must be Ready, edge-case complete, and self-verified before Done.
-alwaysApply: true
+description: Ready/Done checks for agent-ready work packages and async delivery waves
+alwaysApply: false
 ---
 
 # Agent work-package verification
 
-When implementing a GitHub issue labeled `agent-ready` or filed from **Agent work package**:
+Apply when implementing a GitHub issue labeled `agent-ready` or filed from **Agent work package**.
 
 ## Before coding
 
 1. Read `docs/sdlc/agent-async-delivery-program.md` and the issue body.
 2. If Ready fields are incomplete (objective, scope, out of scope, acceptance, edge-case matrix, fixtures, depends, verification), **do not implement** — comment `blocked: not Ready`.
-3. Restate scope in ≤ 8 bullets (goal, issue, in-scope files, out-of-scope, acceptance, verification).
+3. Restate scope briefly (goal, issue, in-scope files, out-of-scope, acceptance, verification).
 
 ## During coding
 
