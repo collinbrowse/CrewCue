@@ -18,3 +18,11 @@ export {
   type MicroModelEstimateInput,
   type MicroModelEstimateArtifacts
 } from "./microModel/index.js";
+export {
+  buildBacktestInputs,
+  runPacingBacktest,
+  type BacktestActualSplit,
+  type BacktestScenario,
+  type BacktestResult,
+  type BacktestRow
+} from "./backtest.js";

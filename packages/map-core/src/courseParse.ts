@@ -45,8 +45,13 @@ const WAYPOINT_APPROACH_MAX_DISTANCE_METERS = 155;
  * Keeps single-pass stations from gaining spurious second hits when the route winds nearby twice.
  */
 const WAYPOINT_SECOND_PASS_MIN_SPAN_METERS = 15_000;
-/** Default planned aid stop when importing or synthesizing checkpoints (10 minutes). */
-export const DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS = 600;
+/**
+ * Default planned aid stop when importing or synthesizing checkpoints (2 minutes).
+ * PR D (#484): a flat 10 min per checkpoint stacked to more than the pace error it sat next to
+ * (e.g. 6 synthesized aids × 10 min = 1 h of invented dwell). 2 min is a realistic "quick touch"
+ * default; racers set the true stoppage per checkpoint via stop-plan overlays (editable).
+ */
+export const DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS = 120;
 
 const CUTOFF_HINT_RE =
   /(cutoff|cut-off|\bcut\b|deadline|time\s*limit|must\s*leave|closes\s*at|close\s*at)/i;

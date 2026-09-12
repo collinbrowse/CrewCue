@@ -741,6 +741,33 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
   }
 }
 
+/**
+ * After attaching a pacing estimate (new baselineTrack + plannedPaceSecondsPerKm), refresh the
+ * stored projection so Pace / map clocks match the schedule. Schedule rebuilds from the estimate
+ * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
+ * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
+ *
+ * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan.
+ * In-race (ping present): recompute over the last accepted ping with the new baseline/pace.
+ */
+export async function refreshProjectionAfterPlanOfRecordChange(
+  roomId: string,
+  room: RaceRoom,
+  log?: { warn: (obj: object, msg?: string) => void }
+): Promise<void> {
+  await loadWs2RuntimeIfNeeded(roomId);
+  if (!getOrInitPingState(roomId).lastAccepted) {
+    roomProjectionState.delete(roomId);
+  }
+  try {
+    await recomputeStoredProjectionAfterCourseChange(roomId, room);
+  } catch (err) {
+    log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed");
+  }
+  await ensureBootstrapProjection(roomId, room, true);
+  await saveWs2RuntimeSnapshot(roomId);
+}
+
 type TaskBoardMaterializedPayload = {
   checkpointPlans: CheckpointPlan[];
   tasks: CrewTask[];
