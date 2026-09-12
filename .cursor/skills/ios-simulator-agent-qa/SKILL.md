@@ -11,8 +11,19 @@ description: >-
 ## Before UI automation
 
 1. Read `.xcodebuildmcp/config.yaml` (workspace, scheme, `simulatorName`, `bundleId`).
-2. Run from repo root: **`npm run agent:ios:ready`**. If it fails, follow printed fixes; do not skip to "manual testing."
-3. Install XcodeBuildMCP + Cursor MCP (`xcodebuildmcp mcp`) if tools are missing — report as blocker on non-macOS hosts.
+2. Run from repo root: **`npm run agent:ios:ready`**. Hard-fails if Metro is down (override: `--allow-no-metro`). Do not skip to "manual testing."
+3. Auth0-free entries (guest stack, `__DEV__` only):
+
+| Goal | Deeplink |
+|------|----------|
+| Guest shell | `crewcue://guest` (default) |
+| Schedule / stop rows | `crewcue://dev/schedule-sheet` |
+| Pace estimate / cold-start | `crewcue://dev/cold-start` or `crewcue://dev/pace-estimate` |
+| Crew sheet export | `crewcue://dev/crew-sheet-export` |
+
+Example: `npm run agent:ios:ready -- --deeplink crewcue://dev/pace-estimate`
+
+4. Install XcodeBuildMCP + Cursor MCP if tools are missing — report as blocker on non-macOS hosts.
 
 ## Test entry (prefer automation)
 
@@ -21,7 +32,7 @@ description: >-
 | Map / guest shell | `crewcue://guest` via `simctl openurl` or `npm run smoke:mobile:ios` |
 | Operate / readouts | `crewcue://operate`, `crewcue://readouts` (see `scripts/mobile-ios-deeplink-smoke.mjs`) |
 
-Auth0 login in sim is a **blocker** until a deeplink or test fixture exists — stop and list options (see rule `mobile-simulator-agent-qa.mdc`).
+Prefer `__DEV__` `crewcue://dev/*` fixtures over Auth0 login for schedule/pace proof. Auth0 login remains a **blocker** for production-auth paths only — stop and list options (see rule `mobile-simulator-agent-qa.mdc`).
 
 ## XcodeBuildMCP loop
 

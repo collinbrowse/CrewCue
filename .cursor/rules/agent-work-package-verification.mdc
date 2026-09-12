@@ -9,21 +9,22 @@ Apply when implementing a GitHub issue labeled `agent-ready` or filed from **Age
 
 ## Before coding
 
-1. Read `docs/sdlc/agent-async-delivery-program.md` and the issue body.
-2. If Ready fields are incomplete (objective, scope, out of scope, acceptance, edge-case matrix, fixtures, depends, verification), **do not implement** — comment `blocked: not Ready`.
-3. Restate scope briefly (goal, issue, in-scope files, out-of-scope, acceptance, verification).
+1. Run **`npm run agent:issue:ready -- <n>`** (≤15-line stdout). If exit 1, comment `blocked: not Ready` and stop. Do **not** re-read full Ready prose unless the script is unclear.
+2. Read the **issue body** (source of truth). Open `docs/sdlc/agent-async-delivery-program.md` only if blocked on process.
+3. Restate scope briefly (goal, issue, in-scope, out-of-scope, acceptance, verification).
 
 ## During coding
 
-- One issue → one branch → one PR. Do not expand into sibling wave packages.
+- **One issue → one branch → one PR.** Do not expand into sibling wave packages.
 - Every edge-case matrix row needs a test, simulator step, or explicit N/A + reason before Done.
 - Prefer shared `fixtures/pacing/*` over ad-hoc samples.
-- Do not edit `docs/sdlc/agent-handoff.md` unless you are the wave integration agent; put a **Handoff delta** note in the PR instead.
-- Respect path conflict map on the issue; if another PR owns the same paths, wait or coordinate via issue comment.
+- **Handoff:** feature agents put a ≤5-line **Handoff delta** in the PR; only the **integration agent** edits `docs/sdlc/agent-handoff.md`.
+- Mid-slice prefer `npm run verify:api|mobile|contracts`; full `npm run verify` before PR.
+- Respect path conflict map; if another PR owns the same paths, wait or coordinate via issue comment.
 
 ## Before claiming Done
 
-- Run the issue Verification commands (`npm run verify` minimum).
-- Mobile UI: `npm run agent:ios:ready` + ios-simulator-agent-qa; evidence on PR only (not under `docs/`).
-- PR must include `Closes #<issue>` and list edge-case proofs.
-- If blocked by secrets/login/human-only steps: stop with what was verified + options to proceed — never fake a pass.
+- `npm run verify` green locally.
+- Mobile UI: `npm run agent:ios:ready` (+ `--deeplink crewcue://dev/...` Auth0-free) + simulator QA; evidence on PR only.
+- `npm run agent:pr:done -- <pr>` (or `--body-file` before open) must exit 0.
+- PR: `Closes #<n>` + edge-case proofs. Never fake a pass when blocked.

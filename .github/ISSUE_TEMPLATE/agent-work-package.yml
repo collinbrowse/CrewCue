@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         Use for agent-executed slices under `docs/sdlc/agent-async-delivery-program.md`.
-        Agents must **refuse to implement** if Ready items are incomplete.
+        Agents must run `npm run agent:issue:ready -- <n>` first and **refuse to implement** if it fails.
 
   - type: input
     id: wave_id

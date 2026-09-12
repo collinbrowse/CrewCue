@@ -1,43 +1,31 @@
 # Agent handoff source of truth
 
-Update at **PR/wave boundaries**, not every chat. Current state only.
+Update at **PR/wave boundaries**, not every chat. Current state only. Feature agents: PR **Handoff delta** only.
 
 ## Snapshot
 
 ## Session status snapshot
 
 - Last updated: 2026-09-12 (UTC)
-- **Roadmap phase:** Pacing prediction accuracy (`docs/sdlc/pacing-accuracy-program.md`). #475, #478, #333 merged.
-- **Branch / PR:** `feature/pacing-accuracy-program` → PR #485 (Closes #481–#484) + #487 follow-ups.
-- **Active next:** Push/update PR #485 with #487 commits; merge when green.
-
-## Completed (this session)
-
-- **#487 — history upload did not change splits.** Root cause: schedule auto-estimated once and stuck (often cold-start). Fix: `estimateRecompute.ts` + schedule auto-recompute when usable history changes / cold-start now has history. Commit `a00759f`.
-- **#487 Pace lag — calendar updates, Pace tab does not.** Root cause: attach updated room baseline/pace but never refreshed the **stored projection** Pace reads (`plannedElapsedSecondsAtCross`). Schedule rebuilds from the estimate on every GET, so it looked correct. Fix: `refreshProjectionAfterPlanOfRecordChange` after attach + regression test in `raceRoomSchedule.estimateWire.test.ts`.
+- **On `main`:** Process slim (#488/#489) + agent harness gates in flight (#490): Ready/Done scripts, scoped verify, hooks, Ready lint Action, `crewcue://dev/pace-estimate`.
+- **Active feature line:** `feature/pacing-accuracy-program` for pacing product; prefer that branch/PR for pacing detail until merged.
+- **Process:** Fast path default; machine gates (`agent:issue:ready`, `agent:pr:done`, `agent:ios:ready`) over prose re-reads.
 
 ## Next 1-3 tasks
 
-1. Push branch and update PR #485 body with `Closes #487` (and keep #481–#484).
-2. After merge: single field validation per pacing-accuracy-program (real backtest fixture).
-3. Auth0 / deeplink path for unattended simulator proof of history → Pace clocks.
-
-## Validation evidence
-
-- Mobile: `estimateRecompute` 11/11 + full mobile suite green (prior commit).
-- API: `raceRoomSchedule.estimateWire.test.js` 15/15 incl. new “attach refreshes projection” test.
-- Did not re-run full root `npm run verify` this turn (scoped API build+test only).
+1. Merge #490 (agent harness gates) when CI green.
+2. Land / merge pacing accuracy program from `feature/pacing-accuracy-program`.
+3. After pacing merge: real-effort `npm run pacing:backtest` fixture + tune constants from evidence.
 
 ## Blockers
 
-- Unattended iOS sim still blocked on Auth0 + Files picker for end-to-end GPX→Pace.
-- Model constants still provisional pending real-effort backtest.
-- Three unrelated stashes — leave alone.
+- Production-auth mobile paths still need Auth0; schedule/pace **fixture** proof uses `crewcue://dev/*` (no login).
+- Leave unrelated stashes alone.
 
 ## Successor prompt
 
 ```text
-On feature/pacing-accuracy-program: #487 fixed (auto-recompute on history change +
-projection refresh on estimate attach so Pace matches schedule). Push and update PR #485
-with Closes #487; confirm CI green. Then field validation after merge.
+Prefer fast path + machine gates (agent:issue:ready / agent:pr:done / scoped verify:*).
+For pacing product: feature/pacing-accuracy-program. After #490 merge: use Auth0-free
+crewcue://dev/pace-estimate|schedule-sheet for sim proof. Integration agent owns handoff.
 ```

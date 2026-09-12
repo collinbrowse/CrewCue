@@ -10,7 +10,7 @@ Use the sections below to avoid stale-doc confusion during implementation.
 ## Canonical docs (authoritative for active work)
 
 1. `agent-handoff.md` - Current-state continuity at PR/wave boundaries (not every chat).
-2. `token-budget.md` - Fast path + when to load more context.
+2. `token-budget.md` - Fast path, machine gates, when to load more context.
 3. `mvp-ui-development-spec.md` - Implementation-ready MVP UI requirements and acceptance criteria.
 4. `ui-delivery-roadmap-and-spec.md` - Demo-first Epic roadmap, Sprint sequencing, and Backlog ordering.
 5. `dual-client-architecture-guardrails.md` - Mobile/web architecture boundaries.

@@ -10,6 +10,8 @@ const guestDevLinkingScreens =
         DevScheduleSheet: "dev/schedule-sheet",
         DevCrewSheetExport: "dev/crew-sheet-export",
         DevColdStart: "dev/cold-start",
+        /** Alias of cold-start for agent prompts that say “pace estimate without Auth0”. */
+        DevPaceEstimate: "dev/pace-estimate",
         DevGpxImportProgress: "dev/gpx-import-progress"
       } as const)
     : ({} as const);
