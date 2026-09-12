@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node .cursor/hooks/shell-reminders.mjs",
+        "matcher": "git commit|npm run verify|agent:ios:ready|agent:issue:ready|agent:pr:done"
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .cursor/hooks/stop-reminders.mjs",
+        "loop_limit": 1
+      }
+    ]
+  }
+}

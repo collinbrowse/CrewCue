@@ -13,6 +13,8 @@ export type GuestStackParamList = {
   DevCrewSheetExport: undefined;
   /** __DEV__ only: cold-start estimate UX for simulator QA (crewcue://dev/cold-start). */
   DevColdStart: undefined;
+  /** __DEV__ only: alias of DevColdStart (crewcue://dev/pace-estimate) — Auth0-free pace QA. */
+  DevPaceEstimate: undefined;
   /** __DEV__ only: course GPX import progress bar (crewcue://dev/gpx-import-progress). */
   DevGpxImportProgress: undefined;
 };
