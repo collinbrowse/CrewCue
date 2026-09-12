@@ -1,13 +1,8 @@
 # Agent handoff source of truth
 
-## Required read order
+Update at **PR/wave boundaries**, not every chat. Current state only.
 
-1. `docs/sdlc/agent-handoff.md`
-2. `docs/sdlc/README.md`
-3. `docs/sdlc/token-budget.md`
-4. `.cursor/rules/github-pr-issue-workflow.mdc`
-5. `docs/sdlc/agent-async-delivery-program.md` (crew schedule + AI pacing program)
-6. `docs/sdlc/ios-simulator-agent-qa.md` (mobile UI)
+## Snapshot
 
 ## Session status snapshot
 
@@ -33,7 +28,7 @@
 - API: `raceRoomSchedule.estimateWire.test.js` 15/15 incl. new “attach refreshes projection” test.
 - Did not re-run full root `npm run verify` this turn (scoped API build+test only).
 
-## Open risks/blockers
+## Blockers
 
 - Unattended iOS sim still blocked on Auth0 + Files picker for end-to-end GPX→Pace.
 - Model constants still provisional pending real-effort backtest.

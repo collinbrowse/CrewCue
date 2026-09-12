@@ -3,12 +3,14 @@
 This directory contains both active execution docs and historical references.
 Use the sections below to avoid stale-doc confusion during implementation.
 
+**Fast path:** most agent tasks do not need this directory. See `AGENTS.md` and `token-budget.md`. Load docs below only when continuity, waves, mobile UI, or cloud/staging apply.
+
 ---
 
 ## Canonical docs (authoritative for active work)
 
-1. `agent-handoff.md` - Required start/end continuity artifact for agent-assisted work.
-2. `token-budget.md` - Context-window and token-usage policy for efficient agent execution.
+1. `agent-handoff.md` - Current-state continuity at PR/wave boundaries (not every chat).
+2. `token-budget.md` - Fast path + when to load more context.
 3. `mvp-ui-development-spec.md` - Implementation-ready MVP UI requirements and acceptance criteria.
 4. `ui-delivery-roadmap-and-spec.md` - Demo-first Epic roadmap, Sprint sequencing, and Backlog ordering.
 5. `dual-client-architecture-guardrails.md` - Mobile/web architecture boundaries.
@@ -20,7 +22,7 @@ Use the sections below to avoid stale-doc confusion during implementation.
 11. `pacing-accuracy-program.md` - Why predictions were wrong (history never reached the plan), and the sequenced PRs to fix it.
 
 If instructions conflict, follow in this order:
-`agent-handoff.md` -> `token-budget.md` -> `agent-async-delivery-program.md` (when executing that program) -> `mvp-ui-development-spec.md` -> `ui-delivery-roadmap-and-spec.md` -> `staging-first-cloud-delivery.md` (when cloud/staging scope applies) -> architecture/maintainability standards.
+`token-budget.md` (fast path) -> `agent-handoff.md` (when continuity applies) -> `agent-async-delivery-program.md` (when executing that program) -> `mvp-ui-development-spec.md` -> `ui-delivery-roadmap-and-spec.md` -> `staging-first-cloud-delivery.md` (when cloud/staging scope applies) -> architecture/maintainability standards.
 
 ---
 

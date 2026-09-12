@@ -1,77 +1,44 @@
 # Token budget and context window policy
 
-Use this policy to keep agent work high-signal and low-token.
+Preserve quality while minimizing unnecessary context.
+
+Principle: pass only what the next task needs.
 
 ---
 
-## Core objective
+## Fast path (default)
 
-Preserve implementation quality while minimizing unnecessary context carryover.
+Most tasks: implement → `npm run verify` (or scoped tests) → done.
 
-Principle: pass only what the next task needs, not everything that happened before.
-
----
-
-## Hard budgets
-
-- New-agent kickoff prompt: <= 25 lines.
-- Active `agent-handoff.md`: <= 250 lines.
-- "Next tasks" in handoff: max 3 tasks.
-- Acceptance criteria in handoff: max 5 bullets.
-- Agent pre-code restatement: <= 8 bullets.
-- End-of-task summary: <= 10 bullets.
-
-If a section grows beyond budget, trim or archive before continuing.
+Do **not** require reading the full SDLC pack, restating scope in 8 bullets, opening an issue, or updating handoff for trivial/drive-by work.
 
 ---
 
-## Required context pack (minimum viable context)
+## When to load more context
 
-Every new agent task should include only:
+| Situation | Read |
+|-----------|------|
+| Multi-session / PR continuity | `docs/sdlc/agent-handoff.md` |
+| Agent work package / wave | Issue body + `agent-async-delivery-program.md` |
+| Mobile UI | ios-simulator skill + mobile rule (path-triggered) |
+| Cloud beyond baseline | `staging-first-cloud-delivery.md` |
 
-1. `docs/sdlc/agent-handoff.md`
-2. `docs/sdlc/README.md`
-3. Active issue/PR number
-4. In-scope file paths
-5. Out-of-scope systems
-6. Acceptance criteria
-7. Validation commands/manual checks
-
-Do not paste large requirement blocks when files already exist in-repo.
+Prefer `@`-mentioning or opening the relevant rule over always-on ceremony.
 
 ---
 
-## Read discipline
+## Soft budgets
 
-- Read canonical docs first.
-- Read only 1-2 task-specific docs after that.
-- Avoid broad "read all docs/sdlc" behavior unless blocked.
-- Prefer targeted code/file lookups over wide scans.
-
----
-
-## Handoff discipline
-
-- Keep `agent-handoff.md` as rolling current state only.
-- Move older narrative/session history into archive docs.
-- Keep unresolved blockers/questions explicit.
-- Always provide a short successor prompt with strict scope.
+- New-agent kickoff prompt: <= 25 lines when handoff matters.
+- Active `agent-handoff.md`: <= 250 lines; current state only.
+- "Next tasks" in handoff: max 3.
+- End-of-task summary: short; status, evidence, next 1–3 steps.
 
 ---
 
-## Chat/session discipline
+## Anti-patterns
 
-- Use one issue-sized objective per chat.
-- Start a new chat when scope changes materially.
-- Avoid multi-issue branching in a single conversation.
-- Prefer short iterative checkpoints over long retrospective summaries.
-
----
-
-## Anti-patterns to avoid
-
-- "Read every doc and summarize everything."
+- Mandatory "read every SDLC doc" at chat start.
 - Long pasted history in each prompt.
-- Re-explaining unchanged architecture every turn.
-- Keeping stale completed tasks in active handoff.
-- Expanding scope mid-task without updating handoff.
+- Updating handoff after every one-line fix.
+- Keeping stale completed narrative in active handoff.
