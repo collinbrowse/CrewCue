@@ -1,31 +1,22 @@
 ---
-description: Require agent handoff continuity for every agent-assisted task
-alwaysApply: true
+description: Update agent-handoff.md at PR/wave boundaries for multi-session continuity
+alwaysApply: false
 ---
 
 # Agent handoff continuity
 
-For every agent-assisted task, treat `docs/sdlc/agent-handoff.md` as the continuity source of truth.
+Use when shipping a PR/wave, starting a new multi-session effort, or the user asks for continuity.
 
-## Start-of-task requirements
+## When to update `docs/sdlc/agent-handoff.md`
 
-Before implementation, the agent must:
+- At **PR or wave boundaries** (not every small chat).
+- Keep **current state only**: snapshot, next 1–3 tasks, blockers, short successor prompt.
+- Cap ~250 lines; archive narrative elsewhere if needed.
 
-1. Read `docs/sdlc/agent-handoff.md` first.
-2. Restate current roadmap phase, active issue/PR, and exact acceptance criteria.
-3. List intended files to touch and confirm do-not-change guardrails.
+## Package agents
 
-## End-of-task requirements
+Prefer a **Handoff delta** section in the PR body over editing handoff mid-wave unless you are the integration agent.
 
-Before stopping, the agent must update `docs/sdlc/agent-handoff.md` with:
+## PR template
 
-1. What was completed.
-2. What remains (next 1-3 prioritized tasks).
-3. Validation evidence summary (commands/manual/staging as applicable).
-4. Open risks/blockers/questions.
-5. A ready-to-run successor prompt.
-
-## Delivery requirements
-
-- If opening/updating a PR, ensure `.github/pull_request_template.md` handoff and continuity sections are completed.
-- Do not leave ambiguous ownership or unstated next steps for successor agents.
+Fill handoff/continuity sections when opening/updating a PR that continues multi-session work.

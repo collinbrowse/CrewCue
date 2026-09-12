@@ -1,34 +1,27 @@
 ---
-description: GitHub issue per task, PR-only merges to main, PR body must close linked issues
-alwaysApply: true
+description: Issue/PR workflow for features and merges to main (optional for drive-by fixes)
+alwaysApply: false
 ---
 
 # GitHub issues and pull requests
 
-## Before implementation
+## Issues (optional by default)
 
-1. **Create a GitHub issue** for every new scoped task (use `gh issue create` or the *Implementation task* issue template). Do not treat “local only” work as exempt unless the user explicitly says so for a one-off.
-2. Note the **issue number** (e.g. `#9`).
+**Create an issue** for multi-file features, cloud/staging work, agent waves, or when the user asks.
+
+**Skip an issue** for drive-by fixes, docs/process tweaks, and one-off work when the user says to just ship it (this change qualifies).
 
 ## Delivery
 
-1. Branch from **`main`**: `git checkout main && git pull`, then `git checkout -b feature/...`.
+1. Branch from **`main`**: `git checkout main && git pull`, then `git checkout -b feature/...` (or `chore/...`).
 2. Implement, test, commit on that branch.
 3. Open a **pull request** to `main` (`gh pr create`). **Do not push feature commits directly to `main`.**
 
 ## Auto-close on merge
 
-The repo workflow [`.github/workflows/auto-close-linked-issues.yml`](../../.github/workflows/auto-close-linked-issues.yml) closes issues when a **merged** PR’s **body** matches closing keywords + issue numbers.
+If an issue exists, the PR body **must** include `Closes #N` (or `Fixes` / `Resolves`) so [auto-close](../../.github/workflows/auto-close-linked-issues.yml) runs.
 
-- The PR description **must** include a line like **`Closes #9`** (or `Fixes` / `Resolves`).
-- Prefer putting this under **Linked issues** in the PR template so it is never missed.
+## Merge gate
 
-## PR template
-
-Remind the user to fill **Linked issues** before merge if they open the PR manually without `gh`.
-
-## Merge gate (errors + mobile bundle)
-
-1. **GitHub Actions** on every PR and `main` push must stay green: `dual-client-guard` and `checks` (lint, typecheck, **`npm run build` including `expo export` for `@crewcue/mobile`**, tests). Do not merge with failing checks.
-2. **Branch protection** (repo Settings → Branches): require the `checks` job (and `dual-client-guard` if desired) as required status checks before merge to `main`.
-3. **Local parity** before push: run `npm run verify` at the repo root (same steps as CI’s `checks` job, minus nothing meaningful).
+1. CI green: `dual-client-guard` and `checks` (lint, typecheck, build incl. mobile `expo export`, tests).
+2. Local parity before push: `npm run verify` at repo root when practical.
