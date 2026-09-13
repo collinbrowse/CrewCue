@@ -8,8 +8,14 @@
  * Loop-safety: after a recompute the estimate id / coldStart flag / recorded fingerprint move to a
  * state that returns `recompute: false`, and a failed attempt records the current fingerprint so it
  * is not retried until the history actually changes again.
+ *
+ * Ownership: POST /pacing-estimates always uses the *caller's* activity history. Auto-create and
+ * auto-recompute must therefore run only for the race athlete. Otherwise a crew chief / team
+ * manager who opens the schedule (and who has their own GPX/Strava) silently replaces the room
+ * plan of record — planned pace, baseline track, and every crew clock — with the wrong person's
+ * fitness.
  */
-import type { ActivityHistoryRef } from "@crewcue/contracts";
+import type { ActivityHistoryRef, Role } from "@crewcue/contracts";
 
 /** Rows the micro-model can actually use (mirrors the server `usableHistory` filter). */
 export function usableActivityHistory(
@@ -57,6 +63,11 @@ export const EMPTY_ESTIMATE_HISTORY_RECORD: EstimateHistoryRecord = {
 export type EstimateRecomputeInput = {
   /** Only course editors may (re)attach a plan of record. */
   canEdit: boolean;
+  /**
+   * Only the race athlete's history should silently re-attach a plan of record.
+   * Crew chiefs / team managers still have the explicit Recalculate action.
+   */
+  allowHistoryRecompute: boolean;
   /** An estimate create/attach is already in flight. */
   busy: boolean;
   /** The active estimate id (freshly created this session, else the room's attached estimate). */
@@ -70,6 +81,48 @@ export type EstimateRecomputeInput = {
   /** What the screen remembered from the previous observation for this room. */
   record: EstimateHistoryRecord;
 };
+
+/** True when the signed-in viewer is the room's athlete (membership first, JWT role fallback). */
+export function viewerIsRaceAthlete(input: {
+  viewerUserId: string | undefined;
+  memberships: ReadonlyArray<{ userId: string; role: Role }> | undefined;
+  currentRoomRole: Role | undefined;
+}): boolean {
+  if (input.currentRoomRole === "athlete") {
+    return true;
+  }
+  if (!input.viewerUserId || !input.memberships) {
+    return false;
+  }
+  return input.memberships.some((row) => row.userId === input.viewerUserId && row.role === "athlete");
+}
+
+export type AutoCreateEstimateInput = {
+  isRaceAthlete: boolean;
+  canEdit: boolean;
+  hasAttachedEstimate: boolean;
+  busy: boolean;
+  /**
+   * Usable history rows for the *caller*. `undefined` = list not loaded yet — non-athletes must
+   * wait so we do not auto-attach their history by accident.
+   */
+  usableHistoryCount: number | undefined;
+};
+
+/**
+ * First-open bootstrap when the room has no plan of record.
+ * - Athlete: always (history-backed or cold-start).
+ * - Other course editors: only a universal cold-start, and only once we know they have no history.
+ */
+export function shouldAutoCreateEstimate(input: AutoCreateEstimateInput): boolean {
+  if (!input.canEdit || input.hasAttachedEstimate || input.busy) {
+    return false;
+  }
+  if (input.isRaceAthlete) {
+    return true;
+  }
+  return input.usableHistoryCount === 0;
+}
 
 export type EstimateRecomputeDecision = {
   reason: EstimateRecomputeReason;
@@ -102,6 +155,12 @@ export function decideEstimateRecompute(
     estimateId: input.estimateId,
     fingerprint: input.historyFingerprint
   };
+
+  // Crew / manager viewers: adopt the fingerprint so we do not treat the next focus as a first
+  // observation, but never silently re-attach using *their* history.
+  if (!input.allowHistoryRecompute) {
+    return { reason: "none", recompute: false, nextRecord };
+  }
 
   // Fingerprint we recorded for *this* estimate (undefined if this is a newly seen estimate id).
   const recordedFingerprint =
