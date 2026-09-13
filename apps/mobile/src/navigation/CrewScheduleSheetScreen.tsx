@@ -23,8 +23,10 @@ import { mapPacingEstimateError } from "../features/schedule/pacingEstimateError
 import {
   EMPTY_ESTIMATE_HISTORY_RECORD,
   decideEstimateRecompute,
+  shouldAutoCreateEstimate,
   usableActivityHistory,
   usableHistoryFingerprint,
+  viewerIsRaceAthlete,
   type EstimateHistoryRecord
 } from "../features/schedule/estimateRecompute";
 import { checkpointDisplayTitle } from "../features/pace/timeline";
@@ -56,6 +58,12 @@ export function CrewScheduleSheetScreen(): ReactElement {
   const canEditCheckIn =
     (s.roomDetail?.permissions?.canEditCheckpointStops ??
       canEditCheckpointStopsFromRoomRole(s.currentRoomRole)) === true;
+
+  const isRaceAthlete = viewerIsRaceAthlete({
+    viewerUserId: s.auth.claims?.sub,
+    memberships: room?.memberships,
+    currentRoomRole: s.currentRoomRole
+  });
 
   const [sheet, setSheet] = useState<CrewScheduleSheet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,23 +224,43 @@ export function CrewScheduleSheetScreen(): ReactElement {
 
   // Auto-generate a plan-of-record estimate once when the loaded schedule has none, so a racer
   // never sees a silent 6:00/km fallback (no history yields the cold-start estimate + prompt).
+  // Non-athletes may only seed a universal cold-start; their personal history must not attach.
   useEffect(() => {
     if (!room?.id || autoEstimateRoomRef.current === room.id) {
       return;
     }
-    if (sheet && !sheet.pacingEstimateId && canEditStopPlans && !createdEstimate && !estimateBusy) {
+    if (
+      sheet &&
+      shouldAutoCreateEstimate({
+        isRaceAthlete,
+        canEdit: canEditStopPlans,
+        hasAttachedEstimate: Boolean(sheet.pacingEstimateId || createdEstimate),
+        busy: estimateBusy,
+        usableHistoryCount: historySignature?.usableCount
+      })
+    ) {
       autoEstimateRoomRef.current = room.id;
       void runEstimate(false);
     }
-  }, [room?.id, sheet, canEditStopPlans, createdEstimate, estimateBusy, runEstimate]);
+  }, [
+    room?.id,
+    sheet,
+    canEditStopPlans,
+    createdEstimate,
+    estimateBusy,
+    isRaceAthlete,
+    historySignature?.usableCount,
+    runEstimate
+  ]);
 
-  // Recompute + re-attach when the attached estimate is stale for the athlete's current history:
+  // Recompute + re-attach when the attached estimate is stale for the *athlete's* current history:
   // a cold-start estimate that locked in before an upload, or new/changed history this session
-  // (#487). Loop-safe via the recorded fingerprint; only course editors attach a plan of record.
+  // (#487). Loop-safe via the recorded fingerprint. Crew chiefs / managers do not auto-recompute.
   useEffect(() => {
     const active = createdEstimate ?? room?.pacingEstimate ?? null;
     const decision = decideEstimateRecompute({
       canEdit: canEditStopPlans,
+      allowHistoryRecompute: isRaceAthlete,
       busy: estimateBusy,
       estimateId: active?.id,
       coldStart: active?.coldStart,
@@ -246,6 +274,7 @@ export function CrewScheduleSheetScreen(): ReactElement {
     }
   }, [
     canEditStopPlans,
+    isRaceAthlete,
     estimateBusy,
     createdEstimate,
     room?.pacingEstimate,

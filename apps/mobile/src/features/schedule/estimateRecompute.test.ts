@@ -4,8 +4,10 @@ import type { ActivityHistoryRef } from "@crewcue/contracts";
 import {
   EMPTY_ESTIMATE_HISTORY_RECORD,
   decideEstimateRecompute,
+  shouldAutoCreateEstimate,
   usableActivityHistory,
   usableHistoryFingerprint,
+  viewerIsRaceAthlete,
   type EstimateHistoryRecord
 } from "./estimateRecompute";
 
@@ -51,6 +53,7 @@ test("usableHistoryFingerprint changes when a new usable activity is added", () 
 
 const READY = {
   canEdit: true,
+  allowHistoryRecompute: true,
   busy: false,
   usableHistoryCount: 2,
   historyFingerprint: "fp-1"
@@ -160,6 +163,108 @@ test("a newly attached estimate id resets the recorded fingerprint (no false cha
   });
   assert.equal(decision.recompute, false, "different estimate id means we have no recorded fp to compare");
   assert.deepEqual(decision.nextRecord, { estimateId: "est-new", fingerprint: "fp-1" });
+});
+
+test("crew / manager viewers never auto-recompute even with history or a cold-start plan", () => {
+  const cold = decideEstimateRecompute({
+    ...READY,
+    allowHistoryRecompute: false,
+    estimateId: "est-cold",
+    coldStart: true,
+    record: EMPTY_ESTIMATE_HISTORY_RECORD
+  });
+  assert.equal(cold.recompute, false, "crew history must not replace a cold-start plan of record");
+  assert.deepEqual(cold.nextRecord, { estimateId: "est-cold", fingerprint: "fp-1" });
+
+  const changed = decideEstimateRecompute({
+    ...READY,
+    allowHistoryRecompute: false,
+    estimateId: "est-hist",
+    coldStart: false,
+    record: { estimateId: "est-hist", fingerprint: "fp-old" }
+  });
+  assert.equal(changed.recompute, false, "crew history change must not re-attach the room plan");
+});
+
+test("viewerIsRaceAthlete prefers membership, then JWT role", () => {
+  assert.equal(
+    viewerIsRaceAthlete({
+      viewerUserId: "u-athlete",
+      memberships: [{ userId: "u-athlete", role: "athlete" }],
+      currentRoomRole: undefined
+    }),
+    true
+  );
+  assert.equal(
+    viewerIsRaceAthlete({
+      viewerUserId: "u-chief",
+      memberships: [{ userId: "u-chief", role: "crew_chief" }],
+      currentRoomRole: "crew_chief"
+    }),
+    false
+  );
+  assert.equal(
+    viewerIsRaceAthlete({
+      viewerUserId: "u-jwt",
+      memberships: undefined,
+      currentRoomRole: "athlete"
+    }),
+    true
+  );
+});
+
+test("shouldAutoCreateEstimate: athlete always; other editors only universal cold-start", () => {
+  assert.equal(
+    shouldAutoCreateEstimate({
+      isRaceAthlete: true,
+      canEdit: true,
+      hasAttachedEstimate: false,
+      busy: false,
+      usableHistoryCount: undefined
+    }),
+    true
+  );
+  assert.equal(
+    shouldAutoCreateEstimate({
+      isRaceAthlete: false,
+      canEdit: true,
+      hasAttachedEstimate: false,
+      busy: false,
+      usableHistoryCount: undefined
+    }),
+    false,
+    "must wait for history so a crew chief is not attached from their own GPX"
+  );
+  assert.equal(
+    shouldAutoCreateEstimate({
+      isRaceAthlete: false,
+      canEdit: true,
+      hasAttachedEstimate: false,
+      busy: false,
+      usableHistoryCount: 2
+    }),
+    false
+  );
+  assert.equal(
+    shouldAutoCreateEstimate({
+      isRaceAthlete: false,
+      canEdit: true,
+      hasAttachedEstimate: false,
+      busy: false,
+      usableHistoryCount: 0
+    }),
+    true
+  );
+  assert.equal(
+    shouldAutoCreateEstimate({
+      isRaceAthlete: true,
+      canEdit: true,
+      hasAttachedEstimate: true,
+      busy: false,
+      usableHistoryCount: 2
+    }),
+    false
+  );
 });
 
 test("stable history keeps returning none (loop-safe)", () => {
