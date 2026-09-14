@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isAuthedTabDeepLinkPath, pathFromCrewCueUrl } from "./linkingPaths";
+import {
+  isAuthedTabDeepLinkPath,
+  isRetiredCourseSchedulePath,
+  mapAidSheetExpandNavigationState,
+  pathFromCrewCueUrl
+} from "./linkingPaths";
 
 test("pathFromCrewCueUrl parses crewcue scheme paths", () => {
   assert.equal(pathFromCrewCueUrl("crewcue://guest"), "guest");
@@ -15,6 +20,19 @@ test("pathFromCrewCueUrl parses crewcue scheme paths", () => {
   assert.equal(pathFromCrewCueUrl("crewcue://course/dev-gpx-import-progress"), "course/dev-gpx-import-progress");
   assert.equal(pathFromCrewCueUrl("crewcue://strava?code=x&state=y"), "strava");
   assert.equal(pathFromCrewCueUrl("crewcue://chat?x=1"), "chat");
+});
+
+test("course/schedule rewrites to Map aid sheet expand (no Pace ScheduleSheet)", () => {
+  assert.equal(isRetiredCourseSchedulePath("course/schedule"), true);
+  assert.equal(isRetiredCourseSchedulePath("/course/schedule/"), true);
+  assert.equal(isRetiredCourseSchedulePath("course/schedule?x=1"), true);
+  assert.equal(isRetiredCourseSchedulePath("course/settings"), false);
+  const state = mapAidSheetExpandNavigationState();
+  assert.equal(state.routes[0]?.name, "Map");
+  assert.equal(state.routes[0]?.state?.routes[0]?.name, "MapHome");
+  assert.equal(state.routes[0]?.state?.routes[0]?.params?.expandSheet, true);
+  assert.equal(JSON.stringify(state).includes("ScheduleSheet"), false);
+  assert.equal(JSON.stringify(state).includes("Pace"), false);
 });
 
 test("isAuthedTabDeepLinkPath recognizes tab roots only", () => {

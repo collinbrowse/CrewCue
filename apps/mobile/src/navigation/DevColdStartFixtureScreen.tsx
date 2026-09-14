@@ -11,7 +11,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PacingEstimate } from "@crewcue/contracts";
 import { ApiError } from "../api/client";
 import { useDSTheme } from "../design-system";
-import { CrewScheduleSheetView } from "../features/schedule/CrewScheduleSheetView";
+import { DevMapAidSheetShell } from "../features/mapSheet/DevMapAidSheetShell";
+import { buildAidStationPages, clampIndex, followAfterUserPage } from "../features/mapSheet/aidStationPagerModel";
+import type { MapAidStationIndexSource } from "../features/mapSheet/MapAidStationSheet";
 import {
   loadDevColdStartFixture,
   loadDevHistoryBackedFixture,
@@ -32,6 +34,12 @@ export function DevColdStartFixtureScreen(): ReactElement {
   const [addingHistory, setAddingHistory] = useState(false);
   const [estimateError, setEstimateError] = useState<string | undefined>(undefined);
   const [ctaHint, setCtaHint] = useState<string | undefined>(undefined);
+  const [pagerIndex, setPagerIndex] = useState(0);
+  const [followAid, setFollowAid] = useState(true);
+  const pages = useMemo(
+    () => buildAidStationPages({ sheet, titleByCheckpointId }),
+    [sheet, titleByCheckpointId]
+  );
 
   const onAddHistory = useCallback(() => {
     if (addingHistory) {
@@ -122,7 +130,25 @@ export function DevColdStartFixtureScreen(): ReactElement {
           </Text>
         ) : null}
       </View>
-      <CrewScheduleSheetView
+      <DevMapAidSheetShell
+        initialExpanded
+        collapseLocked={false}
+        pages={pages}
+        index={clampIndex(pagerIndex, pages.length)}
+        follow={followAid}
+        liveNextIndex={0}
+        liveNextTitle={titleByCheckpointId.get("start") ?? "Start"}
+        onIndexChange={(next: number, source: MapAidStationIndexSource) => {
+          const clamped = clampIndex(next, pages.length);
+          setPagerIndex(clamped);
+          if (source === "jump" || source === "follow") {
+            setFollowAid(true);
+          } else {
+            setFollowAid(followAfterUserPage(clamped, 0));
+          }
+        }}
+        phase="race"
+        progressMeters={0}
         sheet={sheet}
         loading={false}
         titleByCheckpointId={titleByCheckpointId}

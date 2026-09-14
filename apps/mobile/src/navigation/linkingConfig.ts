@@ -40,7 +40,6 @@ export const authedTabLinkingScreens = {
     screens: {
       ReadoutsHome: "",
       CourseSettings: "settings",
-      ScheduleSheet: "schedule",
       ReadoutsIncidents: "incidents",
       GpxImport: "gpx",
       ...(__DEV__ ? { DevGpxImportProgress: "dev-gpx-import-progress" } : {})

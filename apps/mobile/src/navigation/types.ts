@@ -21,7 +21,7 @@ export type GuestStackParamList = {
 
 /** Primary map + race operations stack (Map tab). */
 export type MapStackParamList = {
-  MapHome: undefined;
+  MapHome: { checkpointId?: string; expandSheet?: boolean } | undefined;
   /** Pace edit flow: pan map so crosshair is the new aid location, then confirm. */
   CheckpointPickMap: { initialLatitude?: number; initialLongitude?: number } | undefined;
   RacePlanning:
@@ -41,8 +41,6 @@ export type ReadoutsStackParamList = {
   ReadoutsIncidents: undefined;
   GpxImport: undefined;
   CourseSettings: undefined;
-  /** Read-only crew schedule sheet (W1-4). */
-  ScheduleSheet: undefined;
   CourseRaceSetup:
     | {
         mode?: "create" | "edit";

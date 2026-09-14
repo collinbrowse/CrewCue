@@ -17,7 +17,7 @@ description: >-
 | Goal | Deeplink |
 |------|----------|
 | Guest shell | `crewcue://guest` (default) |
-| Schedule / stop rows | `crewcue://dev/schedule-sheet` |
+| Map aid pager / crew ops | `crewcue://dev/schedule-sheet` (Previous aid / Next aid, expand, Edit delay & notes, Open check-in, Share crew sheet) |
 | Pace estimate / cold-start | `crewcue://dev/cold-start` or `crewcue://dev/pace-estimate` |
 | Crew sheet export | `crewcue://dev/crew-sheet-export` |
 

@@ -17,3 +17,26 @@ export function isAuthedTabDeepLinkPath(path: string): boolean {
   const root = path.split("/")[0]?.toLowerCase();
   return root !== undefined && AUTHED_TAB_ROOTS.has(root);
 }
+
+/** Retired Pace list URL (`crewcue://course/schedule`). */
+export function isRetiredCourseSchedulePath(path: string): boolean {
+  const withoutQuery = path.split("?")[0] ?? "";
+  const trimmed = withoutQuery.replace(/^\//, "").replace(/\/+$/, "").toLowerCase();
+  return trimmed === "course/schedule";
+}
+
+/** Replace-redirect target: Map aid sheet expanded, Pace stack untouched. */
+export function mapAidSheetExpandNavigationState() {
+  return {
+    index: 0,
+    routes: [
+      {
+        name: "Map",
+        state: {
+          index: 0,
+          routes: [{ name: "MapHome", params: { expandSheet: true } }]
+        }
+      }
+    ]
+  };
+}
