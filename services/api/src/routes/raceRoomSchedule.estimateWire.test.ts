@@ -585,6 +585,69 @@ test("foreign athlete cannot attach estimate body they do not own when id exists
   });
 });
 
+test("replacing course GPX (route overlay) detaches the stale plan-of-record estimate", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-replace-gpx");
+    const roomId = await createPaidRoom(app, ownerToken, "replace GPX detaches estimate");
+    const seeded = await put50kCourse(app, roomId, ownerToken);
+    const estimate = await createEstimateViaApi(app, ownerToken, seeded);
+    assert.equal(
+      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
+      200
+    );
+    assert.equal((await getRaceRoom(roomId))?.pacingEstimateId, estimate.id);
+
+    const replaced = await put50kCourse(app, roomId, ownerToken);
+    assert.equal(replaced.pacingEstimateId, undefined);
+    assert.equal(replaced.pacingEstimate, undefined);
+
+    const persisted = await getRaceRoom(roomId);
+    assert.equal(persisted?.pacingEstimateId, undefined);
+    assert.equal(persisted?.pacingEstimate, undefined);
+
+    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assert.equal(sheet.pacingEstimateId, undefined);
+    assert.deepEqual(sheet, projectCrewScheduleSheet(replaced));
+  });
+});
+
+test("course PUT without a new route overlay keeps the attached estimate", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-keep-estimate");
+    const roomId = await createPaidRoom(app, ownerToken, "start-only keeps estimate");
+    const seeded = await put50kCourse(app, roomId, ownerToken);
+    const estimate = await createEstimateViaApi(app, ownerToken, seeded);
+    assert.equal(
+      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
+      200
+    );
+
+    const attached = await getRaceRoom(roomId);
+    assert.ok(attached?.course);
+    const startOnly = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: attached.plannedPaceSecondsPerKm,
+        course: {
+          checkpoints: attached.course.checkpoints,
+          baselineTrack: attached.course.baselineTrack
+        },
+        raceStartAt: "2026-08-16T13:00:00.000Z",
+        courseFileName: attached.courseFileName
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(startOnly.statusCode, 200, startOnly.body);
+    const kept = startOnly.json() as RaceRoom;
+    assert.equal(kept.pacingEstimateId, estimate.id);
+    assert.equal(kept.pacingEstimate?.id, estimate.id);
+
+    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assert.equal(sheet.pacingEstimateId, estimate.id);
+  });
+});
+
 test("clearing room estimate field restores pace baseline (unit)", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-clear");
