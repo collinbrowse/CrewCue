@@ -4,7 +4,7 @@ import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/nativ
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { ActivityIndicator, LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { cumulativeDistancesAlongCheckpoints } from "@crewcue/map-core";
 import { hashIdempotencyPayload } from "../api/idempotencyKey";
 import { getErrorMessage, mapApiError } from "@crewcue/platform-client";
@@ -535,7 +535,16 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
             vsPlanUnderTimeRemain.kind === "slower" ? theme.color.danger : theme.color.paceDeltaAhead;
 
           return (
-            <View key={cp.id} style={paceStyles.timelineRow} onLayout={onRowLayout(cp.id)}>
+            <Pressable
+              key={cp.id}
+              disabled={editing}
+              onPress={() =>
+                navigation.navigate("Map", { screen: "MapHome", params: { checkpointId: cp.id } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${stationLabel} on map`}
+            >
+            <View style={paceStyles.timelineRow} onLayout={onRowLayout(cp.id)}>
               <PaceTimelineRail
                 theme={theme}
                 isActiveLeg={railModel.isActiveLeg}
@@ -702,6 +711,7 @@ export function AuthenticatedReadoutsScreen(): ReactElement {
                 )}
               </View>
             </View>
+            </Pressable>
           );
         })}
 

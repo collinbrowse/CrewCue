@@ -4,7 +4,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Pressable, View } from "react-native";
 import { AuthenticatedReadoutsScreen } from "./AuthenticatedReadoutsScreen";
 import { CourseSettingsScreen } from "./CourseSettingsScreen";
-import { CrewScheduleSheetScreen } from "./CrewScheduleSheetScreen";
 import { GpxImportScreen } from "./GpxImportScreen";
 import { DevGpxImportProgressScreen } from "./DevGpxImportProgressScreen";
 import { useNavColors } from "./navigationTheme";
@@ -33,14 +32,6 @@ export function ReadoutsStack(): ReactElement {
           headerRight: () => (
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Pressable
-                onPress={() => navigation.navigate("ScheduleSheet")}
-                style={{ paddingHorizontal: 8, paddingVertical: 6 }}
-                accessibilityRole="button"
-                accessibilityLabel="Crew schedule"
-              >
-                <Ionicons name="calendar-outline" color={navColors.primary} size={20} />
-              </Pressable>
-              <Pressable
                 onPress={() => navigation.navigate("CourseRaceSetup", { mode: "edit" })}
                 style={{ paddingHorizontal: 8, paddingVertical: 6 }}
                 accessibilityRole="button"
@@ -59,7 +50,6 @@ export function ReadoutsStack(): ReactElement {
       />
       <Stack.Screen name="GpxImport" component={GpxImportScreen} options={{ title: "GPX Import + Splits" }} />
       <Stack.Screen name="CourseSettings" component={CourseSettingsScreen} options={{ title: "Course settings" }} />
-      <Stack.Screen name="ScheduleSheet" component={CrewScheduleSheetScreen} options={{ title: "Crew schedule" }} />
       <Stack.Screen name="CourseRaceSetup" component={GpxImportScreen} options={{ title: "Race setup" }} />
       {__DEV__ ? (
         <Stack.Screen

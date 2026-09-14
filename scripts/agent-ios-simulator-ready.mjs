@@ -121,7 +121,7 @@ function printNextSteps(udid, deeplink) {
     `agent-ios-ready: simulatorId=${udid}`,
     `agent-ios-ready: opened ${deeplink}`,
     "agent-ios-ready: next — XcodeBuildMCP snapshot_ui → tap by AXLabel → screenshot",
-    "agent-ios-ready: Auth0-free: crewcue://dev/schedule-sheet | cold-start | pace-estimate",
+    "agent-ios-ready: Auth0-free: crewcue://dev/schedule-sheet (aid pager) | cold-start | pace-estimate",
     "agent-ios-ready: ok"
   ];
   for (const line of lines.slice(0, 10)) {
