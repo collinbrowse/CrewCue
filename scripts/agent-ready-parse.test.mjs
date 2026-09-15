@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   assessPrDoneBody,
@@ -84,4 +88,30 @@ test("assessPrDoneBody requires sim note when mobile changed", () => {
 test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["services/api/src/x.ts"]), false);
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
+});
+
+test("agent-pr-done CLI infers mobile evidence from changed files", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "agent-pr-done-"));
+  const bodyFile = path.join(dir, "body.md");
+  writeFileSync(bodyFile, "Closes #1\n\n## Edge-case proofs\nEC1: covered\n", "utf8");
+  try {
+    const apiOnly = spawnSync(
+      process.execPath,
+      ["scripts/agent-pr-done.mjs", "--body-file", bodyFile, "--files", "services/api/src/server.ts"],
+      { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8" }
+    );
+    assert.equal(apiOnly.status, 0, apiOnly.stdout + apiOnly.stderr);
+    assert.match(apiOnly.stdout, /PASS: Done checklist/);
+
+    const mobile = spawnSync(
+      process.execPath,
+      ["scripts/agent-pr-done.mjs", "--body-file", bodyFile, "--files", "apps/mobile/App.tsx"],
+      { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8" }
+    );
+    assert.equal(mobile.status, 1, mobile.stdout + mobile.stderr);
+    assert.match(mobile.stdout, /mobile sim evidence \/ blocker note/);
+    assert.match(mobile.stdout, /mobile paths changed: sim evidence required/);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
