@@ -421,6 +421,85 @@ test("attach refreshes projection so Pace planned splits match the estimate base
   });
 });
 
+test("attach preserves closed check-ins when the athlete has no GPS ping yet", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-attach-keeps-checkin");
+    const roomId = await createPaidRoom(app, ownerToken, "Attach keeps check-in");
+    const seeded = await put50kCourse(app, roomId, ownerToken);
+
+    const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const plannedAid1 =
+      stopByCheckpoint(baseline, "aid-1").plannedStoppageSeconds +
+      (stopByCheckpoint(baseline, "aid-1").delayOverrideSeconds ?? 0);
+    const deltaSeconds = 240;
+    const actualStopSeconds = plannedAid1 + deltaSeconds;
+    const arrivalAt = "2026-08-15T14:00:00.000Z";
+    const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
+
+    const checkIn = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
+      payload: { arrivalAt, departureAt },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(checkIn.statusCode, 200, checkIn.body);
+
+    const beforeAttach = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assert.equal(
+      stopByCheckpoint(beforeAttach, "aid-2").elapsedSeconds,
+      stopByCheckpoint(baseline, "aid-2").elapsedSeconds + deltaSeconds
+    );
+
+    const estimateResponse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId }
+    });
+    assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
+    const estimate = parsePacingEstimate(estimateResponse.json());
+    assert.equal(
+      (await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id })).statusCode,
+      200
+    );
+
+    const after = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assert.equal(after.pacingEstimateId, estimate.id);
+    const persisted = await getRaceRoom(roomId);
+    assert.ok(persisted);
+    const expected = projectCrewScheduleSheet(persisted, {
+      closedActualStopSecondsByCheckpointId: { "aid-1": actualStopSeconds },
+      pacingEstimate: estimate
+    });
+    assert.deepEqual(after.stops, expected.stops);
+
+    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    assert.ok(aid1Eta);
+    const afterProj = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(afterProj.statusCode, 200, afterProj.body);
+    const afterBody = afterProj.json() as {
+      checkpointSplits: Array<{
+        checkpointId: string;
+        plannedElapsedSecondsAtCross: number;
+        visits: Array<{ resolvedSource: string; activeActualStopSeconds: number | null }>;
+      }>;
+    };
+    const aid1Split = afterBody.checkpointSplits.find((row) => row.checkpointId === "aid-1");
+    assert.ok(aid1Split);
+    assert.equal(aid1Split.visits[0]?.resolvedSource, "manual_crew");
+    assert.equal(aid1Split.visits[0]?.activeActualStopSeconds, actualStopSeconds);
+    assert.ok(
+      Math.abs(aid1Split.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
+      `Pace planned split must still refresh after attach; got ${aid1Split.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+    );
+    assert.ok(seeded.id);
+  });
+});
+
 test("EC7 estimate + delay overlay shifts later clocks", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-ec7");

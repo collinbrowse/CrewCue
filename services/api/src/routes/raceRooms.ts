@@ -747,8 +747,11 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
  * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
  * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
  *
- * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan.
- * In-race (ping present): recompute over the last accepted ping with the new baseline/pace.
+ * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan, then copy
+ * any closed/auto visit logs onto the matching checkpoint ids so Recalculate cannot erase
+ * check-ins that landed before the first GPS ping.
+ * In-race (ping present): recompute over the last accepted ping with the new baseline/pace
+ * (visit state is already carried via `previous`).
  */
 export async function refreshProjectionAfterPlanOfRecordChange(
   roomId: string,
@@ -756,7 +759,13 @@ export async function refreshProjectionAfterPlanOfRecordChange(
   log?: { warn: (obj: object, msg?: string) => void }
 ): Promise<void> {
   await loadWs2RuntimeIfNeeded(roomId);
-  if (!getOrInitPingState(roomId).lastAccepted) {
+  const pingState = getOrInitPingState(roomId);
+  const previous = roomProjectionState.get(roomId);
+  const visitsToRestore =
+    !pingState.lastAccepted && previous
+      ? previous.lastProjectionCore.checkpointSplits.filter(checkpointSplitHasVisitLog)
+      : [];
+  if (!pingState.lastAccepted) {
     roomProjectionState.delete(roomId);
   }
   try {
@@ -765,6 +774,9 @@ export async function refreshProjectionAfterPlanOfRecordChange(
     log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed");
   }
   await ensureBootstrapProjection(roomId, room, true);
+  if (visitsToRestore.length > 0) {
+    restoreProjectionVisitLogs(roomId, visitsToRestore, room);
+  }
   await saveWs2RuntimeSnapshot(roomId);
 }
 
@@ -1191,6 +1203,48 @@ function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
     }
     return Boolean(visit.autoDetected?.departureRecordedAt);
   });
+}
+
+/**
+ * Copy visit logs onto a freshly bootstrapped projection after plan-of-record attach.
+ * Checkpoint geometry is unchanged on attach, so ids match 1:1; planned splits stay on the
+ * new baseline (#487) while closed actuals keep shifting GET `/schedule`.
+ */
+function restoreProjectionVisitLogs(
+  roomId: string,
+  previousSplits: readonly RaceCheckpointSplitRow[],
+  room: RaceRoom
+): void {
+  const stored = roomProjectionState.get(roomId);
+  const raceAnchor = resolveRaceAnchorIso(room);
+  if (!stored || !raceAnchor) {
+    return;
+  }
+  const previousById = new Map(previousSplits.map((row) => [row.checkpointId, row]));
+  let restored = false;
+  for (const split of stored.lastProjectionCore.checkpointSplits) {
+    const previous = previousById.get(split.checkpointId);
+    if (!previous || previous.visits.length === 0) {
+      continue;
+    }
+    split.visits = structuredClone(previous.visits);
+    refreshCheckpointSplitStoppageDerivedFields(split);
+    restored = true;
+  }
+  if (!restored) {
+    return;
+  }
+  recomputeProjectionStoppageSummary(stored.lastProjectionCore, raceAnchor);
+  syncProjectionAccumulatorStateFromCore(stored);
+  const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+  if (routeForLive) {
+    stored.lastProjectionCore = enrichProjectionWithLiveRemaining(
+      stored.lastProjectionCore,
+      room,
+      routeForLive,
+      raceAnchor
+    );
+  }
 }
 
 function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): Set<string> {
