@@ -125,6 +125,58 @@ test("repeated non-start aid checkpoints are not rewritten as course start and f
   assert.ok(secondAid < total - 500, `second aid should not be clamped to finish, got ${secondAid} of ${total}`);
 });
 
+test("checkpoint encounter hint disambiguates repeated route coordinates", () => {
+  const outAndBack = [
+    { latitude: 40.0, longitude: -105.0 },
+    { latitude: 40.0, longitude: -104.96 },
+    { latitude: 40.0, longitude: -104.92 },
+    { latitude: 40.0, longitude: -104.96 },
+    { latitude: 40.0, longitude: -105.0 }
+  ];
+  const cumulative = geodesicCumulativeAtVertices(outAndBack);
+  const firstVisitMeters = cumulative[1]!;
+  const secondVisitMeters = cumulative[3]!;
+
+  const [projected] = checkpointsWithProjectedDistances(
+    [{ id: "shared-aid-second-pass", latitude: 40.0, longitude: -104.96, distanceMetersFromStart: secondVisitMeters }],
+    outAndBack
+  );
+
+  assert.ok(
+    projected!.distanceMetersFromStart! > firstVisitMeters + 500,
+    `encounter hint should skip first pass at ${firstVisitMeters}, got ${projected!.distanceMetersFromStart}`
+  );
+  assert.ok(
+    Math.abs(projected!.distanceMetersFromStart! - secondVisitMeters) < 0.5,
+    `expected second-pass distance ${secondVisitMeters}, got ${projected!.distanceMetersFromStart}`
+  );
+});
+
+test("checkpoint encounter hint wins when geodesic snap diverges by kilometers", () => {
+  const routeWithDistantSnap = [
+    { latitude: 40.0, longitude: -105.0 },
+    { latitude: 40.02, longitude: -105.0 },
+    { latitude: 40.04, longitude: -105.0 },
+    { latitude: 40.06, longitude: -105.0 },
+    { latitude: 40.08, longitude: -105.0 }
+  ];
+  const importEncounterMeters = 2500;
+
+  const [projected] = checkpointsWithProjectedDistances(
+    [
+      {
+        id: "aid-with-haversine-encounter-distance",
+        latitude: 40.06,
+        longitude: -105.0,
+        distanceMetersFromStart: importEncounterMeters
+      }
+    ],
+    routeWithDistantSnap
+  );
+
+  assert.equal(projected!.distanceMetersFromStart, importEncounterMeters);
+});
+
 test("smoothed elevation computes gain and loss", () => {
   const smoothed = smoothElevations(route, { windowSize: 1 });
   const vertical = gainLossFromSmoothed(smoothed, { minimumDeltaMeters: 1 });
