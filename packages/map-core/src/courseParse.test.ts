@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildExpectedAidStationSplitsFromCourse,
   buildExpectedSplits,
+  DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS,
   parseCourseTrack,
   buildRaceCourseFromGpx,
   formatDistance,
@@ -184,6 +185,29 @@ test("buildRaceCourseFromGpx uses waypoint checkpoints and baseline track", () =
   assert.ok((course.baselineTrack?.points.length ?? 0) >= 2);
   assert.ok((course.baselineTrack?.points.length ?? 0) <= 220);
   assert.ok(plannedPaceSecondsPerKm > 0);
+});
+
+test("buildRaceCourseFromGpx applies default planned stop to imported checkpoints", () => {
+  const gpxWithAidStations = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test">
+  <wpt lat="40.712776" lon="-74.005974"><name>Aid 1</name></wpt>
+  <wpt lat="40.722776" lon="-73.995974"><name>Aid 2</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="40.712776" lon="-74.005974"><time>2026-04-29T12:00:00Z</time></trkpt>
+    <trkpt lat="40.722776" lon="-73.995974"><time>2026-04-29T12:10:00Z</time></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const waypointCourse = buildRaceCourseFromGpx(parseGpxTrack(gpxWithAidStations)).course;
+  assert.deepEqual(
+    waypointCourse.checkpoints.map((checkpoint) => checkpoint.plannedStopSeconds),
+    [DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS, DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS]
+  );
+
+  const fallbackCourse = buildRaceCourseFromGpx(parseGpxTrack(validGpx)).course;
+  assert.deepEqual(
+    fallbackCourse.checkpoints.map((checkpoint) => checkpoint.plannedStopSeconds),
+    [DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS, DEFAULT_CHECKPOINT_PLANNED_STOP_SECONDS]
+  );
 });
 
 test("buildExpectedAidStationSplitsFromCourse computes checkpoint splits", () => {
