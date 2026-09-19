@@ -19,7 +19,7 @@
     "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
     "agent:issue:ready": "node scripts/agent-issue-ready.mjs",
     "agent:pr:done": "node scripts/agent-pr-done.mjs",
-    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs",
+    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs scripts/agent-ios-ready.test.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:memory": "npm run test:memory -w @crewcue/api",
     "test:pg": "npm run test:pg -w @crewcue/api",

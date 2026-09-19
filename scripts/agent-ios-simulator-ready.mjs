@@ -4,6 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  AUTH0_FREE_DEEPLINKS,
+  findDeviceByName,
+  formatNextSteps,
+  parseIosReadyArgs,
+  readSimulatorNameFromConfigText
+} from "./lib/agentIosReady.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,32 +19,6 @@ const BUNDLE_ID = "com.crewcue.mobile";
 const WORKSPACE = path.join(repoRoot, "apps/mobile/ios/CrewCue.xcworkspace");
 const CONFIG_PATH = path.join(repoRoot, ".xcodebuildmcp/config.yaml");
 
-/** Auth0-free __DEV__ QA entries (guest stack). Prefer these over login for agent proof. */
-const AUTH0_FREE_DEEPLINKS = [
-  "crewcue://guest",
-  "crewcue://dev/schedule-sheet",
-  "crewcue://dev/cold-start",
-  "crewcue://dev/pace-estimate",
-  "crewcue://dev/crew-sheet-export",
-  "crewcue://dev/gpx-import-progress"
-];
-
-function parseArgs(argv) {
-  let deeplink = process.env.AGENT_IOS_DEEPLINK?.trim() || "crewcue://guest";
-  let requireMetro = process.env.AGENT_IOS_ALLOW_NO_METRO !== "1";
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--deeplink") deeplink = argv[++i];
-    else if (a.startsWith("--deeplink=")) deeplink = a.slice("--deeplink=".length);
-    else if (a === "--allow-no-metro") requireMetro = false;
-    else if (a === "--list-deeplinks") {
-      for (const u of AUTH0_FREE_DEEPLINKS) process.stdout.write(`${u}\n`);
-      process.exit(0);
-    }
-  }
-  return { deeplink, requireMetro };
-}
-
 async function run(command, args) {
   const { stdout, stderr } = await execFile(command, args, { encoding: "utf8" });
   return { stdout, stderr };
@@ -45,28 +26,15 @@ async function run(command, args) {
 
 function readSimulatorName() {
   if (!fs.existsSync(CONFIG_PATH)) {
-    return "iPhone 16e";
+    return readSimulatorNameFromConfigText(undefined);
   }
   const text = fs.readFileSync(CONFIG_PATH, "utf8");
-  const match = text.match(/^\s*simulatorName:\s*(.+)\s*$/m);
-  return match ? match[1].trim() : "iPhone 16e";
+  return readSimulatorNameFromConfigText(text);
 }
 
 async function listDevices() {
   const { stdout } = await run("xcrun", ["simctl", "list", "devices", "available", "--json"]);
   return JSON.parse(stdout);
-}
-
-function findDeviceByName(parsed, name) {
-  for (const [runtime, devices] of Object.entries(parsed.devices ?? {})) {
-    if (!runtime.includes("iOS")) continue;
-    for (const device of devices) {
-      if (device.isAvailable && device.name === name) {
-        return device;
-      }
-    }
-  }
-  return undefined;
 }
 
 async function bootSimulator(udid) {
@@ -117,14 +85,7 @@ async function isMetroUp() {
 }
 
 function printNextSteps(udid, deeplink) {
-  const lines = [
-    `agent-ios-ready: simulatorId=${udid}`,
-    `agent-ios-ready: opened ${deeplink}`,
-    "agent-ios-ready: next — XcodeBuildMCP snapshot_ui → tap by AXLabel → screenshot",
-    "agent-ios-ready: Auth0-free: crewcue://dev/schedule-sheet | cold-start | pace-estimate",
-    "agent-ios-ready: ok"
-  ];
-  for (const line of lines.slice(0, 10)) {
+  for (const line of formatNextSteps(udid, deeplink)) {
     process.stdout.write(`${line}\n`);
   }
 }
@@ -134,7 +95,11 @@ async function main() {
     throw new Error("agent:ios:ready requires macOS.");
   }
 
-  const { deeplink, requireMetro } = parseArgs(process.argv.slice(2));
+  const { deeplink, requireMetro, listDeeplinks } = parseIosReadyArgs(process.argv.slice(2));
+  if (listDeeplinks) {
+    for (const u of AUTH0_FREE_DEEPLINKS) process.stdout.write(`${u}\n`);
+    process.exit(0);
+  }
 
   try {
     await run("xcrun", ["--version"]);
