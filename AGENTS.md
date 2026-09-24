@@ -4,15 +4,22 @@
 
 Implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. Skip issue creation, handoff edits, and SDLC doc packs unless multi-session, cloud/staging, `agent-ready`, or the user asks for continuity.
 
+**PRs:** `--body` must be a filled `.github/pull_request_template.md`. Do not use a Summary-only PR recipe — CI `pr-decision-doc-guard` will fail. See `.cursor/rules/pr-decision-doc-guard.mdc`.
+
 ## Machine gates
 
 - Ready: `npm run agent:issue:ready -- <n>`
-- Done: `npm run agent:pr:done -- <pr>`
-- iOS: `npm run agent:ios:ready` (Auth0-free: `--deeplink crewcue://dev/pace-estimate`)
+- Done: `npm run agent:pr:done -- <pr>` (includes `pr-decision-doc-guard`)
+- iOS: `npm run agent:ios:ready` (SwiftUI, Auth0-free: `--deeplink crewcue://dev/pace-estimate`)
+- Android: `npm run agent:android:ready` (Compose emulator, same deeplink family)
 
 ## When to load more
 
-- **Mobile UI** (`apps/mobile/**`): `.cursor/rules/mobile-simulator-agent-qa.mdc` + skill `.cursor/skills/ios-simulator-agent-qa/SKILL.md`. Simulator proof on the PR before claiming done.
+- **iOS UI** (`apps/ios/**`): `.cursor/rules/mobile-simulator-agent-qa.mdc` + skill `.cursor/skills/ios-simulator-agent-qa/SKILL.md`. Simulator proof on the PR before claiming done.
+- **Android UI** (`apps/android/**`): `.cursor/rules/android-emulator-agent-qa.mdc`. Emulator proof on the PR before claiming done.
+- **Shared client behavior** (`packages/client-core/**`): Swift tests on the host and the Android SDK build when the SDK is installed. No UI in that package.
+- **Checklists** (`clients/behavior/**`): source of truth for parity. Do not sync by reading the other platform's UI.
+- **Expo removed.** Native clients are `apps/ios` and `apps/android`. Do not add `apps/mobile`.
 - **XcodeBuildMCP:** Use the installed XcodeBuildMCP skill/docs before calling MCP tools.
 - **agent-ready waves:** `.cursor/rules/agent-work-package-verification.mdc` (Ready script first).
 - **Handoff / staging:** pull matching `.cursor/rules/*.mdc` by description when needed.

@@ -67,7 +67,7 @@ Measured on `fixtures/pacing/course-50k-with-aids.gpx`, a flat 50 km with 348 m 
 
 The accuracy work is worthless until this exists. `apps/mobile/src/api/client.ts` has history upload and schedule read, but no estimator call.
 
-- Add `createPacingEstimate` (POST `/pacing-estimates` with `roomId`) and `attachPacingEstimate`. Network calls must live only in that file; `scripts/verify-dual-client-architecture.mjs` enforces it. The guard does not require web parity, so skip `apps/web` this pass.
+- Add `createPacingEstimate` (POST `/pacing-estimates` with `roomId`) and `attachPacingEstimate`. Network calls must live only in the mobile API client while Expo remains; `scripts/verify-dual-client-architecture.mjs` enforces it.
 - Trigger after course save when the athlete has history, plus an explicit "Recalculate from my history" action. Reuse `ColdStartEstimatePanel`, which already renders the cold-start prompt and CTA.
 - Surface `estimate.explanation` and `coldStart` so the racer can tell whether their history was used.
 

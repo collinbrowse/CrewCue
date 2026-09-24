@@ -2,6 +2,7 @@
  * Shared Ready/Done parsers for agent harness scripts.
  * Keep stdout consumers short — callers print ≤15 lines.
  */
+import { assessPrDecisionDoc } from "./prDecisionDocGuard.mjs";
 
 /** @typedef {{ ok: boolean, missing: string[], warnings: string[], summary: string[] }} ReadyResult */
 
@@ -120,25 +121,43 @@ export function assessPrDoneBody(body, opts = {}) {
     missing.push("edge-case proof section");
   }
 
-  if (opts.mobileChanged) {
-    const hasSimNote =
-      /agent:ios:ready/i.test(text) ||
-      /simulator/i.test(text) ||
-      /snapshot_ui/i.test(text) ||
-      /\bBlocker\b/i.test(text);
-    if (!hasSimNote) {
-      missing.push("mobile sim evidence / blocker note");
-    }
+  const decision = assessPrDecisionDoc(text);
+  if (!decision.ok) {
+    missing.push("pr-decision-doc-guard sections");
   }
+
+    if (opts.mobileChanged) {
+      const hasSimNote =
+        /agent:ios:ready/i.test(text) ||
+        /simulator/i.test(text) ||
+        /snapshot_ui/i.test(text) ||
+        /\bBlocker\b/i.test(text);
+      if (!hasSimNote) missing.push("mobile sim evidence / blocker note");
+    }
+    if (opts.iosChanged) {
+      const hasIos =
+        /agent:ios:ready/i.test(text) || /\bBlocker\b/i.test(text);
+      if (!hasIos) missing.push("ios evidence / blocker note");
+    }
+    if (opts.androidChanged) {
+      const hasAndroid =
+        /agent:android:ready/i.test(text) || /\bBlocker\b/i.test(text);
+      if (!hasAndroid) missing.push("android evidence / blocker note");
+    }
+    if (opts.splitViolation) missing.push("one platform per PR");
 
   const ok = missing.length === 0;
   summary.push(ok ? "PASS: Done checklist" : "FAIL: Done incomplete");
   if (missing.length) {
     summary.push(`missing: ${missing.join(", ")}`);
   }
-  if (opts.mobileChanged) {
-    summary.push("mobile paths changed: sim evidence required");
+  if (!decision.ok) {
+    summary.push(...decision.errors);
   }
+  if (opts.mobileChanged) summary.push("mobile paths changed: sim evidence required");
+  if (opts.iosChanged) summary.push("ios paths changed: simulator evidence required");
+  if (opts.androidChanged) summary.push("android paths changed: emulator evidence required");
+  if (opts.splitViolation) summary.push("split: both native UI trees changed");
   return { ok, missing, summary };
 }
 

@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { assessPrDoneBody, pathsTouchMobile } from "./lib/agentReadyParse.mjs";
+import { classifyNativeClientDiff } from "./lib/clientSplit.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -24,6 +25,8 @@ Usage:
   npm run agent:pr:done -- --body-file <path.md> --files path1 path2
 
 Exit 0 if Done checklist ok; 1 otherwise.
+Requires Closes #N, edge-case proof, and pr-decision-doc-guard sections
+(.github/pull_request_template.md). Mobile path changes also need sim evidence.
 `);
 }
 
@@ -65,6 +68,9 @@ function main() {
 
   let body;
   let mobileChanged = args.mobile;
+  let iosChanged = false;
+  let androidChanged = false;
+  let splitViolation = false;
   let label = "body-file";
 
   if (args.bodyFile) {
@@ -73,6 +79,10 @@ function main() {
     label = path.basename(p);
     if (args.files.length) {
       mobileChanged = mobileChanged || pathsTouchMobile(args.files);
+      const split = classifyNativeClientDiff(args.files);
+      iosChanged = split.ios;
+      androidChanged = split.android;
+      splitViolation = split.splitViolation;
     }
   } else {
     const pr = fetchPr(args.pr);
@@ -80,9 +90,13 @@ function main() {
     label = `PR #${args.pr}`;
     const files = (pr.files ?? []).map((f) => f.path);
     mobileChanged = mobileChanged || pathsTouchMobile(files);
+    const split = classifyNativeClientDiff(files);
+    iosChanged = split.ios;
+    androidChanged = split.android;
+    splitViolation = split.splitViolation;
   }
 
-  const result = assessPrDoneBody(body, { mobileChanged });
+  const result = assessPrDoneBody(body, { mobileChanged, iosChanged, androidChanged, splitViolation });
   const lines = [`agent:pr:done ${label}`, ...result.summary].slice(0, 15);
   for (const line of lines) {
     process.stdout.write(`${line}\n`);

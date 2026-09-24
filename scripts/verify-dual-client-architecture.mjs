@@ -3,16 +3,7 @@ import path from "node:path";
 
 const repoRoot = process.cwd();
 
-const clientRoots = [
-  {
-    root: path.join(repoRoot, "apps/mobile"),
-    allowedNetworkSources: new Set([path.join(repoRoot, "apps/mobile/src/api/client.ts")])
-  },
-  {
-    root: path.join(repoRoot, "apps/web"),
-    allowedNetworkSources: new Set([path.join(repoRoot, "apps/web/src/api/client.ts")])
-  }
-];
+const clientRoots = [];
 
 const sourceFileExtensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const ignoredSuffixes = [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"];

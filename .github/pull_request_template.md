@@ -2,8 +2,10 @@
 
 Use this for quick triage. Finer grouping (epic, milestone, cloud rollout phase from `docs/sdlc/staging-first-cloud-delivery.md`) lives in **linked issues** and GitHub labels.
 
-- [ ] Mobile (`apps/mobile`)
-- [ ] Web (`apps/web`)
+- [ ] iOS (`apps/ios`)
+- [ ] Android (`apps/android`)
+- [ ] Shared client core (`packages/client-core`)
+- [ ] Native schedule sheet (`crewcue://dev/schedule-sheet` on iOS and Android)
 - [ ] API (`services/api`)
 - [ ] Contracts / shared packages (`packages/*`)
 - [ ] Docs / runbooks (`docs/`)
@@ -25,14 +27,14 @@ Describe exactly what this PR changes.
 
 Document the key decisions that shaped this implementation so future debugging can reconstruct intent.
 
-<!-- CI (`pr-decision-doc-guard`) requires the section headers below and, in the body, a filled bullet matching `- Decision: …` / `- Assumption: …` / `- Summary: …` (non-whitespace after the colon on that line) or the phrases "Single obvious path" / "None identified" where applicable. Optional Markdown bold around the label (e.g. `- **Decision:** text`) is accepted. -->
+<!-- CI (`pr-decision-doc-guard`) + `npm run agent:pr:done` require these exact headers and a filled same-line bullet `- Decision: …` / `- Assumption: …` / `- Summary: …` (non-whitespace after the colon). Optional Markdown bold (e.g. `- **Decision:** text`) is accepted. Allowed values: `Single obvious path` (Decision), `None identified` (Assumption or Summary). Instructional/comment text does not count. Agent doc: `.cursor/rules/pr-decision-doc-guard.mdc`. -->
 
 - Decision:
   - Context:
   - Alternatives considered:
   - Why selected:
 
-<!-- Repeat for each major decision. If only one straightforward path existed, explicitly state: "Single obvious path; no meaningful alternatives." -->
+<!-- Repeat for each major decision. If only one straightforward path existed, set `- Decision: Single obvious path; no meaningful alternatives.` -->
 
 ## Implicit Assumptions and Invariants (required)
 
@@ -44,7 +46,7 @@ List assumptions that are not obvious from code alone.
 
 ## Higher-Order Effects Check (required)
 
-Explicitly note downstream effects. If none, write "None identified."
+Explicitly note downstream effects. If none, set `- Summary: None identified.`
 
 - [ ] Second-order effects reviewed (adjacent modules, retries, authz, persistence, observability)
 - [ ] Third-order effects reviewed (operator workflow, incident/debug path, docs/runbooks)
@@ -59,26 +61,31 @@ List each relevant acceptance criterion and how this PR satisfies it.
 
 ## Test Plan
 
-- Mid-slice (optional): `npm run verify:contracts` / `verify:api` / `verify:mobile`
+- Mid-slice (optional): `npm run verify:contracts` / `verify:api` / `verify:ios` / `verify:android`
 - `npm run lint`
 - `npm run typecheck`
 - `npm run build`
 - `npm run test`
-- `npm run smoke:mobile:ios` (macOS local smoke; if mobile/deep-link navigation changed)
+- `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet` and `npm run agent:android:ready -- --deeplink crewcue://dev/schedule-sheet` when a native screen changed
 - `npm run verify` (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**, harness unit tests)
 - Agent packages: `npm run agent:pr:done -- <pr>` (or `--body-file` with this body)
 
-## iOS simulator evidence (required if `apps/mobile` UI changed)
+## iOS simulator evidence (required if `apps/ios` UI changed)
 
-Attach proof here or in PR comments (screenshots, key `snapshot_ui` labels). **Do not commit** evidence files to the repo — it is discarded when the PR closes.
+Attach proof here or in PR comments. **Do not commit** evidence files.
 
-Prefer Auth0-free: `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet` (or `cold-start` / `pace-estimate`).
+Prefer Auth0-free deeplinks from `clients/behavior/deeplinks.json`, for example `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet`.
 
 - [ ] `npm run agent:ios:ready` — pass (or **Blocker** below with options)
-- [ ] Acceptance criteria exercised on simulator (XcodeBuildMCP / Maestro)
+- [ ] Acceptance criteria exercised on simulator (XcodeBuildMCP)
 - [ ] `npm run verify` — pass
 
-**Blocker (if sim testing stopped):** _what blocked, what was verified, numbered options to proceed_
+## Android emulator evidence (required if `apps/android` UI changed)
+
+- [ ] `npm run agent:android:ready -- --deeplink crewcue://dev/<id>` — pass (or **Blocker** below)
+- [ ] Checklist accessibility label present in the UI dump
+
+**Blocker (if device testing stopped):** _what blocked, what was verified, numbered options to proceed_
 
 ## Maintainability Checklist (required)
 
@@ -90,10 +97,11 @@ Prefer Auth0-free: `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule
 
 ## Dual-Client Architecture Checklist (required when touching contracts/API/client-sync)
 
-- Contract/API changes are client-agnostic (mobile + web compatible)
-- No mobile-specific semantics leaked into contracts/routes
+- Contract/API changes are client-agnostic (iOS + Android over the same contracts)
+- No client-specific semantics leaked into contracts/routes
 - Server remains source of truth for domain outcomes
 - `npm run verify:dual-client` passes
+- `npm run verify:client-boundary` passes when native clients or `packages/client-core` change
 - Updated `docs/sdlc/dual-client-architecture-guardrails.md` if architecture boundaries changed
 
 ## Risk and Rollback

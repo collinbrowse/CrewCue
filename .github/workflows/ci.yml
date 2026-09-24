@@ -13,77 +13,16 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - uses: actions/checkout@v5
+      - name: Fetch PR body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+          echo "PR body length $(wc -c < "$RUNNER_TEMP/pr-body.md")"
       - name: Validate PR decision documentation sections
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // Prefer REST `pulls.get` (full body); fall back to webhook payload if token cannot read pulls.
-            const prNumber = context.payload.pull_request.number;
-            let body = "";
-            try {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-              });
-              body = pr.body ?? "";
-            } catch (e) {
-              core.warning(`pulls.get failed (${e.message}); using pull_request payload body`);
-              body = context.payload.pull_request?.body ?? "";
-            }
-            body = body.replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
-            // Normalize dash lookalikes so "## Higher-Order ..." matches after copy/paste from docs
-            body = body.replace(/\u2011|\u2013|\u2014/g, "-");
-
-            const requiredHeaders = [
-              "## Decision Tree and Rationale",
-              "## Implicit Assumptions and Invariants",
-              "## Higher-Order Effects Check"
-            ];
-
-            const missingHeaders = requiredHeaders.filter((header) => !body.includes(header));
-            if (missingHeaders.length > 0) {
-              const payloadLen = (context.payload.pull_request?.body ?? "").length;
-              core.setFailed(
-                `PR body missing required section headers: ${missingHeaders.join(", ")} (API body length ${body.length}, payload body length ${payloadLen})`
-              );
-              return;
-            }
-
-            // Allow optional Markdown bold: "- Decision: ..." or "- **Decision:** ..." (colon may sit inside **...**)
-            const mdLabel = (word) =>
-              new RegExp(
-                `-\\s*\\*{0,2}${word}:\\*{0,2}\\s+\\S`,
-                "i"
-              );
-            const hasDecisionContent =
-              mdLabel("Decision").test(body) || /Single obvious path/i.test(body);
-            if (!hasDecisionContent) {
-              core.setFailed(
-                "Decision Tree and Rationale must include at least one filled '- Decision: ...' (or **Decision**) line or explicit 'Single obvious path'."
-              );
-              return;
-            }
-
-            const hasAssumptionContent =
-              mdLabel("Assumption").test(body) || /None identified/i.test(body);
-            if (!hasAssumptionContent) {
-              core.setFailed(
-                "Implicit Assumptions and Invariants must include at least one filled '- Assumption: ...' (or **Assumption**) line or explicit 'None identified'."
-              );
-              return;
-            }
-
-            const hasEffectsSummary =
-              mdLabel("Summary").test(body) || /None identified/i.test(body);
-            if (!hasEffectsSummary) {
-              core.setFailed(
-                "Higher-Order Effects Check must include a filled '- Summary: ...' (or **Summary**) line or explicit 'None identified'."
-              );
-              return;
-            }
-
-            core.info("PR decision documentation guard passed.");
+        run: node scripts/pr-decision-doc-guard.mjs --body-file "$RUNNER_TEMP/pr-body.md"
   dual-client-guard:
     runs-on: ubuntu-latest
     steps:
@@ -103,21 +42,6 @@ jobs:
           || needs.pr-decision-doc-guard.result == 'skipped')
     needs: [pr-decision-doc-guard, dual-client-guard]
     runs-on: ubuntu-latest
-    env:
-      # CI has no local `apps/mobile/.env`; Expo inlines these at bundle time.
-      # Placeholders keep `expo export` deterministic and catch Metro/resolver regressions.
-      EXPO_PUBLIC_AUTH0_DOMAIN: ci-placeholder.invalid
-      EXPO_PUBLIC_AUTH0_CLIENT_ID: ci-placeholder-client
-      EXPO_PUBLIC_AUTH0_AUDIENCE: https://ci-placeholder-api
-      EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE: ci-placeholder-google-oauth2
-      EXPO_PUBLIC_AUTH0_CONNECTION_APPLE: ci-placeholder-apple
-      EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL: ci-placeholder-email-db
-      EXPO_PUBLIC_API_BASE_URL: https://ci-placeholder.invalid
-      EXPO_PUBLIC_MAPTILER_API_KEY: ci-placeholder-maptiler
-      EXPO_PUBLIC_STREAM_API_KEY: ci-placeholder-stream
-      VITE_MAPTILER_API_KEY: ci-placeholder-maptiler
-      MAPTILER_API_KEY: ci-placeholder-maptiler
-      VITE_API_BASE_URL: https://ci-placeholder.invalid
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -125,12 +49,18 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm install
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.3"
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run smoke:mobile:startup
       - run: npm run build
-      # Runs workspace tests: @crewcue/contracts (tsx), @crewcue/mobile (tsx), @crewcue/api (node:test + build).
       - run: npm run test
+      - run: npm run verify:client-behavior
+      - run: npm run verify:client-boundary
+      - run: npm run verify:client-codegen
+      - run: npm run verify:client-core
+      - run: npm run agent:harness:test
   api-postgres-integration:
     runs-on: ubuntu-latest
     services:
@@ -161,3 +91,17 @@ jobs:
       - run: npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client
       - run: npm run db:migrate -w @crewcue/api
       - run: npm run test:pg -w @crewcue/api
+  client-core-android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.3.2"
+      - name: Install Swift Android SDK
+        run: |
+          swift sdk install https://download.swift.org/swift-6.3.2-release/android-sdk/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE_android.artifactbundle.tar.gz --checksum 939e933549d12d28f2e0bf71019d734d309859e9773c572657ce565a81f85d68
+      - name: Cross-compile client-core
+        env:
+          CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
+        run: node scripts/verify-client-core-android-build.mjs

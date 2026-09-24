@@ -19,7 +19,7 @@ Do **not** require reading the full SDLC pack, restating scope in 8 bullets, ope
 | Gate | Command | Token role |
 |------|---------|------------|
 | Ready | `npm run agent:issue:ready -- <n>` | ≤15-line stdout replaces Ready-section doc re-reads |
-| Done | `npm run agent:pr:done -- <pr>` | Checklist fail/pass instead of Done-definition debate |
+| Done | `npm run agent:pr:done -- <pr>` | Checklist fail/pass (includes `pr-decision-doc-guard`) |
 | iOS | `npm run agent:ios:ready` | Hard-fail Metro; prints next steps + Auth0-free deeplinks |
 
 New harness docs must **replace** a longer read or be machine-gated. Do not add markdown agents must load without cutting something else.
@@ -30,6 +30,7 @@ New harness docs must **replace** a longer read or be machine-gated. Do not add 
 
 | Situation | Read |
 |-----------|------|
+| Opening or editing a PR | `.github/pull_request_template.md` + `.cursor/rules/pr-decision-doc-guard.mdc` (always-on; do not use Summary-only `--body`) |
 | Multi-session / PR continuity | `docs/sdlc/agent-handoff.md` (integration agent writes; others: PR Handoff delta) |
 | Agent work package / wave | Ready script → issue body; `agent-async-delivery-program.md` only if blocked |
 | Mobile UI | ios-simulator skill + mobile rule (path-triggered); prefer `crewcue://dev/*` |
@@ -56,3 +57,4 @@ Prefer `@`-mentioning or opening the relevant rule over always-on ceremony.
 - Updating handoff after every one-line fix.
 - Keeping stale completed narrative in active handoff.
 - Soft Metro warnings that invite retry loops.
+- Summary-only `gh pr create --body` that skips `.github/pull_request_template.md`.

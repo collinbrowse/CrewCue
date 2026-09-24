@@ -1,16 +1,15 @@
 # Design Systems
 
-CrewCue now supports global runtime switching between design systems on both clients:
+CrewCue design tokens live in `packages/contracts/src/designSystems.ts`. The supported clients are the native iOS and Android apps. The web client has been removed. The Expo app still reads the mobile theme until it is deleted.
 
 - `kinetic`
 - `performance`
 
-Both mobile and web read from shared definitions in `packages/contracts/src/designSystems.ts`.
+Tokens are defined in `packages/contracts/src/designSystems.ts`.
 
 ## Runtime behavior
 
-- Mobile toggle location: `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
-- Web toggle location: `apps/web/src/MapWorkspace.tsx`
+- Frozen Expo toggle: `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
 - Changes apply immediately across the app tree.
 - Light/dark variants auto-follow the device color-scheme setting.
 - Preference persists across relaunch/refresh.
@@ -24,21 +23,17 @@ Both mobile and web read from shared definitions in `packages/contracts/src/desi
   - `typography`
   - `radius`
   - `spacing`
-4. Update web CSS token mapping in `apps/web/src/index.css` with a new `:root[data-design-system="..."]` block.
+4. Keep token groups complete: `colors`, `typography`, `radius`, `spacing`.
 5. If needed, refine mobile mapping logic in `apps/mobile/src/design-system/theme.ts` (`toMobileTokens`).
-6. Expose the new option in both toggles:
-  - `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
-  - `apps/web/src/MapWorkspace.tsx`
 
 ## Validation
 
 Run:
 
 - `npm run build -w @crewcue/contracts`
-- `npm run typecheck -w @crewcue/web`
 - `npm run typecheck -w @crewcue/mobile`
 
 Then manually verify:
 
-- Switching updates UI immediately on both clients.
+- Switching updates the Expo UI immediately while that client is still installed.
 - Selected system remains active after restart/refresh.

@@ -27,4 +27,4 @@ Apply when implementing a GitHub issue labeled `agent-ready` or filed from **Age
 - `npm run verify` green locally.
 - Mobile UI: `npm run agent:ios:ready` (+ `--deeplink crewcue://dev/...` Auth0-free) + simulator QA; evidence on PR only.
 - `npm run agent:pr:done -- <pr>` (or `--body-file` before open) must exit 0.
-- PR: `Closes #<n>` + edge-case proofs. Never fake a pass when blocked.
+- PR: filled `.github/pull_request_template.md` (`pr-decision-doc-guard`) + `Closes #<n>` + edge-case proofs. Never fake a pass when blocked.

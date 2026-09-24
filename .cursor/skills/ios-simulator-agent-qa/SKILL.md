@@ -10,14 +10,14 @@ description: >-
 
 ## Before UI automation
 
-1. Read `.xcodebuildmcp/config.yaml` (workspace, scheme, `simulatorName`, `bundleId`).
-2. Run from repo root: **`npm run agent:ios:ready`**. Hard-fails if Metro is down (override: `--allow-no-metro`). Do not skip to "manual testing."
+1. Read `.xcodebuildmcp/config.yaml` (`projectPath`, scheme, `simulatorName`, `bundleId` for `apps/ios`).
+2. Run from repo root: **`npm run agent:ios:ready`**. This builds and installs the SwiftUI app in `apps/ios`. Metro is not part of this gate.
 3. Auth0-free entries (guest stack, `__DEV__` only):
 
 | Goal | Deeplink |
 |------|----------|
 | Guest shell | `crewcue://guest` (default) |
-| Map aid pager / crew ops | `crewcue://dev/schedule-sheet` (Previous aid / Next aid, expand, Edit delay & notes, Open check-in, Share crew sheet) |
+| Map aid pager / crew ops | `crewcue://dev/schedule-sheet` (Previous aid / Next aid, expand, Edit delay & notes, Open check-in) |
 | Pace estimate / cold-start | `crewcue://dev/cold-start` or `crewcue://dev/pace-estimate` |
 | Crew sheet export | `crewcue://dev/crew-sheet-export` |
 

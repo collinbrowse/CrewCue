@@ -29,8 +29,9 @@ Use these top-level boundaries consistently:
 
 - `packages/contracts` -> shared DTO/event/auth contracts; no app-specific UI logic
 - `services/api` -> server routes, domain logic, persistence, authz, replay/projections
-- `apps/mobile` -> client presentation, user interaction, sync/outbox orchestration
-- `apps/web` -> desktop/laptop client presentation (when created); consumes same contracts/API semantics
+- `packages/client-core` -> shared Swift client behavior (no UI)
+- `apps/ios` and `apps/android` -> native presentation
+- `apps/mobile` -> frozen Expo client until native coverage is complete
 - `docs/sdlc` -> execution plans, runbooks, and operating policy
 
 Do not duplicate domain rules across API and mobile. Domain authority stays server-side unless explicitly designed for offline behavior.

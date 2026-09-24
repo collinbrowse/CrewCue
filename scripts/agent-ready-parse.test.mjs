@@ -7,6 +7,7 @@ import {
   countEmptyProofCells,
   pathsTouchMobile
 } from "./lib/agentReadyParse.mjs";
+import { classifyNativeClientDiff } from "./lib/clientSplit.mjs";
 
 const completeReady = `## Objective
 Ship harness.
@@ -61,21 +62,41 @@ test("countEmptyProofCells finds blanks", () => {
   assert.equal(countEmptyProofCells(body), 1);
 });
 
-test("assessPrDoneBody requires Closes and edge proof", () => {
+const decisionGuardBody = `## Decision Tree and Rationale
+- Decision: Enforce the template via agent:pr:done
+  - Context: CI-only docs were skipped
+  - Alternatives considered: Optional workflow rule
+  - Why selected: Shared checker
+
+## Implicit Assumptions and Invariants
+- Assumption: Headers stay exact
+  - Why it is safe today: Shared lib
+  - What would break if false: Guard drift
+
+## Higher-Order Effects Check
+- Summary: Done gate fails without the three sections
+`;
+
+test("assessPrDoneBody requires Closes, edge proof, and decision guard", () => {
   const bad = assessPrDoneBody("## Summary\nhello");
   assert.equal(bad.ok, false);
   assert.ok(bad.missing.includes("Closes #<n>"));
+  assert.ok(bad.missing.includes("pr-decision-doc-guard sections"));
 
-  const good = assessPrDoneBody(`Closes #490\n\n## Edge-case proofs\nEC1: script`);
+  const stillBad = assessPrDoneBody(`Closes #490\n\n## Edge-case proofs\nEC1: script`);
+  assert.equal(stillBad.ok, false);
+  assert.ok(stillBad.missing.includes("pr-decision-doc-guard sections"));
+
+  const good = assessPrDoneBody(`Closes #490\n\n## Edge-case proofs\nEC1: script\n\n${decisionGuardBody}`);
   assert.equal(good.ok, true);
 });
 
 test("assessPrDoneBody requires sim note when mobile changed", () => {
-  const r = assessPrDoneBody(`Closes #1\nEC1 ok`, { mobileChanged: true });
+  const r = assessPrDoneBody(`Closes #1\nEC1 ok\n${decisionGuardBody}`, { mobileChanged: true });
   assert.equal(r.ok, false);
   assert.ok(r.missing.some((m) => m.includes("sim")));
 
-  const ok = assessPrDoneBody(`Closes #1\nEC1 ok\nsimulator: Blocker Auth0`, {
+  const ok = assessPrDoneBody(`Closes #1\nEC1 ok\nsimulator: Blocker Auth0\n${decisionGuardBody}`, {
     mobileChanged: true
   });
   assert.equal(ok.ok, true);
@@ -84,4 +105,10 @@ test("assessPrDoneBody requires sim note when mobile changed", () => {
 test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["services/api/src/x.ts"]), false);
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
+});
+
+test("classifyNativeClientDiff rejects both UI trees", () => {
+  assert.equal(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift", "apps/android/app/build.gradle.kts"]).splitViolation, true);
+  assert.equal(classifyNativeClientDiff(["clients/behavior/hello.md"]).splitViolation, false);
+  assert.equal(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift"]).splitViolation, false);
 });

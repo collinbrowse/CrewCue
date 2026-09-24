@@ -4,15 +4,15 @@ Short policy for agent-driven mobile validation. **Evidence lives on the PR only
 
 ## When required
 
-Any change to **`apps/mobile/**`** that affects what users see or tap (map, tabs, notices, navigation, auth entry).
+Any change to **`apps/ios/**`** that affects what users see or tap. The Expo app under `apps/mobile` is frozen.
 
 ## Flow
 
-1. `npm run agent:ios:ready` (hard-fails if Metro down; prints `simulatorId` + next steps)
-2. Prefer Auth0-free deeplinks: `crewcue://dev/schedule-sheet`, `crewcue://dev/cold-start`, `crewcue://dev/pace-estimate` (`--deeplink …`)
+1. `npm run agent:ios:ready` (builds the SwiftUI app; prints `simulatorId` + next steps)
+2. Prefer Auth0-free deeplinks from `clients/behavior/deeplinks.json` (`--deeplink …`)
 3. XcodeBuildMCP: `snapshot_ui` → tap by label → assert → screenshot
 4. Fail → fix → repeat (max 5 iterations)
-5. Scoped `verify:mobile` mid-slice; full `npm run verify` before PR ready
+5. Scoped `verify:ios` mid-slice; full `npm run verify` before PR ready
 6. `npm run agent:pr:done -- <pr>` before claiming Done
 
 ## Blocked in sim?
@@ -21,7 +21,7 @@ Stop. Do not mark done. Report blocker + **options to proceed**. Prefer extendin
 
 ## Config
 
-- `.xcodebuildmcp/config.yaml` — shared workspace/scheme/bundleId; **`simulatorName` only** (no committed UUID)
+- `.xcodebuildmcp/config.yaml` — `apps/ios` project, scheme, bundle id; **`simulatorName` only** (no committed UUID)
 - Skill: `.cursor/skills/ios-simulator-agent-qa/SKILL.md`
 - Rule: `.cursor/rules/mobile-simulator-agent-qa.mdc`
 

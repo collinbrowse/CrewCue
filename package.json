@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.1.0",
   "description": "CrewCue WS0 foundation monorepo",
-  "main": "./apps/mobile/index.ts",
   "workspaces": [
     "apps/*",
     "services/*",
@@ -12,14 +11,21 @@
   "scripts": {
     "db:migrate": "npm run db:migrate -w @crewcue/api",
     "verify:dual-client": "node scripts/verify-dual-client-architecture.mjs",
-    "smoke:mobile:startup": "node scripts/mobile-startup-smoke.mjs",
+    "verify:client-behavior": "node scripts/verify-client-behavior.mjs",
+    "verify:client-boundary": "node scripts/verify-client-boundary.mjs",
+    "verify:client-codegen": "node scripts/generate-client-contracts.mjs",
+    "verify:client-core": "node scripts/verify-client-core.mjs",
+    "verify:client-core:android-build": "node scripts/verify-client-core-android-build.mjs",
+    "verify:client-core:android": "node scripts/verify-client-core-android-build.mjs",
+    "verify:client-pr-split": "node scripts/verify-client-pr-split.mjs",
+    "verify:ios": "node scripts/verify-ios.mjs",
+    "verify:android": "node scripts/verify-android.mjs",
     "build": "npm run build --workspaces --if-present",
-    "smoke:mobile:android": "node scripts/mobile-android-deeplink-smoke.mjs",
-    "smoke:mobile:ios": "node scripts/mobile-ios-deeplink-smoke.mjs",
     "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
+    "agent:android:ready": "node scripts/agent-android-emulator-ready.mjs",
     "agent:issue:ready": "node scripts/agent-issue-ready.mjs",
     "agent:pr:done": "node scripts/agent-pr-done.mjs",
-    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs",
+    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs scripts/pr-decision-doc-guard.test.mjs scripts/client-harness.test.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:memory": "npm run test:memory -w @crewcue/api",
     "test:pg": "npm run test:pg -w @crewcue/api",
@@ -27,13 +33,11 @@
     "lint": "npm run verify:dual-client && npm run lint --workspaces --if-present",
     "verify:contracts": "npm run build -w @crewcue/contracts && npm run typecheck -w @crewcue/contracts && npm run test -w @crewcue/contracts",
     "verify:api": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run typecheck -w @crewcue/api && npm run test -w @crewcue/api",
-    "verify:mobile": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run typecheck -w @crewcue/mobile && npm run test -w @crewcue/mobile && npm run smoke:mobile:startup",
-    "verify": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run lint && npm run typecheck && npm run test && npm run smoke:mobile:startup && npm run build && npm run agent:harness:test",
+    "verify": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run lint && npm run typecheck && npm run test && npm run build && npm run agent:harness:test && npm run verify:client-behavior && npm run verify:client-boundary && npm run verify:client-codegen && npm run verify:client-core",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev -w @crewcue/api",
     "dev:api:memory": "npm run dev:memory -w @crewcue/api",
     "dev:api:pg": "npm run dev:pg -w @crewcue/api",
-    "dev:mobile": "npm run dev -w @crewcue/mobile",
     "env:init": "node scripts/switch-dev-env.mjs init",
     "env:local": "node scripts/switch-dev-env.mjs local",
     "env:staging": "node scripts/switch-dev-env.mjs staging",
@@ -45,12 +49,6 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "expo": "~55.0.18",
-    "expo-dev-client": "~55.0.32",
-    "react": "19.2.0",
-    "react-native": "0.83.6"
   },
   "devDependencies": {
     "patch-package": "^8.0.1"
