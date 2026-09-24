@@ -137,3 +137,67 @@ struct MockTransport: HTTPTransport {
     let health = try await APIClient.fetchHealth(baseURL: URL(string: "https://example.invalid")!, transport: MockTransport())
     #expect(health.service == "api")
 }
+
+@Test func routeParsesChecklistPathsAndState() {
+    let cases: [(String, String)] = [
+        ("crewcue://dev/hello", "hello"),
+        ("crewcue://dev/schedule-sheet", "schedule-sheet"),
+        ("crewcue://dev/cold-start", "cold-start"),
+        ("crewcue://dev/pace-estimate", "pace-estimate"),
+        ("crewcue://dev/crew-sheet-export", "crew-sheet-export"),
+        ("crewcue://dev/outbox", "outbox-status"),
+        ("crewcue://dev/auth-signed-out", "auth-sign-in"),
+        ("crewcue://dev/join-crew", "join-crew"),
+        ("crewcue://dev/athlete-setup", "athlete-setup"),
+        ("crewcue://dev/onboarding-notifications", "onboarding-notifications"),
+        ("crewcue://dev/check-in", "check-in"),
+        ("crewcue://dev/course-settings", "course-settings"),
+        ("crewcue://dev/readouts-incidents", "readouts-incidents"),
+        ("crewcue://dev/gpx-import-progress", "gpx-import"),
+        ("crewcue://dev/map", "map-track"),
+        ("crewcue://dev/map-checkpoint-pick", "map-checkpoint-pick"),
+        ("crewcue://dev/map-navigate", "map-navigate"),
+        ("crewcue://dev/location-heartbeat", "location-heartbeat"),
+        ("crewcue://dev/chat", "chat-thread"),
+        ("crewcue://dev/chat-notification-prefs", "chat-notification-prefs"),
+        ("crewcue://dev/push-registration", "push-registration"),
+        ("crewcue://dev/profile", "profile"),
+        ("crewcue://dev/room-members", "room-members"),
+        ("crewcue://dev/strava", "strava"),
+        ("crewcue://dev/app-shell", "app-shell")
+    ]
+    for (url, featureId) in cases {
+        let route = Route.parse(url)
+        #expect(route?.featureId == featureId)
+        #expect(route?.state == .success)
+    }
+    #expect(Route.parse("crewcue://dev/schedule-sheet?state=empty")?.state == .empty)
+    #expect(Route.parse("crewcue://dev/schedule-sheet?state=error")?.state == .error)
+    #expect(Route.parse("crewcue://dev/schedule-sheet?state=offline")?.state == .offline)
+    #expect(Route.parse("crewcue://dev/schedule-sheet?state=nope")?.state == .success)
+    #expect(Route.parse("https://example.invalid") == nil)
+    #expect(Route.parse("crewcue://dev/not-a-feature") == nil)
+}
+
+@Test func userFacingErrorMapsClientHTTPError() {
+    let rejected = UserFacingError(ClientHTTPError(status: 422, message: "no", decision: "rejected"))
+    #expect(rejected.code == "rejected")
+    #expect(rejected.message == "Rejected by server policy.")
+    #expect(rejected.retryable == false)
+
+    let unavailable = UserFacingError(ClientHTTPError(status: 503, message: "down"))
+    #expect(unavailable.code == "503")
+    #expect(unavailable.message == "down")
+    #expect(unavailable.retryable == true)
+}
+
+struct SilentLogger: Logger {
+    func log(_ message: String) {}
+}
+
+@Test func clientGraphLoadsRouteScreen() {
+    let graph = ClientGraph(transport: MockTransport(), clock: SystemClock(), logger: SilentLogger())
+    let screen = graph.featureScreen(for: Route(featureId: "hello", state: .success))
+    #expect(screen.featureId == "hello")
+    #expect(screen.accessibilityIdentifier == "crewcue.hello")
+}

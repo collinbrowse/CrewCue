@@ -1,51 +1,6 @@
 import SwiftUI
 import CrewCueClientCore
 
-struct RootView: View {
-    @State private var screen: FeatureScreen?
-
-    init() {
-        if let index = CommandLine.arguments.firstIndex(of: "--deeplink"),
-           CommandLine.arguments.indices.contains(index + 1),
-           let parsed = CrewCueClientCore.featureScreen(forCrewCueURL: CommandLine.arguments[index + 1]) {
-            _screen = State(initialValue: parsed)
-        } else {
-            _screen = State(initialValue: nil)
-        }
-    }
-
-    var body: some View {
-        Group {
-            if let screen {
-                pocket(for: screen)
-            } else {
-                AppShellView()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
-        .onOpenURL { url in
-            screen = CrewCueClientCore.featureScreen(forCrewCueURL: url.absoluteString)
-        }
-    }
-
-    @ViewBuilder
-    private func pocket(for screen: FeatureScreen) -> some View {
-        switch screen.featureId {
-        case "map-track", "map-checkpoint-pick", "map-navigate":
-            MapLibrePocket(screen: screen)
-        case "chat-thread", "chat-notification-prefs":
-            StreamPocket(screen: screen)
-        case "auth-sign-in", "strava":
-            Auth0Pocket(screen: screen)
-        case "app-shell":
-            AppShellView()
-        default:
-            FeatureScreenView(screen: screen)
-        }
-    }
-}
-
 struct FeatureScreenView: View {
     let screen: FeatureScreen
 
@@ -62,7 +17,7 @@ struct FeatureScreenView: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityIdentifier(screen.accessibilityIdentifier)
-        .accessibilityLabel(screen.accessibilityIdentifier)
+        .accessibilityLabel(screen.title)
     }
 }
 
@@ -82,7 +37,7 @@ struct AppShellView: View {
             }
         }
         .accessibilityIdentifier("crewcue.app-shell")
-        .accessibilityLabel("crewcue.app-shell")
+        .accessibilityLabel("CrewCue")
     }
 
     private func tab(_ title: String, identifier: String, systemImage: String) -> some View {

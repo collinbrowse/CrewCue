@@ -1,6 +1,6 @@
 import Foundation
 
-public enum FeatureState: String, Sendable, Codable {
+public enum FeatureState: String, Sendable, Codable, Hashable {
     case success
     case empty
     case error
@@ -90,61 +90,8 @@ public enum CrewCueClientCore {
     }
 
     public static func featureScreen(forCrewCueURL urlString: String) -> FeatureScreen? {
-        guard let parts = CrewCueLink.parse(urlString), let featureId = CrewCueLink.featureId(path: parts.path) else {
-            return nil
-        }
-        return featureScreen(id: featureId, state: parts.state)
-    }
-}
-
-enum CrewCueLink {
-    static func parse(_ urlString: String) -> (path: String, state: FeatureState)? {
-        guard urlString.hasPrefix("crewcue://") else { return nil }
-        let rest = urlString.dropFirst("crewcue://".count)
-        let pieces = rest.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
-        let rawPath = String(pieces[0]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !rawPath.isEmpty else { return nil }
-        var state = FeatureState.success
-        if pieces.count > 1 {
-            for pair in pieces[1].split(separator: "&") {
-                let bits = pair.split(separator: "=", maxSplits: 1)
-                if bits.first == "state", bits.count == 2, let parsed = FeatureState(rawValue: String(bits[1])) {
-                    state = parsed
-                }
-            }
-        }
-        return (rawPath, state)
-    }
-
-    static func featureId(path: String) -> String? {
-        switch path {
-        case "dev/hello": "hello"
-        case "dev/schedule-sheet": "schedule-sheet"
-        case "dev/cold-start": "cold-start"
-        case "dev/pace-estimate": "pace-estimate"
-        case "dev/crew-sheet-export": "crew-sheet-export"
-        case "dev/outbox": "outbox-status"
-        case "dev/auth-signed-out": "auth-sign-in"
-        case "dev/join-crew": "join-crew"
-        case "dev/athlete-setup": "athlete-setup"
-        case "dev/onboarding-notifications": "onboarding-notifications"
-        case "dev/check-in": "check-in"
-        case "dev/course-settings": "course-settings"
-        case "dev/readouts-incidents": "readouts-incidents"
-        case "dev/gpx-import-progress": "gpx-import"
-        case "dev/map": "map-track"
-        case "dev/map-checkpoint-pick": "map-checkpoint-pick"
-        case "dev/map-navigate": "map-navigate"
-        case "dev/location-heartbeat": "location-heartbeat"
-        case "dev/chat": "chat-thread"
-        case "dev/chat-notification-prefs": "chat-notification-prefs"
-        case "dev/push-registration": "push-registration"
-        case "dev/profile": "profile"
-        case "dev/room-members": "room-members"
-        case "dev/strava": "strava"
-        case "dev/app-shell": "app-shell"
-        default: nil
-        }
+        guard let route = Route.parse(urlString) else { return nil }
+        return featureScreen(id: route.featureId, state: route.state)
     }
 }
 

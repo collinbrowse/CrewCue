@@ -11,6 +11,11 @@
 		A10000000000000000000021 /* CrewCueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* CrewCueApp.swift */; };
 		A10000000000000000000022 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* RootView.swift */; };
 		A10000000000000000000023 /* Pockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* Pockets.swift */; };
+		A10000000000000000000024 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000035 /* ShellModel.swift */; };
+		A10000000000000000000025 /* CompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* CompositionRoot.swift */; };
+		A10000000000000000000026 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000037 /* AppRouter.swift */; };
+		A10000000000000000000027 /* OSLogLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000038 /* OSLogLogger.swift */; };
+		A10000000000000000000028 /* OSLogSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* OSLogSink.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +24,11 @@
 		A10000000000000000000032 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A10000000000000000000033 /* Pockets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pockets.swift; sourceTree = "<group>"; };
 		A10000000000000000000034 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000035 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
+		A10000000000000000000036 /* CompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRoot.swift; sourceTree = "<group>"; };
+		A10000000000000000000037 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		A10000000000000000000038 /* OSLogLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogLogger.swift; sourceTree = "<group>"; };
+		A10000000000000000000039 /* OSLogSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogSink.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,12 +54,33 @@
 		A10000000000000000000008 /* CrewCue */ = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000040 /* App */,
+				A10000000000000000000041 /* Logging */,
 				A10000000000000000000031 /* CrewCueApp.swift */,
 				A10000000000000000000032 /* RootView.swift */,
 				A10000000000000000000033 /* Pockets.swift */,
 				A10000000000000000000034 /* Info.plist */,
 			);
 			path = CrewCue;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000040 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000035 /* ShellModel.swift */,
+				A10000000000000000000036 /* CompositionRoot.swift */,
+				A10000000000000000000037 /* AppRouter.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000041 /* Logging */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000038 /* OSLogLogger.swift */,
+				A10000000000000000000039 /* OSLogSink.swift */,
+			);
+			path = Logging;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000009 /* Products */ = {
@@ -131,6 +162,11 @@
 				A10000000000000000000021 /* CrewCueApp.swift in Sources */,
 				A10000000000000000000022 /* RootView.swift in Sources */,
 				A10000000000000000000023 /* Pockets.swift in Sources */,
+				A10000000000000000000024 /* ShellModel.swift in Sources */,
+				A10000000000000000000025 /* CompositionRoot.swift in Sources */,
+				A10000000000000000000026 /* AppRouter.swift in Sources */,
+				A10000000000000000000027 /* OSLogLogger.swift in Sources */,
+				A10000000000000000000028 /* OSLogSink.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,7 +187,8 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -165,7 +202,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -190,7 +228,8 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -214,7 +253,8 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
