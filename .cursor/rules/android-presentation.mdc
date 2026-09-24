@@ -1,0 +1,21 @@
+---
+description: Compose presentation structure for apps/android
+globs: apps/android/**
+alwaysApply: false
+---
+
+# Android presentation
+
+Same responsibilities as iOS, in Compose. Use this when a screen does more than render a fixture. A bugfix inside an existing fixture view does not restructure the shell.
+
+- `ViewModel` plus a `sealed` `UiState` that mirrors the shared state enum and `UserFacingError`. The ViewModel calls Swift.
+- `di/AppContainer.kt` builds dependencies.
+- `nav/AppRouter.kt` is a `NavHost` using the same route ids as client-core `Route`.
+- `logging/AndroidLogger.kt` adapts `android.util.Log`. Coroutines only. No `GlobalScope`. No new policy `object`s. `ClientCoreBridge` stays the JNI edge.
+- `ui/<feature>/` holds the ViewModel and composable. Test tag is `crewcue.<feature>`. `contentDescription` is a human label, separate from the test id.
+- SDK pockets (MapLibre, Stream, Auth0) stay in the app module.
+- Shared policy, errors, and routes: `.cursor/rules/client-core-architecture.mdc`.
+
+## Proof
+
+`npm run agent:android:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.cursor/rules/android-emulator-agent-qa.mdc`.

@@ -2,7 +2,7 @@
 name: ios-simulator-agent-qa
 description: >-
   Boot iOS simulator, run XcodeBuildMCP UI automation, fix-and-retest until
-  mobile acceptance criteria pass. Use for any apps/mobile UI task or when the
+  mobile acceptance criteria pass. Use for any apps/ios UI task or when the
   user asks to verify on simulator.
 ---
 

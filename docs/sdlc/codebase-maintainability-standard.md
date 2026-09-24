@@ -41,15 +41,15 @@ Do not encode client-specific behavior in contracts/routes unless the behavior i
 
 ## 3) Flow layering rules
 
-Every feature should follow this order:
+Every feature should follow this order. This section describes the native clients. It does not describe the frozen Expo tree.
 
 1. **Contracts** (`packages/contracts`)
 2. **Server behavior + tests** (`services/api`)
-3. **Client transport/sync plumbing + tests** (`apps/mobile/src/api`, `apps/mobile/src/sync`)
-4. **UI composition** (`apps/mobile`)
+3. **Shared client behavior + tests** (`packages/client-core`)
+4. **UI composition** in one of `apps/ios` or `apps/android`
 5. **Runbook/spec updates** (`docs/sdlc`)
 
-Avoid writing UI-first code that invents behavior not yet represented in contracts/routes.
+Avoid writing UI-first code that invents behavior not yet represented in contracts/routes. File layout and presentation rules: `.cursor/rules/client-core-architecture.mdc`, `ios-presentation.mdc`, and `android-presentation.mdc`.
 
 ---
 

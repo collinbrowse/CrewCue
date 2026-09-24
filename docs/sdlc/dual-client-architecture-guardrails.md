@@ -25,7 +25,17 @@ Parity is the behavior checklist in `clients/behavior/`, plus each platform's de
 4. MapLibre, Stream, and Auth0 stay native SDK calls in each app. Do not wrap them in a shared UI layer.
 5. One issue changes `apps/ios` or `apps/android` or `packages/client-core`, not both UI trees. The checklist issue may touch only `clients/behavior/`.
 
-## 3) Gates
+## 3) Presentation and client architecture
+
+`packages/contracts` and `services/api` feed `packages/client-core`. Each app renders that package: SwiftUI in `apps/ios`, Compose in `apps/android`.
+
+File layout, dependency injection, routes, errors, and screen models live in the path-scoped rules. Load only the trees the task touches:
+
+- `packages/client-core/**` → `.cursor/rules/client-core-architecture.mdc`
+- `apps/ios/**` → that rule plus `.cursor/rules/ios-presentation.mdc`
+- `apps/android/**` → that rule plus `.cursor/rules/android-presentation.mdc`
+
+## 4) Gates
 
 - `npm run verify:client-behavior`
 - `npm run verify:client-boundary`
