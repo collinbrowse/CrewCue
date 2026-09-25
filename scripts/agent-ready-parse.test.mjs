@@ -51,6 +51,35 @@ test("assessReadyBody fails missing acceptance", () => {
   assert.ok(r.missing.includes("acceptance"));
 });
 
+test("assessReadyBody accepts issue template heading aliases", () => {
+  const body = completeReady
+    .replace("## In-scope changes", "## Scope")
+    .replace("## Path conflict map", "## Conflicts with open PRs")
+    .replace("## Verification", "## Verification commands");
+
+  const r = assessReadyBody(body);
+
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.missing, []);
+});
+
+test("assessReadyBody rejects unproven edge-case placeholders", () => {
+  const body = completeReady.replace(
+    "| EC1 | missing acceptance | fail | scripts/agent-issue-ready.test.mjs |",
+    [
+      "| EC1 | empty / missing input | fail | |",
+      "| EC2 | invalid / corrupt input | fail | - |",
+      "| EC3 | unauthorized / wrong role | fail | \u2014 |"
+    ].join("\n")
+  );
+
+  const r = assessReadyBody(body);
+
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.missing, []);
+  assert.deepEqual(r.warnings, ["3 edge-case Proof cell(s) empty"]);
+});
+
 test("countEmptyProofCells finds blanks", () => {
   const body = `## Edge-case matrix
 | ID | Scenario | Expected | Proof |
@@ -70,6 +99,14 @@ test("assessPrDoneBody requires Closes and edge proof", () => {
   assert.equal(good.ok, true);
 });
 
+test("assessPrDoneBody accepts alternate close keywords", () => {
+  const fixes = assessPrDoneBody("Fixes #490\n\n## Edge-case proofs\nEC1: script");
+  const resolves = assessPrDoneBody("Resolves #490\n\n## Edge-case proofs\nEC1: script");
+
+  assert.equal(fixes.ok, true);
+  assert.equal(resolves.ok, true);
+});
+
 test("assessPrDoneBody requires sim note when mobile changed", () => {
   const r = assessPrDoneBody(`Closes #1\nEC1 ok`, { mobileChanged: true });
   assert.equal(r.ok, false);
@@ -81,7 +118,17 @@ test("assessPrDoneBody requires sim note when mobile changed", () => {
   assert.equal(ok.ok, true);
 });
 
+test("assessPrDoneBody accepts snapshot_ui as mobile evidence", () => {
+  const r = assessPrDoneBody("Closes #1\nEC1 ok\nsnapshot_ui: schedule-sheet-loaded", {
+    mobileChanged: true
+  });
+
+  assert.equal(r.ok, true);
+});
+
 test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["services/api/src/x.ts"]), false);
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
+  assert.equal(pathsTouchMobile(["worktrees/feature/apps/mobile/App.tsx"]), true);
+  assert.equal(pathsTouchMobile(["apps/mobile-old/App.tsx"]), false);
 });
