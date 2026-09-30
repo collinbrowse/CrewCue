@@ -120,6 +120,42 @@ test("MAE equals the mean absolute signed error over scored rows", () => {
   }
 });
 
+test("missing actual splits remain unscored while finish actual still contributes", () => {
+  const result = runPacingBacktest({
+    ...scenarioFromFixture(),
+    actualSplits: [
+      { checkpointId: "aid-2", actualElapsedSeconds: 8700 },
+      { checkpointId: "finish", actualElapsedSeconds: 22800 }
+    ]
+  });
+
+  const aid1 = result.rows.find((row) => row.checkpointId === "aid-1");
+  const aid2 = result.rows.find((row) => row.checkpointId === "aid-2");
+  const aid3 = result.rows.find((row) => row.checkpointId === "aid-3");
+  const finish = result.rows.find((row) => row.checkpointId === "finish");
+  assert.ok(aid1);
+  assert.ok(aid2);
+  assert.ok(aid3);
+  assert.ok(finish);
+
+  assert.equal(aid1.actualElapsedSeconds, null);
+  assert.equal(aid1.signedErrorSeconds, null);
+  assert.equal(aid3.actualElapsedSeconds, null);
+  assert.equal(aid3.signedErrorSeconds, null);
+
+  assert.equal(aid2.actualElapsedSeconds, 8700);
+  assert.equal(aid2.signedErrorSeconds, aid2.predictedElapsedSeconds - 8700);
+  assert.equal(finish.actualElapsedSeconds, 22800);
+  assert.equal(finish.signedErrorSeconds, finish.predictedElapsedSeconds - 22800);
+  assert.equal(result.finishActualElapsedSeconds, 22800);
+  assert.equal(result.finishSignedErrorSeconds, result.finishPredictedElapsedSeconds - 22800);
+
+  const expectedMae =
+    (Math.abs(aid2.signedErrorSeconds as number) + Math.abs(finish.signedErrorSeconds as number)) / 2;
+  assert.equal(result.scoredRowCount, 2);
+  assert.equal(result.meanAbsoluteErrorSeconds, expectedMae);
+});
+
 test("deterministic: identical inputs produce identical predictions", () => {
   const a = runPacingBacktest(scenarioFromFixture());
   const b = runPacingBacktest(scenarioFromFixture());
