@@ -1,4 +1,5 @@
 import * as SecureStore from "../storage/secureStorage";
+import { createOutboxController } from "./outboxLock";
 import type { OutboxOperation, OutboxOperationStatus, OutboxOperationType } from "./outboxTypes";
 
 export type { OutboxOperation, OutboxOperationStatus, OutboxOperationType } from "./outboxTypes";
@@ -56,44 +57,47 @@ async function persist(operations: OutboxOperation[]): Promise<void> {
   await SecureStore.setItemAsync(OUTBOX_STORE_KEY, JSON.stringify(operations));
 }
 
+const outbox = createOutboxController({
+  read: async () => parseOutbox(await SecureStore.getItemAsync(OUTBOX_STORE_KEY)),
+  write: persist
+});
+
 export async function list(): Promise<OutboxOperation[]> {
-  return parseOutbox(await SecureStore.getItemAsync(OUTBOX_STORE_KEY));
+  return outbox.read();
 }
 
 export async function replace(operations: OutboxOperation[]): Promise<void> {
-  await persist(operations);
+  await outbox.replace(operations);
 }
 
 export async function enqueue(operation: OutboxOperation): Promise<void> {
-  const operations = await list();
-  const existingIndex = operations.findIndex((entry) => entry.id === operation.id);
-
-  if (existingIndex >= 0) {
-    operations[existingIndex] = operation;
-  } else {
-    operations.push(operation);
-  }
-
-  await persist(operations);
+  await outbox.enqueue(operation);
 }
-
-import { mergeOutboxByConflictKey } from "./outboxMerge";
 
 export { mergeOutboxByConflictKey } from "./outboxMerge";
 
 /** Merge by `conflictKey`: replace an existing pending op with the same key. */
 export async function enqueueWithConflictKey(operation: OutboxOperation, conflictKey: string): Promise<void> {
-  const operations = await list();
-  await persist(mergeOutboxByConflictKey(operations, operation, conflictKey));
+  await outbox.enqueueWithConflictKey(operation, conflictKey);
 }
 
 export async function dequeue(id: string): Promise<void> {
-  const operations = await list();
-  const remaining = operations.filter((entry) => entry.id !== id);
+  await outbox.dequeue(id);
+}
 
-  if (remaining.length === operations.length) {
-    return;
-  }
+/**
+ * Send the current outbox and write the result without dropping ops enqueued
+ * while `process` is in flight. See `createOutboxController`.
+ */
+export async function flushOutbox(
+  process: (operations: OutboxOperation[]) => Promise<OutboxOperation[]>
+): Promise<OutboxOperation[]> {
+  return outbox.flush(process);
+}
 
-  await persist(remaining);
+/** Read-modify-write the outbox under the same lock as enqueue and flush. */
+export async function updateOutbox(
+  fn: (operations: OutboxOperation[]) => OutboxOperation[]
+): Promise<OutboxOperation[]> {
+  return outbox.update(fn);
 }

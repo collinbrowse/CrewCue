@@ -45,15 +45,17 @@ import { appActionRegistry, appNoticeBus } from "./src/platform/runtime";
 import { postSyncHeartbeatWithRetry } from "./src/sync/pendingHeartbeat";
 import {
   list as listOutbox,
-  replace as replaceOutbox,
   enqueue as enqueueOutbox,
   enqueueWithConflictKey,
+  flushOutbox,
+  updateOutbox,
   type OutboxOperation
 } from "./src/sync/outboxStore";
 import {
   countPendingOutboxOperations,
   describeOutboxOperation,
-  processOutboxBatch
+  processOutboxBatch,
+  type ProcessOutboxBatchResult
 } from "./src/sync/outboxProcessor";
 import {
   buildCrewCueLinking,
@@ -712,30 +714,31 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
       }
 
       try {
-        const operations = await listOutbox();
-        if (operations.length === 0) {
-          setOutbox([]);
-          if (mode === "manual") {
-            setSyncStatusMessage("Outbox is empty.");
+        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
+        let batch: ProcessOutboxBatchResult | undefined;
+        // Lock spans the network send so a check-in enqueued mid-flush is not
+        // replaced by the pre-flush snapshot.
+        const written = await flushOutbox(async (operations) => {
+          if (operations.length === 0 || countPendingOutboxOperations(operations) === 0) {
+            return operations;
           }
-          return;
-        }
+          batch = await processOutboxBatch(client, operations);
+          return batch.operations;
+        });
+        setOutbox(written);
 
-        const pendingCount = countPendingOutboxOperations(operations);
-        if (pendingCount === 0) {
-          setOutbox(operations);
-          if (mode === "manual") {
+        if (!batch) {
+          if (written.length === 0) {
+            if (mode === "manual") {
+              setSyncStatusMessage("Outbox is empty.");
+            }
+          } else if (mode === "manual") {
             setSyncStatusMessage("No pending outbox items.");
           }
           return;
         }
 
-        const client = createApiClient({ baseUrl, accessToken: auth.accessToken });
-        const result = await processOutboxBatch(client, operations);
-        await replaceOutbox(result.operations);
-        setOutbox(result.operations);
-
-        if (room && result.touchedRoomIds.includes(room.id)) {
+        if (room && batch.touchedRoomIds.includes(room.id)) {
           try {
             const { syncStatus: nextSyncHealth } = await client.getSyncHealth(room.id);
             setSyncHealth(nextSyncHealth);
@@ -744,22 +747,22 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
           }
         }
 
-        const remainingPendingCount = countPendingOutboxOperations(result.operations);
-        if (result.operatorSignal) {
+        const remainingPendingCount = countPendingOutboxOperations(written);
+        if (batch.operatorSignal) {
           const prefix =
-            result.processedCount > 0
-              ? `Processed ${result.processedCount} outbox item(s). `
+            batch.processedCount > 0
+              ? `Processed ${batch.processedCount} outbox item(s). `
               : mode === "auto"
                 ? "Auto-processed outbox. "
                 : "";
           setSyncStatusMessage(
-            `${prefix}${describeOutboxStatus(result.operatorSignal.status)}: ${result.operatorSignal.label} — ${result.operatorSignal.feedback}${
+            `${prefix}${describeOutboxStatus(batch.operatorSignal.status)}: ${batch.operatorSignal.label} — ${batch.operatorSignal.feedback}${
               remainingPendingCount > 0 ? ` (${remainingPendingCount} pending)` : ""
             }`
           );
         } else if (mode === "manual") {
           setSyncStatusMessage(
-            `Processed ${result.processedCount} outbox item(s).${
+            `Processed ${batch.processedCount} outbox item(s).${
               remainingPendingCount > 0 ? ` ${remainingPendingCount} pending.` : ""
             }`
           );
@@ -782,35 +785,40 @@ function AuthedShell({ baseUrl, auth0 }: AuthedShellProps): ReactElement {
 
   const retryOutboxOperationSafely = useCallback(
     async (operationId: string) => {
-      const operations = await listOutbox();
-      const target = operations.find((operation) => operation.id === operationId);
-      if (!target) {
-        setSyncStatusMessage("Outbox operation no longer exists.");
-        return;
-      }
-      if (target.type !== "ping") {
-        setSyncStatusMessage("Safe targeted retry currently supports ping/sync operations only.");
-        return;
-      }
-      if (target.status === "sent") {
-        setSyncStatusMessage("Outbox operation is already marked sent.");
-        return;
-      }
-
-      const nextOperations = operations.map((operation) =>
-        operation.id === operationId
-          ? {
-              ...operation,
-              status: "pending" as const,
-              feedback: "Operator requested safe retry.",
-              updatedAt: new Date().toISOString()
-            }
-          : operation
-      );
-      await replaceOutbox(nextOperations);
+      let queued = false;
+      let message = "Outbox operation no longer exists.";
+      const nextOperations = await updateOutbox((operations) => {
+        const target = operations.find((operation) => operation.id === operationId);
+        if (!target) {
+          message = "Outbox operation no longer exists.";
+          return operations;
+        }
+        if (target.type !== "ping") {
+          message = "Safe targeted retry currently supports ping/sync operations only.";
+          return operations;
+        }
+        if (target.status === "sent") {
+          message = "Outbox operation is already marked sent.";
+          return operations;
+        }
+        queued = true;
+        message = `Queued safe retry for ${describeOutboxOperation(target)}.`;
+        return operations.map((operation) =>
+          operation.id === operationId
+            ? {
+                ...operation,
+                status: "pending" as const,
+                feedback: "Operator requested safe retry.",
+                updatedAt: new Date().toISOString()
+              }
+            : operation
+        );
+      });
       setOutbox(nextOperations);
-      setSyncStatusMessage(`Queued safe retry for ${describeOutboxOperation(target)}.`);
-      await runOutboxProcessing("manual");
+      setSyncStatusMessage(message);
+      if (queued) {
+        await runOutboxProcessing("manual");
+      }
     },
     [describeOutboxOperation, runOutboxProcessing]
   );
