@@ -85,10 +85,11 @@ export function countEmptyProofCells(body) {
       break;
     }
     if (!inTable || !line.trim().startsWith("|")) continue;
-    if (/^\|\s*-+/.test(line) || /\bProof\b/i.test(line)) continue;
+    if (/^\|\s*-+/.test(line)) continue;
     const parts = line.split("|").map((c) => c.trim());
     // Drop leading/trailing empties from markdown "| a | b |" rows.
     const cells = parts.slice(1, parts.length - 1);
+    if (cells.some((c) => /^Proof$/i.test(c))) continue;
     if (cells.length < 4) continue;
     const proof = cells[cells.length - 1] ?? "";
     if (!proof || proof === "-" || proof === "—") {

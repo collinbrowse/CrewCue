@@ -61,6 +61,15 @@ test("countEmptyProofCells finds blanks", () => {
   assert.equal(countEmptyProofCells(body), 1);
 });
 
+test("countEmptyProofCells does not treat scenario text as the proof header", () => {
+  const body = `## Edge-case matrix
+| ID | Scenario | Expected | Proof |
+| --- | --- | --- | --- |
+| EC1 | Missing proof artifact | fail | |
+`;
+  assert.equal(countEmptyProofCells(body), 1);
+});
+
 test("assessPrDoneBody requires Closes and edge proof", () => {
   const bad = assessPrDoneBody("## Summary\nhello");
   assert.equal(bad.ok, false);
