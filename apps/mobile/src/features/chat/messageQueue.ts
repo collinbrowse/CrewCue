@@ -5,10 +5,13 @@
  *
  * SecureStore I/O uses a static import so Metro does not split a lazy chunk
  * that only loads on first chat navigation (see `chat/nativeDependencyPrewarm`).
+ *
+ * Mutations for one room share a lock. Overlapping load-modify-save used to
+ * drop a message enqueued while another send was marking itself sent.
  */
 import * as SecureStore from "../../storage/secureStorage";
+import { createChatOutboxController } from "./messageQueueLock";
 import {
-  makeEntry,
   type ChatOutbox,
   type ChatOutboxEntry,
   type EnqueueChatMessageInput
@@ -45,12 +48,23 @@ async function saveOutbox(box: ChatOutbox): Promise<void> {
   await SecureStore.setItemAsync(storageKey(box.roomId), JSON.stringify(box));
 }
 
+const controllers = new Map<string, ReturnType<typeof createChatOutboxController>>();
+
+function controllerFor(roomId: string): ReturnType<typeof createChatOutboxController> {
+  const existing = controllers.get(roomId);
+  if (existing) {
+    return existing;
+  }
+  const created = createChatOutboxController({
+    read: () => loadOutbox(roomId),
+    write: (box) => saveOutbox(box)
+  });
+  controllers.set(roomId, created);
+  return created;
+}
+
 export async function enqueueChatMessage(input: EnqueueChatMessageInput, now = Date.now()): Promise<ChatOutboxEntry> {
-  const box = await loadOutbox(input.roomId);
-  const entry = makeEntry(input, now);
-  box.entries.push(entry);
-  await saveOutbox(box);
-  return entry;
+  return controllerFor(input.roomId).enqueue(input, now);
 }
 
 /**
@@ -59,48 +73,21 @@ export async function enqueueChatMessage(input: EnqueueChatMessageInput, now = D
  * Mode or overlapping effects invoke the outbox drain twice.
  */
 export async function markSending(roomId: string, entryId: string): Promise<boolean> {
-  const box = await loadOutbox(roomId);
-  const target = box.entries.find((e) => e.id === entryId);
-  if (!target) return false;
-  if (target.status === "sending" || target.status === "sent") return false;
-  target.status = "sending";
-  target.attempts += 1;
-  delete target.lastError;
-  await saveOutbox(box);
-  return true;
+  return controllerFor(roomId).markSending(entryId);
 }
 
 export async function markSent(roomId: string, entryId: string, remoteMessageId: string): Promise<void> {
-  const box = await loadOutbox(roomId);
-  const target = box.entries.find((e) => e.id === entryId);
-  if (!target) return;
-  target.status = "sent";
-  target.remoteMessageId = remoteMessageId;
-  await saveOutbox(box);
+  await controllerFor(roomId).markSent(entryId, remoteMessageId);
 }
 
 export async function markFailed(roomId: string, entryId: string, error: string): Promise<void> {
-  const box = await loadOutbox(roomId);
-  const target = box.entries.find((e) => e.id === entryId);
-  if (!target) return;
-  target.status = "failed";
-  target.lastError = error;
-  await saveOutbox(box);
+  await controllerFor(roomId).markFailed(entryId, error);
 }
 
 export async function removeEntry(roomId: string, entryId: string): Promise<void> {
-  const box = await loadOutbox(roomId);
-  box.entries = box.entries.filter((e) => e.id !== entryId);
-  await saveOutbox(box);
+  await controllerFor(roomId).removeEntry(entryId);
 }
 
 export async function reapSent(roomId: string, olderThanMs = 60_000, now = Date.now()): Promise<number> {
-  const box = await loadOutbox(roomId);
-  const before = box.entries.length;
-  box.entries = box.entries.filter((e) => {
-    if (e.status !== "sent") return true;
-    return now - e.createdAtMs < olderThanMs;
-  });
-  await saveOutbox(box);
-  return before - box.entries.length;
+  return controllerFor(roomId).reapSent(olderThanMs, now);
 }
