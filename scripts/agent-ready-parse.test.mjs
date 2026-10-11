@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   assessPrDoneBody,
@@ -84,4 +88,58 @@ test("assessPrDoneBody requires sim note when mobile changed", () => {
 test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["services/api/src/x.ts"]), false);
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
+});
+
+function writeTempPrBody(body) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crewcue-pr-done-"));
+  const file = path.join(dir, "body.md");
+  fs.writeFileSync(file, body, "utf8");
+  return { dir, file };
+}
+
+function runPrDone(args) {
+  return spawnSync(process.execPath, ["scripts/agent-pr-done.mjs", ...args], {
+    cwd: path.resolve(import.meta.dirname, ".."),
+    encoding: "utf8"
+  });
+}
+
+test("agent-pr-done CLI infers mobile evidence requirement from --files", () => {
+  const { dir, file } = writeTempPrBody(`Closes #490\n\n## Edge-case proofs\nEC1: parser covered\n`);
+  try {
+    const result = runPrDone([
+      "--body-file",
+      file,
+      "--files",
+      "services/api/src/routes/pacingEstimates.ts",
+      "apps/mobile/src/features/schedule/CrewScheduleSheetScreen.tsx"
+    ]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /agent:pr:done body\.md/);
+    assert.match(result.stdout, /missing: mobile sim evidence \/ blocker note/);
+    assert.match(result.stdout, /mobile paths changed: sim evidence required/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("agent-pr-done CLI allows mobile --files when body includes simulator evidence", () => {
+  const { dir, file } = writeTempPrBody(
+    `Closes #490\n\n## Edge-case proofs\nEC1: parser covered\n\nsnapshot_ui: schedule sheet visible\n`
+  );
+  try {
+    const result = runPrDone([
+      "--body-file",
+      file,
+      "--files",
+      "packages/mobile-wrapper/apps/mobile/App.tsx"
+    ]);
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /PASS: Done checklist/);
+    assert.match(result.stdout, /mobile paths changed: sim evidence required/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
