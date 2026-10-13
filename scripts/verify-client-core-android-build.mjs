@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { swiftForAndroid } from "./lib/swiftAndroidToolchain.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const triple = process.env.SWIFT_ANDROID_TRIPLE || "aarch64-unknown-linux-android28";
@@ -24,7 +25,7 @@ if (listed.status !== 0 || !text.toLowerCase().includes("android")) {
 }
 
 const build = spawnSync(
-  "swift",
+  swiftForAndroid(),
   ["build", "--package-path", path.join(repoRoot, "packages/client-core"), "--build-tests", "--swift-sdk", triple],
   { stdio: "inherit" }
 );

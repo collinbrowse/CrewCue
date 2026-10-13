@@ -5,6 +5,18 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  SWIFT_ANDROID_SDK_URL: https://download.swift.org/swift-6.3.2-release/android-sdk/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE_android.artifactbundle.tar.gz
+  SWIFT_ANDROID_SDK_CHECKSUM: 939e933549d12d28f2e0bf71019d734d309859e9773c572657ce565a81f85d68
+
 jobs:
   pr-decision-doc-guard:
     if: github.event_name == 'pull_request'
@@ -18,11 +30,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
-          echo "PR body length $(wc -c < "$RUNNER_TEMP/pr-body.md")"
+        run: gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
       - name: Validate PR decision documentation sections
         run: node scripts/pr-decision-doc-guard.mjs --body-file "$RUNNER_TEMP/pr-body.md"
+
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+      android: ${{ steps.filter.outputs.android }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - 'packages/client-core/**'
+              - 'clients/behavior/**'
+              - '.github/workflows/ci.yml'
+            ios:
+              - *shared
+              - 'apps/ios/**'
+              - 'scripts/test-ios.mjs'
+            android:
+              - *shared
+              - 'apps/android/**'
+              - 'scripts/build-swift-android.mjs'
+              - 'scripts/install-swift-android-sdk.sh'
+              - 'scripts/lib/swiftAndroidToolchain.mjs'
+              - '.github/actions/setup-swift/**'
+
+  # Name kept for branch protection. Guards the native client boundaries and behavior checklists.
   dual-client-guard:
     runs-on: ubuntu-latest
     steps:
@@ -31,15 +70,14 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
-      - run: npm run verify:dual-client
+      - run: npm ci
+      - run: npm run verify:clients
+
   checks:
-    # On push to main, pr-decision-doc-guard is skipped; still run checks after dual-client-guard.
     if: >-
       always()
       && needs.dual-client-guard.result == 'success'
-      && (needs.pr-decision-doc-guard.result == 'success'
-          || needs.pr-decision-doc-guard.result == 'skipped')
+      && (needs.pr-decision-doc-guard.result == 'success' || needs.pr-decision-doc-guard.result == 'skipped')
     needs: [pr-decision-doc-guard, dual-client-guard]
     runs-on: ubuntu-latest
     steps:
@@ -48,19 +86,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.3"
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test
-      - run: npm run verify:client-behavior
-      - run: npm run verify:client-boundary
-      - run: npm run verify:client-codegen
-      - run: npm run verify:client-core
       - run: npm run agent:harness:test
+      - uses: ./.github/actions/setup-swift
+        with:
+          version: "6.3.2"
+      - run: npm run verify:client-core
+
   api-postgres-integration:
     runs-on: ubuntu-latest
     services:
@@ -86,22 +122,70 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck -w @crewcue/api
-      - run: npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client
       - run: npm run db:migrate -w @crewcue/api
       - run: npm run test:pg -w @crewcue/api
-  client-core-android-build:
-    runs-on: ubuntu-latest
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true' || github.event_name == 'push'
+    runs-on: macos-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
-      - uses: swift-actions/setup-swift@v2
+      - uses: maxim-lobanov/setup-xcode@v1
         with:
-          swift-version: "6.3.2"
+          xcode-version: latest-stable
+      - name: Build and run UI smoke tests
+        run: node scripts/test-ios.mjs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-test-results
+          path: .agent-pr-evidence/*.xcresult
+
+  android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-swift
+        with:
+          version: "6.3.2"
       - name: Install Swift Android SDK
-        run: |
-          swift sdk install https://download.swift.org/swift-6.3.2-release/android-sdk/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE_android.artifactbundle.tar.gz --checksum 939e933549d12d28f2e0bf71019d734d309859e9773c572657ce565a81f85d68
-      - name: Cross-compile client-core
-        env:
-          CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
+        run: bash scripts/install-swift-android-sdk.sh
+      - name: Cross-compile client-core with tests (arm64)
         run: node scripts/verify-client-core-android-build.mjs
+      - name: Build debug and test APKs
+        run: ./apps/android/gradlew -p apps/android :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run deeplink smoke tests on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-results
+          path: apps/android/app/build/reports/androidTests
