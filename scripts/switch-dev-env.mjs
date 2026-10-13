@@ -56,7 +56,7 @@ function printStatus() {
   console.log(`  AUTH0_ISSUER:    ${readKey(PATHS.active, "AUTH0_ISSUER") ?? "(missing — Auth0 JWT verify disabled)"}`);
   console.log(`  AUTH0_AUDIENCE:  ${readKey(PATHS.active, "AUTH0_AUDIENCE") ?? "(missing — Auth0 JWT verify disabled)"}`);
   for (const name of PROFILES) {
-    console.log(`  profile ${name}:   ${existsSync(PATHS.profile(name)) ? "ok" : "MISSING"}`);
+    console.log(`  ${`profile ${name}:`.padEnd(17)}${existsSync(PATHS.profile(name)) ? "ok" : "MISSING"}`);
   }
 }
 
