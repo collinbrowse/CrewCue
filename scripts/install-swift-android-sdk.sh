@@ -38,10 +38,15 @@ if [ -z "$pick" ]; then
   exit 1
 fi
 
+# setup-android-sdk.sh lives at <bundle>/swift-android/scripts/.
+swift_sdk_root="$(cd "$(dirname "$setup")/.." && pwd)"
 export ANDROID_NDK_HOME="$pick"
+export SWIFT_ANDROID_SDK_ROOT="$swift_sdk_root"
 if [ -n "${GITHUB_ENV:-}" ]; then
   echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
+  echo "SWIFT_ANDROID_SDK_ROOT=$SWIFT_ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 fi
 echo "install-swift-android-sdk: NDK $ANDROID_NDK_HOME"
+echo "install-swift-android-sdk: SDK $SWIFT_ANDROID_SDK_ROOT"
 echo "install-swift-android-sdk: $setup"
 ANDROID_NDK_HOME="$ANDROID_NDK_HOME" bash "$setup"

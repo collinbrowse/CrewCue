@@ -59,13 +59,21 @@ function findNdk() {
   return versions.length ? path.join(ndkRoot, versions[versions.length - 1]) : undefined;
 }
 
+function swiftSdkBases() {
+  const home = os.homedir();
+  const bases = [
+    path.join(home, "Library/org.swift.swiftpm/swift-sdks"),
+    path.join(home, ".swiftpm/swift-sdks"),
+    // Swift 6.1+ on Linux stores SDK bundles under XDG config (default ~/.config/swiftpm).
+    path.join(home, ".config/swiftpm/swift-sdks")
+  ];
+  if (process.env.XDG_CONFIG_HOME) bases.push(path.join(process.env.XDG_CONFIG_HOME, "swiftpm/swift-sdks"));
+  return bases;
+}
+
 function findSwiftSdkRoot() {
   if (process.env.SWIFT_ANDROID_SDK_ROOT && fs.existsSync(process.env.SWIFT_ANDROID_SDK_ROOT)) return process.env.SWIFT_ANDROID_SDK_ROOT;
-  const bases = [
-    path.join(os.homedir(), "Library/org.swift.swiftpm/swift-sdks"),
-    path.join(os.homedir(), ".swiftpm/swift-sdks")
-  ];
-  for (const base of bases) {
+  for (const base of swiftSdkBases()) {
     if (!fs.existsSync(base)) continue;
     const bundle = fs.readdirSync(base).find((name) => name.includes("android") && name.endsWith(".artifactbundle"));
     if (bundle) return path.join(base, bundle, "swift-android");
@@ -115,8 +123,11 @@ function linkSharedLibrary(triple, info, buildDir, product) {
   const clang = path.join(prebuilt, "bin", info.clang);
   const sdkRoot = findSwiftSdkRoot();
   const runtime = sdkRoot ? path.join(sdkRoot, "swift-resources/usr/lib", info.swiftLib, "android") : undefined;
-  const linkArgs = ["-shared", "-fPIC", "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive"];
-  if (runtime && fs.existsSync(runtime)) linkArgs.push("-L", runtime);
+  if (!runtime || !fs.existsSync(runtime)) {
+    console.error(`build-swift-android: Swift Android runtime libraries not found${runtime ? ` at ${runtime}` : ""}. Set SWIFT_ANDROID_SDK_ROOT.`);
+    process.exit(1);
+  }
+  const linkArgs = ["-shared", "-fPIC", "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive", "-L", runtime];
   for (const name of swiftRuntimeLibs) linkArgs.push(`-l${name}`);
   linkArgs.push("-lc++_shared", "-llog", "-ldl", "-lm", "-lc", "-o", product);
   console.log(`build-swift-android: linking ${objects.length} objects into ${product}`);
