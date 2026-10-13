@@ -1,4 +1,4 @@
-# WS1 Race Rooms API (staging contract)
+# Race rooms API (staging contract)
 
 This document describes the **current** HTTP surface for race rooms, invites, and entitlement updates implemented in `services/api/src/routes/raceRooms.ts`. Payloads and responses align with `@crewcue/contracts` types where noted.
 

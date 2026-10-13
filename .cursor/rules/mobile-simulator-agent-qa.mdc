@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Mobile simulator agent QA
 
-Applies when changing **`apps/ios/**`** (SwiftUI). The frozen Expo tree is `apps/mobile` and is not this gate.
+Applies when changing **`apps/ios/**`** (SwiftUI).
 
 ## Done means
 

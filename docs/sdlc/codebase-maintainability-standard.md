@@ -4,7 +4,6 @@
 **Intent:** make code understandable, navigable, and safe to extend without hidden coupling.
 
 **Related docs:**  
-- [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [github-issues-and-prs.md](./github-issues-and-prs.md)
 
@@ -31,7 +30,6 @@ Use these top-level boundaries consistently:
 - `services/api` -> server routes, domain logic, persistence, authz, replay/projections
 - `packages/client-core` -> shared Swift client behavior (no UI)
 - `apps/ios` and `apps/android` -> native presentation
-- `apps/mobile` -> frozen Expo client until native coverage is complete
 - `docs/sdlc` -> execution plans, runbooks, and operating policy
 
 Do not duplicate domain rules across API and mobile. Domain authority stays server-side unless explicitly designed for offline behavior.
@@ -41,7 +39,7 @@ Do not encode client-specific behavior in contracts/routes unless the behavior i
 
 ## 3) Flow layering rules
 
-Every feature should follow this order. This section describes the native clients. It does not describe the frozen Expo tree.
+Every feature should follow this order.
 
 1. **Contracts** (`packages/contracts`)
 2. **Server behavior + tests** (`services/api`)

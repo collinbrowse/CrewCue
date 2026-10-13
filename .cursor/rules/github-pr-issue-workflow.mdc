@@ -32,5 +32,5 @@ If an issue exists, the PR body **must** include `Closes #N` (or `Fixes` / `Reso
 
 ## Merge gate
 
-1. CI green: `pr-decision-doc-guard`, `dual-client-guard`, and `checks` (lint, typecheck, build incl. mobile `expo export`, tests).
+1. CI green: `pr-decision-doc-guard`, `dual-client-guard`, and `checks` (lint, typecheck, build, tests).
 2. Local parity before push: `npm run verify` at repo root when practical.

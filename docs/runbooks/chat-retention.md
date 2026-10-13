@@ -9,7 +9,7 @@ Enforces the "30 days after the race ends" promise shown on the chat retention b
   - Server-side metadata is purged: notification prefs and push devices scoped to the room via `deleteChatRoomData(roomId)` in `services/api/src/lib/chatPersistence.ts`.
   - Stream Chat channel deletion (which removes message history) is performed by the operator via the Stream server SDK (see below) — the in-process scheduler logs `chat_retention_pass` and returns eligible room ids.
 - Idempotent: rerunning the pass on already-cleaned rooms is a no-op.
-- Client banner: `apps/mobile/src/features/chat/retention.ts` mirrors the policy so the banner date matches the server.
+- Clients must compute the banner date from the same policy (`eventEndsAt + 30 days`) so it matches the server.
 
 ## Scheduler
 

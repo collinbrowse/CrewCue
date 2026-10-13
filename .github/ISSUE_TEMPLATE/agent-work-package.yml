@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use for agent-executed slices under `docs/sdlc/agent-async-delivery-program.md`.
+        Use for one agent-executed slice.
         Agents must run `npm run agent:issue:ready -- <n>` first and **refuse to implement** if it fails.
 
   - type: input
@@ -29,7 +29,7 @@ body:
     attributes:
       label: In-scope changes
       description: Concrete behaviors and file/package paths.
-      placeholder: "- packages/contracts/…\n- services/api/…\n- apps/mobile/…"
+      placeholder: "- packages/contracts/…\n- services/api/…\n- apps/ios/…"
     validations:
       required: true
 
@@ -114,7 +114,7 @@ body:
       description: Paste into a fresh agent chat when launching.
       value: |
         You are executing ONE CrewCue work package.
-        Read: docs/sdlc/agent-handoff.md, docs/sdlc/token-budget.md, docs/sdlc/agent-async-delivery-program.md, then this issue.
+        Read: AGENTS.md, then this issue.
         Implement only this issue. Cover every edge-case row with proof. Run Verification. PR with Closes #<n>.
         Mobile UI: simulator QA skill; evidence on PR only. If human-blocked, stop with options.
     validations:

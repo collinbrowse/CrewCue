@@ -1,6 +1,6 @@
 # ADR 0001: Hybrid mobile framework
 
-- Status: Approved
+- Status: Superseded (2026-10-13) by [ADR 0008](./0008-native-clients-with-swift-client-core.md)
 - Date: 2026-04-15
 
 ## Context

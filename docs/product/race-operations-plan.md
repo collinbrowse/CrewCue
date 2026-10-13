@@ -23,12 +23,11 @@
 
 After WS1–WS7 **API/contract sprints**, delivery follows a **staging-first cloud** path: Postgres and event-log persistence, Auth0 and payments on staging, clients proven against staging, then projection/sync hardening. The **official handoff** for what to build next and where it runs:
 
-- **[Staging-first cloud delivery](./docs/sdlc/staging-first-cloud-delivery.md)** — named phases, environment ladder, staging-first rule, and a **pickup checklist** for humans and AI agents. (Legacy filename [`mvp-delivery-chunks-and-cloud-strategy.md`](./docs/sdlc/mvp-delivery-chunks-and-cloud-strategy.md) redirects here.)
-- **[UI delivery roadmap and specification](./docs/sdlc/ui-delivery-roadmap-and-spec.md)** — explicit phased UI build order, reuse rules, and anti-duplication guidance for agents/humans.
+- **[Staging-first cloud delivery](../sdlc/staging-first-cloud-delivery.md)** — named phases, environment ladder, staging-first rule.
 
 ## WS0 Status (Completed)
 - **Current state:** completed and merged to `main`
-- **Decisions locked:** hybrid iOS/Android mobile, TypeScript/Fastify API, PostgreSQL event-log pattern, AWS + Terraform, Auth0, GitHub Actions, OpenTelemetry, baseline SLOs/security controls
+- **Decisions locked:** native iOS/Android (ADR 0008; originally Expo), TypeScript/Fastify API, PostgreSQL event-log pattern, Railway hosting (ADR 0009; originally AWS + Terraform), Auth0, GitHub Actions, OpenTelemetry, baseline SLOs/security controls
 - **Foundation delivered:** mobile app scaffold, API scaffold, shared contracts package, staging infra baseline, CI/deploy/rollback workflows, security/readiness/runbook docs
 - **Readiness outcome:** WS0 acceptance gate passed; WS1 implementation unblocked
 
