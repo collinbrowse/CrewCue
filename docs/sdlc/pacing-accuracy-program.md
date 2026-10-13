@@ -2,7 +2,7 @@
 
 **Goal:** a racer uploads their history (Strava or manual GPX) and gets an accurate prediction of their finish time and their arrival time at every aid station.
 
-This doc exists so a successor agent can execute the remaining work without re-deriving the diagnosis. Read it after `agent-handoff.md` and `token-budget.md`.
+**Status:** PR A–D below shipped in #485 (Expo client). The native clients must rebuild PR A's client wiring; see `clients/behavior/pace-estimate.md`. Open item: validate the model against a real completed effort (`fixtures/pacing/backtest-<real>.json` + `npm run pacing:backtest -w @crewcue/api`).
 
 ---
 
@@ -61,13 +61,13 @@ Measured on `fixtures/pacing/course-50k-with-aids.gpx`, a flat 50 km with 348 m 
 
 ---
 
-## Remaining work
+## Delivered work (PR A–D)
 
 ### PR A — connect history to the race plan (mobile)
 
-The accuracy work is worthless until this exists. `apps/mobile/src/api/client.ts` has history upload and schedule read, but no estimator call.
+The accuracy work was worthless until this existed. The client had history upload and schedule read, but no estimator call.
 
-- Add `createPacingEstimate` (POST `/pacing-estimates` with `roomId`) and `attachPacingEstimate`. Network calls must live only in the mobile API client while Expo remains; `scripts/verify-dual-client-architecture.mjs` enforces it.
+- Add `createPacingEstimate` (POST `/pacing-estimates` with `roomId`) and `attachPacingEstimate`. Network calls live only in the client API layer (`packages/client-core` for native).
 - Trigger after course save when the athlete has history, plus an explicit "Recalculate from my history" action. Reuse `ColdStartEstimatePanel`, which already renders the cold-start prompt and CTA.
 - Surface `estimate.explanation` and `coldStart` so the racer can tell whether their history was used.
 
