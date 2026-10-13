@@ -157,6 +157,14 @@ class ShellViewModel(
         profilePane = "incidents"
     }
 
+    fun openJoinCrew() {
+        showFixture("crewcue://dev/join-crew")
+    }
+
+    fun openSignedOut() {
+        showSignedOut()
+    }
+
     fun openProfileHome() {
         profilePane = "profile"
     }

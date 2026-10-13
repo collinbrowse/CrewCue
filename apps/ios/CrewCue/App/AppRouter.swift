@@ -14,6 +14,7 @@ struct AppRouter: View {
         .onOpenURL { url in
             model.open(url)
         }
+        .kineticTheme()
     }
 }
 
@@ -29,6 +30,5 @@ struct RouteScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
     }
 }

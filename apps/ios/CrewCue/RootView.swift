@@ -6,15 +6,14 @@ struct FeatureScreenView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(screen.accessibilityIdentifier)
-                .font(.caption)
             Text(screen.title)
-                .font(.title2)
+                .font(.system(size: 28, weight: .bold))
             Text(screen.body)
-                .font(.body)
+                .font(.system(size: 16))
         }
-        .foregroundStyle(Color.black)
-        .padding()
+        .padding(20)
+        .kineticCard()
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityIdentifier(screen.accessibilityIdentifier)
         .accessibilityLabel(screen.title)
@@ -27,9 +26,8 @@ struct CrewCueScreenModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .padding()
+            .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .foregroundStyle(Color.black)
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(label)
     }

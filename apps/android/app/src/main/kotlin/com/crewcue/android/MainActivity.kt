@@ -10,6 +10,7 @@ import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.AppRouter
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.ShellViewModelFactory
+import com.crewcue.android.ui.theme.CrewCueTheme
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
@@ -21,7 +22,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         installMapLibre()
         installStream()
-        setContent { AppRouter(shellModel) }
+        setContent {
+            CrewCueTheme {
+                AppRouter(shellModel)
+            }
+        }
     }
 
     private fun installMapLibre() {

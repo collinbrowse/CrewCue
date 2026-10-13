@@ -55,27 +55,61 @@ struct ProfileView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Profile")
-                    .font(.title2)
-                if model.showsName {
-                    Text(verbatim: model.displayName)
-                        .font(.body)
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(spacing: 8) {
+                    Image("OnboardingRunner")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 96, height: 96)
+                        .clipShape(Circle())
+                        .accessibilityLabel("Athlete")
+                    Text("Profile")
+                        .font(.system(size: 20, weight: .bold))
+                    if model.showsName {
+                        Text(verbatim: model.displayName)
+                            .font(.system(size: 16))
+                    }
+                    if model.message.isEmpty == false {
+                        Text(verbatim: model.message)
+                            .font(.system(size: 16))
+                    }
                 }
-                if model.message.isEmpty == false {
-                    Text(verbatim: model.message)
-                        .font(.body)
-                }
-                Button("Strava", action: onStrava)
-                    .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+                .kineticCard()
+
                 if hasRoom {
-                    Button("Room members", action: onMembers)
-                        .buttonStyle(.bordered)
-                    Button("Incidents", action: onIncidents)
-                        .buttonStyle(.bordered)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Race & workspace")
+                            .font(.system(size: 17, weight: .bold))
+                        Text("Manage members and room controls for your current race.")
+                            .font(.system(size: 16))
+                        Button("Room members", action: onMembers)
+                            .buttonStyle(KineticSecondaryButtonStyle())
+                        Button("Incidents", action: onIncidents)
+                            .buttonStyle(KineticSecondaryButtonStyle())
+                    }
+                    .kineticCard()
                 }
-                Button("Sign out", action: model.signOut)
-                    .buttonStyle(.bordered)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Training history")
+                        .font(.system(size: 17, weight: .bold))
+                    Text("Connect Strava so pace can use your recent efforts.")
+                        .font(.system(size: 16))
+                    Button("Strava", action: onStrava)
+                        .buttonStyle(KineticSecondaryButtonStyle())
+                }
+                .kineticCard()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Account")
+                        .font(.system(size: 17, weight: .bold))
+                    Text("Sign out of this device and return to the login flow.")
+                        .font(.system(size: 16))
+                    Button("Sign out", action: model.signOut)
+                        .buttonStyle(KineticDangerButtonStyle())
+                }
+                .kineticCard()
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

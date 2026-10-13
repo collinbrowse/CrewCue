@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProductShellView: View {
     @Bindable var model: ShellModel
+    @Environment(\.kinetic) private var theme
 
     var body: some View {
         TabView(selection: $model.selectedTab) {
@@ -14,6 +15,8 @@ struct ProductShellView: View {
         }
         .accessibilityIdentifier("crewcue.app-shell")
         .accessibilityLabel("CrewCue")
+        .toolbarBackground(theme.card, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .onAppear { model.enterShellIfNeeded() }
     }
 }

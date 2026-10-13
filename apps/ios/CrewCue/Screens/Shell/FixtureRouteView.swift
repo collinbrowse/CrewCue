@@ -22,7 +22,6 @@ struct FixtureRouteView: View {
 struct FixtureShellView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            FixtureShellCaption()
             TabView {
                 ForEach(ShellTab.allCases) { tab in
                     FixtureTabPage(featureId: tab.featureId)
@@ -33,16 +32,6 @@ struct FixtureShellView: View {
         }
         .accessibilityIdentifier("crewcue.app-shell")
         .accessibilityLabel("CrewCue")
-    }
-}
-
-struct FixtureShellCaption: View {
-    var body: some View {
-        Text("crewcue.app-shell")
-            .font(.caption)
-            .foregroundStyle(Color.black)
-            .padding(.horizontal)
-            .padding(.top, 8)
     }
 }
 
@@ -60,7 +49,9 @@ struct ProductRouteView: View {
     var body: some View {
         switch model.route.featureId {
         case "join-crew":
-            JoinCrewView(model: model.joinModel)
+            JoinCrewView(model: model.joinModel, onBack: model.isSignedIn ? nil : {
+                model.show(Route(featureId: "auth-sign-in", state: .success))
+            })
         case "athlete-setup":
             AthleteSetupView(model: model.athleteModel)
         case "onboarding-notifications":
@@ -86,7 +77,9 @@ struct AuthOrShell: View {
         if model.isSignedIn {
             ProductShellView(model: model)
         } else {
-            AuthSignInView(model: model.authModel)
+            AuthSignInView(model: model.authModel, onJoin: {
+                model.show(Route(featureId: "join-crew", state: .success))
+            })
         }
     }
 }
@@ -98,7 +91,9 @@ struct ShellOrSignedOut: View {
         if model.isSignedIn {
             ProductShellView(model: model)
         } else if model.route.featureId == "app-shell" {
-            AuthSignInView(model: model.authModel)
+            AuthSignInView(model: model.authModel, onJoin: {
+                model.show(Route(featureId: "join-crew", state: .success))
+            })
         } else {
             FixtureRouteView(route: model.route, screen: model.screen)
         }

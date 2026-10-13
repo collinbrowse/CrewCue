@@ -7,21 +7,62 @@ struct MapView: View {
     var role: String?
 
     var body: some View {
+        ZStack(alignment: .bottom) {
+            MapCanvas(
+                points: model.points,
+                onTap: { latitude, longitude in
+                    model.selectCoordinate(latitude: latitude, longitude: longitude)
+                },
+                onStyleFailure: { offline in
+                    model.noteStyleFailure(offline: offline)
+                },
+                onStyleLoaded: {
+                    model.noteStyleLoaded()
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            MapAidSheet(model: model)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("crewcue.map")
+        .accessibilityLabel("Map")
+        .task(id: activationID) {
+            await model.activate(userId: userId, roomId: roomId, role: role)
+            model.beginLocation()
+        }
+    }
+
+    private var activationID: String {
+        "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
+    }
+}
+
+struct MapAidSheet: View {
+    @Bindable var model: MapModel
+    @Environment(\.kinetic) private var theme
+
+    var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                MapCourseSection(
-                    message: model.mapMessage,
-                    points: model.points,
-                    onTap: { latitude, longitude in
-                        model.selectCoordinate(latitude: latitude, longitude: longitude)
-                    },
-                    onStyleFailure: { offline in
-                        model.noteStyleFailure(offline: offline)
-                    },
-                    onStyleLoaded: {
-                        model.noteStyleLoaded()
-                    }
-                )
+            VStack(alignment: .leading, spacing: 16) {
+                Capsule()
+                    .fill(theme.body.opacity(0.45))
+                    .frame(width: 36, height: 4)
+                    .frame(maxWidth: .infinity)
+                if let station = model.points.first {
+                    Text("AID STATION")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: station.title)
+                        .font(.system(size: 20, weight: .heavy))
+                }
+                if model.mapMessage.isEmpty == false {
+                    Text(verbatim: model.mapMessage)
+                        .font(.system(size: 16))
+                }
+                ForEach(model.points) { point in
+                    MapCheckpointLine(point: point)
+                }
                 MapPickSection(
                     latitude: $model.latitudeText,
                     longitude: $model.longitudeText,
@@ -41,45 +82,12 @@ struct MapView: View {
                 )
                 MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(16)
+            .padding(.bottom, 8)
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .foregroundStyle(Color.black)
-        .task(id: activationID) {
-            await model.activate(userId: userId, roomId: roomId, role: role)
-            model.beginLocation()
-        }
-    }
-
-    private var activationID: String {
-        "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
-    }
-}
-
-struct MapCourseSection: View {
-    let message: String
-    let points: [MapCoursePoint]
-    let onTap: (Double, Double) -> Void
-    let onStyleFailure: (Bool) -> Void
-    let onStyleLoaded: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Map")
-                .font(.title2)
-            MapCanvas(points: points, onTap: onTap, onStyleFailure: onStyleFailure, onStyleLoaded: onStyleLoaded)
-            if message.isEmpty == false {
-                Text(verbatim: message)
-                    .font(.body)
-            }
-            ForEach(points) { point in
-                MapCheckpointLine(point: point)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("crewcue.map")
-        .accessibilityLabel("Map")
+        .frame(maxHeight: 420)
+        .background(theme.card)
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
     }
 }
 
@@ -97,7 +105,7 @@ struct MapCanvas: View {
             onStyleFailure: onStyleFailure,
             onStyleLoaded: onStyleLoaded
         )
-        .frame(height: 280)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")
         #else
         EmptyView()

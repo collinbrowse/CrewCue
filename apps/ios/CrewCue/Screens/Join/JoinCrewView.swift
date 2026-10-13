@@ -2,9 +2,14 @@ import SwiftUI
 
 struct JoinCrewView: View {
     @Bindable var model: JoinCrewModel
+    var onBack: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let onBack {
+                Button("Back", action: onBack)
+                    .buttonStyle(.bordered)
+            }
             JoinCrewTitle()
             JoinCrewCodeField(code: $model.code)
             JoinCrewPreviewText(text: model.previewText)

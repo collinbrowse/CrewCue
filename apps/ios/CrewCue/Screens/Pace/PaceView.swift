@@ -23,9 +23,8 @@ struct PaceView: View {
             .accessibilityIdentifier("crewcue.schedule-sheet")
             .accessibilityLabel("Schedule")
         }
-        .padding()
+        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .foregroundStyle(Color.black)
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, role: role)
         }
@@ -41,15 +40,21 @@ struct PaceScheduleSection: View {
     let message: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Schedule")
-                .font(.title2)
-            ForEach(lines) { line in
-                PaceSheetLine(text: line.text)
+                .font(.system(size: 28, weight: .bold))
+            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(index + 1)")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(verbatim: line.text)
+                        .font(.system(size: 17, weight: .bold))
+                }
+                .kineticCard()
             }
             if message.isEmpty == false {
                 Text(verbatim: message)
-                    .font(.body)
+                    .font(.system(size: 16))
             }
         }
     }

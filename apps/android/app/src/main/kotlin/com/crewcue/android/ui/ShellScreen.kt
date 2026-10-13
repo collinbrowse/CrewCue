@@ -3,8 +3,21 @@ package com.crewcue.android.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,21 +54,29 @@ private fun AppShell(viewModel: ShellViewModel) {
         modifier = Modifier
             .testTag("crewcue.app-shell")
             .semantics { contentDescription = "CrewCue" },
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                 ShellTab.entries.forEach { tab ->
+                    val selected = viewModel.selectedTab == tab
                     NavigationBarItem(
-                        selected = viewModel.selectedTab == tab,
+                        selected = selected,
                         onClick = { viewModel.selectTab(tab) },
-                        icon = { Text(tab.title.take(1)) },
-                        label = { Text(tab.title) }
+                        icon = { Icon(tabIcon(tab, selected), contentDescription = tab.title) },
+                        label = { Text(tab.title) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     )
                 }
             }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text("crewcue.app-shell")
             when (viewModel.selectedTab) {
                 ShellTab.Profile -> {
                     if (viewModel.session == null) {
@@ -158,7 +179,6 @@ fun FeatureScreen(
     extra: @Composable () -> Unit = {}
 ) {
     val screen = state.screen
-    val pocket = if (showPocket) pocketLabel(screen.featureId) else null
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -166,12 +186,12 @@ fun FeatureScreen(
             .testTag(screen.accessibilityIdentifier)
             .semantics { contentDescription = screen.title }
     ) {
-        Text(screen.accessibilityIdentifier)
-        Text(screen.title)
-        Text(screen.body)
-        if (pocket != null) {
-            Text(pocket)
-        }
+        Text(screen.title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            screen.body,
+            modifier = Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.bodyLarge
+        )
         extra()
     }
 }
@@ -226,9 +246,9 @@ private fun ChatPane(
     }
 }
 
-private fun pocketLabel(featureId: String): String? = when (featureId) {
-    "map-track", "map-checkpoint-pick", "map-navigate" -> "MapLibre"
-    "chat-thread", "chat-notification-prefs" -> "Stream Chat"
-    "strava" -> "Auth0"
-    else -> null
+private fun tabIcon(tab: ShellTab, selected: Boolean): ImageVector = when (tab) {
+    ShellTab.Map -> if (selected) Icons.Filled.Explore else Icons.Outlined.Explore
+    ShellTab.Pace -> if (selected) Icons.Filled.Timer else Icons.Outlined.Timer
+    ShellTab.Chat -> if (selected) Icons.Filled.Chat else Icons.Outlined.Chat
+    ShellTab.Profile -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
 }

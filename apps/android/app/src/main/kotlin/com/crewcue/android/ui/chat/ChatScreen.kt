@@ -7,8 +7,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -42,13 +46,22 @@ fun ChatScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Chat")
+        Text("Chat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
             model.channelId,
             modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.channelId }
         )
         model.messages.forEach { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            Surface(
+                modifier = Modifier.padding(top = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
+                Text(
+                    line,
+                    modifier = Modifier.padding(12.dp).semantics { contentDescription = line }
+                )
+            }
         }
         model.status?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })

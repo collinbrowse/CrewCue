@@ -4,16 +4,24 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -53,22 +61,13 @@ fun MapScreen(
         else -> "Map"
     }
     val showMap = focus != "location-heartbeat"
-    Column(
+    Box(
         modifier
             .fillMaxSize()
             .testTag(rootTag)
             .semantics { contentDescription = rootTitle }
     ) {
         if (showMap) {
-            val banner = mapBanner(model)
-            if (banner != null) {
-                Text(
-                    banner,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics {
-                        contentDescription = banner
-                    }
-                )
-            }
             CourseMapHost(
                 points = model.checkpoints,
                 line = model.line,
@@ -76,15 +75,45 @@ fun MapScreen(
                 onStyleReady = model::onStyleReady,
                 onStyleFailed = model::onStyleFailed,
                 onTilesUnavailable = model::onTilesUnavailable,
-                modifier = Modifier.fillMaxWidth().height(280.dp)
+                modifier = Modifier.fillMaxSize()
             )
+            val banner = mapBanner(model)
+            if (banner != null) {
+                Text(
+                    banner,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .semantics { contentDescription = banner }
+                )
+            }
         }
         Column(
             Modifier
-                .weight(1f)
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .then(if (showMap) Modifier.heightIn(max = 420.dp) else Modifier.fillMaxHeight())
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            if (showMap) {
+                val station = model.checkpoints.firstOrNull()
+                Text(
+                    "AID STATION",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (station != null) {
+                    Text(
+                        station.title,
+                        modifier = Modifier.padding(top = 4.dp),
+                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+            }
             if (showMap) {
                 model.checkpoints.forEach { checkpoint ->
                     Text(

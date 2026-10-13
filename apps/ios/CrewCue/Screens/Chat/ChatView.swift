@@ -42,22 +42,34 @@ struct ChatView: View {
     var onPush: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Chat")
-                    .font(.title2)
-                ChatChannelLabel(channelId: model.channelId)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Chat")
+                .font(.system(size: 28, weight: .bold))
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+            ChatChannelLabel(channelId: model.channelId)
+                .padding(.horizontal, 20)
+            ScrollView {
                 ChatTranscript(lines: model.lines)
-                ChatStatusText(message: model.statusMessage)
-                ChatComposer(draft: $model.draft, names: model.mentionNames, isSending: model.isSending, onSend: model.send)
-                Button("Alert settings", action: onAlerts)
-                    .buttonStyle(.bordered)
-                Button("Push registration", action: onPush)
-                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            ChatStatusText(message: model.statusMessage)
+                .padding(.horizontal, 20)
+            ChatComposer(draft: $model.draft, names: model.mentionNames, isSending: model.isSending, onSend: model.send)
+                .padding(.horizontal, 20)
+            HStack(spacing: 8) {
+                Button("Alert settings", action: onAlerts)
+                    .buttonStyle(KineticSecondaryButtonStyle())
+                Button("Push registration", action: onPush)
+                    .buttonStyle(KineticSecondaryButtonStyle())
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
         }
-        .crewCueScreen(identifier: "crewcue.chat", label: "Chat")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("crewcue.chat")
+        .accessibilityLabel("Chat")
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, role: role, displayName: displayName)
         }
@@ -82,11 +94,17 @@ struct ChatChannelLabel: View {
 
 struct ChatTranscript: View {
     let lines: [ChatLine]
+    @Environment(\.kinetic) private var theme
 
     var body: some View {
-        ForEach(lines) { line in
-            Text(verbatim: line.text)
-                .font(.body)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(lines) { line in
+                Text(verbatim: line.text)
+                    .font(.system(size: 16))
+                    .foregroundStyle(theme.ink)
+                    .padding(12)
+                    .background(theme.secondaryButton, in: RoundedRectangle(cornerRadius: 12))
+            }
         }
     }
 }

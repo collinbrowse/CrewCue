@@ -13,8 +13,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import com.crewcue.android.ui.theme.ProductCard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,12 +57,20 @@ fun PaceScreen(shell: ShellViewModel, roomId: String, modifier: Modifier = Modif
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Schedule")
+        Text("Schedule", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         model.scheduleMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
-        model.scheduleLines.forEach { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+        model.scheduleLines.forEachIndexed { index, line ->
+            ProductCard(Modifier.padding(top = 12.dp)) {
+                Text("${index + 1}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    line,
+                    modifier = Modifier.padding(top = 6.dp).semantics { contentDescription = line },
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
         }
 
         SectionTitle("Estimate")
