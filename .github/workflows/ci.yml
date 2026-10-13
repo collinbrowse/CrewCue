@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 env:
   SWIFT_ANDROID_SDK_URL: https://download.swift.org/swift-6.3.2-release/android-sdk/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE_android.artifactbundle.tar.gz
@@ -57,6 +58,7 @@ jobs:
               - 'apps/android/**'
               - 'scripts/build-swift-android.mjs'
               - 'scripts/lib/swiftAndroidToolchain.mjs'
+              - '.github/actions/setup-swift/**'
 
   # Name kept for branch protection. Guards the native client boundaries and behavior checklists.
   dual-client-guard:
@@ -84,14 +86,14 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - uses: ./.github/actions/setup-swift
-        with:
-          version: "6.3.2"
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test
       - run: npm run agent:harness:test
+      - uses: ./.github/actions/setup-swift
+        with:
+          version: "6.3.2"
       - run: npm run verify:client-core
 
   api-postgres-integration:
@@ -164,6 +166,10 @@ jobs:
           version: "6.3.2"
       - name: Install Swift Android SDK
         run: |
+          if [ -z "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+            echo "::error::ANDROID_NDK_LATEST_HOME is not set on this runner"
+            exit 1
+          fi
           swift sdk install "$SWIFT_ANDROID_SDK_URL" --checksum "$SWIFT_ANDROID_SDK_CHECKSUM"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           setup=$(find ~/.swiftpm/swift-sdks -name setup-android-sdk.sh | head -1)

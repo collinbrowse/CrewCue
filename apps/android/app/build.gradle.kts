@@ -89,6 +89,7 @@ val buildSwiftAndroid = tasks.register<Exec>("buildSwiftAndroid") {
     inputs.dir(repoRoot.resolve("packages/client-core/Sources"))
     inputs.file(repoRoot.resolve("packages/client-core/Package.swift"))
     inputs.file(repoRoot.resolve("scripts/build-swift-android.mjs"))
+    inputs.file(repoRoot.resolve("scripts/lib/swiftAndroidToolchain.mjs"))
     inputs.property("configuration", System.getenv("SWIFT_BUILD_CONFIGURATION") ?: "debug")
     outputs.dir(layout.buildDirectory.dir("generated/jniLibs"))
 }

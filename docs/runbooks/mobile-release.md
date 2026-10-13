@@ -47,4 +47,4 @@ Optional variable `PLAY_RELEASE_STATUS`: set it to `draft` until the Play app ha
 - **Preflight fails:** a secret is missing. The error lists which ones.
 - **iOS "No profiles for 'com.crewcue.ios'":** the bundle id is not registered, or the API key lacks the App Manager role.
 - **Android "Package not found":** the Play app does not exist yet, the first manual upload hasn't happened, or the service account lacks access.
-- **Re-running a release:** use "Run workflow" on `Release` with the existing tag. The build number moves forward automatically.
+- **Re-running a release:** use "Run workflow" on `Release` with the existing tag. The build number moves forward automatically. If the GitHub release already exists, the workflow replaces the attached `.aab`.

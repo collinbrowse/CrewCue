@@ -7,6 +7,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # swiftly exits 1 when this package is missing, even after it extracts the toolchain.
+    # apt-get update avoids a stale runner index 404 on libcurl4-openssl-dev.
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
     - uses: actions/cache@v4
       with:
         path: ~/.local/share/swiftly
@@ -24,8 +31,25 @@ runs:
           tar zxf "swiftly-$(uname -m).tar.gz"
           ./swiftly init --quiet-shell-followup --assume-yes --skip-install
         fi
+        if [ -f "$SWIFTLY_HOME_DIR/env.sh" ]; then
+          # shellcheck disable=SC1091
+          . "$SWIFTLY_HOME_DIR/env.sh"
+        fi
+        export PATH="$SWIFTLY_BIN_DIR:$PATH"
+        set +e
         "$SWIFTLY_BIN_DIR/swiftly" install --use --assume-yes "$SWIFT_VERSION"
+        status=$?
+        set -e
+        if [ "$status" -ne 0 ]; then
+          echo "swiftly install exited $status; continuing only if swift $SWIFT_VERSION runs"
+        fi
+        hash -r || true
+        version="$(swift --version 2>&1)"
+        printf '%s\n' "$version"
+        case "$version" in
+          *"$SWIFT_VERSION"*) ;;
+          *) echo "::error::expected Swift $SWIFT_VERSION"; exit 1 ;;
+        esac
         echo "SWIFTLY_HOME_DIR=$SWIFTLY_HOME_DIR" >> "$GITHUB_ENV"
         echo "SWIFTLY_BIN_DIR=$SWIFTLY_BIN_DIR" >> "$GITHUB_ENV"
-        echo "$SWIFTLY_BIN_DIR" >> "$GITHUB_PATH"
-        "$SWIFTLY_BIN_DIR/swift" --version
+        dirname "$(command -v swift)" >> "$GITHUB_PATH"
