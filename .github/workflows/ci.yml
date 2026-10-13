@@ -5,6 +5,18 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  SWIFT_ANDROID_SDK_URL: https://download.swift.org/swift-6.3.2-release/android-sdk/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE_android.artifactbundle.tar.gz
+  SWIFT_ANDROID_SDK_CHECKSUM: 939e933549d12d28f2e0bf71019d734d309859e9773c572657ce565a81f85d68
+
 jobs:
   pr-decision-doc-guard:
     if: github.event_name == 'pull_request'
@@ -13,77 +25,43 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - uses: actions/checkout@v5
+      - name: Fetch PR body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
       - name: Validate PR decision documentation sections
-        uses: actions/github-script@v7
+        run: node scripts/pr-decision-doc-guard.mjs --body-file "$RUNNER_TEMP/pr-body.md"
+
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+      android: ${{ steps.filter.outputs.android }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          script: |
-            // Prefer REST `pulls.get` (full body); fall back to webhook payload if token cannot read pulls.
-            const prNumber = context.payload.pull_request.number;
-            let body = "";
-            try {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-              });
-              body = pr.body ?? "";
-            } catch (e) {
-              core.warning(`pulls.get failed (${e.message}); using pull_request payload body`);
-              body = context.payload.pull_request?.body ?? "";
-            }
-            body = body.replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
-            // Normalize dash lookalikes so "## Higher-Order ..." matches after copy/paste from docs
-            body = body.replace(/\u2011|\u2013|\u2014/g, "-");
+          filters: |
+            shared: &shared
+              - 'packages/client-core/**'
+              - 'clients/behavior/**'
+              - '.github/workflows/ci.yml'
+            ios:
+              - *shared
+              - 'apps/ios/**'
+              - 'scripts/test-ios.mjs'
+            android:
+              - *shared
+              - 'apps/android/**'
+              - 'scripts/build-swift-android.mjs'
+              - 'scripts/install-swift-android-sdk.sh'
+              - 'scripts/lib/swiftAndroidToolchain.mjs'
+              - '.github/actions/setup-swift/**'
 
-            const requiredHeaders = [
-              "## Decision Tree and Rationale",
-              "## Implicit Assumptions and Invariants",
-              "## Higher-Order Effects Check"
-            ];
-
-            const missingHeaders = requiredHeaders.filter((header) => !body.includes(header));
-            if (missingHeaders.length > 0) {
-              const payloadLen = (context.payload.pull_request?.body ?? "").length;
-              core.setFailed(
-                `PR body missing required section headers: ${missingHeaders.join(", ")} (API body length ${body.length}, payload body length ${payloadLen})`
-              );
-              return;
-            }
-
-            // Allow optional Markdown bold: "- Decision: ..." or "- **Decision:** ..." (colon may sit inside **...**)
-            const mdLabel = (word) =>
-              new RegExp(
-                `-\\s*\\*{0,2}${word}:\\*{0,2}\\s+\\S`,
-                "i"
-              );
-            const hasDecisionContent =
-              mdLabel("Decision").test(body) || /Single obvious path/i.test(body);
-            if (!hasDecisionContent) {
-              core.setFailed(
-                "Decision Tree and Rationale must include at least one filled '- Decision: ...' (or **Decision**) line or explicit 'Single obvious path'."
-              );
-              return;
-            }
-
-            const hasAssumptionContent =
-              mdLabel("Assumption").test(body) || /None identified/i.test(body);
-            if (!hasAssumptionContent) {
-              core.setFailed(
-                "Implicit Assumptions and Invariants must include at least one filled '- Assumption: ...' (or **Assumption**) line or explicit 'None identified'."
-              );
-              return;
-            }
-
-            const hasEffectsSummary =
-              mdLabel("Summary").test(body) || /None identified/i.test(body);
-            if (!hasEffectsSummary) {
-              core.setFailed(
-                "Higher-Order Effects Check must include a filled '- Summary: ...' (or **Summary**) line or explicit 'None identified'."
-              );
-              return;
-            }
-
-            core.info("PR decision documentation guard passed.");
+  # Name kept for branch protection. Guards the native client boundaries and behavior checklists.
   dual-client-guard:
     runs-on: ubuntu-latest
     steps:
@@ -92,45 +70,33 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
-      - run: npm run verify:dual-client
+      - run: npm ci
+      - run: npm run verify:clients
+
   checks:
-    # On push to main, pr-decision-doc-guard is skipped; still run checks after dual-client-guard.
     if: >-
       always()
       && needs.dual-client-guard.result == 'success'
-      && (needs.pr-decision-doc-guard.result == 'success'
-          || needs.pr-decision-doc-guard.result == 'skipped')
+      && (needs.pr-decision-doc-guard.result == 'success' || needs.pr-decision-doc-guard.result == 'skipped')
     needs: [pr-decision-doc-guard, dual-client-guard]
     runs-on: ubuntu-latest
-    env:
-      # CI has no local `apps/mobile/.env`; Expo inlines these at bundle time.
-      # Placeholders keep `expo export` deterministic and catch Metro/resolver regressions.
-      EXPO_PUBLIC_AUTH0_DOMAIN: ci-placeholder.invalid
-      EXPO_PUBLIC_AUTH0_CLIENT_ID: ci-placeholder-client
-      EXPO_PUBLIC_AUTH0_AUDIENCE: https://ci-placeholder-api
-      EXPO_PUBLIC_AUTH0_CONNECTION_GOOGLE: ci-placeholder-google-oauth2
-      EXPO_PUBLIC_AUTH0_CONNECTION_APPLE: ci-placeholder-apple
-      EXPO_PUBLIC_AUTH0_CONNECTION_EMAIL: ci-placeholder-email-db
-      EXPO_PUBLIC_API_BASE_URL: https://ci-placeholder.invalid
-      EXPO_PUBLIC_MAPTILER_API_KEY: ci-placeholder-maptiler
-      EXPO_PUBLIC_STREAM_API_KEY: ci-placeholder-stream
-      VITE_MAPTILER_API_KEY: ci-placeholder-maptiler
-      MAPTILER_API_KEY: ci-placeholder-maptiler
-      VITE_API_BASE_URL: https://ci-placeholder.invalid
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run smoke:mobile:startup
       - run: npm run build
-      # Runs workspace tests: @crewcue/contracts (tsx), @crewcue/mobile (tsx), @crewcue/api (node:test + build).
       - run: npm run test
+      - run: npm run agent:harness:test
+      - uses: ./.github/actions/setup-swift
+        with:
+          version: "6.3.2"
+      - run: npm run verify:client-core
+
   api-postgres-integration:
     runs-on: ubuntu-latest
     services:
@@ -156,8 +122,70 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck -w @crewcue/api
-      - run: npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client
       - run: npm run db:migrate -w @crewcue/api
       - run: npm run test:pg -w @crewcue/api
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true' || github.event_name == 'push'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Build and run UI smoke tests
+        run: node scripts/test-ios.mjs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-test-results
+          path: .agent-pr-evidence/*.xcresult
+
+  android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: ./.github/actions/setup-swift
+        with:
+          version: "6.3.2"
+      - name: Install Swift Android SDK
+        run: bash scripts/install-swift-android-sdk.sh
+      - name: Cross-compile client-core with tests (arm64)
+        run: node scripts/verify-client-core-android-build.mjs
+      - name: Build debug and test APKs
+        run: ./apps/android/gradlew -p apps/android :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run deeplink smoke tests on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: ./apps/android/gradlew -p apps/android :app:connectedDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-results
+          path: apps/android/app/build/reports/androidTests

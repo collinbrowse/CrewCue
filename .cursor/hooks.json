@@ -4,7 +4,7 @@
     "beforeShellExecution": [
       {
         "command": "node .cursor/hooks/shell-reminders.mjs",
-        "matcher": "git commit|npm run verify|agent:ios:ready|agent:issue:ready|agent:pr:done"
+        "matcher": "git commit|npm run verify|agent:ios:ready|agent:issue:ready|agent:pr:done|gh pr"
       }
     ],
     "stop": [

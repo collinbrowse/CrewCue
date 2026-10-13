@@ -18,7 +18,13 @@ const command = String(input.command ?? "");
 /** @type {{ permission: string, agent_message?: string }} */
 const out = { permission: "allow" };
 
-if (/\bgit\s+commit\b/.test(command) && !/#\d+/.test(command)) {
+if (/\bgh\s+pr\s+(create|edit)\b/.test(command)) {
+  out.agent_message =
+    "PR body must be filled .github/pull_request_template.md (pr-decision-doc-guard: Decision / Assumption / Summary). Summary-only --body fails CI.";
+} else if (/\bagent:pr:done\b/.test(command)) {
+  out.agent_message =
+    "agent:pr:done also enforces pr-decision-doc-guard sections from the PR template.";
+} else if (/\bgit\s+commit\b/.test(command) && !/#\d+/.test(command)) {
   out.agent_message =
     "Reminder: prefer commits/PRs that reference an issue (#N). Run agent:pr:done before claiming Done.";
 } else if (/\bagent:ios:ready\b/.test(command)) {
