@@ -51,6 +51,17 @@ test("assessReadyBody fails missing acceptance", () => {
   assert.ok(r.missing.includes("acceptance"));
 });
 
+test("assessReadyBody accepts documented heading aliases", () => {
+  const body = completeReady
+    .replace("## In-scope changes", "## Scope")
+    .replace("## Path conflict map", "## Conflicts with")
+    .replace("## Verification", "## Verification commands");
+
+  const r = assessReadyBody(body);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.missing, []);
+});
+
 test("countEmptyProofCells finds blanks", () => {
   const body = `## Edge-case matrix
 | ID | Scenario | Expected | Proof |
@@ -59,6 +70,22 @@ test("countEmptyProofCells finds blanks", () => {
 | EC2 | a | b | scripts/foo.test.ts |
 `;
   assert.equal(countEmptyProofCells(body), 1);
+});
+
+test("countEmptyProofCells flags dash placeholders and stops at next section", () => {
+  const body = `## Edge-case matrix
+| ID | Scenario | Expected | Proof |
+| --- | --- | --- | --- |
+| EC1 | x | y | - |
+| EC2 | a | b | \u2014 |
+| EC3 | ok | ok | scripts/foo.test.ts |
+
+## Fixtures
+| not | an | edge | matrix |
+| --- | --- | --- | --- |
+| row | should | not | count |
+`;
+  assert.equal(countEmptyProofCells(body), 2);
 });
 
 test("assessPrDoneBody requires Closes and edge proof", () => {
@@ -81,7 +108,23 @@ test("assessPrDoneBody requires sim note when mobile changed", () => {
   assert.equal(ok.ok, true);
 });
 
+test("assessPrDoneBody accepts alternate close keywords and snapshot_ui mobile proof", () => {
+  for (const keyword of ["Fixes", "Resolves"]) {
+    const r = assessPrDoneBody(`${keyword} #490\n\nProof: EC1 covered`, {
+      mobileChanged: false
+    });
+    assert.equal(r.ok, true, `${keyword} should satisfy linked issue requirement`);
+  }
+
+  const mobile = assessPrDoneBody(`Resolves #490\n\nEC1: snapshot_ui verified`, {
+    mobileChanged: true
+  });
+  assert.equal(mobile.ok, true);
+});
+
 test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["services/api/src/x.ts"]), false);
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
+  assert.equal(pathsTouchMobile(["/tmp/worktree/apps/mobile/src/App.tsx"]), true);
+  assert.equal(pathsTouchMobile(["docs/apps/mobile-guide.md"]), false);
 });
