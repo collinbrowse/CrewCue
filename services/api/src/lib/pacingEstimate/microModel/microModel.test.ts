@@ -79,6 +79,47 @@ test("runner profile cold-start vs history (C4: full grade model applied both wa
   assert.equal(cold.gradeCostBlend, hist.gradeCostBlend);
 });
 
+test("runner profile ignores unusable activity summaries", () => {
+  const base = {
+    source: "gpx_upload" as const,
+    externalId: "history",
+    recordedAt: "2026-01-01T00:00:00.000Z",
+    ingestedAt: "2026-01-02T00:00:00.000Z"
+  };
+  const usable = {
+    ...base,
+    id: "usable",
+    distanceMeters: 45000,
+    elapsedSeconds: 18000,
+    elevationGainMeters: 0
+  };
+
+  const profile = buildRunnerProfile({
+    courseDistanceMeters: 50000,
+    history: [
+      { ...base, id: "zero-distance", distanceMeters: 0, elapsedSeconds: 60 },
+      { ...base, id: "missing-elapsed", distanceMeters: 45000, elapsedSeconds: undefined },
+      { ...base, id: "zero-elapsed", distanceMeters: 45000, elapsedSeconds: 0 },
+      usable
+    ]
+  });
+
+  assert.equal(profile.coldStart, false);
+  assert.deepEqual(profile.historyRefIds, ["usable"]);
+  assert.ok(Math.abs(profile.gapSecondsPerMeter - 0.4) < 1e-9);
+
+  const allUnusable = buildRunnerProfile({
+    courseDistanceMeters: 50000,
+    history: [
+      { ...base, id: "bad-distance", distanceMeters: -1, elapsedSeconds: 60 },
+      { ...base, id: "bad-elapsed", distanceMeters: 45000, elapsedSeconds: 0 }
+    ]
+  });
+  assert.equal(allUnusable.coldStart, true);
+  assert.equal(allUnusable.historyRefIds, undefined);
+  assert.ok(Math.abs(allUnusable.gapSecondsPerMeter - coldStartGapSecondsPerMeter()) < 1e-12);
+});
+
 test("C1: elevation gain lowers the flat-equivalent GAP below raw trail pace", () => {
   const trailPace = 0.45; // wall-clock s/m over a hilly effort
   const flat = buildRunnerProfile({
