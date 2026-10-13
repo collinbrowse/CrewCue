@@ -3,33 +3,55 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000012 /* CrewCueClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000011 /* CrewCueClientCore */; };
-		A10000000000000000000021 /* CrewCueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* CrewCueApp.swift */; };
-		A10000000000000000000022 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* RootView.swift */; };
-		A10000000000000000000023 /* Pockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* Pockets.swift */; };
-		A10000000000000000000024 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000035 /* ShellModel.swift */; };
-		A10000000000000000000025 /* CompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* CompositionRoot.swift */; };
-		A10000000000000000000026 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000037 /* AppRouter.swift */; };
-		A10000000000000000000027 /* OSLogLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000038 /* OSLogLogger.swift */; };
-		A10000000000000000000028 /* OSLogSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* OSLogSink.swift */; };
+		A10000000000000000000063 /* deeplinks.json in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* deeplinks.json */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000058 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000002;
+			remoteInfo = CrewCue;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000006 /* CrewCue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrewCue.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A10000000000000000000031 /* CrewCueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewCueApp.swift; sourceTree = "<group>"; };
-		A10000000000000000000032 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		A10000000000000000000033 /* Pockets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pockets.swift; sourceTree = "<group>"; };
-		A10000000000000000000034 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A10000000000000000000035 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000036 /* CompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRoot.swift; sourceTree = "<group>"; };
-		A10000000000000000000037 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
-		A10000000000000000000038 /* OSLogLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogLogger.swift; sourceTree = "<group>"; };
-		A10000000000000000000039 /* OSLogSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogSink.swift; sourceTree = "<group>"; };
+		A10000000000000000000056 /* CrewCueUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CrewCueUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000062 /* deeplinks.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = deeplinks.json; path = ../../clients/behavior/deeplinks.json; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A10000000000000000000045 /* Exceptions for "CrewCue" folder in "CrewCue" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A10000000000000000000002 /* CrewCue */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000000000000000000008 /* CrewCue */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A10000000000000000000045 /* Exceptions for "CrewCue" folder in "CrewCue" target */,
+			);
+			path = CrewCue;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000050 /* CrewCueUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CrewCueUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000004 /* Frameworks */ = {
@@ -40,6 +62,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000053 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -47,48 +76,27 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000008 /* CrewCue */,
+				A10000000000000000000050 /* CrewCueUITests */,
+				A10000000000000000000061 /* Behavior */,
 				A10000000000000000000009 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		A10000000000000000000008 /* CrewCue */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000040 /* App */,
-				A10000000000000000000041 /* Logging */,
-				A10000000000000000000031 /* CrewCueApp.swift */,
-				A10000000000000000000032 /* RootView.swift */,
-				A10000000000000000000033 /* Pockets.swift */,
-				A10000000000000000000034 /* Info.plist */,
-			);
-			path = CrewCue;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000040 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000035 /* ShellModel.swift */,
-				A10000000000000000000036 /* CompositionRoot.swift */,
-				A10000000000000000000037 /* AppRouter.swift */,
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000041 /* Logging */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000038 /* OSLogLogger.swift */,
-				A10000000000000000000039 /* OSLogSink.swift */,
-			);
-			path = Logging;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000009 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000006 /* CrewCue.app */,
+				A10000000000000000000056 /* CrewCueUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000061 /* Behavior */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000062 /* deeplinks.json */,
+			);
+			name = Behavior;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -106,6 +114,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000008 /* CrewCue */,
+			);
 			name = CrewCue;
 			packageProductDependencies = (
 				A10000000000000000000011 /* CrewCueClientCore */,
@@ -114,6 +125,27 @@
 			productReference = A10000000000000000000006 /* CrewCue.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000000051 /* CrewCueUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000057 /* Build configuration list for PBXNativeTarget "CrewCueUITests" */;
+			buildPhases = (
+				A10000000000000000000052 /* Sources */,
+				A10000000000000000000053 /* Frameworks */,
+				A10000000000000000000054 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000000059 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000050 /* CrewCueUITests */,
+			);
+			name = CrewCueUITests;
+			productName = CrewCueUITests;
+			productReference = A10000000000000000000056 /* CrewCueUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -121,10 +153,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					A10000000000000000000051 = {
+						TestTargetID = A10000000000000000000002;
+					};
+				};
 			};
 			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXProject "CrewCue" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -132,14 +169,17 @@
 				Base,
 			);
 			mainGroup = A10000000000000000000007;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A10000000000000000000010 /* XCLocalSwiftPackageReference "../../packages/client-core" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000009 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				A10000000000000000000002 /* CrewCue */,
+				A10000000000000000000051 /* CrewCueUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -152,6 +192,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000054 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000063 /* deeplinks.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -159,18 +207,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000021 /* CrewCueApp.swift in Sources */,
-				A10000000000000000000022 /* RootView.swift in Sources */,
-				A10000000000000000000023 /* Pockets.swift in Sources */,
-				A10000000000000000000024 /* ShellModel.swift in Sources */,
-				A10000000000000000000025 /* CompositionRoot.swift in Sources */,
-				A10000000000000000000026 /* AppRouter.swift in Sources */,
-				A10000000000000000000027 /* OSLogLogger.swift in Sources */,
-				A10000000000000000000028 /* OSLogSink.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000052 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000000059 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000002 /* CrewCue */;
+			targetProxy = A10000000000000000000058 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1000000000000000000000C /* Debug */ = {
@@ -178,6 +233,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
@@ -197,6 +253,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -211,8 +268,6 @@
 		A1000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -221,7 +276,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -237,16 +292,15 @@
 		A1000000000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CrewCue/Info.plist;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -256,6 +310,42 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A1000000000000000000005A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CrewCue;
+			};
+			name = Debug;
+		};
+		A1000000000000000000005B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CrewCue;
 			};
 			name = Release;
 		};
@@ -276,6 +366,15 @@
 			buildConfigurations = (
 				A1000000000000000000000E /* Debug */,
 				A1000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000057 /* Build configuration list for PBXNativeTarget "CrewCueUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000005A /* Debug */,
+				A1000000000000000000005B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
