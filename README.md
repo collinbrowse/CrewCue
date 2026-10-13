@@ -33,6 +33,8 @@ npm run verify:ios        # build the iOS app for the simulator
 npm run verify:android    # assemble the Android debug APK (needs ANDROID_HOME)
 npm run agent:ios:ready -- --deeplink crewcue://dev/app-shell       # build, install, open on a simulator
 npm run agent:android:ready -- --deeplink crewcue://dev/app-shell   # same on an emulator
+npm run test:ios          # XCUITest: every passing deeplink renders its checklist label
+npm run test:android      # Compose instrumented test, same check (needs a running emulator)
 ```
 
 `crewcue://dev/<id>` deeplinks open fixture screens without Auth0. The ids are listed in `clients/behavior/deeplinks.json`.
@@ -40,14 +42,17 @@ npm run agent:android:ready -- --deeplink crewcue://dev/app-shell   # same on an
 ## Quality gate
 
 ```bash
-npm run verify   # what CI runs: lint, typecheck, tests, builds, harness tests, client-core checks
+npm run verify   # lint, typecheck, tests, builds, harness tests, client-core checks
 ```
+
+CI runs `verify` plus Postgres integration tests, and on PRs that touch them, the iOS and Android UI smoke tests.
 
 Scoped variants: `verify:api`, `verify:contracts`, `verify:client-core`, `verify:ios`, `verify:android`.
 
 ## Deploy and release
 
 - **API:** Railway deploys `main` (`railway.toml` runs migrations, then health-checks `/health/live`). See `docs/runbooks/staging-deploy.md`.
+- **Mobile:** `npm run release -- X.Y.Z` tags `main`. The `Release` workflow uploads iOS to TestFlight and Android to Play internal testing. Secrets and first-time setup: `docs/runbooks/mobile-release.md`.
 
 ## Contributing
 
