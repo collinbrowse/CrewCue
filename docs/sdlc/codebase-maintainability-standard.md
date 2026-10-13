@@ -31,7 +31,7 @@ Use these top-level boundaries consistently:
 - `services/api` -> server routes, domain logic, persistence, authz, replay/projections
 - `packages/client-core` -> shared Swift client behavior (no UI)
 - `apps/ios` and `apps/android` -> native presentation
-- `apps/mobile` -> frozen Expo client until native coverage is complete
+- `apps/ios` and `apps/android` -> native presentation. Expo is removed; do not add `apps/mobile`.
 - `docs/sdlc` -> execution plans, runbooks, and operating policy
 
 Do not duplicate domain rules across API and mobile. Domain authority stays server-side unless explicitly designed for offline behavior.
@@ -41,7 +41,7 @@ Do not encode client-specific behavior in contracts/routes unless the behavior i
 
 ## 3) Flow layering rules
 
-Every feature should follow this order. This section describes the native clients. It does not describe the frozen Expo tree.
+Every feature should follow this order. This section describes the native clients.
 
 1. **Contracts** (`packages/contracts`)
 2. **Server behavior + tests** (`services/api`)

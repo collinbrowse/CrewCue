@@ -3,97 +3,67 @@ import path from "node:path";
 
 const repoRoot = process.cwd();
 
-const clientRoots = [];
-
-const sourceFileExtensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
-const ignoredSuffixes = [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"];
-const ignoredDirectories = new Set(["node_modules", ".expo", "dist", "build"]);
-
-const disallowedPatterns = [
-  { label: "fetch()", regex: /\bfetch\s*\(/ },
-  { label: "axios", regex: /\baxios\b/ },
-  { label: "XMLHttpRequest", regex: /\bXMLHttpRequest\b/ }
+const nativeRoots = [
+  { root: path.join(repoRoot, "apps/ios"), kind: "swift" },
+  { root: path.join(repoRoot, "apps/android"), kind: "kotlin" },
+  { root: path.join(repoRoot, "packages/client-core/Sources"), kind: "swift" }
 ];
 
-async function listFilesRecursively(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
+const ignoredDirectories = new Set(["node_modules", ".expo", "dist", "build", ".build", ".gradle"]);
 
-  for (const entry of entries) {
-    if (ignoredDirectories.has(entry.name)) {
-      continue;
-    }
-
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listFilesRecursively(fullPath)));
-      continue;
-    }
-
-    files.push(fullPath);
-  }
-
-  return files;
+function isAllowedNetworkFile(filePath) {
+  const normalized = filePath.split(path.sep).join("/");
+  return (
+    normalized.endsWith("packages/client-core/Sources/CrewCueClientCore/APIClient.swift") ||
+    normalized.endsWith("apps/android/app/src/main/kotlin/com/crewcue/android/net/OkHttpTransport.kt")
+  );
 }
 
-function shouldCheckFile(appRoot, filePath) {
-  const relative = path.relative(appRoot, filePath);
-  if (!relative || relative.startsWith("..")) {
-    return false;
+async function listFilesRecursively(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
   }
-  const ext = path.extname(filePath);
-  if (!sourceFileExtensions.has(ext)) {
-    return false;
+  const files = [];
+  for (const entry of entries) {
+    if (ignoredDirectories.has(entry.name)) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...(await listFilesRecursively(fullPath)));
+    else files.push(fullPath);
   }
-  if (ignoredSuffixes.some((suffix) => relative.endsWith(suffix))) {
-    return false;
-  }
-  return true;
+  return files;
 }
 
 async function main() {
   const violations = [];
-
-  for (const { root: appRoot, allowedNetworkSources } of clientRoots) {
-    try {
-      await readFile(path.join(appRoot, "package.json"));
-    } catch {
-      continue;
-    }
-
-    const files = await listFilesRecursively(appRoot);
-
+  for (const { root, kind } of nativeRoots) {
+    const files = await listFilesRecursively(root);
     for (const filePath of files) {
-      if (!shouldCheckFile(appRoot, filePath)) {
-        continue;
-      }
-      if (allowedNetworkSources.has(path.normalize(filePath))) {
-        continue;
-      }
-
+      if (isAllowedNetworkFile(filePath)) continue;
       const content = await readFile(filePath, "utf8");
-      for (const rule of disallowedPatterns) {
-        if (rule.regex.test(content)) {
-          violations.push({
-            file: path.relative(repoRoot, filePath),
-            rule: rule.label
-          });
-        }
+      if (kind === "swift" && filePath.endsWith(".swift") && /\bURLSession\b/.test(content)) {
+        violations.push({ file: path.relative(repoRoot, filePath), rule: "URLSession" });
+      }
+      if (kind === "kotlin" && filePath.endsWith(".kt") && /\bOkHttp\b|\bHttpURLConnection\b/.test(content)) {
+        violations.push({ file: path.relative(repoRoot, filePath), rule: "OkHttp" });
+      }
+      if (/\.(ts|tsx|js|jsx)$/.test(filePath) && /\bfetch\s*\(|\baxios\b|\bXMLHttpRequest\b/.test(content)) {
+        violations.push({ file: path.relative(repoRoot, filePath), rule: "raw JS networking" });
       }
     }
   }
 
   if (violations.length > 0) {
-    console.error(
-      "Dual-client guard failed: raw networking found outside allowed apps/*/src/api/client.ts entrypoints."
-    );
+    console.error("Dual-client guard failed: networking must stay in the client-core transport or OkHttpTransport.kt.");
     for (const violation of violations) {
       console.error(`- ${violation.file}: ${violation.rule}`);
     }
     process.exit(1);
   }
 
-  console.log("Dual-client guard passed: networking stays centralized per client.");
+  console.log("Dual-client guard passed: native networking stays in the transport adapters.");
 }
 
 main().catch((error) => {

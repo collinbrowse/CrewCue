@@ -67,7 +67,7 @@ List each relevant acceptance criterion and how this PR satisfies it.
 - `npm run build`
 - `npm run test`
 - `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet` and `npm run agent:android:ready -- --deeplink crewcue://dev/schedule-sheet` when a native screen changed
-- `npm run verify` (repo root: matches CI `checks` — lint, typecheck, test, **workspace builds including mobile `expo export`**, harness unit tests)
+- `npm run verify` (repo root: matches CI `checks` — lint, typecheck, test, workspace builds, harness unit tests)
 - Agent packages: `npm run agent:pr:done -- <pr>` (or `--body-file` with this body)
 
 ## iOS simulator evidence (required if `apps/ios` UI changed)

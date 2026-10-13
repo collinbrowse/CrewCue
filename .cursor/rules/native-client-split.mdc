@@ -11,6 +11,7 @@ alwaysApply: false
 - Implement the checklist in `clients/behavior/<id>.md`. Do not open the other platform's UI to copy layout.
 - Shared behavior goes in `packages/client-core` (Swift, no SwiftUI). Structure: `client-core-architecture.mdc`, `ios-presentation.mdc`, `android-presentation.mdc`. Load only the trees the task touches.
 - MapLibre, Stream, and Auth0 stay in the platform app.
-- `apps/mobile` is frozen. A change there needs `expo-hotfix:` in the PR body.
+- Expo is removed. Do not add `apps/mobile`.
+- A checklist row may be `pass` only after device proof, not because fixture copy renders.
 - iOS proof: `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
 - Android proof: `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`

@@ -99,7 +99,7 @@ GitHub UI path:
 Why this matters:
 
 - `pr-decision-doc-guard` fails if required decision-rationale sections are missing or effectively unfilled
-- `dual-client-guard` fails if raw networking drifts outside `apps/mobile/src/api/client.ts`
+- `dual-client-guard` fails if native networking drifts outside the client-core transport or `OkHttpTransport.kt`
 - `checks` covers lint/typecheck/build/tests
 - `api-postgres-integration` protects Postgres-backed API behavior
 

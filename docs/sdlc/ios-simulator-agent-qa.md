@@ -4,7 +4,7 @@ Short policy for agent-driven mobile validation. **Evidence lives on the PR only
 
 ## When required
 
-Any change to **`apps/ios/**`** that affects what users see or tap. The Expo app under `apps/mobile` is frozen.
+Any change to **`apps/ios/**`** that affects what users see or tap. There is no Expo app.
 
 ## Flow
 
@@ -27,4 +27,4 @@ Stop. Do not mark done. Report blocker + **options to proceed**. Prefer extendin
 
 ## Regression
 
-Stable flows → `apps/mobile/.maestro/`. Linux CI does not run the sim; macOS author/agent runs smokes locally.
+Linux CI does not run the sim; macOS author/agent runs smokes locally.

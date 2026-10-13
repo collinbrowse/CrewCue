@@ -19,8 +19,8 @@ Implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. Skip
 - **Android UI** (`apps/android/**`): `.cursor/rules/android-emulator-agent-qa.mdc`. Emulator proof on the PR before claiming done.
 - **Shared client behavior** (`packages/client-core/**`): Swift tests on the host and the Android SDK build when the SDK is installed. No UI in that package. Structure: `.cursor/rules/client-core-architecture.mdc`.
 - **Client structure:** load only the trees the task touches. `packages/client-core/**` → `client-core-architecture.mdc`. `apps/ios/**` → that rule plus `ios-presentation.mdc`. `apps/android/**` → that rule plus `android-presentation.mdc`.
-- **Checklists** (`clients/behavior/**`): source of truth for parity. Do not sync by reading the other platform's UI.
-- **Expo removed.** Native clients are `apps/ios` and `apps/android`. Do not add `apps/mobile`.
+- **Checklists** (`clients/behavior/**`): source of truth for parity. Do not sync by reading the other platform's UI. `deeplinks.json` `pass` is legal only with a device proof file; fixture copy is not a pass.
+- **Expo removed.** Native clients are `apps/ios` and `apps/android`. Do not add `apps/mobile`. Native race-day is unfinished while checklist rows are `fail`.
 - **XcodeBuildMCP:** Use the installed XcodeBuildMCP skill/docs before calling MCP tools.
 - **agent-ready waves:** `.cursor/rules/agent-work-package-verification.mdc` (Ready script first).
 - **Handoff / staging:** pull matching `.cursor/rules/*.mdc` by description when needed.

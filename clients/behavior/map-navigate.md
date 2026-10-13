@@ -3,8 +3,17 @@
 ## Entry
 crewcue://dev/map-navigate
 
+## Action
+Choose a destination checkpoint and start a hike or drive route.
+
+## API
+POST /race-rooms/:roomId/routing/route
+
+## Permissions
+none
+
 ## Success
-Navigate. 1.0 mi to the next aid.
+Navigate. Distance to the next aid is shown.
 
 ## Empty
 No destination.

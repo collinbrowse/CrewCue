@@ -3,8 +3,17 @@
 ## Entry
 crewcue://dev/room-members
 
+## Action
+Open the roster, edit a display name, or remove a member when permitted.
+
+## API
+GET /race-rooms/:roomId memberships. PATCH and DELETE /race-rooms/:roomId/members/:memberUserId
+
+## Permissions
+none
+
 ## Success
-1 member on the roster.
+Roster lists members.
 
 ## Empty
 No members yet.

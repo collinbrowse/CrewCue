@@ -8,7 +8,7 @@
 - `apps/ios` — SwiftUI. An iOS developer should be able to read it as plain SwiftUI.
 - `apps/android` — Jetpack Compose / Kotlin. Kotlin stays in this module.
 - `packages/client-core` — Swift package. No UI. Android calls it through the Swift 6.3+ Android SDK and the swift-java JNI facade.
-- `apps/mobile` — frozen Expo client until `clients/behavior/deeplinks.json` records a pass for every feature on both native apps.
+- `apps/mobile` — removed. Do not add it back. Native coverage is unfinished while `clients/behavior/deeplinks.json` rows are `fail`.
 - `apps/web` — removed. There is no replacement web UI.
 - Server platform, unchanged:
   - `packages/contracts` — canonical wire shapes
@@ -43,6 +43,4 @@ File layout, dependency injection, routes, errors, and screen models live in the
 - `npm run verify:client-core` and `npm run verify:client-core:android-build`
 - `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
 - `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`
-- `npm run verify:expo-freeze` while `apps/mobile` still exists
-
-A feature that has both UI issues is covered when both device gates have passed. Linux CI does not boot a simulator or emulator.
+A feature that has both UI issues is covered when both device gates have passed and `deeplinks.json` is `pass` only with proof under `.agent-pr-evidence/behavior/`. Linux CI does not boot a simulator or emulator.
