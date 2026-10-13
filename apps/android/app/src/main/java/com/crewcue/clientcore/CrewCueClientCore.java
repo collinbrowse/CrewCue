@@ -12,4 +12,6 @@ public final class CrewCueClientCore {
     public static native String helloStamp();
 
     public static native String featureScreenJsonForUrl(String url);
+
+    public static native String runtimeJson(String request);
 }

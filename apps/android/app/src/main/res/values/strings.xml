@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="crewcue_auth0_domain"></string>
+    <string name="crewcue_auth0_client_id"></string>
+    <string name="crewcue_auth0_audience"></string>
+    <string name="crewcue_api_base_url"></string>
+</resources>

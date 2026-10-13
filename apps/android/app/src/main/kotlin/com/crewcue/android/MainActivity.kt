@@ -1,5 +1,6 @@
 package com.crewcue.android
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,19 +12,38 @@ import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.ShellViewModelFactory
 
 class MainActivity : ComponentActivity() {
-    private val container = AppContainer()
+    private val container by lazy { AppContainer(applicationContext) }
     private val shellModel: ShellViewModel by viewModels {
-        ShellViewModelFactory(container, intent?.dataString)
+        ShellViewModelFactory(container, intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installMapLibre()
+        installStream()
         setContent { AppRouter(shellModel) }
+    }
+
+    private fun installMapLibre() {
+        if (!BuildConfig.MAP_LIBRE) return
+        runCatching {
+            val type = Class.forName("com.crewcue.android.ui.map.MapLibreBootstrap")
+            type.getMethod("install", Context::class.java).invoke(null, applicationContext)
+        }
+    }
+
+    private fun installStream() {
+        if (!BuildConfig.STREAM_CHAT) return
+        runCatching {
+            Class.forName("com.crewcue.android.ui.chat.StreamChatBootstrap")
+                .getMethod("install")
+                .invoke(null)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        shellModel.open(intent.dataString)
+        shellModel.open(intent)
     }
 }
