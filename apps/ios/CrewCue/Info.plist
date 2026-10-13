@@ -4,6 +4,14 @@
 <dict>
   <key>CFBundleDisplayName</key>
   <string>CrewCue</string>
+  <key>CrewCueAPIBaseURL</key>
+  <string>http://127.0.0.1:3000</string>
+  <key>CrewCueAuth0Domain</key>
+  <string></string>
+  <key>CrewCueAuth0ClientId</key>
+  <string></string>
+  <key>CrewCueAuth0Audience</key>
+  <string></string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -14,7 +22,17 @@
         <string>crewcue</string>
       </array>
     </dict>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>auth0</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>com.crewcue.ios</string>
+      </array>
+    </dict>
   </array>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>CrewCue uses your location while you are using the app to share the athlete's position with the crew.</string>
   <key>UILaunchScreen</key>
   <dict/>
 </dict>

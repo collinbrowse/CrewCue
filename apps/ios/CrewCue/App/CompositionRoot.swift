@@ -4,21 +4,33 @@ import CrewCueClientCore
 @MainActor
 struct CompositionRoot {
     func makeModel() -> ShellModel {
-        let graph = ClientGraph(
-            transport: URLSessionTransport(),
-            clock: SystemClock(),
-            logger: OSLogLogger()
+        let launch = LaunchConfiguration.resolve()
+        let restored = launch.devSession ?? Self.loadPersistedSession()
+        let client = AppClient(
+            graph: ClientGraph(
+                transport: URLSessionTransport(),
+                clock: SystemClock(),
+                logger: OSLogLogger(),
+                baseURL: launch.baseURL,
+                tokenProvider: StaticTokenProvider(token: restored?.accessToken),
+                session: SessionController()
+            )
         )
-        return ShellModel(graph: graph, route: Self.launchRoute())
+        let model = ShellModel(
+            client: client,
+            route: launch.route,
+            fixtureOverlay: launch.fixtureOverlay,
+            authConfiguration: launch.auth
+        )
+        model.prepareStores()
+        if let restored {
+            model.adopt(restored)
+        }
+        return model
     }
 
-    private static func launchRoute() -> Route {
-        let arguments = CommandLine.arguments
-        if let index = arguments.firstIndex(of: "--deeplink"),
-           arguments.indices.contains(index + 1),
-           let route = Route.parse(arguments[index + 1]) {
-            return route
-        }
-        return Route(featureId: "app-shell", state: .success)
+    private static func loadPersistedSession() -> ClientSession? {
+        guard let root = try? AppDirectories.root() else { return nil }
+        return try? SessionFile.load(directory: root)
     }
 }

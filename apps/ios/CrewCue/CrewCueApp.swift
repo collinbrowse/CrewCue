@@ -3,6 +3,7 @@ import CrewCueClientCore
 
 @main
 struct CrewCueApp: App {
+    @UIApplicationDelegateAdaptor(CrewCueAppDelegate.self) private var appDelegate
     @State private var model: ShellModel
 
     init() {
