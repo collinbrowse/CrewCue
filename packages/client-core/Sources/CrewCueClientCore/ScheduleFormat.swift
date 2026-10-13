@@ -10,8 +10,8 @@ public enum ScheduleFormat {
         let hours = sec / 3600
         let minutes = (sec % 3600) / 60
         let seconds = sec % 60
-        let mm = String(format: "%02d", minutes)
-        let ss = String(format: "%02d", seconds)
+        let mm = PortableFormat.zeroPadded(minutes, width: 2)
+        let ss = PortableFormat.zeroPadded(seconds, width: 2)
         if hours > 0 {
             return "\(hours):\(mm):\(ss)"
         }
@@ -39,7 +39,21 @@ public enum ScheduleFormat {
         utc.timeZone = TimeZone(secondsFromGMT: 0) ?? utc.timeZone
         let hour = utc.component(.hour, from: date)
         let minute = utc.component(.minute, from: date)
-        return String(format: "%02d:%02d UTC", hour, minute)
+        let hourText = PortableFormat.zeroPadded(hour, width: 2)
+        let minuteText = PortableFormat.zeroPadded(minute, width: 2)
+        return "\(hourText):\(minuteText) UTC"
+    }
+
+    /// One schedule row: title, elapsed duration, and UTC clock. Matches the fixture sheet spacing.
+    public static func scheduleLine(checkpointId: String, elapsedSeconds: Double, clockArrivalAt: String) -> String {
+        let title = slugToTitle(checkpointId)
+        return "\(title)  \(formatDurationSeconds(elapsedSeconds))  \(formatUtcHhMm(clockArrivalAt))"
+    }
+
+    public static func crewSheetText(roomId: String, capturedAtIso: String, stopLines: [String]) -> String {
+        var lines = ["Crew sheet", "Captured \(formatUtcHhMm(capturedAtIso))", "Room \(roomId)"]
+        lines.append(contentsOf: stopLines)
+        return lines.joined(separator: "\n")
     }
 
     public static func checkpointDisplayTitle(id: String, title: String?) -> String {
@@ -52,7 +66,7 @@ public enum ScheduleFormat {
             return "—"
         }
         let miles = max(0, checkpointDistanceMeters - progressMeters) / 1609.344
-        return String(format: "%.1f mi", miles)
+        return "\(PortableFormat.oneDecimal(miles)) mi"
     }
 
     public static func slugToTitle(_ slug: String) -> String {

@@ -175,6 +175,7 @@ function jniGlueSource() {
 #include <stdlib.h>
 extern char *crewcue_hello_stamp(void);
 extern char *crewcue_feature_screen_json_for_url(const char *url);
+extern char *crewcue_runtime_json(const char *request);
 static jstring adopt(JNIEnv *env, char *value) {
   if (!value) return NULL;
   jstring result = (*env)->NewStringUTF(env, value);
@@ -190,6 +191,13 @@ JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_featureS
   const char *chars = url ? (*env)->GetStringUTFChars(env, url, NULL) : "";
   char *json = crewcue_feature_screen_json_for_url(chars);
   if (url) (*env)->ReleaseStringUTFChars(env, url, chars);
+  return adopt(env, json);
+}
+JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_runtimeJson(JNIEnv *env, jclass clazz, jstring request) {
+  (void)clazz;
+  const char *chars = request ? (*env)->GetStringUTFChars(env, request, NULL) : "";
+  char *json = crewcue_runtime_json(chars);
+  if (request) (*env)->ReleaseStringUTFChars(env, request, chars);
   return adopt(env, json);
 }
 `;
