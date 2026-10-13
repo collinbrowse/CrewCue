@@ -1,0 +1,31 @@
+name: Setup Swift (Linux)
+description: Install a Swift toolchain with swiftly. swift-actions/setup-swift does not know 6.3.x releases.
+inputs:
+  version:
+    description: Swift version, for example 6.3.2
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: ~/.local/share/swiftly
+        key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+    - shell: bash
+      env:
+        SWIFT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        export SWIFTLY_HOME_DIR="$HOME/.local/share/swiftly"
+        export SWIFTLY_BIN_DIR="$SWIFTLY_HOME_DIR/bin"
+        if [ ! -x "$SWIFTLY_BIN_DIR/swiftly" ]; then
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
+          tar zxf "swiftly-$(uname -m).tar.gz"
+          ./swiftly init --quiet-shell-followup --assume-yes --skip-install
+        fi
+        "$SWIFTLY_BIN_DIR/swiftly" install --use --assume-yes "$SWIFT_VERSION"
+        echo "SWIFTLY_HOME_DIR=$SWIFTLY_HOME_DIR" >> "$GITHUB_ENV"
+        echo "SWIFTLY_BIN_DIR=$SWIFTLY_BIN_DIR" >> "$GITHUB_ENV"
+        echo "$SWIFTLY_BIN_DIR" >> "$GITHUB_PATH"
+        "$SWIFTLY_BIN_DIR/swift" --version
