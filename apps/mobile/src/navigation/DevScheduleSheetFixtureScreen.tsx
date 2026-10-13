@@ -3,7 +3,14 @@ import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ManualCheckpointStopInput, StopPlanResponse, UpsertStopPlanInput } from "../api/client";
 import { useDSTheme } from "../design-system";
-import { CrewScheduleSheetView } from "../features/schedule/CrewScheduleSheetView";
+import { DevMapAidSheetShell } from "../features/mapSheet/DevMapAidSheetShell";
+import {
+  buildAidStationPages,
+  clampIndex,
+  followAfterUserPage,
+  type MapSheetPhase
+} from "../features/mapSheet/aidStationPagerModel";
+import type { MapAidStationIndexSource } from "../features/mapSheet/MapAidStationSheet";
 import {
   applyDevClosedCheckIn,
   applyDevStopPlanUpsert,
@@ -57,6 +64,19 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
   const [checkInCheckpointId, setCheckInCheckpointId] = useState<string | null>(null);
   const [savingCheckIn, setSavingCheckIn] = useState(false);
   const [checkInError, setCheckInError] = useState<string | undefined>(undefined);
+  const [pagerIndex, setPagerIndex] = useState(0);
+  const [followAid, setFollowAid] = useState(true);
+  const phase: MapSheetPhase = "race";
+
+  const pages = useMemo(
+    () =>
+      buildAidStationPages({
+        sheet,
+        titleByCheckpointId
+      }),
+    [sheet, titleByCheckpointId]
+  );
+  const liveNextIdx = 0;
 
   const editingPlan: StopPlanResponse | null = useMemo(() => {
     if (!editingCheckpointId) {
@@ -187,7 +207,25 @@ export function DevScheduleSheetFixtureScreen(): ReactElement {
       <Text style={[styles.banner, { color: theme.color.body }]} accessibilityLabel="Dev schedule fixture banner">
         DEV fixture · editable stop plans + check-in · no Auth0 · fixtures/pacing/schedule-expected.json
       </Text>
-      <CrewScheduleSheetView
+      <DevMapAidSheetShell
+        initialExpanded
+        collapseLocked={editingCheckpointId != null || checkInCheckpointId != null}
+        pages={pages}
+        index={clampIndex(pagerIndex, pages.length)}
+        follow={followAid}
+        liveNextIndex={liveNextIdx}
+        liveNextTitle={titleByCheckpointId.get("start") ?? "Start"}
+        onIndexChange={(next: number, source: MapAidStationIndexSource) => {
+          const clamped = clampIndex(next, pages.length);
+          setPagerIndex(clamped);
+          if (source === "jump" || source === "follow") {
+            setFollowAid(true);
+          } else {
+            setFollowAid(followAfterUserPage(clamped, liveNextIdx));
+          }
+        }}
+        phase={phase}
+        progressMeters={0}
         sheet={sheet}
         loading={false}
         titleByCheckpointId={titleByCheckpointId}

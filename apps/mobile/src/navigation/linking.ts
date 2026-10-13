@@ -4,11 +4,19 @@ import { Linking } from "react-native";
 import {
   CREW_CUE_LINKING_PREFIXES,
   isAuthedTabDeepLinkPath,
+  isRetiredCourseSchedulePath,
+  mapAidSheetExpandNavigationState,
   pathFromCrewCueUrl
 } from "./linkingPaths";
 import { isStravaOAuthDeepLink } from "../features/strava/stravaOAuth";
 
-export { CREW_CUE_LINKING_PREFIXES, isAuthedTabDeepLinkPath, pathFromCrewCueUrl } from "./linkingPaths";
+export {
+  CREW_CUE_LINKING_PREFIXES,
+  isAuthedTabDeepLinkPath,
+  isRetiredCourseSchedulePath,
+  mapAidSheetExpandNavigationState,
+  pathFromCrewCueUrl
+} from "./linkingPaths";
 
 import { authedTabLinkingScreens, guestLinkingScreens } from "./linkingConfig";
 
@@ -19,6 +27,9 @@ export const crewCueLinking: LinkingOptions<any> = buildCrewCueLinking({ showAut
 
 export function navigationStateForAuthedDeepLink(path: string) {
   const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (isRetiredCourseSchedulePath(normalized)) {
+    return mapAidSheetExpandNavigationState();
+  }
   return getStateFromPath(normalized, { screens: authedTabLinkingScreens });
 }
 
@@ -44,6 +55,12 @@ export function buildCrewCueLinking(options: BuildCrewCueLinkingOptions): Linkin
   return {
     prefixes: [...CREW_CUE_LINKING_PREFIXES],
     config: { screens },
+    getStateFromPath(path, options) {
+      if (isRetiredCourseSchedulePath(path)) {
+        return mapAidSheetExpandNavigationState();
+      }
+      return getStateFromPath(path, options);
+    },
     async getInitialURL() {
       const url = await Linking.getInitialURL();
       if (!url) return undefined;

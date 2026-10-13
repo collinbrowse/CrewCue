@@ -10,15 +10,12 @@ import {
   type ViewPadding,
   type ViewStateChangeEvent
 } from "@maplibre/maplibre-react-native";
-import type { RaceMapWorkspace, RaceRoom, RaceRoomProjection } from "@crewcue/contracts";
+import type { RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import {
   buildExpectedAidStationSplitsFromCourse,
-  elevationSamplesFromWorkspacePolyline,
-  formatPace,
   latLngAtDistanceAlongCheckpointCourse,
   lngLatAtDistanceAlongPolyline,
-  primaryCourseLngLatPolyline,
-  remainingGainAndLossMetersAfter
+  primaryCourseLngLatPolyline
 } from "@crewcue/map-core";
 import * as Location from "expo-location";
 import {
@@ -37,7 +34,6 @@ import {
   Easing,
   PixelRatio,
   Image,
-  LayoutChangeEvent,
   Linking,
   Modal,
   PanResponder,
@@ -48,7 +44,7 @@ import {
   View
 } from "react-native";
 import type { NativeSyntheticEvent } from "react-native";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -56,8 +52,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createApiClient } from "../api/client";
 import { DSButton } from "../design-system";
 import { useDSTheme, useDesignSystemSelection } from "../design-system/theme";
-import { formatEtaClock, formatRemainingMinutes, secondsForDistance } from "../features/readouts/eta";
-import { formatElapsedHoursMinutes } from "../features/pace/timeline";
+import { formatEtaClock } from "../features/readouts/eta";
+import { MapAidStationSheet } from "../features/mapSheet/MapAidStationSheet";
+import type { MapAidStationIndexSource } from "../features/mapSheet/MapAidStationSheet";
+import {
+  buildAidStationPages,
+  clampIndex,
+  defaultIndexForPhase,
+  followAfterUserPage,
+  indexForCheckpointId,
+  liveNextIndex,
+  nextIndexIfFollow,
+  resolveLiveNextCheckpoint
+} from "../features/mapSheet/aidStationPagerModel";
+import { useCrewSchedule } from "../features/schedule/useCrewSchedule";
 import type { BasemapPreviewLayout } from "../features/maps/mapStyleUrl";
 import { basemapPreviewLayout, mobileMapStyleUrlForPreset } from "../features/maps/mapStyleUrl";
 import type { BasemapPresetId } from "../preferences/basemapPreference";
@@ -148,46 +156,6 @@ function parseRaceAnchorMs(room: RaceRoom | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** Next aid along the course: prefer WS2 split rows; otherwise infer from checkpoint arc distances + progress. */
-function resolveNextCheckpointForMapSheet(
-  room: RaceRoom | undefined,
-  projection: RaceRoomProjection | undefined,
-  checkpointDistanceById: Map<string, number>
-): { checkpointId: string; distanceMetersFromStart: number; crossedAtRecordedAt: string | null } | null {
-  const cps = room?.course?.checkpoints;
-  if (!cps?.length) {
-    return null;
-  }
-  const splits = projection?.checkpointSplits ?? [];
-  if (splits.length > 0) {
-    const row = splits.find((r) => r.crossedAtRecordedAt === null) ?? splits[splits.length - 1];
-    if (!row) {
-      return null;
-    }
-    const fromCourse = checkpointDistanceById.get(row.checkpointId);
-    const distanceMetersFromStart =
-      typeof fromCourse === "number" && Number.isFinite(fromCourse) ? fromCourse : row.distanceMetersFromStart;
-    return {
-      checkpointId: row.checkpointId,
-      distanceMetersFromStart,
-      crossedAtRecordedAt: row.crossedAtRecordedAt
-    };
-  }
-  const progressMeters = projection?.progressMeters ?? 0;
-  for (const cp of cps) {
-    const d = checkpointDistanceById.get(cp.id);
-    if (d === undefined || !Number.isFinite(d)) {
-      continue;
-    }
-    if (d > progressMeters + 5) {
-      return { checkpointId: cp.id, distanceMetersFromStart: d, crossedAtRecordedAt: null };
-    }
-  }
-  const lastCp = cps[cps.length - 1]!;
-  const lastD = checkpointDistanceById.get(lastCp.id) ?? progressMeters;
-  return { checkpointId: lastCp.id, distanceMetersFromStart: lastD, crossedAtRecordedAt: null };
-}
-
 function mergeWorkspaceFromServer(room: RaceRoom | undefined, server: RaceMapWorkspace | null): RaceMapWorkspace {
   const base = resolveWorkspaceFromRoom(room);
   if (!server) {
@@ -233,6 +201,7 @@ export function TrackMapDashboardScreen(): ReactElement {
   const { activeMode } = useDesignSystemSelection();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
+  const route = useRoute<RouteProp<MapStackParamList, "MapHome">>();
   const room = s.room;
   const inRace = Boolean(room);
   const projection = s.projection;
@@ -261,15 +230,6 @@ export function TrackMapDashboardScreen(): ReactElement {
     return room;
   }, [room, s.roomDetail?.room]);
 
-  const startCheckpointTitle = useMemo(() => {
-    const r = scheduleRoom;
-    const first = r?.course?.checkpoints?.[0];
-    if (!first) {
-      return "Start";
-    }
-    return checkpointLabel(r, first.id);
-  }, [scheduleRoom]);
-
   const [serverWorkspace, setServerWorkspace] = useState<RaceMapWorkspace | null>(null);
   const workspace = useMemo(() => mergeWorkspaceFromServer(room, serverWorkspace), [room, serverWorkspace]);
 
@@ -285,7 +245,8 @@ export function TrackMapDashboardScreen(): ReactElement {
   const mapRef = useRef<MapRef>(null);
   const lastCourseFitKeyRef = useRef<string | null>(null);
   const [showRaceSelectorModal, setShowRaceSelectorModal] = useState(false);
-  const [selectedCheckpointId, setSelectedCheckpointId] = useState<string | null>(null);
+  const [pagerIndex, setPagerIndex] = useState(0);
+  const [followAid, setFollowAid] = useState(true);
   const [raceTitleRect, setRaceTitleRect] = useState<WindowRect | null>(null);
   const raceTitleRef = useRef<View>(null);
   const rootRef = useRef<View>(null);
@@ -329,8 +290,8 @@ export function TrackMapDashboardScreen(): ReactElement {
   const sheetBoxTranslate = sheetFullyPeeked ? 0 : sheetTranslate;
 
   const onSheetPeekChromeLayout = useCallback(
-    (e: LayoutChangeEvent) => {
-      const raw = Math.round(e.nativeEvent.layout.height);
+    (rawHeight: number) => {
+      const raw = Math.round(rawHeight);
       const span = sheetAnchorBottomY - expandedSheetTopY;
       const maxPeek = Math.min(480, Math.max(120, span - 48));
       const minPeek = 120;
@@ -527,7 +488,7 @@ export function TrackMapDashboardScreen(): ReactElement {
 
   useEffect(() => {
     lastCourseFitKeyRef.current = null;
-    setSelectedCheckpointId(null);
+    setFollowAid(true);
   }, [roomId]);
 
   const mapInitialCenter = useMemo((): [number, number] => {
@@ -860,63 +821,6 @@ export function TrackMapDashboardScreen(): ReactElement {
     projectionPolledAt
   ]);
 
-  const remainingDistM = useMemo(() => {
-    if (!projection) {
-      return null;
-    }
-    const len = effectiveCourseLengthMeters ?? (projection.courseLengthMeters > 0 ? projection.courseLengthMeters : null);
-    if (len == null || len <= 0) {
-      return null;
-    }
-    return Math.max(0, len - projection.progressMeters);
-  }, [projection, effectiveCourseLengthMeters]);
-
-  const remainingMi = remainingDistM !== null ? remainingDistM / 1609.344 : null;
-
-  const vertSummary = useMemo(() => {
-    if (!projection || !room) {
-      return null;
-    }
-    const samples = elevationSamplesFromWorkspacePolyline(workspace);
-    if (!samples || samples.length < 2) {
-      return null;
-    }
-    const sampleEnd = samples[samples.length - 1]!.distanceMetersFromStart;
-    const courseLen =
-      effectiveCourseLengthMeters != null && effectiveCourseLengthMeters > 0
-        ? effectiveCourseLengthMeters
-        : projection.courseLengthMeters > 0
-          ? projection.courseLengthMeters
-          : sampleEnd;
-    const ratio = courseLen > 0 ? sampleEnd / courseLen : 1;
-    const dAlong = projection.progressMeters * ratio;
-    return remainingGainAndLossMetersAfter(samples, dAlong);
-  }, [projection, room, workspace, effectiveCourseLengthMeters]);
-
-  const vertDisplay = useMemo(() => {
-    if (!vertSummary) {
-      return { text: "—", sub: "" };
-    }
-    const gain = vertSummary.gainRemainingMeters;
-    const loss = vertSummary.lossRemainingMeters;
-    if (gain >= 0.5) {
-      const ft = Math.round(gain * 3.28084);
-      return { text: `+${ft.toLocaleString()} FT`, sub: "gain left" };
-    }
-    if (loss >= 0.5) {
-      const ft = Math.round(loss * 3.28084);
-      return { text: `-${ft.toLocaleString()} FT`, sub: "loss left" };
-    }
-    return { text: "0 FT", sub: "flat" };
-  }, [vertSummary]);
-
-  const paceLabel = useMemo(() => {
-    if (!projection?.plannedPaceSecondsPerKm) {
-      return "—";
-    }
-    return `${formatPace(projection.plannedPaceSecondsPerKm, "mi")} / MI`;
-  }, [projection?.plannedPaceSecondsPerKm]);
-
   const checkpointDistanceById = useMemo(() => {
     const map = new Map<string, number>();
     if (!room?.course) {
@@ -959,115 +863,106 @@ export function TrackMapDashboardScreen(): ReactElement {
     return map;
   }, [room?.course, room?.plannedPaceSecondsPerKm, projection?.checkpointSplits, projection?.plannedPaceSecondsPerKm]);
 
-  const resolvedNextCheckpoint = useMemo(
-    () => resolveNextCheckpointForMapSheet(room, projection, checkpointDistanceById),
-    [room, projection, checkpointDistanceById]
+  const liveNext = useMemo(
+    () =>
+      resolveLiveNextCheckpoint(
+        room?.course?.checkpoints,
+        projection?.checkpointSplits,
+        projection?.progressMeters ?? 0,
+        checkpointDistanceById
+      ),
+    [room?.course?.checkpoints, projection?.checkpointSplits, projection?.progressMeters, checkpointDistanceById]
   );
 
-  const nextCheckpointLabel = useMemo(() => {
-    if (!resolvedNextCheckpoint || !room) {
-      return "—";
-    }
-    return checkpointLabel(room, resolvedNextCheckpoint.checkpointId);
-  }, [resolvedNextCheckpoint, room]);
+  const schedule = useCrewSchedule({ liveNextCheckpointId: liveNext?.checkpointId ?? null });
 
-  const selectedCheckpointTooltip = useMemo(() => {
-    if (!selectedCheckpointId) {
-      return null;
-    }
-    const label = checkpointLabel(room, selectedCheckpointId);
-    const checkpointIndex = room?.course?.checkpoints?.findIndex((cp) => cp.id === selectedCheckpointId) ?? -1;
-    if (checkpointIndex === 0) {
-      return { label, etaText: "Start checkpoint" };
-    }
-    const distanceFromStart = checkpointDistanceById.get(selectedCheckpointId);
-    const pace = projection?.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm;
-    if (distanceFromStart === undefined || !pace || !Number.isFinite(pace) || pace <= 0) {
-      return { label, etaText: "ETA unavailable" };
-    }
-    const progressMeters = projection?.progressMeters ?? 0;
-    const secondsToCheckpoint = secondsForDistance(Math.max(0, distanceFromStart - progressMeters), pace);
-    return {
-      label,
-      etaText: `${formatEtaClock(Date.now() + secondsToCheckpoint * 1000)} (${formatRemainingMinutes(secondsToCheckpoint)})`
-    };
-  }, [selectedCheckpointId, room, checkpointDistanceById, projection?.plannedPaceSecondsPerKm, projection?.progressMeters]);
+  const aidPages = useMemo(
+    () =>
+      buildAidStationPages({
+        sheet: schedule.sheet,
+        checkpoints: room?.course?.checkpoints,
+        titleByCheckpointId: schedule.titleByCheckpointId,
+        checkpointDistanceById
+      }),
+    [schedule.sheet, room?.course?.checkpoints, schedule.titleByCheckpointId, checkpointDistanceById]
+  );
 
-  const etaNextLabel = useMemo(() => {
+  const liveNextIdx = useMemo(() => liveNextIndex(aidPages, liveNext), [aidPages, liveNext]);
+
+  useEffect(() => {
+    setFollowAid(mapSheetPhase === "race");
+    setPagerIndex(defaultIndexForPhase(mapSheetPhase, aidPages.length, liveNextIdx));
+  }, [roomId]);
+
+  const mapSheetPhaseRef = useRef(mapSheetPhase);
+  useEffect(() => {
+    if (mapSheetPhaseRef.current !== "finish" && mapSheetPhase === "finish") {
+      setFollowAid(false);
+      setPagerIndex(defaultIndexForPhase("finish", aidPages.length, liveNextIdx));
+    }
+    mapSheetPhaseRef.current = mapSheetPhase;
+  }, [mapSheetPhase, aidPages.length, liveNextIdx]);
+
+  useEffect(() => {
     if (mapSheetPhase !== "race") {
-      return { time: "—", remain: "—" };
+      setPagerIndex((i) => clampIndex(i, aidPages.length));
+      return;
     }
-    if (!projection || !resolvedNextCheckpoint) {
-      return { time: "—", remain: "—" };
-    }
-    const pace = projection.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm;
-    if (!pace || !Number.isFinite(pace) || pace <= 0) {
-      return { time: "—", remain: "—" };
-    }
-    const distToNext = Math.max(0, resolvedNextCheckpoint.distanceMetersFromStart - projection.progressMeters);
-    const secondsToNext = secondsForDistance(distToNext, pace);
-    const etaMs = Date.now() + secondsToNext * 1000;
-    return { time: formatEtaClock(etaMs), remain: formatRemainingMinutes(secondsToNext) };
-  }, [mapSheetPhase, projection, resolvedNextCheckpoint, room?.plannedPaceSecondsPerKm]);
+    setPagerIndex((i) => nextIndexIfFollow(followAid, liveNextIdx, i, aidPages.length));
+  }, [followAid, liveNextIdx, aidPages.length, mapSheetPhase]);
 
-  const preStartSheetDetails = useMemo(() => {
-    if (mapSheetPhase !== "preStart") {
-      return null;
-    }
-    const anchorMs = parseRaceAnchorMs(scheduleRoom);
-    if (anchorMs == null) {
-      return null;
-    }
-    const startsInSec = Math.max(0, (anchorMs - Date.now()) / 1000);
-    return {
-      startsAtLine: new Date(anchorMs).toLocaleString(undefined, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit"
-      }),
-      startsAtTimeOfDay: new Date(anchorMs).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit"
-      }),
-      startsInRemain: startsInSec >= 60 ? formatRemainingMinutes(startsInSec) : startsInSec > 0 ? "< 1 min" : "Starting",
-      startsAtClock: formatEtaClock(anchorMs)
-    };
-  }, [mapSheetPhase, scheduleRoom?.raceStartAt, scheduleRoom?.activatedAt, projectionPolledAt]);
+  const onAidIndexChange = useCallback(
+    (next: number, source: MapAidStationIndexSource) => {
+      const clamped = clampIndex(next, aidPages.length);
+      setPagerIndex(clamped);
+      if (source === "jump" || source === "follow") {
+        setFollowAid(true);
+      } else {
+        setFollowAid(followAfterUserPage(clamped, liveNextIdx));
+      }
+    },
+    [aidPages.length, liveNextIdx]
+  );
 
-  const finishSheetDetails = useMemo(() => {
-    if (mapSheetPhase !== "finish" || !room?.course?.checkpoints?.length) {
-      return null;
+  const selectedCheckpointId = aidPages[pagerIndex]?.checkpointId ?? null;
+  const pendingMapHomeParamsRef = useRef<{ checkpointId?: string; expandSheet?: boolean } | null>(null);
+
+  useEffect(() => {
+    if (schedule.editorOpen) {
+      animateSheetTo(0);
     }
-    const cps = room.course.checkpoints;
-    const lastCp = cps[cps.length - 1]!;
-    const splits = projection?.checkpointSplits ?? [];
-    const lastSplit = splits.length > 0 ? splits[splits.length - 1] : undefined;
-    const crossedIso = lastSplit?.crossedAtRecordedAt ?? projection?.asOfRecordedAt ?? null;
-    const anchorMs = parseRaceAnchorMs(scheduleRoom);
-    let wallClockStr = "—";
-    let totalElapsedStr = "—";
-    if (crossedIso) {
-      const crossedMs = Date.parse(crossedIso);
-      if (Number.isFinite(crossedMs)) {
-        wallClockStr = new Date(crossedMs).toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-          second: "2-digit"
-        });
-        const elapsedSec =
-          lastSplit?.actualElapsedSecondsAtCross != null && Number.isFinite(lastSplit.actualElapsedSecondsAtCross)
-            ? lastSplit.actualElapsedSecondsAtCross
-            : anchorMs != null
-              ? Math.max(0, (crossedMs - anchorMs) / 1000)
-              : Number.NaN;
-        totalElapsedStr = Number.isFinite(elapsedSec) ? formatElapsedHoursMinutes(elapsedSec) : "—";
+  }, [schedule.editorOpen, animateSheetTo]);
+
+  useEffect(() => {
+    const checkpointId = route.params?.checkpointId;
+    const expandSheet = route.params?.expandSheet;
+    if (checkpointId || expandSheet) {
+      pendingMapHomeParamsRef.current = {
+        checkpointId: checkpointId ?? pendingMapHomeParamsRef.current?.checkpointId,
+        expandSheet: Boolean(expandSheet || pendingMapHomeParamsRef.current?.expandSheet)
+      };
+      schedule.dismissEditors();
+      navigation.setParams({ checkpointId: undefined, expandSheet: undefined });
+    }
+
+    const pending = pendingMapHomeParamsRef.current;
+    if (!pending) {
+      return;
+    }
+    if (pending.expandSheet) {
+      animateSheetTo(0);
+    }
+    if (pending.checkpointId) {
+      if (aidPages.length === 0) {
+        return;
+      }
+      const i = indexForCheckpointId(aidPages, pending.checkpointId);
+      if (i != null) {
+        onAidIndexChange(i, "marker");
       }
     }
-    const locationLine = `${checkpointLabel(room, lastCp.id)} · ${lastCp.latitude.toFixed(4)}°, ${lastCp.longitude.toFixed(4)}°`;
-    return { wallClockStr, totalElapsedStr, locationLine, stationTitle: checkpointLabel(room, lastCp.id) };
-  }, [mapSheetPhase, room, projection?.checkpointSplits, projection?.asOfRecordedAt, scheduleRoom?.raceStartAt, scheduleRoom?.activatedAt]);
+    pendingMapHomeParamsRef.current = null;
+  }, [route.params?.checkpointId, route.params?.expandSheet, aidPages]);
 
   const runnerLocationCaption = useMemo(() => {
     if (!room) {
@@ -1102,6 +997,10 @@ export function TrackMapDashboardScreen(): ReactElement {
   /** Snap to fully expanded (`0`) or peek (`maxSheetTranslate`) after drag. */
   const snapSheet = useCallback(
     (y: number, vy: number) => {
+      if (schedule.editorOpen) {
+        animateSheetTo(0);
+        return;
+      }
       const max = maxSheetTranslate;
       const mid = max / 2;
       let target: number;
@@ -1112,13 +1011,13 @@ export function TrackMapDashboardScreen(): ReactElement {
       }
       animateSheetTo(target);
     },
-    [maxSheetTranslate, animateSheetTo]
+    [maxSheetTranslate, animateSheetTo, schedule.editorOpen]
   );
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
+        onMoveShouldSetPanResponder: (_, g) => !schedule.editorOpen && Math.abs(g.dy) > 6,
         onPanResponderGrant: () => {
           cancelSheetAnimation();
           sheetDragStart.current = sheetTranslateRef.current;
@@ -1133,10 +1032,13 @@ export function TrackMapDashboardScreen(): ReactElement {
           snapSheet(next + g.vy * 0.08, g.vy);
         }
       }),
-    [maxSheetTranslate, snapSheet, cancelSheetAnimation]
+    [maxSheetTranslate, snapSheet, cancelSheetAnimation, schedule.editorOpen]
   );
 
   const cycleSheet = () => {
+    if (schedule.editorOpen) {
+      return;
+    }
     const max = maxSheetTranslate;
     const cur = sheetTranslateRef.current;
     animateSheetTo(cur > max / 2 ? 0 : max);
@@ -1254,6 +1156,14 @@ export function TrackMapDashboardScreen(): ReactElement {
           backgroundColor: activeMode === "light" ? "rgba(234, 88, 12, 0.98)" : "rgba(251, 146, 60, 0.95)",
           borderWidth: 2,
           borderColor: activeMode === "light" ? "rgba(255, 255, 255, 0.95)" : "rgba(15, 23, 42, 0.9)"
+        },
+        checkpointMarkerDotSelected: {
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          backgroundColor: LOCATE_ACCENT,
+          borderWidth: 3,
+          borderColor: activeMode === "light" ? "rgba(255, 255, 255, 0.98)" : "rgba(15, 23, 42, 0.95)"
         },
         fabCol: {
           position: "absolute",
@@ -1457,18 +1367,26 @@ export function TrackMapDashboardScreen(): ReactElement {
             />
           </GeoJSONSource>
         ) : null}
-        {(room?.course?.checkpoints ?? []).map((checkpoint, index) => (
-          <Marker
-            key={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
-            id={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
-            lngLat={[checkpoint.longitude, checkpoint.latitude]}
-            onPress={() => setSelectedCheckpointId(checkpoint.id)}
-          >
-            <View style={styles.checkpointMarkerTouch}>
-              <View style={styles.checkpointMarkerDot} />
-            </View>
-          </Marker>
-        ))}
+        {(room?.course?.checkpoints ?? []).map((checkpoint, index) => {
+          const selected = selectedCheckpointId === checkpoint.id;
+          return (
+            <Marker
+              key={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
+              id={`dash-checkpoint-marker-${checkpoint.id}-${index}`}
+              lngLat={[checkpoint.longitude, checkpoint.latitude]}
+              onPress={() => {
+                const i = indexForCheckpointId(aidPages, checkpoint.id);
+                if (i != null) {
+                  onAidIndexChange(i, "marker");
+                }
+              }}
+            >
+              <View style={styles.checkpointMarkerTouch} accessibilityLabel={`Aid station ${checkpointLabel(room, checkpoint.id)}`}>
+                <View style={[styles.checkpointMarkerDot, selected ? styles.checkpointMarkerDotSelected : null]} />
+              </View>
+            </Marker>
+          );
+        })}
       </MapLibreMap>
 
       <View style={styles.header} pointerEvents="box-none">
@@ -1514,16 +1432,6 @@ export function TrackMapDashboardScreen(): ReactElement {
         </View>
       </View>
 
-      {selectedCheckpointTooltip ? (
-        <View style={styles.checkpointTooltip}>
-          <Text style={styles.checkpointTooltipTitle}>{selectedCheckpointTooltip.label}</Text>
-          <Text style={styles.checkpointTooltipBody}>ETA {selectedCheckpointTooltip.etaText}</Text>
-          <Pressable onPress={() => setSelectedCheckpointId(null)} style={styles.checkpointTooltipClose}>
-            <Ionicons name="close" size={20} color={theme.color.text} />
-          </Pressable>
-        </View>
-      ) : null}
-
       <View
         style={[styles.fabCol, { opacity: fabOpacity }]}
         pointerEvents={sheetExpandProgress >= 0.995 ? "none" : "box-none"}
@@ -1550,138 +1458,63 @@ export function TrackMapDashboardScreen(): ReactElement {
       </View>
 
       <View style={styles.sheet}>
-        <View onLayout={onSheetPeekChromeLayout} style={{ flexShrink: 0 }}>
-          <View style={{ paddingTop: 8 }} {...panResponder.panHandlers}>
-            <Pressable onPress={cycleSheet} accessibilityRole="button" accessibilityLabel="Expand sheet">
-              <View style={styles.handle} />
-            </Pressable>
-          </View>
-          <View
-            style={{
-              paddingHorizontal: 16,
-              paddingTop: 4,
-              paddingBottom: sheetFullyPeeked ? 12 : insets.bottom + 10,
-              flexShrink: 0,
-              borderBottomWidth: hideChecklistInPeek ? 0 : StyleSheet.hairlineWidth,
-              borderBottomColor: theme.color.divider
-            }}
-          >
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              {mapSheetPhase === "preStart" ? (
-                <>
-                  <Text style={styles.sheetKicker}>RACE START</Text>
-                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
-                    {startCheckpointTitle}
-                  </Text>
-                  <Text style={{ color: theme.color.muted, fontSize: 14, fontWeight: "600", marginTop: 6 }}>
-                    {preStartSheetDetails?.startsAtLine ?? "Set a race start time in Race setup."}
-                  </Text>
-                </>
-              ) : mapSheetPhase === "finish" ? (
-                <>
-                  <Text style={styles.sheetKicker}>FINISHED</Text>
-                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
-                    {finishSheetDetails?.stationTitle ?? nextCheckpointLabel}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.sheetKicker}>NEXT AID STATION</Text>
-                  <Text style={{ color: theme.color.text, fontSize: 20, fontWeight: "800", marginTop: 4 }}>
-                    {nextCheckpointLabel}
-                  </Text>
-                </>
-              )}
-            </View>
-            <View style={{ alignItems: "flex-end" }}>
-              {mapSheetPhase === "preStart" ? (
-                <>
-                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>
-                    {preStartSheetDetails?.startsAtTimeOfDay ?? preStartSheetDetails?.startsAtClock ?? "—"}
-                  </Text>
-                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>START TIME</Text>
-                  <View style={styles.etaPill}>
-                    <Text style={styles.etaPillText}>{preStartSheetDetails?.startsInRemain ?? "—"}</Text>
-                  </View>
-                  <Text style={{ color: theme.color.muted, fontSize: 10, marginTop: 4 }}>UNTIL START</Text>
-                </>
-              ) : mapSheetPhase === "finish" ? (
-                <>
-                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>
-                    {finishSheetDetails?.wallClockStr ?? "—"}
-                  </Text>
-                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>LOCAL TIME</Text>
-                  <View style={styles.etaPill}>
-                    <Text style={styles.etaPillText}>{finishSheetDetails?.totalElapsedStr ?? "—"}</Text>
-                  </View>
-                  <Text style={{ color: theme.color.muted, fontSize: 10, marginTop: 4 }}>TOTAL ELAPSED</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800" }}>{etaNextLabel.time}</Text>
-                  <Text style={{ color: theme.color.muted, fontSize: 11, marginTop: 2 }}>EST. ARRIVAL</Text>
-                  <View style={styles.etaPill}>
-                    <Text style={styles.etaPillText}>{etaNextLabel.remain}</Text>
-                  </View>
-                </>
-              )}
-            </View>
-          </View>
-          {runnerLocationCaption ? (
-            <Text style={{ color: theme.color.muted, fontSize: 13, marginTop: 10 }}>{runnerLocationCaption}</Text>
-          ) : null}
-          {mapSheetPhase === "finish" && finishSheetDetails ? (
-            <Text style={{ color: theme.color.muted, fontSize: 13, marginTop: 6 }}>{finishSheetDetails.locationLine}</Text>
-          ) : null}
-
-          {mapSheetPhase === "race" ? (
-            <View style={styles.statsRow}>
-              <View style={styles.statCol}>
-                <Text style={styles.statLabel}>DISTANCE</Text>
-                <Text style={styles.statValue}>{remainingMi !== null ? `${remainingMi.toFixed(1)} MI` : "—"}</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statCol}>
-                <Text style={styles.statLabel}>ELEVATION</Text>
-                <Text style={styles.statValue}>{vertDisplay.text}</Text>
-                {vertDisplay.sub ? <Text style={{ fontSize: 10, color: theme.color.muted }}>{vertDisplay.sub}</Text> : null}
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statCol}>
-                <Text style={styles.statLabel}>PACE</Text>
-                <Text style={styles.statValue} numberOfLines={2}>
-                  {paceLabel}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-          </View>
-        </View>
-        {!hideChecklistInPeek ? (
-          <ScrollView
-            style={{ flex: 1, paddingHorizontal: 16 }}
-            contentContainerStyle={{ paddingBottom: 16 + insets.bottom }}
-            scrollEnabled={sheetTranslate < maxSheetTranslate - 2}
-          >
-            <Text style={styles.checklistTitle}>Aid station checklist</Text>
-            {(projection?.checkpointSplits ?? []).map((row, index) => {
-              const label = checkpointLabel(room, row.checkpointId);
-              const crossed = row.crossedAtRecordedAt ? new Date(row.crossedAtRecordedAt).toLocaleTimeString() : "Pending";
-              return (
-                <View key={`${row.checkpointId}-${index}`} style={styles.checklistRow}>
-                  <Text style={{ fontWeight: "700", color: theme.color.text }}>{label}</Text>
-                  <Text style={{ color: theme.color.muted, marginTop: 4, fontSize: 13 }}>
-                    {crossed} · Stop plan {Math.round(row.plannedStopSeconds / 60)}m
-                  </Text>
-                </View>
-              );
-            })}
-            {projection?.checkpointSplits?.length ? null : (
-              <Text style={{ color: theme.color.muted, marginTop: 8 }}>No checkpoint splits yet for this room.</Text>
-            )}
-          </ScrollView>
-        ) : null}
+        <MapAidStationSheet
+          handlePanHandlers={panResponder.panHandlers}
+          onCycleSheet={cycleSheet}
+          onPeekChromeHeight={onSheetPeekChromeLayout}
+          expanded={!hideChecklistInPeek}
+          collapseLocked={schedule.editorOpen}
+          insetsBottom={insets.bottom}
+          pages={aidPages}
+          index={clampIndex(pagerIndex, aidPages.length)}
+          follow={followAid}
+          liveNextIndex={liveNextIdx}
+          liveNextTitle={
+            liveNext ? checkpointLabel(room, liveNext.checkpointId) : "next aid"
+          }
+          onIndexChange={onAidIndexChange}
+          phase={mapSheetPhase}
+          emptyMessage={
+            room?.course?.checkpoints?.length
+              ? undefined
+              : "Upload a course file to see checkpoint times, cutoffs, and projections."
+          }
+          runnerCaption={runnerLocationCaption ?? undefined}
+          progressMeters={projection?.progressMeters ?? 0}
+          paceSecondsPerKm={projection?.plannedPaceSecondsPerKm ?? room?.plannedPaceSecondsPerKm}
+          sheet={schedule.sheet}
+          loading={schedule.loading}
+          error={schedule.error}
+          onRetry={() => void schedule.load("initial")}
+          titleByCheckpointId={schedule.titleByCheckpointId}
+          canEditStopPlans={schedule.canEditStopPlans}
+          editingCheckpointId={schedule.editingCheckpointId}
+          onEditStop={schedule.onEditStop}
+          onCancelEdit={schedule.onCancelEdit}
+          editingPlan={schedule.editingPlan}
+          loadingPlan={schedule.loadingPlan}
+          savingPlan={schedule.savingPlan}
+          saveError={schedule.saveError}
+          actionError={schedule.actionError}
+          onSaveStopPlan={schedule.onSaveStopPlan}
+          onClearStopDelay={schedule.onClearStopDelay}
+          onClearAthleteNotes={schedule.onClearAthleteNotes}
+          onClearPlanNotes={schedule.onClearPlanNotes}
+          onClearStopPlan={schedule.onClearStopPlan}
+          canEditCheckIn={schedule.canEditCheckIn}
+          checkInCheckpointId={schedule.checkInCheckpointId}
+          onOpenCheckIn={schedule.onOpenCheckIn}
+          onCancelCheckIn={schedule.onCancelCheckIn}
+          savingCheckIn={schedule.savingCheckIn}
+          checkInError={schedule.checkInError}
+          onSaveCheckIn={schedule.onSaveCheckIn}
+          pacingEstimate={schedule.pacingEstimate}
+          addingHistory={schedule.addingHistory}
+          onAddHistory={schedule.onAddHistory}
+          estimateError={schedule.estimateError}
+          onRecalculateFromHistory={schedule.onRecalculateFromHistory}
+          recalculating={schedule.recalculating}
+        />
       </View>
 
       <Modal visible={layersOpen} transparent animationType="fade" onRequestClose={() => setLayersOpen(false)}>
