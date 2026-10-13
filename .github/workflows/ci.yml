@@ -57,6 +57,7 @@ jobs:
               - *shared
               - 'apps/android/**'
               - 'scripts/build-swift-android.mjs'
+              - 'scripts/install-swift-android-sdk.sh'
               - 'scripts/lib/swiftAndroidToolchain.mjs'
               - '.github/actions/setup-swift/**'
 
@@ -165,15 +166,7 @@ jobs:
         with:
           version: "6.3.2"
       - name: Install Swift Android SDK
-        run: |
-          if [ -z "${ANDROID_NDK_LATEST_HOME:-}" ]; then
-            echo "::error::ANDROID_NDK_LATEST_HOME is not set on this runner"
-            exit 1
-          fi
-          swift sdk install "$SWIFT_ANDROID_SDK_URL" --checksum "$SWIFT_ANDROID_SDK_CHECKSUM"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-          setup=$(find ~/.swiftpm/swift-sdks -name setup-android-sdk.sh | head -1)
-          if [ -n "$setup" ]; then ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" bash "$setup"; fi
+        run: bash scripts/install-swift-android-sdk.sh
       - name: Cross-compile client-core with tests (arm64)
         run: node scripts/verify-client-core-android-build.mjs
       - name: Build debug and test APKs
