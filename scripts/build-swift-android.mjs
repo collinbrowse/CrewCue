@@ -9,10 +9,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { swiftForAndroid } from "./lib/swiftAndroidToolchain.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageDir = path.join(repoRoot, "packages/client-core");
 const jniLibsDir = path.join(repoRoot, "apps/android/app/build/generated/jniLibs");
+const configuration = process.env.SWIFT_BUILD_CONFIGURATION === "release" ? "release" : "debug";
 const triples = (process.env.SWIFT_ANDROID_TRIPLES || "aarch64-unknown-linux-android28,x86_64-unknown-linux-android28")
   .split(",")
   .map((item) => item.trim())
@@ -74,7 +76,7 @@ function findSwiftSdkRoot() {
 function ndkPrebuilt(ndk) {
   const prebuilt = path.join(ndk, "toolchains/llvm/prebuilt");
   if (!fs.existsSync(prebuilt)) return undefined;
-  const host = fs.readdirSync(prebuilt).find((name) => name.startsWith("darwin"));
+  const host = fs.readdirSync(prebuilt).find((name) => name.startsWith("darwin") || name.startsWith("linux"));
   return host ? path.join(prebuilt, host) : undefined;
 }
 
@@ -122,9 +124,10 @@ function linkSharedLibrary(triple, info, buildDir, product) {
 }
 
 function stageProduct(triple, info) {
-  const buildDir = path.join(packageDir, ".build", triple, "debug");
+  const buildDir = path.join(packageDir, ".build", triple, configuration);
   const product = path.join(buildDir, "libCrewCueClientCore.so");
-  if (!fs.existsSync(product)) linkSharedLibrary(triple, info, buildDir, product);
+  fs.rmSync(product, { force: true });
+  linkSharedLibrary(triple, info, buildDir, product);
   if (!fs.existsSync(product)) {
     console.error(`build-swift-android: missing ${product}`);
     process.exit(1);
@@ -195,14 +198,15 @@ JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_featureS
 `;
 }
 
-const swift = process.env.SWIFT_BIN || "swift";
+const swift = swiftForAndroid();
+console.log(`build-swift-android: ${swift} (${configuration})`);
 for (const triple of triples) {
   const info = abiForTriple[triple];
   if (!info) {
     console.error(`build-swift-android: unsupported triple ${triple}`);
     process.exit(1);
   }
-  run(swift, ["build", "--package-path", packageDir, "--swift-sdk", triple]);
+  run(swift, ["build", "--package-path", packageDir, "--swift-sdk", triple, "-c", configuration]);
   const staged = stageProduct(triple, info);
   const ndk = findNdk();
   if (!ndk) {
