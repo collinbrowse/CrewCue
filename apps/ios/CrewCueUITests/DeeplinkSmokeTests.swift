@@ -14,6 +14,9 @@ final class DeeplinkSmokeTests: XCTestCase {
         let label: String
     }
 
+    /// Rows whose checklist screen exists only when signed in. Signed out, `app-shell` shows sign-in instead.
+    private static let signedInFeatures: Set<String> = ["app-shell"]
+
     func testEveryDeeplinkShowsItsScreen() throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "deeplinks", withExtension: "json"))
         let features = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url)).features
@@ -23,7 +26,8 @@ final class DeeplinkSmokeTests: XCTestCase {
         for feature in features {
             XCTContext.runActivity(named: "\(feature.id) via \(feature.entry)") { _ in
                 // A session left on the simulator would open the product shell instead of the screen under test.
-                app.launchArguments = ["--signed-out", "--deeplink", feature.entry]
+                let session = Self.signedInFeatures.contains(feature.id) ? ["--dev-session", "smoke-user", "crew"] : ["--signed-out"]
+                app.launchArguments = session + ["--deeplink", feature.entry]
                 app.launch()
                 let element = app.descendants(matching: .any)[feature.label].firstMatch
                 XCTAssertTrue(element.waitForExistence(timeout: 10), "\(feature.id): \(feature.label) missing for \(feature.entry)")

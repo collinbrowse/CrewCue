@@ -67,6 +67,7 @@ struct AuthSignInView: View {
         .padding(.horizontal, CrewSpace.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(CrewBackground())
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.auth-signed-out")
         .accessibilityLabel("Signed out")
     }
