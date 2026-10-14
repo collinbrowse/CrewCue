@@ -222,8 +222,10 @@ final class ShellModel {
             route.featureId != tab.featureId && ShellTab.isChatFeature(route.featureId)
         case .profile:
             route.featureId != tab.featureId && ShellTab.isProfileFeature(route.featureId)
-        case .map, .pace:
-            false
+        case .map:
+            route.featureId != tab.featureId && ShellTab.isMapFeature(route.featureId)
+        case .pace:
+            route.featureId != tab.featureId && ShellTab.isPaceFeature(route.featureId)
         }
     }
 

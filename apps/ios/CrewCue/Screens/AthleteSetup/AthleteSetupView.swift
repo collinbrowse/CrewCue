@@ -2,7 +2,6 @@ import SwiftUI
 
 struct AthleteSetupView: View {
     @Bindable var model: AthleteSetupModel
-    @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -19,7 +18,6 @@ struct AthleteSetupView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.background)
         .crewCueScreen(identifier: "crewcue.athlete-setup", label: "Athlete setup")
     }
 }

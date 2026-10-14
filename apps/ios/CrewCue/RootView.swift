@@ -28,6 +28,7 @@ struct CrewCueScreenModifier: ViewModifier {
         content
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(CrewBackground())
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(label)
     }

@@ -25,7 +25,7 @@ struct JoinCrewView: View {
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
                     .padding(.vertical, 18)
-                    .background(theme.card, in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.card, in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(theme.divider, lineWidth: 1)
@@ -55,7 +55,6 @@ struct JoinCrewView: View {
             .padding(.vertical, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(theme.background)
         .crewCueScreen(identifier: "crewcue.join-crew", label: "Join crew")
     }
 }

@@ -10,7 +10,6 @@ struct NotificationPermissionScreen: View {
 
 struct NotificationPermissionView: View {
     var model: NotificationPermissionModel
-    @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -26,7 +25,6 @@ struct NotificationPermissionView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.background)
         .crewCueScreen(identifier: "crewcue.onboarding-notifications", label: "Notifications")
         .task { await model.refresh() }
     }

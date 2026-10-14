@@ -578,10 +578,14 @@ struct PaceExportSection: View {
                 .font(CrewFont.title)
             if text.isEmpty == false {
                 Text(verbatim: text)
-                    .font(CrewFont.bodyLarge)
+                    .font(.system(.footnote, design: .monospaced))
+                    .padding(CrewSpace.stackSm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
                 ShareLink(item: text) {
-                    Text("Share crew sheet")
+                    Label("Share crew sheet", systemImage: "square.and.arrow.up")
                 }
+                .buttonStyle(.crewPrimary)
             }
             if message.isEmpty == false {
                 Text(verbatim: message)
