@@ -5,7 +5,7 @@ import CrewCueClientCore
 struct CompositionRoot {
     func makeModel() -> ShellModel {
         let launch = LaunchConfiguration.resolve()
-        let restored = launch.devSession ?? Self.loadPersistedSession()
+        let restored = launch.devSession ?? (launch.signedOut ? nil : Self.loadPersistedSession())
         let client = AppClient(
             graph: ClientGraph(
                 transport: URLSessionTransport(),

@@ -28,6 +28,8 @@ struct LaunchConfiguration: Equatable {
     var route: Route
     var fixtureOverlay: Bool
     var devSession: ClientSession?
+    /// `--signed-out` ignores the persisted session so UI tests start from a clean launch.
+    var signedOut: Bool
     var baseURL: URL
     var auth: Auth0Configuration
 
@@ -37,6 +39,7 @@ struct LaunchConfiguration: Equatable {
             route: deeplink?.route ?? Route(featureId: "app-shell", state: .success),
             fixtureOverlay: deeplink?.fixtureOverlay ?? false,
             devSession: devSession(arguments: arguments),
+            signedOut: arguments.contains("--signed-out"),
             baseURL: baseURL(bundle: bundle),
             auth: Auth0Configuration.load(bundle: bundle)
         )
