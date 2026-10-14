@@ -178,3 +178,6 @@ tasks.register<Exec>("buildSwiftAndroid") {
     workingDir = rootProject.projectDir
     commandLine("node", "../../scripts/build-swift-android.mjs")
 }
+
+// Package freshly built Swift every time. Without this the APK ships whatever stale .so is on disk.
+tasks.named("preBuild") { dependsOn("buildSwiftAndroid") }

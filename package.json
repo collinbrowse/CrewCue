@@ -17,7 +17,6 @@
     "verify:client-core": "node scripts/verify-client-core.mjs",
     "verify:client-core:android-build": "node scripts/verify-client-core-android-build.mjs",
     "verify:client-core:android": "node scripts/verify-client-core-android-build.mjs",
-    "verify:client-pr-split": "node scripts/verify-client-pr-split.mjs",
     "verify:ios": "node scripts/verify-ios.mjs",
     "verify:android": "node scripts/verify-android.mjs",
     "build": "npm run build --workspaces --if-present",

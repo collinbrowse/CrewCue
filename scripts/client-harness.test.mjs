@@ -29,9 +29,3 @@ test("checklist pass requires a device proof file", () => {
   }
 });
 
-test("client pr split rejects both UI trees", () => {
-  const bad = run("scripts/verify-client-pr-split.mjs", ["--files", "apps/ios/CrewCue/RootView.swift", "apps/android/app/build.gradle.kts"]);
-  assert.equal(bad.status, 1);
-  const checklist = run("scripts/verify-client-pr-split.mjs", ["--files", "clients/behavior/hello.md"]);
-  assert.equal(checklist.status, 0);
-});

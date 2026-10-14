@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findSwiftForAndroid, findSwiftSdkRoot } from "./lib/swiftAndroid.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageDir = path.join(repoRoot, "packages/client-core");
@@ -19,8 +20,8 @@ const triples = (process.env.SWIFT_ANDROID_TRIPLES || "aarch64-unknown-linux-and
   .filter(Boolean);
 
 const abiForTriple = {
-  "aarch64-unknown-linux-android28": { abi: "arm64-v8a", clang: "aarch64-linux-android28-clang", ndkLib: "aarch64-linux-android", swiftLib: "swift-aarch64" },
-  "x86_64-unknown-linux-android28": { abi: "x86_64", clang: "x86_64-linux-android28-clang", ndkLib: "x86_64-linux-android", swiftLib: "swift-x86_64" }
+  "aarch64-unknown-linux-android28": { abi: "arm64-v8a", clang: "aarch64-linux-android28-clang", ndkLib: "aarch64-linux-android", swiftLib: "swift-aarch64", arch: "aarch64" },
+  "x86_64-unknown-linux-android28": { abi: "x86_64", clang: "x86_64-linux-android28-clang", ndkLib: "x86_64-linux-android", swiftLib: "swift-x86_64", arch: "x86_64" }
 };
 
 const swiftRuntimeLibs = [
@@ -57,18 +58,13 @@ function findNdk() {
   return versions.length ? path.join(ndkRoot, versions[versions.length - 1]) : undefined;
 }
 
-function findSwiftSdkRoot() {
-  if (process.env.SWIFT_ANDROID_SDK_ROOT && fs.existsSync(process.env.SWIFT_ANDROID_SDK_ROOT)) return process.env.SWIFT_ANDROID_SDK_ROOT;
-  const bases = [
-    path.join(os.homedir(), "Library/org.swift.swiftpm/swift-sdks"),
-    path.join(os.homedir(), ".swiftpm/swift-sdks")
-  ];
-  for (const base of bases) {
-    if (!fs.existsSync(base)) continue;
-    const bundle = fs.readdirSync(base).find((name) => name.includes("android") && name.endsWith(".artifactbundle"));
-    if (bundle) return path.join(base, bundle, "swift-android");
+function findSwift() {
+  const swift = findSwiftForAndroid();
+  if (!swift) {
+    console.error("build-swift-android: install the Swift toolchain matching the Android SDK version, or set SWIFT_BIN.");
+    process.exit(1);
   }
-  return undefined;
+  return swift;
 }
 
 function ndkPrebuilt(ndk) {
@@ -99,7 +95,8 @@ function linkSharedLibrary(triple, info, buildDir, product) {
       }
     }
   }
-  walk(buildDir);
+  // Only this package's objects: stale dependency objects from older manifests must not be linked in.
+  walk(path.join(buildDir, "CrewCueClientCore.build"));
   if (!objects.length) {
     console.error(`build-swift-android: no Android objects to link in ${buildDir}`);
     process.exit(1);
@@ -113,8 +110,15 @@ function linkSharedLibrary(triple, info, buildDir, product) {
   const clang = path.join(prebuilt, "bin", info.clang);
   const sdkRoot = findSwiftSdkRoot();
   const runtime = sdkRoot ? path.join(sdkRoot, "swift-resources/usr/lib", info.swiftLib, "android") : undefined;
-  const linkArgs = ["-shared", "-fPIC", "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive"];
-  if (runtime && fs.existsSync(runtime)) linkArgs.push("-L", runtime);
+  // swiftrt.o registers this image's type metadata and conformances with the runtime. Without it,
+  // mangled-name lookups (generic Codable containers) return null and JSONDecoder segfaults.
+  const swiftrt = runtime && path.join(runtime, info.arch, "swiftrt.o");
+  if (!swiftrt || !fs.existsSync(swiftrt)) {
+    console.error(`build-swift-android: swiftrt.o not found for ${triple}`);
+    process.exit(1);
+  }
+  const linkArgs = ["-shared", "-fPIC", swiftrt, "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive"];
+  linkArgs.push("-L", runtime);
   for (const name of swiftRuntimeLibs) linkArgs.push(`-l${name}`);
   linkArgs.push("-lc++_shared", "-llog", "-ldl", "-lm", "-lc", "-o", product);
   console.log(`build-swift-android: linking ${objects.length} objects into ${product}`);
@@ -124,7 +128,9 @@ function linkSharedLibrary(triple, info, buildDir, product) {
 function stageProduct(triple, info) {
   const buildDir = path.join(packageDir, ".build", triple, "debug");
   const product = path.join(buildDir, "libCrewCueClientCore.so");
-  if (!fs.existsSync(product)) linkSharedLibrary(triple, info, buildDir, product);
+  // Always relink. Reusing an old .so ships stale Swift next to the current runtime and crashes at load or decode.
+  fs.rmSync(product, { force: true });
+  linkSharedLibrary(triple, info, buildDir, product);
   if (!fs.existsSync(product)) {
     console.error(`build-swift-android: missing ${product}`);
     process.exit(1);
@@ -203,7 +209,8 @@ JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_runtimeJ
 `;
 }
 
-const swift = process.env.SWIFT_BIN || "swift";
+const swift = findSwift();
+console.log(`build-swift-android: using ${swift}`);
 for (const triple of triples) {
   const info = abiForTriple[triple];
   if (!info) {

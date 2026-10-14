@@ -13,6 +13,12 @@ Implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. Skip
 - iOS: `npm run agent:ios:ready` (SwiftUI, Auth0-free: `--deeplink crewcue://dev/pace-estimate`)
 - Android: `npm run agent:android:ready` (Compose emulator, same deeplink family)
 
+## Product invariant: runner progress
+
+Race progress (mile, % complete, next aid, ETA, on-track, avg pace, elevation remaining, last ping) must come from the **runner's phone**: the athlete's location pings, read from the API. Every crew member sees the same progress. A crew phone's own GPS must never drive these readouts.
+
+Known gap: `MapModel` (iOS) and `MapViewModel` (Android) still feed `RaceDayReadouts` and `AidStationSheet` from the viewing device's location samples. Fix this before calling race-day tracking done. Read the latest athlete ping for the room, and use the athlete ping's `recordedAt` for "last ping".
+
 ## When to load more
 
 - **iOS UI** (`apps/ios/**`): `.cursor/rules/mobile-simulator-agent-qa.mdc` + skill `.cursor/skills/ios-simulator-agent-qa/SKILL.md`. Simulator proof on the PR before claiming done.

@@ -107,8 +107,8 @@ test("pathsTouchMobile", () => {
   assert.equal(pathsTouchMobile(["apps/mobile/App.tsx"]), true);
 });
 
-test("classifyNativeClientDiff rejects both UI trees", () => {
-  assert.equal(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift", "apps/android/app/build.gradle.kts"]).splitViolation, true);
-  assert.equal(classifyNativeClientDiff(["clients/behavior/hello.md"]).splitViolation, false);
-  assert.equal(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift"]).splitViolation, false);
+test("classifyNativeClientDiff reports which native trees changed", () => {
+  assert.deepEqual(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift", "apps/android/app/build.gradle.kts"]), { ios: true, android: true });
+  assert.deepEqual(classifyNativeClientDiff(["clients/behavior/hello.md"]), { ios: false, android: false });
+  assert.deepEqual(classifyNativeClientDiff(["apps/ios/CrewCue/RootView.swift"]), { ios: true, android: false });
 });

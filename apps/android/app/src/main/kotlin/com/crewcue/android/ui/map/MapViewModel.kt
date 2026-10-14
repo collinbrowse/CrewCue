@@ -221,6 +221,8 @@ class MapViewModel(
         recenterRequest += 1
     }
 
+    // TODO(runner-progress): progress must come from the athlete's pings for every crew member,
+    // not this device's GPS. See "Product invariant: runner progress" in AGENTS.md.
     fun onSample(latitude: Double, longitude: Double, accuracy: Double?, online: Boolean) {
         sampleLatitude = latitude
         sampleLongitude = longitude

@@ -139,6 +139,7 @@ public enum AidStationSheet {
     }
 
     /// Course distance of the checkpoint nearest the sample. Zero when the course has no distances.
+    /// The sample must be the athlete's latest ping, not the viewing device's location (AGENTS.md, runner progress).
     public static func progressMeters(
         latitude: Double,
         longitude: Double,

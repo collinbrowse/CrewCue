@@ -245,6 +245,8 @@ final class MapModel {
         reproject(follow: true, selected: aidIndex)
     }
 
+    // TODO(runner-progress): progress must come from the athlete's pings for every crew member,
+    // not this device's GPS. See "Product invariant: runner progress" in AGENTS.md.
     private func receive(latitude: Double, longitude: Double, accuracy: Double) {
         progressMeters = AidStationSheet.progressMeters(
             latitude: latitude,

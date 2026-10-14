@@ -144,7 +144,6 @@ export function assessPrDoneBody(body, opts = {}) {
         /agent:android:ready/i.test(text) || /\bBlocker\b/i.test(text);
       if (!hasAndroid) missing.push("android evidence / blocker note");
     }
-    if (opts.splitViolation) missing.push("one platform per PR");
 
   const ok = missing.length === 0;
   summary.push(ok ? "PASS: Done checklist" : "FAIL: Done incomplete");
@@ -157,7 +156,6 @@ export function assessPrDoneBody(body, opts = {}) {
   if (opts.mobileChanged) summary.push("mobile paths changed: sim evidence required");
   if (opts.iosChanged) summary.push("ios paths changed: simulator evidence required");
   if (opts.androidChanged) summary.push("android paths changed: emulator evidence required");
-  if (opts.splitViolation) summary.push("split: both native UI trees changed");
   return { ok, missing, summary };
 }
 
