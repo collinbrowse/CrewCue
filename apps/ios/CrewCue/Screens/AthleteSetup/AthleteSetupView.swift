@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AthleteSetupView: View {
     @Bindable var model: AthleteSetupModel
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -15,7 +15,7 @@ struct AthleteSetupView: View {
                 AthleteSetupStatus(message: model.statusText)
                 AthleteSaveButton(isWorking: model.isWorking, action: model.save)
             }
-            .kineticCard()
+            .crewCard()
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -29,8 +29,8 @@ struct AthleteNameField: View {
 
     var body: some View {
         TextField("Display name", text: $name)
-            .font(.body)
-            .textFieldStyle(.roundedBorder)
+            .font(CrewFont.bodyLarge)
+            .textFieldStyle(.crew)
             .textContentType(.name)
             .accessibilityLabel("Display name")
     }
@@ -41,7 +41,7 @@ struct AthleteSetupStatus: View {
 
     var body: some View {
         Text(message)
-            .font(.body)
+            .font(CrewFont.bodyLarge)
             .accessibilityHidden(message.isEmpty)
     }
 }
@@ -52,7 +52,7 @@ struct AthleteSaveButton: View {
 
     var body: some View {
         Button("Save", action: action)
-            .buttonStyle(KineticProductButtonStyle())
+            .buttonStyle(.crewPrimary)
             .disabled(isWorking)
     }
 }

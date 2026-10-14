@@ -4,7 +4,7 @@ struct PushRegistrationView: View {
     var model: PushRegistrationModel
     var role: String?
     var onChat: () -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
@@ -13,18 +13,18 @@ struct PushRegistrationView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if model.message.isEmpty == false {
                         Text(verbatim: model.message)
-                            .font(.system(size: 16))
+                            .font(CrewFont.bodyLarge)
                             .foregroundStyle(theme.body)
                     }
                     Button("Register this device") {
                         Task { await model.register() }
                     }
-                    .buttonStyle(KineticProductButtonStyle())
+                    .buttonStyle(.crewPrimary)
                     .disabled(model.isWorking)
                 }
-                .kineticCard()
+                .crewCard()
                 Button("Chat", action: onChat)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

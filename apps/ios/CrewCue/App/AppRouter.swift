@@ -14,7 +14,7 @@ struct AppRouter: View {
         .onOpenURL { url in
             model.open(url)
         }
-        .kineticTheme()
+        .crewTheme()
     }
 }
 

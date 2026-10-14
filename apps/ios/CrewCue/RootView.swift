@@ -7,12 +7,12 @@ struct FeatureScreenView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(screen.title)
-                .font(.system(size: 28, weight: .bold))
+                .font(CrewFont.display)
             Text(screen.body)
-                .font(.system(size: 16))
+                .font(CrewFont.bodyLarge)
         }
         .padding(20)
-        .kineticCard()
+        .crewCard()
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityIdentifier(screen.accessibilityIdentifier)

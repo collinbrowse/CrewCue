@@ -3,21 +3,21 @@ import SwiftUI
 struct JoinCrewView: View {
     @Bindable var model: JoinCrewModel
     var onBack: (() -> Void)? = nil
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if let onBack {
                     Button("Back", action: onBack)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(CrewFont.bodyLarge)
                         .foregroundStyle(theme.primary)
                 }
                 Text("Join your crew")
-                    .font(.system(size: 28, weight: .heavy))
+                    .font(CrewFont.display)
                     .foregroundStyle(theme.ink)
                 Text("Enter the 6-digit code from your crew.")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(CrewFont.button)
                     .foregroundStyle(theme.body)
                 TextField("Invite code", text: $model.code)
                     .font(.system(size: 32, weight: .bold, design: .monospaced))
@@ -38,17 +38,17 @@ struct JoinCrewView: View {
                     }
                 if model.previewText.isEmpty == false {
                     Text(verbatim: model.previewText)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(CrewFont.button)
                         .foregroundStyle(theme.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .kineticCard()
+                        .crewCard()
                 }
                 Text(verbatim: model.statusMessage)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(CrewFont.body)
                     .foregroundStyle(theme.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Join", action: model.join)
-                    .buttonStyle(KineticAuthButtonStyle())
+                    .buttonStyle(.crewPrimary)
                     .disabled(!model.canJoin)
             }
             .padding(.horizontal, 22)

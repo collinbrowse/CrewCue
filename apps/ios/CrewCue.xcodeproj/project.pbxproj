@@ -50,7 +50,8 @@
 		C10000000000000000000005 /* RoomMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000015 /* RoomMembersView.swift */; };
 		C10000000000000000000006 /* IncidentsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000016 /* IncidentsModel.swift */; };
 		C10000000000000000000007 /* IncidentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000017 /* IncidentsView.swift */; };
-		D10000000000000000000001 /* KineticTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000011 /* KineticTheme.swift */; };
+		D10000000000000000000001 /* CrewTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000011 /* CrewTheme.swift */; };
+		D10000000000000000000003 /* CrewComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000013 /* CrewComponents.swift */; };
 		D10000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000012 /* Assets.xcassets */; };
 		A10000000000000000000022 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* RootView.swift */; };
 		A10000000000000000000023 /* Pockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* Pockets.swift */; };
@@ -66,8 +67,10 @@
 		A10000000000000000000031 /* CrewCueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewCueApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000032 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A10000000000000000000033 /* Pockets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pockets.swift; sourceTree = "<group>"; };
+		D10000000000000000000014 /* CrewCue.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/CrewCue.xcconfig; sourceTree = "<group>"; };
 		A10000000000000000000034 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		D10000000000000000000011 /* KineticTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KineticTheme.swift; sourceTree = "<group>"; };
+		D10000000000000000000011 /* CrewTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewTheme.swift; sourceTree = "<group>"; };
+		D10000000000000000000013 /* CrewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewComponents.swift; sourceTree = "<group>"; };
 		D10000000000000000000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000035 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
 		A10000000000000000000036 /* CompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRoot.swift; sourceTree = "<group>"; };
@@ -133,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000008 /* CrewCue */,
+				D10000000000000000000014 /* CrewCue.xcconfig */,
 				A10000000000000000000009 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -172,7 +176,8 @@
 		D10000000000000000000021 /* Design */ = {
 			isa = PBXGroup;
 			children = (
-				D10000000000000000000011 /* KineticTheme.swift */,
+				D10000000000000000000011 /* CrewTheme.swift */,
+				D10000000000000000000013 /* CrewComponents.swift */,
 			);
 			path = Design;
 			sourceTree = "<group>";
@@ -450,7 +455,8 @@
 				C10000000000000000000005 /* RoomMembersView.swift in Sources */,
 				C10000000000000000000006 /* IncidentsModel.swift in Sources */,
 				C10000000000000000000007 /* IncidentsView.swift in Sources */,
-				D10000000000000000000001 /* KineticTheme.swift in Sources */,
+				D10000000000000000000001 /* CrewTheme.swift in Sources */,
+				D10000000000000000000003 /* CrewComponents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,7 +472,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				GCC_DYNAMIC_NO_PIC = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -483,7 +489,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -494,6 +500,7 @@
 		};
 		A1000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D10000000000000000000014 /* CrewCue.xcconfig */;
 			buildSettings = {
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
@@ -503,7 +510,7 @@
 				INFOPLIST_FILE = CrewCue/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;
@@ -520,6 +527,7 @@
 		};
 		A1000000000000000000000F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D10000000000000000000014 /* CrewCue.xcconfig */;
 			buildSettings = {
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
@@ -528,7 +536,7 @@
 				INFOPLIST_FILE = CrewCue/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;

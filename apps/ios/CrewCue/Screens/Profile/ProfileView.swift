@@ -32,6 +32,8 @@ struct ProfileTabPage: View {
                 userId: model.signedInUserId,
                 roomId: model.signedInRoomId,
                 displayName: model.signedInDisplayName,
+                role: model.signedInRole,
+                readout: model.mapModel.readout,
                 onStrava: { model.show(Route(featureId: "strava", state: .success)) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
@@ -52,90 +54,86 @@ struct ProfileView: View {
     var userId: String?
     var roomId: String?
     var displayName: String?
+    var role: String?
+    var readout: RaceDayReadout
     var onStrava: () -> Void
     var onMembers: () -> Void
     var onIncidents: () -> Void
     var onJoin: () -> Void
     var onCreated: @MainActor (String) -> Void
     var onName: @MainActor (String) -> Void
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(spacing: 8) {
-                    Image("OnboardingRunner")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 96, height: 96)
-                        .clipShape(Circle())
-                        .accessibilityLabel("Athlete")
-                    Text("Profile")
-                        .font(.system(size: 20, weight: .bold))
-                    if model.showsName {
-                        Text(verbatim: model.displayName)
-                            .font(.system(size: 16))
-                    }
-                    if model.message.isEmpty == false {
-                        Text(verbatim: model.message)
-                            .font(.system(size: 16))
-                    }
+            VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+                ProfileHero(
+                    name: model.showsName ? model.displayName : "Profile",
+                    role: role,
+                    live: readout.lastPingLabel != nil
+                )
+                if model.message.isEmpty == false {
+                    Text(verbatim: model.message)
+                        .font(CrewFont.body)
+                        .foregroundStyle(theme.body)
                 }
-                .frame(maxWidth: .infinity)
-                .kineticCard()
-
                 if hasRoom {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Race & workspace")
-                            .font(.system(size: 17, weight: .bold))
-                        Text("Manage members and room controls for your current race.")
-                            .font(.system(size: 16))
-                        Button("Room members", action: onMembers)
-                            .buttonStyle(KineticSecondaryButtonStyle())
-                        Button("Incidents", action: onIncidents)
-                            .buttonStyle(KineticSecondaryButtonStyle())
+                    HStack(spacing: CrewSpace.stackSm) {
+                        ProfileStatCard(label: "Current pace", value: readout.averagePaceLabel, caption: "Min / mile", accent: true)
+                        ProfileStatCard(label: "Time elapsed", value: readout.elapsedLabel, caption: "HH:MM:SS", accent: false)
                     }
-                    .kineticCard()
+                    VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                        HStack {
+                            Text(verbatim: readout.progressLabel)
+                                .font(CrewFont.label)
+                                .tracking(0.8)
+                                .foregroundStyle(theme.body)
+                            Spacer()
+                            Text(verbatim: readout.percentLabel)
+                                .font(CrewFont.metric)
+                                .foregroundStyle(theme.primary)
+                        }
+                        CrewProgressBar(fraction: readout.progressFraction)
+                    }
+                    .crewGlassCard()
+                    VStack(alignment: .leading, spacing: 4) {
+                        CrewSectionHeader(title: "Race & crew")
+                        CrewListRow(systemImage: "person.3", title: "Room members", detail: "Roster and display names", action: onMembers)
+                        CrewListRow(systemImage: "exclamationmark.bubble", title: "Incidents", detail: "Log and review race incidents", action: onIncidents)
+                    }
+                    .crewGlassCard()
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Your races")
-                        .font(.system(size: 17, weight: .bold))
+                VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                    CrewSectionHeader(title: "Your races")
                     TextField("Race name", text: $model.raceName)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.crew)
                         .accessibilityLabel("Race name")
                     Button("Create new race") {
                         Task { await model.createRace(onCreated: onCreated) }
                     }
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewPrimary)
                     .disabled(model.creatingRace)
                     Button("Join race room", action: onJoin)
-                        .buttonStyle(KineticSecondaryButtonStyle())
+                        .buttonStyle(.crewSecondary)
                 }
-                .kineticCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Training history")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("Connect Strava so pace can use your recent efforts.")
-                        .font(.system(size: 16))
-                    Button("Strava", action: onStrava)
-                        .buttonStyle(KineticSecondaryButtonStyle())
+                .crewGlassCard()
+                VStack(alignment: .leading, spacing: 4) {
+                    CrewSectionHeader(title: "Training history")
+                    CrewListRow(systemImage: "figure.run", title: "Strava", detail: "Recent efforts feed your pace estimate", action: onStrava)
                 }
-                .kineticCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Account")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("Sign out of this device and return to the login flow.")
-                        .font(.system(size: 16))
-                    Button("Sign out", action: model.signOut)
-                        .buttonStyle(KineticDangerButtonStyle())
-                }
-                .kineticCard()
+                .crewGlassCard()
+                Button("Sign out", action: model.signOut)
+                    .buttonStyle(.crewGhost)
+                    .padding(.top, CrewSpace.base)
             }
+            .padding(.horizontal, CrewSpace.gutter)
+            .padding(.top, CrewSpace.gutter)
+            .padding(.bottom, CrewSpace.stackLg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .crewCueScreen(identifier: "crewcue.profile", label: "Profile")
+        .scrollIndicators(.hidden)
+        .accessibilityIdentifier("crewcue.profile")
+        .accessibilityLabel("Profile")
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, displayName: displayName, onName: onName)
         }
@@ -148,5 +146,87 @@ struct ProfileView: View {
 
     private var activationID: String {
         "\(userId ?? "")|\(roomId ?? "")|\(displayName ?? "")"
+    }
+}
+
+/// Runner hero: night-trail gradient, illustration, name, role, and live chip.
+struct ProfileHero: View {
+    let name: String
+    let role: String?
+    let live: Bool
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: CrewPalette.heroGradient,
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image("OnboardingRunner")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 8)
+                .padding(.trailing, -24)
+                .opacity(0.9)
+                .accessibilityHidden(true)
+            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: name)
+                        .font(CrewFont.display)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                    if let role, role.isEmpty == false {
+                        Label(role.capitalized, systemImage: "person.badge.shield.checkmark")
+                            .font(CrewFont.label)
+                            .foregroundStyle(CrewPalette.heroAccent)
+                    }
+                }
+                Spacer(minLength: 8)
+                if live {
+                    StatusChip(text: "LIVE TRACKING", style: .secondary, dot: true)
+                }
+            }
+            .padding(CrewSpace.margin)
+        }
+        .frame(height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+        .shadow(color: theme.shadow, radius: 16, y: 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct ProfileStatCard: View {
+    let label: String
+    let value: String
+    let caption: String
+    let accent: Bool
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            Text(label)
+                .font(CrewFont.label)
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(theme.body)
+            Spacer(minLength: 8)
+            Text(verbatim: value)
+                .font(CrewFont.metricLarge)
+                .foregroundStyle(accent ? theme.primary : theme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+            Text(caption)
+                .font(CrewFont.kicker)
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(theme.body)
+        }
+        .frame(minHeight: 120, alignment: .topLeading)
+        .crewGlassCard(padding: CrewSpace.gutter + 4)
+        .accessibilityElement(children: .combine)
     }
 }

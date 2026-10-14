@@ -3,7 +3,7 @@ import SwiftUI
 struct AuthSignInView: View {
     var model: AuthSignInModel
     var onJoin: () -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -11,15 +11,15 @@ struct AuthSignInView: View {
             Image("OnboardingRunner")
                 .resizable()
                 .scaledToFit()
-                .frame(maxWidth: 348, maxHeight: 196)
+                .frame(maxWidth: 348, maxHeight: 220)
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel("Trail runner illustration")
             VStack(alignment: .leading, spacing: 10) {
                 Text("Welcome to CrewCue")
-                    .font(.system(size: 28, weight: .heavy))
+                    .font(CrewFont.display)
                     .foregroundStyle(theme.ink)
                 Text("Find your crew and run race day together.")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(CrewFont.button)
                     .foregroundStyle(theme.body)
             }
             .padding(.top, 8)
@@ -29,44 +29,44 @@ struct AuthSignInView: View {
             }
             VStack(spacing: 12) {
                 Text(model.signingUp ? "Create an account" : "Sign in")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(CrewFont.body)
                     .foregroundStyle(theme.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Continue with Apple") { model.signIn(connection: "apple") }
-                    .buttonStyle(KineticAuthButtonStyle())
-                    .disabled(model.isWorking)
-                Button("Continue with Google") { model.signIn(connection: "google-oauth2") }
-                    .buttonStyle(KineticAuthButtonStyle())
-                    .disabled(model.isWorking)
-                Button("Continue with email") { model.signIn(connection: "Username-Password-Authentication") }
-                    .buttonStyle(KineticAuthButtonStyle())
-                    .disabled(model.isWorking)
+                AuthSocialButton(title: "Continue with Apple", systemImage: "apple.logo", isWorking: model.isWorking) {
+                    model.signIn(connection: "apple")
+                }
+                AuthSocialButton(title: "Continue with Google", systemImage: "globe", isWorking: model.isWorking) {
+                    model.signIn(connection: "google-oauth2")
+                }
+                AuthSocialButton(title: "Continue with email", systemImage: "envelope", isWorking: model.isWorking) {
+                    model.signIn(connection: "Username-Password-Authentication")
+                }
                 AuthSignInButton(isWorking: model.isWorking, action: { model.signIn() })
                 Button(model.signingUp ? "Already have an account? Sign in" : "Need an account? Sign up") {
                     model.signingUp.toggle()
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .font(CrewFont.body)
                 .foregroundStyle(theme.primary)
                 .disabled(model.isWorking)
                 HStack(spacing: 12) {
                     Rectangle()
-                        .fill(Color(red: 0.847, green: 0.820, blue: 0.769))
+                        .fill(theme.divider)
                         .frame(height: 1)
                     Text("or")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(CrewFont.body)
                         .foregroundStyle(theme.body)
                     Rectangle()
-                        .fill(Color(red: 0.847, green: 0.820, blue: 0.769))
+                        .fill(theme.divider)
                         .frame(height: 1)
                 }
                 Button("Join your crew with a code", action: onJoin)
-                    .buttonStyle(KineticAuthOutlineButtonStyle())
+                    .buttonStyle(.crewGhost)
             }
             Spacer(minLength: 12)
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, CrewSpace.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(theme.background)
+        .background(CrewBackground())
         .accessibilityIdentifier("crewcue.auth-signed-out")
         .accessibilityLabel("Signed out")
     }
@@ -74,11 +74,11 @@ struct AuthSignInView: View {
 
 struct AuthSignInStatus: View {
     let message: String
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         Text(message)
-            .font(.system(size: 15, weight: .medium))
+            .font(CrewFont.body)
             .foregroundStyle(theme.body)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 12)
@@ -91,7 +91,23 @@ struct AuthSignInButton: View {
 
     var body: some View {
         Button("Sign in", action: action)
-            .buttonStyle(KineticAuthButtonStyle())
+            .buttonStyle(.crewPrimary)
             .disabled(isWorking)
+    }
+}
+
+/// Light-grey pill with a leading icon, the DESIGN.md social auth treatment.
+struct AuthSocialButton: View {
+    let title: String
+    let systemImage: String
+    let isWorking: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+        }
+        .buttonStyle(.crewSecondary)
+        .disabled(isWorking)
     }
 }

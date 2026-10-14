@@ -1,7 +1,7 @@
 import SwiftUI
 import CrewCueClientCore
 
-private enum MapTool: String {
+enum MapTool: String, Hashable {
     case none
     case pick
     case navigate
@@ -15,19 +15,29 @@ private enum MapTool: String {
         default: .none
         }
     }
+
+    var title: String {
+        switch self {
+        case .none: "Aid stations"
+        case .pick: "Place checkpoint"
+        case .navigate: "Navigate"
+        case .location: "Share location"
+        }
+    }
 }
 
+/// Course map tab. The shell activates `MapModel` so progress is live on every tab.
 struct MapView: View {
     @Bindable var model: MapModel
-    var userId: String?
-    var roomId: String?
-    var role: String?
     var focus: String = "map-track"
+    var onSettings: () -> Void = {}
+    @State private var tool = MapTool.none
 
     var body: some View {
         ZStack(alignment: .bottom) {
             MapCanvas(
                 points: model.points,
+                recenterRequest: model.recenterRequest,
                 onTap: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
@@ -38,41 +48,89 @@ struct MapView: View {
                     model.noteStyleLoaded()
                 }
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            MapAidSheet(model: model, focus: focus)
+            .ignoresSafeArea()
+            MapAidSheet(model: model, tool: $tool)
+                .padding(.horizontal, 8)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.map")
         .accessibilityLabel("Map")
-        .task(id: activationID) {
-            await model.activate(userId: userId, roomId: roomId, role: role)
-            model.beginLocation()
+        .task(id: focus) {
+            tool = MapTool.forFocus(focus)
         }
     }
+}
 
-    private var activationID: String {
-        "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
+/// Glass top bar, status chips, and the round map buttons that float over the course.
+private struct MapOverlayControls: View {
+    var model: MapModel
+    @Binding var tool: MapTool
+    var onSettings: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(spacing: CrewSpace.stackSm) {
+            CrewTopBar(onSettings: onSettings)
+                .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+                .padding(.horizontal, 8)
+            HStack(alignment: .top) {
+                if model.readout.statusLabel.isEmpty == false {
+                    StatusChip(text: model.readout.statusLabel, style: model.readout.status == .behind ? .soft : .filled)
+                        .accessibilityLabel("Status \(model.readout.statusLabel)")
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: CrewSpace.stackSm) {
+                    if let ping = model.readout.lastPingLabel {
+                        StatusChip(text: "LAST PING: \(ping)", style: .glass, dot: true)
+                    }
+                    CircleIconButton(systemImage: "scope", label: "Fit course") {
+                        model.recenter()
+                    }
+                    Menu {
+                        Picker("Map tool", selection: $tool) {
+                            Label("Aid stations", systemImage: "flag").tag(MapTool.none)
+                            Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
+                            Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
+                            Label("Share location", systemImage: "location").tag(MapTool.location)
+                        }
+                    } label: {
+                        Image(systemName: "square.3.layers.3d")
+                            .font(.system(size: 21, weight: .semibold))
+                            .frame(width: 52, height: 52)
+                            .foregroundStyle(theme.primary)
+                    }
+                    .crewGlass(in: Circle(), interactive: true)
+                    .accessibilityLabel("Map tools")
+                }
+            }
+            .padding(.horizontal, CrewSpace.gutter)
+        }
     }
 }
 
 struct AidPager: View {
     @Bindable var model: MapModel
+    @ScaledMetric private var height: CGFloat = 228
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 ForEach(model.aidPages) { page in
-                    AidPeek(page: page)
+                    AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
                         .containerRelativeFrame(.horizontal)
                         .id(page.index)
                 }
             }
             .scrollTargetLayout()
         }
+        .scrollIndicators(.hidden)
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: aidScroll)
-        .frame(height: 148)
+        .frame(height: height)
     }
 
     private var aidScroll: Binding<Int?> {
@@ -88,156 +146,233 @@ struct AidPager: View {
 
 struct AidPeek: View {
     let page: AidStationPage
-    @Environment(\.kinetic) private var theme
+    var averagePace: String = "—"
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: page.kicker)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(theme.body)
-                    Text(verbatim: page.title)
-                        .font(.system(size: 20, weight: .heavy))
+        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+            HStack(alignment: .top, spacing: CrewSpace.stackSm) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: kicker)
+                        .crewKicker()
+                        .foregroundStyle(theme.primary)
+                    Text(verbatim: page.title.capitalized)
+                        .font(CrewFont.headline)
+                        .foregroundStyle(theme.ink)
                         .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                 }
                 Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(verbatim: page.clockLabel)
-                        .font(.system(size: 20, weight: .heavy))
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(verbatim: CrewClock.short(page.arrivalAt) ?? page.clockLabel)
+                        .font(CrewFont.metricLarge)
+                        .foregroundStyle(theme.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                     Text("EST. ARRIVAL")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(CrewFont.kicker)
+                        .tracking(1)
                         .foregroundStyle(theme.body)
                     Text(verbatim: page.remainLabel)
-                        .font(.system(size: 12, weight: .heavy))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(theme.secondaryButton, in: Capsule())
+                        .font(CrewFont.title.monospacedDigit())
+                        .foregroundStyle(theme.onPrimarySoft)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(theme.primarySoft, in: Capsule())
                 }
             }
-            HStack {
-                Text(verbatim: page.distanceLabel)
-                Spacer()
-                Text(verbatim: page.stoppageLabel)
-                if let delay = page.delayLabel {
-                    Text(verbatim: delay)
-                        .foregroundStyle(theme.primary)
-                }
+            Divider().overlay(theme.divider)
+            HStack(alignment: .top, spacing: 0) {
+                MetricColumn(label: "Distance\nremaining", value: page.distanceLabel.uppercased())
+                MetricDivider()
+                MetricColumn(label: "Elevation\nremaining", value: page.elevationLabel ?? "—")
+                MetricDivider()
+                MetricColumn(label: "Avg\npace", value: averagePace)
             }
-            .font(.system(size: 13, weight: .semibold))
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, CrewSpace.margin)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(page.scheduleLine)
     }
+
+    private var kicker: String {
+        switch page.kicker {
+        case "NEXT": "Next aid station"
+        case "START": "Start"
+        case "FINISHED": "Finished"
+        default: page.kicker
+        }
+    }
 }
 
-struct MapAidSheet: View {
-    @Bindable var model: MapModel
-    var focus: String
-    @Environment(\.kinetic) private var theme
-    @State private var tool = MapTool.none
+private struct MetricDivider: View {
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Capsule()
-                    .fill(theme.body.opacity(0.45))
-                    .frame(width: 36, height: 4)
-                    .frame(maxWidth: .infinity)
-                if model.aidPages.isEmpty == false {
-                    AidPager(model: model)
-                }
-                if model.aidFollow == false, let live = model.aidLiveNextIndex, live != model.aidIndex {
-                    Button("Next station", action: model.jumpToNextAid)
-                        .buttonStyle(KineticSecondaryButtonStyle())
-                }
-                if model.mapMessage.isEmpty == false {
-                    Text(verbatim: model.mapMessage)
-                        .font(.system(size: 16))
-                        .foregroundStyle(theme.body)
-                }
-                MapToolBar(tool: tool, onSelect: selectTool)
-                mapTool
+        Rectangle()
+            .fill(theme.divider)
+            .frame(width: 1, height: 52)
+    }
+}
+
+/// Bottom sheet on the map: aid station pager by default, or the active map tool.
+struct MapAidSheet: View {
+    @Bindable var model: MapModel
+    @Binding var tool: MapTool
+    @Environment(\.crew) private var theme
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+            Capsule()
+                .fill(theme.outline.opacity(0.45))
+                .frame(width: 44, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
+                .accessibilityLabel(expanded ? "Collapse details" : "Expand details")
+                .accessibilityAddTraits(.isButton)
+            if tool == .none {
+                aidContent
+            } else {
+                toolContent
             }
-            .padding(16)
-            .padding(.bottom, 8)
         }
-        .frame(maxHeight: tool == .none ? 280 : 420)
-        .background(theme.card)
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
-        .task(id: focus) {
-            tool = MapTool.forFocus(focus)
+        .padding(.bottom, CrewSpace.gutter)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .crewGlass(in: UnevenRoundedRectangle(
+            topLeadingRadius: CrewRadius.sheet,
+            bottomLeadingRadius: CrewRadius.card,
+            bottomTrailingRadius: CrewRadius.card,
+            topTrailingRadius: CrewRadius.sheet,
+            style: .continuous
+        ))
+        .shadow(color: theme.shadow, radius: 20, y: -2)
+        .gesture(
+            DragGesture(minimumDistance: 20).onEnded { value in
+                withAnimation(.snappy) {
+                    if value.translation.height < -30 { expanded = true }
+                    if value.translation.height > 30 { expanded = false }
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var aidContent: some View {
+        if model.aidPages.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Next aid station")
+                    .crewKicker()
+                    .foregroundStyle(theme.primary)
+                Text(verbatim: model.mapMessage.isEmpty ? "No aid stations yet." : model.mapMessage)
+                    .font(CrewFont.bodyLarge)
+                    .foregroundStyle(theme.body)
+            }
+            .padding(.horizontal, CrewSpace.margin)
+        } else {
+            AidPager(model: model)
+            if model.mapMessage.isEmpty == false {
+                Text(verbatim: model.mapMessage)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .padding(.horizontal, CrewSpace.margin)
+            }
+            if expanded {
+                expandedDetails
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
     @ViewBuilder
-    private var mapTool: some View {
-        switch tool {
-        case .none:
-            EmptyView()
-        case .pick:
-            MapPickSection(
-                latitude: $model.latitudeText,
-                longitude: $model.longitudeText,
-                title: $model.checkpointTitle,
-                message: model.pickMessage,
-                isBusy: model.pickBusy,
-                onSave: model.placeCheckpoint
-            )
-        case .navigate:
-            MapNavigateSection(
-                origin: $model.originId,
-                destination: $model.destinationId,
-                mode: $model.routeMode,
-                points: model.points,
-                message: model.navigateMessage,
-                isBusy: model.navigateBusy,
-                onStart: model.startNavigation
-            )
-        case .location:
-            MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
+    private var expandedDetails: some View {
+        let page = model.aidPages.indices.contains(model.aidIndex) ? model.aidPages[model.aidIndex] : nil
+        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+            VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                HStack {
+                    Text("Course progress")
+                        .crewKicker()
+                        .foregroundStyle(theme.body)
+                    Spacer()
+                    Text(verbatim: model.readout.progressLabel)
+                        .font(CrewFont.title.monospacedDigit())
+                }
+                CrewProgressBar(fraction: model.readout.progressFraction)
+            }
+            .padding(CrewSpace.margin)
+            .background(theme.well.opacity(0.85), in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+            if let page {
+                HStack(spacing: 0) {
+                    MetricColumn(label: "Planned stop", value: page.stoppageDurationLabel)
+                    MetricColumn(label: "Elapsed", value: page.elapsedLabel)
+                    MetricColumn(label: "Delay", value: page.delayLabel ?? "—")
+                }
+            }
+            if model.aidFollow == false, let live = model.aidLiveNextIndex, live != model.aidIndex {
+                Button("Next station", action: model.jumpToNextAid)
+                    .buttonStyle(.crewSecondary)
+            }
         }
+        .padding(.horizontal, CrewSpace.margin)
     }
 
-    private func selectTool(_ next: MapTool) {
-        tool = tool == next ? .none : next
-    }
-}
-
-private struct MapToolBar: View {
-    let tool: MapTool
-    let onSelect: (MapTool) -> Void
-    @Environment(\.kinetic) private var theme
-
-    var body: some View {
-        HStack(spacing: 8) {
-            MapToolButton(title: "Place", selected: tool == .pick) { onSelect(.pick) }
-            MapToolButton(title: "Navigate", selected: tool == .navigate) { onSelect(.navigate) }
-            MapToolButton(title: "Location", selected: tool == .location) { onSelect(.location) }
+    @ViewBuilder
+    private var toolContent: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            HStack {
+                Text(verbatim: tool.title)
+                    .font(CrewFont.headline)
+                Spacer()
+                Button {
+                    withAnimation(.snappy) { tool = .none }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(.body, weight: .bold))
+                        .frame(width: 36, height: 36)
+                        .background(theme.secondaryButton, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close \(tool.title)")
+            }
+            switch tool {
+            case .none:
+                EmptyView()
+            case .pick:
+                MapPickSection(
+                    latitude: $model.latitudeText,
+                    longitude: $model.longitudeText,
+                    title: $model.checkpointTitle,
+                    message: model.pickMessage,
+                    isBusy: model.pickBusy,
+                    onSave: model.placeCheckpoint
+                )
+            case .navigate:
+                ScrollView {
+                    MapNavigateSection(
+                        origin: $model.originId,
+                        destination: $model.destinationId,
+                        mode: $model.routeMode,
+                        points: model.points,
+                        message: model.navigateMessage,
+                        isBusy: model.navigateBusy,
+                        onStart: model.startNavigation
+                    )
+                }
+                .frame(maxHeight: 360)
+            case .location:
+                MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
+            }
         }
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(theme.ink)
-    }
-}
-
-private struct MapToolButton: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-    @Environment(\.kinetic) private var theme
-
-    var body: some View {
-        Button(title, action: action)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(selected ? theme.onPrimary : theme.ink)
-            .frame(maxWidth: .infinity, minHeight: 36)
-            .background(selected ? theme.primary : theme.secondaryButton, in: Capsule())
+        .padding(.horizontal, CrewSpace.margin)
     }
 }
 
 struct MapCanvas: View {
     let points: [MapCoursePoint]
+    var recenterRequest = 0
+    @Environment(\.crew) private var theme
     let onTap: (Double, Double) -> Void
     let onStyleFailure: (Bool) -> Void
     let onStyleLoaded: () -> Void
@@ -248,7 +383,9 @@ struct MapCanvas: View {
             points: points,
             onTap: onTap,
             onStyleFailure: onStyleFailure,
-            onStyleLoaded: onStyleLoaded
+            onStyleLoaded: onStyleLoaded,
+            recenterRequest: recenterRequest,
+            lineColor: UIColor(theme.primary)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")
@@ -268,23 +405,24 @@ struct MapPickSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Pick checkpoint")
-                .font(.title2)
+            Text("Tap the map to place a checkpoint.")
+                .font(CrewFont.body)
+                .foregroundStyle(.secondary)
             MapCoordinateField(title: "Latitude", text: $latitude)
             MapCoordinateField(title: "Longitude", text: $longitude)
             TextField("Title", text: $title)
-                .font(.body)
-                .textFieldStyle(.roundedBorder)
+                .font(CrewFont.bodyLarge)
+                .textFieldStyle(.crew)
                 .textInputAutocapitalization(.words)
                 .accessibilityLabel("Checkpoint title")
             if message.isEmpty == false {
                 Text(verbatim: message)
-                    .font(.body)
+                    .font(CrewFont.bodyLarge)
             }
             Button("Save checkpoint") {
                 Task { await onSave() }
             }
-            .buttonStyle(KineticProductButtonStyle())
+            .buttonStyle(.crewPrimary)
             .disabled(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -299,8 +437,8 @@ struct MapCoordinateField: View {
 
     var body: some View {
         TextField(title, text: $text)
-            .font(.body)
-            .textFieldStyle(.roundedBorder)
+            .font(CrewFont.bodyLarge)
+            .textFieldStyle(.crew)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .keyboardType(.numbersAndPunctuation)
@@ -319,17 +457,15 @@ struct MapNavigateSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Navigate")
-                .font(.title2)
             TextField("Origin", text: $origin)
-                .font(.body)
-                .textFieldStyle(.roundedBorder)
+                .font(CrewFont.bodyLarge)
+                .textFieldStyle(.crew)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Origin")
             TextField("Destination", text: $destination)
-                .font(.body)
-                .textFieldStyle(.roundedBorder)
+                .font(CrewFont.bodyLarge)
+                .textFieldStyle(.crew)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Destination")
@@ -348,12 +484,12 @@ struct MapNavigateSection: View {
             }
             if message.isEmpty == false {
                 Text(verbatim: message)
-                    .font(.body)
+                    .font(CrewFont.bodyLarge)
             }
             Button("Start navigation") {
                 Task { await onStart() }
             }
-            .buttonStyle(KineticProductButtonStyle())
+            .buttonStyle(.crewPrimary)
             .disabled(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -370,7 +506,7 @@ struct MapCheckpointChoice: View {
     var body: some View {
         HStack {
             Text(verbatim: title)
-                .font(.body)
+                .font(CrewFont.bodyLarge)
             Spacer()
             Button("Origin", action: onOrigin)
                 .accessibilityLabel("Origin \(title)")
@@ -386,12 +522,10 @@ struct MapLocationSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Location")
-                .font(.title2)
             Text(verbatim: message)
-                .font(.body)
+                .font(CrewFont.bodyLarge)
             Button("Share location", action: onShare)
-                .buttonStyle(KineticProductButtonStyle())
+                .buttonStyle(.crewPrimary)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.location-heartbeat")

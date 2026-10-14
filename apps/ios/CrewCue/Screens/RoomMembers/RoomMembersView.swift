@@ -6,7 +6,7 @@ struct RoomMembersView: View {
     var roomId: String?
     var onProfile: () -> Void
     var onNameSaved: (String) -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
@@ -17,31 +17,31 @@ struct RoomMembersView: View {
                         ForEach(model.members) { member in
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(verbatim: model.visibleName(member))
-                                    .font(.system(size: 17, weight: .semibold))
+                                    .font(CrewFont.button)
                                 if model.canRemove(member) {
                                     Button("Remove \(model.visibleName(member))") {
                                         Task { await model.remove(member) }
                                     }
-                                    .buttonStyle(KineticSecondaryButtonStyle())
+                                    .buttonStyle(.crewSecondary)
                                     .disabled(model.working)
                                 }
                             }
                         }
                     }
-                    .kineticCard()
+                    .crewCard()
                 }
                 if model.message.isEmpty == false {
                     Text(verbatim: model.message)
-                        .font(.system(size: 16))
+                        .font(CrewFont.bodyLarge)
                         .foregroundStyle(theme.body)
                 }
                 if hasRoom {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Your display name")
-                            .font(.system(size: 17, weight: .bold))
+                            .font(CrewFont.button)
                         TextField("Display name", text: $model.nameDraft)
-                            .font(.body)
-                            .textFieldStyle(.roundedBorder)
+                            .font(CrewFont.bodyLarge)
+                            .textFieldStyle(.crew)
                             .textContentType(.name)
                             .accessibilityLabel("Display name")
                         Button("Save") {
@@ -51,13 +51,13 @@ struct RoomMembersView: View {
                                 }
                             }
                         }
-                        .buttonStyle(KineticProductButtonStyle())
+                        .buttonStyle(.crewPrimary)
                         .disabled(model.working)
                     }
-                    .kineticCard()
+                    .crewCard()
                 }
                 Button("Profile", action: onProfile)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

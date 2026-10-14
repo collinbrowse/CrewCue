@@ -4,7 +4,7 @@ struct IncidentsView: View {
     @Bindable var model: IncidentsModel
     var roomId: String?
     var onProfile: () -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
@@ -14,21 +14,21 @@ struct IncidentsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(model.lines) { line in
                             Text(verbatim: line.summary)
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(CrewFont.bodyLarge)
                         }
                     }
-                    .kineticCard()
+                    .crewCard()
                 }
                 if model.message.isEmpty == false {
                     Text(verbatim: model.message)
-                        .font(.system(size: 16))
+                        .font(CrewFont.bodyLarge)
                         .foregroundStyle(theme.body)
                 }
                 if hasRoom {
                     VStack(alignment: .leading, spacing: 12) {
                         TextField("Summary", text: $model.summaryDraft, axis: .vertical)
-                            .font(.body)
-                            .textFieldStyle(.roundedBorder)
+                            .font(CrewFont.bodyLarge)
+                            .textFieldStyle(.crew)
                             .accessibilityLabel("Summary")
                         Picker("Category", selection: $model.category) {
                             ForEach(IncidentsModel.categories, id: \.self) { category in
@@ -43,21 +43,21 @@ struct IncidentsView: View {
                         }
                         .accessibilityLabel("Severity")
                         TextField("Checkpoint", text: $model.checkpointDraft)
-                            .font(.body)
-                            .textFieldStyle(.roundedBorder)
+                            .font(CrewFont.bodyLarge)
+                            .textFieldStyle(.crew)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .accessibilityLabel("Checkpoint")
                         Button("Submit") {
                             Task { await model.submit() }
                         }
-                        .buttonStyle(KineticProductButtonStyle())
+                        .buttonStyle(.crewPrimary)
                         .disabled(model.working || model.summaryDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .kineticCard()
+                    .crewCard()
                 }
                 Button("Profile", action: onProfile)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

@@ -10,17 +10,36 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var onTap: (Double, Double) -> Void
     var onStyleFailure: (Bool) -> Void
     var onStyleLoaded: () -> Void
+    var recenterRequest = 0
+    var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
 
-    static let styleURL = URL(string: "https://demotiles.maplibre.org/style.json")
+    static let fallbackStyleURL = URL(string: "https://demotiles.maplibre.org/style.json")
+
+    /// MapTiler topo when a key is configured (see apps/ios/Config/CrewCue.xcconfig), else the demo style.
+    static func styleURL(dark: Bool, bundle: Bundle = .main) -> URL? {
+        let key = (bundle.object(forInfoDictionaryKey: "CrewCueMapTilerKey") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard key.isEmpty == false, key.hasPrefix("$(") == false else { return fallbackStyleURL }
+        let style = dark ? "topo-v2-dark" : "topo-v2"
+        return URL(string: "https://api.maptiler.com/maps/\(style)/style.json?key=\(key)")
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTap: onTap, onStyleFailure: onStyleFailure, onStyleLoaded: onStyleLoaded)
     }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let mapView = MLNMapView(frame: .zero, styleURL: Self.styleURL)
+        let dark = context.environment.colorScheme == .dark
+        let mapView = MLNMapView(frame: .zero, styleURL: Self.styleURL(dark: dark))
+        context.coordinator.dark = dark
         mapView.delegate = context.coordinator
-        mapView.tintColor = UIColor.systemBlue
+        mapView.tintColor = lineColor
+        mapView.logoView.isHidden = true
+        // Keep MapTiler/OSM attribution reachable: below the top bar and status chips.
+        mapView.attributionButtonPosition = .topLeft
+        mapView.attributionButtonMargins = CGPoint(x: 16, y: 150)
+        mapView.compassViewPosition = .topLeft
+        mapView.compassViewMargins = CGPoint(x: 16, y: 190)
         context.coordinator.mapView = mapView
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleMapTap(sender:)))
         tap.name = "crewcue.checkpoint-tap"
@@ -34,7 +53,17 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.onStyleFailure = onStyleFailure
         context.coordinator.onStyleLoaded = onStyleLoaded
         context.coordinator.points = points
+        context.coordinator.lineColor = lineColor
+        let dark = context.environment.colorScheme == .dark
+        if context.coordinator.dark != dark {
+            context.coordinator.dark = dark
+            mapView.styleURL = Self.styleURL(dark: dark)
+        }
         context.coordinator.redraw(force: false)
+        if context.coordinator.recenterRequest != recenterRequest {
+            context.coordinator.recenterRequest = recenterRequest
+            context.coordinator.fitCourse(animated: true)
+        }
     }
 
     nonisolated static func isOffline(_ error: Error) -> Bool {
@@ -55,6 +84,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var onStyleFailure: (Bool) -> Void
         var onStyleLoaded: () -> Void
         weak var mapView: MLNMapView?
+        var recenterRequest = 0
+        var dark = false
+        var lineColor = UIColor.systemPurple
         private var drawnPoints: [MapCoursePoint] = []
 
         init(
@@ -87,9 +119,28 @@ struct MapLibreCourseMap: UIViewRepresentable {
             }
             if annotations.isEmpty == false {
                 mapView.addAnnotations(annotations)
-                mapView.showAnnotations(annotations, animated: false)
+                fitCourse(animated: false)
             }
             drawnPoints = points
+        }
+
+        /// Frames the course above the bottom sheet and below the top chips.
+        func fitCourse(animated: Bool) {
+            guard let mapView, let annotations = mapView.annotations, annotations.isEmpty == false else { return }
+            let padding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+            mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
+        }
+
+        nonisolated func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {
+            MainActor.assumeIsolated { self.lineColor }
+        }
+
+        nonisolated func mapView(_ mapView: MLNMapView, lineWidthForPolylineAnnotation annotation: MLNPolyline) -> CGFloat {
+            5
+        }
+
+        nonisolated func mapView(_ mapView: MLNMapView, alphaForShapeAnnotation annotation: MLNShape) -> CGFloat {
+            0.95
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
@@ -136,11 +187,16 @@ final class CheckpointTitleView: MLNAnnotationView {
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor.white.withAlphaComponent(0.92)
-        layer.cornerRadius = 4
-        label.font = UIFont.preferredFont(forTextStyle: .caption1)
+        backgroundColor = UIColor.white.withAlphaComponent(0.94)
+        layer.borderColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1).cgColor
+        layer.borderWidth = 1.5
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 6
+        layer.shadowOffset = CGSize(width: 0, height: 2)
+        label.font = Self.font
         label.adjustsFontForContentSizeCategory = true
-        label.textColor = .black
+        label.textColor = UIColor(red: 0.110, green: 0.110, blue: 0.090, alpha: 1)
         label.textAlignment = .center
         addSubview(label)
     }
@@ -151,12 +207,17 @@ final class CheckpointTitleView: MLNAnnotationView {
 
     func setTitle(_ title: String) {
         label.text = title
-        label.font = UIFont.preferredFont(forTextStyle: .caption1)
+        label.font = Self.font
         label.sizeToFit()
-        let width = max(44, label.bounds.width + 16)
-        let height = max(24, label.bounds.height + 8)
+        let width = max(44, label.bounds.width + 20)
+        let height = max(26, label.bounds.height + 10)
         bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        layer.cornerRadius = height / 2
         label.frame = bounds
+    }
+
+    private static var font: UIFont {
+        UIFontMetrics(forTextStyle: .caption1).scaledFont(for: .systemFont(ofSize: 12, weight: .bold))
     }
 }
 #endif

@@ -30,6 +30,7 @@ final class PaceModel {
     private(set) var role = ""
 
     private(set) var stopLines: [PaceLine] = []
+    private(set) var raceName = ""
     private(set) var stops: [PaceStop] = []
     var checkInOpen = false
     private(set) var scheduleMessage = ""
@@ -321,6 +322,7 @@ final class PaceModel {
         courseOffline = false
         let room = envelope.room
         courseCheckpoints = room.course?.checkpoints ?? []
+        raceName = room.name
         raceStartAt = room.raceStartAt
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
@@ -618,6 +620,44 @@ final class PaceModel {
             return trimmed
         }
         return loadedStops.first?.checkpointId ?? ""
+    }
+
+    /// Pace timeline rows for the course progress list.
+    func timeline(progressMeters: Double) -> [CheckpointTimelineRow] {
+        RaceDayReadouts.timeline(sheet: loadedSheet, checkpoints: aidCheckpoints, progressMeters: progressMeters)
+    }
+
+    func readout(progressMeters: Double) -> RaceDayReadout {
+        RaceDayReadouts.make(
+            sheet: loadedSheet,
+            checkpoints: aidCheckpoints,
+            progressMeters: progressMeters,
+            now: Date(),
+            lastPingAt: nil
+        )
+    }
+
+    /// Display stop for a checkpoint, used for the check-in button and accessibility line.
+    func stop(for checkpointId: String) -> PaceStop? {
+        stops.first { $0.checkpointId == checkpointId }
+    }
+
+    private var loadedSheet: CrewScheduleSheet? {
+        guard loadedStops.isEmpty == false else { return nil }
+        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: loadedStops)
+    }
+
+    private var aidCheckpoints: [AidStationCheckpoint] {
+        courseCheckpoints.map {
+            AidStationCheckpoint(
+                id: $0.id,
+                title: $0.title,
+                latitude: $0.latitude,
+                longitude: $0.longitude,
+                distanceMetersFromStart: $0.distanceMetersFromStart,
+                plannedStopSeconds: $0.plannedStopSeconds
+            )
+        }
     }
 
     private func courseTitle(for checkpointId: String) -> String? {

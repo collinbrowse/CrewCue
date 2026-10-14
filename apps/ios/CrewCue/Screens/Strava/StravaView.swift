@@ -3,7 +3,7 @@ import SwiftUI
 struct StravaView: View {
     @Bindable var model: StravaModel
     var onProfile: () -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
@@ -15,23 +15,23 @@ struct StravaView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if model.message.isEmpty == false {
                         Text(verbatim: model.message)
-                            .font(.system(size: 16))
+                            .font(CrewFont.bodyLarge)
                             .foregroundStyle(theme.body)
                     }
                     Button("Connect") {
                         Task { await model.connect() }
                     }
-                    .buttonStyle(KineticProductButtonStyle())
+                    .buttonStyle(.crewPrimary)
                     .disabled(model.busy)
                     Button("Disconnect") {
                         Task { await model.disconnect() }
                     }
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
                     .disabled(model.busy)
                 }
-                .kineticCard()
+                .crewCard()
                 Button("Profile", action: onProfile)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

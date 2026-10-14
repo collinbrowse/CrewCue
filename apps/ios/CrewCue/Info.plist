@@ -6,6 +6,8 @@
   <string>CrewCue</string>
   <key>CrewCueAPIBaseURL</key>
   <string>http://127.0.0.1:3000</string>
+  <key>CrewCueMapTilerKey</key>
+  <string>$(CREWCUE_MAPTILER_KEY)</string>
   <key>CrewCueAuth0Domain</key>
   <string>dev-ozh1r6603ymvszq6.us.auth0.com</string>
   <key>CrewCueAuth0ClientId</key>

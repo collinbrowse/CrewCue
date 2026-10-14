@@ -25,7 +25,9 @@ final class MapModel {
     private var courseFailed = false
     private var schedule: CrewScheduleSheet?
     private var courseCheckpoints: [AidStationCheckpoint] = []
-    private var progressMeters: Double = 0
+    private(set) var progressMeters: Double = 0
+    private var elevation: ElevationProfile?
+    private var lastPingAt: Date?
     private var styleOffline = false
     private var styleFailed = false
 
@@ -34,6 +36,9 @@ final class MapModel {
     private(set) var aidLiveNextIndex: Int?
     private(set) var aidIndex = 0
     private(set) var aidFollow = true
+    private(set) var readout = RaceDayReadouts.make(sheet: nil, checkpoints: [], progressMeters: 0, now: Date(), lastPingAt: nil)
+    /// Bumped to ask the map to fit the course again.
+    private(set) var recenterRequest = 0
     private(set) var mapMessage = "No course on the map."
     var latitudeText = ""
     var longitudeText = ""
@@ -99,6 +104,8 @@ final class MapModel {
         schedule = nil
         courseCheckpoints = []
         progressMeters = 0
+        elevation = nil
+        lastPingAt = nil
         aidPages = []
         aidIndex = 0
         aidFollow = true
@@ -229,6 +236,10 @@ final class MapModel {
         reproject(follow: aidFollow, selected: index)
     }
 
+    func recenter() {
+        recenterRequest += 1
+    }
+
     func jumpToNextAid() {
         aidFollow = true
         reproject(follow: true, selected: aidIndex)
@@ -240,6 +251,7 @@ final class MapModel {
             longitude: longitude,
             checkpoints: courseCheckpoints
         )
+        lastPingAt = Date()
         reproject(follow: aidFollow, selected: aidIndex)
         guard wantsLocation, !recording else { return }
         recording = true
@@ -355,6 +367,7 @@ final class MapModel {
             let next = Self.points(from: envelope.room.course)
             points = next
             courseCheckpoints = Self.aidCheckpoints(from: envelope.room.course)
+            elevation = envelope.room.course?.baselineTrack.map { ElevationProfile(points: $0.points) }
             if let loaded = try? await RaceDayAPI.loadScheduleResult(
                 graph: client.graph,
                 roomId: roomId,
@@ -451,7 +464,15 @@ final class MapModel {
             now: Date(),
             paceSecondsPerKm: nil,
             selectedIndex: selected,
-            follow: follow
+            follow: follow,
+            elevation: elevation
+        )
+        readout = RaceDayReadouts.make(
+            sheet: schedule,
+            checkpoints: courseCheckpoints,
+            progressMeters: progressMeters,
+            now: Date(),
+            lastPingAt: lastPingAt
         )
         aidPages = projection.pages
         aidLiveNextIndex = projection.liveNextIndex

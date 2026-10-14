@@ -4,7 +4,7 @@ struct ChatNotificationPrefsView: View {
     var model: ChatNotificationPrefsModel
     var roomId: String?
     var onChat: () -> Void
-    @Environment(\.kinetic) private var theme
+    @Environment(\.crew) private var theme
 
     var body: some View {
         ScrollView {
@@ -22,13 +22,13 @@ struct ChatNotificationPrefsView: View {
                     }
                     if model.message.isEmpty == false {
                         Text(verbatim: model.message)
-                            .font(.system(size: 16))
+                            .font(CrewFont.bodyLarge)
                             .foregroundStyle(theme.body)
                     }
                 }
-                .kineticCard()
+                .crewCard()
                 Button("Chat", action: onChat)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -49,10 +49,10 @@ struct ChatAlertChoice: View {
         Group {
             if selected {
                 Button(title, action: action)
-                    .buttonStyle(KineticProductButtonStyle())
+                    .buttonStyle(.crewPrimary)
             } else {
                 Button(title, action: action)
-                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .buttonStyle(.crewSecondary)
             }
         }
         .disabled(isWorking)
