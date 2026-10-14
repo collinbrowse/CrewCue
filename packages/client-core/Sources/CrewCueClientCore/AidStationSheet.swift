@@ -46,6 +46,9 @@ public struct AidStationPage: Equatable, Sendable, Identifiable {
     public var movingLabel: String?
     public var waitedLabel: String?
     public var scheduleLine: String
+    /// Arrival instant (ISO-8601 UTC) so each platform can render a local clock.
+    public var arrivalAt: String?
+    public var elevationLabel: String?
 
     public var id: String { checkpointId }
 
@@ -63,7 +66,9 @@ public struct AidStationPage: Equatable, Sendable, Identifiable {
         elapsedLabel: String = "—",
         movingLabel: String? = nil,
         waitedLabel: String? = nil,
-        scheduleLine: String
+        scheduleLine: String,
+        arrivalAt: String? = nil,
+        elevationLabel: String? = nil
     ) {
         self.checkpointId = checkpointId
         self.index = index
@@ -79,6 +84,8 @@ public struct AidStationPage: Equatable, Sendable, Identifiable {
         self.movingLabel = movingLabel
         self.waitedLabel = waitedLabel
         self.scheduleLine = scheduleLine
+        self.arrivalAt = arrivalAt
+        self.elevationLabel = elevationLabel
     }
 }
 
@@ -104,7 +111,8 @@ public enum AidStationSheet {
         now: Date,
         paceSecondsPerKm: Double?,
         selectedIndex: Int,
-        follow: Bool
+        follow: Bool,
+        elevation: ElevationProfile? = nil
     ) -> AidStationProjection {
         let progress = progressMeters.isFinite ? progressMeters : 0
         let rows = pages(sheet: sheet, checkpoints: checkpoints)
@@ -123,7 +131,8 @@ public enum AidStationSheet {
                 liveNext: live,
                 progress: progress,
                 now: now,
-                pace: paceSecondsPerKm
+                pace: paceSecondsPerKm,
+                elevation: elevation
             )
         }
         return AidStationProjection(pages: stamped, liveNextIndex: live, selectedIndex: index, phase: phase)
@@ -179,6 +188,12 @@ public enum AidStationSheet {
                 if let delay = page.delayLabel {
                     row["delayLabel"] = delay
                 }
+                if let arrivalAt = page.arrivalAt {
+                    row["arrivalAt"] = arrivalAt
+                }
+                if let elevation = page.elevationLabel {
+                    row["elevationLabel"] = elevation
+                }
                 return row
             }
         ]
@@ -226,9 +241,11 @@ public enum AidStationSheet {
         liveNext: Int?,
         progress: Double,
         now: Date,
-        pace: Double?
+        pace: Double?,
+        elevation: ElevationProfile?
     ) -> AidStationPage {
         let arrival = arrival(stop: row.stop, distance: row.distanceMetersFromStart, progress: progress, now: now, pace: pace)
+        let climb = row.distanceMetersFromStart.flatMap { elevation?.gainMeters(from: progress, to: $0) }
         let delay = row.stop?.delayOverrideSeconds
         let line: String
         if let stop = row.stop {
@@ -256,7 +273,9 @@ public enum AidStationSheet {
             waitedLabel: row.stop?.movingElapsedSeconds.map { moving in
                 ScheduleFormat.formatDurationSeconds(max(0, (row.stop?.elapsedSeconds ?? moving) - moving))
             },
-            scheduleLine: line
+            scheduleLine: line,
+            arrivalAt: arrival.iso,
+            elevationLabel: RaceDayReadouts.elevationLabel(meters: climb)
         )
     }
 
@@ -282,10 +301,10 @@ public enum AidStationSheet {
         progress: Double,
         now: Date,
         pace: Double?
-    ) -> (clock: String, remain: String) {
+    ) -> (clock: String, remain: String, iso: String?) {
         if let iso = stop?.clockArrivalAt, let date = ScheduleFormat.parseISO8601(iso) {
             let remain = date.timeIntervalSince(now)
-            return (ScheduleFormat.formatUtcHhMm(iso), remainLabel(remain))
+            return (ScheduleFormat.formatUtcHhMm(iso), remainLabel(remain), iso)
         }
         if let distance, let pace, pace > 0, pace.isFinite, distance.isFinite {
             let remain = max(0, distance - progress) / 1000 * pace
@@ -293,9 +312,10 @@ public enum AidStationSheet {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            return (ScheduleFormat.formatUtcHhMm(formatter.string(from: eta)), remainLabel(remain))
+            let iso = formatter.string(from: eta)
+            return (ScheduleFormat.formatUtcHhMm(iso), remainLabel(remain), iso)
         }
-        return ("—", "—")
+        return ("—", "—", nil)
     }
 
     private static func remainLabel(_ seconds: Double) -> String {

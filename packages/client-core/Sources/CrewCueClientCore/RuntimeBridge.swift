@@ -154,23 +154,85 @@ enum RuntimeCall {
     }
 
     private static func projectAidSheet(_ object: [String: Any]) -> [String: Any] {
-        AidStationSheet.payload(aidProjection(sheet: decodeSheet(object["sheet"]), request: object))
+        let sheet = decodeSheet(object["sheet"])
+        var payload = AidStationSheet.payload(aidProjection(sheet: sheet, request: object))
+        payload["readout"] = readoutPayload(sheet: sheet, request: object)
+        payload["timeline"] = timelinePayload(sheet: sheet, request: object)
+        return payload
+    }
+
+    private static func requestProgress(_ request: [String: Any], _ checkpoints: [AidStationCheckpoint]) -> Double {
+        if let latitude = requestNumber(request["latitude"]), let longitude = requestNumber(request["longitude"]) {
+            return AidStationSheet.progressMeters(latitude: latitude, longitude: longitude, checkpoints: checkpoints)
+        }
+        return requestNumber(request["progressMeters"]) ?? 0
+    }
+
+    private static func requestNow(_ request: [String: Any]) -> Date {
+        requestNumber(request["nowMs"]).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+    }
+
+    private static func elevationProfile(_ value: Any?) -> ElevationProfile? {
+        let rows = (value as? [Any] ?? []).compactMap { item -> (distanceMeters: Double, elevationMeters: Double)? in
+            guard let pair = item as? [Any], pair.count >= 2,
+                  let distance = requestNumber(pair[0]), let elevation = requestNumber(pair[1]) else { return nil }
+            return (distance, elevation)
+        }
+        return rows.isEmpty ? nil : ElevationProfile(samples: rows)
+    }
+
+    private static func readoutPayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [String: Any] {
+        let checkpoints = aidCheckpoints(request["checkpoints"])
+        let readout = RaceDayReadouts.make(
+            sheet: sheet,
+            checkpoints: checkpoints,
+            progressMeters: requestProgress(request, checkpoints),
+            now: requestNow(request),
+            lastPingAt: requestNumber(request["lastPingAtMs"]).map { Date(timeIntervalSince1970: $0 / 1000) }
+        )
+        var row: [String: Any] = [
+            "status": readout.status.rawValue,
+            "statusLabel": readout.statusLabel,
+            "progressFraction": readout.progressFraction,
+            "progressLabel": readout.progressLabel,
+            "percentLabel": readout.percentLabel,
+            "totalMilesLabel": readout.totalMilesLabel,
+            "currentMileLabel": readout.currentMileLabel,
+            "elapsedLabel": readout.elapsedLabel,
+            "averagePaceLabel": readout.averagePaceLabel
+        ]
+        if let ping = readout.lastPingLabel {
+            row["lastPingLabel"] = ping
+        }
+        return row
+    }
+
+    private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [[String: Any]] {
+        let checkpoints = aidCheckpoints(request["checkpoints"])
+        return RaceDayReadouts.timeline(
+            sheet: sheet,
+            checkpoints: checkpoints,
+            progressMeters: requestProgress(request, checkpoints)
+        ).map { item in
+            var row: [String: Any] = [
+                "checkpointId": item.checkpointId,
+                "state": item.state.rawValue,
+                "kicker": item.kicker,
+                "title": item.title,
+                "distanceToLabel": item.distanceToLabel,
+                "isFinish": item.isFinish
+            ]
+            if let arrival = item.clockArrivalAt { row["clockArrivalAt"] = arrival }
+            if let cutoff = item.cutoffAt { row["cutoffAt"] = cutoff }
+            if let status = item.cutoffStatus { row["cutoffStatus"] = status }
+            return row
+        }
     }
 
     private static func aidProjection(sheet: CrewScheduleSheet?, request: [String: Any]) -> AidStationProjection {
         let checkpoints = aidCheckpoints(request["checkpoints"])
-        let progress: Double
-        if let latitude = requestNumber(request["latitude"]), let longitude = requestNumber(request["longitude"]) {
-            progress = AidStationSheet.progressMeters(latitude: latitude, longitude: longitude, checkpoints: checkpoints)
-        } else {
-            progress = requestNumber(request["progressMeters"]) ?? 0
-        }
-        let now: Date
-        if let millis = requestNumber(request["nowMs"]) {
-            now = Date(timeIntervalSince1970: millis / 1000)
-        } else {
-            now = Date()
-        }
+        let progress = requestProgress(request, checkpoints)
+        let now = requestNow(request)
         let selected = Int(requestNumber(request["selectedIndex"]) ?? 0)
         let follow = (request["follow"] as? Bool) ?? true
         return AidStationSheet.project(
@@ -180,7 +242,8 @@ enum RuntimeCall {
             now: now,
             paceSecondsPerKm: requestNumber(request["paceSecondsPerKm"]),
             selectedIndex: selected,
-            follow: follow
+            follow: follow,
+            elevation: elevationProfile(request["elevation"])
         )
     }
 
@@ -223,7 +286,9 @@ enum RuntimeCall {
                 "raceStartAt": "",
                 "lines": [] as [String],
                 "checkpointIds": [] as [String],
-                "aidSheet": AidStationSheet.payload(aidProjection(sheet: nil, request: request))
+                "aidSheet": AidStationSheet.payload(aidProjection(sheet: nil, request: request)),
+                "readout": readoutPayload(sheet: nil, request: request),
+                "timeline": timelinePayload(sheet: nil, request: request)
             ]
         }
         let lines = sheet.stops.map {
@@ -239,7 +304,9 @@ enum RuntimeCall {
             "lines": lines,
             "checkpointIds": sheet.stops.map(\.checkpointId),
             "sheet": try jsonValue(sheet),
-            "aidSheet": AidStationSheet.payload(aidProjection(sheet: sheet, request: request))
+            "aidSheet": AidStationSheet.payload(aidProjection(sheet: sheet, request: request)),
+            "readout": readoutPayload(sheet: sheet, request: request),
+            "timeline": timelinePayload(sheet: sheet, request: request)
         ]
     }
 
@@ -1134,6 +1201,7 @@ enum CoursePayload {
             "offline": offline,
             "checkpoints": [] as [[String: Any]],
             "line": [] as [[Double]],
+            "elevation": [] as [[Double]],
             "memberships": [] as [[String: Any]]
         ]
     }
@@ -1150,8 +1218,22 @@ enum CoursePayload {
             "offline": false,
             "checkpoints": checkpoints,
             "line": line,
+            "elevation": elevationRows(room),
             "memberships": membershipRows(room)
         ]
+    }
+
+    /// `[distanceMeters, elevationMeters]` pairs from the course baseline track.
+    private static func elevationRows(_ room: [String: Any]) -> [[Double]] {
+        let track = ((room["course"] as? [String: Any])?["baselineTrack"] as? [String: Any])?["points"] as? [Any] ?? []
+        return track.compactMap { item in
+            guard let row = item as? [String: Any],
+                  let distance = number(row["distanceMetersFromStart"]),
+                  let elevation = number(row["elevationMeters"]) else {
+                return nil
+            }
+            return [distance, elevation]
+        }
     }
 
     private static func membershipRows(_ room: [String: Any]) -> [[String: Any]] {

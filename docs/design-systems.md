@@ -1,39 +1,26 @@
 # Design Systems
 
-CrewCue design tokens live in `packages/contracts/src/designSystems.ts`. The supported clients are the native iOS and Android apps. The web client has been removed. The Expo app still reads the mobile theme until it is deleted.
+CrewCue has one design system: **Night Trail**. The native iOS and Android apps are the only clients.
 
-- `kinetic`
-- `performance`
+## Sources
 
-Tokens are defined in `packages/contracts/src/designSystems.ts`.
+- Visual target: `crewcue_design/*/screen.png` (map, expanded milestone, course schedule, crew chat, runner profile). These are day-mode mockups.
+- Token spec: `crewcue_design/night_trail_performance/DESIGN.md`.
+- Canonical tokens: `packages/contracts/src/designSystems.ts` (`nightTrail`, light and dark).
+- iOS: `apps/ios/CrewCue/Design/CrewTheme.swift`.
+- Android: `apps/android/app/src/main/kotlin/com/crewcue/android/ui/theme/CrewTheme.kt`.
 
-## Runtime behavior
+## Rules
 
-- Frozen Expo toggle: `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
-- Changes apply immediately across the app tree.
-- Light/dark variants auto-follow the device color-scheme setting.
-- Preference persists across relaunch/refresh.
+- Light matches the mockups. Dark uses the `nightTrail.dark` variant and follows the device setting.
+- Fonts are the platform system fonts (SF Pro, Roboto) at the DESIGN.md sizes and weights. Lexend and Inter are not bundled.
+- Shapes: capsule buttons and chips, 32pt cards, circular icon containers.
+- iOS uses a toned-down Liquid Glass (`glassEffect` with a strong surface tint) on the tab bar, top bar, map chips and sheet, and content cards. Android uses solid tonal surfaces and no blur.
+- Feature screens do not hardcode colors or font sizes. Add a token or component in the theme file instead.
 
-## Add a new design file
+## Changing tokens
 
-1. Add a new entry to `DESIGN_SYSTEMS` in `packages/contracts/src/designSystems.ts`.
-2. Add a new `DesignSystemId` union member.
-3. Ensure all required token groups are provided:
-  - `colors`
-  - `typography`
-  - `radius`
-  - `spacing`
-4. Keep token groups complete: `colors`, `typography`, `radius`, `spacing`.
-5. If needed, refine mobile mapping logic in `apps/mobile/src/design-system/theme.ts` (`toMobileTokens`).
-
-## Validation
-
-Run:
-
-- `npm run build -w @crewcue/contracts`
-- `npm run typecheck -w @crewcue/mobile`
-
-Then manually verify:
-
-- Switching updates the Expo UI immediately while that client is still installed.
-- Selected system remains active after restart/refresh.
+1. Edit `nightTrail` in `packages/contracts/src/designSystems.ts`.
+2. Mirror the change in both native theme files.
+3. Run `npm run build -w @crewcue/contracts`.
+4. Check light and dark with `npm run agent:ios:ready` and `npm run agent:android:ready`.
