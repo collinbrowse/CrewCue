@@ -1,4 +1,4 @@
-# Design Systems
+# Design systems
 
 CrewCue has one design system: **Night Trail**. The native iOS and Android apps are the only clients.
 
@@ -22,5 +22,5 @@ CrewCue has one design system: **Night Trail**. The native iOS and Android apps 
 
 1. Edit `nightTrail` in `packages/contracts/src/designSystems.ts`.
 2. Mirror the change in both native theme files.
-3. Run `npm run build -w @crewcue/contracts`.
+3. Run `npm run verify:contracts`.
 4. Check light and dark with `npm run agent:ios:ready` and `npm run agent:android:ready`.

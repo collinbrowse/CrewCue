@@ -13,7 +13,7 @@ Applies when changing `apps/android/**`.
 1. `npm run verify:client-behavior` when the checklist changed, and
 2. `npm run agent:android:ready -- --deeplink crewcue://dev/<id>` on a booted emulator.
 
-The debug APK is the Compose app. Do not start Metro or Expo.
+The debug APK is the Compose app.
 
 ## Evidence
 

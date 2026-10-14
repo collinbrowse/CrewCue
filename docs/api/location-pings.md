@@ -1,4 +1,4 @@
-# WS2 Task 1 — Athlete ping ingest
+# Athlete ping ingest
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Order of checks:
 | `longitude` | number, −180…180 | yes |
 | `recordedAt` | ISO 8601 datetime | yes (device time when fix was taken) |
 | `horizontalAccuracyMeters` | positive number | no; if present must be ≤ 500 |
-| `uploadIntervalSeconds` | integer 10…900 | no; athlete app **target** seconds between pings (battery + race-length policy). When set on an **accepted** ping, the server remembers it for the room and uses it to derive projection **staleness** threshold (see [ws2-task3-projection-confidence.md](./ws2-task3-projection-confidence.md)). |
+| `uploadIntervalSeconds` | integer 10…900 | no; athlete app **target** seconds between pings (battery + race-length policy). When set on an **accepted** ping, the server remembers it for the room and uses it to derive projection **staleness** threshold (see [projection.md](./projection.md#timeliness-confidence-and-staleness)). |
 
 **Constants (server)**
 

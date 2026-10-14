@@ -40,6 +40,9 @@ for (coordinate in streamCandidates) {
 }
 val streamFailure = if (streamCoordinate == null) streamFailures.joinToString(" | ") else ""
 
+val repoRoot = rootProject.projectDir.parentFile.parentFile
+val releaseKeystore = System.getenv("CREWCUE_ANDROID_KEYSTORE")
+
 android {
     namespace = "com.crewcue.android"
     compileSdk = 35
@@ -48,8 +51,9 @@ android {
         applicationId = "com.crewcue.android"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = (findProperty("crewcue.versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("crewcue.versionName") as String?) ?: "0.0.0-dev"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         val auth0Domain = crewcueResolved("crewcue_auth0_domain")
         val auth0ClientId = crewcueResolved("crewcue_auth0_client_id")
@@ -70,9 +74,21 @@ android {
         manifestPlaceholders["auth0Scheme"] = "crewcue"
     }
 
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("CREWCUE_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CREWCUE_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("CREWCUE_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -107,6 +123,9 @@ android {
                 kotlin.srcDir("src/stream/kotlin")
             }
         }
+        getByName("androidTest") {
+            assets.srcDir(repoRoot.resolve("clients/behavior"))
+        }
     }
 }
 
@@ -130,6 +149,12 @@ dependencies {
     streamCoordinate?.let { coordinate ->
         implementation(coordinate)
     }
+
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 fun Project.crewcueProp(name: String): String = (findProperty(name) as? String)?.trim().orEmpty()
@@ -172,12 +197,18 @@ fun crewcueQuoted(value: String): String =
         .replace("\r", "")
         .replace("\n", "\\n") + "\""
 
-tasks.register<Exec>("buildSwiftAndroid") {
+val buildSwiftAndroid = tasks.register<Exec>("buildSwiftAndroid") {
     group = "build"
-    description = "Cross-compile packages/client-core with the Swift Android SDK and run swift-java jextract."
+    description = "Cross-compile packages/client-core with the Swift Android SDK and stage the JNI libraries."
     workingDir = rootProject.projectDir
-    commandLine("node", "../../scripts/build-swift-android.mjs")
+    commandLine("node", repoRoot.resolve("scripts/build-swift-android.mjs").path)
+    inputs.dir(repoRoot.resolve("packages/client-core/Sources"))
+    inputs.file(repoRoot.resolve("packages/client-core/Package.swift"))
+    inputs.file(repoRoot.resolve("scripts/build-swift-android.mjs"))
+    inputs.file(repoRoot.resolve("scripts/lib/swiftAndroidToolchain.mjs"))
+    inputs.property("configuration", System.getenv("SWIFT_BUILD_CONFIGURATION") ?: "debug")
+    outputs.dir(layout.buildDirectory.dir("generated/jniLibs"))
 }
 
 // Package freshly built Swift every time. Without this the APK ships whatever stale .so is on disk.
-tasks.named("preBuild") { dependsOn("buildSwiftAndroid") }
+tasks.named("preBuild") { dependsOn(buildSwiftAndroid) }

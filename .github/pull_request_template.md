@@ -1,137 +1,55 @@
-## Change surface (check all that apply)
-
-Use this for quick triage. Finer grouping (epic, milestone, cloud rollout phase from `docs/sdlc/staging-first-cloud-delivery.md`) lives in **linked issues** and GitHub labels.
-
-- [ ] iOS (`apps/ios`)
-- [ ] Android (`apps/android`)
-- [ ] Shared client core (`packages/client-core`)
-- [ ] Native schedule sheet (`crewcue://dev/schedule-sheet` on iOS and Android)
-- [ ] API (`services/api`)
-- [ ] Contracts / shared packages (`packages/*`)
-- [ ] Docs / runbooks (`docs/`)
-- [ ] CI / tooling (`.github/`, `scripts/`)
-- [ ] Cross-cutting (touches multiple areas above)
-
-## Linked issues (required for auto-close on merge)
-
-Every task should have a GitHub issue **before** implementation. When this PR merges, the following line(s) **close** those issues (workflow: `.github/workflows/auto-close-linked-issues.yml`). Use one keyword per line: `Closes`, `Fixes`, or `Resolves`.
-
-Closes #
-
-
 ## Scope
 
-Describe exactly what this PR changes.
+<!-- What this PR changes and why, in 2–5 sentences. One platform per PR for native UI work. -->
 
-## Decision Tree and Rationale (required)
+Closes #
+<!-- Or: `No issue: <reason>` for hygiene/tooling PRs. Closes/Fixes/Resolves auto-closes on merge. -->
 
-Document the key decisions that shaped this implementation so future debugging can reconstruct intent.
+## Decision Tree and Rationale
 
-<!-- CI (`pr-decision-doc-guard`) + `npm run agent:pr:done` require these exact headers and a filled same-line bullet `- Decision: …` / `- Assumption: …` / `- Summary: …` (non-whitespace after the colon). Optional Markdown bold (e.g. `- **Decision:** text`) is accepted. Allowed values: `Single obvious path` (Decision), `None identified` (Assumption or Summary). Instructional/comment text does not count. Agent doc: `.cursor/rules/pr-decision-doc-guard.mdc`. -->
+<!-- CI `pr-decision-doc-guard` requires these three headers with a filled same-line bullet.
+     `- Decision: Single obvious path` and `- Assumption/Summary: None identified` are valid values. -->
 
 - Decision:
-  - Context:
   - Alternatives considered:
   - Why selected:
 
-<!-- Repeat for each major decision. If only one straightforward path existed, set `- Decision: Single obvious path; no meaningful alternatives.` -->
-
-## Implicit Assumptions and Invariants (required)
-
-List assumptions that are not obvious from code alone.
+## Implicit Assumptions and Invariants
 
 - Assumption:
-  - Why it is safe today:
   - What would break if false:
 
-## Higher-Order Effects Check (required)
+## Higher-Order Effects Check
 
-Explicitly note downstream effects. If none, set `- Summary: None identified.`
+<!-- Adjacent modules, retries, authz, persistence, observability, operator workflow, docs/runbooks. -->
 
-- [ ] Second-order effects reviewed (adjacent modules, retries, authz, persistence, observability)
-- [ ] Third-order effects reviewed (operator workflow, incident/debug path, docs/runbooks)
 - Summary:
 
-## Acceptance Criteria Mapping
+## Edge-case proofs
 
-List each relevant acceptance criterion and how this PR satisfies it.
+<!-- One line per acceptance criterion or edge case: `- EC1: <criterion> — <test name / command / screenshot>` -->
 
-- Criterion:
-  - Evidence:
+- EC1:
 
-## Test Plan
+## Device evidence
 
-- Mid-slice (optional): `npm run verify:contracts` / `verify:api` / `verify:ios` / `verify:android`
-- `npm run lint`
-- `npm run typecheck`
-- `npm run build`
-- `npm run test`
-- `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet` and `npm run agent:android:ready -- --deeplink crewcue://dev/schedule-sheet` when a native screen changed
-- `npm run verify` (repo root: matches CI `checks` — lint, typecheck, test, workspace builds, harness unit tests)
-- Agent packages: `npm run agent:pr:done -- <pr>` (or `--body-file` with this body)
+<!-- Required when apps/ios or apps/android changed. CI runs the deeplink UI smoke tests; tick a box only after you ran it.
+     Attach screenshots in the PR, do not commit them. -->
 
-## iOS simulator evidence (required if `apps/ios` UI changed)
+- [ ] `npm run test:ios` passes; `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>` screenshot attached
+- [ ] `npm run test:android` passes; `npm run agent:android:ready -- --deeplink crewcue://dev/<id>` screenshot attached
+- Blocker:
 
-Attach proof here or in PR comments. **Do not commit** evidence files.
+## Test plan
 
-Prefer Auth0-free deeplinks from `clients/behavior/deeplinks.json`, for example `npm run agent:ios:ready -- --deeplink crewcue://dev/schedule-sheet`.
+- [ ] `npm run verify`
+- [ ] Scoped: `verify:api` / `verify:contracts` / `verify:ios` / `verify:android` / `test:pg`
 
-- [ ] `npm run agent:ios:ready` — pass (or **Blocker** below with options)
-- [ ] Acceptance criteria exercised on simulator (XcodeBuildMCP)
-- [ ] `npm run verify` — pass
+## Risk and rollback
 
-## Android emulator evidence (required if `apps/android` UI changed)
+- Risk: low / medium / high
+- Rollback:
 
-- [ ] `npm run agent:android:ready -- --deeplink crewcue://dev/<id>` — pass (or **Blocker** below)
-- [ ] Checklist accessibility label present in the UI dump
+## Handoff delta
 
-**Blocker (if device testing stopped):** _what blocked, what was verified, numbered options to proceed_
-
-## Maintainability Checklist (required)
-
-- No duplicate API/outbox/client logic introduced
-- File/module placement follows monorepo layering (contracts -> api -> client/sync -> UI -> docs)
-- Complex branches include intent comments where useful
-- Docs updated for workflow/operational changes
-- A new contributor can trace this feature from contract to UI
-
-## Dual-Client Architecture Checklist (required when touching contracts/API/client-sync)
-
-- Contract/API changes are client-agnostic (iOS + Android over the same contracts)
-- No client-specific semantics leaked into contracts/routes
-- Server remains source of truth for domain outcomes
-- `npm run verify:dual-client` passes
-- `npm run verify:client-boundary` passes when native clients or `packages/client-core` change
-- Updated `docs/sdlc/dual-client-architecture-guardrails.md` if architecture boundaries changed
-
-## Risk and Rollback
-
-- Risk level: low / medium / high
-- Rollback approach:
-
-## Agent Notes (if agent-assisted)
-
-- Prompt/task used:
-- What was reviewed manually:
-- **Handoff delta** (feature agents — ≤5 lines; do not edit `agent-handoff.md` mid-wave):
-- Integration agent updated `docs/sdlc/agent-handoff.md`: yes / no / N/A
-- Successor next-step prompt prepared: yes / no
-- `npm run agent:pr:done`: pass / n/a
-
-## Agent Handoff Continuity Checklist (required for agent-assisted PRs)
-
-- Current roadmap phase is explicitly stated
-- Active issue and acceptance criteria are restated before implementation
-- Changed files are listed with rationale and layering compliance
-- "Do-not-change" guardrails are listed for this PR
-- Remaining tasks and blockers are documented for successor agent
-- Validation evidence includes command summary and manual/staging checks where applicable
-
-## Token Budget Check (required for agent-assisted PRs)
-
-- Used `docs/sdlc/token-budget.md` as context policy
-- Kept context to canonical docs + task-specific files only
-- Avoided broad/redundant doc summaries in agent notes
-- Updated `docs/sdlc/agent-handoff.md` with delta-only current state
-- Successor prompt is short, scoped, and actionable
-
+<!-- Agent PRs: ≤5 lines of state a successor needs. Do not edit docs/sdlc/agent-handoff.md mid-wave. -->

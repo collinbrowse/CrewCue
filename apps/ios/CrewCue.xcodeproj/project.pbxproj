@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,111 +11,51 @@
 		A10000000000000000000015 /* Auth0 in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000014 /* Auth0 */; };
 		A10000000000000000000018 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000017 /* MapLibre */; };
 		A10000000000000000000019 /* StreamChat in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001A /* StreamChat */; };
-		A10000000000000000000021 /* CrewCueApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000031 /* CrewCueApp.swift */; };
-		A10000000000000000000042 /* AppClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000080 /* AppClient.swift */; };
-		A10000000000000000000043 /* AppDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000081 /* AppDirectories.swift */; };
-		A10000000000000000000044 /* LaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000082 /* LaunchConfiguration.swift */; };
-		A10000000000000000000045 /* APIFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000083 /* APIFailure.swift */; };
-		A10000000000000000000046 /* Auth0SignIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000084 /* Auth0SignIn.swift */; };
-		A10000000000000000000047 /* AuthSignInModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000085 /* AuthSignInModel.swift */; };
-		A10000000000000000000048 /* AuthSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000086 /* AuthSignInView.swift */; };
-		A10000000000000000000049 /* JoinCrewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000087 /* JoinCrewModel.swift */; };
-		A1000000000000000000004A /* JoinCrewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000088 /* JoinCrewView.swift */; };
-		A1000000000000000000004B /* AthleteSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000089 /* AthleteSetupModel.swift */; };
-		A10000000000000000000053 /* AthleteSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008A /* AthleteSetupView.swift */; };
-		A10000000000000000000054 /* NotificationPermissionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008B /* NotificationPermissionModel.swift */; };
-		A10000000000000000000055 /* NotificationPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008C /* NotificationPermissionView.swift */; };
-		A10000000000000000000056 /* ProfileModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008D /* ProfileModel.swift */; };
-		A10000000000000000000057 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* ProfileView.swift */; };
-		A10000000000000000000058 /* ShellTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008F /* ShellTab.swift */; };
-		A10000000000000000000059 /* ProductShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* ProductShellView.swift */; };
-		A1000000000000000000005A /* FixtureRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* FixtureRouteView.swift */; };
-		A1000000000000000000005B /* PaceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000092 /* PaceModel.swift */; };
-		A1000000000000000000005C /* PaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000093 /* PaceView.swift */; };
-		A10000000000000000000061 /* MapModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000094 /* MapModel.swift */; };
-		A10000000000000000000062 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000095 /* MapView.swift */; };
-		A10000000000000000000063 /* MapLibreCourseMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000096 /* MapLibreCourseMap.swift */; };
-		A10000000000000000000064 /* ChatModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A1 /* ChatModel.swift */; };
-		A10000000000000000000065 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* ChatView.swift */; };
-		A10000000000000000000066 /* StreamRoomSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A3 /* StreamRoomSession.swift */; };
-		A10000000000000000000067 /* ChatNotificationPrefsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A4 /* ChatNotificationPrefsModel.swift */; };
-		A10000000000000000000068 /* ChatNotificationPrefsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A5 /* ChatNotificationPrefsView.swift */; };
-		A10000000000000000000069 /* PushRegistrationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A6 /* PushRegistrationModel.swift */; };
-		A1000000000000000000006A /* PushRegistrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A7 /* PushRegistrationView.swift */; };
-		A1000000000000000000006B /* RemoteNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* RemoteNotifications.swift */; };
-		C10000000000000000000001 /* StravaModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000011 /* StravaModel.swift */; };
-		C10000000000000000000002 /* StravaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000012 /* StravaView.swift */; };
-		C10000000000000000000003 /* StravaWebAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000013 /* StravaWebAuth.swift */; };
-		C10000000000000000000004 /* RoomMembersModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000014 /* RoomMembersModel.swift */; };
-		C10000000000000000000005 /* RoomMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000015 /* RoomMembersView.swift */; };
-		C10000000000000000000006 /* IncidentsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000016 /* IncidentsModel.swift */; };
-		C10000000000000000000007 /* IncidentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000017 /* IncidentsView.swift */; };
-		D10000000000000000000001 /* CrewTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000011 /* CrewTheme.swift */; };
-		D10000000000000000000003 /* CrewComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000013 /* CrewComponents.swift */; };
-		D10000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000012 /* Assets.xcassets */; };
-		A10000000000000000000022 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* RootView.swift */; };
-		A10000000000000000000023 /* Pockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* Pockets.swift */; };
-		A10000000000000000000024 /* ShellModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000035 /* ShellModel.swift */; };
-		A10000000000000000000025 /* CompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* CompositionRoot.swift */; };
-		A10000000000000000000026 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000037 /* AppRouter.swift */; };
-		A10000000000000000000027 /* OSLogLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000038 /* OSLogLogger.swift */; };
-		A10000000000000000000028 /* OSLogSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000039 /* OSLogSink.swift */; };
+		A10000000000000000000063 /* deeplinks.json in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* deeplinks.json */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000058 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000002;
+			remoteInfo = CrewCue;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000006 /* CrewCue.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CrewCue.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A10000000000000000000031 /* CrewCueApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewCueApp.swift; sourceTree = "<group>"; };
-		A10000000000000000000032 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		A10000000000000000000033 /* Pockets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pockets.swift; sourceTree = "<group>"; };
+		A10000000000000000000056 /* CrewCueUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CrewCueUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000062 /* deeplinks.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = deeplinks.json; path = ../../clients/behavior/deeplinks.json; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000014 /* CrewCue.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/CrewCue.xcconfig; sourceTree = "<group>"; };
-		A10000000000000000000034 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		D10000000000000000000011 /* CrewTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewTheme.swift; sourceTree = "<group>"; };
-		D10000000000000000000013 /* CrewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewComponents.swift; sourceTree = "<group>"; };
-		D10000000000000000000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A10000000000000000000035 /* ShellModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000036 /* CompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRoot.swift; sourceTree = "<group>"; };
-		A10000000000000000000037 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
-		A10000000000000000000038 /* OSLogLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogLogger.swift; sourceTree = "<group>"; };
-		A10000000000000000000039 /* OSLogSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogSink.swift; sourceTree = "<group>"; };
-		A10000000000000000000080 /* AppClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppClient.swift; sourceTree = "<group>"; };
-		A10000000000000000000081 /* AppDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDirectories.swift; sourceTree = "<group>"; };
-		A10000000000000000000082 /* LaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchConfiguration.swift; sourceTree = "<group>"; };
-		A10000000000000000000083 /* APIFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIFailure.swift; sourceTree = "<group>"; };
-		A10000000000000000000084 /* Auth0SignIn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Auth0SignIn.swift; sourceTree = "<group>"; };
-		A10000000000000000000085 /* AuthSignInModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSignInModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000086 /* AuthSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSignInView.swift; sourceTree = "<group>"; };
-		A10000000000000000000087 /* JoinCrewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinCrewModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000088 /* JoinCrewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinCrewView.swift; sourceTree = "<group>"; };
-		A10000000000000000000089 /* AthleteSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AthleteSetupModel.swift; sourceTree = "<group>"; };
-		A1000000000000000000008A /* AthleteSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AthleteSetupView.swift; sourceTree = "<group>"; };
-		A1000000000000000000008B /* NotificationPermissionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPermissionModel.swift; sourceTree = "<group>"; };
-		A1000000000000000000008C /* NotificationPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPermissionView.swift; sourceTree = "<group>"; };
-		A1000000000000000000008D /* ProfileModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileModel.swift; sourceTree = "<group>"; };
-		A1000000000000000000008E /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
-		A1000000000000000000008F /* ShellTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellTab.swift; sourceTree = "<group>"; };
-		A10000000000000000000090 /* ProductShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductShellView.swift; sourceTree = "<group>"; };
-		A10000000000000000000091 /* FixtureRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureRouteView.swift; sourceTree = "<group>"; };
-		A10000000000000000000092 /* PaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000093 /* PaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaceView.swift; sourceTree = "<group>"; };
-		A10000000000000000000094 /* MapModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapModel.swift; sourceTree = "<group>"; };
-		A10000000000000000000095 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
-		A10000000000000000000096 /* MapLibreCourseMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapLibreCourseMap.swift; sourceTree = "<group>"; };
-		A100000000000000000000A1 /* ChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModel.swift; sourceTree = "<group>"; };
-		A100000000000000000000A2 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
-		A100000000000000000000A3 /* StreamRoomSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamRoomSession.swift; sourceTree = "<group>"; };
-		A100000000000000000000A4 /* ChatNotificationPrefsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNotificationPrefsModel.swift; sourceTree = "<group>"; };
-		A100000000000000000000A5 /* ChatNotificationPrefsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNotificationPrefsView.swift; sourceTree = "<group>"; };
-		A100000000000000000000A6 /* PushRegistrationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationModel.swift; sourceTree = "<group>"; };
-		A100000000000000000000A7 /* PushRegistrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationView.swift; sourceTree = "<group>"; };
-		A100000000000000000000A8 /* RemoteNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNotifications.swift; sourceTree = "<group>"; };
-		C10000000000000000000011 /* StravaModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StravaModel.swift; sourceTree = "<group>"; };
-		C10000000000000000000012 /* StravaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StravaView.swift; sourceTree = "<group>"; };
-		C10000000000000000000013 /* StravaWebAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StravaWebAuth.swift; sourceTree = "<group>"; };
-		C10000000000000000000014 /* RoomMembersModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomMembersModel.swift; sourceTree = "<group>"; };
-		C10000000000000000000015 /* RoomMembersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomMembersView.swift; sourceTree = "<group>"; };
-		C10000000000000000000016 /* IncidentsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentsModel.swift; sourceTree = "<group>"; };
-		C10000000000000000000017 /* IncidentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncidentsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A10000000000000000000045 /* Exceptions for "CrewCue" folder in "CrewCue" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A10000000000000000000002 /* CrewCue */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000000000000000000008 /* CrewCue */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A10000000000000000000045 /* Exceptions for "CrewCue" folder in "CrewCue" target */,
+			);
+			path = CrewCue;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000050 /* CrewCueUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CrewCueUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000004 /* Frameworks */ = {
@@ -129,6 +69,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000053 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -136,202 +83,28 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000008 /* CrewCue */,
+				A10000000000000000000050 /* CrewCueUITests */,
+				A10000000000000000000061 /* Behavior */,
 				D10000000000000000000014 /* CrewCue.xcconfig */,
 				A10000000000000000000009 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		A10000000000000000000008 /* CrewCue */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000040 /* App */,
-				D10000000000000000000021 /* Design */,
-				A10000000000000000000041 /* Logging */,
-				A1000000000000000000004C /* Screens */,
-				D10000000000000000000012 /* Assets.xcassets */,
-				A10000000000000000000031 /* CrewCueApp.swift */,
-				A10000000000000000000032 /* RootView.swift */,
-				A10000000000000000000033 /* Pockets.swift */,
-				A10000000000000000000034 /* Info.plist */,
-			);
-			path = CrewCue;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000040 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000080 /* AppClient.swift */,
-				A10000000000000000000081 /* AppDirectories.swift */,
-				A10000000000000000000082 /* LaunchConfiguration.swift */,
-				A10000000000000000000083 /* APIFailure.swift */,
-				A10000000000000000000084 /* Auth0SignIn.swift */,
-				A10000000000000000000035 /* ShellModel.swift */,
-				A100000000000000000000A8 /* RemoteNotifications.swift */,
-				A10000000000000000000036 /* CompositionRoot.swift */,
-				A10000000000000000000037 /* AppRouter.swift */,
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000021 /* Design */ = {
-			isa = PBXGroup;
-			children = (
-				D10000000000000000000011 /* CrewTheme.swift */,
-				D10000000000000000000013 /* CrewComponents.swift */,
-			);
-			path = Design;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000041 /* Logging */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000038 /* OSLogLogger.swift */,
-				A10000000000000000000039 /* OSLogSink.swift */,
-			);
-			path = Logging;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000004C /* Screens */ = {
-			isa = PBXGroup;
-			children = (
-				A1000000000000000000004D /* Auth */,
-				A1000000000000000000004E /* Join */,
-				A1000000000000000000004F /* AthleteSetup */,
-				A10000000000000000000050 /* Notifications */,
-				A10000000000000000000051 /* Profile */,
-				C10000000000000000000021 /* Strava */,
-				C10000000000000000000022 /* RoomMembers */,
-				C10000000000000000000023 /* Incidents */,
-				A1000000000000000000005D /* Pace */,
-				A1000000000000000000005E /* Map */,
-				A1000000000000000000005F /* Chat */,
-				A10000000000000000000052 /* Shell */,
-			);
-			path = Screens;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000004D /* Auth */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000085 /* AuthSignInModel.swift */,
-				A10000000000000000000086 /* AuthSignInView.swift */,
-			);
-			path = Auth;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000004E /* Join */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000087 /* JoinCrewModel.swift */,
-				A10000000000000000000088 /* JoinCrewView.swift */,
-			);
-			path = Join;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000004F /* AthleteSetup */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000089 /* AthleteSetupModel.swift */,
-				A1000000000000000000008A /* AthleteSetupView.swift */,
-			);
-			path = AthleteSetup;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000050 /* Notifications */ = {
-			isa = PBXGroup;
-			children = (
-				A1000000000000000000008B /* NotificationPermissionModel.swift */,
-				A1000000000000000000008C /* NotificationPermissionView.swift */,
-			);
-			path = Notifications;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000051 /* Profile */ = {
-			isa = PBXGroup;
-			children = (
-				A1000000000000000000008D /* ProfileModel.swift */,
-				A1000000000000000000008E /* ProfileView.swift */,
-			);
-			path = Profile;
-			sourceTree = "<group>";
-		};
-		C10000000000000000000021 /* Strava */ = {
-			isa = PBXGroup;
-			children = (
-				C10000000000000000000011 /* StravaModel.swift */,
-				C10000000000000000000012 /* StravaView.swift */,
-				C10000000000000000000013 /* StravaWebAuth.swift */,
-			);
-			path = Strava;
-			sourceTree = "<group>";
-		};
-		C10000000000000000000022 /* RoomMembers */ = {
-			isa = PBXGroup;
-			children = (
-				C10000000000000000000014 /* RoomMembersModel.swift */,
-				C10000000000000000000015 /* RoomMembersView.swift */,
-			);
-			path = RoomMembers;
-			sourceTree = "<group>";
-		};
-		C10000000000000000000023 /* Incidents */ = {
-			isa = PBXGroup;
-			children = (
-				C10000000000000000000016 /* IncidentsModel.swift */,
-				C10000000000000000000017 /* IncidentsView.swift */,
-			);
-			path = Incidents;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000005E /* Map */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000094 /* MapModel.swift */,
-				A10000000000000000000095 /* MapView.swift */,
-				A10000000000000000000096 /* MapLibreCourseMap.swift */,
-			);
-			path = Map;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000005F /* Chat */ = {
-			isa = PBXGroup;
-			children = (
-				A100000000000000000000A1 /* ChatModel.swift */,
-				A100000000000000000000A2 /* ChatView.swift */,
-				A100000000000000000000A3 /* StreamRoomSession.swift */,
-				A100000000000000000000A4 /* ChatNotificationPrefsModel.swift */,
-				A100000000000000000000A5 /* ChatNotificationPrefsView.swift */,
-				A100000000000000000000A6 /* PushRegistrationModel.swift */,
-				A100000000000000000000A7 /* PushRegistrationView.swift */,
-			);
-			path = Chat;
-			sourceTree = "<group>";
-		};
-		A1000000000000000000005D /* Pace */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000092 /* PaceModel.swift */,
-				A10000000000000000000093 /* PaceView.swift */,
-			);
-			path = Pace;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000052 /* Shell */ = {
-			isa = PBXGroup;
-			children = (
-				A1000000000000000000008F /* ShellTab.swift */,
-				A10000000000000000000090 /* ProductShellView.swift */,
-				A10000000000000000000091 /* FixtureRouteView.swift */,
-			);
-			path = Shell;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000009 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000006 /* CrewCue.app */,
+				A10000000000000000000056 /* CrewCueUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000061 /* Behavior */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000062 /* deeplinks.json */,
+			);
+			name = Behavior;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -349,6 +122,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000008 /* CrewCue */,
+			);
 			name = CrewCue;
 			packageProductDependencies = (
 				A10000000000000000000011 /* CrewCueClientCore */,
@@ -360,6 +136,27 @@
 			productReference = A10000000000000000000006 /* CrewCue.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000000051 /* CrewCueUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000057 /* Build configuration list for PBXNativeTarget "CrewCueUITests" */;
+			buildPhases = (
+				A10000000000000000000052 /* Sources */,
+				A10000000000000000000053 /* Frameworks */,
+				A10000000000000000000054 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000000059 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000050 /* CrewCueUITests */,
+			);
+			name = CrewCueUITests;
+			productName = CrewCueUITests;
+			productReference = A10000000000000000000056 /* CrewCueUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -367,10 +164,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					A10000000000000000000051 = {
+						TestTargetID = A10000000000000000000002;
+					};
+				};
 			};
 			buildConfigurationList = A1000000000000000000000A /* Build configuration list for PBXProject "CrewCue" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -378,17 +180,20 @@
 				Base,
 			);
 			mainGroup = A10000000000000000000007;
+			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A10000000000000000000010 /* XCLocalSwiftPackageReference "../../packages/client-core" */,
 				A10000000000000000000013 /* XCRemoteSwiftPackageReference "Auth0.swift" */,
 				A10000000000000000000016 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
 				A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000009 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				A10000000000000000000002 /* CrewCue */,
+				A10000000000000000000051 /* CrewCueUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -398,7 +203,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D10000000000000000000002 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000054 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000063 /* deeplinks.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -409,58 +221,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000021 /* CrewCueApp.swift in Sources */,
-				A10000000000000000000022 /* RootView.swift in Sources */,
-				A10000000000000000000023 /* Pockets.swift in Sources */,
-				A10000000000000000000024 /* ShellModel.swift in Sources */,
-				A10000000000000000000025 /* CompositionRoot.swift in Sources */,
-				A10000000000000000000026 /* AppRouter.swift in Sources */,
-				A10000000000000000000027 /* OSLogLogger.swift in Sources */,
-				A10000000000000000000028 /* OSLogSink.swift in Sources */,
-				A10000000000000000000042 /* AppClient.swift in Sources */,
-				A10000000000000000000043 /* AppDirectories.swift in Sources */,
-				A10000000000000000000044 /* LaunchConfiguration.swift in Sources */,
-				A10000000000000000000045 /* APIFailure.swift in Sources */,
-				A10000000000000000000046 /* Auth0SignIn.swift in Sources */,
-				A10000000000000000000047 /* AuthSignInModel.swift in Sources */,
-				A10000000000000000000048 /* AuthSignInView.swift in Sources */,
-				A10000000000000000000049 /* JoinCrewModel.swift in Sources */,
-				A1000000000000000000004A /* JoinCrewView.swift in Sources */,
-				A1000000000000000000004B /* AthleteSetupModel.swift in Sources */,
-				A10000000000000000000053 /* AthleteSetupView.swift in Sources */,
-				A10000000000000000000054 /* NotificationPermissionModel.swift in Sources */,
-				A10000000000000000000055 /* NotificationPermissionView.swift in Sources */,
-				A10000000000000000000056 /* ProfileModel.swift in Sources */,
-				A10000000000000000000057 /* ProfileView.swift in Sources */,
-				A10000000000000000000058 /* ShellTab.swift in Sources */,
-				A10000000000000000000059 /* ProductShellView.swift in Sources */,
-				A1000000000000000000005A /* FixtureRouteView.swift in Sources */,
-				A1000000000000000000005B /* PaceModel.swift in Sources */,
-				A1000000000000000000005C /* PaceView.swift in Sources */,
-				A10000000000000000000061 /* MapModel.swift in Sources */,
-				A10000000000000000000062 /* MapView.swift in Sources */,
-				A10000000000000000000063 /* MapLibreCourseMap.swift in Sources */,
-				A10000000000000000000064 /* ChatModel.swift in Sources */,
-				A10000000000000000000065 /* ChatView.swift in Sources */,
-				A10000000000000000000066 /* StreamRoomSession.swift in Sources */,
-				A10000000000000000000067 /* ChatNotificationPrefsModel.swift in Sources */,
-				A10000000000000000000068 /* ChatNotificationPrefsView.swift in Sources */,
-				A10000000000000000000069 /* PushRegistrationModel.swift in Sources */,
-				A1000000000000000000006A /* PushRegistrationView.swift in Sources */,
-				A1000000000000000000006B /* RemoteNotifications.swift in Sources */,
-				C10000000000000000000001 /* StravaModel.swift in Sources */,
-				C10000000000000000000002 /* StravaView.swift in Sources */,
-				C10000000000000000000003 /* StravaWebAuth.swift in Sources */,
-				C10000000000000000000004 /* RoomMembersModel.swift in Sources */,
-				C10000000000000000000005 /* RoomMembersView.swift in Sources */,
-				C10000000000000000000006 /* IncidentsModel.swift in Sources */,
-				C10000000000000000000007 /* IncidentsView.swift in Sources */,
-				D10000000000000000000001 /* CrewTheme.swift in Sources */,
-				D10000000000000000000003 /* CrewComponents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000052 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000000059 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000002 /* CrewCue */;
+			targetProxy = A10000000000000000000058 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1000000000000000000000C /* Debug */ = {
@@ -468,6 +247,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
@@ -487,6 +267,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -502,8 +283,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = D10000000000000000000014 /* CrewCue.xcconfig */;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -512,7 +291,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -529,16 +308,15 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = D10000000000000000000014 /* CrewCue.xcconfig */;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CrewCue/Info.plist;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -548,6 +326,42 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A1000000000000000000005A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CrewCue;
+			};
+			name = Debug;
+		};
+		A1000000000000000000005B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.crewcue.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CrewCue;
 			};
 			name = Release;
 		};
@@ -568,6 +382,15 @@
 			buildConfigurations = (
 				A1000000000000000000000E /* Debug */,
 				A1000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000057 /* Build configuration list for PBXNativeTarget "CrewCueUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000005A /* Debug */,
+				A1000000000000000000005B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
