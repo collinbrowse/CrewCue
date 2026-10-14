@@ -2,6 +2,7 @@ package com.crewcue.android.ui.chat
 
 import android.content.Context
 import io.getstream.chat.android.client.ChatClient
+import java.text.DateFormat
 import io.getstream.chat.android.client.channel.ChannelClient
 import io.getstream.chat.android.models.Message
 import io.getstream.chat.android.models.User
@@ -29,13 +30,33 @@ private class StreamAndroidRoomClient : StreamRoomClient {
         userId: String,
         token: String,
         channelId: String
-    ): List<String> = gate.withLock {
+    ): CrewChatSnapshot = gate.withLock {
         val client = chatClient(context.applicationContext, apiKey)
         client.connectUser(User(id = userId), token).awaitOrNull()
         val room = client.channel("messaging", channelId)
         val watched = room.watch().awaitOrNull() ?: error("watch failed")
         channel = room
-        watched.messages.map { it.text }.filter { it.isNotBlank() }
+        val rows = watched.messages.mapNotNull { message ->
+            val image = message.attachments.firstOrNull { it.type == "image" }?.imageUrl
+            val reactions = message.reactionScores.entries
+                .sortedBy { it.key }
+                .joinToString(" ") { "${it.key} ${it.value}" }
+            val body = message.text.trim()
+            if (body.isEmpty() && image.isNullOrBlank() && reactions.isEmpty()) return@mapNotNull null
+            val name = message.user.name.ifBlank { message.user.id }
+            CrewChatMessage(
+                id = message.id,
+                text = body,
+                author = name,
+                time = message.createdAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(it) }.orEmpty(),
+                mine = message.user.id == userId,
+                reactions = reactions,
+                imageUrl = image
+            )
+        }
+        @Suppress("DEPRECATION")
+        val unread = watched.unreadCount
+        CrewChatSnapshot(rows, unread)
     }
 
     override suspend fun send(text: String, clientMessageId: String): Boolean = gate.withLock {

@@ -19,7 +19,22 @@ data class MapCheckpoint(
     val id: String,
     val title: String,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val distanceMetersFromStart: Double? = null,
+    val plannedStopSeconds: Double? = null
+)
+
+data class AidPage(
+    val checkpointId: String,
+    val index: Int,
+    val title: String,
+    val kicker: String,
+    val clockLabel: String,
+    val remainLabel: String,
+    val distanceLabel: String,
+    val stoppageLabel: String,
+    val delayLabel: String?,
+    val scheduleLine: String
 )
 
 data class CoursePoint(

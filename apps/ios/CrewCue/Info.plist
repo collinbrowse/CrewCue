@@ -7,11 +7,11 @@
   <key>CrewCueAPIBaseURL</key>
   <string>http://127.0.0.1:3000</string>
   <key>CrewCueAuth0Domain</key>
-  <string></string>
+  <string>dev-ozh1r6603ymvszq6.us.auth0.com</string>
   <key>CrewCueAuth0ClientId</key>
-  <string></string>
+  <string>oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia</string>
   <key>CrewCueAuth0Audience</key>
-  <string></string>
+  <string>https://api.crewcue.staging</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

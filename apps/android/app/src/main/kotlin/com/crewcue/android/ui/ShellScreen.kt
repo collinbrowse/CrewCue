@@ -13,6 +13,8 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -37,6 +39,7 @@ import com.crewcue.android.ui.members.RoomMembersScreen
 import com.crewcue.android.ui.outbox.OutboxScreen
 import com.crewcue.android.ui.pace.PaceScreen
 import com.crewcue.android.ui.profile.ProfileScreen
+import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.strava.StravaScreen
 
 @Composable
@@ -62,7 +65,17 @@ private fun AppShell(viewModel: ShellViewModel) {
                     NavigationBarItem(
                         selected = selected,
                         onClick = { viewModel.selectTab(tab) },
-                        icon = { Icon(tabIcon(tab, selected), contentDescription = tab.title) },
+                        icon = {
+                            BadgedBox(
+                                badge = {
+                                    if (tab == ShellTab.Chat && viewModel.chatUnread > 0) {
+                                        Badge { Text(viewModel.chatUnread.toString()) }
+                                    }
+                                }
+                            ) {
+                                Icon(tabIcon(tab, selected), contentDescription = tab.title)
+                            }
+                        },
                         label = { Text(tab.title) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -90,7 +103,7 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         FeatureScreen(viewModel.uiState, Modifier.weight(1f))
                     } else {
-                        PaceScreen(viewModel, roomId, Modifier.weight(1f))
+                        PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus)
                     }
                 }
                 ShellTab.Map -> {
@@ -186,12 +199,24 @@ fun FeatureScreen(
             .testTag(screen.accessibilityIdentifier)
             .semantics { contentDescription = screen.title }
     ) {
-        Text(screen.title, style = MaterialTheme.typography.headlineSmall)
-        Text(
-            screen.body,
-            modifier = Modifier.padding(top = 8.dp),
-            style = MaterialTheme.typography.bodyLarge
-        )
+        val carded = screen.featureId == "athlete-setup" || screen.featureId == "onboarding-notifications"
+        if (carded) {
+            ProductCard {
+                Text(screen.title, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    screen.body,
+                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+        } else {
+            Text(screen.title, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                screen.body,
+                modifier = Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
         extra()
     }
 }

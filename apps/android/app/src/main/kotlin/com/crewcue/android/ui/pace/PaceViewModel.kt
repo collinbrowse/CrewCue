@@ -18,6 +18,18 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+data class PaceStop(
+    val id: String,
+    val title: String,
+    val arrival: String,
+    val elapsed: String,
+    val moving: String?,
+    val waited: String?,
+    val stoppage: String,
+    val delay: String?,
+    val line: String
+)
+
 class PaceViewModel(
     private val raceDay: RaceDayBridge,
     private val roomId: String
@@ -25,6 +37,10 @@ class PaceViewModel(
     var scheduleMessage by mutableStateOf<String?>(null)
         private set
     var scheduleLines by mutableStateOf<List<String>>(emptyList())
+        private set
+    var scheduleStops by mutableStateOf<List<PaceStop>>(emptyList())
+        private set
+    var checkInOpen by mutableStateOf(false)
         private set
     var estimateMessage by mutableStateOf<String?>(null)
         private set
@@ -192,6 +208,7 @@ class PaceViewModel(
         when (result) {
             is RuntimeResult.Failure -> {
                 scheduleLines = emptyList()
+                scheduleStops = emptyList()
                 scheduleMessage = if (result.offline) SCHEDULE_OFFLINE else SCHEDULE_ERROR
                 return result.offline
             }
@@ -203,6 +220,7 @@ class PaceViewModel(
                 }
                 if (start.isNotBlank()) raceStartAt = start
                 scheduleLines = parsed.first
+                scheduleStops = paceStops(json)
                 if (!checkpointEdited) {
                     checkpointId = parsed.second.firstOrNull().orEmpty()
                 }
@@ -393,6 +411,37 @@ class PaceViewModel(
         if (!value.isFinite() || value == 0.0) return if (value == 0.0) "0" else ""
         val whole = value.toLong()
         return if (value == whole.toDouble()) whole.toString() else value.toString()
+    }
+
+    fun openCheckIn(checkpoint: String) {
+        val trimmed = checkpoint.trim()
+        if (trimmed.isEmpty()) return
+        checkpointId = trimmed
+        checkInOpen = true
+    }
+
+    private fun paceStops(json: JSONObject): List<PaceStop> {
+        val pages = json.optJSONObject("aidSheet")?.optJSONArray("pages") ?: return emptyList()
+        return buildList {
+            for (index in 0 until pages.length()) {
+                val page = pages.optJSONObject(index) ?: continue
+                val id = page.optString("checkpointId")
+                if (id.isBlank()) continue
+                add(
+                    PaceStop(
+                        id = id,
+                        title = "${index + 1}. ${page.optString("title")}",
+                        arrival = page.optString("clockLabel"),
+                        elapsed = page.optString("elapsedLabel").ifBlank { "—" },
+                        moving = page.optString("movingLabel").ifBlank { null },
+                        waited = page.optString("waitedLabel").ifBlank { null },
+                        stoppage = page.optString("stoppageDurationLabel").ifBlank { page.optString("stoppageLabel") },
+                        delay = page.optString("delayLabel").ifBlank { null },
+                        line = page.optString("scheduleLine")
+                    )
+                )
+            }
+        }
     }
 
     private companion object {

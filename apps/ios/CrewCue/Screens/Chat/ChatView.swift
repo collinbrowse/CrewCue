@@ -99,11 +99,44 @@ struct ChatTranscript: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(lines) { line in
-                Text(verbatim: line.text)
-                    .font(.system(size: 16))
-                    .foregroundStyle(theme.ink)
+                HStack {
+                    if line.mine { Spacer(minLength: 48) }
+                    VStack(alignment: line.mine ? .trailing : .leading, spacing: 4) {
+                        if line.author.isEmpty == false {
+                            Text(verbatim: line.author)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(theme.body)
+                        }
+                        if line.text.isEmpty == false {
+                            Text(verbatim: line.text)
+                                .font(.system(size: 16))
+                                .foregroundStyle(theme.ink)
+                        }
+                        if let imageURL = line.imageURL, let url = URL(string: imageURL) {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFit()
+                            } placeholder: {
+                                Color.clear.frame(height: 120)
+                            }
+                            .frame(maxWidth: 220, maxHeight: 180)
+                        }
+                        if line.reactions.isEmpty == false {
+                            Text(verbatim: line.reactions)
+                                .font(.system(size: 13))
+                        }
+                        if line.time.isEmpty == false {
+                            Text(verbatim: line.time)
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.body)
+                        }
+                    }
                     .padding(12)
-                    .background(theme.secondaryButton, in: RoundedRectangle(cornerRadius: 12))
+                    .background(
+                        line.mine ? theme.primary.opacity(0.16) : theme.secondaryButton,
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
+                    if line.mine == false { Spacer(minLength: 48) }
+                }
             }
         }
     }

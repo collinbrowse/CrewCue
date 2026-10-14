@@ -2,14 +2,22 @@ import SwiftUI
 
 struct AthleteSetupView: View {
     @Bindable var model: AthleteSetupModel
+    @Environment(\.kinetic) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            AthleteSetupTitle()
-            AthleteNameField(name: $model.displayName)
-            AthleteSetupStatus(message: model.statusText)
-            AthleteSaveButton(isWorking: model.isWorking, action: model.save)
+            VStack(alignment: .leading, spacing: 12) {
+                AthleteSetupTitle()
+                AthleteNameField(name: $model.displayName)
+                AthleteSetupStatus(message: model.statusText)
+                AthleteSaveButton(isWorking: model.isWorking, action: model.save)
+            }
+            .kineticCard()
+            Spacer(minLength: 0)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.background)
         .crewCueScreen(identifier: "crewcue.athlete-setup", label: "Athlete setup")
     }
 }
@@ -49,7 +57,7 @@ struct AthleteSaveButton: View {
 
     var body: some View {
         Button("Save", action: action)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
             .disabled(isWorking)
     }
 }

@@ -13,6 +13,11 @@ private enum ChatOutboxAppend {
 struct ChatLine: Identifiable, Equatable {
     var id: String
     var text: String
+    var author: String = ""
+    var time: String = ""
+    var mine: Bool = false
+    var reactions: String = ""
+    var imageURL: String?
 }
 
 @MainActor
@@ -21,6 +26,7 @@ final class ChatModel {
     var draft = ""
 
     private(set) var lines: [ChatLine] = []
+    private(set) var unreadCount = 0
     private(set) var channelId = ""
     private(set) var statusMessage = ""
     private(set) var isSending = false
@@ -149,7 +155,7 @@ final class ChatModel {
             await showChannelResult(ticket: ticket, opened: true)
             guard ticket == generation else { return }
             if lines.contains(where: { $0.id == clientMessageId }) == false {
-                lines.append(ChatLine(id: clientMessageId, text: text))
+                lines.append(ChatLine(id: clientMessageId, text: text, author: "You", mine: true))
                 statusMessage = ""
             }
         } catch {
@@ -235,10 +241,13 @@ final class ChatModel {
                 guard !known.contains(operation.id) else { continue }
                 let text = Self.text(in: operation.payloadJSON)
                 guard !text.isEmpty else { continue }
-                next.append(ChatLine(id: operation.id, text: text))
+                next.append(ChatLine(id: operation.id, text: text, author: "You", mine: true))
             }
         }
-        lines = next.filter { !$0.text.isEmpty }
+        unreadCount = session.unreadCount()
+        lines = next.filter { line in
+            !line.text.isEmpty || line.imageURL != nil || !line.reactions.isEmpty
+        }
         return pending
     }
 

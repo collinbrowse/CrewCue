@@ -10,13 +10,21 @@ struct NotificationPermissionScreen: View {
 
 struct NotificationPermissionView: View {
     var model: NotificationPermissionModel
+    @Environment(\.kinetic) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            NotificationPermissionTitle()
-            NotificationPermissionStatus(message: model.statusMessage)
-            NotificationPermissionButton(isWorking: model.isWorking, action: model.request)
+            VStack(alignment: .leading, spacing: 12) {
+                NotificationPermissionTitle()
+                NotificationPermissionStatus(message: model.statusMessage)
+                NotificationPermissionButton(isWorking: model.isWorking, action: model.request)
+            }
+            .kineticCard()
+            Spacer(minLength: 0)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.background)
         .crewCueScreen(identifier: "crewcue.onboarding-notifications", label: "Notifications")
         .task { await model.refresh() }
     }
@@ -44,7 +52,7 @@ struct NotificationPermissionButton: View {
 
     var body: some View {
         Button("Allow notifications", action: action)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
             .disabled(isWorking)
     }
 }

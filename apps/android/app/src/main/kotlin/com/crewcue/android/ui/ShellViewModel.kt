@@ -96,6 +96,14 @@ class ShellViewModel(
         private set
     var stravaSignal by mutableStateOf(StravaSignal())
         private set
+    var paceFocus by mutableStateOf("schedule-sheet")
+        private set
+    var chatUnread by mutableStateOf(0)
+        private set
+
+    fun noteChatUnread(count: Int) {
+        chatUnread = count
+    }
 
     private var opened = false
     private var pendingJoin = false
@@ -119,7 +127,7 @@ class ShellViewModel(
         val state = if (url == null) "success" else queryState(url)
         when {
             feature == "app-shell" && state == "success" -> showShell(ShellTab.Map)
-            feature != null && url != null -> showFixture(url)
+            feature != null && url != null -> openLinkedFeature(feature, url)
             container.sessionStore.current() != null -> showShell(ShellTab.Map)
             else -> showSignedOut()
         }
@@ -128,6 +136,7 @@ class ShellViewModel(
     fun selectTab(tab: ShellTab) {
         if (tab == ShellTab.Chat) chatPane = "thread"
         if (tab == ShellTab.Profile) profilePane = "profile"
+        if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         showShell(tab)
     }
 
@@ -176,7 +185,7 @@ class ShellViewModel(
         session = container.sessionStore.current()
     }
 
-    fun signIn(activity: Activity?) {
+    fun signIn(activity: Activity?, connection: String? = null, signUp: Boolean = false) {
         if (activity == null) {
             applyAuthFailure(AuthResult.Failure("Sign-in failed.", offline = false))
             return
@@ -185,9 +194,15 @@ class ShellViewModel(
             applyAuthFailure(AuthResult.Failure("Sign-in isn't configured.", offline = false))
             return
         }
-        container.authGateway.signIn(activity) { result ->
+        container.authGateway.signIn(activity, connection, signUp) { result ->
             viewModelScope.launch { applyAuthResult(result) }
         }
+    }
+
+    fun adoptRoom(roomId: String) {
+        if (roomId.isBlank()) return
+        container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
+        session = container.sessionStore.current()
     }
 
     fun signOut(activity: Activity?) {
@@ -336,6 +351,29 @@ class ShellViewModel(
                 }
             }
         }
+    }
+
+    private fun openLinkedFeature(feature: String, url: String) {
+        val signedIn = container.sessionStore.current() != null
+        if (signedIn && !hasStateQuery(url) && isPaceFeature(feature)) {
+            paceFocus = feature
+            showShell(ShellTab.Pace)
+            return
+        }
+        showFixture(url)
+    }
+
+    private fun isPaceFeature(feature: String): Boolean {
+        return feature in setOf(
+            "schedule-sheet",
+            "cold-start",
+            "pace-estimate",
+            "crew-sheet-export",
+            "outbox-status",
+            "check-in",
+            "course-settings",
+            "gpx-import"
+        )
     }
 
     private fun showShell(tab: ShellTab) {

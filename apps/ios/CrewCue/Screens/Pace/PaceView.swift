@@ -6,17 +6,30 @@ struct PaceView: View {
     var userId: String?
     var roomId: String?
     var role: String?
+    var focus: String = "schedule-sheet"
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                PaceScheduleSection(lines: model.stopLines, message: model.scheduleMessage)
+                PaceScheduleSection(stops: model.stops, message: model.scheduleMessage) { checkpointId in
+                    model.openCheckIn(checkpointId: checkpointId)
+                }
                 PaceEstimateSection(model: model)
-                PaceCheckInSection(model: model)
+                if model.checkInOpen || focus == "check-in" {
+                    PaceCheckInSection(model: model)
+                        .id("check-in")
+                }
+                Text("Crew tools")
+                    .font(.system(size: 22, weight: .bold))
                 PaceGpxSection(model: model)
+                    .id("gpx-import")
                 PaceExportSection(text: model.exportText, message: model.exportMessage)
+                    .id("crew-sheet-export")
                 PaceCourseSection(model: model)
+                    .id("course-settings")
                 PaceOutboxSection(rows: model.outboxRows, message: model.outboxMessage)
+                    .id("outbox-status")
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .accessibilityElement(children: .contain)
@@ -26,7 +39,15 @@ struct PaceView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: activationID) {
+            if focus == "check-in", let first = model.stops.first {
+                model.openCheckIn(checkpointId: first.checkpointId)
+            }
             await model.activate(userId: userId, roomId: roomId, role: role)
+            if focus == "check-in", let first = model.stops.first {
+                model.openCheckIn(checkpointId: first.checkpointId)
+            }
+            proxy.scrollTo(focus, anchor: .top)
+        }
         }
     }
 
@@ -36,21 +57,36 @@ struct PaceView: View {
 }
 
 struct PaceScheduleSection: View {
-    let lines: [PaceLine]
+    let stops: [PaceStop]
     let message: String
+    let onCheckIn: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Schedule")
                 .font(.system(size: 28, weight: .bold))
-            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(index + 1)")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(verbatim: line.text)
+            ForEach(stops) { stop in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: stop.title)
                         .font(.system(size: 17, weight: .bold))
+                    Text("Arrival \(stop.arrival)")
+                    Text("Elapsed \(stop.elapsed)")
+                    if let moving = stop.moving, let waited = stop.waited {
+                        Text("Moving \(moving) · Waited \(waited)")
+                    }
+                    Text("Stoppage \(stop.stoppage)")
+                    if let delay = stop.delay {
+                        Text("Delay \(delay)")
+                    }
+                    Button("Check in") {
+                        onCheckIn(stop.checkpointId)
+                    }
+                    .buttonStyle(KineticSecondaryButtonStyle())
                 }
+                .font(.system(size: 16))
                 .kineticCard()
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(stop.line)
             }
             if message.isEmpty == false {
                 Text(verbatim: message)

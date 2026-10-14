@@ -28,7 +28,9 @@ class ChatViewModel(
         private set
     var status by mutableStateOf<String?>(null)
         private set
-    var messages by mutableStateOf<List<String>>(emptyList())
+    var messages by mutableStateOf<List<CrewChatMessage>>(emptyList())
+        private set
+    var unread by mutableStateOf(0)
         private set
     var draft by mutableStateOf("")
         private set
@@ -109,7 +111,15 @@ class ChatViewModel(
             is RuntimeResult.Success -> queued.result
         }
         val id = queuedBody.optString("id").ifBlank { clientMessageId }
-        messages = messages + text
+        messages = messages + CrewChatMessage(
+            id = clientMessageId,
+            text = text,
+            author = "You",
+            time = "",
+            mine = true,
+            reactions = "",
+            imageUrl = null
+        )
         draft = ""
         mentionNames = emptyList()
         if (!context.isOnline()) {
@@ -164,8 +174,9 @@ class ChatViewModel(
             return
         }
         channelOpen = true
-        messages = opened
-        status = if (opened.isEmpty()) CHAT_EMPTY else null
+        messages = opened.messages
+        unread = opened.unread
+        status = if (opened.messages.isEmpty()) CHAT_EMPTY else null
     }
 
     private fun namesIn(json: JSONObject): List<String> {

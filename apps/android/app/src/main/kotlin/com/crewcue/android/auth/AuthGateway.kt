@@ -14,6 +14,6 @@ sealed interface AuthResult {
 
 interface AuthGateway {
     val isConfigured: Boolean
-    fun signIn(activity: Activity, callback: (AuthResult) -> Unit)
+    fun signIn(activity: Activity, connection: String?, signUp: Boolean, callback: (AuthResult) -> Unit)
     fun signOut(activity: Activity, callback: () -> Unit)
 }

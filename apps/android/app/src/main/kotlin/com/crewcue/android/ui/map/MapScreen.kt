@@ -7,9 +7,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -98,20 +103,18 @@ fun MapScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            if (showMap) {
-                val station = model.checkpoints.firstOrNull()
-                Text(
-                    "AID STATION",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (station != null) {
-                    Text(
-                        station.title,
-                        modifier = Modifier.padding(top = 4.dp),
-                        fontWeight = FontWeight.ExtraBold,
-                        style = MaterialTheme.typography.titleLarge
-                    )
+            if (showMap && model.aidPages.isNotEmpty()) {
+                AidPager(model)
+                val live = model.aidLiveNext
+                if (!model.aidFollow && live != null && live != model.aidIndex) {
+                    Button(
+                        onClick = model::jumpToNextAid,
+                        modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics {
+                            contentDescription = "Next station"
+                        }
+                    ) {
+                        Text("Next station")
+                    }
                 }
             }
             if (showMap) {
@@ -136,6 +139,47 @@ fun MapScreen(
             }
             if (focus == "map-track" || focus == "location-heartbeat") {
                 LocationSection(model, tagged = focus == "map-track")
+            }
+        }
+    }
+}
+
+@Composable
+private fun AidPager(model: MapViewModel) {
+    val pages = model.aidPages
+    val pagerState = rememberPagerState(initialPage = model.aidIndex.coerceAtLeast(0)) { pages.size }
+    LaunchedEffect(model.aidIndex, pages.size) {
+        if (pages.isEmpty()) return@LaunchedEffect
+        val target = model.aidIndex.coerceIn(0, pages.lastIndex)
+        if (pagerState.currentPage != target) pagerState.scrollToPage(target)
+    }
+    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != model.aidIndex) {
+            model.showAid(pagerState.currentPage)
+        }
+    }
+    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(148.dp)) { index ->
+        val page = pages[index]
+        Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).semantics { contentDescription = page.scheduleLine }) {
+            Row {
+                Column(Modifier.weight(1f)) {
+                    Text(page.kicker, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(page.title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(page.clockLabel, fontWeight = FontWeight.ExtraBold)
+                    Text("EST. ARRIVAL", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(page.remainLabel, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row {
+                Text(page.distanceLabel, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text(page.stoppageLabel, fontWeight = FontWeight.SemiBold)
+                page.delayLabel?.let { delay ->
+                    Text(delay, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

@@ -16,8 +16,23 @@ const val PUSH_EMPTY = "No push token."
 const val PUSH_ERROR = "Push permission was denied."
 const val PUSH_OFFLINE = "Offline. Token queued."
 
+data class CrewChatMessage(
+    val id: String,
+    val text: String,
+    val author: String,
+    val time: String,
+    val mine: Boolean,
+    val reactions: String,
+    val imageUrl: String?
+)
+
+data class CrewChatSnapshot(
+    val messages: List<CrewChatMessage>,
+    val unread: Int
+)
+
 interface StreamRoomClient {
-    suspend fun open(context: Context, apiKey: String, userId: String, token: String, channelId: String): List<String>
+    suspend fun open(context: Context, apiKey: String, userId: String, token: String, channelId: String): CrewChatSnapshot
     suspend fun send(text: String, clientMessageId: String): Boolean
 }
 

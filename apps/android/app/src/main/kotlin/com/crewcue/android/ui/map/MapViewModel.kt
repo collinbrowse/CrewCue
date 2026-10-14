@@ -24,6 +24,14 @@ class MapViewModel(
 ) : ViewModel() {
     var checkpoints by mutableStateOf<List<MapCheckpoint>>(emptyList())
         private set
+    var aidPages by mutableStateOf<List<AidPage>>(emptyList())
+        private set
+    var aidIndex by mutableStateOf(0)
+        private set
+    var aidLiveNext by mutableStateOf<Int?>(null)
+        private set
+    var aidFollow by mutableStateOf(true)
+        private set
     var line by mutableStateOf<List<CoursePoint>>(emptyList())
         private set
     var courseStatus by mutableStateOf<String?>(null)
@@ -50,6 +58,9 @@ class MapViewModel(
         private set
 
     private var lastRecordedMillis = 0L
+    private var scheduleSheet: JSONObject? = null
+    private var sampleLatitude: Double? = null
+    private var sampleLongitude: Double? = null
     private val recordedAtFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
@@ -64,9 +75,23 @@ class MapViewModel(
             }
             when (result) {
                 is RuntimeResult.Failure -> courseStatus = if (result.offline) MAP_OFFLINE else MAP_ERROR
-                is RuntimeResult.Success -> applyRoom(result.result)
+                is RuntimeResult.Success -> {
+                    applyRoom(result.result)
+                    loadAidSheet()
+                }
             }
         }
+    }
+
+    fun showAid(index: Int) {
+        aidIndex = index
+        aidFollow = aidLiveNext != null && index == aidLiveNext
+        projectAid()
+    }
+
+    fun jumpToNextAid() {
+        aidFollow = true
+        projectAid()
     }
 
     fun onStyleReady() {
@@ -182,6 +207,9 @@ class MapViewModel(
     }
 
     fun onSample(latitude: Double, longitude: Double, accuracy: Double?, online: Boolean) {
+        sampleLatitude = latitude
+        sampleLongitude = longitude
+        projectAid()
         if (role != "athlete") {
             locationMessage = String.format(Locale.US, "%.6f, %.6f", latitude, longitude)
             return
@@ -251,6 +279,79 @@ class MapViewModel(
         courseStatus = if (parsedCheckpoints.isEmpty() && parsedLine.size < 2) MAP_EMPTY else null
     }
 
+    private fun loadAidSheet() {
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
+            } catch (_: Throwable) {
+                return@launch
+            }
+            if (result is RuntimeResult.Success) {
+                scheduleSheet = result.result.optJSONObject("sheet")
+                projectAid()
+            }
+        }
+    }
+
+    private fun projectAid() {
+        val sheet = scheduleSheet
+        val checkpoints = checkpointPayload()
+        val latitude = sampleLatitude
+        val longitude = sampleLongitude
+        val index = aidIndex
+        val follow = aidFollow
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    raceDay.projectAidSheet(sheet, checkpoints, latitude, longitude, index, follow)
+                }
+            } catch (_: Throwable) {
+                return@launch
+            }
+            if (result is RuntimeResult.Success) applyAid(result.result)
+        }
+    }
+
+    private fun checkpointPayload(): JSONArray {
+        val rows = JSONArray()
+        checkpoints.forEach { checkpoint ->
+            val row = JSONObject()
+                .put("id", checkpoint.id)
+                .put("title", checkpoint.title)
+                .put("latitude", checkpoint.latitude)
+                .put("longitude", checkpoint.longitude)
+            checkpoint.distanceMetersFromStart?.let { row.put("distanceMetersFromStart", it) }
+            checkpoint.plannedStopSeconds?.let { row.put("plannedStopSeconds", it) }
+            rows.put(row)
+        }
+        return rows
+    }
+
+    private fun applyAid(payload: JSONObject) {
+        val rows = payload.optJSONArray("pages")
+        val pages = mutableListOf<AidPage>()
+        if (rows != null) {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONObject(index) ?: continue
+                pages += AidPage(
+                    checkpointId = row.optString("checkpointId"),
+                    index = row.optInt("index", index),
+                    title = row.optString("title"),
+                    kicker = row.optString("kicker"),
+                    clockLabel = row.optString("clockLabel"),
+                    remainLabel = row.optString("remainLabel"),
+                    distanceLabel = row.optString("distanceLabel"),
+                    stoppageLabel = row.optString("stoppageLabel"),
+                    delayLabel = row.optString("delayLabel").ifBlank { null },
+                    scheduleLine = row.optString("scheduleLine")
+                )
+            }
+        }
+        aidPages = pages
+        aidIndex = payload.optInt("selectedIndex", 0)
+        aidLiveNext = if (payload.isNull("liveNextIndex")) null else payload.optInt("liveNextIndex")
+    }
+
     private fun parseCheckpoints(array: JSONArray?): List<MapCheckpoint> {
         if (array == null) return emptyList()
         val rows = mutableListOf<MapCheckpoint>()
@@ -261,7 +362,9 @@ class MapViewModel(
             val longitude = row.optDouble("longitude", Double.NaN)
             if (id.isBlank() || latitude.isNaN() || longitude.isNaN()) continue
             val title = row.optString("title").ifBlank { id }
-            rows += MapCheckpoint(id, title, latitude, longitude)
+            val distance = if (row.has("distanceMetersFromStart")) row.optDouble("distanceMetersFromStart") else null
+            val stoppage = if (row.has("plannedStopSeconds")) row.optDouble("plannedStopSeconds") else null
+            rows += MapCheckpoint(id, title, latitude, longitude, distance, stoppage)
         }
         return rows
     }

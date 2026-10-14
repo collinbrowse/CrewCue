@@ -7,6 +7,7 @@ import CrewCueClientCore
 final class AuthSignInModel {
     private(set) var statusMessage = "No session."
     private(set) var isWorking = false
+    var signingUp = false
     private let configuration: Auth0Configuration
     private var onSession: @MainActor (ClientSession) -> Void
 
@@ -19,22 +20,24 @@ final class AuthSignInModel {
         onSession = action
     }
 
-    func signIn() {
+    func signIn(connection: String? = nil) {
         guard !isWorking else { return }
         isWorking = true
+        let provider = connection
+        let signUp = signingUp
         Task {
-            await performSignIn()
+            await performSignIn(connection: provider, signUp: signUp)
             isWorking = false
         }
     }
 
-    private func performSignIn() async {
+    private func performSignIn(connection: String?, signUp: Bool) async {
         guard configuration.hasKeys, Auth0SignIn.sdkAvailable else {
-            statusMessage = "Sign-in failed."
+            statusMessage = "Sign-in isn't configured."
             return
         }
         do {
-            let session = try await Auth0SignIn.authorize(configuration)
+            let session = try await Auth0SignIn.authorize(configuration, connection: connection, signUp: signUp)
             statusMessage = "No session."
             onSession(session)
         } catch Auth0SignInFailure.cancelled {

@@ -128,6 +128,29 @@ public enum RaceDayAPI {
         return envelope.preview
     }
 
+    public static func createRoom(
+        graph: ClientGraph,
+        name: String,
+        athleteId: String,
+        teamId: String,
+        creatorName: String?
+    ) async throws -> RaceRoom {
+        var object: [String: Any] = [
+            "name": name,
+            "athleteId": athleteId,
+            "teamId": teamId,
+            "creatorRole": "athlete"
+        ]
+        if let creatorName {
+            let trimmed = creatorName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                object["creatorName"] = trimmed
+            }
+        }
+        let data = try await sendJSON(graph, "/race-rooms", method: .post, object: object)
+        return try JSONDecoder().decode(RaceRoom.self, from: data)
+    }
+
     public static func join(graph: ClientGraph, code: String) async throws -> RoomEnvelope {
         try await send(graph, "/race-rooms/join-by-code", method: .post, body: #"{"roomCode":"\#(code)"}"#)
     }

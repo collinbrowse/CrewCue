@@ -10,7 +10,7 @@ import com.auth0.android.result.Credentials
 class Auth0SdkGateway(private val config: AuthConfig) : AuthGateway {
     override val isConfigured: Boolean = config.isConfigured
 
-    override fun signIn(activity: Activity, callback: (AuthResult) -> Unit) {
+    override fun signIn(activity: Activity, connection: String?, signUp: Boolean, callback: (AuthResult) -> Unit) {
         if (!config.isConfigured) {
             callback(AuthResult.Failure("Sign-in isn't configured.", offline = false))
             return
@@ -22,6 +22,13 @@ class Auth0SdkGateway(private val config: AuthConfig) : AuthGateway {
         if (config.audience.isNotBlank()) {
             login.withAudience(config.audience)
         }
+        if (!connection.isNullOrBlank()) {
+            login.withConnection(connection)
+        }
+        if (signUp) {
+            login.withParameters(mapOf("screen_hint" to "signup"))
+        }
+        login.withRedirectUri("$SCHEME://auth")
         login.start(activity, object : Callback<Credentials, AuthenticationException> {
             override fun onFailure(error: AuthenticationException) {
                 val offline = error.isNetworkError

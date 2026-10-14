@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="crewcue_auth0_domain"></string>
-    <string name="crewcue_auth0_client_id"></string>
-    <string name="crewcue_auth0_audience"></string>
+    <string name="crewcue_auth0_domain">dev-ozh1r6603ymvszq6.us.auth0.com</string>
+    <string name="crewcue_auth0_client_id">oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia</string>
+    <string name="crewcue_auth0_audience">https://api.crewcue.staging</string>
     <string name="crewcue_api_base_url"></string>
 </resources>

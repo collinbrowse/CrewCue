@@ -11,6 +11,7 @@ struct ProductShellView: View {
                     ProductTabPage(tab: tab, model: model)
                         .accessibilityIdentifier(tab.accessibilityIdentifier)
                 }
+                .badge(tab == .chat ? model.chatModel.unreadCount : 0)
             }
         }
         .accessibilityIdentifier("crewcue.app-shell")
@@ -40,7 +41,8 @@ struct ProductTabPage: View {
                     model: model.paceModel,
                     userId: model.signedInUserId,
                     roomId: model.signedInRoomId,
-                    role: model.signedInRole
+                    role: model.signedInRole,
+                    focus: model.route.featureId
                 )
             case .chat:
                 ChatTabPage(model: model)

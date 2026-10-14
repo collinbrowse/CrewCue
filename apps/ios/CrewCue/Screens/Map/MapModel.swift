@@ -23,10 +23,17 @@ final class MapModel {
     private var recording = false
     private var courseOffline = false
     private var courseFailed = false
+    private var schedule: CrewScheduleSheet?
+    private var courseCheckpoints: [AidStationCheckpoint] = []
+    private var progressMeters: Double = 0
     private var styleOffline = false
     private var styleFailed = false
 
     private(set) var points: [MapCoursePoint] = []
+    private(set) var aidPages: [AidStationPage] = []
+    private(set) var aidLiveNextIndex: Int?
+    private(set) var aidIndex = 0
+    private(set) var aidFollow = true
     private(set) var mapMessage = "No course on the map."
     var latitudeText = ""
     var longitudeText = ""
@@ -63,6 +70,9 @@ final class MapModel {
         self.role = nextRole
         if nextUser == nil || nextRoom == nil {
             points = []
+            schedule = nil
+            courseCheckpoints = []
+            aidPages = []
             courseOffline = false
             courseFailed = false
             refreshMapMessage()
@@ -86,6 +96,12 @@ final class MapModel {
         roomId = nil
         role = ""
         points = []
+        schedule = nil
+        courseCheckpoints = []
+        progressMeters = 0
+        aidPages = []
+        aidIndex = 0
+        aidFollow = true
         courseOffline = false
         courseFailed = false
         styleOffline = false
@@ -207,7 +223,24 @@ final class MapModel {
         }
     }
 
+    func showAid(index: Int) {
+        aidFollow = aidLiveNextIndex == index
+        aidIndex = index
+        reproject(follow: aidFollow, selected: index)
+    }
+
+    func jumpToNextAid() {
+        aidFollow = true
+        reproject(follow: true, selected: aidIndex)
+    }
+
     private func receive(latitude: Double, longitude: Double, accuracy: Double) {
+        progressMeters = AidStationSheet.progressMeters(
+            latitude: latitude,
+            longitude: longitude,
+            checkpoints: courseCheckpoints
+        )
+        reproject(follow: aidFollow, selected: aidIndex)
         guard wantsLocation, !recording else { return }
         recording = true
         let ticket = generation
@@ -308,6 +341,9 @@ final class MapModel {
     private func loadCourse(ticket: Int) async {
         guard let roomId else {
             points = []
+            schedule = nil
+            courseCheckpoints = []
+            aidPages = []
             courseOffline = false
             courseFailed = false
             refreshMapMessage()
@@ -318,6 +354,15 @@ final class MapModel {
             guard ticket == generation else { return }
             let next = Self.points(from: envelope.room.course)
             points = next
+            courseCheckpoints = Self.aidCheckpoints(from: envelope.room.course)
+            if let loaded = try? await RaceDayAPI.loadScheduleResult(
+                graph: client.graph,
+                roomId: roomId,
+                cacheDirectory: cacheDirectory()
+            ) {
+                schedule = loaded.sheet
+            }
+            reproject(follow: aidFollow, selected: aidIndex)
             courseOffline = false
             courseFailed = false
             if next.isEmpty {
@@ -396,6 +441,36 @@ final class MapModel {
     private func deleteCache() {
         guard let url = cacheURL() else { return }
         try? FileManager.default.removeItem(at: url)
+    }
+
+    private func reproject(follow: Bool, selected: Int) {
+        let projection = AidStationSheet.project(
+            sheet: schedule,
+            checkpoints: courseCheckpoints,
+            progressMeters: progressMeters,
+            now: Date(),
+            paceSecondsPerKm: nil,
+            selectedIndex: selected,
+            follow: follow
+        )
+        aidPages = projection.pages
+        aidLiveNextIndex = projection.liveNextIndex
+        aidIndex = projection.selectedIndex
+        aidFollow = follow
+    }
+
+    private static func aidCheckpoints(from course: RaceCourse?) -> [AidStationCheckpoint] {
+        guard let course else { return [] }
+        return course.checkpoints.map { checkpoint in
+            AidStationCheckpoint(
+                id: checkpoint.id,
+                title: checkpoint.title,
+                latitude: checkpoint.latitude,
+                longitude: checkpoint.longitude,
+                distanceMetersFromStart: checkpoint.distanceMetersFromStart,
+                plannedStopSeconds: checkpoint.plannedStopSeconds
+            )
+        }
     }
 
     private static func points(from course: RaceCourse?) -> [MapCoursePoint] {

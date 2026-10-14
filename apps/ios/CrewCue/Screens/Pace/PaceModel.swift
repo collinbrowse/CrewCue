@@ -7,6 +7,19 @@ struct PaceLine: Identifiable, Equatable {
     var text: String
 }
 
+struct PaceStop: Identifiable, Equatable {
+    var id: String
+    var checkpointId: String
+    var title: String
+    var arrival: String
+    var elapsed: String
+    var moving: String?
+    var waited: String?
+    var stoppage: String
+    var delay: String?
+    var line: String
+}
+
 @MainActor
 @Observable
 final class PaceModel {
@@ -17,6 +30,8 @@ final class PaceModel {
     private(set) var role = ""
 
     private(set) var stopLines: [PaceLine] = []
+    private(set) var stops: [PaceStop] = []
+    var checkInOpen = false
     private(set) var scheduleMessage = ""
     private(set) var scheduleOffline = false
 
@@ -114,6 +129,13 @@ final class PaceModel {
     func recalculate() async {
         guard canRecalculate else { return }
         await computeAndAttach(ticket: generation)
+    }
+
+    func openCheckIn(checkpointId: String) {
+        let trimmed = checkpointId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return }
+        self.checkpointId = trimmed
+        checkInOpen = true
     }
 
     func seedColdStart() async {
@@ -429,15 +451,32 @@ final class PaceModel {
         if checkpointId.isEmpty, let first = sheet.stops.first?.checkpointId, first.isEmpty == false {
             checkpointId = first
         }
-        stopLines = sheet.stops.map { stop in
+        let rows = sheet.stops.enumerated().map { index, stop in
             let title = ScheduleFormat.checkpointDisplayTitle(
                 id: stop.checkpointId,
                 title: courseTitle(for: stop.checkpointId)
             )
             let duration = ScheduleFormat.formatDurationSeconds(stop.elapsedSeconds)
             let clock = ScheduleFormat.formatUtcHhMm(stop.clockArrivalAt)
-            return PaceLine(id: stop.id, text: "\(title)  \(duration)  \(clock)")
+            let moving = stop.movingElapsedSeconds.map { ScheduleFormat.formatDurationSeconds($0) }
+            let waited = stop.movingElapsedSeconds.map {
+                ScheduleFormat.formatDurationSeconds(max(0, stop.elapsedSeconds - $0))
+            }
+            return PaceStop(
+                id: stop.id,
+                checkpointId: stop.checkpointId,
+                title: "\(index + 1). \(title)",
+                arrival: clock,
+                elapsed: duration,
+                moving: moving,
+                waited: waited,
+                stoppage: ScheduleFormat.formatDurationSeconds(stop.plannedStoppageSeconds),
+                delay: stop.delayOverrideSeconds.map { ScheduleFormat.formatDurationSeconds($0) },
+                line: "\(title)  \(duration)  \(clock)"
+            )
         }
+        stops = rows
+        stopLines = rows.map { PaceLine(id: $0.id, text: $0.line) }
         scheduleOffline = offline
         if offline {
             scheduleMessage = "Offline. Schedule not updated. The last sheet stays readable on this device."
@@ -454,6 +493,7 @@ final class PaceModel {
     private func applyScheduleFailure(_ error: Error) {
         loadedStops = []
         stopLines = []
+        stops = []
         let offline = APIFailure.isTransport(error)
         scheduleOffline = offline
         scheduleMessage = offline
@@ -663,6 +703,8 @@ final class PaceModel {
 
     private func clearFields() {
         stopLines = []
+        stops = []
+        checkInOpen = false
         scheduleMessage = ""
         scheduleOffline = false
         loadedStops = []

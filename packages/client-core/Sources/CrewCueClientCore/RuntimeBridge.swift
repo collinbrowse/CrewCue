@@ -13,6 +13,7 @@ import Dispatch
 /// JSON RPC used by Android. iOS calls `RaceDayAPI` directly.
 /// `op` is one of openSession, loadSchedule, loadEstimate, decideEstimate, computeEstimate,
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
+/// projectAidSheet,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
 /// loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
@@ -45,6 +46,8 @@ enum RuntimeCall {
             return "opened"
         case "loadSchedule":
             return try await loadSchedule(object)
+        case "projectAidSheet":
+            return projectAidSheet(object)
         case "loadEstimate":
             return try await loadEstimate(object)
         case "decideEstimate":
@@ -87,6 +90,8 @@ enum RuntimeCall {
             let code = object["code"] as? String ?? ""
             let preview = try await RaceDayAPI.previewJoin(graph: graph, code: code)
             return try jsonValue(preview)
+        case "createRoom":
+            return try await createRoom(object)
         case "join":
             let graph = try graph(object)
             let code = object["code"] as? String ?? ""
@@ -139,22 +144,86 @@ enum RuntimeCall {
         let directory = directory(object)
         do {
             let loaded = try await RaceDayAPI.loadScheduleResult(graph: graph, roomId: roomId, cacheDirectory: directory)
-            return try schedulePayload(loaded.sheet, offline: loaded.offline)
+            return try schedulePayload(loaded.sheet, offline: loaded.offline, request: object)
         } catch {
             if TransportFailure.isOffline(error) {
-                return try schedulePayload(nil, offline: true)
+                return try schedulePayload(nil, offline: true, request: object)
             }
             throw error
         }
     }
 
-    private static func schedulePayload(_ sheet: CrewScheduleSheet?, offline: Bool) throws -> [String: Any] {
+    private static func projectAidSheet(_ object: [String: Any]) -> [String: Any] {
+        AidStationSheet.payload(aidProjection(sheet: decodeSheet(object["sheet"]), request: object))
+    }
+
+    private static func aidProjection(sheet: CrewScheduleSheet?, request: [String: Any]) -> AidStationProjection {
+        let checkpoints = aidCheckpoints(request["checkpoints"])
+        let progress: Double
+        if let latitude = requestNumber(request["latitude"]), let longitude = requestNumber(request["longitude"]) {
+            progress = AidStationSheet.progressMeters(latitude: latitude, longitude: longitude, checkpoints: checkpoints)
+        } else {
+            progress = requestNumber(request["progressMeters"]) ?? 0
+        }
+        let now: Date
+        if let millis = requestNumber(request["nowMs"]) {
+            now = Date(timeIntervalSince1970: millis / 1000)
+        } else {
+            now = Date()
+        }
+        let selected = Int(requestNumber(request["selectedIndex"]) ?? 0)
+        let follow = (request["follow"] as? Bool) ?? true
+        return AidStationSheet.project(
+            sheet: sheet,
+            checkpoints: checkpoints,
+            progressMeters: progress,
+            now: now,
+            paceSecondsPerKm: requestNumber(request["paceSecondsPerKm"]),
+            selectedIndex: selected,
+            follow: follow
+        )
+    }
+
+    private static func decodeSheet(_ value: Any?) -> CrewScheduleSheet? {
+        guard let value, !(value is NSNull) else { return nil }
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(CrewScheduleSheet.self, from: data)
+    }
+
+    private static func aidCheckpoints(_ value: Any?) -> [AidStationCheckpoint] {
+        let rows = value as? [Any] ?? []
+        return rows.compactMap { item in
+            guard let row = item as? [String: Any], let id = row["id"] as? String, !id.isEmpty else { return nil }
+            return AidStationCheckpoint(
+                id: id,
+                title: row["title"] as? String,
+                latitude: requestNumber(row["latitude"]),
+                longitude: requestNumber(row["longitude"]),
+                distanceMetersFromStart: requestNumber(row["distanceMetersFromStart"]),
+                plannedStopSeconds: requestNumber(row["plannedStopSeconds"])
+            )
+        }
+    }
+
+    private static func requestNumber(_ value: Any?) -> Double? {
+        if value is Bool || value is NSNull { return nil }
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let number = value as? Double { return number }
+        if let number = value as? Int { return Double(number) }
+        return nil
+    }
+
+    private static func schedulePayload(_ sheet: CrewScheduleSheet?, offline: Bool, request: [String: Any] = [:]) throws -> [String: Any] {
         guard let sheet else {
             return [
                 "offline": offline,
                 "raceStartAt": "",
                 "lines": [] as [String],
-                "checkpointIds": [] as [String]
+                "checkpointIds": [] as [String],
+                "aidSheet": AidStationSheet.payload(aidProjection(sheet: nil, request: request))
             ]
         }
         let lines = sheet.stops.map {
@@ -169,7 +238,8 @@ enum RuntimeCall {
             "raceStartAt": sheet.raceStartAt,
             "lines": lines,
             "checkpointIds": sheet.stops.map(\.checkpointId),
-            "sheet": try jsonValue(sheet)
+            "sheet": try jsonValue(sheet),
+            "aidSheet": AidStationSheet.payload(aidProjection(sheet: sheet, request: request))
         ]
     }
 
@@ -501,6 +571,25 @@ enum RuntimeCall {
                 elevationGainMeters: doubleValue(row["elevationGainMeters"])
             )
         }
+    }
+
+    private static func createRoom(_ object: [String: Any]) async throws -> Any {
+        let graph = try graph(object)
+        let name = (object["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let athleteId = (object["athleteId"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let teamId = (object["teamId"] as? String ?? athleteId).trimmingCharacters(in: .whitespacesAndNewlines)
+        let creatorName = object["creatorName"] as? String
+        guard !name.isEmpty, !athleteId.isEmpty, !teamId.isEmpty else {
+            throw ClientHTTPError(status: 400, message: "Invalid race room payload")
+        }
+        let room = try await RaceDayAPI.createRoom(
+            graph: graph,
+            name: name,
+            athleteId: athleteId,
+            teamId: teamId,
+            creatorName: creatorName
+        )
+        return try jsonValue(room)
     }
 
     private static func loadRoom(_ object: [String: Any]) async throws -> Any {
@@ -1099,12 +1188,19 @@ enum CoursePayload {
                 return nil
             }
             let title = ScheduleFormat.checkpointDisplayTitle(id: id, title: row["title"] as? String)
-            return (number(row["distanceMetersFromStart"]) ?? 0, [
+            var payload: [String: Any] = [
                 "id": id,
                 "title": title,
                 "latitude": latitude,
                 "longitude": longitude
-            ])
+            ]
+            if let distance = number(row["distanceMetersFromStart"]) {
+                payload["distanceMetersFromStart"] = distance
+            }
+            if let stoppage = number(row["plannedStopSeconds"]) {
+                payload["plannedStopSeconds"] = stoppage
+            }
+            return (number(row["distanceMetersFromStart"]) ?? 0, payload)
         }
         return parsed.sorted { $0.distance < $1.distance }.map(\.row)
     }

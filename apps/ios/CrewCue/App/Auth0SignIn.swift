@@ -22,18 +22,31 @@ enum Auth0SignIn {
     }
 
     @MainActor
-    static func authorize(_ configuration: Auth0Configuration) async throws -> ClientSession {
+    static func authorize(
+        _ configuration: Auth0Configuration,
+        connection: String? = nil,
+        signUp: Bool = false
+    ) async throws -> ClientSession {
         guard sdkAvailable, configuration.hasKeys else {
             throw Auth0SignInFailure.failed
         }
         #if canImport(Auth0)
         do {
-            let credentials = try await Auth0
+            var web = Auth0
                 .webAuth(clientId: configuration.clientId, domain: configuration.domain)
                 .audience(configuration.audience)
                 .scope("openid profile email")
                 .useEphemeralSession()
-                .start()
+            if let connection, !connection.isEmpty {
+                web = web.connection(connection)
+            }
+            if signUp {
+                web = web.parameters(["screen_hint": "signup"])
+            }
+            if let callback = URL(string: "crewcue://auth") {
+                web = web.redirectURL(callback)
+            }
+            let credentials = try await web.start()
             guard let session = session(accessToken: credentials.accessToken, idToken: credentials.idToken) else {
                 throw Auth0SignInFailure.failed
             }

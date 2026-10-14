@@ -24,9 +24,30 @@ struct AuthSignInView: View {
             }
             .padding(.top, 8)
             .padding(.bottom, 18)
-            AuthSignInStatus(message: model.statusMessage)
+            if model.statusMessage != "No session." {
+                AuthSignInStatus(message: model.statusMessage)
+            }
             VStack(spacing: 12) {
-                AuthSignInButton(isWorking: model.isWorking, action: model.signIn)
+                Text(model.signingUp ? "Create an account" : "Sign in")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Continue with Apple") { model.signIn(connection: "apple") }
+                    .buttonStyle(KineticAuthButtonStyle())
+                    .disabled(model.isWorking)
+                Button("Continue with Google") { model.signIn(connection: "google-oauth2") }
+                    .buttonStyle(KineticAuthButtonStyle())
+                    .disabled(model.isWorking)
+                Button("Continue with email") { model.signIn(connection: "Username-Password-Authentication") }
+                    .buttonStyle(KineticAuthButtonStyle())
+                    .disabled(model.isWorking)
+                AuthSignInButton(isWorking: model.isWorking, action: { model.signIn() })
+                Button(model.signingUp ? "Already have an account? Sign in" : "Need an account? Sign up") {
+                    model.signingUp.toggle()
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.primary)
+                .disabled(model.isWorking)
                 HStack(spacing: 12) {
                     Rectangle()
                         .fill(Color(red: 0.847, green: 0.820, blue: 0.769))

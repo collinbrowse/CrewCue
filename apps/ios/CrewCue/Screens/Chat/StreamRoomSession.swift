@@ -14,6 +14,12 @@ import StreamChat
 final class StreamRoomSession {
     private(set) var isOpen = false
     private var epoch = 0
+    private static let clock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
 
     #if canImport(StreamChat)
     private var client: ChatClient?
@@ -98,11 +104,35 @@ final class StreamRoomSession {
         #if canImport(StreamChat)
         guard let chat else { return [] }
         return chat.state.messages.compactMap { message in
-            guard !message.text.isEmpty else { return nil }
-            return ChatLine(id: message.id, text: message.text)
+            let image = message.imageAttachments.first?.imageURL.absoluteString
+            let reactions = message.reactionScores
+                .map { "\($0.key.rawValue) \($0.value)" }
+                .sorted()
+                .joined(separator: " ")
+            let body = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty || image != nil || !reactions.isEmpty else { return nil }
+            let name = message.author.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let author = (name?.isEmpty == false) ? name! : message.author.id
+            return ChatLine(
+                id: message.id,
+                text: body,
+                author: author,
+                time: Self.clock.string(from: message.createdAt),
+                mine: message.isSentByCurrentUser,
+                reactions: reactions,
+                imageURL: image
+            )
         }
         #else
         return []
+        #endif
+    }
+
+    func unreadCount() -> Int {
+        #if canImport(StreamChat)
+        chat?.state.channel?.unreadCount.messages ?? 0
+        #else
+        0
         #endif
     }
 

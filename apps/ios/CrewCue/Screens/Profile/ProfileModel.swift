@@ -8,6 +8,8 @@ final class ProfileModel {
     private(set) var displayName = ""
     private(set) var message = ""
     private(set) var showsName = false
+    var raceName = ""
+    private(set) var creatingRace = false
 
     private let client: AppClient
     private var onSignOut: @MainActor () -> Void
@@ -27,6 +29,34 @@ final class ProfileModel {
 
     func signOut() {
         onSignOut()
+    }
+
+    func createRace(onCreated: @escaping @MainActor (String) -> Void) async {
+        let name = raceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            message = "Enter a race name."
+            return
+        }
+        guard let userId, !creatingRace else {
+            if userId == nil { message = "Couldn't create the race." }
+            return
+        }
+        creatingRace = true
+        defer { creatingRace = false }
+        do {
+            let room = try await RaceDayAPI.createRoom(
+                graph: client.graph,
+                name: name,
+                athleteId: userId,
+                teamId: userId,
+                creatorName: displayName.isEmpty ? nil : displayName
+            )
+            raceName = ""
+            message = "Race created."
+            onCreated(room.id)
+        } catch {
+            message = APIFailure.isOffline(error) ? "Offline. Profile not updated." : "Couldn't create the race."
+        }
     }
 
     func activate(

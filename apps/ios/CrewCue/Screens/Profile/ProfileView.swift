@@ -35,6 +35,10 @@ struct ProfileTabPage: View {
                 onStrava: { model.show(Route(featureId: "strava", state: .success)) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
+                onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                onCreated: { roomId in
+                    model.noteJoined(roomId: roomId, role: "athlete")
+                },
                 onName: { [weak model] name in
                     model?.updateDisplayName(name)
                 }
@@ -51,6 +55,8 @@ struct ProfileView: View {
     var onStrava: () -> Void
     var onMembers: () -> Void
     var onIncidents: () -> Void
+    var onJoin: () -> Void
+    var onCreated: @MainActor (String) -> Void
     var onName: @MainActor (String) -> Void
 
     var body: some View {
@@ -90,6 +96,22 @@ struct ProfileView: View {
                     }
                     .kineticCard()
                 }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Your races")
+                        .font(.system(size: 17, weight: .bold))
+                    TextField("Race name", text: $model.raceName)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Race name")
+                    Button("Create new race") {
+                        Task { await model.createRace(onCreated: onCreated) }
+                    }
+                    .buttonStyle(KineticSecondaryButtonStyle())
+                    .disabled(model.creatingRace)
+                    Button("Join race room", action: onJoin)
+                        .buttonStyle(KineticSecondaryButtonStyle())
+                }
+                .kineticCard()
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Training history")

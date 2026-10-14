@@ -23,7 +23,33 @@ class RaceDayBridge(
 
     fun join(code: String): RuntimeResult = call("join") { put("code", code) }
 
+    fun createRoom(name: String, athleteId: String, teamId: String, creatorName: String?): RuntimeResult =
+        call("createRoom") {
+            put("name", name)
+            put("athleteId", athleteId)
+            put("teamId", teamId)
+            if (!creatorName.isNullOrBlank()) put("creatorName", creatorName)
+        }
+
     fun loadSchedule(roomId: String): RuntimeResult = call("loadSchedule") { put("roomId", roomId) }
+
+    fun projectAidSheet(
+        sheet: JSONObject?,
+        checkpoints: JSONArray,
+        latitude: Double?,
+        longitude: Double?,
+        selectedIndex: Int,
+        follow: Boolean
+    ): RuntimeResult = call("projectAidSheet") {
+        if (sheet != null) put("sheet", sheet)
+        put("checkpoints", checkpoints)
+        if (latitude != null && longitude != null) {
+            put("latitude", latitude)
+            put("longitude", longitude)
+        }
+        put("selectedIndex", selectedIndex)
+        put("follow", follow)
+    }
 
     fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
 

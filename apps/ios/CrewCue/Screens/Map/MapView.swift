@@ -1,4 +1,5 @@
 import SwiftUI
+import CrewCueClientCore
 
 struct MapView: View {
     @Bindable var model: MapModel
@@ -38,6 +39,82 @@ struct MapView: View {
     }
 }
 
+struct AidPager: View {
+    @Bindable var model: MapModel
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 0) {
+                ForEach(model.aidPages) { page in
+                    AidPeek(page: page)
+                        .containerRelativeFrame(.horizontal)
+                        .id(page.index)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.viewAligned)
+        .scrollPosition(id: aidScroll)
+        .frame(height: 148)
+    }
+
+    private var aidScroll: Binding<Int?> {
+        Binding(
+            get: { model.aidPages.isEmpty ? nil : model.aidIndex },
+            set: { value in
+                guard let value, value != model.aidIndex else { return }
+                model.showAid(index: value)
+            }
+        )
+    }
+}
+
+struct AidPeek: View {
+    let page: AidStationPage
+    @Environment(\.kinetic) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: page.kicker)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: page.title)
+                        .font(.system(size: 20, weight: .heavy))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(verbatim: page.clockLabel)
+                        .font(.system(size: 20, weight: .heavy))
+                    Text("EST. ARRIVAL")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: page.remainLabel)
+                        .font(.system(size: 12, weight: .heavy))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(theme.secondaryButton, in: Capsule())
+                }
+            }
+            HStack {
+                Text(verbatim: page.distanceLabel)
+                Spacer()
+                Text(verbatim: page.stoppageLabel)
+                if let delay = page.delayLabel {
+                    Text(verbatim: delay)
+                        .foregroundStyle(theme.primary)
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+        }
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(page.scheduleLine)
+    }
+}
+
 struct MapAidSheet: View {
     @Bindable var model: MapModel
     @Environment(\.kinetic) private var theme
@@ -49,12 +126,10 @@ struct MapAidSheet: View {
                     .fill(theme.body.opacity(0.45))
                     .frame(width: 36, height: 4)
                     .frame(maxWidth: .infinity)
-                if let station = model.points.first {
-                    Text("AID STATION")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(theme.body)
-                    Text(verbatim: station.title)
-                        .font(.system(size: 20, weight: .heavy))
+                AidPager(model: model)
+                if model.aidFollow == false, let live = model.aidLiveNextIndex, live != model.aidIndex {
+                    Button("Next station", action: model.jumpToNextAid)
+                        .buttonStyle(KineticSecondaryButtonStyle())
                 }
                 if model.mapMessage.isEmpty == false {
                     Text(verbatim: model.mapMessage)

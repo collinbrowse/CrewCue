@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -149,6 +150,47 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier) {
             }
         }
         ProductCard(Modifier.padding(top = 12.dp)) {
+            Text("Your races", fontWeight = FontWeight.Bold)
+            Text(
+                "Start a race or join one with a code.",
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            OutlinedTextField(
+                value = model.raceName,
+                onValueChange = model::updateRaceName,
+                label = { Text("Race name") },
+                singleLine = true,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Race name" }
+            )
+            Button(
+                onClick = {
+                    val userId = session?.userId.orEmpty()
+                    model.createRace(userId, session?.displayName) { roomId ->
+                        shell.adoptRoom(roomId)
+                    }
+                },
+                enabled = !model.creatingRace,
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Create new race" }
+            ) {
+                Text("Create new race")
+            }
+            Button(
+                onClick = shell::openJoinCrew,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Join race room" }
+            ) {
+                Text("Join race room")
+            }
+        }
+        ProductCard(Modifier.padding(top = 12.dp)) {
             Text("Training history", fontWeight = FontWeight.Bold)
             Text(
                 "Connect Strava so pace can use your recent efforts.",
@@ -200,8 +242,56 @@ class ProfileViewModel(
         private set
     var status by mutableStateOf(if (initialName.isBlank()) PROFILE_EMPTY else null as String?)
         private set
+    var raceName by mutableStateOf("")
+        private set
+    var creatingRace by mutableStateOf(false)
+        private set
 
     private var generation = 0
+
+    fun updateRaceName(value: String) {
+        raceName = value
+    }
+
+    fun createRace(userId: String, displayName: String?, onCreated: (String) -> Unit) {
+        val trimmed = raceName.trim()
+        if (trimmed.isEmpty()) {
+            status = "Enter a race name."
+            return
+        }
+        if (userId.isBlank() || creatingRace) {
+            if (userId.isBlank()) status = "Couldn't create the race."
+            return
+        }
+        creatingRace = true
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    raceDay.createRoom(trimmed, userId, userId, displayName)
+                }
+            } catch (_: Throwable) {
+                creatingRace = false
+                status = "Couldn't create the race."
+                return@launch
+            }
+            creatingRace = false
+            when (result) {
+                is RuntimeResult.Failure -> {
+                    status = if (result.offline) PROFILE_OFFLINE else "Couldn't create the race."
+                }
+                is RuntimeResult.Success -> {
+                    val roomId = result.result.optString("id")
+                    if (roomId.isBlank()) {
+                        status = "Couldn't create the race."
+                    } else {
+                        raceName = ""
+                        status = "Race created."
+                        onCreated(roomId)
+                    }
+                }
+            }
+        }
+    }
 
     fun load(userId: String, roomId: String?, sessionName: String, online: Boolean) {
         val local = sessionName.trim()
