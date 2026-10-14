@@ -20,7 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontWeight
+import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -78,7 +81,7 @@ fun PaceScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Schedule", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        ProductTitle("Schedule", "Arrival times for each aid.")
         model.scheduleMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
@@ -106,39 +109,41 @@ fun PaceScreen(
                     }
                     Text("Stoppage ${stop.stoppage}")
                     stop.delay?.let { Text("Delay $it") }
-                    Button(
+                    SecondaryButton(
+                        "Check in",
                         onClick = { model.openCheckIn(stop.id) },
-                        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = "Check in" }
-                    ) {
-                        Text("Check in")
-                    }
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             }
         }
 
-        SectionTitle("Estimate")
-        model.estimateMessage?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        model.estimateDetail?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        if (model.mayRecalculate) {
-            Button(
-                onClick = model::recalculate,
-                enabled = !model.estimateBusy,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Recalculate" }
-            ) {
-                Text("Recalculate")
+        ProductCard(
+            Modifier
+                .padding(top = 20.dp)
+                .testTag("crewcue.pace-estimate")
+                .semantics { contentDescription = "Pace estimate" }
+        ) {
+            Text("Pace estimate", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+            model.estimateMessage?.let { line ->
+                Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            }
+            model.estimateDetail?.let { line ->
+                Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            }
+            if (model.mayRecalculate) {
+                PrimaryButton(
+                    "Recalculate",
+                    onClick = model::recalculate,
+                    modifier = Modifier.padding(top = 12.dp),
+                    enabled = !model.estimateBusy
+                )
             }
         }
 
         if (model.checkInOpen || focus == "check-in") {
-        Column(Modifier.bringIntoViewRequester(checkIn).testTag("crewcue.check-in")) {
-        SectionTitle("Check in")
+        ProductCard(Modifier.padding(top = 16.dp).bringIntoViewRequester(checkIn).testTag("crewcue.check-in")) {
+        Text("Check in", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(
             value = model.checkpointId,
             onValueChange = model::updateCheckpoint,
@@ -174,27 +179,23 @@ fun PaceScreen(
         model.checkInMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
-        Button(
+        PrimaryButton(
+            "Check in",
             onClick = model::submitCheckIn,
-            enabled = !model.checkInBusy,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Check in" }
-        ) {
-            Text("Check in")
-        }
+            modifier = Modifier.padding(top = 12.dp),
+            enabled = !model.checkInBusy
+        )
         }
         }
 
-        Text(
-            "Crew tools",
-            modifier = Modifier.padding(top = 24.dp).bringIntoViewRequester(tools),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Column(Modifier.testTag("crewcue.gpx-import")) {
-        SectionTitle("Route file")
+        Column(Modifier.padding(top = 24.dp).bringIntoViewRequester(tools)) {
+            ProductTitle(
+                "Crew tools",
+                "Import a route, share the sheet, and keep drafts on this phone."
+            )
+        }
+        ProductCard(Modifier.padding(top = 12.dp).testTag("crewcue.gpx-import")) {
+        Text("Route file", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         Text(
             model.gpxMessage,
             modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.gpxMessage }
@@ -208,50 +209,41 @@ fun PaceScreen(
                 .fillMaxWidth()
                 .semantics { contentDescription = "GPX" }
         )
-        Button(
+        SecondaryButton(
+            "Choose file",
             onClick = { picker.launch(arrayOf("*/*")) },
+            modifier = Modifier.padding(top = 12.dp),
             enabled = !model.gpxBusy,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Choose route file" }
-        ) {
-            Text("Choose file")
-        }
-        Button(
+            spoken = "Choose route file"
+        )
+        PrimaryButton(
+            "Import",
             onClick = model::importPastedGpx,
+            modifier = Modifier.padding(top = 8.dp),
             enabled = !model.gpxBusy,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Import route" }
-        ) {
-            Text("Import")
-        }
+            spoken = "Import route"
+        )
         }
 
-        Column(Modifier.testTag("crewcue.crew-sheet-export")) {
-        SectionTitle("Crew sheet")
+        ProductCard(Modifier.padding(top = 12.dp).testTag("crewcue.crew-sheet-export")) {
+        Text("Crew sheet", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         model.exportMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
         model.exportText?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = "Crew sheet" })
         }
-        Button(
+        PrimaryButton(
+            "Share",
             onClick = { model.exportText?.let { shareCrewSheet(context, it) } },
+            modifier = Modifier.padding(top = 12.dp),
             enabled = !model.exportText.isNullOrBlank(),
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Share crew sheet" }
-        ) {
-            Text("Share")
-        }
+            spoken = "Share crew sheet"
+        )
         }
 
-        Column(Modifier.testTag("crewcue.course-settings")) {
-        SectionTitle("Course settings")
+        ProductCard(Modifier.padding(top = 12.dp).testTag("crewcue.course-settings")) {
+        Text("Course settings", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         model.courseMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
@@ -275,20 +267,17 @@ fun PaceScreen(
                 .fillMaxWidth()
                 .semantics { contentDescription = "Stoppage seconds" }
         )
-        Button(
+        PrimaryButton(
+            "Save draft",
             onClick = model::saveCourse,
+            modifier = Modifier.padding(top = 12.dp),
             enabled = !model.courseBusy,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Save course settings" }
-        ) {
-            Text("Save draft")
-        }
+            spoken = "Save course settings"
+        )
         }
 
-        Column(Modifier.testTag("crewcue.outbox")) {
-        SectionTitle("Outbox")
+        ProductCard(Modifier.padding(top = 12.dp).testTag("crewcue.outbox")) {
+        Text("Outbox", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         model.outboxMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
@@ -297,11 +286,6 @@ fun PaceScreen(
         }
         }
     }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, modifier = Modifier.padding(top = 20.dp).semantics { contentDescription = text })
 }
 
 private fun readGpx(context: Context, uri: Uri): Pair<String, String>? {

@@ -4,15 +4,22 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 private val Olive = Color(0xFF506600)
@@ -81,6 +88,78 @@ fun CrewCueTheme(content: @Composable () -> Unit) {
         colorScheme = if (dark) DarkColors else LightColors,
         content = content
     )
+}
+
+@Composable
+fun ProductTitle(title: String, subtitle: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        modifier = modifier,
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+    if (subtitle.isNotBlank()) {
+        Text(
+            subtitle,
+            modifier = Modifier.padding(top = 6.dp),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun PrimaryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    spoken: String = label
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .semantics { contentDescription = spoken },
+        shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+fun SecondaryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    spoken: String = label
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .semantics { contentDescription = spoken },
+        shape = RoundedCornerShape(6.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable

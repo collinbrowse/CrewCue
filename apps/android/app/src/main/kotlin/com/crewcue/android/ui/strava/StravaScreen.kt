@@ -6,12 +6,14 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,50 +65,36 @@ fun StravaScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Strava")
-        if (model.connected) {
-            val line = if (model.athleteId.isNullOrBlank()) "Connected" else "Connected ${model.athleteId}"
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-            model.athleteId?.let { athleteId ->
-                Text(
-                    athleteId,
-                    modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = athleteId }
-                )
+        ProductTitle("Strava", "Recent efforts improve the pace estimate.")
+        ProductCard(Modifier.padding(top = 16.dp)) {
+            if (model.connected) {
+                val line = if (model.athleteId.isNullOrBlank()) "Connected" else "Connected ${model.athleteId}"
+                Text(line, modifier = Modifier.semantics { contentDescription = line })
+                model.athleteId?.let { athleteId ->
+                    Text(
+                        athleteId,
+                        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = athleteId }
+                    )
+                }
             }
-        }
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        Button(
-            onClick = { model.connect(context) },
-            enabled = !model.busy,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Connect" }
-        ) {
-            Text("Connect")
-        }
-        Button(
-            onClick = { model.disconnect(context.isOnline()) },
-            enabled = !model.busy,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Disconnect" }
-        ) {
-            Text("Disconnect")
+            model.status?.let { line ->
+                Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            }
+            PrimaryButton(
+                "Connect",
+                onClick = { model.connect(context) },
+                modifier = Modifier.padding(top = 12.dp),
+                enabled = !model.busy
+            )
+            SecondaryButton(
+                "Disconnect",
+                onClick = { model.disconnect(context.isOnline()) },
+                modifier = Modifier.padding(top = 8.dp),
+                enabled = !model.busy
+            )
         }
         if (onBack != null) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Profile" }
-            ) {
-                Text("Profile")
-            }
+            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }

@@ -7,8 +7,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,64 +68,66 @@ fun RoomMembersScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Room members")
+        ProductTitle("Room members", "Names your crew sees during the race.")
         model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        model.members.forEach { member ->
-            val label = member.displayName.ifBlank { member.userId }
-            Button(
-                onClick = { model.select(member.userId) },
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = label }
-            ) {
-                Text(label)
-            }
+            Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
         if (model.members.isNotEmpty()) {
-            OutlinedTextField(
-                value = model.draft,
-                onValueChange = model::updateDraft,
-                label = { Text("Display name") },
-                singleLine = true,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Display name" }
-            )
-            Button(
-                onClick = { model.save(context.isOnline(), shell::noteDisplayName) },
-                enabled = !model.busy && model.draft.isNotBlank(),
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Save name" }
-            ) {
-                Text("Save name")
+            ProductCard(Modifier.padding(top = 16.dp)) {
+                model.members.forEach { member ->
+                    val label = member.displayName.ifBlank { member.userId }
+                    val selected = model.selectedId == member.userId
+                    Button(
+                        onClick = { model.select(member.userId) },
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .fillMaxWidth()
+                            .semantics { contentDescription = label },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            contentColor = if (selected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    ) {
+                        Text(label, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
-            Button(
-                onClick = { model.removeSelected(context.isOnline()) },
-                enabled = !model.busy && model.selectedId != null,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Remove" }
-            ) {
-                Text("Remove")
+            ProductCard(Modifier.padding(top = 12.dp)) {
+                Text("Display name", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = model.draft,
+                    onValueChange = model::updateDraft,
+                    label = { Text("Display name") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Display name" }
+                )
+                PrimaryButton(
+                    "Save name",
+                    onClick = { model.save(context.isOnline(), shell::noteDisplayName) },
+                    modifier = Modifier.padding(top = 12.dp),
+                    enabled = !model.busy && model.draft.isNotBlank()
+                )
+                SecondaryButton(
+                    "Remove",
+                    onClick = { model.removeSelected(context.isOnline()) },
+                    modifier = Modifier.padding(top = 8.dp),
+                    enabled = !model.busy && model.selectedId != null
+                )
             }
         }
         if (onBack != null) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Profile" }
-            ) {
-                Text("Profile")
-            }
+            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }

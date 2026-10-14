@@ -28,7 +28,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.crewcue.android.ui.athlete.AthleteSetupScreen
 import com.crewcue.android.ui.auth.AuthSignInScreen
+import com.crewcue.android.ui.notifications.NotificationPermissionScreen
 import com.crewcue.android.ui.chat.ChatPrefsScreen
 import com.crewcue.android.ui.chat.ChatScreen
 import com.crewcue.android.ui.chat.PushRegistrationScreen
@@ -133,6 +135,12 @@ private fun FeatureHost(viewModel: ShellViewModel) {
     when (viewModel.uiState.screen.featureId) {
         "auth-sign-in" -> AuthSignInScreen(viewModel)
         "join-crew" -> JoinCrewScreen(viewModel)
+        "athlete-setup" -> {
+            if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else AthleteSetupScreen(viewModel)
+        }
+        "onboarding-notifications" -> {
+            if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else NotificationPermissionScreen()
+        }
         "profile", "strava", "room-members", "readouts-incidents" -> {
             if (viewModel.session != null && !viewModel.stateOverlay && profileDestinationReady(viewModel)) {
                 ProfileDestination(viewModel)

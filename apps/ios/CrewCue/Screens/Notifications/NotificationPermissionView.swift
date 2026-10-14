@@ -14,26 +14,21 @@ struct NotificationPermissionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            ProductTitle(
+                title: "Notifications",
+                subtitle: "Allow alerts so crew messages reach this phone."
+            )
             VStack(alignment: .leading, spacing: 12) {
-                NotificationPermissionTitle()
                 NotificationPermissionStatus(message: model.statusMessage)
                 NotificationPermissionButton(isWorking: model.isWorking, action: model.request)
             }
             .kineticCard()
             Spacer(minLength: 0)
         }
-        .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.background)
         .crewCueScreen(identifier: "crewcue.onboarding-notifications", label: "Notifications")
         .task { await model.refresh() }
-    }
-}
-
-struct NotificationPermissionTitle: View {
-    var body: some View {
-        Text("Notifications")
-            .font(.title2)
     }
 }
 

@@ -11,7 +11,7 @@ struct PaceView: View {
     var body: some View {
         ScrollViewReader { proxy in
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 PaceScheduleSection(stops: model.stops, message: model.scheduleMessage) { checkpointId in
                     model.openCheckIn(checkpointId: checkpointId)
                 }
@@ -20,8 +20,10 @@ struct PaceView: View {
                     PaceCheckInSection(model: model)
                         .id("check-in")
                 }
-                Text("Crew tools")
-                    .font(.system(size: 22, weight: .bold))
+                ProductTitle(
+                    title: "Crew tools",
+                    subtitle: "Import a route, share the sheet, and keep drafts on this phone."
+                )
                 PaceGpxSection(model: model)
                     .id("gpx-import")
                 PaceExportSection(text: model.exportText, message: model.exportMessage)
@@ -63,8 +65,7 @@ struct PaceScheduleSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Schedule")
-                .font(.system(size: 28, weight: .bold))
+            ProductTitle(title: "Schedule", subtitle: "Arrival times for each aid.")
             ForEach(stops) { stop in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: stop.title)
@@ -120,6 +121,7 @@ struct PaceEstimateSection: View {
                 PaceSeedButton(isBusy: model.estimateBusy, action: model.seedColdStart)
             }
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.pace-estimate")
         .accessibilityLabel("Pace estimate")
@@ -159,7 +161,7 @@ struct PaceRecalculateButton: View {
         Button("Recalculate") {
             Task { await action() }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(KineticProductButtonStyle())
         .disabled(isBusy)
     }
 }
@@ -169,10 +171,10 @@ struct PaceSeedButton: View {
     let action: () async -> Void
 
     var body: some View {
-        Button("Seed cold start") {
+        Button("Create starting estimate") {
             Task { await action() }
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(KineticSecondaryButtonStyle())
         .disabled(isBusy)
     }
 }
@@ -208,6 +210,7 @@ struct PaceCheckInSection: View {
             }
             PaceCheckInButton(isBusy: model.checkInBusy, action: model.submitCheckIn)
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.check-in")
         .accessibilityLabel("Check in")
@@ -219,10 +222,10 @@ struct PaceCheckInButton: View {
     let action: () async -> Void
 
     var body: some View {
-        Button("Queue check-in") {
+        Button("Check in") {
             Task { await action() }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(KineticProductButtonStyle())
         .disabled(isBusy)
     }
 }
@@ -251,6 +254,7 @@ struct PaceGpxSection: View {
                 await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
             }
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.gpx-import")
         .accessibilityLabel("GPX import")
@@ -299,7 +303,7 @@ struct PaceChooseGpxButton: View {
 
     var body: some View {
         Button("Choose GPX file", action: action)
-            .buttonStyle(.bordered)
+            .buttonStyle(KineticSecondaryButtonStyle())
             .disabled(isBusy)
     }
 }
@@ -312,7 +316,7 @@ struct PaceImportGpxButton: View {
         Button("Import GPX") {
             Task { await action() }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(KineticProductButtonStyle())
         .disabled(isBusy)
     }
 }
@@ -337,6 +341,7 @@ struct PaceExportSection: View {
                     .font(.body)
             }
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.crew-sheet-export")
         .accessibilityLabel("Crew sheet")
@@ -379,6 +384,7 @@ struct PaceCourseSection: View {
             }
             PaceSaveCourseButton(action: model.saveCourseDraft)
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.course-settings")
         .accessibilityLabel("Course settings")
@@ -390,7 +396,7 @@ struct PaceSaveCourseButton: View {
 
     var body: some View {
         Button("Save", action: action)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
     }
 }
 
@@ -410,6 +416,7 @@ struct PaceOutboxSection: View {
                     .font(.body)
             }
         }
+        .kineticCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.outbox")
         .accessibilityLabel("Outbox")

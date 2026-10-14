@@ -7,8 +7,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,55 +80,53 @@ fun IncidentsScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Incidents")
-        model.summaries.forEach { summary ->
-            Text(summary, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = summary })
+        ProductTitle("Incidents", "Log what the crew needs to know.")
+        if (model.summaries.isNotEmpty()) {
+            ProductCard(Modifier.padding(top = 16.dp)) {
+                model.summaries.forEach { summary ->
+                    Text(
+                        summary,
+                        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = summary },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
         model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
-        ChoiceRow("Category", categories, model.category, model.busy, model::selectCategory)
-        ChoiceRow("Severity", severities, model.severity, model.busy, model::selectSeverity)
-        OutlinedTextField(
-            value = model.summary,
-            onValueChange = model::updateSummary,
-            label = { Text("Summary") },
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Summary" }
-        )
-        OutlinedTextField(
-            value = model.checkpointId,
-            onValueChange = model::updateCheckpoint,
-            label = { Text("Checkpoint") },
-            placeholder = { Text("Optional") },
-            singleLine = true,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Checkpoint" }
-        )
-        Button(
-            onClick = { model.submit(context.isOnline()) },
-            enabled = !model.busy && model.summary.isNotBlank(),
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Submit" }
-        ) {
-            Text("Submit")
-        }
-        if (onBack != null) {
-            Button(
-                onClick = onBack,
+        ProductCard(Modifier.padding(top = 16.dp)) {
+            ChoiceRow("Category", categories, model.category, model.busy, model::selectCategory)
+            ChoiceRow("Severity", severities, model.severity, model.busy, model::selectSeverity)
+            OutlinedTextField(
+                value = model.summary,
+                onValueChange = model::updateSummary,
+                label = { Text("Summary") },
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Summary" }
+            )
+            OutlinedTextField(
+                value = model.checkpointId,
+                onValueChange = model::updateCheckpoint,
+                label = { Text("Checkpoint") },
+                placeholder = { Text("Optional") },
+                singleLine = true,
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Profile" }
-            ) {
-                Text("Profile")
-            }
+                    .semantics { contentDescription = "Checkpoint" }
+            )
+            PrimaryButton(
+                "Submit",
+                onClick = { model.submit(context.isOnline()) },
+                modifier = Modifier.padding(top = 12.dp),
+                enabled = !model.busy && model.summary.isNotBlank()
+            )
+        }
+        if (onBack != null) {
+            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }
@@ -143,9 +148,21 @@ private fun ChoiceRow(
             modifier = Modifier
                 .padding(top = 8.dp)
                 .fillMaxWidth()
-                .semantics { contentDescription = spoken }
+                .semantics { contentDescription = spoken },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (selected == value) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                contentColor = if (selected == value) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
         ) {
-            Text(spoken)
+            Text(label)
         }
     }
 }

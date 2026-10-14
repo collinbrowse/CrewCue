@@ -43,8 +43,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Chat")
-                .font(.system(size: 28, weight: .bold))
+            ProductTitle(title: "Chat", subtitle: "The crew channel for this race.")
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
             ChatChannelLabel(channelId: model.channelId)
@@ -59,10 +58,12 @@ struct ChatView: View {
             ChatComposer(draft: $model.draft, names: model.mentionNames, isSending: model.isSending, onSend: model.send)
                 .padding(.horizontal, 20)
             HStack(spacing: 8) {
-                Button("Alert settings", action: onAlerts)
+                Button("Alerts", action: onAlerts)
                     .buttonStyle(KineticSecondaryButtonStyle())
-                Button("Push registration", action: onPush)
+                    .accessibilityLabel("Chat alerts")
+                Button("This device", action: onPush)
                     .buttonStyle(KineticSecondaryButtonStyle())
+                    .accessibilityLabel("Push")
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
@@ -86,7 +87,8 @@ struct ChatChannelLabel: View {
     var body: some View {
         if channelId.isEmpty == false {
             Text(verbatim: channelId)
-                .font(.body)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
                 .accessibilityLabel("Channel")
         }
     }
@@ -173,7 +175,7 @@ struct ChatComposer: View {
             Button("Send") {
                 Task { await onSend() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
             .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }

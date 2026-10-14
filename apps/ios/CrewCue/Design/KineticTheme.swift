@@ -79,6 +79,26 @@ extension View {
     }
 }
 
+struct ProductTitle: View {
+    let title: String
+    var subtitle: String = ""
+    @Environment(\.kinetic) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 28, weight: .heavy))
+                .foregroundStyle(theme.ink)
+            if subtitle.isEmpty == false {
+                Text(subtitle)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(theme.body)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct KineticCardModifier: ViewModifier {
     @Environment(\.kinetic) private var theme
 

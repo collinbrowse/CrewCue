@@ -1,11 +1,28 @@
 import SwiftUI
 import CrewCueClientCore
 
+private enum MapTool: String {
+    case none
+    case pick
+    case navigate
+    case location
+
+    static func forFocus(_ focus: String) -> MapTool {
+        switch focus {
+        case "map-checkpoint-pick": .pick
+        case "map-navigate": .navigate
+        case "location-heartbeat": .location
+        default: .none
+        }
+    }
+}
+
 struct MapView: View {
     @Bindable var model: MapModel
     var userId: String?
     var roomId: String?
     var role: String?
+    var focus: String = "map-track"
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -22,7 +39,7 @@ struct MapView: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            MapAidSheet(model: model)
+            MapAidSheet(model: model, focus: focus)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -117,7 +134,9 @@ struct AidPeek: View {
 
 struct MapAidSheet: View {
     @Bindable var model: MapModel
+    var focus: String
     @Environment(\.kinetic) private var theme
+    @State private var tool = MapTool.none
 
     var body: some View {
         ScrollView {
@@ -126,7 +145,9 @@ struct MapAidSheet: View {
                     .fill(theme.body.opacity(0.45))
                     .frame(width: 36, height: 4)
                     .frame(maxWidth: .infinity)
-                AidPager(model: model)
+                if model.aidPages.isEmpty == false {
+                    AidPager(model: model)
+                }
                 if model.aidFollow == false, let live = model.aidLiveNextIndex, live != model.aidIndex {
                     Button("Next station", action: model.jumpToNextAid)
                         .buttonStyle(KineticSecondaryButtonStyle())
@@ -134,35 +155,84 @@ struct MapAidSheet: View {
                 if model.mapMessage.isEmpty == false {
                     Text(verbatim: model.mapMessage)
                         .font(.system(size: 16))
+                        .foregroundStyle(theme.body)
                 }
-                ForEach(model.points) { point in
-                    MapCheckpointLine(point: point)
-                }
-                MapPickSection(
-                    latitude: $model.latitudeText,
-                    longitude: $model.longitudeText,
-                    title: $model.checkpointTitle,
-                    message: model.pickMessage,
-                    isBusy: model.pickBusy,
-                    onSave: model.placeCheckpoint
-                )
-                MapNavigateSection(
-                    origin: $model.originId,
-                    destination: $model.destinationId,
-                    mode: $model.routeMode,
-                    points: model.points,
-                    message: model.navigateMessage,
-                    isBusy: model.navigateBusy,
-                    onStart: model.startNavigation
-                )
-                MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
+                MapToolBar(tool: tool, onSelect: selectTool)
+                mapTool
             }
             .padding(16)
             .padding(.bottom, 8)
         }
-        .frame(maxHeight: 420)
+        .frame(maxHeight: tool == .none ? 280 : 420)
         .background(theme.card)
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 16))
+        .task(id: focus) {
+            tool = MapTool.forFocus(focus)
+        }
+    }
+
+    @ViewBuilder
+    private var mapTool: some View {
+        switch tool {
+        case .none:
+            EmptyView()
+        case .pick:
+            MapPickSection(
+                latitude: $model.latitudeText,
+                longitude: $model.longitudeText,
+                title: $model.checkpointTitle,
+                message: model.pickMessage,
+                isBusy: model.pickBusy,
+                onSave: model.placeCheckpoint
+            )
+        case .navigate:
+            MapNavigateSection(
+                origin: $model.originId,
+                destination: $model.destinationId,
+                mode: $model.routeMode,
+                points: model.points,
+                message: model.navigateMessage,
+                isBusy: model.navigateBusy,
+                onStart: model.startNavigation
+            )
+        case .location:
+            MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
+        }
+    }
+
+    private func selectTool(_ next: MapTool) {
+        tool = tool == next ? .none : next
+    }
+}
+
+private struct MapToolBar: View {
+    let tool: MapTool
+    let onSelect: (MapTool) -> Void
+    @Environment(\.kinetic) private var theme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            MapToolButton(title: "Place", selected: tool == .pick) { onSelect(.pick) }
+            MapToolButton(title: "Navigate", selected: tool == .navigate) { onSelect(.navigate) }
+            MapToolButton(title: "Location", selected: tool == .location) { onSelect(.location) }
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(theme.ink)
+    }
+}
+
+private struct MapToolButton: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.kinetic) private var theme
+
+    var body: some View {
+        Button(title, action: action)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(selected ? theme.onPrimary : theme.ink)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(selected ? theme.primary : theme.secondaryButton, in: Capsule())
     }
 }
 
@@ -185,19 +255,6 @@ struct MapCanvas: View {
         #else
         EmptyView()
         #endif
-    }
-}
-
-struct MapCheckpointLine: View {
-    let point: MapCoursePoint
-
-    var body: some View {
-        Text(verbatim: "\(point.title)  \(coordinate)")
-            .font(.body)
-    }
-
-    private var coordinate: String {
-        String(format: "%.5f, %.5f", point.latitude, point.longitude)
     }
 }
 
@@ -227,7 +284,7 @@ struct MapPickSection: View {
             Button("Save checkpoint") {
                 Task { await onSave() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
             .disabled(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -296,7 +353,7 @@ struct MapNavigateSection: View {
             Button("Start navigation") {
                 Task { await onStart() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(KineticProductButtonStyle())
             .disabled(isBusy)
         }
         .accessibilityElement(children: .contain)
@@ -334,7 +391,7 @@ struct MapLocationSection: View {
             Text(verbatim: message)
                 .font(.body)
             Button("Share location", action: onShare)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(KineticProductButtonStyle())
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.location-heartbeat")

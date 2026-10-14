@@ -9,10 +9,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,30 +70,21 @@ fun PushRegistrationScreen(
             .semantics { contentDescription = "Push" }
             .padding(16.dp)
     ) {
-        Text("Push")
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        Button(
-            onClick = { request() },
-            enabled = !model.busy,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Register" }
-        ) {
-            Text("Register")
+        ProductTitle("This device", "Register so race alerts can reach you.")
+        ProductCard(Modifier.padding(top = 16.dp)) {
+            model.status?.let { line ->
+                Text(line, modifier = Modifier.semantics { contentDescription = line })
+            }
+            PrimaryButton(
+                "Register",
+                onClick = { request() },
+                modifier = Modifier.padding(top = 12.dp),
+                enabled = !model.busy,
+                spoken = "Register"
+            )
         }
         if (onBack != null) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Chat" }
-            ) {
-                Text("Chat")
-            }
+            SecondaryButton("Chat", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }

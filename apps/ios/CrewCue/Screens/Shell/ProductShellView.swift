@@ -34,7 +34,8 @@ struct ProductTabPage: View {
                     model: model.mapModel,
                     userId: model.signedInUserId,
                     roomId: model.signedInRoomId,
-                    role: model.signedInRole
+                    role: model.signedInRole,
+                    focus: ShellTab.isMapFeature(model.route.featureId) ? model.route.featureId : "map-track"
                 )
             case .pace:
                 PaceView(

@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
@@ -82,11 +84,15 @@ fun ChatScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Chat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(
-            model.channelId,
-            modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.channelId }
-        )
+        ProductTitle("Chat", "The crew channel for this race.")
+        if (model.channelId.isNotBlank()) {
+            Text(
+                model.channelId,
+                modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.channelId },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         model.messages.forEach { line ->
             Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 if (line.mine) Spacer(Modifier.weight(1f))
@@ -135,33 +141,23 @@ fun ChatScreen(
                 .fillMaxWidth()
                 .semantics { contentDescription = "Message" }
         )
-        Button(
+        PrimaryButton(
+            "Send",
             onClick = { model.send(context.applicationContext) },
-            enabled = !model.sending,
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Send" }
-        ) {
-            Text("Send")
-        }
-        Button(
+            modifier = Modifier.padding(top = 12.dp),
+            enabled = !model.sending
+        )
+        SecondaryButton(
+            "Alerts",
             onClick = onOpenAlerts,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Chat alerts" }
-        ) {
-            Text("Alerts")
-        }
-        Button(
+            modifier = Modifier.padding(top = 8.dp),
+            spoken = "Chat alerts"
+        )
+        SecondaryButton(
+            "This device",
             onClick = onOpenPush,
-            modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Push" }
-        ) {
-            Text("Push")
-        }
+            modifier = Modifier.padding(top = 8.dp),
+            spoken = "Push"
+        )
     }
 }

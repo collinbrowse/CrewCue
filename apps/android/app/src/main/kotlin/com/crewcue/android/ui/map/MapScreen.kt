@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,9 +27,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -111,37 +117,77 @@ fun MapScreen(
                         onClick = model::jumpToNextAid,
                         modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics {
                             contentDescription = "Next station"
-                        }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     ) {
                         Text("Next station")
                     }
                 }
             }
-            if (showMap) {
-                model.checkpoints.forEach { checkpoint ->
-                    Text(
-                        checkpoint.title,
-                        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = checkpoint.title }
-                    )
-                }
-                if (!BuildConfig.MAP_LIBRE && BuildConfig.MAP_LIBRE_ERROR.isNotBlank()) {
-                    Text(
-                        BuildConfig.MAP_LIBRE_ERROR,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+            if (showMap && !BuildConfig.MAP_LIBRE && BuildConfig.MAP_LIBRE_ERROR.isNotBlank()) {
+                Text(
+                    BuildConfig.MAP_LIBRE_ERROR,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
-            if (focus == "map-track" || focus == "map-checkpoint-pick") {
-                CheckpointSection(model, tagged = focus == "map-track")
-            }
-            if (focus == "map-track" || focus == "map-navigate") {
-                NavigateSection(model, tagged = focus == "map-track")
-            }
-            if (focus == "map-track" || focus == "location-heartbeat") {
-                LocationSection(model, tagged = focus == "map-track")
-            }
+            MapTools(model, focus)
         }
     }
+}
+
+@Composable
+private fun MapTools(model: MapViewModel, focus: String) {
+    var tool by remember(focus) { mutableStateOf(mapTool(focus)) }
+    MapToolBar(tool) { next -> tool = if (tool == next) "none" else next }
+    when (tool) {
+        "pick" -> CheckpointSection(model, tagged = true)
+        "navigate" -> NavigateSection(model, tagged = true)
+        "location" -> LocationSection(model, tagged = true)
+    }
+}
+
+@Composable
+private fun MapToolBar(tool: String, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier.padding(top = 12.dp).fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MapToolButton("Place", tool == "pick", Modifier.weight(1f)) { onSelect("pick") }
+        MapToolButton("Navigate", tool == "navigate", Modifier.weight(1f)) { onSelect("navigate") }
+        MapToolButton("Location", tool == "location", Modifier.weight(1f)) { onSelect("location") }
+    }
+}
+
+@Composable
+private fun MapToolButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.semantics { contentDescription = label },
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+private fun mapTool(focus: String): String = when (focus) {
+    "map-checkpoint-pick" -> "pick"
+    "map-navigate" -> "navigate"
+    "location-heartbeat" -> "location"
+    else -> "none"
 }
 
 @Composable

@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,23 +54,17 @@ fun ChatPrefsScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Chat alerts")
+        ProductTitle("Chat alerts", "Choose what reaches you from this room.")
         model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
-        PreferenceButton("All", "all", model)
-        PreferenceButton("Mentions", "mentions", model)
-        PreferenceButton("None", "none", model)
+        ProductCard(Modifier.padding(top = 16.dp)) {
+            PreferenceButton("All", "all", model)
+            PreferenceButton("Mentions", "mentions", model)
+            PreferenceButton("None", "none", model)
+        }
         if (onBack != null) {
-            Button(
-                onClick = onBack,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Chat" }
-            ) {
-                Text("Chat")
-            }
+            SecondaryButton("Chat", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }
@@ -79,9 +78,21 @@ private fun PreferenceButton(label: String, preference: String, model: ChatPrefs
         modifier = Modifier
             .padding(top = 8.dp)
             .fillMaxWidth()
-            .semantics { contentDescription = if (selected) "$label selected" else label }
+            .semantics { contentDescription = if (selected) "$label selected" else label },
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+            contentColor = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
     ) {
-        Text(if (selected) "$label selected" else label)
+        Text(label)
     }
 }
 
