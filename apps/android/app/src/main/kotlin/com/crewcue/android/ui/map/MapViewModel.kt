@@ -56,6 +56,17 @@ class MapViewModel(
         private set
     var locationMessage by mutableStateOf(LOCATION_EMPTY)
         private set
+    var readout by mutableStateOf(RaceReadout())
+        private set
+    var timeline by mutableStateOf<List<TimelineRow>>(emptyList())
+        private set
+    /** Bumped to ask the map to fit the course again. */
+    var recenterRequest by mutableStateOf(0)
+        private set
+    var raceName by mutableStateOf("")
+        private set
+    private var elevation: JSONArray? = null
+    private var lastPingAtMs: Long? = null
 
     private var lastRecordedMillis = 0L
     private var scheduleSheet: JSONObject? = null
@@ -206,9 +217,14 @@ class MapViewModel(
         if (locationMessage != LOCATION_DENIED) locationMessage = LOCATION_EMPTY
     }
 
+    fun recenter() {
+        recenterRequest += 1
+    }
+
     fun onSample(latitude: Double, longitude: Double, accuracy: Double?, online: Boolean) {
         sampleLatitude = latitude
         sampleLongitude = longitude
+        lastPingAtMs = System.currentTimeMillis()
         projectAid()
         if (role != "athlete") {
             locationMessage = String.format(Locale.US, "%.6f, %.6f", latitude, longitude)
@@ -272,6 +288,8 @@ class MapViewModel(
         val parsedLine = parseLine(result.optJSONArray("line"))
         checkpoints = parsedCheckpoints
         line = parsedLine
+        elevation = result.optJSONArray("elevation")
+        raceName = result.optString("name")
         if (destinationId != null && parsedCheckpoints.none { it.id == destinationId }) {
             destinationId = null
             navigateMessage = NAV_EMPTY
@@ -300,10 +318,12 @@ class MapViewModel(
         val longitude = sampleLongitude
         val index = aidIndex
         val follow = aidFollow
+        val profile = elevation
+        val pingAt = lastPingAtMs
         viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) {
-                    raceDay.projectAidSheet(sheet, checkpoints, latitude, longitude, index, follow)
+                    raceDay.projectAidSheet(sheet, checkpoints, latitude, longitude, index, follow, profile, pingAt)
                 }
             } catch (_: Throwable) {
                 return@launch
@@ -343,13 +363,51 @@ class MapViewModel(
                     distanceLabel = row.optString("distanceLabel"),
                     stoppageLabel = row.optString("stoppageLabel"),
                     delayLabel = row.optString("delayLabel").ifBlank { null },
-                    scheduleLine = row.optString("scheduleLine")
+                    scheduleLine = row.optString("scheduleLine"),
+                    arrivalAt = row.optString("arrivalAt").ifBlank { null },
+                    elevationLabel = row.optString("elevationLabel").ifBlank { null },
+                    stoppageDurationLabel = row.optString("stoppageDurationLabel", "—"),
+                    elapsedLabel = row.optString("elapsedLabel", "—")
                 )
             }
         }
+        payload.optJSONObject("readout")?.let { readout = parseReadout(it) }
+        payload.optJSONArray("timeline")?.let { timeline = parseTimeline(it) }
         aidPages = pages
         aidIndex = payload.optInt("selectedIndex", 0)
         aidLiveNext = if (payload.isNull("liveNextIndex")) null else payload.optInt("liveNextIndex")
+    }
+
+    private fun parseReadout(row: JSONObject) = RaceReadout(
+        status = row.optString("status", "unknown"),
+        statusLabel = row.optString("statusLabel"),
+        progressFraction = row.optDouble("progressFraction", 0.0).toFloat(),
+        progressLabel = row.optString("progressLabel", "—"),
+        percentLabel = row.optString("percentLabel", "—"),
+        totalMilesLabel = row.optString("totalMilesLabel", "—"),
+        currentMileLabel = row.optString("currentMileLabel", "0.0"),
+        elapsedLabel = row.optString("elapsedLabel", "—"),
+        averagePaceLabel = row.optString("averagePaceLabel", "—"),
+        lastPingLabel = row.optString("lastPingLabel").ifBlank { null }
+    )
+
+    private fun parseTimeline(array: JSONArray): List<TimelineRow> {
+        val rows = mutableListOf<TimelineRow>()
+        for (index in 0 until array.length()) {
+            val row = array.optJSONObject(index) ?: continue
+            rows += TimelineRow(
+                checkpointId = row.optString("checkpointId"),
+                state = row.optString("state", "projected"),
+                kicker = row.optString("kicker"),
+                title = row.optString("title"),
+                clockArrivalAt = row.optString("clockArrivalAt").ifBlank { null },
+                cutoffAt = row.optString("cutoffAt").ifBlank { null },
+                cutoffStatus = row.optString("cutoffStatus").ifBlank { null },
+                distanceToLabel = row.optString("distanceToLabel", "—"),
+                isFinish = row.optBoolean("isFinish")
+            )
+        }
+        return rows
     }
 
     private fun parseCheckpoints(array: JSONArray?): List<MapCheckpoint> {

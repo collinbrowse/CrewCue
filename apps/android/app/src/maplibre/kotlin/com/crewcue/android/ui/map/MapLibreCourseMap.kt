@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -14,6 +15,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.crewcue.android.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -32,7 +34,19 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.tile.TileOperation
 
-private const val STYLE_URL = "https://demotiles.maplibre.org/style.json"
+private const val FALLBACK_STYLE_URL = "https://demotiles.maplibre.org/style.json"
+
+/** MapTiler topo when `crewcue_maptiler_key` is set in local.properties, else the demo style. */
+private fun styleUrl(dark: Boolean): String {
+    val key = BuildConfig.MAPTILER_KEY.trim()
+    if (key.isEmpty()) return FALLBACK_STYLE_URL
+    val style = if (dark) "topo-v2-dark" else "topo-v2"
+    return "https://api.maptiler.com/maps/$style/style.json?key=$key"
+}
+
+private fun Context.isDarkMode(): Boolean =
+    (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+        android.content.res.Configuration.UI_MODE_NIGHT_YES
 private const val LINE_SOURCE = "crewcue-course"
 private const val LINE_LAYER = "crewcue-course-line"
 private const val POINT_SOURCE = "crewcue-checkpoints"
@@ -58,9 +72,13 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         onMapTap: (Double, Double) -> Unit,
         onStyleReady: () -> Unit,
         onStyleFailed: () -> Unit,
-        onTilesUnavailable: () -> Unit
+        onTilesUnavailable: () -> Unit,
+        recenterRequest: Int
     ) {
         val context = LocalContext.current
+        val dark = context.isDarkMode()
+        val palette = remember(dark) { CoursePalette(dark) }
+        val paletteState = rememberUpdatedState(palette)
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         val tap = rememberUpdatedState(onMapTap)
         val ready = rememberUpdatedState(onStyleReady)
@@ -93,9 +111,12 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                         true
                     }
                     if (!context.isOnline()) tilesUnavailable.value()
-                    map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
+                    map.uiSettings.isLogoEnabled = false
+                    map.uiSettings.setAttributionMargins(48, 420, 0, 0)
+                    map.uiSettings.attributionGravity = android.view.Gravity.TOP or android.view.Gravity.START
+                    map.setStyle(Style.Builder().fromUri(styleUrl(dark))) { style ->
                         ready.value()
-                        runCatching { draw(style, map, lineState.value, pointState.value, framed) }
+                        runCatching { draw(style, map, lineState.value, pointState.value, framed, paletteState.value) }
                     }
                 }
             }
@@ -125,10 +146,21 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             update = { view ->
                 view.getMapAsync { map ->
                     val style = map.style ?: return@getMapAsync
-                    runCatching { draw(style, map, line, points, framed) }
+                    runCatching { draw(style, map, line, points, framed, palette) }
                 }
             }
         )
+        LaunchedEffect(recenterRequest) {
+            if (recenterRequest == 0) return@LaunchedEffect
+            mapView.getMapAsync { map ->
+                val framePoints = if (lineState.value.size >= 2) {
+                    lineState.value
+                } else {
+                    pointState.value.map { CoursePoint(it.latitude, it.longitude) }
+                }
+                if (framePoints.isNotEmpty()) frame(map, framePoints, context)
+            }
+        }
     }
 }
 
@@ -137,7 +169,8 @@ private fun draw(
     map: MapLibreMap,
     line: List<CoursePoint>,
     points: List<MapCheckpoint>,
-    framed: BooleanArray
+    framed: BooleanArray,
+    palette: CoursePalette
 ) {
     if (line.size >= 2) {
         val geoJson = lineGeoJson(line)
@@ -146,8 +179,10 @@ private fun draw(
             style.addSource(GeoJsonSource(LINE_SOURCE, geoJson))
             style.addLayer(
                 LineLayer(LINE_LAYER, LINE_SOURCE).withProperties(
-                    PropertyFactory.lineColor(Color.parseColor("#1B6CA8")),
-                    PropertyFactory.lineWidth(4f)
+                    PropertyFactory.lineColor(palette.line),
+                    PropertyFactory.lineWidth(5f),
+                    PropertyFactory.lineCap("round"),
+                    PropertyFactory.lineJoin("round")
                 )
             )
         } else {
@@ -161,15 +196,20 @@ private fun draw(
             style.addSource(GeoJsonSource(POINT_SOURCE, geoJson))
             style.addLayer(
                 CircleLayer(CIRCLE_LAYER, POINT_SOURCE).withProperties(
-                    PropertyFactory.circleRadius(6f),
-                    PropertyFactory.circleColor(Color.parseColor("#C2410C"))
+                    PropertyFactory.circleRadius(7f),
+                    PropertyFactory.circleColor(palette.marker),
+                    PropertyFactory.circleStrokeColor(palette.line),
+                    PropertyFactory.circleStrokeWidth(2.5f)
                 )
             )
             style.addLayer(
                 SymbolLayer(TITLE_LAYER, POINT_SOURCE).withProperties(
                     PropertyFactory.textField(Expression.get("title")),
                     PropertyFactory.textSize(12f),
-                    PropertyFactory.textColor(Color.parseColor("#102027"))
+                    PropertyFactory.textOffset(arrayOf(0f, 1.4f)),
+                    PropertyFactory.textColor(palette.label),
+                    PropertyFactory.textHaloColor(palette.halo),
+                    PropertyFactory.textHaloWidth(2f)
                 )
             )
         } else {
@@ -178,12 +218,20 @@ private fun draw(
     }
     val framePoints = if (line.size >= 2) line else points.map { CoursePoint(it.latitude, it.longitude) }
     if (!framed[0] && framePoints.isNotEmpty()) {
-        frame(map, framePoints)
+        frame(map, framePoints, null)
         framed[0] = true
     }
 }
 
-private fun frame(map: MapLibreMap, points: List<CoursePoint>) {
+/** Course colors on the map: Night Trail primary line, white markers with dark labels. */
+private class CoursePalette(dark: Boolean) {
+    val line = Color.parseColor(if (dark) "#C9BFFF" else "#5440B9")
+    val marker = Color.parseColor(if (dark) "#20201B" else "#FFFFFF")
+    val label = Color.parseColor(if (dark) "#E5E2DA" else "#1C1C17")
+    val halo = Color.parseColor(if (dark) "#14140F" else "#FFFFFF")
+}
+
+private fun frame(map: MapLibreMap, points: List<CoursePoint>, context: Context?) {
     val first = points.first()
     val same = points.all { it.latitude == first.latitude && it.longitude == first.longitude }
     if (points.size == 1 || same) {
@@ -193,7 +241,16 @@ private fun frame(map: MapLibreMap, points: List<CoursePoint>) {
     val bounds = LatLngBounds.Builder()
         .includes(points.map { LatLng(it.latitude, it.longitude) })
         .build()
-    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 72))
+    // Leave room for the top bar and chips above and the aid sheet below.
+    val density = context?.resources?.displayMetrics?.density ?: 2.75f
+    val update = CameraUpdateFactory.newLatLngBounds(
+        bounds,
+        (48 * density).toInt(),
+        (200 * density).toInt(),
+        (96 * density).toInt(),
+        (360 * density).toInt()
+    )
+    if (context != null) map.animateCamera(update) else map.moveCamera(update)
 }
 
 private fun lineGeoJson(line: List<CoursePoint>): String {

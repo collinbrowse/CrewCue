@@ -39,7 +39,9 @@ class RaceDayBridge(
         latitude: Double?,
         longitude: Double?,
         selectedIndex: Int,
-        follow: Boolean
+        follow: Boolean,
+        elevation: JSONArray? = null,
+        lastPingAtMs: Long? = null
     ): RuntimeResult = call("projectAidSheet") {
         if (sheet != null) put("sheet", sheet)
         put("checkpoints", checkpoints)
@@ -49,6 +51,8 @@ class RaceDayBridge(
         }
         put("selectedIndex", selectedIndex)
         put("follow", follow)
+        if (elevation != null && elevation.length() > 0) put("elevation", elevation)
+        if (lastPingAtMs != null) put("lastPingAtMs", lastPingAtMs)
     }
 
     fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }

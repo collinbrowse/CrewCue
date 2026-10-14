@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,43 +16,67 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.theme.ChipStyle
+import com.crewcue.android.ui.theme.CircleIconButton
+import com.crewcue.android.ui.theme.CrewClock
+import com.crewcue.android.ui.theme.CrewProgressBar
+import com.crewcue.android.ui.theme.CrewTextField
+import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.MetricColumn
+import com.crewcue.android.ui.theme.MetricLargeStyle
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.SecondaryButton
+import com.crewcue.android.ui.theme.StatusChip
 
 @Composable
 fun MapScreen(
     shell: ShellViewModel,
     roomId: String,
     focus: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    bottomInset: Dp = 16.dp
 ) {
     val role = shell.session?.role.orEmpty()
     val model: MapViewModel = viewModel(
@@ -59,6 +84,7 @@ fun MapScreen(
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
     LaunchedEffect(roomId) { model.load() }
+    var tool by remember(focus) { mutableStateOf(mapTool(focus)) }
     val rootTag = when (focus) {
         "map-checkpoint-pick" -> "crewcue.map-checkpoint-pick"
         "map-navigate" -> "crewcue.map-navigate"
@@ -86,100 +112,190 @@ fun MapScreen(
                 onStyleReady = model::onStyleReady,
                 onStyleFailed = model::onStyleFailed,
                 onTilesUnavailable = model::onTilesUnavailable,
+                recenterRequest = model.recenterRequest,
                 modifier = Modifier.fillMaxSize()
             )
-            val banner = mapBanner(model)
-            if (banner != null) {
-                Text(
-                    banner,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .semantics { contentDescription = banner }
-                )
-            }
+            MapOverlay(model, onTool = { tool = it }, modifier = Modifier.align(Alignment.TopStart))
         }
-        Column(
-            Modifier
+        MapSheet(
+            model = model,
+            tool = tool,
+            onCloseTool = { tool = "none" },
+            fillHeight = !showMap,
+            modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .then(if (showMap) Modifier.heightIn(max = 420.dp) else Modifier.fillMaxHeight())
-                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        ) {
-            if (showMap && model.aidPages.isNotEmpty()) {
-                AidPager(model)
-                val live = model.aidLiveNext
-                if (!model.aidFollow && live != null && live != model.aidIndex) {
-                    Button(
-                        onClick = model::jumpToNextAid,
-                        modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics {
-                            contentDescription = "Next station"
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Text("Next station")
+                .padding(horizontal = 8.dp)
+                .padding(bottom = bottomInset)
+                .navigationBarsPadding()
+        )
+    }
+}
+
+/** Status chips and the round map controls under the shell top bar. */
+@Composable
+private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: Modifier = Modifier) {
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(top = 76.dp, start = 16.dp, end = 16.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        val readout = model.readout
+        if (readout.statusLabel.isNotBlank()) {
+            StatusChip(readout.statusLabel, if (readout.status == "behind") ChipStyle.Soft else ChipStyle.Filled)
+        }
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            readout.lastPingLabel?.let { ping ->
+                StatusChip("Last ping: $ping", ChipStyle.Surface, dot = true)
+            }
+            CircleIconButton(Icons.Outlined.MyLocation, "Fit course", onClick = model::recenter)
+            Box {
+                CircleIconButton(Icons.Outlined.Layers, "Map tools", onClick = { menu = true })
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    listOf(
+                        "none" to "Aid stations",
+                        "pick" to "Place checkpoint",
+                        "navigate" to "Navigate",
+                        "location" to "Share location"
+                    ).forEach { (id, label) ->
+                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                            menu = false
+                            onTool(id)
+                        })
                     }
                 }
             }
-            if (showMap && !BuildConfig.MAP_LIBRE && BuildConfig.MAP_LIBRE_ERROR.isNotBlank()) {
-                Text(
-                    BuildConfig.MAP_LIBRE_ERROR,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-            MapTools(model, focus)
         }
     }
 }
 
 @Composable
-private fun MapTools(model: MapViewModel, focus: String) {
-    var tool by remember(focus) { mutableStateOf(mapTool(focus)) }
-    MapToolBar(tool) { next -> tool = if (tool == next) "none" else next }
-    when (tool) {
-        "pick" -> CheckpointSection(model, tagged = true)
-        "navigate" -> NavigateSection(model, tagged = true)
-        "location" -> LocationSection(model, tagged = true)
-    }
-}
-
-@Composable
-private fun MapToolBar(tool: String, onSelect: (String) -> Unit) {
-    Row(
-        modifier = Modifier.padding(top = 12.dp).fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+private fun MapSheet(
+    model: MapViewModel,
+    tool: String,
+    onCloseTool: () -> Unit,
+    fillHeight: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier.heightIn(max = 520.dp)),
+        shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp, bottomStart = 32.dp, bottomEnd = 32.dp),
+        color = colors.surfaceContainerLowest.copy(alpha = 0.97f),
+        shadowElevation = 8.dp
     ) {
-        MapToolButton("Place", tool == "pick", Modifier.weight(1f)) { onSelect("pick") }
-        MapToolButton("Navigate", tool == "navigate", Modifier.weight(1f)) { onSelect("navigate") }
-        MapToolButton("Location", tool == "location", Modifier.weight(1f)) { onSelect("location") }
-    }
-}
-
-@Composable
-private fun MapToolButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.semantics { contentDescription = label },
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            },
-            contentColor = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurface
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 16.dp)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(role = Role.Button) { expanded = !expanded }
+                    .padding(top = 10.dp, bottom = 12.dp)
+                    .semantics { contentDescription = if (expanded) "Collapse details" else "Expand details" },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(Modifier.size(width = 44.dp, height = 5.dp).background(colors.outline.copy(alpha = 0.45f), CircleShape))
             }
+            if (tool == "none") {
+                AidContent(model, expanded)
+            } else {
+                ToolContent(model, tool, onCloseTool)
+            }
+            if (!BuildConfig.MAP_LIBRE && BuildConfig.MAP_LIBRE_ERROR.isNotBlank()) {
+                Text(BuildConfig.MAP_LIBRE_ERROR, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AidContent(model: MapViewModel, expanded: Boolean) {
+    val banner = mapBanner(model)
+    if (model.aidPages.isEmpty()) {
+        Column(Modifier.padding(horizontal = 24.dp)) {
+            Kicker("Next aid station", color = MaterialTheme.colorScheme.primary)
+            Text(
+                banner ?: "No aid stations yet.",
+                modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = banner ?: "No aid stations yet." },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        return
+    }
+    AidPager(model)
+    if (banner != null) {
+        Text(
+            banner,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).semantics { contentDescription = banner },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    ) {
-        Text(label, fontWeight = FontWeight.SemiBold)
+    }
+    if (expanded) {
+        val page = model.aidPages.getOrNull(model.aidIndex)
+        Column(Modifier.padding(horizontal = 24.dp).padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(32.dp))
+                    .padding(24.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Kicker("Course progress", modifier = Modifier.weight(1f))
+                    Text(model.readout.progressLabel, style = MaterialTheme.typography.titleLarge)
+                }
+                CrewProgressBar(model.readout.progressFraction, Modifier.padding(top = 12.dp))
+            }
+            if (page != null) {
+                Row {
+                    MetricColumn("Planned stop", page.stoppageDurationLabel, Modifier.weight(1f))
+                    MetricColumn("Elapsed", page.elapsedLabel, Modifier.weight(1f))
+                    MetricColumn("Delay", page.delayLabel ?: "—", Modifier.weight(1f))
+                }
+            }
+            val live = model.aidLiveNext
+            if (!model.aidFollow && live != null && live != model.aidIndex) {
+                SecondaryButton("Next station", onClick = model::jumpToNextAid)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolContent(model: MapViewModel, tool: String, onClose: () -> Unit) {
+    val title = when (tool) {
+        "pick" -> "Place checkpoint"
+        "navigate" -> "Navigate"
+        else -> "Share location"
+    }
+    Column(Modifier.padding(horizontal = 24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)
+                    .semantics { contentDescription = "Close $title" }
+            ) {
+                Icon(Icons.Outlined.Close, contentDescription = null)
+            }
+        }
+        when (tool) {
+            "pick" -> CheckpointSection(model, tagged = true)
+            "navigate" -> NavigateSection(model, tagged = true)
+            "location" -> LocationSection(model, tagged = true)
+        }
     }
 }
 
@@ -204,31 +320,60 @@ private fun AidPager(model: MapViewModel) {
             model.showAid(pagerState.currentPage)
         }
     }
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(148.dp)) { index ->
+    val colors = MaterialTheme.colorScheme
+    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { index ->
         val page = pages[index]
-        Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).semantics { contentDescription = page.scheduleLine }) {
-            Row {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .semantics(mergeDescendants = true) { contentDescription = page.scheduleLine }
+        ) {
+            Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
-                    Text(page.kicker, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(page.title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                    Kicker(aidKicker(page.kicker), color = colors.primary)
+                    Text(
+                        page.title.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar(Char::uppercase) },
+                        modifier = Modifier.padding(top = 6.dp),
+                        style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 2
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(page.clockLabel, fontWeight = FontWeight.ExtraBold)
-                    Text("EST. ARRIVAL", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(page.remainLabel, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        CrewClock.short(page.arrivalAt) ?: page.clockLabel,
+                        style = MetricLargeStyle,
+                        color = colors.primary
+                    )
+                    Text("EST. ARRIVAL", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                    Text(
+                        page.remainLabel,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .background(colors.primaryContainer, CircleShape)
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = colors.onPrimaryContainer
+                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row {
-                Text(page.distanceLabel, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                Text(page.stoppageLabel, fontWeight = FontWeight.SemiBold)
-                page.delayLabel?.let { delay ->
-                    Text(delay, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
-                }
+            HorizontalDivider(Modifier.padding(vertical = 16.dp), color = colors.outlineVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MetricColumn("Distance\nremaining", page.distanceLabel.uppercase(), Modifier.weight(1f))
+                VerticalDivider(Modifier.height(52.dp), color = colors.outlineVariant)
+                MetricColumn("Elevation\nremaining", page.elevationLabel ?: "—", Modifier.weight(1f))
+                VerticalDivider(Modifier.height(52.dp), color = colors.outlineVariant)
+                MetricColumn("Avg\npace", model.readout.averagePaceLabel, Modifier.weight(1f))
             }
         }
     }
+}
+
+private fun aidKicker(kicker: String): String = when (kicker) {
+    "NEXT" -> "Next aid station"
+    "START" -> "Start"
+    "FINISHED" -> "Finished"
+    else -> kicker
 }
 
 @Composable
@@ -239,11 +384,12 @@ private fun CourseMapHost(
     onStyleReady: () -> Unit,
     onStyleFailed: () -> Unit,
     onTilesUnavailable: () -> Unit,
+    recenterRequest: Int,
     modifier: Modifier
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
-        renderer.Render(points, line, modifier, onMapTap, onStyleReady, onStyleFailed, onTilesUnavailable)
+        renderer.Render(points, line, modifier, onMapTap, onStyleReady, onStyleFailed, onTilesUnavailable, recenterRequest)
     } else if (BuildConfig.MAP_LIBRE) {
         LaunchedEffect(Unit) { onStyleFailed() }
     }
@@ -251,75 +397,36 @@ private fun CourseMapHost(
 
 @Composable
 private fun CheckpointSection(model: MapViewModel, tagged: Boolean) {
-    Column(sectionModifier(tagged, "crewcue.map-checkpoint-pick", "Pick checkpoint")) {
-        Text("Pick checkpoint")
+    Column(sectionModifier(tagged, "crewcue.map-checkpoint-pick", "Pick checkpoint"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            model.pickMessage,
-            modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.pickMessage }
+            PICK_SUCCESS,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedTextField(
-            value = model.pickTitle,
-            onValueChange = model::updatePickTitle,
-            label = { Text("Title") },
-            singleLine = true,
-            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics { contentDescription = "Checkpoint title" }
-        )
-        OutlinedTextField(
-            value = model.pickLatitude,
-            onValueChange = model::updatePickLatitude,
-            label = { Text("Latitude") },
-            singleLine = true,
-            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics { contentDescription = "Latitude" }
-        )
-        OutlinedTextField(
-            value = model.pickLongitude,
-            onValueChange = model::updatePickLongitude,
-            label = { Text("Longitude") },
-            singleLine = true,
-            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics { contentDescription = "Longitude" }
-        )
-        Button(
-            onClick = model::saveCheckpoint,
-            enabled = !model.pickBusy,
-            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().semantics { contentDescription = "Save checkpoint" }
-        ) {
-            Text("Save checkpoint")
-        }
+        CrewTextField(model.pickTitle, model::updatePickTitle, "Checkpoint title")
+        CrewTextField(model.pickLatitude, model::updatePickLatitude, "Latitude")
+        CrewTextField(model.pickLongitude, model::updatePickLongitude, "Longitude")
+        Text(model.pickMessage, modifier = Modifier.semantics { contentDescription = model.pickMessage })
+        PrimaryButton("Save checkpoint", onClick = model::saveCheckpoint, enabled = !model.pickBusy)
     }
 }
 
 @Composable
 private fun NavigateSection(model: MapViewModel, tagged: Boolean) {
-    Column(sectionModifier(tagged, "crewcue.map-navigate", "Navigate")) {
-        Text("Navigate")
-        Text(
-            model.navigateMessage,
-            modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.navigateMessage }
-        )
+    Column(sectionModifier(tagged, "crewcue.map-navigate", "Navigate"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(model.navigateMessage, modifier = Modifier.semantics { contentDescription = model.navigateMessage })
         model.checkpoints.forEach { checkpoint ->
             val selected = model.destinationId == checkpoint.id
-            Button(
-                onClick = { model.chooseDestination(checkpoint.id) },
-                modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics {
-                    contentDescription = if (selected) "Destination ${checkpoint.title}" else checkpoint.title
-                }
-            ) {
-                Text(if (selected) "Destination ${checkpoint.title}" else checkpoint.title)
+            val label = if (selected) "Destination ${checkpoint.title}" else checkpoint.title
+            if (selected) {
+                PrimaryButton(label, onClick = { model.chooseDestination(checkpoint.id) })
+            } else {
+                SecondaryButton(label, onClick = { model.chooseDestination(checkpoint.id) })
             }
         }
-        Button(
-            onClick = { model.startRoute("hike") },
-            enabled = !model.navigateBusy,
-            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().semantics { contentDescription = "Hike" }
-        ) {
-            Text("Hike")
-        }
-        Button(
-            onClick = { model.startRoute("drive") },
-            enabled = !model.navigateBusy,
-            modifier = Modifier.padding(top = 8.dp).fillMaxWidth().semantics { contentDescription = "Drive" }
-        ) {
-            Text("Drive")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton("Hike", onClick = { model.startRoute("hike") }, enabled = !model.navigateBusy, modifier = Modifier.weight(1f))
+            SecondaryButton("Drive", onClick = { model.startRoute("drive") }, enabled = !model.navigateBusy, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -337,28 +444,22 @@ private fun LocationSection(model: MapViewModel, tagged: Boolean) {
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) captureLocation(context, model) else launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
-    Column(sectionModifier(tagged, "crewcue.location-heartbeat", "Location")) {
-        Text("Location")
-        Text(
-            model.locationMessage,
-            modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.locationMessage }
-        )
-        Button(
+    Column(sectionModifier(tagged, "crewcue.location-heartbeat", "Location"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(model.locationMessage, modifier = Modifier.semantics { contentDescription = model.locationMessage })
+        PrimaryButton(
+            "Send location",
             onClick = {
                 val granted = ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
                 if (granted) captureLocation(context, model) else launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            },
-            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().semantics { contentDescription = "Send location" }
-        ) {
-            Text("Send location")
-        }
+            }
+        )
     }
 }
 
-private fun captureLocation(context: android.content.Context, model: MapViewModel) {
+internal fun captureLocation(context: android.content.Context, model: MapViewModel) {
     requestLocationSample(
         context,
         onSample = { location ->
@@ -377,6 +478,6 @@ private fun mapBanner(model: MapViewModel): String? = when {
 }
 
 private fun sectionModifier(tagged: Boolean, tag: String, title: String): Modifier {
-    val base = Modifier.fillMaxWidth().padding(top = 16.dp)
+    val base = Modifier.fillMaxWidth().padding(top = 12.dp)
     return if (tagged) base.testTag(tag).semantics { contentDescription = title } else base
 }

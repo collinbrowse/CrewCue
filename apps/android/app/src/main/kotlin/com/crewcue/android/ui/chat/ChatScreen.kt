@@ -1,25 +1,37 @@
 package com.crewcue.android.ui.chat
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import com.crewcue.android.ui.theme.PrimaryButton
-import com.crewcue.android.ui.theme.ProductTitle
-import com.crewcue.android.ui.theme.SecondaryButton
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,16 +40,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import android.graphics.BitmapFactory
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.map.MapViewModel
+import com.crewcue.android.ui.theme.ChipStyle
+import com.crewcue.android.ui.theme.CrewClock
+import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.MetricLargeStyle
+import com.crewcue.android.ui.theme.StatusChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
@@ -65,9 +84,8 @@ private fun ChatImage(url: String, modifier: Modifier = Modifier) {
 fun ChatScreen(
     shell: ShellViewModel,
     roomId: String,
-    onOpenAlerts: () -> Unit,
-    onOpenPush: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    race: MapViewModel? = null
 ) {
     val model: ChatViewModel = viewModel(
         key = "chat-$roomId",
@@ -76,88 +94,199 @@ fun ChatScreen(
     val context = LocalContext.current
     LaunchedEffect(roomId) { model.load(context.applicationContext) }
     LaunchedEffect(model.unread) { shell.noteChatUnread(model.unread) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(model.messages.size) {
+        if (model.messages.isNotEmpty()) listState.animateScrollToItem(model.messages.lastIndex)
+    }
     Column(
         modifier
             .fillMaxSize()
             .testTag("crewcue.chat")
             .semantics { contentDescription = "Chat" }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .imePadding()
     ) {
-        ProductTitle("Chat", "The crew channel for this race.")
-        if (model.channelId.isNotBlank()) {
+        ChatStatusHeader(race, model.channelId)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            items(model.messages) { line -> ChatBubble(line) }
+        }
+        model.status?.let { line ->
             Text(
-                model.channelId,
-                modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = model.channelId },
-                style = MaterialTheme.typography.labelMedium,
+                line,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).semantics { contentDescription = line },
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        model.messages.forEach { line ->
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                if (line.mine) Spacer(Modifier.weight(1f))
-                Surface(
-                    modifier = Modifier.widthIn(max = 280.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (line.mine) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    }
-                ) {
-                    Column(Modifier.padding(12.dp).semantics { contentDescription = line.text.ifBlank { line.author } }) {
-                        if (line.author.isNotBlank()) {
-                            Text(line.author, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium)
-                        }
-                        if (line.text.isNotBlank()) {
-                            Text(line.text, modifier = Modifier.padding(top = 4.dp))
-                        }
-                        line.imageUrl?.let { url ->
-                            ChatImage(url, Modifier.padding(top = 6.dp).heightIn(max = 180.dp))
-                        }
-                        if (line.reactions.isNotBlank()) {
-                            Text(line.reactions, modifier = Modifier.padding(top = 4.dp))
-                        }
-                        if (line.time.isNotBlank()) {
-                            Text(line.time, modifier = Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-                if (!line.mine) Spacer(Modifier.weight(1f))
+        if (model.mentionNames.isNotEmpty()) {
+            Text(
+                model.mentionNames.joinToString(", "),
+                modifier = Modifier.padding(horizontal = 24.dp).semantics { contentDescription = "Mentions" },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        ChatComposer(
+            draft = model.draft,
+            onDraft = model::updateDraft,
+            sending = model.sending,
+            onSend = { model.send(context.applicationContext) }
+        )
+    }
+}
+
+/** Live race line: current mile, track status, and next aid ETA. */
+@Composable
+private fun ChatStatusHeader(race: MapViewModel?, channelId: String) {
+    val colors = MaterialTheme.colorScheme
+    val readout = race?.readout
+    val next = race?.let { model -> model.aidLiveNext?.let { model.aidPages.getOrNull(it) } }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(colors.primary, CircleShape))
+            Kicker(
+                "Live runner tracking: mile ${readout?.currentMileLabel ?: "—"}",
+                modifier = Modifier.padding(start = 8.dp).weight(1f),
+                color = colors.onSurface
+            )
+            if (!readout?.statusLabel.isNullOrBlank()) {
+                StatusChip(readout!!.statusLabel, if (readout.status == "behind") ChipStyle.Filled else ChipStyle.Soft)
             }
         }
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+        Surface(shape = CircleShape, color = colors.surfaceContainerLowest, shadowElevation = 2.dp) {
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Next aid station ETA", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                    next?.let {
+                        Text(
+                            it.title.lowercase().split(" ").joinToString(" ") { word -> word.replaceFirstChar(Char::uppercase) },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                Text(
+                    next?.let { CrewClock.short(it.arrivalAt) ?: it.clockLabel } ?: "—",
+                    style = MetricLargeStyle,
+                    color = colors.primary
+                )
+            }
         }
-        model.mentionNames.forEach { name ->
-            Text(name, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = name })
+        if (channelId.isNotBlank()) {
+            Text(
+                channelId,
+                modifier = Modifier.semantics { contentDescription = channelId },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        OutlinedTextField(
-            value = model.draft,
-            onValueChange = model::updateDraft,
-            label = { Text("Message") },
-            modifier = Modifier
-                .padding(top = 12.dp)
-                .fillMaxWidth()
-                .semantics { contentDescription = "Message" }
-        )
-        PrimaryButton(
-            "Send",
-            onClick = { model.send(context.applicationContext) },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.sending
-        )
-        SecondaryButton(
-            "Alerts",
-            onClick = onOpenAlerts,
-            modifier = Modifier.padding(top = 8.dp),
-            spoken = "Chat alerts"
-        )
-        SecondaryButton(
-            "This device",
-            onClick = onOpenPush,
-            modifier = Modifier.padding(top = 8.dp),
-            spoken = "Push"
-        )
+    }
+}
+
+@Composable
+private fun ChatBubble(line: CrewChatMessage) {
+    val colors = MaterialTheme.colorScheme
+    Row(Modifier.fillMaxWidth()) {
+        if (line.mine) Spacer(Modifier.weight(1f))
+        Column(
+            Modifier.widthIn(max = 300.dp),
+            horizontalAlignment = if (line.mine) Alignment.End else Alignment.Start
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (line.mine && line.time.isNotBlank()) {
+                    Text(line.time, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+                if (line.author.isNotBlank()) {
+                    Kicker(if (line.mine) "${line.author} (you)" else line.author, color = if (line.mine) colors.primary else colors.onSurfaceVariant)
+                }
+                if (!line.mine && line.time.isNotBlank()) {
+                    Text(line.time, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+            }
+            Surface(
+                modifier = Modifier.padding(top = 6.dp),
+                shape = RoundedCornerShape(
+                    topStart = if (line.mine) 24.dp else 6.dp,
+                    topEnd = if (line.mine) 6.dp else 24.dp,
+                    bottomStart = 24.dp,
+                    bottomEnd = 24.dp
+                ),
+                color = if (line.mine) colors.primary else colors.surfaceContainerHigh,
+                border = if (line.mine) null else BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.6f)),
+                shadowElevation = if (line.mine) 3.dp else 0.dp
+            ) {
+                Column(
+                    Modifier
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
+                        .semantics { contentDescription = line.text.ifBlank { line.author } }
+                ) {
+                    if (line.text.isNotBlank()) {
+                        Text(line.text, style = MaterialTheme.typography.bodyLarge, color = if (line.mine) colors.onPrimary else colors.onSurface)
+                    }
+                    line.imageUrl?.let { url ->
+                        ChatImage(url, Modifier.padding(top = 6.dp).heightIn(max = 180.dp))
+                    }
+                    if (line.reactions.isNotBlank()) {
+                        Text(line.reactions, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
+        }
+        if (!line.mine) Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ChatComposer(draft: String, onDraft: (String) -> Unit, sending: Boolean, onSend: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val disabled = sending || draft.isBlank()
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(30.dp),
+        color = colors.surfaceContainerLowest,
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        shadowElevation = 3.dp
+    ) {
+        Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextField(
+                value = draft,
+                onValueChange = onDraft,
+                placeholder = { Text("Send update to crew…") },
+                maxLines = 4,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                modifier = Modifier.weight(1f).semantics { contentDescription = "Message" }
+            )
+            FilledIconButton(
+                onClick = onSend,
+                enabled = !disabled,
+                modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = colors.primary,
+                    contentColor = colors.onPrimary,
+                    disabledContainerColor = colors.primary.copy(alpha = 0.4f),
+                    disabledContentColor = colors.onPrimary
+                )
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+            }
+        }
     }
 }

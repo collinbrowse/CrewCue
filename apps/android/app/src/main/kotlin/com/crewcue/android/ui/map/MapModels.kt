@@ -34,7 +34,38 @@ data class AidPage(
     val distanceLabel: String,
     val stoppageLabel: String,
     val delayLabel: String?,
-    val scheduleLine: String
+    val scheduleLine: String,
+    val arrivalAt: String? = null,
+    val elevationLabel: String? = null,
+    val stoppageDurationLabel: String = "—",
+    val elapsedLabel: String = "—"
+)
+
+/** Race-wide readouts derived in client-core (`RaceDayReadouts`). */
+data class RaceReadout(
+    val status: String = "unknown",
+    val statusLabel: String = "",
+    val progressFraction: Float = 0f,
+    val progressLabel: String = "—",
+    val percentLabel: String = "—",
+    val totalMilesLabel: String = "—",
+    val currentMileLabel: String = "0.0",
+    val elapsedLabel: String = "—",
+    val averagePaceLabel: String = "—",
+    val lastPingLabel: String? = null
+)
+
+/** One Pace timeline row: done, current, or projected. */
+data class TimelineRow(
+    val checkpointId: String,
+    val state: String,
+    val kicker: String,
+    val title: String,
+    val clockArrivalAt: String?,
+    val cutoffAt: String?,
+    val cutoffStatus: String?,
+    val distanceToLabel: String,
+    val isFinish: Boolean
 )
 
 data class CoursePoint(
@@ -51,7 +82,8 @@ interface CourseMapRenderer {
         onMapTap: (Double, Double) -> Unit,
         onStyleReady: () -> Unit,
         onStyleFailed: () -> Unit,
-        onTilesUnavailable: () -> Unit
+        onTilesUnavailable: () -> Unit,
+        recenterRequest: Int
     )
 }
 

@@ -1217,6 +1217,7 @@ enum CoursePayload {
         return [
             "offline": false,
             "checkpoints": checkpoints,
+            "name": (room["name"] as? String) ?? "",
             "line": line,
             "elevation": elevationRows(room),
             "memberships": membershipRows(room)

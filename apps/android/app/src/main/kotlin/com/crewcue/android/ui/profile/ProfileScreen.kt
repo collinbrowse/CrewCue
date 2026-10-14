@@ -1,47 +1,69 @@
 package com.crewcue.android.ui.profile
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import com.crewcue.android.R
-import com.crewcue.android.ui.theme.ProductCard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.crewcue.android.R
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.findActivity
+import com.crewcue.android.ui.map.MapViewModel
+import com.crewcue.android.ui.map.RaceReadout
 import com.crewcue.android.ui.map.isOnline
+import com.crewcue.android.ui.theme.ChipStyle
+import com.crewcue.android.ui.theme.CrewListRow
+import com.crewcue.android.ui.theme.CrewProgressBar
+import com.crewcue.android.ui.theme.CrewTextField
+import com.crewcue.android.ui.theme.GhostButton
+import com.crewcue.android.ui.theme.LocalCrewExtras
+import com.crewcue.android.ui.theme.MetricLargeStyle
+import com.crewcue.android.ui.theme.MetricStyle
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.SecondaryButton
+import com.crewcue.android.ui.theme.SectionHeader
+import com.crewcue.android.ui.theme.StatusChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +74,7 @@ const val PROFILE_ERROR = "Couldn't load profile."
 const val PROFILE_OFFLINE = "Offline. Profile not updated."
 
 @Composable
-fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier) {
+fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: MapViewModel? = null) {
     val session = shell.session
     val model: ProfileViewModel = viewModel(
         key = "profile-${session?.userId}",
@@ -69,168 +91,132 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier) {
         )
     }
     val roomId = session?.roomId
+    val readout = race?.readout ?: RaceReadout()
     Column(
         modifier
             .fillMaxSize()
             .testTag("crewcue.profile")
             .semantics { contentDescription = "Profile" }
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ProductCard {
-            Image(
-                painter = painterResource(R.drawable.onboarding_runner),
-                contentDescription = "Athlete",
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(CircleShape)
-                    .align(androidx.compose.ui.Alignment.CenterHorizontally),
-                contentScale = ContentScale.Crop
-            )
+        ProfileHero(
+            name = model.name.ifBlank { "Profile" },
+            role = session?.role,
+            live = readout.lastPingLabel != null
+        )
+        val status = model.status
+        if (status != null) {
             Text(
-                "Profile",
-                modifier = Modifier.padding(top = 12.dp).align(androidx.compose.ui.Alignment.CenterHorizontally),
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleLarge
+                status,
+                modifier = Modifier.semantics { contentDescription = status },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            if (model.name.isNotBlank()) {
-                Text(
-                    model.name,
-                    modifier = Modifier.padding(top = 4.dp).align(androidx.compose.ui.Alignment.CenterHorizontally).semantics {
-                        contentDescription = model.name
-                    }
-                )
-            }
-            val status = model.status
-            if (status != null) {
-                Text(
-                    status,
-                    modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = status }
-                )
-            } else if (model.name.isBlank()) {
-                Text(
-                    PROFILE_EMPTY,
-                    modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = PROFILE_EMPTY }
-                )
-            }
         }
         if (!roomId.isNullOrBlank()) {
-            ProductCard(Modifier.padding(top = 12.dp)) {
-                Text("Race & workspace", fontWeight = FontWeight.Bold)
-                Text(
-                    "Manage members and room controls for your current race.",
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                Button(
-                    onClick = shell::openRoomMembers,
-                    modifier = Modifier
-                        .padding(top = 10.dp)
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "Room members" },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.onSurface
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                StatCard("Current pace", readout.averagePaceLabel, "Min / mile", accent = true, modifier = Modifier.weight(1f))
+                StatCard("Time elapsed", readout.elapsedLabel, "HH:MM:SS", accent = false, modifier = Modifier.weight(1f))
+            }
+            ProductCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        readout.progressLabel,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                ) {
-                    Text("Room members")
+                    Text(readout.percentLabel, style = MetricStyle, color = MaterialTheme.colorScheme.primary)
                 }
-                Button(
-                    onClick = shell::openIncidents,
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "Incidents" },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.onSurface
+                CrewProgressBar(readout.progressFraction, Modifier.padding(top = 12.dp))
+            }
+            ProductCard {
+                SectionHeader("Race & crew")
+                CrewListRow(Icons.Outlined.Groups, "Room members", onClick = shell::openRoomMembers, detail = "Roster and display names")
+                CrewListRow(Icons.Outlined.ReportProblem, "Incidents", onClick = shell::openIncidents, detail = "Log and review race incidents")
+            }
+        }
+        ProductCard {
+            SectionHeader("Your races")
+            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CrewTextField(model.raceName, model::updateRaceName, "Race name")
+                PrimaryButton(
+                    "Create new race",
+                    onClick = {
+                        val userId = session?.userId.orEmpty()
+                        model.createRace(userId, session?.displayName) { created -> shell.adoptRoom(created) }
+                    },
+                    enabled = !model.creatingRace
+                )
+                SecondaryButton("Join race room", onClick = shell::openJoinCrew)
+            }
+        }
+        ProductCard {
+            SectionHeader("Training history")
+            CrewListRow(Icons.AutoMirrored.Outlined.DirectionsRun, "Strava", onClick = shell::openStrava, detail = "Recent efforts feed your pace estimate")
+        }
+        GhostButton("Sign out", onClick = { shell.signOut(activity) }, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+/** Runner hero: night-trail gradient, illustration, name, role, and live chip. */
+@Composable
+private fun ProfileHero(name: String, role: String?, live: Boolean) {
+    val extras = LocalCrewExtras.current
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(240.dp)
+            .clip(MaterialTheme.shapes.large)
+            .background(Brush.linearGradient(extras.heroGradient))
+            .semantics(mergeDescendants = true) {}
+    ) {
+        Image(
+            painter = painterResource(R.drawable.onboarding_runner),
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxHeight()
+                .padding(top = 8.dp)
+                .offset(x = 24.dp),
+            contentScale = ContentScale.Fit
+        )
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)))))
+        Row(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(24.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(name, style = MaterialTheme.typography.displaySmall, color = Color.White, maxLines = 2)
+                if (!role.isNullOrBlank()) {
+                    Text(
+                        role.replace('_', ' ').replaceFirstChar(Char::uppercase),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = extras.heroAccent
                     )
-                ) {
-                    Text("Incidents")
                 }
             }
+            if (live) StatusChip("Live tracking", ChipStyle.Secondary, dot = true)
         }
-        ProductCard(Modifier.padding(top = 12.dp)) {
-            Text("Your races", fontWeight = FontWeight.Bold)
-            Text(
-                "Start a race or join one with a code.",
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            OutlinedTextField(
-                value = model.raceName,
-                onValueChange = model::updateRaceName,
-                label = { Text("Race name") },
-                singleLine = true,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Race name" }
-            )
-            Button(
-                onClick = {
-                    val userId = session?.userId.orEmpty()
-                    model.createRace(userId, session?.displayName) { roomId ->
-                        shell.adoptRoom(roomId)
-                    }
-                },
-                enabled = !model.creatingRace,
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Create new race" }
-            ) {
-                Text("Create new race")
-            }
-            Button(
-                onClick = shell::openJoinCrew,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Join race room" }
-            ) {
-                Text("Join race room")
-            }
-        }
-        ProductCard(Modifier.padding(top = 12.dp)) {
-            Text("Training history", fontWeight = FontWeight.Bold)
-            Text(
-                "Connect Strava so pace can use your recent efforts.",
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Button(
-                onClick = shell::openStrava,
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Strava" },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                )
-            ) {
-                Text("Strava")
-            }
-        }
-        ProductCard(Modifier.padding(top = 12.dp)) {
-            Text("Account", fontWeight = FontWeight.Bold)
-            Text(
-                "Sign out of this device and return to the login flow.",
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Button(
-                onClick = { shell.signOut(activity) },
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Sign out" },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError
-                )
-            ) {
-                Text("Sign out")
-            }
-        }
-        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun StatCard(label: String, value: String, caption: String, accent: Boolean, modifier: Modifier = Modifier) {
+    ProductCard(modifier, padding = PaddingValues(20.dp)) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value,
+            modifier = Modifier.padding(top = 24.dp),
+            style = MetricLargeStyle,
+            color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(caption.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

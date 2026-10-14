@@ -360,6 +360,16 @@ class ShellViewModel(
             showShell(ShellTab.Pace)
             return
         }
+        val tabRoot = when (feature) {
+            "map-track" -> ShellTab.Map
+            "chat-thread" -> ShellTab.Chat
+            "profile" -> ShellTab.Profile
+            else -> null
+        }
+        if (signedIn && !hasStateQuery(url) && tabRoot != null) {
+            selectTab(tabRoot)
+            return
+        }
         showFixture(url)
     }
 

@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.findActivity
+import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
 
 @Composable
 fun JoinCrewScreen(viewModel: ShellViewModel) {
@@ -44,29 +46,17 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
             .testTag("crewcue.join-crew")
             .semantics { contentDescription = "Join crew" }
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp, vertical = 28.dp)
+            .padding(horizontal = 24.dp, vertical = 24.dp)
     ) {
         if (viewModel.session == null) {
             TextButton(
                 onClick = viewModel::openSignedOut,
                 modifier = Modifier.semantics { contentDescription = "Back" }
             ) {
-                Text("Back", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Back", style = MaterialTheme.typography.labelLarge)
             }
         }
-        Text(
-            "Join your crew",
-            color = colors.onSurface,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold
-        )
-        Text(
-            "Enter the 6-digit code from your crew.",
-            modifier = Modifier.padding(top = 10.dp),
-            color = colors.onSurfaceVariant,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Medium
-        )
+        ProductTitle("Join your crew", "Enter the 6-digit code from your crew.")
         OutlinedTextField(
             value = code,
             onValueChange = viewModel::updateInviteCode,
@@ -78,7 +68,7 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
                 textAlign = TextAlign.Center
             ),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier
                 .padding(top = 18.dp)
                 .fillMaxWidth()
@@ -87,7 +77,7 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
         val preview = viewModel.joinPreviewName
         if (!preview.isNullOrBlank()) {
             ProductCard(Modifier.padding(top = 16.dp)) {
-                Text(preview, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text(preview, style = MaterialTheme.typography.titleMedium)
             }
         }
         val membership = viewModel.joinMembership
@@ -104,28 +94,15 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
                 status,
                 modifier = Modifier.padding(top = 16.dp).semantics { contentDescription = status },
                 color = colors.onSurfaceVariant,
-                fontSize = 15.sp
+                style = MaterialTheme.typography.bodyMedium
             )
         }
         Spacer(Modifier.height(18.dp))
-        Button(
+        PrimaryButton(
+            if (viewModel.session == null) "Sign in to join" else "Join",
             onClick = { viewModel.join(activity) },
             enabled = code.length == 6 && !viewModel.joinBusy,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .semantics { contentDescription = "Join" },
-            shape = RoundedCornerShape(24.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.primaryContainer,
-                contentColor = colors.onPrimaryContainer
-            )
-        ) {
-            Text(
-                if (viewModel.session == null) "Sign in to join" else "Join",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+            spoken = "Join"
+        )
     }
 }

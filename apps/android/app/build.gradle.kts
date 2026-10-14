@@ -59,6 +59,7 @@ android {
         buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(auth0ClientId))
         buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(auth0Audience))
         buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(apiBaseUrl))
+        buildConfigField("String", "MAPTILER_KEY", crewcueQuoted(crewcueLocal("crewcue_maptiler_key")))
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
@@ -132,6 +133,22 @@ dependencies {
 }
 
 fun Project.crewcueProp(name: String): String = (findProperty(name) as? String)?.trim().orEmpty()
+
+/** Secret from the gitignored local.properties, then Gradle properties. Empty when unset. */
+fun Project.crewcueLocal(name: String): String {
+    val local = rootProject.file("local.properties")
+    val fromLocal = if (local.exists()) {
+        local.readLines()
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("$name=") }
+            ?.substringAfter("=")
+            ?.trim()
+            .orEmpty()
+    } else {
+        ""
+    }
+    return fromLocal.ifBlank { crewcueProp(name) }
+}
 
 fun Project.crewcueResolved(name: String): String {
     val strings = file("src/main/res/values/strings.xml")

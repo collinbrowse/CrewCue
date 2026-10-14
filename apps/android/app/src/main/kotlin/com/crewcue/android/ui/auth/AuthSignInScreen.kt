@@ -8,13 +8,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,35 +33,41 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.crewcue.android.R
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.findActivity
+import com.crewcue.android.ui.theme.CrewSpace
+import com.crewcue.android.ui.theme.GhostButton
+import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.PrimaryButton
 
+/** Light-grey pill with a leading icon, the DESIGN.md social auth treatment. */
 @Composable
-private fun AuthProviderButton(label: String, onClick: () -> Unit) {
+private fun AuthProviderButton(label: String, icon: ImageVector, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Button(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .heightIn(min = 52.dp)
             .semantics { contentDescription = label },
-        shape = RoundedCornerShape(24.dp),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
-            containerColor = colors.primaryContainer,
-            contentColor = colors.onPrimaryContainer
+            containerColor = colors.surfaceContainerHigh,
+            contentColor = colors.onSurface
         )
     ) {
-        Text(label, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -67,30 +82,23 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
             .fillMaxSize()
             .testTag(screen.accessibilityIdentifier)
             .semantics { contentDescription = "Signed out" }
-            .padding(horizontal = 22.dp),
-        verticalArrangement = Arrangement.Center
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = CrewSpace.margin, vertical = CrewSpace.margin),
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
         Image(
             painter = painterResource(R.drawable.onboarding_runner),
             contentDescription = "Trail runner illustration",
             modifier = Modifier
                 .fillMaxWidth()
-                .height(196.dp),
+                .height(200.dp),
             contentScale = ContentScale.Fit
         )
-        Text(
-            "Welcome to CrewCue",
-            modifier = Modifier.padding(top = 8.dp),
-            color = colors.onSurface,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold
-        )
+        Text("Welcome to CrewCue", style = MaterialTheme.typography.displaySmall, color = colors.onSurface)
         Text(
             "Find your crew and run race day together.",
-            modifier = Modifier.padding(top = 10.dp),
-            color = colors.onSurfaceVariant,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Medium
+            style = MaterialTheme.typography.bodyLarge,
+            color = colors.onSurfaceVariant
         )
         val status = screen.body
         val showStatus = status.isNotBlank() &&
@@ -99,83 +107,36 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
         if (showStatus) {
             Text(
                 status,
-                modifier = Modifier.padding(top = 12.dp, bottom = 12.dp).semantics {
-                    contentDescription = status
-                },
-                color = colors.onSurfaceVariant,
-                fontSize = 15.sp
+                modifier = Modifier.semantics { contentDescription = status },
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant
             )
-        } else {
-            Spacer(Modifier.height(12.dp))
         }
-        Text(
-            if (signingUp) "Create an account" else "Sign in",
-            color = colors.onSurfaceVariant,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(12.dp))
-        AuthProviderButton("Continue with Apple") { viewModel.signIn(activity, "apple", signingUp) }
-        Spacer(Modifier.height(12.dp))
-        AuthProviderButton("Continue with Google") { viewModel.signIn(activity, "google-oauth2", signingUp) }
-        Spacer(Modifier.height(12.dp))
-        AuthProviderButton("Continue with email") {
+        Kicker(if (signingUp) "Create an account" else "Sign in")
+        AuthProviderButton("Continue with Apple", Icons.Outlined.PhoneIphone) { viewModel.signIn(activity, "apple", signingUp) }
+        AuthProviderButton("Continue with Google", Icons.Outlined.Language) { viewModel.signIn(activity, "google-oauth2", signingUp) }
+        AuthProviderButton("Continue with email", Icons.Outlined.Email) {
             viewModel.signIn(activity, "Username-Password-Authentication", signingUp)
         }
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { viewModel.signIn(activity) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .semantics { contentDescription = "Sign in" },
-            shape = RoundedCornerShape(24.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.primaryContainer,
-                contentColor = colors.onPrimaryContainer
-            )
-        ) {
-            Text("Sign in", fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        }
+        PrimaryButton("Sign in", onClick = { viewModel.signIn(activity) })
         TextButton(
             onClick = { signingUp = !signingUp },
-            modifier = Modifier.semantics {
-                contentDescription = if (signingUp) "Already have an account? Sign in" else "Need an account? Sign up"
-            }
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .semantics {
+                    contentDescription = if (signingUp) "Already have an account? Sign in" else "Need an account? Sign up"
+                }
         ) {
             Text(
                 if (signingUp) "Already have an account? Sign in" else "Need an account? Sign up",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.labelLarge
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Spacer(
-                Modifier
-                    .weight(1f)
-                    .height(1.dp)
-                    .padding(end = 12.dp)
-            )
-            Text("or", color = colors.onSurfaceVariant, fontSize = 14.sp)
-            Spacer(
-                Modifier
-                    .weight(1f)
-                    .height(1.dp)
-                    .padding(start = 12.dp)
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(Modifier.weight(1f), color = colors.outlineVariant)
+            Text("or", modifier = Modifier.padding(horizontal = 12.dp), color = colors.onSurfaceVariant)
+            HorizontalDivider(Modifier.weight(1f), color = colors.outlineVariant)
         }
-        OutlinedButton(
-            onClick = viewModel::openJoinCrew,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .semantics { contentDescription = "Join your crew with a code" },
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Text("Join your crew with a code", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        }
+        GhostButton("Join your crew with a code", onClick = viewModel::openJoinCrew)
     }
 }
