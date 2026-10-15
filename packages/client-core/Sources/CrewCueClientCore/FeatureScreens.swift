@@ -152,6 +152,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
+        case "brand-loader":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.loader", title: "Loading", body: loaderBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -398,5 +400,14 @@ private func shellBody(_ state: FeatureState) -> String {
     case .empty: "Map Pace Chat Profile"
     case .error: "Couldn't open the shell."
     case .offline: "Offline. Shell is available on this device."
+    }
+}
+
+private func loaderBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Three stones stack, then the stack clears and repeats."
+    case .empty: "Loading."
+    case .error: "Couldn't load."
+    case .offline: "Offline. Waiting for a connection."
     }
 }

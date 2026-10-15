@@ -199,6 +199,14 @@
       "sdk": "none",
       "ios": "pass",
       "android": "pass"
+    },
+    {
+      "id": "brand-loader",
+      "entry": "crewcue://dev/loader",
+      "label": "crewcue.loader",
+      "sdk": "none",
+      "ios": "pending",
+      "android": "pending"
     }
   ]
 }
