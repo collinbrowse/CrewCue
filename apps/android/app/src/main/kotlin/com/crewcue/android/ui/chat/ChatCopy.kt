@@ -26,13 +26,32 @@ data class CrewChatMessage(
     val imageUrl: String?
 )
 
+/**
+ * Author labels from client-core `ChatAuthors`, resolved from this room's roster.
+ * Stream's user name is global and names are per race, so the Stream name is never shown, nor the id.
+ */
+data class ChatAuthorLabels(
+    val names: Map<String, String> = emptyMap(),
+    val self: String = "You",
+    val unknown: String = "Crew member"
+) {
+    fun label(streamUserId: String, mine: Boolean): String = if (mine) self else names[streamUserId] ?: unknown
+}
+
 data class CrewChatSnapshot(
     val messages: List<CrewChatMessage>,
     val unread: Int
 )
 
 interface StreamRoomClient {
-    suspend fun open(context: Context, apiKey: String, userId: String, token: String, channelId: String): CrewChatSnapshot
+    suspend fun open(
+        context: Context,
+        apiKey: String,
+        userId: String,
+        token: String,
+        channelId: String,
+        authors: ChatAuthorLabels
+    ): CrewChatSnapshot
     suspend fun send(text: String, clientMessageId: String): Boolean
 }
 

@@ -897,6 +897,14 @@ export interface ReplayedRaceRoomAggregate {
 // End-to-end encryption was removed for MVP reliability; any future crypto must
 // be a blank-slate redesign (do not revive the retired room-key/envelope model).
 
+/** One race-room member as Stream Chat sees them, with the display name for that room. */
+export interface ChatStreamMember {
+  /** Stream user id derived from the member's auth subject. */
+  streamUserId: string;
+  /** Display name on this race-room membership. Names are per race, not global. */
+  displayName?: string;
+}
+
 /** Mints a short-lived Stream Chat user token bound to the authenticated user. */
 export interface ChatStreamTokenResponse {
   /** Stream Chat user token (JWT signed with the server-side Stream secret). */
@@ -905,6 +913,11 @@ export interface ChatStreamTokenResponse {
   streamUserId: string;
   /** Stream Chat API key (public, safe to embed in clients). */
   streamApiKey: string;
+  /**
+   * Members of the requested room with their per-room display names, so clients label
+   * authors by room instead of by the global Stream user name. Present when `roomId` was sent.
+   */
+  members?: ChatStreamMember[];
 }
 
 /** Returns the deterministic Stream channel id for a CrewCue race room. */

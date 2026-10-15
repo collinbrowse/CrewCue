@@ -24,8 +24,6 @@ class ChatViewModel(
     private val raceDay: RaceDayBridge,
     private val roomId: String
 ) : ViewModel() {
-    var channelId by mutableStateOf("crew-$roomId")
-        private set
     var status by mutableStateOf<String?>(null)
         private set
     var messages by mutableStateOf<List<CrewChatMessage>>(emptyList())
@@ -39,6 +37,8 @@ class ChatViewModel(
     var sending by mutableStateOf(false)
         private set
 
+    private var channelId = "crew-$roomId"
+    private var authors = ChatAuthorLabels()
     private var channelOpen = false
     private var parseJob: Job? = null
     private val sessionGate = Mutex()
@@ -114,7 +114,7 @@ class ChatViewModel(
         messages = messages + CrewChatMessage(
             id = clientMessageId,
             text = text,
-            author = "You",
+            author = authors.self,
             time = "",
             mine = true,
             reactions = "",
@@ -153,6 +153,7 @@ class ChatViewModel(
 
     private suspend fun openChannel(context: Context, json: JSONObject) {
         channelId = json.optString("channelId").ifBlank { "crew-$roomId" }
+        authors = authorLabelsIn(json)
         if (json.optBoolean("offline")) return
         val token = json.optString("token")
         val apiKey = json.optString("streamApiKey")
@@ -164,7 +165,7 @@ class ChatViewModel(
             return
         }
         val opened = try {
-            withContext(Dispatchers.IO) { client.open(context, apiKey, userId, token, channelId) }
+            withContext(Dispatchers.IO) { client.open(context, apiKey, userId, token, channelId, authors) }
         } catch (_: Throwable) {
             null
         }
@@ -177,6 +178,19 @@ class ChatViewModel(
         messages = opened.messages
         unread = opened.unread
         status = if (opened.messages.isEmpty()) CHAT_EMPTY else null
+    }
+
+    private fun authorLabelsIn(json: JSONObject): ChatAuthorLabels {
+        val fallback = ChatAuthorLabels()
+        val names = mutableMapOf<String, String>()
+        json.optJSONObject("authorNames")?.let { rows ->
+            rows.keys().forEach { id -> rows.optString(id).takeIf { it.isNotBlank() }?.let { names[id] = it } }
+        }
+        return ChatAuthorLabels(
+            names = names,
+            self = json.optString("selfAuthor").ifBlank { fallback.self },
+            unknown = json.optString("unknownAuthor").ifBlank { fallback.unknown }
+        )
     }
 
     private fun namesIn(json: JSONObject): List<String> {
