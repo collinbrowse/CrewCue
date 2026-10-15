@@ -24,8 +24,9 @@ if (listed.status !== 0 || !text.toLowerCase().includes("android")) {
   process.exit(0);
 }
 
+const swift = swiftForAndroid();
 const build = spawnSync(
-  swiftForAndroid(),
+  swift,
   ["build", "--package-path", path.join(repoRoot, "packages/client-core"), "--build-tests", "--swift-sdk", triple],
   { stdio: "inherit" }
 );

@@ -72,6 +72,26 @@ public struct EstimateRecomputeDecision: Equatable, Sendable {
     }
 }
 
+public enum PlanAuthority {
+    public static func mayAutoRecompute(role: String) -> Bool {
+        role == "athlete"
+    }
+
+    /// Crew may seed a cold start or tap Recalculate. They may not auto-recompute from history.
+    public static func mayExplicitRecalculate(role: String) -> Bool {
+        switch role {
+        case "athlete", "crew_member", "crew_chief", "team_manager":
+            true
+        default:
+            false
+        }
+    }
+
+    public static func maySeedColdStart(role: String) -> Bool {
+        mayExplicitRecalculate(role: role)
+    }
+}
+
 public enum EstimateRecompute {
     public static func usableActivityHistory(_ items: [ActivityHistoryRef]) -> [ActivityHistoryRef] {
         items.filter { row in
@@ -102,5 +122,13 @@ public enum EstimateRecompute {
             return EstimateRecomputeDecision(reason: .coldStartWithHistory, recompute: true, nextRecord: next)
         }
         return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: next)
+    }
+
+    /// Automatic history recompute is athlete-only. The server does not enforce this yet.
+    public static func decide(role: String, _ input: EstimateRecomputeInput) -> EstimateRecomputeDecision {
+        guard PlanAuthority.mayAutoRecompute(role: role) else {
+            return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: input.record)
+        }
+        return decide(input)
     }
 }

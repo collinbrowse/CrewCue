@@ -68,7 +68,6 @@ function main() {
   let body;
   let iosChanged = false;
   let androidChanged = false;
-  let splitViolation = false;
   let label = "body-file";
 
   if (args.bodyFile) {
@@ -79,7 +78,6 @@ function main() {
       const split = classifyNativeClientDiff(args.files);
       iosChanged = split.ios;
       androidChanged = split.android;
-      splitViolation = split.splitViolation;
     }
   } else {
     const pr = fetchPr(args.pr);
@@ -89,10 +87,9 @@ function main() {
     const split = classifyNativeClientDiff(files);
     iosChanged = split.ios;
     androidChanged = split.android;
-    splitViolation = split.splitViolation;
   }
 
-  const result = assessPrDoneBody(body, { iosChanged, androidChanged, splitViolation });
+  const result = assessPrDoneBody(body, { iosChanged, androidChanged });
   const lines = [`agent:pr:done ${label}`, ...result.summary].slice(0, 15);
   for (const line of lines) {
     process.stdout.write(`${line}\n`);

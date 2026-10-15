@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&amp;family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed-variant": "#462faa",
+                    "on-primary": "#ffffff",
+                    "surface-tint": "#5e4ac3",
+                    "tertiary-fixed-dim": "#c0c6db",
+                    "surface-bright": "#fcf9f0",
+                    "on-tertiary-fixed-variant": "#404758",
+                    "tertiary-fixed": "#dce2f7",
+                    "surface-container": "#f1eee5",
+                    "secondary-fixed": "#d8e2ff",
+                    "inverse-primary": "#c9bfff",
+                    "error": "#ba1a1a",
+                    "primary-fixed-dim": "#c9bfff",
+                    "on-secondary-fixed-variant": "#004395",
+                    "on-error-container": "#93000a",
+                    "on-error": "#ffffff",
+                    "outline": "#797584",
+                    "on-primary-container": "#f3edff",
+                    "surface-dim": "#dddad1",
+                    "surface-container-highest": "#e5e2da",
+                    "tertiary": "#4e5566",
+                    "outline-variant": "#c9c4d5",
+                    "on-tertiary": "#ffffff",
+                    "surface-container-lowest": "#ffffff",
+                    "primary": "#5440b9",
+                    "surface-container-high": "#ebe8df",
+                    "tertiary-container": "#666d7f",
+                    "secondary-fixed-dim": "#adc6ff",
+                    "on-secondary-fixed": "#001a42",
+                    "error-container": "#ffdad6",
+                    "on-surface": "#1c1c17",
+                    "on-secondary": "#ffffff",
+                    "on-background": "#1c1c17",
+                    "surface": "#fcf9f0",
+                    "on-tertiary-container": "#ecf0ff",
+                    "secondary-container": "#2170e4",
+                    "surface-variant": "#e5e2da",
+                    "secondary": "#0058be",
+                    "inverse-on-surface": "#f4f1e8",
+                    "on-primary-fixed": "#1a0063",
+                    "primary-fixed": "#e5deff",
+                    "surface-container-low": "#f6f3ea",
+                    "inverse-surface": "#31312b",
+                    "on-tertiary-fixed": "#141b2b",
+                    "on-surface-variant": "#484553",
+                    "on-secondary-container": "#fefcff",
+                    "primary-container": "#6d5ad3",
+                    "background": "#fcf9f0"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "stack-sm": "12px",
+                    "stack-md": "24px",
+                    "gutter": "16px",
+                    "base": "8px",
+                    "stack-lg": "48px",
+                    "container-margin": "24px"
+            },
+            "fontFamily": {
+                    "button-text": ["Inter"],
+                    "display": ["Lexend"],
+                    "body-lg": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "body-md": ["Inter"],
+                    "headline-md": ["Lexend"]
+            },
+            "fontSize": {
+                    "button-text": ["16px", {"lineHeight": "1.0", "fontWeight": "600"}],
+                    "display": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .performance-shadow {
+            box-shadow: 0 8px 32px -4px rgba(84, 64, 185, 0.1);
+        }
+        
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        body {
+            min-height: max(884px, 100dvh);
+            font-family: 'Lexend', sans-serif;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background min-h-screen overflow-hidden flex flex-col">
+<!-- Top App Bar -->
+<header class="bg-white/80 backdrop-blur-xl docked full-width top-0 border-b border-surface-container flex justify-between items-center w-full px-4 h-16 z-50 fixed">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary">menu</span>
+<span class="font-black text-primary tracking-widest text-lg uppercase">ULTRA_CREW</span>
+</div>
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-fixed">
+<img alt="Runner Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBd5GjyGWO3MhRIIqAydg0nN9GlQZ5fZEX1wdjtSYEsuLo7UTzXJJBMcjH7pL_6KcvwxAUM74ypbMZJyjX5Db0kR8njKHZS1xmE2_BcYDNGzgXSAaPOqNP7ec9erx07dmMQXVK2pdl1RsnmO_Vj_3yBfGS2twV_hI-GXgdkLajk57iXsPuf-eNdfQrkztoseOFPa1bcEdwKbRBjCFFxNlvKNijobCkQWG8qHVqnhnzmcaNCMhQFyLGqmTmKeRnHoT8qN1QxGab-bCg"/>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="relative flex-grow w-full pt-16">
+<div class="absolute inset-0 z-0">
+<img alt="Topographic Map" class="w-full h-full object-cover opacity-10" src="https://lh3.googleusercontent.com/aida-public/AB6AXuArW_3tn5ZeDZlTBZrbZ4OwUuNR-ARCgDtLttuvgmglbeYFxqKNjUbsGHy2LP9fLKIGAsP_iHaaVULTE2BaDIYUDYttCv-yytqbqSbVxbeOSqhn0OaXyJg2f9rDaUSnpAAgPZtQ6s9J4f1ku42sHcbLrjjQUf-OHQJuEvkBqSTcE9H-uVBxljFfVU76EaOMOiTtrpdmmBiodAgEjRKs6hIu9sJCEXozs8YcmOItndpo3pFGct2aOhDnaLjBfcvD2_4XNOqouXd3LWw"/>
+</div>
+<!-- Milestone Card Container -->
+<div class="relative z-10 w-full h-full p-4 flex flex-col justify-end pb-24">
+<div class="flex items-center gap-4 overflow-x-auto snap-x snap-mandatory no-scrollbar">
+<!-- Spacer for initial peek -->
+<div class="flex-none w-[5vw]"></div>
+<!-- Main Card -->
+<div class="flex-none w-[85vw] snap-center">
+<div class="bg-surface-container-lowest performance-shadow rounded-lg border border-surface-container-high flex flex-col max-h-[650px] overflow-hidden">
+<!-- Drag Handle -->
+<div class="w-full py-4 flex justify-center items-center flex-none">
+<div class="w-12 h-1.5 bg-surface-container-highest rounded-full"></div>
+</div>
+<div class="px-6 pb-8 overflow-y-auto">
+<!-- Milestone Header -->
+<div class="flex flex-col gap-2 mb-6">
+<div class="flex justify-between items-start">
+<div>
+<span class="inline-block font-label-caps text-[10px] tracking-widest text-on-primary-fixed-variant bg-primary-fixed px-3 py-1 rounded-full uppercase mb-2">ACTIVE MILESTONE</span>
+<h1 class="text-3xl font-bold text-on-surface tracking-tight">CP4: Forest Ridge</h1>
+</div>
+<div class="text-right">
+<span class="font-label-caps text-[10px] text-on-surface-variant block mb-1 uppercase">PROJECTED ETA</span>
+<span class="text-2xl font-bold text-primary">4:15 PM</span>
+</div>
+</div>
+</div>
+<!-- Progress Bar Section -->
+<div class="mb-8 p-4 bg-surface-container-low rounded-xl">
+<div class="flex justify-between items-baseline mb-3">
+<span class="text-xs font-semibold text-on-surface-variant uppercase tracking-widest">DISTANCE TO GO</span>
+<span class="text-xl font-bold text-on-surface">15.2 MI</span>
+</div>
+<div class="w-full h-4 bg-surface-container rounded-full overflow-hidden p-1">
+<div class="h-full bg-primary rounded-full w-[68%] transition-all duration-500"></div>
+</div>
+</div>
+<!-- Crew Action Items -->
+<div class="space-y-3">
+<h2 class="text-xs font-bold text-on-surface-variant tracking-[0.15em] mb-4 uppercase">CREW ACTION ITEMS</h2>
+<!-- Checkbox Item 1 -->
+<div class="flex items-center p-4 bg-white border border-surface-container-high rounded-xl active:bg-surface-container-low transition-all">
+<div class="w-6 h-6 border-2 border-primary rounded-md flex items-center justify-center mr-4">
+<span class="material-symbols-outlined text-primary text-lg font-bold">check</span>
+</div>
+<div class="flex items-center flex-grow">
+<span class="material-symbols-outlined text-primary-container bg-primary-fixed/30 p-1.5 rounded-lg mr-3">water_drop</span>
+<span class="font-medium text-on-surface">Refill 2L Water (Ice cold)</span>
+</div>
+</div>
+<!-- Checkbox Item 2 -->
+<div class="flex items-center p-4 bg-white border border-surface-container-high rounded-xl active:bg-surface-container-low transition-all">
+<div class="w-6 h-6 border-2 border-surface-variant rounded-md flex items-center justify-center mr-4"></div>
+<div class="flex items-center flex-grow">
+<span class="material-symbols-outlined text-primary-container bg-primary-fixed/30 p-1.5 rounded-lg mr-3">medication</span>
+<span class="font-medium text-on-surface">Salt Tabs (4 count)</span>
+</div>
+</div>
+<!-- Checkbox Item 3 -->
+<div class="flex items-center p-4 bg-white border border-surface-container-high rounded-xl active:bg-surface-container-low transition-all">
+<div class="w-6 h-6 border-2 border-surface-variant rounded-md flex items-center justify-center mr-4"></div>
+<div class="flex items-center flex-grow">
+<span class="material-symbols-outlined text-primary-container bg-primary-fixed/30 p-1.5 rounded-lg mr-3">apparel</span>
+<span class="font-medium text-on-surface">Change Socks (Dry compression)</span>
+</div>
+</div>
+<!-- Checkbox Item 4 -->
+<div class="flex items-center p-4 bg-white border border-surface-container-high rounded-xl active:bg-surface-container-low transition-all">
+<div class="w-6 h-6 border-2 border-surface-variant rounded-md flex items-center justify-center mr-4"></div>
+<div class="flex items-center flex-grow">
+<span class="material-symbols-outlined text-primary-container bg-primary-fixed/30 p-1.5 rounded-lg mr-3">restaurant</span>
+<span class="font-medium text-on-surface">Hand off Nutrition</span>
+</div>
+</div>
+</div>
+<!-- Action Button -->
+<button class="w-full mt-8 bg-primary text-white py-5 rounded-xl font-bold tracking-widest text-sm uppercase shadow-lg shadow-primary/20 active:scale-[0.98] transition-all">
+                                MARK ARRIVAL AT CP4
+                            </button>
+</div>
+</div>
+</div>
+<!-- Next Card Peek -->
+<div class="flex-none w-[85vw] snap-center opacity-40 blur-[1px]">
+<div class="bg-surface-container-low border border-surface-container rounded-lg flex flex-col h-[650px] overflow-hidden">
+<div class="w-full py-4 flex justify-center items-center">
+<div class="w-12 h-1.5 bg-surface-container rounded-full"></div>
+</div>
+<div class="p-6">
+<span class="text-xs font-bold text-on-surface-variant tracking-widest uppercase">NEXT MILESTONE</span>
+<h2 class="text-2xl font-bold text-on-surface-variant mt-2">CP5: Summit Peak</h2>
+</div>
+</div>
+</div>
+<!-- Spacer for end peek -->
+<div class="flex-none w-[5vw]"></div>
+</div>
+<!-- Pagination Indicators -->
+<div class="flex justify-center items-center gap-3 mt-8 mb-4">
+<div class="w-1.5 h-1.5 rounded-full bg-surface-variant"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-surface-variant"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-surface-variant"></div>
+<div class="w-3 h-3 rounded-full bg-primary ring-4 ring-primary/20"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-surface-variant"></div>
+</div>
+<!-- Swipe Indicators -->
+<div class="absolute left-2 top-[40%] -translate-y-1/2 flex items-center justify-center opacity-40 z-20 pointer-events-none">
+<span class="material-symbols-outlined text-primary text-4xl">chevron_left</span>
+</div>
+<div class="absolute right-2 top-[40%] -translate-y-1/2 flex items-center justify-center opacity-40 z-20 pointer-events-none">
+<span class="material-symbols-outlined text-primary text-4xl">chevron_right</span>
+</div>
+</div>
+</main>
+<!-- Bottom Nav Bar -->
+<nav class="bg-white/95 backdrop-blur-2xl fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe h-20 border-t border-surface-container">
+<!-- MAP - ACTIVE -->
+<a class="flex flex-col items-center justify-center text-primary pt-2 pb-1 relative" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">explore</span>
+<span class="text-[10px] font-bold tracking-widest uppercase">MAP</span>
+<div class="absolute -top-[1px] w-8 h-1 bg-primary rounded-full"></div>
+</a>
+<!-- PACE -->
+<a class="flex flex-col items-center justify-center text-outline pt-2 pb-1" href="#">
+<span class="material-symbols-outlined mb-1">timer</span>
+<span class="text-[10px] font-bold tracking-widest uppercase">PACE</span>
+</a>
+<!-- CREW -->
+<a class="flex flex-col items-center justify-center text-outline pt-2 pb-1" href="#">
+<span class="material-symbols-outlined mb-1">groups</span>
+<span class="text-[10px] font-bold tracking-widest uppercase">CREW</span>
+</a>
+<!-- PROFILE -->
+<a class="flex flex-col items-center justify-center text-outline pt-2 pb-1" href="#">
+<span class="material-symbols-outlined mb-1">person</span>
+<span class="text-[10px] font-bold tracking-widest uppercase">PROFILE</span>
+</a>
+</nav>
+</body></html>

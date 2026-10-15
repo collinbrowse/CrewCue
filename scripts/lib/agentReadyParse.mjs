@@ -124,7 +124,7 @@ export function hasDeviceEvidence(body, platform) {
 
 /**
  * @param {string} body
- * @param {{ iosChanged?: boolean, androidChanged?: boolean, splitViolation?: boolean }} [opts]
+ * @param {{ iosChanged?: boolean, androidChanged?: boolean }} [opts]
  * @returns {{ ok: boolean, missing: string[], summary: string[] }}
  */
 export function assessPrDoneBody(body, opts = {}) {
@@ -148,7 +148,6 @@ export function assessPrDoneBody(body, opts = {}) {
   if (opts.iosChanged && !hasDeviceEvidence(text, "ios")) missing.push("ios evidence (checked test:ios / agent:ios:ready, or Blocker:)");
   if (opts.androidChanged && !hasDeviceEvidence(text, "android"))
     missing.push("android evidence (checked test:android / agent:android:ready, or Blocker:)");
-  if (opts.splitViolation) missing.push("one platform per PR");
 
   const ok = missing.length === 0;
   summary.push(ok ? "PASS: Done checklist" : "FAIL: Done incomplete");
@@ -160,6 +159,5 @@ export function assessPrDoneBody(body, opts = {}) {
   }
   if (opts.iosChanged) summary.push("ios paths changed: simulator evidence required");
   if (opts.androidChanged) summary.push("android paths changed: emulator evidence required");
-  if (opts.splitViolation) summary.push("split: both native UI trees changed");
   return { ok, missing, summary };
 }

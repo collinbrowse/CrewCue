@@ -9,4 +9,11 @@ object ClientCoreBridge {
     fun helloStamp(): String = CrewCueClientCore.helloStamp()
 
     fun featureScreenJsonForUrl(url: String): String = CrewCueClientCore.featureScreenJsonForUrl(url)
+
+    fun runtimeJson(request: String): String = try {
+        CrewCueClientCore.runtimeJson(request)
+            ?: """{"ok":false,"message":"Empty runtime response."}"""
+    } catch (_: Throwable) {
+        """{"ok":false,"message":"Rebuild the Swift Android library to call runtimeJson."}"""
+    }
 }

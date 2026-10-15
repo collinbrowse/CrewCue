@@ -43,4 +43,4 @@ File layout, dependency injection, routes, errors, and screen models live in the
 - `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
 - `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`
 
-A feature that has both UI issues is covered when both device gates have passed. Linux CI does not boot a simulator or emulator.
+A feature that has both UI issues is covered when both device gates have passed and `deeplinks.json` is `pass` only with proof under `.agent-pr-evidence/behavior/`. Linux CI does not boot a simulator or emulator.

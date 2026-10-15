@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/loader
 
+## Action
+Open the loader fixture. The animated app icon, a standalone loader, and an inline spinner play the stacking loop.
+
+## API
+none
+
+## Permissions
+none
+
 ## Success
 Three stones stack, then the stack clears and repeats.
 

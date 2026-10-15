@@ -8,6 +8,7 @@ import { chatRoutes } from "./routes/chatRoutes.js";
 import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
+import { courseGpxRoutes } from "./routes/courseGpxRoutes.js";
 import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
 import { raceRoomScheduleRoutes } from "./routes/raceRoomSchedule.js";
 import { activityHistoryRoutes } from "./routes/activityHistory.js";
@@ -32,6 +33,7 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(eventRoutes);
   app.register(raceRoomRoutes);
+  app.register(courseGpxRoutes);
   app.register(raceRoomStopPlanRoutes);
   app.register(raceRoomScheduleRoutes);
   app.register(activityHistoryRoutes);

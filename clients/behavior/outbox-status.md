@@ -3,8 +3,17 @@
 ## Entry
 crewcue://dev/outbox
 
+## Action
+Open outbox status and see pending operations. A flush removes only the ids it sent.
+
+## API
+Outbox flush posts each pending operation to its route.
+
+## Permissions
+none
+
 ## Success
-Shows one pending ping that is safe to retry.
+Shows pending operations that are safe to retry, including one pending ping when the fixture overlay is used.
 
 ## Empty
 Outbox is empty.
