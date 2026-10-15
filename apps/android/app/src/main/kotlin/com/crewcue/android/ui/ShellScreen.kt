@@ -1,6 +1,7 @@
 package com.crewcue.android.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
@@ -13,13 +14,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.crewcue.android.ui.brandloader.BrandLoaderDemo
 
 @Composable
 fun ShellScreen(viewModel: ShellViewModel) {
     if (viewModel.showAppShell) {
         AppShell(viewModel.uiState)
     } else {
-        FeatureScreen(viewModel.uiState)
+        val state = viewModel.uiState
+        FeatureScreen(state) {
+            if (state.screen.featureId == "brand-loader") {
+                BrandLoaderDemo(state.screen.title)
+            }
+        }
     }
 }
 
@@ -50,7 +57,11 @@ private fun AppShell(content: UiState) {
 }
 
 @Composable
-fun FeatureScreen(state: UiState, modifier: Modifier = Modifier) {
+fun FeatureScreen(
+    state: UiState,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit = {}
+) {
     val screen = state.screen
     val pocket = pocketLabel(screen.featureId)
     Column(
@@ -66,6 +77,7 @@ fun FeatureScreen(state: UiState, modifier: Modifier = Modifier) {
         if (pocket != null) {
             Text(pocket)
         }
+        content()
     }
 }
 
