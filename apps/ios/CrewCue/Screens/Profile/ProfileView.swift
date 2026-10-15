@@ -27,6 +27,9 @@ struct ProfileTabPage: View {
                 displayName: model.signedInDisplayName,
                 role: model.signedInRole,
                 readout: model.mapModel.readout,
+                races: model.roster.races,
+                racesMessage: model.racesMessage,
+                onSelectRace: { roomId in model.selectRace(roomId) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
                 onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
@@ -48,6 +51,9 @@ struct ProfileView: View {
     var displayName: String?
     var role: String?
     var readout: RaceDayReadout
+    var races: [RaceSummary]
+    var racesMessage: String
+    var onSelectRace: (String) -> Void
     var onMembers: () -> Void
     var onIncidents: () -> Void
     var onJoin: () -> Void
@@ -96,6 +102,22 @@ struct ProfileView: View {
                 }
                 VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
                     CrewSectionHeader(title: "Your races")
+                    if races.isEmpty == false {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(races, id: \.id) { race in
+                                ProfileRaceRow(race: race, active: race.id == roomId) {
+                                    onSelectRace(race.id)
+                                }
+                            }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("crewcue.race-switcher")
+                    }
+                    if racesMessage.isEmpty == false {
+                        Text(verbatim: racesMessage)
+                            .font(CrewFont.body)
+                            .foregroundStyle(theme.body)
+                    }
                     TextField("Race name", text: $model.raceName)
                         .textFieldStyle(.crew)
                         .accessibilityLabel("Race name")
@@ -132,6 +154,43 @@ struct ProfileView: View {
     }
 }
 
+/// One loaded race. Tapping it makes it the race Map, Pace, Chat, and Profile follow.
+struct ProfileRaceRow: View {
+    let race: RaceSummary
+    let active: Bool
+    let action: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: CrewSpace.stackSm) {
+                IconDisc(systemImage: active ? "flag.checkered" : "flag", tint: active ? theme.primary : nil)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: race.name)
+                        .font(CrewFont.button)
+                        .foregroundStyle(active ? theme.primary : theme.ink)
+                        .lineLimit(1)
+                    Text(verbatim: race.roleLabel)
+                        .font(CrewFont.body)
+                        .foregroundStyle(theme.body)
+                }
+                Spacer(minLength: 8)
+                if active {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(theme.primary)
+                }
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: race.name))
+        .accessibilityValue(active ? Text("Active race") : Text(""))
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityIdentifier("crewcue.race-switcher.\(race.id)")
+    }
+}
+
 /// Runner hero: night-trail gradient, illustration, name, role, and live chip.
 struct ProfileHero: View {
     let name: String
@@ -163,7 +222,7 @@ struct ProfileHero: View {
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
                     if let role, role.isEmpty == false {
-                        Label(role.capitalized, systemImage: "person.badge.shield.checkmark")
+                        Label(RaceRole.label(role), systemImage: "person.badge.shield.checkmark")
                             .font(CrewFont.label)
                             .foregroundStyle(CrewPalette.heroAccent)
                     }

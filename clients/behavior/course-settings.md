@@ -4,10 +4,10 @@
 crewcue://dev/course-settings
 
 ## Action
-Read cutoff and stoppage from the loaded course and keep an on-device draft. This screen does not call stop-plan APIs.
+Read cutoff and stoppage from the loaded course and keep an on-device draft. This screen does not call stop-plan APIs. It edits the race selected in Profile → Your races. Each race keeps its own draft, so switching races never shows or overwrites another race's cutoff or stoppage.
 
 ## API
-GET /race-rooms/:roomId for course checkpoint stoppage. Draft stays local.
+GET /race-rooms/:roomId for course checkpoint stoppage. Draft stays local, in the selected room's `RoomStorage.directory`. The runtime ops `readCourseSettings` and `writeCourseSettings` require `roomId`.
 
 ## Permissions
 none

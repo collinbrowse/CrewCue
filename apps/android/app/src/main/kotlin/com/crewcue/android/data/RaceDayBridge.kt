@@ -90,6 +90,11 @@ class RaceDayBridge(
 
     fun flushOutbox(): RuntimeResult = call("flushOutbox")
 
+    /** The user's races and the active one. [preferredRoomId] stays active while the server lists it. */
+    fun myRaces(preferredRoomId: String?): RuntimeResult = call("myRaces") {
+        if (!preferredRoomId.isNullOrBlank()) put("roomId", preferredRoomId)
+    }
+
     fun loadRoom(roomId: String): RuntimeResult = call("loadRoom") { put("roomId", roomId) }
 
     fun placeCheckpoint(
@@ -194,11 +199,12 @@ class RaceDayBridge(
 
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
-    fun exportCrewSheet(): RuntimeResult = call("exportCrewSheet")
+    fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }
 
     fun readCourseSettings(roomId: String): RuntimeResult = call("readCourseSettings") { put("roomId", roomId) }
 
-    fun writeCourseSettings(cutoffNote: String, stoppageSeconds: Double): RuntimeResult = call("writeCourseSettings") {
+    fun writeCourseSettings(roomId: String, cutoffNote: String, stoppageSeconds: Double): RuntimeResult = call("writeCourseSettings") {
+        put("roomId", roomId)
         put("cutoffNote", cutoffNote)
         put("stoppageSeconds", stoppageSeconds)
     }

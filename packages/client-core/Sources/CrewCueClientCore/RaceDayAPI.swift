@@ -155,6 +155,12 @@ public enum RaceDayAPI {
         try await send(graph, "/race-rooms/join-by-code", method: .post, body: #"{"roomCode":"\#(code)"}"#)
     }
 
+    /// Every race room the user belongs to, newest server order kept.
+    public static func myRaces(graph: ClientGraph, userId: String) async throws -> [RaceSummary] {
+        let envelope: RaceListEnvelope = try await get(graph, "/race-rooms/mine")
+        return envelope.rooms.map { RaceSummary(room: $0, userId: userId) }
+    }
+
     public static func loadRoom(graph: ClientGraph, roomId: String) async throws -> RoomEnvelope {
         try await get(graph, "/race-rooms/\(roomId)")
     }
