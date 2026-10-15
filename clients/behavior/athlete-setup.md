@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/athlete-setup
 
+## Action
+Enter a display name and save it on this device, then sync when signed in.
+
+## API
+PATCH /race-rooms/:roomId/members/:memberUserId with displayName
+
+## Permissions
+none
+
 ## Success
 Athlete profile saved on this device.
 

@@ -33,7 +33,7 @@ npm run verify:ios        # build the iOS app for the simulator
 npm run verify:android    # assemble the Android debug APK (needs ANDROID_HOME)
 npm run agent:ios:ready -- --deeplink crewcue://dev/app-shell       # build, install, open on a simulator
 npm run agent:android:ready -- --deeplink crewcue://dev/app-shell   # same on an emulator
-npm run test:ios          # XCUITest: every passing deeplink renders its checklist label
+npm run test:ios          # XCUITest: every feature deeplink renders its checklist label
 npm run test:android      # Compose instrumented test, same check (needs a running emulator)
 ```
 

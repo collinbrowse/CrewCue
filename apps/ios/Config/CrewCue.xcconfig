@@ -1,0 +1,4 @@
+// MapTiler key for the topo basemap. Put `CREWCUE_MAPTILER_KEY = <key>` in the gitignored
+// Config/Secrets.xcconfig. Without a key the map falls back to the MapLibre demo style.
+CREWCUE_MAPTILER_KEY =
+#include? "Secrets.xcconfig"

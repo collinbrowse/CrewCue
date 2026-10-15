@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Lexend:wght@400;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary": "#4e5566",
+                    "surface-container": "#f1eee5",
+                    "primary": "#5440b9",
+                    "inverse-surface": "#31312b",
+                    "on-secondary-container": "#fefcff",
+                    "surface": "#fcf9f0",
+                    "secondary-container": "#2170e4",
+                    "primary-fixed": "#e5deff",
+                    "on-surface": "#1c1c17",
+                    "primary-fixed-dim": "#c9bfff",
+                    "background": "#fcf9f0",
+                    "inverse-primary": "#c9bfff",
+                    "on-tertiary": "#ffffff",
+                    "surface-bright": "#fcf9f0",
+                    "surface-container-high": "#ebe8df",
+                    "on-primary-fixed-variant": "#462faa",
+                    "tertiary-fixed-dim": "#c0c6db",
+                    "on-secondary": "#ffffff",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f6f3ea",
+                    "error": "#ba1a1a",
+                    "on-surface-variant": "#484553",
+                    "on-tertiary-fixed-variant": "#404758",
+                    "on-secondary-fixed": "#001a42",
+                    "on-error": "#ffffff",
+                    "on-background": "#1c1c17",
+                    "on-tertiary-container": "#ecf0ff",
+                    "on-secondary-fixed-variant": "#004395",
+                    "on-primary": "#ffffff",
+                    "inverse-on-surface": "#f4f1e8",
+                    "surface-container-highest": "#e5e2da",
+                    "secondary-fixed": "#d8e2ff",
+                    "secondary-fixed-dim": "#adc6ff",
+                    "surface-variant": "#e5e2da",
+                    "tertiary-fixed": "#dce2f7",
+                    "outline": "#797584",
+                    "surface-dim": "#dddad1",
+                    "on-tertiary-fixed": "#141b2b",
+                    "error-container": "#ffdad6",
+                    "outline-variant": "#c9c4d5",
+                    "primary-container": "#6d5ad3",
+                    "on-error-container": "#93000a",
+                    "secondary": "#0058be",
+                    "on-primary-fixed": "#1a0063",
+                    "on-primary-container": "#f3edff",
+                    "tertiary-container": "#666d7f",
+                    "surface-tint": "#5e4ac3"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "stack-md": "24px",
+                    "stack-lg": "48px",
+                    "gutter": "16px",
+                    "stack-sm": "12px",
+                    "container-margin": "24px",
+                    "card-padding": "16px",
+                    "base": "8px"
+            },
+            "fontFamily": {
+                    "display": ["Lexend"],
+                    "button-text": ["Inter"],
+                    "headline-md": ["Lexend"],
+                    "headline-lg": ["Lexend"],
+                    "body-md": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "body-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "display": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "button-text": ["16px", {"lineHeight": "1.0", "fontWeight": "600"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.2", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "data-point": ["28px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .performance-card {
+            background: #ffffff;
+            border: 1px solid #e5e2da;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .active-glow {
+            border-left: 4px solid #6d5ad3;
+            background: linear-gradient(90deg, rgba(109, 90, 211, 0.05) 0%, rgba(109, 90, 211, 0) 100%);
+        }
+        body {
+          min-height: max(884px, 100dvh);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top App Bar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 flex justify-between items-center px-4 h-16">
+<div class="flex items-center gap-4">
+<button class="hover:bg-surface-container-high p-2 rounded-full transition-transform active:scale-95">
+<span class="material-symbols-outlined text-primary">menu</span>
+</button>
+<h1 class="font-display font-bold tracking-tighter uppercase text-lg text-primary tracking-widest">ULTRA_CREW</h1>
+</div>
+<div class="w-10 h-10 rounded-full border-2 border-primary overflow-hidden">
+<img alt="Runner Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuxQoyRKaSlJIwwvJ1j0L4CjqMZwHEyAfeS0SBph1xQ0K04cCzl9gLds0tWHhkimK0q2d86VPSY6V_SbqetIu7_oY2CaLAzeX2fNz9L5ZTenIP8q-EIzQ60-WjSjH3aeZj1x6ZXy7iyXxIEKqyDyShH6FusayGKXRNz76VPEpa0hQx8VC2Jr3Df3nlK0Lycdh9nVMXHLiT0oRBmIxF8r9-7q_XeydjjDfkRhLBPrWIlMZelZDCAJyklkdBrpFP9TtjzPhRjfiiWzY"/>
+</div>
+</header>
+<main class="pt-20 pb-28 px-4 max-w-2xl mx-auto">
+<!-- Header Info -->
+<section class="mb-8">
+<div class="flex justify-between items-end mb-4">
+<div>
+<span class="font-label-caps text-label-caps text-primary block mb-1">COURSE PROGRESS</span>
+<h2 class="font-headline-lg text-headline-lg uppercase tracking-tight text-on-surface">100M DASH</h2>
+</div>
+<div class="text-right">
+<span class="font-display text-3xl font-black text-primary">42.5</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant block">TOTAL MILES</span>
+</div>
+</div>
+<!-- Global Progress Bar -->
+<div class="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[42.5%]"></div>
+</div>
+</section>
+<!-- Course Schedule List -->
+<div class="space-y-3">
+<!-- Past Station -->
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4 opacity-50">
+<div class="flex flex-col items-center">
+<span class="material-symbols-outlined text-primary">check_circle</span>
+<div class="w-0.5 h-10 bg-outline-variant my-1"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase">CP1 — START</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide">SILVER LAKE</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-on-surface">06:00 AM</p>
+<p class="font-label-caps text-[10px] text-outline">ACTUAL ARRIVAL</p>
+</div>
+</div>
+</div>
+<!-- Past Station -->
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4 opacity-50">
+<div class="flex flex-col items-center">
+<span class="material-symbols-outlined text-primary">check_circle</span>
+<div class="w-0.5 h-10 bg-outline-variant my-1"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase">CP2 — 12.4 MI</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide">PINE RIDGE</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-on-surface">08:14 AM</p>
+<p class="font-label-caps text-[10px] text-outline">ACTUAL ARRIVAL</p>
+</div>
+</div>
+</div>
+<!-- Active Station (Current Target) -->
+<div class="performance-card p-card-padding rounded-xl active-glow border-primary/20">
+<div class="flex items-center gap-4 mb-4">
+<div class="flex flex-col items-center">
+<div class="w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_10px_rgba(109,90,211,0.4)]"></div>
+<div class="w-0.5 h-12 bg-primary/20 my-1"></div>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<div>
+<p class="font-label-caps text-[10px] text-primary uppercase">CP3 — 28.1 MI</p>
+<h3 class="font-headline-lg text-2xl uppercase tracking-tight text-on-surface">GRANITE PEAK</h3>
+</div>
+<div class="bg-primary text-on-primary px-3 py-1 rounded-full font-label-caps text-[10px]">
+                                IN PROGRESS
+                            </div>
+</div>
+</div>
+</div>
+<!-- Expanded Data for Current Station -->
+<div class="grid grid-cols-3 gap-4 border-t border-outline-variant/30 pt-4">
+<div class="text-center">
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase mb-1">EST. ARRIVAL</p>
+<p class="font-display text-xl text-primary">11:45 AM</p>
+</div>
+<div class="text-center">
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase mb-1">CUTOFF</p>
+<p class="font-display text-xl text-error">01:00 PM</p>
+</div>
+<div class="text-center">
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase mb-1">DIST. TO</p>
+<p class="font-display text-xl text-on-surface">4.2 MI</p>
+</div>
+</div>
+</div>
+<!-- Future Stations -->
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="w-2 h-2 border-2 border-outline-variant rounded-full"></div>
+<div class="w-0.5 h-10 bg-outline-variant my-1"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase">CP4 — 44.2 MI</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide text-on-surface">ECHO CREEK</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-on-surface-variant">02:30 PM</p>
+<p class="font-label-caps text-[10px] text-outline">PROJECTED</p>
+</div>
+</div>
+</div>
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="w-2 h-2 border-2 border-outline-variant rounded-full"></div>
+<div class="w-0.5 h-10 bg-outline-variant my-1"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase">CP5 — 56.8 MI</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide text-on-surface">WINDY PASS</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-on-surface-variant">05:15 PM</p>
+<p class="font-label-caps text-[10px] text-outline">PROJECTED</p>
+</div>
+</div>
+</div>
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="w-2 h-2 border-2 border-outline-variant rounded-full"></div>
+<div class="w-0.5 h-10 bg-outline-variant my-1"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-on-surface-variant uppercase">CP6 — 68.2 MI</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide text-on-surface">SNAKE RIVER</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-on-surface-variant">08:40 PM</p>
+<p class="font-label-caps text-[10px] text-outline">PROJECTED</p>
+</div>
+</div>
+</div>
+<!-- CP7 to CP10 Collapsed -->
+<div class="p-4 text-center border-2 border-dashed border-outline-variant rounded-xl">
+<p class="font-label-caps text-on-surface-variant text-[10px] mb-3 uppercase">Night Stages — CP7 through CP9</p>
+<button class="bg-surface-container-high hover:bg-surface-container px-6 py-2 rounded-full font-label-caps text-[10px] text-on-surface transition-colors">VIEW ALL STATIONS</button>
+</div>
+<!-- Finish Line -->
+<div class="performance-card p-card-padding rounded-xl flex items-center gap-4 bg-primary/5 border-primary/30">
+<div class="flex flex-col items-center">
+<span class="material-symbols-outlined text-primary font-bold">flag</span>
+</div>
+<div class="flex-1 grid grid-cols-2 gap-2">
+<div>
+<p class="font-label-caps text-[10px] text-primary uppercase">CP10 — 100.2 MI</p>
+<h3 class="font-headline-md text-lg uppercase tracking-wide text-on-surface">FINISH LINE</h3>
+</div>
+<div class="text-right">
+<p class="font-display text-lg text-primary">04:20 AM</p>
+<p class="font-label-caps text-[10px] text-primary/60">TARGET GOAL</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 bg-surface/90 backdrop-blur-2xl border-t border-outline-variant/30 flex justify-around items-center px-4 pb-safe h-20">
+<button class="flex flex-col items-center justify-center text-on-surface-variant pt-2 pb-1 hover:text-primary transition-colors active:opacity-80">
+<span class="material-symbols-outlined">explore</span>
+<span class="font-display text-[10px] font-bold tracking-widest uppercase">MAP</span>
+</button>
+<button class="flex flex-col items-center justify-center text-primary border-t-2 border-primary pt-2 pb-1 duration-100 active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">timer</span>
+<span class="font-display text-[10px] font-bold tracking-widest uppercase">PACE</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant pt-2 pb-1 hover:text-primary transition-colors active:opacity-80">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-display text-[10px] font-bold tracking-widest uppercase">CREW</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant pt-2 pb-1 hover:text-primary transition-colors active:opacity-80">
+<span class="material-symbols-outlined">person</span>
+<span class="font-display text-[10px] font-bold tracking-widest uppercase">PROFILE</span>
+</button>
+</nav>
+<!-- Contextual FAB -->
+<div class="fixed bottom-24 right-6 flex flex-col gap-3">
+<button class="w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'wght' 700;">edit_calendar</span>
+</button>
+</div>
+</body></html>
