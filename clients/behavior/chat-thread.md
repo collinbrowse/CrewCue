@@ -3,8 +3,17 @@
 ## Entry
 crewcue://dev/chat
 
+## Action
+Open Chat. The app mints a Stream token and shows the room channel. Mentions parse crew names. Chat outbox mutations for one room run one at a time.
+
+## API
+POST /chat/stream-token. Channel id is crew-{roomId}.
+
+## Permissions
+none
+
 ## Success
-Stream pocket. Mentioned Ada.
+Stream channel is open. Fixture overlay mentions Ada.
 
 ## Empty
 No messages.

@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/course-settings
 
+## Action
+Read cutoff and stoppage from the loaded course and keep an on-device draft. This screen does not call stop-plan APIs.
+
+## API
+GET /race-rooms/:roomId for course checkpoint stoppage. Draft stays local.
+
+## Permissions
+none
+
 ## Success
 Cutoff and stoppage saved as a draft.
 

@@ -26,16 +26,3 @@ struct StreamPocket: View {
         }
     }
 }
-
-/// Auth0 owns authorize and credential storage. The fixture deeplink stays signed out.
-struct Auth0Pocket: View {
-    let screen: FeatureScreen
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FeatureScreenView(screen: screen)
-            Text("Auth0")
-                .accessibilityIdentifier("crewcue.auth0.pocket")
-        }
-    }
-}

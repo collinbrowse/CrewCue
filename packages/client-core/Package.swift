@@ -10,15 +10,9 @@ let package = Package(
     products: [
         .library(name: "CrewCueClientCore", targets: ["CrewCueClientCore"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.12.0")
-    ],
     targets: [
         .target(
-            name: "CrewCueClientCore",
-            dependencies: [
-                .product(name: "Crypto", package: "swift-crypto")
-            ]
+            name: "CrewCueClientCore"
         ),
         .testTarget(
             name: "CrewCueClientCoreTests",

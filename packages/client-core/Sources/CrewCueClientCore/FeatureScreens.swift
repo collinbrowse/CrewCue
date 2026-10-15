@@ -80,7 +80,7 @@ public enum CrewCueClientCore {
                 escaped += "\\t"
             default:
                 if scalar.value < 0x20 {
-                    escaped += String(format: "\\u%04x", scalar.value)
+                    escaped += "\\u\(PortableFormat.hex4(scalar.value))"
                 } else {
                     escaped.unicodeScalars.append(scalar)
                 }

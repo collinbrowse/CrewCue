@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/check-in
 
+## Action
+Enter arrival and departure and queue a check-in. Departure must be after arrival.
+
+## API
+POST /race-rooms/:roomId/checkpoints/:cpId/manual-stop via the outbox with Idempotency-Key
+
+## Permissions
+none
+
 ## Success
 Check-in queued.
 
