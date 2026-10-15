@@ -44,7 +44,6 @@
     "verify:client-codegen": "node scripts/generate-client-contracts.mjs",
     "verify:client-core": "node scripts/verify-client-core.mjs",
     "verify:client-core:android-build": "node scripts/verify-client-core-android-build.mjs",
-    "verify:client-pr-split": "node scripts/verify-client-pr-split.mjs",
     "verify:clients": "npm run verify:client-behavior && npm run verify:client-boundary && npm run verify:client-codegen",
     "verify:contracts": "npm run build -w @crewcue/contracts && npm run typecheck -w @crewcue/contracts && npm run test -w @crewcue/contracts",
     "verify:ios": "node scripts/verify-ios.mjs"

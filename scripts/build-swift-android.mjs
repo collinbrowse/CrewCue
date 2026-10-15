@@ -21,8 +21,8 @@ const triples = (process.env.SWIFT_ANDROID_TRIPLES || "aarch64-unknown-linux-and
   .filter(Boolean);
 
 const abiForTriple = {
-  "aarch64-unknown-linux-android28": { abi: "arm64-v8a", clang: "aarch64-linux-android28-clang", ndkLib: "aarch64-linux-android", swiftLib: "swift-aarch64" },
-  "x86_64-unknown-linux-android28": { abi: "x86_64", clang: "x86_64-linux-android28-clang", ndkLib: "x86_64-linux-android", swiftLib: "swift-x86_64" }
+  "aarch64-unknown-linux-android28": { abi: "arm64-v8a", clang: "aarch64-linux-android28-clang", ndkLib: "aarch64-linux-android", swiftLib: "swift-aarch64", arch: "aarch64" },
+  "x86_64-unknown-linux-android28": { abi: "x86_64", clang: "x86_64-linux-android28-clang", ndkLib: "x86_64-linux-android", swiftLib: "swift-x86_64", arch: "x86_64" }
 };
 
 const swiftRuntimeLibs = [
@@ -109,7 +109,8 @@ function linkSharedLibrary(triple, info, buildDir, product) {
       }
     }
   }
-  walk(buildDir);
+  // Only this package's objects: stale dependency objects from older manifests must not be linked in.
+  walk(path.join(buildDir, "CrewCueClientCore.build"));
   if (!objects.length) {
     console.error(`build-swift-android: no Android objects to link in ${buildDir}`);
     process.exit(1);
@@ -127,7 +128,14 @@ function linkSharedLibrary(triple, info, buildDir, product) {
     console.error(`build-swift-android: Swift Android runtime libraries not found${runtime ? ` at ${runtime}` : ""}. Set SWIFT_ANDROID_SDK_ROOT.`);
     process.exit(1);
   }
-  const linkArgs = ["-shared", "-fPIC", "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive", "-L", runtime];
+  // swiftrt.o registers this image's type metadata and conformances with the runtime. Without it,
+  // mangled-name lookups (generic Codable containers) return null and JSONDecoder segfaults.
+  const swiftrt = path.join(runtime, info.arch, "swiftrt.o");
+  if (!fs.existsSync(swiftrt)) {
+    console.error(`build-swift-android: swiftrt.o not found for ${triple}`);
+    process.exit(1);
+  }
+  const linkArgs = ["-shared", "-fPIC", swiftrt, "-Wl,--whole-archive", ...objects, "-Wl,--no-whole-archive", "-L", runtime];
   for (const name of swiftRuntimeLibs) linkArgs.push(`-l${name}`);
   linkArgs.push("-lc++_shared", "-llog", "-ldl", "-lm", "-lc", "-o", product);
   console.log(`build-swift-android: linking ${objects.length} objects into ${product}`);
@@ -189,6 +197,7 @@ function jniGlueSource() {
 #include <stdlib.h>
 extern char *crewcue_hello_stamp(void);
 extern char *crewcue_feature_screen_json_for_url(const char *url);
+extern char *crewcue_runtime_json(const char *request);
 static jstring adopt(JNIEnv *env, char *value) {
   if (!value) return NULL;
   jstring result = (*env)->NewStringUTF(env, value);
@@ -204,6 +213,13 @@ JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_featureS
   const char *chars = url ? (*env)->GetStringUTFChars(env, url, NULL) : "";
   char *json = crewcue_feature_screen_json_for_url(chars);
   if (url) (*env)->ReleaseStringUTFChars(env, url, chars);
+  return adopt(env, json);
+}
+JNIEXPORT jstring JNICALL Java_com_crewcue_clientcore_CrewCueClientCore_runtimeJson(JNIEnv *env, jclass clazz, jstring request) {
+  (void)clazz;
+  const char *chars = request ? (*env)->GetStringUTFChars(env, request, NULL) : "";
+  char *json = crewcue_runtime_json(chars);
+  if (request) (*env)->ReleaseStringUTFChars(env, request, chars);
   return adopt(env, json);
 }
 `;

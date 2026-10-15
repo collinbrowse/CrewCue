@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run the iOS UI smoke tests (every passing deeplink in clients/behavior/deeplinks.json) on an available iPhone simulator.
+ * Run the iOS UI smoke tests (every feature deeplink in clients/behavior/deeplinks.json) on an available iPhone simulator.
  * Set CREWCUE_IOS_SIMULATOR to pin a device name.
  */
 import { spawnSync } from "node:child_process";

@@ -43,3 +43,6 @@ fixtures/pacing/*.d.ts.map
 /android/
 /ios/
 /app.json
+
+# Local iOS secrets (MapTiler key)
+apps/ios/Config/Secrets.xcconfig

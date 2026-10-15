@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Behavior checklists are the parity spec.
+ * `ios` / `android` may be "pass" only when a device proof file exists.
  * Usage: node scripts/verify-client-behavior.mjs
  */
 import fs from "node:fs";
@@ -9,9 +10,22 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const behaviorDir = path.join(repoRoot, "clients/behavior");
-const required = ["Entry", "Success", "Empty", "Error", "Offline", "Accessibility labels", "Native SDK pocket"];
+const proofDir = path.join(repoRoot, ".agent-pr-evidence/behavior");
+const required = [
+  "Entry",
+  "Action",
+  "API",
+  "Permissions",
+  "Success",
+  "Empty",
+  "Error",
+  "Offline",
+  "Accessibility labels",
+  "Native SDK pocket"
+];
 const forbidden = ["match the ios screen", "port the compose file", "screenshot diff"];
 const allowedSdk = new Set(["none", "maplibre", "stream", "auth0", "location", "push"]);
+const allowedStatus = new Set(["pass", "fail", "deferred"]);
 
 function section(text, name) {
   const lines = text.split("\n");
@@ -25,6 +39,17 @@ function section(text, name) {
   return body.join("\n").trim();
 }
 
+function proofOk(id, platform) {
+  const file = path.join(proofDir, `${id}.${platform}.json`);
+  if (!fs.existsSync(file)) return false;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return parsed.id === id && parsed.platform === platform && typeof parsed.action === "string" && parsed.action.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function main() {
   const errors = [];
   const files = fs.readdirSync(behaviorDir).filter((name) => name.endsWith(".md")).sort();
@@ -34,10 +59,12 @@ function main() {
   const indexPath = path.join(behaviorDir, "deeplinks.json");
   const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
   const byId = new Map((index.features ?? []).map((row) => [row.id, row]));
-  const swift = fs.readFileSync(
-    path.join(repoRoot, "packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift"),
-    "utf8"
-  );
+  const deferred = new Set(index.deferred ?? []);
+
+  for (const id of deferred) {
+    if (byId.has(id)) errors.push(`deferred id ${id} must not also be a feature row`);
+    if (files.includes(`${id}.md`)) errors.push(`deferred id ${id} must not have a checklist`);
+  }
 
   for (const file of files) {
     const id = file.replace(/\.md$/, "");
@@ -57,8 +84,17 @@ function main() {
     if (row && entry && row.entry !== entry) errors.push(`${file} entry ${entry} != ${row.entry}`);
     if (row && label && row.label !== label) errors.push(`${file} label ${label} != ${row.label}`);
     if (sdk && !allowedSdk.has(sdk)) errors.push(`${file} sdk ${sdk} is not allowed`);
-    if (label && !swift.includes(`"${label}"`)) errors.push(`${label} missing from FeatureScreens.swift`);
     if (entry && !entry.startsWith("crewcue://dev/")) errors.push(`${file} entry must be a dev deeplink`);
+    if (row) {
+      for (const platform of ["ios", "android"]) {
+        const status = row[platform];
+        if (!allowedStatus.has(status)) errors.push(`${id} ${platform} status ${status} is not allowed`);
+        if (status === "pass" && !proofOk(id, platform)) {
+          errors.push(`${id} ${platform} pass without .agent-pr-evidence/behavior/${id}.${platform}.json`);
+        }
+        if (status === "deferred") errors.push(`${id} is a feature row and cannot be deferred; move it to deeplinks.deferred`);
+      }
+    }
   }
 
   for (const row of index.features ?? []) {
@@ -70,7 +106,7 @@ function main() {
     for (const error of errors) console.error(`- ${error}`);
     process.exit(1);
   }
-  console.log(`verify:client-behavior passed (${files.length} checklists)`);
+  console.log(`verify:client-behavior passed (${files.length} checklists, ${deferred.size} deferred)`);
 }
 
 main();

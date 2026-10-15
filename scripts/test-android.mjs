@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run the Android instrumented smoke tests (every passing deeplink in clients/behavior/deeplinks.json)
+ * Run the Android instrumented smoke tests (every feature deeplink in clients/behavior/deeplinks.json)
  * on the connected emulator or device. Start one first, e.g. `npm run agent:android:ready`.
  */
 import { spawnSync } from "node:child_process";

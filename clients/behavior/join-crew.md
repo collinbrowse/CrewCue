@@ -3,8 +3,17 @@
 ## Entry
 crewcue://dev/join-crew
 
+## Action
+Enter a 6-digit code, preview the room, then join after sign-in.
+
+## API
+GET /race-rooms/join-preview/:roomCode and POST /race-rooms/join-by-code
+
+## Permissions
+none
+
 ## Success
-Invite code ready for preview.
+Invite code ready for preview, then membership on join.
 
 ## Empty
 Enter an invite code.

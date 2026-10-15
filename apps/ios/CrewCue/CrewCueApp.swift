@@ -3,6 +3,7 @@ import CrewCueClientCore
 
 @main
 struct CrewCueApp: App {
+    @UIApplicationDelegateAdaptor(CrewCueAppDelegate.self) private var appDelegate
     @State private var model: ShellModel
     /// Dev deeplink launches go straight to their fixture.
     @State private var showSplash = !CommandLine.arguments.contains("--deeplink")

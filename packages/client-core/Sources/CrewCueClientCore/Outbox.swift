@@ -76,6 +76,21 @@ public enum OutboxPolicy {
                 feedback: "Network error. Will retry when the app is active."
             )
         }
+        if http.status == 422 && http.reason == "stale_recorded_at" {
+            return OutboxFailureResolution(
+                status: "dropped",
+                retryable: false,
+                feedback: "Stale location sample dropped."
+            )
+        }
+        if http.status == 409 {
+            let haystack = [http.reason, http.decision, http.bodyError, http.message]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: " ")
+            if haystack.contains("already") {
+                return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Already recorded.")
+            }
+        }
         if http.status == 422 && http.decision == "rejected" {
             let feedback: String
             if let serverMessage = http.serverMessage, !serverMessage.isEmpty {

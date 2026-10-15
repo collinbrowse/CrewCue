@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/crew-sheet-export
 
+## Action
+From Pace, share a plaintext crew sheet built on device from the loaded schedule.
+
+## API
+none. Uses the schedule already on device.
+
+## Permissions
+none
+
 ## Success
 Shows a plaintext crew sheet built on device.
 

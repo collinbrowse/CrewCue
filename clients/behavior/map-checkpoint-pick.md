@@ -3,6 +3,15 @@
 ## Entry
 crewcue://dev/map-checkpoint-pick
 
+## Action
+Tap the map to place a checkpoint and save it.
+
+## API
+POST /race-rooms/:roomId/checkpoints
+
+## Permissions
+none
+
 ## Success
 Tap the map to place a checkpoint.
 
