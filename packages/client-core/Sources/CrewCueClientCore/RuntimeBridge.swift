@@ -780,11 +780,15 @@ enum RuntimeCall {
         do {
             let graph = try graph(object)
             let minted = try await RaceDayAPI.streamToken(graph: graph, roomId: roomId)
+            let authors = ChatAuthors(token: minted)
             return [
                 "token": minted.token,
                 "streamUserId": minted.streamUserId,
                 "streamApiKey": minted.streamApiKey,
                 "channelId": channelId,
+                "authorNames": authors.names,
+                "selfAuthor": authors.selfLabel,
+                "unknownAuthor": ChatAuthors.unknown,
                 "offline": false
             ]
         } catch {
@@ -794,6 +798,9 @@ enum RuntimeCall {
                     "streamUserId": "",
                     "streamApiKey": "",
                     "channelId": channelId,
+                    "authorNames": [String: String](),
+                    "selfAuthor": ChatAuthors.you,
+                    "unknownAuthor": ChatAuthors.unknown,
                     "offline": true
                 ]
             }

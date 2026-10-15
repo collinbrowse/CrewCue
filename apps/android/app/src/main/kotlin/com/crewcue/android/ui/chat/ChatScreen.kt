@@ -105,7 +105,7 @@ fun ChatScreen(
             .semantics { contentDescription = "Chat" }
             .imePadding()
     ) {
-        ChatStatusHeader(race, model.channelId)
+        ChatStatusHeader(race, shell.races.firstOrNull { it.id == roomId }?.name.orEmpty())
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -141,7 +141,7 @@ fun ChatScreen(
 
 /** Live race line: current mile, track status, and next aid ETA. */
 @Composable
-private fun ChatStatusHeader(race: MapViewModel?, channelId: String) {
+private fun ChatStatusHeader(race: MapViewModel?, raceName: String) {
     val colors = MaterialTheme.colorScheme
     val readout = race?.readout
     val next = race?.let { model -> model.aidLiveNext?.let { model.aidPages.getOrNull(it) } }
@@ -181,10 +181,11 @@ private fun ChatStatusHeader(race: MapViewModel?, channelId: String) {
                 )
             }
         }
-        if (channelId.isNotBlank()) {
+        // Name the race, never the Stream channel id.
+        if (raceName.isNotBlank()) {
             Text(
-                channelId,
-                modifier = Modifier.semantics { contentDescription = channelId },
+                raceName,
+                modifier = Modifier.semantics { contentDescription = "Race: $raceName" },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
@@ -208,7 +209,7 @@ private fun ChatBubble(line: CrewChatMessage) {
                     Text(line.time, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                 }
                 if (line.author.isNotBlank()) {
-                    Kicker(if (line.mine) "${line.author} (you)" else line.author, color = if (line.mine) colors.primary else colors.onSurfaceVariant)
+                    Kicker(line.author, color = if (line.mine) colors.primary else colors.onSurfaceVariant)
                 }
                 if (!line.mine && line.time.isNotBlank()) {
                     Text(line.time, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)

@@ -32,6 +32,7 @@ const roots = [
   "PacingEstimate",
   "AthletePingIngestPayload",
   "IncidentEvent",
+  "ChatStreamMember",
   "ChatStreamTokenResponse",
   "RaceRoomInvite"
 ];
