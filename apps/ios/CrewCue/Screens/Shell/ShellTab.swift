@@ -62,7 +62,7 @@ enum ShellTab: String, CaseIterable, Identifiable, Hashable {
 
     static func isProfileFeature(_ featureId: String) -> Bool {
         switch featureId {
-        case "profile", "strava", "room-members", "readouts-incidents":
+        case "profile", "room-members", "readouts-incidents":
             true
         default:
             false
@@ -71,7 +71,17 @@ enum ShellTab: String, CaseIterable, Identifiable, Hashable {
 
     static func isChatFeature(_ featureId: String) -> Bool {
         switch featureId {
-        case "chat-thread", "chat-notification-prefs", "push-registration":
+        case "chat-thread":
+            true
+        default:
+            false
+        }
+    }
+
+    /// Settings live in the settings sheet, which opens over whichever tab is showing.
+    static func isSettingsFeature(_ featureId: String) -> Bool {
+        switch featureId {
+        case "chat-notification-prefs", "push-registration", "strava":
             true
         default:
             false

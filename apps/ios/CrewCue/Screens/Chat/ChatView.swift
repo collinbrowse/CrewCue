@@ -5,29 +5,14 @@ struct ChatTabPage: View {
     var model: ShellModel
 
     var body: some View {
-        switch model.route.featureId {
-        case "chat-notification-prefs":
-            ChatNotificationPrefsView(
-                model: model.chatPrefsModel,
-                roomId: model.signedInRoomId,
-                onChat: { model.show(Route(featureId: "chat-thread", state: .success)) }
-            )
-        case "push-registration":
-            PushRegistrationView(
-                model: model.pushModel,
-                role: model.signedInRole,
-                onChat: { model.show(Route(featureId: "chat-thread", state: .success)) }
-            )
-        default:
-            ChatView(
-                model: model.chatModel,
-                userId: model.signedInUserId,
-                roomId: model.signedInRoomId,
-                role: model.signedInRole,
-                displayName: model.signedInDisplayName,
-                status: ChatRaceStatus(map: model.mapModel)
-            )
-        }
+        ChatView(
+            model: model.chatModel,
+            userId: model.signedInUserId,
+            roomId: model.signedInRoomId,
+            role: model.signedInRole,
+            displayName: model.signedInDisplayName,
+            status: ChatRaceStatus(map: model.mapModel)
+        )
     }
 }
 

@@ -61,9 +61,7 @@ import androidx.compose.ui.unit.dp
 import com.crewcue.android.ui.athlete.AthleteSetupScreen
 import com.crewcue.android.ui.auth.AuthSignInScreen
 import com.crewcue.android.ui.notifications.NotificationPermissionScreen
-import com.crewcue.android.ui.chat.ChatPrefsScreen
 import com.crewcue.android.ui.chat.ChatScreen
-import com.crewcue.android.ui.chat.PushRegistrationScreen
 import com.crewcue.android.ui.incidents.IncidentsScreen
 import com.crewcue.android.ui.join.JoinCrewScreen
 import com.crewcue.android.ui.map.MapScreen
@@ -72,7 +70,7 @@ import com.crewcue.android.ui.outbox.OutboxScreen
 import com.crewcue.android.ui.pace.PaceScreen
 import com.crewcue.android.ui.profile.ProfileScreen
 import com.crewcue.android.ui.theme.ProductCard
-import com.crewcue.android.ui.strava.StravaScreen
+import com.crewcue.android.ui.settings.ShellSettingsSheet
 
 @Composable
 fun ShellScreen(viewModel: ShellViewModel) {
@@ -85,7 +83,6 @@ fun ShellScreen(viewModel: ShellViewModel) {
 
 @Composable
 private fun AppShell(viewModel: ShellViewModel) {
-    var showsSettings by remember { mutableStateOf(false) }
     val roomId = viewModel.session?.roomId
     val race = if (roomId.isNullOrBlank()) null else rememberRaceDay(viewModel, roomId)
     CrewBackground(
@@ -127,13 +124,13 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         FeatureScreen(viewModel.uiState, Modifier.weight(1f))
                     } else {
-                        ChatPane(viewModel, roomId, viewModel.chatPane, Modifier.weight(1f), race = race)
+                        ChatPane(viewModel, roomId, Modifier.weight(1f), race = race)
                     }
                 }
             }
         }
         CrewTopBar(
-            onSettings = { showsSettings = true },
+            onSettings = { viewModel.openSettings() },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
@@ -149,8 +146,8 @@ private fun AppShell(viewModel: ShellViewModel) {
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
-    if (showsSettings) {
-        ShellSettingsSheet(viewModel, onDismiss = { showsSettings = false })
+    if (viewModel.showsSettings) {
+        ShellSettingsSheet(viewModel, onDismiss = viewModel::closeSettings)
     }
 }
 
@@ -230,40 +227,6 @@ private fun CrewTabBar(
     }
 }
 
-/** Notifications and account, reached from the top-bar gear. */
-@Composable
-private fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
-    val activity = LocalContext.current as? android.app.Activity
-    ToolSheet(title = "Settings", onDismiss = onDismiss) {
-        ProductCard {
-            SectionHeader("Notifications")
-            CrewListRow(Icons.Outlined.Notifications, "Chat notifications", onClick = {
-                onDismiss()
-                viewModel.selectTab(ShellTab.Chat)
-                viewModel.openChatAlerts()
-            })
-            CrewListRow(Icons.Outlined.PhoneAndroid, "Push registration", onClick = {
-                onDismiss()
-                viewModel.selectTab(ShellTab.Chat)
-                viewModel.openChatPush()
-            })
-        }
-        ProductCard {
-            SectionHeader("Account")
-            CrewListRow(
-                Icons.AutoMirrored.Outlined.Logout,
-                "Sign out",
-                onClick = {
-                    onDismiss()
-                    viewModel.signOut(activity)
-                },
-                tint = MaterialTheme.colorScheme.error,
-                titleColor = MaterialTheme.colorScheme.error
-            )
-        }
-    }
-}
-
 /** Standalone routes outside the tab shell: page ground plus system bar insets. */
 @Composable
 private fun FeatureHost(viewModel: ShellViewModel) {
@@ -289,7 +252,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         "onboarding-notifications" -> {
             if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else NotificationPermissionScreen()
         }
-        "profile", "strava", "room-members", "readouts-incidents" -> {
+        "profile", "room-members", "readouts-incidents" -> {
             if (viewModel.session != null && !viewModel.stateOverlay && profileDestinationReady(viewModel)) {
                 ProfileDestination(viewModel)
             } else {
@@ -311,27 +274,10 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 FeatureScreen(viewModel.uiState)
             }
         }
-        "push-registration" -> {
-            if (viewModel.session != null && !viewModel.stateOverlay) {
-                PushRegistrationScreen(viewModel, onBack = null)
-            } else {
-                FeatureScreen(viewModel.uiState)
-            }
-        }
-        "chat-thread", "chat-notification-prefs" -> {
+        "chat-thread" -> {
             val roomId = viewModel.session?.roomId
             if (!roomId.isNullOrBlank() && !viewModel.stateOverlay) {
-                val pane = when (viewModel.uiState.screen.featureId) {
-                    "chat-notification-prefs" -> "prefs"
-                    "push-registration" -> "push"
-                    else -> viewModel.chatPane
-                }
-                val back = if (viewModel.uiState.screen.featureId == "chat-thread") {
-                    viewModel::openChatThread
-                } else {
-                    null
-                }
-                ChatPane(viewModel, roomId, pane, onBack = back)
+                ChatPane(viewModel, roomId)
             } else {
                 FeatureScreen(viewModel.uiState)
             }
@@ -381,7 +327,6 @@ fun FeatureScreen(
 private fun ProfileDestination(viewModel: ShellViewModel, modifier: Modifier = Modifier, race: MapViewModel? = null) {
     val roomId = viewModel.session?.roomId
     when (viewModel.profilePane) {
-        "strava" -> StravaScreen(viewModel, viewModel::openProfileHome, modifier)
         "members" -> {
             if (roomId.isNullOrBlank()) {
                 ProfileScreen(viewModel, modifier)
@@ -410,21 +355,15 @@ private fun profileDestinationReady(viewModel: ShellViewModel): Boolean {
 private fun ChatPane(
     viewModel: ShellViewModel,
     roomId: String,
-    pane: String,
     modifier: Modifier = Modifier,
-    onBack: (() -> Unit)? = viewModel::openChatThread,
     race: MapViewModel? = null
 ) {
-    when (pane) {
-        "prefs" -> ChatPrefsScreen(viewModel, roomId, onBack, modifier)
-        "push" -> PushRegistrationScreen(viewModel, onBack, modifier)
-        else -> ChatScreen(
-            viewModel,
-            roomId,
-            race = race,
-            modifier = modifier
-        )
-    }
+    ChatScreen(
+        viewModel,
+        roomId,
+        race = race,
+        modifier = modifier
+    )
 }
 
 private fun tabIcon(tab: ShellTab, selected: Boolean): ImageVector = when (tab) {

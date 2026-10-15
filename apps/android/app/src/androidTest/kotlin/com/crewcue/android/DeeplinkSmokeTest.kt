@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.crewcue.android.session.SessionStore
 import org.json.JSONObject
 import org.junit.Rule
 import org.junit.Test
@@ -27,6 +28,8 @@ class DeeplinkSmokeTest {
         val manifest = context.assets.open("deeplinks.json").bufferedReader().use { JSONObject(it.readText()) }
         val features = manifest.getJSONArray("features")
         val target = InstrumentationRegistry.getInstrumentation().targetContext
+        // A session left on the device would open the product shell instead of the screen under test.
+        SessionStore(target).clear()
         val missing = mutableListOf<String>()
         for (index in 0 until features.length()) {
             val feature = features.getJSONObject(index)

@@ -68,7 +68,7 @@ fun RoomMembersScreen(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        ProductTitle("Room members", "Names your crew sees during the race.")
+        ProductTitle("Room members", "Your crew for this race. Change your own name in Settings.")
         model.status?.let { line ->
             Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
@@ -100,31 +100,12 @@ fun RoomMembersScreen(
                     }
                 }
             }
-            ProductCard(Modifier.padding(top = 12.dp)) {
-                Text("Display name", fontWeight = FontWeight.Bold)
-                OutlinedTextField(
-                    value = model.draft,
-                    onValueChange = model::updateDraft,
-                    label = { Text("Display name") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "Display name" }
-                )
-                PrimaryButton(
-                    "Save name",
-                    onClick = { model.save(context.isOnline(), shell::noteDisplayName) },
-                    modifier = Modifier.padding(top = 12.dp),
-                    enabled = !model.busy && model.draft.isNotBlank()
-                )
-                SecondaryButton(
-                    "Remove",
-                    onClick = { model.removeSelected(context.isOnline()) },
-                    modifier = Modifier.padding(top = 8.dp),
-                    enabled = !model.busy && model.selectedId != null
-                )
-            }
+            SecondaryButton(
+                "Remove",
+                onClick = { model.removeSelected(context.isOnline()) },
+                modifier = Modifier.padding(top = 12.dp),
+                enabled = !model.busy && model.selectedId != null
+            )
         }
         if (onBack != null) {
             SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
@@ -170,7 +151,12 @@ class RoomMembersViewModel(
 
     fun save(online: Boolean, onRenamed: (String, String) -> Unit) {
         val userId = selectedId ?: return
-        val next = draft.trim()
+        saveName(userId, draft, online, onRenamed)
+    }
+
+    /** Renames [userId] in this room. Settings uses it for the signed-in user's own name. */
+    fun saveName(userId: String, name: String, online: Boolean, onRenamed: (String, String) -> Unit) {
+        val next = name.trim()
         if (next.isEmpty() || busy) return
         viewModelScope.launch {
             busy = true

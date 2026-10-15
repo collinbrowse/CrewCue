@@ -4,7 +4,7 @@
 crewcue://dev/chat-notification-prefs
 
 ## Action
-Choose all, mentions, or none for this room.
+In Settings (the gear on every tab), choose all, mentions, or none for this room. Signed in, the entry deeplink opens Settings at Chat alerts.
 
 ## API
 GET and POST /chat/rooms/:roomId/notification-prefs

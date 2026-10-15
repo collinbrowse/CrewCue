@@ -1,5 +1,6 @@
 package com.crewcue.android.ui.chat
 
+import com.crewcue.android.ui.theme.SectionHeader
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,37 +35,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** Chat alert preference for the current room, shown in the settings sheet. */
 @Composable
-fun ChatPrefsScreen(
-    shell: ShellViewModel,
-    roomId: String,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier
-) {
+fun ChatAlertsSection(shell: ShellViewModel, roomId: String, modifier: Modifier = Modifier) {
     val model: ChatPrefsViewModel = viewModel(
         key = "chat-prefs-$roomId",
         factory = ChatPrefsViewModelFactory(shell.container.raceDay, roomId)
     )
     LaunchedEffect(roomId) { model.load() }
-    Column(
+    ProductCard(
         modifier
-            .fillMaxSize()
             .testTag("crewcue.chat-notification-prefs")
             .semantics { contentDescription = "Chat alerts" }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
     ) {
-        ProductTitle("Chat alerts", "Choose what reaches you from this room.")
+        SectionHeader("Chat alerts")
+        Text("Choose what reaches you from this room.", style = MaterialTheme.typography.bodyMedium)
+        PreferenceButton("All", "all", model)
+        PreferenceButton("Mentions", "mentions", model)
+        PreferenceButton("None", "none", model)
         model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
-        }
-        ProductCard(Modifier.padding(top = 16.dp)) {
-            PreferenceButton("All", "all", model)
-            PreferenceButton("Mentions", "mentions", model)
-            PreferenceButton("None", "none", model)
-        }
-        if (onBack != null) {
-            SecondaryButton("Chat", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
+            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
     }
 }

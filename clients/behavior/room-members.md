@@ -4,7 +4,7 @@
 crewcue://dev/room-members
 
 ## Action
-Open the roster, edit a display name, or remove a member when permitted.
+From Profile, open the roster or remove a member when permitted. Your own display name is edited in Settings.
 
 ## API
 GET /race-rooms/:roomId memberships. PATCH and DELETE /race-rooms/:roomId/members/:memberUserId

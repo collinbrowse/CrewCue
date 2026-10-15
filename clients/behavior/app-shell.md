@@ -4,7 +4,7 @@
 crewcue://dev/app-shell
 
 ## Action
-Signed-in launch shows Map, Pace, Chat, and Profile. Each tab opens that feature. Signed-out launch shows sign-in.
+Signed-in launch shows Map, Pace, Chat, and Profile. Each tab opens that feature. The gear on every tab opens Settings. Signed-out launch shows sign-in.
 
 ## API
 none. Tabs select client routes.

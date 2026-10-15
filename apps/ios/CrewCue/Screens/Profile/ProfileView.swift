@@ -6,19 +6,12 @@ struct ProfileTabPage: View {
 
     var body: some View {
         switch model.route.featureId {
-        case "strava":
-            StravaView(model: model.stravaModel) {
-                model.show(Route(featureId: "profile", state: .success))
-            }
         case "room-members":
             RoomMembersView(
                 model: model.membersModel,
                 userId: model.signedInUserId,
                 roomId: model.signedInRoomId,
-                onProfile: { model.show(Route(featureId: "profile", state: .success)) },
-                onNameSaved: { [weak model] name in
-                    model?.updateDisplayName(name)
-                }
+                onProfile: { model.show(Route(featureId: "profile", state: .success)) }
             )
         case "readouts-incidents":
             IncidentsView(
@@ -34,7 +27,6 @@ struct ProfileTabPage: View {
                 displayName: model.signedInDisplayName,
                 role: model.signedInRole,
                 readout: model.mapModel.readout,
-                onStrava: { model.show(Route(featureId: "strava", state: .success)) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
                 onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
@@ -56,7 +48,6 @@ struct ProfileView: View {
     var displayName: String?
     var role: String?
     var readout: RaceDayReadout
-    var onStrava: () -> Void
     var onMembers: () -> Void
     var onIncidents: () -> Void
     var onJoin: () -> Void
@@ -98,7 +89,7 @@ struct ProfileView: View {
                     .crewGlassCard()
                     VStack(alignment: .leading, spacing: 4) {
                         CrewSectionHeader(title: "Race & crew")
-                        CrewListRow(systemImage: "person.3", title: "Room members", detail: "Roster and display names", action: onMembers)
+                        CrewListRow(systemImage: "person.3", title: "Room members", detail: "Your crew for this race", action: onMembers)
                         CrewListRow(systemImage: "exclamationmark.bubble", title: "Incidents", detail: "Log and review race incidents", action: onIncidents)
                     }
                     .crewGlassCard()
@@ -117,14 +108,6 @@ struct ProfileView: View {
                         .buttonStyle(.crewSecondary)
                 }
                 .crewGlassCard()
-                VStack(alignment: .leading, spacing: 4) {
-                    CrewSectionHeader(title: "Training history")
-                    CrewListRow(systemImage: "figure.run", title: "Strava", detail: "Recent efforts feed your pace estimate", action: onStrava)
-                }
-                .crewGlassCard()
-                Button("Sign out", action: model.signOut)
-                    .buttonStyle(.crewGhost)
-                    .padding(.top, CrewSpace.base)
             }
             .padding(.horizontal, CrewSpace.gutter)
             .padding(.top, CrewSpace.gutter)

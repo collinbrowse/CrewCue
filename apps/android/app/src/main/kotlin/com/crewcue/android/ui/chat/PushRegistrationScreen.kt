@@ -1,5 +1,7 @@
 package com.crewcue.android.ui.chat
 
+import androidx.compose.material3.MaterialTheme
+import com.crewcue.android.ui.theme.SectionHeader
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -41,12 +43,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.util.UUID
 
+/**
+ * Device registration for race alerts, shown in the settings sheet.
+ * Asks for notification permission on appear only when the push deeplink opened the sheet.
+ */
 @Composable
-fun PushRegistrationScreen(
-    shell: ShellViewModel,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier
-) {
+fun PushSection(shell: ShellViewModel, requestOnAppear: Boolean, modifier: Modifier = Modifier) {
     val model: PushRegistrationViewModel = viewModel(
         key = "push-${shell.session?.userId}",
         factory = PushRegistrationViewModelFactory(shell.container.raceDay)
@@ -62,30 +64,24 @@ fun PushRegistrationScreen(
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-    LaunchedEffect(Unit) { request() }
-    Column(
+    LaunchedEffect(requestOnAppear) { if (requestOnAppear) request() }
+    ProductCard(
         modifier
-            .fillMaxSize()
             .testTag("crewcue.push-registration")
             .semantics { contentDescription = "Push" }
-            .padding(16.dp)
     ) {
-        ProductTitle("This device", "Register so race alerts can reach you.")
-        ProductCard(Modifier.padding(top = 16.dp)) {
-            model.status?.let { line ->
-                Text(line, modifier = Modifier.semantics { contentDescription = line })
-            }
-            PrimaryButton(
-                "Register",
-                onClick = { request() },
-                modifier = Modifier.padding(top = 12.dp),
-                enabled = !model.busy,
-                spoken = "Register"
-            )
+        SectionHeader("This device")
+        Text("Register so race alerts can reach you.", style = MaterialTheme.typography.bodyMedium)
+        model.status?.let { line ->
+            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
-        if (onBack != null) {
-            SecondaryButton("Chat", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
-        }
+        PrimaryButton(
+            "Register",
+            onClick = { request() },
+            modifier = Modifier.padding(top = 12.dp),
+            enabled = !model.busy,
+            spoken = "Register"
+        )
     }
 }
 

@@ -32,9 +32,12 @@ final class PushRegistrationModel {
         self.client = client
     }
 
-    func activate(role: String?) async {
+    /// Registering asks for notification permission, so only the push deeplink registers on appear.
+    func activate(role: String?, registerNow: Bool) async {
         self.role = role ?? ""
-        await register()
+        if registerNow {
+            await register()
+        }
     }
 
     func register() async {

@@ -4,7 +4,7 @@
 crewcue://dev/push-registration
 
 ## Action
-After permission, queue the device token for registration.
+In Settings, after permission, queue the device token for registration. Signed in, the entry deeplink opens Settings at This device and asks for permission.
 
 ## API
 POST /chat/push/tokens via the outbox

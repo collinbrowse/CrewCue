@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +46,6 @@ import com.crewcue.android.R
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.ui.ShellViewModel
-import com.crewcue.android.ui.findActivity
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.map.RaceReadout
 import com.crewcue.android.ui.map.isOnline
@@ -55,7 +53,6 @@ import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CrewListRow
 import com.crewcue.android.ui.theme.CrewProgressBar
 import com.crewcue.android.ui.theme.CrewTextField
-import com.crewcue.android.ui.theme.GhostButton
 import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricLargeStyle
 import com.crewcue.android.ui.theme.MetricStyle
@@ -81,7 +78,6 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
         factory = ProfileViewModelFactory(shell.container.raceDay, session?.displayName.orEmpty())
     )
     val context = LocalContext.current
-    val activity = context.findActivity()
     LaunchedEffect(session?.userId, session?.roomId, session?.displayName) {
         model.load(
             userId = session?.userId.orEmpty(),
@@ -135,7 +131,7 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
             }
             ProductCard {
                 SectionHeader("Race & crew")
-                CrewListRow(Icons.Outlined.Groups, "Room members", onClick = shell::openRoomMembers, detail = "Roster and display names")
+                CrewListRow(Icons.Outlined.Groups, "Room members", onClick = shell::openRoomMembers, detail = "Your crew for this race")
                 CrewListRow(Icons.Outlined.ReportProblem, "Incidents", onClick = shell::openIncidents, detail = "Log and review race incidents")
             }
         }
@@ -154,11 +150,6 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
                 SecondaryButton("Join race room", onClick = shell::openJoinCrew)
             }
         }
-        ProductCard {
-            SectionHeader("Training history")
-            CrewListRow(Icons.AutoMirrored.Outlined.DirectionsRun, "Strava", onClick = shell::openStrava, detail = "Recent efforts feed your pace estimate")
-        }
-        GhostButton("Sign out", onClick = { shell.signOut(activity) }, modifier = Modifier.padding(top = 8.dp))
     }
 }
 

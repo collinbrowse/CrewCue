@@ -3,13 +3,12 @@ import CrewCueClientCore
 
 struct ProductShellView: View {
     @Bindable var model: ShellModel
-    @State private var showsSettings = false
 
     var body: some View {
         TabView(selection: $model.selectedTab) {
             ForEach(ShellTab.allCases) { tab in
                 Tab(tab.title, systemImage: tab.systemImage, value: tab) {
-                    ProductTabPage(tab: tab, model: model, onSettings: { showsSettings = true })
+                    ProductTabPage(tab: tab, model: model, onSettings: { model.openSettings() })
                         .accessibilityIdentifier(tab.accessibilityIdentifier)
                         .toolbar(.hidden, for: .tabBar)
                         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -24,7 +23,7 @@ struct ProductShellView: View {
         .toolbar(.hidden, for: .navigationBar)
         .accessibilityIdentifier("crewcue.app-shell")
         .accessibilityLabel("CrewCue")
-        .sheet(isPresented: $showsSettings) {
+        .sheet(isPresented: $model.showsSettings, onDismiss: { model.settingsFocus = nil }) {
             ShellSettingsSheet(model: model)
         }
         .onAppear { model.enterShellIfNeeded() }
@@ -157,41 +156,5 @@ private extension ShellTab {
         case .chat: "text.bubble"
         case .profile: "person"
         }
-    }
-}
-
-/// Account and app settings reached from the top-bar gear.
-struct ShellSettingsSheet: View {
-    var model: ShellModel
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.crew) private var theme
-
-    var body: some View {
-        ToolSheet(title: "Settings") {
-            VStack(alignment: .leading, spacing: 4) {
-                CrewSectionHeader(title: "Notifications")
-                CrewListRow(systemImage: "bell", title: "Chat notifications") {
-                    open("chat-notification-prefs")
-                }
-                CrewListRow(systemImage: "iphone.radiowaves.left.and.right", title: "Push registration") {
-                    open("push-registration")
-                }
-            }
-            .crewCard()
-            VStack(alignment: .leading, spacing: 4) {
-                CrewSectionHeader(title: "Account")
-                CrewListRow(systemImage: "rectangle.portrait.and.arrow.right", title: "Sign out", tint: theme.danger) {
-                    dismiss()
-                    model.profileModel.signOut()
-                }
-                .accessibilityLabel("Sign out")
-            }
-            .crewCard()
-        }
-    }
-
-    private func open(_ featureId: String) {
-        dismiss()
-        model.show(Route(featureId: featureId, state: .success))
     }
 }

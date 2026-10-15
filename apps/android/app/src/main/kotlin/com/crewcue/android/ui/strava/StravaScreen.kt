@@ -1,5 +1,7 @@
 package com.crewcue.android.ui.strava
 
+import androidx.compose.material3.MaterialTheme
+import com.crewcue.android.ui.theme.SectionHeader
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -43,12 +45,9 @@ const val STRAVA_EMPTY = "Strava is not connected."
 const val STRAVA_ERROR = "Strava connection failed."
 const val STRAVA_OFFLINE = "Offline. Can't reach Strava."
 
+/** Strava connection, shown in the settings sheet. The return URL reopens the sheet here. */
 @Composable
-fun StravaScreen(
-    shell: ShellViewModel,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier
-) {
+fun StravaSection(shell: ShellViewModel, modifier: Modifier = Modifier) {
     val model: StravaViewModel = viewModel(
         key = "strava-${shell.session?.userId}",
         factory = StravaViewModelFactory(shell.container.raceDay)
@@ -57,45 +56,32 @@ fun StravaScreen(
     LaunchedEffect(shell.stravaSignal.id, shell.stravaSignal.failed) {
         model.refresh(context.isOnline(), shell.stravaSignal.failed)
     }
-    Column(
+    ProductCard(
         modifier
-            .fillMaxSize()
             .testTag("crewcue.strava")
             .semantics { contentDescription = "Strava" }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
     ) {
-        ProductTitle("Strava", "Recent efforts improve the pace estimate.")
-        ProductCard(Modifier.padding(top = 16.dp)) {
-            if (model.connected) {
-                val line = if (model.athleteId.isNullOrBlank()) "Connected" else "Connected ${model.athleteId}"
-                Text(line, modifier = Modifier.semantics { contentDescription = line })
-                model.athleteId?.let { athleteId ->
-                    Text(
-                        athleteId,
-                        modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = athleteId }
-                    )
-                }
-            }
-            model.status?.let { line ->
-                Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-            }
-            PrimaryButton(
-                "Connect",
-                onClick = { model.connect(context) },
-                modifier = Modifier.padding(top = 12.dp),
-                enabled = !model.busy
-            )
-            SecondaryButton(
-                "Disconnect",
-                onClick = { model.disconnect(context.isOnline()) },
-                modifier = Modifier.padding(top = 8.dp),
-                enabled = !model.busy
-            )
+        SectionHeader("Strava")
+        Text("Recent efforts improve the pace estimate.", style = MaterialTheme.typography.bodyMedium)
+        if (model.connected) {
+            val line = if (model.athleteId.isNullOrBlank()) "Connected" else "Connected ${model.athleteId}"
+            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
-        if (onBack != null) {
-            SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
+        model.status?.let { line ->
+            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
         }
+        PrimaryButton(
+            "Connect",
+            onClick = { model.connect(context) },
+            modifier = Modifier.padding(top = 12.dp),
+            enabled = !model.busy
+        )
+        SecondaryButton(
+            "Disconnect",
+            onClick = { model.disconnect(context.isOnline()) },
+            modifier = Modifier.padding(top = 8.dp),
+            enabled = !model.busy
+        )
     }
 }
 

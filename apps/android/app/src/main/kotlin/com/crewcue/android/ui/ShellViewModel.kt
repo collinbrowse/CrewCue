@@ -90,11 +90,14 @@ class ShellViewModel(
         private set
     var stateOverlay by mutableStateOf(false)
         private set
-    var chatPane by mutableStateOf("thread")
-        private set
     var profilePane by mutableStateOf("profile")
         private set
     var stravaSignal by mutableStateOf(StravaSignal())
+        private set
+    /** The settings sheet opens over any tab. [settingsFocus] is the section to scroll to. */
+    var showsSettings by mutableStateOf(false)
+        private set
+    var settingsFocus by mutableStateOf<String?>(null)
         private set
     var paceFocus by mutableStateOf("schedule-sheet")
         private set
@@ -134,26 +137,19 @@ class ShellViewModel(
     }
 
     fun selectTab(tab: ShellTab) {
-        if (tab == ShellTab.Chat) chatPane = "thread"
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         showShell(tab)
     }
 
-    fun openChatAlerts() {
-        chatPane = "prefs"
+    fun openSettings(focus: String? = null) {
+        settingsFocus = focus
+        showsSettings = true
     }
 
-    fun openChatPush() {
-        chatPane = "push"
-    }
-
-    fun openChatThread() {
-        chatPane = "thread"
-    }
-
-    fun openStrava() {
-        profilePane = "strava"
+    fun closeSettings() {
+        showsSettings = false
+        settingsFocus = null
     }
 
     fun openRoomMembers() {
@@ -212,6 +208,7 @@ class ShellViewModel(
         container.sessionStore.clear()
         session = null
         pendingJoin = false
+        closeSettings()
         showSignedOut()
         if (authActivity != null) {
             container.authGateway.signOut(authActivity) { }
@@ -355,6 +352,11 @@ class ShellViewModel(
 
     private fun openLinkedFeature(feature: String, url: String) {
         val signedIn = container.sessionStore.current() != null
+        if (signedIn && !hasStateQuery(url) && feature in settingsFeatures) {
+            showShell(selectedTab)
+            openSettings(feature)
+            return
+        }
         if (signedIn && !hasStateQuery(url) && isPaceFeature(feature)) {
             paceFocus = feature
             showShell(ShellTab.Pace)
@@ -405,7 +407,6 @@ class ShellViewModel(
         joinMembership = null
         joinBusy = false
         showAppShell = false
-        chatPane = "thread"
         val state = queryState(url)
         val screen = load(url)
         profilePane = profilePaneFor(screen.featureId)
@@ -488,12 +489,11 @@ class ShellViewModel(
             return
         }
         stravaSignal = StravaSignal(stravaSignal.id + 1, stravaQueryFailed(url))
-        showShell(ShellTab.Profile)
-        profilePane = "strava"
+        showShell(selectedTab)
+        openSettings("strava")
     }
 
     private fun profilePaneFor(featureId: String): String = when (featureId) {
-        "strava" -> "strava"
         "room-members" -> "members"
         "readouts-incidents" -> "incidents"
         else -> "profile"
@@ -522,6 +522,9 @@ class ShellViewModel(
     }
 
     private companion object {
+        /** Settings live in the settings sheet, not on a tab. */
+        val settingsFeatures = setOf("chat-notification-prefs", "push-registration", "strava")
+
         val placeholder = ScreenCopy(
             featureId = "app-shell",
             accessibilityIdentifier = "crewcue.app-shell",

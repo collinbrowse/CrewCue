@@ -8,6 +8,9 @@ final class ShellModel {
     let client: AppClient
     var route: Route
     var path: [Route] = []
+    /// The settings sheet opens over any tab. `settingsFocus` is the section to scroll to.
+    var showsSettings = false
+    var settingsFocus: String?
     var screen: FeatureScreen
     /// True when a dev URL included `?state=`. That query is fixture copy, not product state.
     var fixtureOverlay: Bool
@@ -109,8 +112,17 @@ final class ShellModel {
         }
     }
 
+    func openSettings(focus: String? = nil) {
+        settingsFocus = focus
+        showsSettings = true
+    }
+
     func enterShellIfNeeded() {
         guard isSignedIn, !fixtureOverlay else { return }
+        if ShellTab.isSettingsFeature(route.featureId) {
+            openSettings(focus: route.featureId)
+            return
+        }
         if let tab = ShellTab.matching(featureId: route.featureId) {
             selectTab(tab)
             return
@@ -192,6 +204,8 @@ final class ShellModel {
         chatModel.clear()
         chatPrefsModel.clear()
         pushModel.clear()
+        showsSettings = false
+        settingsFocus = nil
         fixtureOverlay = false
         suppressTabRouteSync = true
         selectedTab = .map

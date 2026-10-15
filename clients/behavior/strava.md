@@ -4,7 +4,7 @@
 crewcue://dev/strava
 
 ## Action
-From Profile, connect or disconnect Strava. The return URL is crewcue://strava.
+In Settings, connect or disconnect Strava. The return URL is crewcue://strava and reopens Settings at Strava.
 
 ## API
 GET /strava/oauth/start, GET /strava/connection, DELETE /strava/connection
