@@ -435,8 +435,8 @@ final class MapModel {
     }
 
     private func cacheDirectory() -> URL? {
-        guard let userId else { return nil }
-        return try? AppDirectories.userDirectory(userId: userId)
+        guard let userId, let roomId else { return nil }
+        return try? AppDirectories.roomDirectory(userId: userId, roomId: roomId)
     }
 
     private func cacheURL() -> URL? {

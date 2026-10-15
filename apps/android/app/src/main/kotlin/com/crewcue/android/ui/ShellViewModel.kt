@@ -22,6 +22,16 @@ import org.json.JSONObject
 
 data class StravaSignal(val id: Int = 0, val failed: Boolean = false)
 
+/** One loaded race from client-core's `myRaces`. Role and display name differ per room. */
+data class RaceChoice(
+    val id: String,
+    val name: String,
+    val role: String,
+    /** From client-core `RaceRole.label`, e.g. "Crew member". Never the wire value. */
+    val roleLabel: String,
+    val displayName: String?
+)
+
 enum class ShellTab(val title: String, val url: String) {
     Map("Map", "crewcue://dev/map"),
     Pace("Pace", "crewcue://dev/schedule-sheet"),
@@ -103,6 +113,12 @@ class ShellViewModel(
         private set
     var chatUnread by mutableStateOf(0)
         private set
+    /** Every race the user belongs to. `session.roomId` is the active one; every tab follows it. */
+    var races by mutableStateOf<List<RaceChoice>>(emptyList())
+        private set
+    var racesMessage by mutableStateOf("")
+        private set
+    private var racesJob: Job? = null
 
     fun noteChatUnread(count: Int) {
         chatUnread = count
@@ -114,6 +130,67 @@ class ShellViewModel(
 
     init {
         open(launchIntent)
+        if (racesJob == null) loadRaces()
+    }
+
+    /** Load the user's races. Client-core picks the active room; the stored one wins while still listed. */
+    fun loadRaces() {
+        val current = session ?: return
+        racesJob?.cancel()
+        racesJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { container.raceDay.myRaces(current.roomId) }
+            if (session?.userId != current.userId) return@launch
+            when (result) {
+                is RuntimeResult.Failure -> {
+                    racesMessage = if (result.offline) "Offline. Showing your last race." else "Couldn't load your races."
+                }
+                is RuntimeResult.Success -> {
+                    val rows = result.result.optJSONArray("races")
+                    val loaded = buildList {
+                        for (index in 0 until (rows?.length() ?: 0)) {
+                            val row = rows?.optJSONObject(index) ?: continue
+                            add(
+                                RaceChoice(
+                                    id = row.optString("id"),
+                                    name = row.optString("name"),
+                                    role = row.optString("role"),
+                                    roleLabel = row.optString("roleLabel"),
+                                    displayName = row.optString("displayName").trim().ifBlank { null }
+                                )
+                            )
+                        }
+                    }
+                    races = loaded
+                    racesMessage = if (loaded.isEmpty()) "No races yet." else ""
+                    val activeId = result.result.optString("activeRoomId").takeUnless {
+                        result.result.isNull("activeRoomId") || it.isBlank()
+                    }
+                    val active = loaded.firstOrNull { it.id == activeId }
+                    when {
+                        active != null && (active.id != session?.roomId || active.role != session?.role) -> apply(active)
+                        active == null && session?.roomId != null -> {
+                            container.sessionStore.update { it.copy(roomId = null) }
+                            session = container.sessionStore.current()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Switch every tab to another loaded race. */
+    fun selectRace(roomId: String) {
+        if (roomId == session?.roomId) return
+        val race = races.firstOrNull { it.id == roomId } ?: return
+        apply(race)
+    }
+
+    private fun apply(race: RaceChoice) {
+        container.sessionStore.update {
+            it.copy(roomId = race.id, role = race.role.ifBlank { it.role }, displayName = race.displayName)
+        }
+        session = container.sessionStore.current()
+        profilePane = "profile"
     }
 
     fun open(intent: Intent?) {
@@ -179,6 +256,8 @@ class ShellViewModel(
         if (current.userId != userId) return
         container.sessionStore.update { it.copy(displayName = displayName) }
         session = container.sessionStore.current()
+        val roomId = current.roomId ?: return
+        races = races.map { if (it.id == roomId) it.copy(displayName = displayName) else it }
     }
 
     fun signIn(activity: Activity?, connection: String? = null, signUp: Boolean = false) {
@@ -199,6 +278,7 @@ class ShellViewModel(
         if (roomId.isBlank()) return
         container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
         session = container.sessionStore.current()
+        loadRaces()
     }
 
     fun signOut(activity: Activity?) {
@@ -207,6 +287,9 @@ class ShellViewModel(
         }
         container.sessionStore.clear()
         session = null
+        racesJob?.cancel()
+        races = emptyList()
+        racesMessage = ""
         pendingJoin = false
         closeSettings()
         showSignedOut()
@@ -276,6 +359,7 @@ class ShellViewModel(
         )
         container.sessionStore.save(stored)
         session = stored
+        loadRaces()
     }
 
     private fun applyAuthResult(result: AuthResult) {
@@ -291,6 +375,7 @@ class ShellViewModel(
                 )
                 container.sessionStore.save(stored)
                 session = stored
+                loadRaces()
                 if (pendingJoin) {
                     pendingJoin = false
                     performJoin()
@@ -332,6 +417,7 @@ class ShellViewModel(
                     if (roomId.isNotBlank()) {
                         container.sessionStore.update { it.copy(roomId = roomId) }
                         session = container.sessionStore.current()
+                        loadRaces()
                     }
                     val roomName = result.result.optJSONObject("room")?.optString("name").orEmpty().trim()
                     val name = joinPreviewName ?: roomName.takeIf { it.isNotEmpty() }
