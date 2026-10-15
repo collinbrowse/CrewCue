@@ -38,6 +38,8 @@ struct RouteScreen: View {
             Auth0Pocket(screen: screen)
         case "app-shell":
             AppShellView()
+        case "brand-loader":
+            BrandLoaderView(screen: screen)
         default:
             FeatureScreenView(screen: screen)
         }

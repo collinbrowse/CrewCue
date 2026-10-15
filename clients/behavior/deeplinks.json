@@ -205,7 +205,7 @@
       "entry": "crewcue://dev/loader",
       "label": "crewcue.loader",
       "sdk": "none",
-      "ios": "pending",
+      "ios": "pass",
       "android": "pending"
     }
   ]
