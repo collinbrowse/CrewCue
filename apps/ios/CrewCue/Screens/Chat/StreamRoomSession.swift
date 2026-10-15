@@ -103,7 +103,9 @@ final class StreamRoomSession {
     func lines() -> [ChatLine] {
         #if canImport(StreamChat)
         guard let chat else { return [] }
-        return chat.state.messages.compactMap { message in
+        // The SDK keeps messages newest-first. The transcript reads oldest at the top, like Android.
+        let ordered = chat.state.messages.sorted { $0.createdAt < $1.createdAt }
+        return ordered.compactMap { message in
             let image = message.imageAttachments.first?.imageURL.absoluteString
             let reactions = message.reactionScores
                 .map { "\($0.key.rawValue) \($0.value)" }
