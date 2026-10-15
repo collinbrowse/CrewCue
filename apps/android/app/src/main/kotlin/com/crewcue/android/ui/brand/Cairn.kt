@@ -3,6 +3,7 @@ package com.crewcue.android.ui.brand
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -157,12 +157,13 @@ fun LaunchSplash(onFinished: () -> Unit) {
     }
 }
 
+/** Infinite-animation frames, so Compose UI tests can still reach idle while a loader is on screen. */
 @Composable
 private fun rememberElapsedMillis(paused: Boolean): State<Long> = produceState(0L, paused) {
     if (paused) return@produceState
-    val start = withFrameMillis { it }
+    val start = withInfiniteAnimationFrameMillis { it }
     while (true) {
-        withFrameMillis { value = it - start }
+        withInfiniteAnimationFrameMillis { value = it - start }
     }
 }
 
