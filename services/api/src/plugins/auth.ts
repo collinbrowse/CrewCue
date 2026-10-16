@@ -3,6 +3,7 @@ import fastifyJwt from "@fastify/jwt";
 import type { FastifyRequest } from "fastify";
 import type { IdentityClaims } from "@crewcue/contracts";
 import { isAuth0Configured, verifyAuth0AccessToken } from "../lib/auth0Jwt.js";
+import { DEV_JWT_SECRET } from "../lib/authEnv.js";
 import { mapJwtPayloadToIdentity } from "../lib/authIdentity.js";
 import { readAutomationGuardConfig, validateAutomationAuthPayload } from "../lib/automationAuthGuard.js";
 
@@ -26,7 +27,7 @@ export const authPlugin = fp(async (app) => {
   const automationGuard = readAutomationGuardConfig();
 
   await app.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET ?? "dev-only-secret",
+    secret: process.env.JWT_SECRET ?? DEV_JWT_SECRET,
   });
 
   app.decorateRequest("identity", undefined);

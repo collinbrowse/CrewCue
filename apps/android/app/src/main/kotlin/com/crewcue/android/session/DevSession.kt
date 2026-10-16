@@ -1,5 +1,6 @@
 package com.crewcue.android.session
 
+import com.crewcue.android.BuildConfig
 import android.content.Intent
 import android.os.Bundle
 
@@ -11,8 +12,10 @@ data class DevSessionRequest(
     val roomId: String?
 )
 
+/** Debug builds only. A release build must never take a session from a link or intent extras. */
 object DevSession {
-    fun parse(intent: Intent?): DevSessionRequest? {
+    fun parse(intent: Intent?, enabled: Boolean = BuildConfig.DEBUG): DevSessionRequest? {
+        if (!enabled) return null
         val extras = intent?.extras
         if (extras != null && flag(extras)) {
             return DevSessionRequest(

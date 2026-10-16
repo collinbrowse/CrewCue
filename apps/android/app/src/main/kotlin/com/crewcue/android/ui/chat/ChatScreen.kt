@@ -75,7 +75,7 @@ private fun ChatImage(url: String, modifier: Modifier = Modifier) {
     if (loaded != null) {
         Image(
             loaded.asImageBitmap(),
-            contentDescription = "Image",
+            contentDescription = "Shared photo",
             modifier = modifier,
             contentScale = ContentScale.Fit
         )
