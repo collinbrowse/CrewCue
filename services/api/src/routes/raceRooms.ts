@@ -1532,16 +1532,27 @@ function stableStringify(value: unknown): string {
   });
 }
 
-function courseDependentStateFingerprint(input: {
-  course: RaceCourse | undefined;
-  plannedPaceSecondsPerKm: number | undefined;
-  courseFileName: string | undefined;
-}): string {
-  return stableStringify({
-    course: input.course ?? null,
-    plannedPaceSecondsPerKm: input.plannedPaceSecondsPerKm ?? null,
-    courseFileName: input.courseFileName ?? null
-  });
+/** ~1.1 m. Ignores float noise from re-projection so a metadata save does not look like a moved pin. */
+const COURSE_SHAPE_COORD_DECIMALS = 1e5;
+
+function roundCourseShapeCoord(value: number): number {
+  return Math.round(value * COURSE_SHAPE_COORD_DECIMALS) / COURSE_SHAPE_COORD_DECIMALS;
+}
+
+/**
+ * Identity of the course shape that task assignments, protocol notes, and incidents hang off.
+ * Cutoff, title, tags, planned stop, pace, baseline, and derived metrics are not part of this
+ * key: editing them on Pace must not delete that operational data.
+ */
+function courseOperationalResetSignature(course: RaceCourse | undefined): string {
+  const checkpoints = course?.checkpoints ?? [];
+  return stableStringify(
+    checkpoints.map((checkpoint) => ({
+      id: checkpoint.id,
+      latitude: roundCourseShapeCoord(checkpoint.latitude),
+      longitude: roundCourseShapeCoord(checkpoint.longitude)
+    }))
+  );
 }
 
 function syncWorkspaceCheckpoints(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): RaceRoom {
@@ -1665,8 +1676,6 @@ async function persistCourseShapeChange(
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
       previousRoom,
       nextCourse,
-      nextPlannedPaceSecondsPerKm: nextPace,
-      nextCourseFileName: updatedRoom.courseFileName,
       routeOverlayLayer: undefined
     });
     if (shouldResetCourseDependentState) {
@@ -1697,24 +1706,15 @@ async function persistCourseShapeChange(
 function courseDependentStateNeedsReset(input: {
   previousRoom: RaceRoom;
   nextCourse: RaceCourse;
-  nextPlannedPaceSecondsPerKm: number;
-  nextCourseFileName: string | undefined;
   routeOverlayLayer: MapWorkspaceLayer | undefined;
 }): boolean {
   if (input.routeOverlayLayer) {
     return true;
   }
-  const previous = courseDependentStateFingerprint({
-    course: input.previousRoom.course,
-    plannedPaceSecondsPerKm: input.previousRoom.plannedPaceSecondsPerKm,
-    courseFileName: input.previousRoom.courseFileName
-  });
-  const next = courseDependentStateFingerprint({
-    course: input.nextCourse,
-    plannedPaceSecondsPerKm: input.nextPlannedPaceSecondsPerKm,
-    courseFileName: input.nextCourseFileName
-  });
-  return previous !== next;
+  return (
+    courseOperationalResetSignature(input.previousRoom.course) !==
+    courseOperationalResetSignature(input.nextCourse)
+  );
 }
 
 function applyRaceMapWorkspacePut(
@@ -2004,8 +2004,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
       previousRoom: room,
       nextCourse: recomputedCourse,
-      nextPlannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      nextCourseFileName: updatedRoom.courseFileName,
       routeOverlayLayer: parsed.data.routeOverlayLayer
     });
     if (shouldResetCourseDependentState) {
