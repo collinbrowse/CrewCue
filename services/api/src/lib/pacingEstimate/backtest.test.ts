@@ -65,6 +65,18 @@ function scenarioFromFixture(): BacktestScenario {
   };
 }
 
+function scenarioWithReversedWaypoints(): BacktestScenario {
+  const waypointBlocks = COURSE_GPX.match(/  <wpt[\s\S]*?  <\/wpt>\n/g);
+  assert.ok(waypointBlocks);
+  assert.ok(waypointBlocks.length >= 5);
+  const shuffledGpx = COURSE_GPX.replace(waypointBlocks.join(""), [...waypointBlocks].reverse().join(""));
+  return {
+    ...scenarioFromFixture(),
+    name: "50k fixture with unordered waypoints",
+    courseGpxXml: shuffledGpx
+  };
+}
+
 test("harness reports the estimator's own predicted moving times (wiring, not golden numbers)", () => {
   const scenario = scenarioFromFixture();
   const result = runPacingBacktest(scenario);
@@ -102,6 +114,20 @@ test("harness excludes the start line and keeps checkpoints in increasing distan
     assert.ok(
       result.rows[i]!.predictedElapsedSeconds >= result.rows[i - 1]!.predictedElapsedSeconds,
       "predicted elapsed must be monotonic non-decreasing"
+    );
+  }
+});
+
+test("harness sorts report rows by projected distance when GPX waypoints are unordered", () => {
+  const result = runPacingBacktest(scenarioWithReversedWaypoints());
+  assert.deepEqual(
+    result.rows.map((row) => row.checkpointId),
+    ["aid-1", "aid-2", "aid-3", "finish"]
+  );
+  for (let i = 1; i < result.rows.length; i += 1) {
+    assert.ok(
+      result.rows[i]!.distanceMetersFromStart > result.rows[i - 1]!.distanceMetersFromStart,
+      "rows must be sorted by projected course distance rather than GPX waypoint order"
     );
   }
 });
