@@ -75,11 +75,11 @@ object Cairn {
     }
 
     /** Shake loader: separate, shake, close, rest. See "Shake" in the spec. */
-    val shakeCrop = Rect(212f, 212f, 812f, 812f)
+    val shakeCrop = Rect(192f, 192f, 832f, 832f)
     const val SHAKE_PERIOD_MS = 1400L
     const val SHAKE_GAP = 48f
-    const val SHAKE_AMPLITUDE = 32f
-    const val SHAKE_DEGREES = 2f
+    const val SHAKE_AMPLITUDE = 20f
+    const val SHAKE_DEGREES = 7f
 
     class ShakePose(val dx: Float, val dy: Float, val degrees: Float)
 
