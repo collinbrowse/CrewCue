@@ -4,7 +4,7 @@
 crewcue://dev/loader
 
 ## Action
-Open the loader fixture. The animated app icon, a standalone loader, and an inline spinner play the stacking loop.
+Open the loader fixture. The animated app icon, a standalone loader, and an inline spinner play the stacking loop. A large and a small shake loader and a busy button play the shake.
 
 ## API
 none
@@ -13,7 +13,7 @@ none
 none
 
 ## Success
-Three stones stack, then the stack clears and repeats.
+Three stones stack, then the stack clears and repeats. The shake loaders separate, shake, and settle.
 
 ## Empty
 Loading.
@@ -45,3 +45,20 @@ Units are a 1024 × 1024 icon canvas. Stones are pills (corner radius = half the
 - Loop: 2200 ms period. The whole stack fades out from 1890 ms to 2200 ms, then repeats.
 - Launch: plays once without the fade, holds for 250 ms after the top stone lands, then the overlay fades out over 300 ms. Skipped when the app opens from a `crewcue://dev/` deeplink.
 - Reduce Motion: show the finished stack, no movement.
+
+## Shake
+For small inline use, 16–24 pt, inside or next to a busy button. Units are the same 1024-unit icon space as the mark.
+- Crop: a 600-unit square at x 212, y 212, centred on (512, 512), so the lifted stones and the jitter stay inside.
+- Opacity is always 1. Colours and the light-surface option are the same as the mark.
+- Period 1400 ms, repeating:
+  - Separate, 0–250 ms: the gaps open with ease-in-out cubic. The base stays put. The middle stone lifts 48 units and the top stone lifts 96, so a 48-unit gap opens above each row.
+  - Shake, 250–1050 ms: with q = (t − 250) / 800, each stone moves `dx = 32 · sin(6πq + φ) · sin(πq)` units sideways and rotates an extra `2° · sin(6πq + φ) · sin(πq)` about its pivot. φ is 0 for the base, 2π/3 for the middle, and 4π/3 for the top. That is three wobbles that swell and die away, each stone a third of a cycle behind the one below.
+  - Close, 1050–1300 ms: the gaps close with ease-in-out cubic.
+  - Rest, 1300–1400 ms: the plain stack.
+- Ease-in-out cubic: p < 0.5 ? 4p³ : 1 − (2 − 2p)³ / 2.
+- Reduce Motion (iOS) or animator duration scale 0 (Android): the plain stack, no movement.
+
+## Where loaders show
+- Screen-level waits use the stacking loop on the page surface: the race list in Profile while races load and none are listed yet, the chat thread from opening until the first line or a status message, and the course map until its style loads or fails.
+- Busy buttons use the shake loader. A busy button is disabled but not dimmed, and shows a 20 pt shake loader before its label: Pace Recalculate, Starting estimate, Check in, Choose GPX file, Import GPX, Join, the sign-in button that was tapped, Create new race, Save checkpoint, and Start navigation.
+- The stones are cream on a dark fill and slate on a light one, so a primary button in light mode uses cream and in dark mode uses slate.
