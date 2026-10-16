@@ -13,6 +13,8 @@ struct FixtureRouteView: View {
             StreamPocket(screen: screen)
         case "app-shell":
             FixtureShellView()
+        case "brand-loader":
+            BrandLoaderView(screen: screen)
         default:
             FeatureScreenView(screen: screen)
         }
