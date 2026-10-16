@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
+import { logSafeUrl } from "./lib/logSafeUrl.js";
 import { healthRoutes } from "./routes/health.js";
 import { eventRoutes } from "./routes/events.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
@@ -24,7 +25,21 @@ const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
 
 export function buildApp() {
   const app = Fastify({
-    logger: true,
+    logger: {
+      // Never log credentials. Request URLs drop their query (OAuth codes, search text).
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-chat-push-secret']"],
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: logSafeUrl(request.url),
+            host: request.host,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort
+          };
+        }
+      }
+    },
     bodyLimit: BODY_LIMIT_BYTES
   });
 

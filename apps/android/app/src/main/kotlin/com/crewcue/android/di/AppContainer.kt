@@ -1,6 +1,7 @@
 package com.crewcue.android.di
 
 import android.content.Context
+import com.crewcue.android.BuildConfig
 import com.crewcue.android.ClientCoreBridge
 import com.crewcue.android.auth.Auth0SdkGateway
 import com.crewcue.android.auth.AuthConfig
@@ -19,7 +20,7 @@ class AppContainer(context: Context) {
     val raceDay = RaceDayBridge(authConfig.apiBaseUrl, sessionStore, logger)
 
     fun featureScreenJson(url: String): String {
-        logger.log(url)
+        if (BuildConfig.DEBUG) logger.log(url)
         val fromRuntime = runCatching { featureScreenFromRuntime(url) }.getOrNull()
         if (!fromRuntime.isNullOrBlank()) return fromRuntime
         return runCatching { ClientCoreBridge.featureScreenJsonForUrl(url) }

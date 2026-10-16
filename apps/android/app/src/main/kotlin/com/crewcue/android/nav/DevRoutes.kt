@@ -1,5 +1,7 @@
 package com.crewcue.android.nav
 
+import com.crewcue.android.BuildConfig
+
 /**
  * Path table matches client-core `Route.featureId`. Fixture deeplinks stay on these ids.
  */
@@ -32,6 +34,10 @@ object DevRoutes {
         "dev/app-shell" to "app-shell",
         "dev/loader" to "brand-loader"
     )
+
+    /** Feature for a link from outside the app. Release builds open no fixture routes from links. */
+    fun inboundFeatureId(url: String?, enabled: Boolean = BuildConfig.DEBUG): String? =
+        if (enabled) featureId(url) else null
 
     fun featureId(url: String?): String? {
         if (url.isNullOrBlank() || !url.startsWith("crewcue://")) return null
