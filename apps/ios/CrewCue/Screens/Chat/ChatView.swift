@@ -46,6 +46,7 @@ struct ChatView: View {
     var displayName: String?
     var raceName: String
     var status: ChatRaceStatus
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,6 +60,14 @@ struct ChatView: View {
                 }
                 .scrollIndicators(.hidden)
                 .defaultScrollAnchor(.bottom)
+                .overlay {
+                    if model.opening && model.lines.isEmpty {
+                        CairnLoader(onLight: scheme == .light)
+                            .frame(width: 72, height: 72)
+                            .accessibilityIdentifier("crewcue.chat-loading")
+                            .allowsHitTesting(false)
+                    }
+                }
                 .onChange(of: model.lines.last?.id) { _, last in
                     guard let last else { return }
                     withAnimation { proxy.scrollTo(last, anchor: .bottom) }

@@ -29,6 +29,7 @@ struct ProfileTabPage: View {
                 readout: model.mapModel.readout,
                 races: model.roster.races,
                 racesMessage: model.racesMessage,
+                racesLoading: model.racesLoading,
                 onSelectRace: { roomId in model.selectRace(roomId) },
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
@@ -53,6 +54,7 @@ struct ProfileView: View {
     var readout: RaceDayReadout
     var races: [RaceSummary]
     var racesMessage: String
+    var racesLoading = false
     var onSelectRace: (String) -> Void
     var onMembers: () -> Void
     var onIncidents: () -> Void
@@ -60,6 +62,7 @@ struct ProfileView: View {
     var onCreated: @MainActor (String) -> Void
     var onName: @MainActor (String) -> Void
     @Environment(\.crew) private var theme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ScrollView {
@@ -102,6 +105,13 @@ struct ProfileView: View {
                 }
                 VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
                     CrewSectionHeader(title: "Your races")
+                    if races.isEmpty && racesLoading {
+                        CairnLoader(onLight: scheme == .light)
+                            .frame(width: 56, height: 56)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, CrewSpace.base)
+                            .accessibilityIdentifier("crewcue.races-loading")
+                    }
                     if races.isEmpty == false {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(races, id: \.id) { race in
@@ -125,7 +135,7 @@ struct ProfileView: View {
                         Task { await model.createRace(onCreated: onCreated) }
                     }
                     .buttonStyle(.crewPrimary)
-                    .disabled(model.creatingRace)
+                    .crewBusy(model.creatingRace)
                     Button("Join race room", action: onJoin)
                         .buttonStyle(.crewSecondary)
                 }

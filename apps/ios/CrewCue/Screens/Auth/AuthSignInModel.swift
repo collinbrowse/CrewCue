@@ -7,6 +7,8 @@ import CrewCueClientCore
 final class AuthSignInModel {
     private(set) var statusMessage = "No session."
     private(set) var isWorking = false
+    /// The connection whose button started the current sign-in. Empty for the plain Sign in button.
+    private(set) var workingConnection: String?
     var signingUp = false
     private let configuration: Auth0Configuration
     private var onSession: @MainActor (ClientSession) -> Void
@@ -23,11 +25,13 @@ final class AuthSignInModel {
     func signIn(connection: String? = nil) {
         guard !isWorking else { return }
         isWorking = true
+        workingConnection = connection ?? ""
         let provider = connection
         let signUp = signingUp
         Task {
             await performSignIn(connection: provider, signUp: signUp)
             isWorking = false
+            workingConnection = nil
         }
     }
 

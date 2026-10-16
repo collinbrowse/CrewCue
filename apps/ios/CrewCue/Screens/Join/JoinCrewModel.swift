@@ -12,6 +12,8 @@ final class JoinCrewModel {
     private(set) var previewText = ""
     private(set) var statusMessage = "Enter an invite code."
     private(set) var isWorking = false
+    /// A join request is in flight, as opposed to a code preview.
+    private(set) var joining = false
     private(set) var previewedCode: String?
     private let client: AppClient
     var onJoined: @MainActor (String, String?) -> Void = { _, _ in }
@@ -52,9 +54,11 @@ final class JoinCrewModel {
         }
         let requested = code
         isWorking = true
+        joining = true
         Task {
             await runJoin(requested)
             isWorking = false
+            joining = false
         }
     }
 
