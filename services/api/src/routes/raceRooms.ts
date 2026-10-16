@@ -11,6 +11,7 @@ import {
   parseWaypointTags,
   type AthletePingHistoryEntry,
   type AthletePingRejectReason,
+  type RaceRoomLatestPingResponse,
   type CheckpointVisit,
   type CheckpointVisitManualData,
   type CheckpointVisitSource,
@@ -51,7 +52,7 @@ import {
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
-import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
+import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
@@ -3487,5 +3488,55 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const state = getOrInitPingState(roomId);
     const decisions = state.history.slice(-limit);
     return reply.send({ decisions });
+  });
+
+  /**
+   * Latest accepted athlete ping. Crew phones drive race progress readouts from this, never from
+   * their own GPS, so every member sees the same mile, ETA, and "last ping".
+   */
+  app.get("/race-rooms/:roomId/pings/latest", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+
+    const state = getOrInitPingState(roomId);
+    const body: RaceRoomLatestPingResponse = {
+      roomId,
+      stalenessThresholdSeconds: getStalenessThresholdSeconds(state.lastUploadIntervalSeconds),
+      evaluatedAt: new Date().toISOString()
+    };
+    const last = state.lastAccepted;
+    if (last) {
+      const core = roomProjectionState.get(roomId)?.lastProjectionCore;
+      body.ping = {
+        pingId: last.pingId,
+        latitude: last.latitude,
+        longitude: last.longitude,
+        recordedAt: new Date(last.recordedAtMs).toISOString(),
+        receivedAt: new Date(last.receivedAtMs).toISOString(),
+        ...(core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
+          ? { progressMeters: core.progressMeters }
+          : {})
+      };
+    }
+    return reply.send(body);
   });
 }

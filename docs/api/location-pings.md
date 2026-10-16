@@ -65,6 +65,22 @@ Returns recent ping decisions for the room. Requires membership and **paid** ent
 
 Each entry: `id`, `at`, `actor`, `decision` (`accepted` | `rejected`), optional `reason`, optional `pingId` (when accepted).
 
+## `GET /race-rooms/:roomId/pings/latest`
+
+The latest **accepted** ping for the room. Crew phones drive race progress (mile, % complete, next aid, ETA, on-track, average pace, elevation remaining, last ping) from this response, never from their own GPS, so every member sees the same readout. Same gates as ping history (401 / 404 / 403 / 402).
+
+**200 response** (`RaceRoomLatestPingResponse` in `@crewcue/contracts`):
+
+| Field | Notes |
+| --- | --- |
+| `roomId` | Room id. |
+| `ping` | Absent until the first accepted ping. `pingId`, `latitude`, `longitude`, `recordedAt` (athlete device time, used for "last ping"), `receivedAt` (server accept time), and optional `progressMeters`. |
+| `ping.progressMeters` | Route-snapped progress from the room projection for this exact ping. Absent when the room has no projection for it (no planned pace, race start, or route line). Clients then snap the ping to the nearest checkpoint. |
+| `stalenessThresholdSeconds` | Seconds after `recordedAt` when the reading is stale. Same rule as projection confidence: `min(3 × uploadIntervalSeconds, 15 min)`, else 15 min. |
+| `evaluatedAt` | Server time the response was built. |
+
+Rejected pings never replace `ping`.
+
 ## Logging
 
 Accepted and rejected ingest paths emit structured log lines with message **`ping_decision`** and payload `ping_decision: { roomId, actor, decision, reason?, pingId? }`.
