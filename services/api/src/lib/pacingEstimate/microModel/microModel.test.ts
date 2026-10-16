@@ -13,6 +13,24 @@ import {
 } from "./index.js";
 import { METERS_PER_MILE } from "./constants.js";
 
+function historyRef(input: {
+  id: string;
+  distanceMeters: number;
+  elapsedSeconds: number;
+  elevationGainMeters?: number;
+}) {
+  return {
+    id: input.id,
+    source: "gpx_upload" as const,
+    externalId: `ext-${input.id}`,
+    recordedAt: "2026-01-01T00:00:00.000Z",
+    ingestedAt: "2026-01-02T00:00:00.000Z",
+    distanceMeters: input.distanceMeters,
+    elapsedSeconds: input.elapsedSeconds,
+    ...(input.elevationGainMeters !== undefined ? { elevationGainMeters: input.elevationGainMeters } : {})
+  };
+}
+
 test("cold-start GAP is 10:00 per mile", () => {
   assert.equal(COLD_START_GAP_SECONDS_PER_MILE, 600);
   assert.ok(Math.abs(coldStartGapSecondsPerMeter() * METERS_PER_MILE - 600) < 1e-9);
@@ -197,6 +215,53 @@ test("when a long effort exists, prefer it over a short road run", () => {
   const both = buildRunnerProfile({ history: [long, short], courseDistanceMeters });
   assert.deepEqual(both.historyRefIds, ["long"]);
   assert.ok(Math.abs(both.gapSecondsPerMeter - 0.5) < 1e-9);
+});
+
+test("runner profile ignores non-finite history metrics before fallback aggregation", () => {
+  const profile = buildRunnerProfile({
+    courseDistanceMeters: 50_000,
+    history: [
+      historyRef({
+        id: "bad-infinite-distance",
+        distanceMeters: Number.POSITIVE_INFINITY,
+        elapsedSeconds: 1_000
+      }),
+      historyRef({
+        id: "bad-infinite-elapsed",
+        distanceMeters: 4_000,
+        elapsedSeconds: Number.POSITIVE_INFINITY
+      }),
+      historyRef({
+        id: "good-short",
+        distanceMeters: 4_000,
+        elapsedSeconds: 2_000
+      })
+    ]
+  });
+
+  assert.equal(profile.coldStart, false);
+  assert.deepEqual(profile.historyRefIds, ["good-short"]);
+  assert.ok(Number.isFinite(profile.gapSecondsPerMeter));
+  assert.ok(Math.abs(profile.gapSecondsPerMeter - 0.5) < 1e-9);
+});
+
+test("runner profile treats non-finite elevation gain as absent", () => {
+  const profile = buildRunnerProfile({
+    courseDistanceMeters: 50_000,
+    history: [
+      historyRef({
+        id: "bad-gain",
+        distanceMeters: 40_000,
+        elapsedSeconds: 16_000,
+        elevationGainMeters: Number.POSITIVE_INFINITY
+      })
+    ]
+  });
+
+  assert.equal(profile.coldStart, false);
+  assert.deepEqual(profile.historyRefIds, ["bad-gain"]);
+  assert.ok(Number.isFinite(profile.gapSecondsPerMeter));
+  assert.ok(Math.abs(profile.gapSecondsPerMeter - 0.4) < 1e-9);
 });
 
 test("scenario bands: conservative >= expected >= aggressive", () => {

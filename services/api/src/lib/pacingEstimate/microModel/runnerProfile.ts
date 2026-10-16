@@ -49,8 +49,10 @@ function usableHistory(history: ActivityHistoryRef[]): ActivityHistoryRef[] {
   return history.filter(
     (row) =>
       typeof row.distanceMeters === "number" &&
+      Number.isFinite(row.distanceMeters) &&
       row.distanceMeters > 0 &&
       typeof row.elapsedSeconds === "number" &&
+      Number.isFinite(row.elapsedSeconds) &&
       row.elapsedSeconds > 0
   );
 }
@@ -82,7 +84,10 @@ function flatEquivalentSecondsPerMeter(selected: ActivityHistoryRef[]): number {
   let flatEquivalentDistanceSum = 0;
   for (const row of selected) {
     const distanceMeters = row.distanceMeters as number;
-    const gainMeters = typeof row.elevationGainMeters === "number" ? row.elevationGainMeters : 0;
+    const gainMeters =
+      typeof row.elevationGainMeters === "number" && Number.isFinite(row.elevationGainMeters)
+        ? row.elevationGainMeters
+        : 0;
     elapsedSum += row.elapsedSeconds as number;
     flatEquivalentDistanceSum += distanceMeters + GAIN_FLAT_EQUIVALENT_METERS_PER_METER * gainMeters;
   }
