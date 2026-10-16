@@ -5,6 +5,8 @@ import CrewCueClientCore
 struct CrewCueApp: App {
     @UIApplicationDelegateAdaptor(CrewCueAppDelegate.self) private var appDelegate
     @State private var model: ShellModel
+    /// Dev deeplink launches go straight to their fixture.
+    @State private var showSplash = !CommandLine.arguments.contains("--deeplink")
 
     init() {
         self.model = CompositionRoot().makeModel()
@@ -13,6 +15,11 @@ struct CrewCueApp: App {
     var body: some Scene {
         WindowGroup {
             AppRouter(model: model)
+                .overlay {
+                    if showSplash {
+                        LaunchSplash { showSplash = false }
+                    }
+                }
         }
     }
 }
