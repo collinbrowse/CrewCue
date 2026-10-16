@@ -36,6 +36,9 @@ class ChatViewModel(
         private set
     var sending by mutableStateOf(false)
         private set
+    /** The thread is opening: no messages or status yet. */
+    var opening by mutableStateOf(true)
+        private set
 
     private var channelId = "crew-$roomId"
     private var authors = ChatAuthorLabels()
@@ -44,8 +47,13 @@ class ChatViewModel(
     private val sessionGate = Mutex()
 
     fun load(context: Context) {
+        opening = true
         viewModelScope.launch {
-            sessionGate.withLock { openSession(context) }
+            try {
+                sessionGate.withLock { openSession(context) }
+            } finally {
+                opening = false
+            }
         }
     }
 

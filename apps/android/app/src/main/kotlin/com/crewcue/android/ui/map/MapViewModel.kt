@@ -54,6 +54,9 @@ class MapViewModel(
         private set
     var navigateBusy by mutableStateOf(false)
         private set
+    /** The route mode being requested, so only its button shows the loader. */
+    var navigateMode by mutableStateOf<String?>(null)
+        private set
     var locationMessage by mutableStateOf(LOCATION_EMPTY)
         private set
     var readout by mutableStateOf(RaceReadout())
@@ -189,6 +192,7 @@ class MapViewModel(
         }
         viewModelScope.launch {
             navigateBusy = true
+            navigateMode = mode
             try {
                 val result = try {
                     withContext(Dispatchers.IO) {
@@ -205,6 +209,7 @@ class MapViewModel(
                 }
             } finally {
                 navigateBusy = false
+                navigateMode = null
             }
         }
     }

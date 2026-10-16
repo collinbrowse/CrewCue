@@ -102,7 +102,8 @@ fun JoinCrewScreen(viewModel: ShellViewModel) {
             if (viewModel.session == null) "Sign in to join" else "Join",
             onClick = { viewModel.join(activity) },
             enabled = code.length == 6 && !viewModel.joinBusy,
-            spoken = "Join"
+            spoken = "Join",
+            busy = viewModel.joining
         )
     }
 }

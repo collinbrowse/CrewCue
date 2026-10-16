@@ -51,10 +51,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.brand.CairnLoader
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CrewClock
 import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricLargeStyle
 import com.crewcue.android.ui.theme.StatusChip
 import kotlinx.coroutines.Dispatchers
@@ -106,13 +108,21 @@ fun ChatScreen(
             .imePadding()
     ) {
         ChatStatusHeader(race, shell.races.firstOrNull { it.id == roomId }?.name.orEmpty())
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            items(model.messages) { line -> ChatBubble(line) }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                items(model.messages) { line -> ChatBubble(line) }
+            }
+            if (model.opening && model.messages.isEmpty()) {
+                CairnLoader(
+                    modifier = Modifier.size(72.dp).testTag("crewcue.chat-loading"),
+                    onLight = !LocalCrewExtras.current.dark
+                )
+            }
         }
         model.status?.let { line ->
             Text(
