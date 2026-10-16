@@ -557,6 +557,54 @@ test("attach by estimate body works and seeds store ownership", async () => {
   });
 });
 
+test("attach by estimate body derives planned pace from finish when no stored baseline exists", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-body-pace");
+    const roomId = await createPaidRoom(app, ownerToken, "attach body fallback pace");
+    const room = await put50kCourse(app, roomId, ownerToken);
+    assert.ok(room.course?.derivedMetrics?.canonicalDistanceMeters);
+    const beforePace = room.plannedPaceSecondsPerKm;
+    const courseLengthKm = room.course.derivedMetrics.canonicalDistanceMeters / 1000;
+
+    const estimate = parsePacingEstimate({
+      id: "est_manual_body_no_baseline",
+      coldStart: true,
+      expectedFinishAt: "2026-08-15T21:20:00.000Z",
+      expectedFinishElapsedSeconds: 30_000,
+      aidEtas: [],
+      explanation: "Manual estimate body without a stored baseline."
+    });
+
+    const attach = await attachEstimate(app, roomId, ownerToken, { estimate });
+    assert.equal(attach.statusCode, 200);
+
+    const persisted = await getRaceRoom(roomId);
+    assert.ok(persisted?.plannedPaceSecondsPerKm);
+    const expectedPace = estimate.expectedFinishElapsedSeconds / courseLengthKm;
+    assert.ok(
+      Math.abs(persisted.plannedPaceSecondsPerKm - expectedPace) < 1e-6,
+      `expected fallback pace ${expectedPace}, got ${persisted.plannedPaceSecondsPerKm}`
+    );
+    assert.notEqual(persisted.plannedPaceSecondsPerKm, beforePace);
+
+    const sheet = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assert.equal(sheet.pacingEstimateId, estimate.id);
+    const finishStop = stopByCheckpoint(sheet, "finish");
+    assert.equal(finishStop.movingElapsedSeconds, estimate.expectedFinishElapsedSeconds);
+
+    const projection = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(projection.statusCode, 200, projection.body);
+    assert.equal(
+      (projection.json() as { plannedPaceSecondsPerKm: number }).plannedPaceSecondsPerKm,
+      persisted.plannedPaceSecondsPerKm
+    );
+  });
+});
+
 test("foreign athlete cannot attach estimate body they do not own when id exists", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("owner-w34-body-foreign");
