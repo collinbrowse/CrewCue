@@ -191,7 +191,8 @@ actor HeaderCaptureTransport: HTTPTransport {
         ("crewcue://dev/profile", "profile"),
         ("crewcue://dev/room-members", "room-members"),
         ("crewcue://dev/strava", "strava"),
-        ("crewcue://dev/app-shell", "app-shell")
+        ("crewcue://dev/app-shell", "app-shell"),
+        ("crewcue://dev/loader", "brand-loader")
     ]
     for (url, featureId) in cases {
         let route = Route.parse(url)

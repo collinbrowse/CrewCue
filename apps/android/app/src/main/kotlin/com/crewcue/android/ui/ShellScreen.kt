@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.crewcue.android.ui.athlete.AthleteSetupScreen
+import com.crewcue.android.ui.brandloader.BrandLoaderDemo
 import com.crewcue.android.ui.auth.AuthSignInScreen
 import com.crewcue.android.ui.notifications.NotificationPermissionScreen
 import com.crewcue.android.ui.chat.ChatScreen
@@ -282,6 +283,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 FeatureScreen(viewModel.uiState)
             }
         }
+        "brand-loader" -> FeatureScreen(viewModel.uiState) { BrandLoaderDemo(viewModel.uiState.screen.title) }
         else -> FeatureScreen(viewModel.uiState)
     }
 }

@@ -29,7 +29,8 @@ object DevRoutes {
         "dev/profile" to "profile",
         "dev/room-members" to "room-members",
         "dev/strava" to "strava",
-        "dev/app-shell" to "app-shell"
+        "dev/app-shell" to "app-shell",
+        "dev/loader" to "brand-loader"
     )
 
     fun featureId(url: String?): String? {
