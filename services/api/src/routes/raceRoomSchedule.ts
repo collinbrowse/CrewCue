@@ -19,6 +19,7 @@ import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
 import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
@@ -374,7 +375,9 @@ const attachPacingEstimateBody = z
   .object({
     pacingEstimateId: z.string().min(1).optional(),
     /** Full estimate snapshot (alternative to id when client already holds POST /pacing-estimates output). */
-    estimate: z.unknown().optional()
+    estimate: z.unknown().optional(),
+    /** Why the plan changes (#538). Absent means "auto", which only the race athlete may use. */
+    trigger: planTriggerSchema.optional()
   })
   .strict()
   .refine((body) => body.pacingEstimateId !== undefined || body.estimate !== undefined, {
@@ -430,7 +433,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
   /**
    * Attach a pacing estimate as the room plan of record.
-   * Ownership: only the athlete who created the estimate may attach it (401/403 otherwise).
+   * Ownership: the race athlete attaches their own estimates for any trigger. Other race-setup
+   * editors may attach only an estimate built from the athlete's history (owned by the athlete),
+   * and only to seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise.
    * Idempotent when the same estimate id is already attached.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
@@ -445,7 +450,22 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.code(400).send({ error: "Invalid pacing estimate attach payload", code: "invalid_payload" });
     }
 
-    const athleteUserId = request.identity!.sub;
+    const callerUserId = request.identity!.sub;
+    const authority = decidePlanAuthority({
+      room,
+      userId: callerUserId,
+      canEditRaceSetup: true,
+      trigger: parsedBody.data.trigger ?? "auto"
+    });
+    if (!authority.ok) {
+      return reply.code(authority.status).send({ error: authority.error, code: authority.code });
+    }
+    const athleteUserId = authority.historyOwnerUserId;
+    const crewChange = !isRoomAthlete(room, callerUserId);
+    const notTheAthletesEstimate = () =>
+      crewChange
+        ? reply.code(403).send({ error: "Only an estimate built from the athlete's history can be the plan", code: "plan_authority" })
+        : reply.code(403).send({ error: "Forbidden" });
     let estimate: PacingEstimate;
     let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
 
@@ -455,11 +475,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(400).send({ error: "Unknown pacingEstimateId", code: "invalid_estimate_id" });
       }
       if (stored.athleteUserId !== athleteUserId) {
-        return reply.code(403).send({ error: "Forbidden" });
+        return notTheAthletesEstimate();
       }
       estimate = stored.estimate;
       storedBaseline = stored.baselineTrack;
     } else {
+      if (crewChange) {
+        // A snapshot proves nothing about whose history built it.
+        return notTheAthletesEstimate();
+      }
       try {
         estimate = parsePacingEstimate(parsedBody.data.estimate);
       } catch {

@@ -1053,7 +1053,7 @@ type PermissionSet = {
   canEditCheckpointStops: boolean;
 };
 
-function getPermissions(role: Role): PermissionSet {
+export function getPermissions(role: Role): PermissionSet {
   const canEditRaceSetup = role === "athlete" || role === "crew_chief" || role === "team_manager";
   const canIssueInvite = role === "athlete" || role === "crew_chief" || role === "team_manager";
   return {
@@ -2672,6 +2672,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
+    if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
+      // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
+      return await reject("stale_recorded_at", "recordedAt must be after the last accepted ping");
+    }
     if (pingState.lastAccepted) {
       const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
       if (dtSec > 0) {

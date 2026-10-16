@@ -50,6 +50,7 @@ Includes `pingId`, `roomId`, `recordedAt`, `receivedAt`, coordinates, optional a
 | `clock_skew` | `recordedAt` too far from server time. |
 | `implausible_motion` | Distance vs time from last accepted ping implies speed above threshold. |
 | `accuracy_too_poor` | `horizontalAccuracyMeters` above threshold. |
+| `stale_recorded_at` | `recordedAt` is not after the room's last accepted ping (replay or out of order). Clients drop the sample and do not retry. |
 
 ## `GET /race-rooms/:roomId/pings/history`
 
