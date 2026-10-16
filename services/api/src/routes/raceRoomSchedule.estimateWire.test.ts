@@ -678,6 +678,83 @@ test("estimate projection interpolates unanchored checkpoints and stacks their d
   assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, 14_400 + 30 + 60 + 120 + 90);
 });
 
+test("estimate projection sorts checkpoints by distance and ignores stale aid ETAs", () => {
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000, plannedStopSeconds: 0 },
+    { id: "aid-2", latitude: 0, longitude: 0, distanceMetersFromStart: 20_000, plannedStopSeconds: 90 },
+    {
+      id: "landmark",
+      latitude: 0,
+      longitude: 0,
+      distanceMetersFromStart: 15_000,
+      plannedStopSeconds: 120
+    },
+    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0, plannedStopSeconds: 30 },
+    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000, plannedStopSeconds: 60 }
+  ];
+  const estimate: PacingEstimate = {
+    id: "est_unsorted_stale_etas",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T17:00:00.000Z",
+    expectedFinishElapsedSeconds: 14_400,
+    aidEtas: [
+      {
+        checkpointId: "aid-2",
+        clockArrivalAt: "2026-08-15T15:00:00.000Z",
+        elapsedSeconds: 7200
+      },
+      {
+        checkpointId: "stale-aid-from-previous-course",
+        clockArrivalAt: "2026-08-15T13:30:00.000Z",
+        elapsedSeconds: 1800
+      },
+      {
+        checkpointId: "aid-1",
+        clockArrivalAt: "2026-08-15T14:00:00.000Z",
+        elapsedSeconds: 3600
+      }
+    ],
+    explanation: "Synthetic estimate with unordered ETAs and a stale checkpoint id."
+  };
+  const room = {
+    id: "room-estimate-unsorted-stale",
+    teamId: "team-1",
+    athleteId: "athlete-1",
+    name: "Estimate unordered anchors",
+    status: "active",
+    createdAt: RACE_START_AT,
+    raceStartAt: RACE_START_AT,
+    activatedAt: RACE_START_AT,
+    memberships: [],
+    entitlement: { status: "paid", lastUpdatedAt: RACE_START_AT, source: "manual" },
+    course: {
+      checkpoints,
+      derivedMetrics: {
+        canonicalDistanceMeters: 40_000,
+        elevationGainMeters: 0,
+        elevationLossMeters: 0,
+        elevationSource: "none",
+        metricsVersion: 1
+      }
+    },
+    plannedPaceSecondsPerKm: 600,
+    pacingEstimateId: estimate.id,
+    pacingEstimate: estimate
+  } as RaceRoom;
+
+  const sheet = projectCrewScheduleSheet(room);
+  assert.deepEqual(
+    sheet.stops.map((stop) => stop.checkpointId),
+    ["start", "aid-1", "landmark", "aid-2", "finish"]
+  );
+  assert.equal(stopByCheckpoint(sheet, "aid-1").movingElapsedSeconds, 3600);
+  assert.equal(stopByCheckpoint(sheet, "landmark").movingElapsedSeconds, 5400);
+  assert.equal(stopByCheckpoint(sheet, "aid-2").movingElapsedSeconds, 7200);
+  assert.equal(stopByCheckpoint(sheet, "finish").movingElapsedSeconds, 14_400);
+  assert.equal(stopByCheckpoint(sheet, "landmark").elapsedSeconds, 5400 + 30 + 60);
+  assert.equal(stopByCheckpoint(sheet, "finish").elapsedSeconds, 14_400 + 30 + 60 + 120 + 90);
+});
+
 test("estimate projection treats farthest checkpoint as finish when finish id is absent", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
     { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
