@@ -59,6 +59,7 @@ struct MapView: View {
                     CairnLoader(onLight: scheme == .light)
                         .frame(width: 64, height: 64)
                         .accessibilityIdentifier("crewcue.map-loading")
+                        .allowsHitTesting(false)
                 }
             }
             MapAidSheet(model: model, tool: $tool)

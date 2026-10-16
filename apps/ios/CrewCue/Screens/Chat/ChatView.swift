@@ -65,6 +65,7 @@ struct ChatView: View {
                         CairnLoader(onLight: scheme == .light)
                             .frame(width: 72, height: 72)
                             .accessibilityIdentifier("crewcue.chat-loading")
+                            .allowsHitTesting(false)
                     }
                 }
                 .onChange(of: model.lines.last?.id) { _, last in
