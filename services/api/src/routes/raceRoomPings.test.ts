@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { setRaceRoomStatusForTests } from "./raceRooms.js";
+import {
+  setPingProjectionCommitDelayForTests,
+  setRaceRoomStatusForTests,
+  setRoomRuntimeLockWaitForTests
+} from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -334,4 +338,92 @@ test("rejects ping when horizontal accuracy is too poor", async () => {
   assert.equal((pingResponse.json() as { reason: string }).reason, "accuracy_too_poor");
 
   await app.close();
+});
+
+test("manual check-in survives a ping that already snapshotted projection state", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-checkin-ping-race"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+  const headers = { authorization: `Bearer ${ownerToken}` };
+
+  let releasePingCommit: (() => void) | undefined;
+  const pingCommitGate = new Promise<void>((resolve) => {
+    releasePingCommit = resolve;
+  });
+  let markPingCommitEntered: (() => void) | undefined;
+  const pingCommitEntered = new Promise<void>((resolve) => {
+    markPingCommitEntered = resolve;
+  });
+  setPingProjectionCommitDelayForTests(roomId, async () => {
+    markPingCommitEntered?.();
+    await pingCommitGate;
+  });
+
+  let markCheckInWaiting: (() => void) | undefined;
+  const checkInWaiting = new Promise<void>((resolve) => {
+    markCheckInWaiting = resolve;
+  });
+  setRoomRuntimeLockWaitForTests((waitingRoomId) => {
+    if (waitingRoomId === roomId) {
+      markCheckInWaiting?.();
+    }
+  });
+
+  try {
+    const pingResponsePromise = app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: {
+        latitude: 42.005,
+        longitude: -70.0,
+        recordedAt: isoNow(),
+        horizontalAccuracyMeters: 8
+      },
+      headers
+    });
+    await pingCommitEntered;
+
+    const checkInResponsePromise = app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/checkpoints/cp1/manual-stop`,
+      payload: {
+        arrivalAt: "2026-05-12T18:00:00.000Z",
+        departureAt: "2026-05-12T18:10:00.000Z",
+        note: "aid refill"
+      },
+      headers
+    });
+    await checkInWaiting;
+    releasePingCommit?.();
+
+    const [pingResponse, checkInResponse] = await Promise.all([pingResponsePromise, checkInResponsePromise]);
+    assert.equal(pingResponse.statusCode, 201);
+    assert.equal(checkInResponse.statusCode, 200);
+
+    const projectionResponse = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers
+    });
+    assert.equal(projectionResponse.statusCode, 200);
+    const projection = projectionResponse.json() as {
+      checkpointSplits: Array<{
+        checkpointId: string;
+        visits: Array<{ manualEntry?: { note?: string; actualStopSeconds: number } }>;
+      }>;
+    };
+    const aid = projection.checkpointSplits.find((row) => row.checkpointId === "cp1");
+    const manual = aid?.visits.find((visit) => visit.manualEntry);
+    assert.equal(
+      manual?.manualEntry?.actualStopSeconds,
+      600,
+      "closed check-in must remain after the overlapping ping commits"
+    );
+  } finally {
+    releasePingCommit?.();
+    setPingProjectionCommitDelayForTests(roomId, undefined);
+    setRoomRuntimeLockWaitForTests(undefined);
+    await app.close();
+  }
 });
