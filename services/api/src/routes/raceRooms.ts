@@ -1999,6 +1999,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         recomputedCourse.checkpoints
       );
       updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
+      // New GPX / route overlay is a different course. The attached plan-of-record estimate
+      // (and its aid ETAs) were computed for the previous polyline; keeping it would leave
+      // GET /schedule on the old race's clocks. Drop it so the next schedule view can
+      // auto-create a fresh estimate for this geometry (#481 attach + replace-file).
+      if (updatedRoom.pacingEstimate !== undefined || updatedRoom.pacingEstimateId !== undefined) {
+        delete updatedRoom.pacingEstimate;
+        delete updatedRoom.pacingEstimateId;
+      }
     }
 
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
