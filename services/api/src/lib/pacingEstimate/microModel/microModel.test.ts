@@ -260,6 +260,64 @@ test("PR D: aid ETA fallback emits only planned-stop checkpoints when none are a
   assert.deepEqual(ids, ["crew-b"]);
 });
 
+test("loop finish waypoint does not collapse the predicted finish to the first pass", () => {
+  const route = [];
+  for (let i = 0; i <= 40; i++) {
+    route.push({
+      latitude: 40 + i * 0.0008,
+      longitude: -105.2,
+      elevationMeters: 1700
+    });
+  }
+  const end = route[40]!;
+  const early = route[1]!;
+  const shared = {
+    raceStartAt: "2026-08-01T06:00:00.000Z",
+    history: [],
+    routeMetricPoints: route,
+    courseLengthMeters: 4000
+  };
+  const loop = estimatePacingMicroModelWithArtifacts({
+    ...shared,
+    checkpoints: [
+      { id: "start", latitude: route[0]!.latitude, longitude: route[0]!.longitude, distanceMetersFromStart: 0 },
+      {
+        id: "finish",
+        title: "Finish",
+        latitude: early.latitude,
+        longitude: early.longitude,
+        distanceMetersFromStart: 100
+      },
+      {
+        id: "finish-2",
+        title: "Finish",
+        latitude: end.latitude,
+        longitude: end.longitude,
+        distanceMetersFromStart: 4000
+      }
+    ]
+  });
+  const pointToPoint = estimatePacingMicroModelWithArtifacts({
+    ...shared,
+    checkpoints: [
+      { id: "start", latitude: route[0]!.latitude, longitude: route[0]!.longitude, distanceMetersFromStart: 0 },
+      {
+        id: "finish",
+        title: "Finish",
+        latitude: end.latitude,
+        longitude: end.longitude,
+        distanceMetersFromStart: 4000
+      }
+    ]
+  });
+  assert.ok(loop.estimate.expectedFinishElapsedSeconds > 600);
+  assert.ok(
+    Math.abs(
+      loop.estimate.expectedFinishElapsedSeconds - pointToPoint.estimate.expectedFinishElapsedSeconds
+    ) < 120
+  );
+});
+
 test("estimatePacingMicroModelWithArtifacts returns parseable estimate + baseline", () => {
   const route = [];
   for (let i = 0; i <= 40; i++) {

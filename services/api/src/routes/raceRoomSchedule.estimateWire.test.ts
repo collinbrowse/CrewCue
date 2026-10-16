@@ -708,3 +708,23 @@ test("estimate projection treats farthest checkpoint as finish when finish id is
   assert.equal(moving.get("aid-1"), 3600);
   assert.equal(moving.get("last-aid"), 12_000);
 });
+
+test("estimate projection does not treat an early finish id as the race finish", () => {
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
+    { id: "finish", title: "Finish", latitude: 0, longitude: 0, distanceMetersFromStart: 100 },
+    { id: "finish-2", title: "Finish", latitude: 0, longitude: 0, distanceMetersFromStart: 40_000 }
+  ];
+  const estimate: PacingEstimate = {
+    id: "est_loop_finish",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T16:20:00.000Z",
+    expectedFinishElapsedSeconds: 14_400,
+    aidEtas: [],
+    explanation: "Loop course whose first Finish waypoint is the outbound pass."
+  };
+
+  const moving = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
+  assert.equal(moving.get("finish-2"), 14_400);
+  assert.ok((moving.get("finish") ?? 0) < 600);
+});
