@@ -236,6 +236,15 @@
       "scope": "v1",
       "ios": "fail",
       "android": "fail"
+    },
+    {
+      "id": "brand-loader",
+      "entry": "crewcue://dev/loader",
+      "label": "crewcue.loader",
+      "sdk": "none",
+      "scope": "harness",
+      "ios": "fail",
+      "android": "fail"
     }
   ]
 }

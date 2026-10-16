@@ -36,6 +36,9 @@
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>CrewCue uses your location while you are using the app to share the athlete's position with the crew.</string>
   <key>UILaunchScreen</key>
-  <dict/>
+  <dict>
+    <key>UIColorName</key>
+    <string>LaunchBackground</string>
+  </dict>
 </dict>
 </plist>

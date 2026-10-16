@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cairn stones in 1024-unit icon space, scaled to the 72dp visible area. Spec: clients/behavior/brand-loader.md -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group android:scaleX="0.6667" android:scaleY="0.6667" android:pivotX="512" android:pivotY="512">
+        <path android:fillColor="#FFF3ECDD" android:pathData="M357,640 H667 A75,75 0 0 1 667,790 H357 A75,75 0 0 1 357,640 Z" />
+        <group android:rotation="-4" android:pivotX="512" android:pivotY="542">
+            <path android:fillColor="#FFF3ECDD" android:pathData="M420,474 H604 A68,68 0 0 1 604,610 H420 A68,68 0 0 1 420,474 Z" />
+        </group>
+        <group android:rotation="6" android:pivotX="512" android:pivotY="385">
+            <path android:fillColor="#FFFF7A3D" android:pathData="M473,326 H551 A59,59 0 0 1 551,444 H473 A59,59 0 0 1 473,326 Z" />
+        </group>
+    </group>
+</vector>
