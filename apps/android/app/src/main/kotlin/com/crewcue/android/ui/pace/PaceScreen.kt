@@ -186,7 +186,7 @@ private fun EstimateCard(model: PaceViewModel) {
                 "Recalculate",
                 onClick = model::recalculate,
                 modifier = Modifier.padding(top = 12.dp),
-                enabled = !model.estimateBusy
+                busy = model.estimateBusy
             )
         }
     }
@@ -377,7 +377,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
                 model.checkInMessage?.let { line ->
                     Text(line, modifier = Modifier.semantics { contentDescription = line })
                 }
-                PrimaryButton("Check in", onClick = model::submitCheckIn, enabled = !model.checkInBusy)
+                PrimaryButton("Check in", onClick = model::submitCheckIn, busy = model.checkInBusy)
             }
         }
     }
@@ -393,10 +393,10 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             SecondaryButton(
                 "Choose file",
                 onClick = { picker.launch(arrayOf("*/*")) },
-                enabled = !model.gpxBusy,
-                spoken = "Choose route file"
+                spoken = "Choose route file",
+                busy = model.gpxBusy
             )
-            PrimaryButton("Import", onClick = model::importPastedGpx, enabled = !model.gpxBusy, spoken = "Import route")
+            PrimaryButton("Import", onClick = model::importPastedGpx, spoken = "Import route", busy = model.gpxBusy)
         }
     }
     ProductCard(Modifier.testTag("crewcue.crew-sheet-export")) {

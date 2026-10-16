@@ -32,8 +32,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.PI
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.sin
 
 /** The Cairn mark and its motion. Geometry and timing: `clients/behavior/brand-loader.md`. */
 object Cairn {
@@ -72,6 +74,32 @@ object Cairn {
         return (1 - easeOutBack(progress)) * -LIFT to min(progress / 0.3f, 1f)
     }
 
+    /** Shake loader: separate, shake, close, rest. See "Shake" in the spec. */
+    val shakeCrop = Rect(192f, 192f, 832f, 832f)
+    const val SHAKE_PERIOD_MS = 1400L
+    const val SHAKE_GAP = 48f
+    const val SHAKE_AMPLITUDE = 20f
+    const val SHAKE_DEGREES = 7f
+
+    class ShakePose(val dx: Float, val dy: Float, val degrees: Float)
+
+    fun shakePose(index: Int, elapsedMs: Long): ShakePose {
+        val t = elapsedMs % SHAKE_PERIOD_MS
+        val separation = when {
+            t < 250 -> easeInOutCubic(t / 250f)
+            t < 1050 -> 1f
+            t < 1300 -> 1 - easeInOutCubic((t - 1050) / 250f)
+            else -> 0f
+        }
+        val wave = if (t in 250 until 1050) {
+            val q = (t - 250) / 800f
+            sin(6 * PI.toFloat() * q + 2 * PI.toFloat() / 3 * index) * sin(PI.toFloat() * q)
+        } else 0f
+        return ShakePose(SHAKE_AMPLITUDE * wave, -SHAKE_GAP * index * separation, SHAKE_DEGREES * wave)
+    }
+
+    private fun easeInOutCubic(p: Float): Float = if (p < 0.5f) 4 * p * p * p else 1 - (2 - 2 * p).pow(3) / 2
+
     private fun easeOutBack(x: Float): Float {
         val overshoot = 1.7f
         return 1 + (overshoot + 1) * (x - 1).pow(3) + overshoot * (x - 1).pow(2)
@@ -87,26 +115,42 @@ fun CairnMark(
     onLight: Boolean = false,
     crop: Rect = Cairn.crop
 ) {
+    CairnStones(modifier, onLight, crop) { _, stone ->
+        val (offset, opacity) = Cairn.pose(stone, elapsedMs)
+        StonePose(0f, offset, 0f, opacity * alpha)
+    }
+}
+
+private class StonePose(val dx: Float, val dy: Float, val degrees: Float, val alpha: Float)
+
+/** Draws the stones, each moved by [pose]: sideways and vertical offset, extra degrees, opacity. */
+@Composable
+private fun CairnStones(
+    modifier: Modifier,
+    onLight: Boolean,
+    crop: Rect,
+    pose: (Int, Cairn.Stone) -> StonePose
+) {
     Canvas(modifier.clipToBounds()) {
         val scale = min(size.width, size.height) / crop.width
         translate((size.width - crop.width * scale) / 2, (size.height - crop.height * scale) / 2) {
             scale(scale, scale, pivot = Offset.Zero) {
                 translate(-crop.left, -crop.top) {
                     Cairn.stones.forEachIndexed { index, stone ->
-                        val (offset, opacity) = Cairn.pose(stone, elapsedMs)
+                        val moved = pose(index, stone)
                         val color = when {
                             index == Cairn.stones.lastIndex -> Cairn.Orange
                             onLight -> Cairn.Slate
                             else -> Cairn.Cream
                         }
-                        translate(0f, offset) {
-                            rotate(stone.degrees, stone.pivot) {
+                        translate(moved.dx, moved.dy) {
+                            rotate(stone.degrees + moved.degrees, stone.pivot) {
                                 drawRoundRect(
                                     color = color,
                                     topLeft = stone.rect.topLeft,
                                     size = stone.rect.size,
                                     cornerRadius = CornerRadius(stone.rect.height / 2),
-                                    alpha = opacity * alpha
+                                    alpha = moved.alpha
                                 )
                             }
                         }
@@ -132,6 +176,18 @@ fun CairnLoader(modifier: Modifier = Modifier, onLight: Boolean = true, crop: Re
         onLight = onLight,
         crop = crop
     )
+}
+
+/** Small inline loader: the rows separate, shake out of phase, and settle. Animations off shows the plain stack. */
+@Composable
+fun CairnShakeLoader(modifier: Modifier = Modifier, onLight: Boolean = true) {
+    val reduceMotion = rememberReduceMotion()
+    val elapsed by rememberElapsedMillis(paused = reduceMotion)
+    val t = if (reduceMotion) 0L else elapsed
+    CairnStones(modifier.semantics { contentDescription = "Loading" }, onLight, Cairn.shakeCrop) { index, _ ->
+        val pose = Cairn.shakePose(index, t)
+        StonePose(pose.dx, pose.dy, pose.degrees, 1f)
+    }
 }
 
 /** Plays one stack over the launch colour, then fades out. */

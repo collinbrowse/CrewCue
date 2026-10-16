@@ -96,6 +96,12 @@ class ShellViewModel(
         private set
     var joinBusy by mutableStateOf(false)
         private set
+    /** A join request is in flight, as opposed to a code preview. */
+    var joining by mutableStateOf(false)
+        private set
+    /** The connection whose button started the current sign-in; empty for the plain Sign in button. */
+    var signInConnection by mutableStateOf<String?>(null)
+        private set
     var session by mutableStateOf(container.sessionStore.current())
         private set
     var stateOverlay by mutableStateOf(false)
@@ -118,6 +124,8 @@ class ShellViewModel(
         private set
     var racesMessage by mutableStateOf("")
         private set
+    var racesLoading by mutableStateOf(false)
+        private set
     private var racesJob: Job? = null
 
     fun noteChatUnread(count: Int) {
@@ -137,8 +145,13 @@ class ShellViewModel(
     fun loadRaces() {
         val current = session ?: return
         racesJob?.cancel()
+        racesLoading = true
         racesJob = viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { container.raceDay.myRaces(current.roomId) }
+            val result = try {
+                withContext(Dispatchers.IO) { container.raceDay.myRaces(current.roomId) }
+            } finally {
+                if (coroutineContext[Job] == racesJob) racesLoading = false
+            }
             if (session?.userId != current.userId) return@launch
             when (result) {
                 is RuntimeResult.Failure -> {
@@ -269,6 +282,7 @@ class ShellViewModel(
             applyAuthFailure(AuthResult.Failure("Sign-in isn't configured.", offline = false))
             return
         }
+        signInConnection = connection.orEmpty()
         container.authGateway.signIn(activity, connection, signUp) { result ->
             viewModelScope.launch { applyAuthResult(result) }
         }
@@ -290,6 +304,7 @@ class ShellViewModel(
         racesJob?.cancel()
         races = emptyList()
         racesMessage = ""
+        racesLoading = false
         pendingJoin = false
         closeSettings()
         showSignedOut()
@@ -307,6 +322,7 @@ class ShellViewModel(
         previewJob?.cancel()
         if (next.length < 6) {
             joinBusy = false
+            joining = false
             if (next.isEmpty()) {
                 replaceBody("Enter an invite code.", kind = "empty")
             }
@@ -317,6 +333,7 @@ class ShellViewModel(
             val result = withContext(Dispatchers.IO) { container.raceDay.previewJoin(next) }
             if (inviteCode != next) return@launch
             joinBusy = false
+            joining = false
             when (result) {
                 is RuntimeResult.Success -> {
                     val name = result.result.optString("roomName").trim()
@@ -363,6 +380,7 @@ class ShellViewModel(
     }
 
     private fun applyAuthResult(result: AuthResult) {
+        signInConnection = null
         when (result) {
             is AuthResult.Success -> {
                 val stored = StoredSession(
@@ -390,6 +408,7 @@ class ShellViewModel(
     }
 
     private fun applyAuthFailure(result: AuthResult.Failure) {
+        signInConnection = null
         pendingJoin = false
         if (!showAppShell && uiState.screen.featureId == "join-crew") {
             replaceBody(result.message, kind = if (result.offline) "offline" else "error")
@@ -407,10 +426,12 @@ class ShellViewModel(
         val code = inviteCode
         if (code.length != 6) return
         joinBusy = true
+        joining = true
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { container.raceDay.join(code) }
             if (inviteCode != code) return@launch
             joinBusy = false
+            joining = false
             when (result) {
                 is RuntimeResult.Success -> {
                     val roomId = result.result.optJSONObject("room")?.optString("id").orEmpty()
@@ -477,6 +498,7 @@ class ShellViewModel(
     private fun showShell(tab: ShellTab) {
         previewJob?.cancel()
         joinBusy = false
+        joining = false
         stateOverlay = false
         showAppShell = true
         selectedTab = tab
@@ -492,6 +514,7 @@ class ShellViewModel(
         joinPreviewName = null
         joinMembership = null
         joinBusy = false
+        joining = false
         showAppShell = false
         val state = queryState(url)
         val screen = load(url)

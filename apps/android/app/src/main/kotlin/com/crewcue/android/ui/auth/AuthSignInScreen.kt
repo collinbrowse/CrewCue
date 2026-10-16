@@ -43,18 +43,27 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.crewcue.android.R
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.brand.CairnShakeLoader
 import com.crewcue.android.ui.findActivity
 import com.crewcue.android.ui.theme.CrewSpace
 import com.crewcue.android.ui.theme.GhostButton
 import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.PrimaryButton
 
 /** Light-grey pill with a leading icon, the DESIGN.md social auth treatment. */
 @Composable
-private fun AuthProviderButton(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun AuthProviderButton(
+    label: String,
+    icon: ImageVector,
+    working: Boolean,
+    busy: Boolean,
+    onClick: () -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     Button(
         onClick = onClick,
+        enabled = !working,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp)
@@ -62,10 +71,16 @@ private fun AuthProviderButton(label: String, icon: ImageVector, onClick: () -> 
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = colors.surfaceContainerHigh,
-            contentColor = colors.onSurface
+            contentColor = colors.onSurface,
+            disabledContainerColor = if (busy) colors.surfaceContainerHigh else colors.surfaceContainerHigh.copy(alpha = 0.5f),
+            disabledContentColor = if (busy) colors.onSurface else colors.onSurface.copy(alpha = 0.4f)
         )
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        if (busy) {
+            CairnShakeLoader(modifier = Modifier.size(20.dp), onLight = !LocalCrewExtras.current.dark)
+        } else {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        }
         Spacer(Modifier.width(10.dp))
         Text(label, style = MaterialTheme.typography.labelLarge)
     }
@@ -113,12 +128,27 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
             )
         }
         Kicker(if (signingUp) "Create an account" else "Sign in")
-        AuthProviderButton("Continue with Apple", Icons.Outlined.PhoneIphone) { viewModel.signIn(activity, "apple", signingUp) }
-        AuthProviderButton("Continue with Google", Icons.Outlined.Language) { viewModel.signIn(activity, "google-oauth2", signingUp) }
-        AuthProviderButton("Continue with email", Icons.Outlined.Email) {
+        val working = viewModel.signInConnection
+        AuthProviderButton("Continue with Apple", Icons.Outlined.PhoneIphone, working != null, working == "apple") {
+            viewModel.signIn(activity, "apple", signingUp)
+        }
+        AuthProviderButton("Continue with Google", Icons.Outlined.Language, working != null, working == "google-oauth2") {
+            viewModel.signIn(activity, "google-oauth2", signingUp)
+        }
+        AuthProviderButton(
+            "Continue with email",
+            Icons.Outlined.Email,
+            working != null,
+            working == "Username-Password-Authentication"
+        ) {
             viewModel.signIn(activity, "Username-Password-Authentication", signingUp)
         }
-        PrimaryButton("Sign in", onClick = { viewModel.signIn(activity) })
+        PrimaryButton(
+            "Sign in",
+            onClick = { viewModel.signIn(activity) },
+            enabled = working == null,
+            busy = working == ""
+        )
         TextButton(
             onClick = { signingUp = !signingUp },
             modifier = Modifier
