@@ -36,6 +36,41 @@ enum Cairn {
         return ((1 - easeOutBack(progress)) * -lift, min(progress / 0.3, 1))
     }
 
+    /// Shake loader: separate, shake, close, rest. See "Shake" in the spec.
+    static let shakeCrop = CGRect(x: 212, y: 212, width: 600, height: 600)
+    static let shakePeriod = 1.4
+    static let shakeGap = 48.0
+    static let shakeAmplitude = 32.0
+    static let shakeDegrees = 2.0
+
+    struct ShakePose {
+        var dx = 0.0
+        var dy = 0.0
+        var degrees = 0.0
+    }
+
+    static func shakePose(_ index: Int, at elapsed: Double) -> ShakePose {
+        let t = elapsed.truncatingRemainder(dividingBy: shakePeriod)
+        let separation: Double = switch t {
+        case ..<0.25: easeInOutCubic(t / 0.25)
+        case ..<1.05: 1
+        case ..<1.3: 1 - easeInOutCubic((t - 1.05) / 0.25)
+        default: 0
+        }
+        var pose = ShakePose(dy: -shakeGap * Double(index) * separation)
+        if t >= 0.25 && t < 1.05 {
+            let q = (t - 0.25) / 0.8
+            let wave = sin(6 * .pi * q + 2 * .pi / 3 * Double(index)) * sin(.pi * q)
+            pose.dx = shakeAmplitude * wave
+            pose.degrees = shakeDegrees * wave
+        }
+        return pose
+    }
+
+    private static func easeInOutCubic(_ p: Double) -> Double {
+        p < 0.5 ? 4 * p * p * p : 1 - pow(2 - 2 * p, 3) / 2
+    }
+
     private static func easeOutBack(_ x: Double) -> Double {
         let overshoot = 1.7
         return 1 + (overshoot + 1) * pow(x - 1, 3) + overshoot * pow(x - 1, 2)
@@ -50,17 +85,31 @@ struct CairnMark: View {
     var crop = Cairn.crop
 
     var body: some View {
+        CairnStones(onLight: onLight, crop: crop) { _, stone in
+            let pose = Cairn.pose(stone, at: elapsed)
+            return (0, pose.offset, 0, pose.opacity * opacity)
+        }
+    }
+}
+
+/// Draws the stones, each moved by `pose(index, stone)`: sideways and vertical offset, extra degrees, opacity.
+private struct CairnStones: View {
+    var onLight: Bool
+    var crop: CGRect
+    var pose: (Int, Cairn.Stone) -> (dx: Double, dy: Double, degrees: Double, opacity: Double)
+
+    var body: some View {
         Canvas { context, size in
             let scale = min(size.width, size.height) / crop.width
             context.translateBy(x: (size.width - crop.width * scale) / 2, y: (size.height - crop.height * scale) / 2)
             context.scaleBy(x: scale, y: scale)
             context.translateBy(x: -crop.minX, y: -crop.minY)
             for (index, stone) in Cairn.stones.enumerated() {
-                let pose = Cairn.pose(stone, at: elapsed)
+                let moved = pose(index, stone)
                 var stoneContext = context
-                stoneContext.opacity = pose.opacity * opacity
-                stoneContext.translateBy(x: stone.pivot.x, y: stone.pivot.y + pose.offset)
-                stoneContext.rotate(by: .degrees(stone.degrees))
+                stoneContext.opacity = moved.opacity
+                stoneContext.translateBy(x: stone.pivot.x + moved.dx, y: stone.pivot.y + moved.dy)
+                stoneContext.rotate(by: .degrees(stone.degrees + moved.degrees))
                 stoneContext.translateBy(x: -stone.pivot.x, y: -stone.pivot.y)
                 let color = index == Cairn.stones.count - 1 ? Cairn.orange : (onLight ? Cairn.slate : Cairn.cream)
                 stoneContext.fill(Path(roundedRect: stone.rect, cornerRadius: stone.rect.height / 2), with: .color(color))
@@ -82,6 +131,24 @@ struct CairnLoader: View {
                 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Cairn.period)
             let fade = t < Cairn.fadeStart ? 1 : 1 - (t - Cairn.fadeStart) / (Cairn.period - Cairn.fadeStart)
             CairnMark(elapsed: t, opacity: fade, onLight: onLight, crop: crop)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Loading")
+    }
+}
+
+/// Small inline loader: the rows separate, shake out of phase, and settle. Reduce Motion shows the plain stack.
+struct CairnShakeLoader: View {
+    var onLight = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { timeline in
+            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            CairnStones(onLight: onLight, crop: Cairn.shakeCrop) { index, _ in
+                let pose = Cairn.shakePose(index, at: t)
+                return (pose.dx, pose.dy, pose.degrees, 1)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel("Loading")

@@ -50,6 +50,7 @@ struct JoinCrewView: View {
                 Button("Join", action: model.join)
                     .buttonStyle(.crewPrimary)
                     .disabled(!model.canJoin)
+                    .crewBusy(model.joining)
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 28)

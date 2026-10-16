@@ -30,6 +30,8 @@ final class ChatModel {
     private(set) var channelId = ""
     private(set) var statusMessage = ""
     private(set) var isSending = false
+    /// The thread is opening: no lines or status message yet.
+    private(set) var opening = false
 
     private let client: AppClient
     private let session = StreamRoomSession()
@@ -61,11 +63,14 @@ final class ChatModel {
         members = []
         authors = ChatAuthors(selfStreamUserId: "", members: nil)
         lines = []
+        statusMessage = ""
+        opening = true
         openWasOffline = false
         await session.close()
         guard ticket == generation, !Task.isCancelled else { return }
         guard userId != nil, let nextRoom else {
             statusMessage = "No messages."
+            opening = false
             return
         }
         await loadMembers(roomId: nextRoom, ticket: ticket)
@@ -105,6 +110,7 @@ final class ChatModel {
         authors = ChatAuthors(selfStreamUserId: "", members: nil)
         channelId = ""
         statusMessage = ""
+        opening = false
         roomId = nil
         role = ""
         openWasOffline = false
@@ -222,6 +228,7 @@ final class ChatModel {
     private func showChannelResult(ticket: Int, opened: Bool) async {
         let pending = await refreshLines()
         guard ticket == generation else { return }
+        opening = false
         if opened {
             statusMessage = lines.isEmpty ? "No messages." : ""
             return

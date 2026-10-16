@@ -32,6 +32,9 @@ struct MapView: View {
     var focus: String = "map-track"
     var onSettings: () -> Void = {}
     @State private var tool = MapTool.none
+    /// The map style has loaded or failed. Until then a loader sits over the map.
+    @State private var styleSettled = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -42,13 +45,22 @@ struct MapView: View {
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
                 onStyleFailure: { offline in
+                    styleSettled = true
                     model.noteStyleFailure(offline: offline)
                 },
                 onStyleLoaded: {
+                    styleSettled = true
                     model.noteStyleLoaded()
                 }
             )
             .ignoresSafeArea()
+            .overlay {
+                if MapCanvas.available && !styleSettled {
+                    CairnLoader(onLight: scheme == .light)
+                        .frame(width: 64, height: 64)
+                        .accessibilityIdentifier("crewcue.map-loading")
+                }
+            }
             MapAidSheet(model: model, tool: $tool)
                 .padding(.horizontal, 8)
         }
@@ -370,6 +382,12 @@ struct MapAidSheet: View {
 }
 
 struct MapCanvas: View {
+    #if canImport(MapLibre)
+    static let available = true
+    #else
+    static let available = false
+    #endif
+
     let points: [MapCoursePoint]
     var recenterRequest = 0
     @Environment(\.crew) private var theme
@@ -423,7 +441,7 @@ struct MapPickSection: View {
                 Task { await onSave() }
             }
             .buttonStyle(.crewPrimary)
-            .disabled(isBusy)
+            .crewBusy(isBusy)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.map-checkpoint-pick")
@@ -490,7 +508,7 @@ struct MapNavigateSection: View {
                 Task { await onStart() }
             }
             .buttonStyle(.crewPrimary)
-            .disabled(isBusy)
+            .crewBusy(isBusy)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.map-navigate")

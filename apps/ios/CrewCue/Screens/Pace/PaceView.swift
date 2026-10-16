@@ -409,7 +409,7 @@ struct PaceRecalculateButton: View {
             Task { await action() }
         }
         .buttonStyle(.crewPrimary)
-        .disabled(isBusy)
+        .crewBusy(isBusy)
     }
 }
 
@@ -422,7 +422,7 @@ struct PaceSeedButton: View {
             Task { await action() }
         }
         .buttonStyle(.crewSecondary)
-        .disabled(isBusy)
+        .crewBusy(isBusy)
     }
 }
 
@@ -473,7 +473,7 @@ struct PaceCheckInButton: View {
             Task { await action() }
         }
         .buttonStyle(.crewPrimary)
-        .disabled(isBusy)
+        .crewBusy(isBusy)
     }
 }
 
@@ -551,7 +551,7 @@ struct PaceChooseGpxButton: View {
     var body: some View {
         Button("Choose GPX file", action: action)
             .buttonStyle(.crewSecondary)
-            .disabled(isBusy)
+            .crewBusy(isBusy)
     }
 }
 
@@ -564,7 +564,7 @@ struct PaceImportGpxButton: View {
             Task { await action() }
         }
         .buttonStyle(.crewPrimary)
-        .disabled(isBusy)
+        .crewBusy(isBusy)
     }
 }
 

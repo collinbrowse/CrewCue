@@ -1,7 +1,7 @@
 import SwiftUI
 import CrewCueClientCore
 
-/// Fixture for the brand loader: the animated app icon, a standalone loader, and an inline spinner.
+/// Fixture for the brand loader: the animated app icon, a standalone loader, an inline spinner, and the shake loaders.
 struct BrandLoaderView: View {
     let screen: FeatureScreen
 
@@ -26,6 +26,21 @@ struct BrandLoaderView: View {
                     .foregroundStyle(Color.black)
             }
             .padding(.horizontal)
+            HStack(spacing: 28) {
+                CairnShakeLoader()
+                    .frame(width: 64, height: 64)
+                CairnShakeLoader()
+                    .frame(width: 24, height: 24)
+                CairnShakeLoader()
+                    .frame(width: 16, height: 16)
+            }
+            .padding(.horizontal)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("crewcue.loader-shake")
+            Button("Recalculate") {}
+                .buttonStyle(.crewPrimary)
+                .crewBusy(true)
+                .padding(.horizontal)
         }
     }
 }

@@ -32,16 +32,16 @@ struct AuthSignInView: View {
                     .font(CrewFont.body)
                     .foregroundStyle(theme.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AuthSocialButton(title: "Continue with Apple", systemImage: "apple.logo", isWorking: model.isWorking) {
+                AuthSocialButton(title: "Continue with Apple", systemImage: "apple.logo", isWorking: model.isWorking, isBusy: model.workingConnection == "apple") {
                     model.signIn(connection: "apple")
                 }
-                AuthSocialButton(title: "Continue with Google", systemImage: "globe", isWorking: model.isWorking) {
+                AuthSocialButton(title: "Continue with Google", systemImage: "globe", isWorking: model.isWorking, isBusy: model.workingConnection == "google-oauth2") {
                     model.signIn(connection: "google-oauth2")
                 }
-                AuthSocialButton(title: "Continue with email", systemImage: "envelope", isWorking: model.isWorking) {
+                AuthSocialButton(title: "Continue with email", systemImage: "envelope", isWorking: model.isWorking, isBusy: model.workingConnection == "Username-Password-Authentication") {
                     model.signIn(connection: "Username-Password-Authentication")
                 }
-                AuthSignInButton(isWorking: model.isWorking, action: { model.signIn() })
+                AuthSignInButton(isWorking: model.isWorking, isBusy: model.workingConnection == "", action: { model.signIn() })
                 Button(model.signingUp ? "Already have an account? Sign in" : "Need an account? Sign up") {
                     model.signingUp.toggle()
                 }
@@ -88,12 +88,14 @@ struct AuthSignInStatus: View {
 
 struct AuthSignInButton: View {
     let isWorking: Bool
+    var isBusy = false
     let action: () -> Void
 
     var body: some View {
         Button("Sign in", action: action)
             .buttonStyle(.crewPrimary)
             .disabled(isWorking)
+            .crewBusy(isBusy)
     }
 }
 
@@ -102,6 +104,7 @@ struct AuthSocialButton: View {
     let title: String
     let systemImage: String
     let isWorking: Bool
+    var isBusy = false
     let action: () -> Void
 
     var body: some View {
@@ -110,5 +113,6 @@ struct AuthSocialButton: View {
         }
         .buttonStyle(.crewSecondary)
         .disabled(isWorking)
+        .crewBusy(isBusy)
     }
 }

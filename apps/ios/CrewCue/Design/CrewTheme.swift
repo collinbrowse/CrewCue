@@ -257,9 +257,17 @@ private struct CrewButtonLabel: View {
     let configuration: ButtonStyleConfiguration
     @Environment(\.crew) private var theme
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.crewBusy) private var isBusy
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        configuration.label
+        HStack(spacing: CrewSpace.base) {
+            if isBusy {
+                CairnShakeLoader(onLight: onLightFill)
+                    .frame(width: 20, height: 20)
+            }
+            configuration.label
+        }
             .font(CrewFont.button)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
@@ -272,9 +280,17 @@ private struct CrewButtonLabel: View {
                     Capsule().stroke(theme.ink, lineWidth: 2)
                 }
             }
-            .opacity(isEnabled ? 1 : 0.45)
+            .opacity(isEnabled || isBusy ? 1 : 0.45)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+
+    /// Slate stones on a light fill, cream on a dark one. Filled kinds are dark in light mode and light in dark mode.
+    private var onLightFill: Bool {
+        switch kind {
+        case .primary, .danger: scheme == .dark
+        case .secondary, .ghost: scheme == .light
+        }
     }
 
     private var foreground: Color {
@@ -292,6 +308,19 @@ private struct CrewButtonLabel: View {
         case .danger: theme.danger
         case .ghost: .clear
         }
+    }
+}
+
+extension EnvironmentValues {
+    /// A crew button below is working: it shows the shake loader before its label.
+    @Entry var crewBusy = false
+}
+
+extension View {
+    /// Disables the button and shows the shake loader in it, without dimming it, while `isBusy`.
+    func crewBusy(_ isBusy: Bool) -> some View {
+        environment(\.crewBusy, isBusy)
+            .disabled(isBusy)
     }
 }
 
