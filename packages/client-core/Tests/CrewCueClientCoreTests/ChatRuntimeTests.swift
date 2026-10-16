@@ -30,7 +30,7 @@ import Testing
     ])
     #expect(flag(second, "ok") == true)
 
-    let store = try OutboxStore(userId: "crew-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "crew-1", directory: UserStorage(root: directory).directory(userId: "crew-1"))
     let pending = try await store.operations()
     #expect(Set(pending.map(\.id)) == ["m-stable", "m-2"])
     #expect(pending.allSatisfy { $0.type == "chat" && $0.status == "pending" })
@@ -75,7 +75,7 @@ import Testing
     var again = fields
     again["text"] = "Two"
     _ = try await chatRuntime(again)
-    let store = try OutboxStore(userId: "crew-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "crew-1", directory: UserStorage(root: directory).directory(userId: "crew-1"))
     let operations = try await store.operations()
     #expect(operations.count == 1)
     #expect(operations.first?.clientMessageId == "same")
@@ -106,7 +106,7 @@ import Testing
         "platform": "android",
         "token": "fcm-2"
     ])
-    let store = try OutboxStore(userId: "crew-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "crew-1", directory: UserStorage(root: directory).directory(userId: "crew-1"))
     let operations = try await store.operations()
     #expect(operations.count == 1)
     #expect(operations.first?.type == "push")

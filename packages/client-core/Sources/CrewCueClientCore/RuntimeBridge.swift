@@ -17,8 +17,11 @@ import Dispatch
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
 /// myRaces, loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
-/// completeOutbox, updateDisplayName, removeMember, incidents, createIncident,
-/// stravaStart, stravaConnection, stravaDisconnect.
+/// completeOutbox, claimPendingChat, settleChat, wipeUserData, updateDisplayName, removeMember,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
+///
+/// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
+/// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
 enum RuntimeCall {
     static func perform(_ json: String) async -> String {
         guard let data = json.data(using: .utf8),
@@ -31,10 +34,23 @@ enum RuntimeCall {
             let encoded = try JSONSerialization.data(withJSONObject: ["ok": true, "result": value])
             return String(decoding: encoded, as: UTF8.self)
         } catch {
-            let message = (error as? ClientHTTPError)?.message ?? "\(error)"
-            let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
-            return #"{"ok":false,"message":"\#(escaped)"}"#
+            return failureJSON(error)
         }
+    }
+
+    static func failureJSON(_ error: any Error) -> String {
+        let message: String
+        if let authority = error as? PlanAuthorityError {
+            message = authority.message
+        } else {
+            message = (error as? ClientHTTPError)?.message ?? "\(error)"
+        }
+        let expired = (error as? ClientHTTPError)?.status == 401
+        let object: [String: Any] = ["ok": false, "message": message, "sessionExpired": expired]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return #"{"ok":false,"message":"Request failed."}"#
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func dispatch(_ op: String, _ object: [String: Any]) async throws -> Any {
@@ -76,7 +92,13 @@ enum RuntimeCall {
         case "flushOutbox":
             let graph = try graph(object)
             let report = try await RaceDayAPI.flushOutbox(graph: graph)
-            return ["accepted": report.accepted, "dropped": report.dropped, "rejected": report.rejected, "pending": report.pending]
+            return [
+                "accepted": report.accepted,
+                "dropped": report.dropped,
+                "rejected": report.rejected,
+                "pending": report.pending,
+                "sessionExpired": report.sessionExpired
+            ]
         case "listOutbox":
             return try await listOutbox(object)
         case "exportCrewSheet":
@@ -121,6 +143,12 @@ enum RuntimeCall {
             return try await enqueueChat(object)
         case "completeOutbox":
             return try await completeOutbox(object)
+        case "claimPendingChat":
+            return try await claimPendingChat(object)
+        case "settleChat":
+            return try await settleChat(object)
+        case "wipeUserData":
+            return try wipeUserData(object)
         case "updateDisplayName":
             return try await updateDisplayName(object)
         case "removeMember":
@@ -378,15 +406,22 @@ enum RuntimeCall {
 
     private static func computeEstimate(_ object: [String: Any]) async throws -> Any {
         let role = object["role"] as? String ?? ""
-        guard PlanAuthority.mayExplicitRecalculate(role: role) || PlanAuthority.mayAutoRecompute(role: role) else {
-            throw ClientHTTPError(status: 403, message: "Couldn't load the pace estimate.")
+        // Without a trigger the request is an automatic recompute, which only the athlete may make.
+        let trigger = text(object, "trigger").flatMap(PlanTrigger.init(rawValue:)) ?? .auto
+        let hasPlanOfRecord = (object["hasPlanOfRecord"] as? Bool) ?? true
+        guard PlanAuthority.allows(role: role, trigger: trigger, hasPlanOfRecord: hasPlanOfRecord) else {
+            throw PlanAuthorityError.notAllowed
         }
         let directory = directory(object)
         do {
             let graph = try graph(object)
-            let roomId = object["roomId"] as? String ?? ""
-            let computed = try await RaceDayAPI.computeEstimate(graph: graph, roomId: roomId)
-            let attached = try await RaceDayAPI.attachEstimate(graph: graph, roomId: roomId, estimateId: computed.id)
+            let attached = try await PlanOfRecord.recompute(
+                graph: graph,
+                roomId: object["roomId"] as? String ?? "",
+                role: role,
+                trigger: trigger,
+                hasPlanOfRecord: hasPlanOfRecord
+            )
             if let directory {
                 try? EstimateCache.save(attached, directory: directory)
             }
@@ -901,33 +936,55 @@ enum RuntimeCall {
 
     private static func enqueueChat(_ object: [String: Any]) async throws -> Any {
         let store = try store(object)
-        let roomId = object["roomId"] as? String ?? ""
-        let messageText = object["text"] as? String ?? ""
         let clientMessageId = text(object, "clientMessageId") ?? "chat-\(UUID().uuidString)"
-        let payloadData = try JSONSerialization.data(withJSONObject: [
-            "text": messageText,
-            "clientMessageId": clientMessageId
-        ])
-        let payloadJSON = String(decoding: payloadData, as: UTF8.self)
-        let operation = StoredOperation(
-            id: clientMessageId,
-            type: "chat",
-            status: "pending",
-            conflictKey: "chat:\(clientMessageId)",
-            roomId: roomId,
-            payloadJSON: payloadJSON,
-            idempotencyKey: IdempotencyKey.hashPayload(payloadJSON),
+        let operation = try await store.enqueueChat(
+            roomId: object["roomId"] as? String ?? "",
+            text: object["text"] as? String ?? "",
             clientMessageId: clientMessageId,
             role: object["role"] as? String ?? "crew_member"
         )
-        try await store.mutate(roomId: roomId) { operations in
-            if let index = operations.firstIndex(where: { $0.clientMessageId == clientMessageId || $0.id == clientMessageId }) {
-                operations[index] = operation
-            } else {
-                operations.append(operation)
-            }
-        }
         return ["status": "pending", "id": operation.id, "clientMessageId": clientMessageId]
+    }
+
+    /// Pending chat for the room that no other caller is already sending.
+    private static func claimPendingChat(_ object: [String: Any]) async throws -> Any {
+        let store = try store(object)
+        let claimed = try await store.claimPendingChat(roomId: object["roomId"] as? String ?? "")
+        let messages: [[String: Any]] = claimed.map { operation in
+            [
+                "id": operation.id,
+                "clientMessageId": operation.clientMessageId,
+                "text": chatText(operation.payloadJSON)
+            ]
+        }
+        return ["messages": messages]
+    }
+
+    /// Ends a claim. No `error` means delivered; an "already exists" error also counts as delivered.
+    private static func settleChat(_ object: [String: Any]) async throws -> Any {
+        let store = try store(object)
+        let id = object["id"] as? String ?? ""
+        let failure = text(object, "error").map { RuntimeSendFailure(description: $0) }
+        try await store.settleChat(id: id, error: failure)
+        let delivered = failure.map(OutboxPolicy.isAlreadyDelivered) ?? true
+        return ["status": delivered ? "delivered" : "pending", "id": id]
+    }
+
+    /// Sign-out and session expiry: every user's files under the storage root.
+    private static func wipeUserData(_ object: [String: Any]) throws -> Any {
+        guard let root = storageRoot(object) else {
+            throw ClientHTTPError(status: 0, message: "storageDir is required.")
+        }
+        try UserStorage(root: root).wipeAll()
+        return ["status": "wiped"]
+    }
+
+    private static func chatText(_ payloadJSON: String) -> String {
+        guard let data = payloadJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ""
+        }
+        return object["text"] as? String ?? ""
     }
 
     private static func completeOutbox(_ object: [String: Any]) async throws -> Any {
@@ -1100,10 +1157,15 @@ enum RuntimeCall {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
     }
 
-    /// The user's storage root. Only the outbox lives here; it keys rows by room itself.
-    private static func userDirectory(_ object: [String: Any]) -> URL? {
+    private static func storageRoot(_ object: [String: Any]) -> URL? {
         guard let path = object["storageDir"] as? String, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    /// The signed-in user's directory under the storage root. The outbox keys rows by room itself.
+    private static func userDirectory(_ object: [String: Any]) -> URL? {
+        guard let root = storageRoot(object) else { return nil }
+        return try? UserStorage(root: root).directory(userId: object["userId"] as? String ?? "")
     }
 
     /// Per-room caches and drafts. Nil without a room, so one race never reads another's files.
@@ -1116,7 +1178,7 @@ enum RuntimeCall {
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
-        return try OutboxStore(userId: object["userId"] as? String ?? "guest", directory: directory)
+        return try OutboxStore.shared(userId: object["userId"] as? String ?? "guest", directory: directory)
     }
 
     private static func graph(_ object: [String: Any]) throws -> ClientGraph {
@@ -1404,4 +1466,8 @@ public func crewcue_runtime_json(_ request: UnsafePointer<CChar>?) -> UnsafeMuta
     }
     semaphore.wait()
     return strdup(box.value ?? #"{"ok":false,"message":"bridge failed"}"#)
+}
+
+private struct RuntimeSendFailure: Error, CustomStringConvertible {
+    var description: String
 }
