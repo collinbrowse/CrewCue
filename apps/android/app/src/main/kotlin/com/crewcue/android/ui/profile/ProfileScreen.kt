@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,7 @@ import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.ui.RaceChoice
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.brand.CairnLoader
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.map.RaceReadout
 import com.crewcue.android.ui.map.isOnline
@@ -146,6 +148,14 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
         }
         ProductCard {
             SectionHeader("Your races")
+            if (shell.races.isEmpty() && shell.racesLoading) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                    CairnLoader(
+                        modifier = Modifier.size(56.dp).testTag("crewcue.races-loading"),
+                        onLight = !LocalCrewExtras.current.dark
+                    )
+                }
+            }
             if (shell.races.isNotEmpty()) {
                 Column(Modifier.padding(top = 8.dp).testTag("crewcue.race-switcher")) {
                     shell.races.forEach { item ->
@@ -169,7 +179,7 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
                         val userId = session?.userId.orEmpty()
                         model.createRace(userId, session?.displayName) { created -> shell.adoptRoom(created) }
                     },
-                    enabled = !model.creatingRace
+                    busy = model.creatingRace
                 )
                 SecondaryButton("Join race room", onClick = shell::openJoinCrew)
             }

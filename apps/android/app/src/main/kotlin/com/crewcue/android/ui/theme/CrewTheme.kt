@@ -2,12 +2,15 @@ package com.crewcue.android.ui.theme
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -23,6 +26,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -33,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.crewcue.android.ui.brand.CairnShakeLoader
 
 // Night Trail. Values mirror `nightTrail` in packages/contracts/src/designSystems.ts.
 
@@ -202,17 +207,21 @@ fun Kicker(text: String, modifier: Modifier = Modifier, color: Color = MaterialT
     )
 }
 
+/** [busy] disables the button without dimming it and shows the shake loader before the label. */
 @Composable
 fun PrimaryButton(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    spoken: String = label
+    spoken: String = label,
+    busy: Boolean = false
 ) {
+    val container = MaterialTheme.colorScheme.primary
+    val content = MaterialTheme.colorScheme.onPrimary
     Button(
         onClick = onClick,
-        enabled = enabled,
+        enabled = enabled && !busy,
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp)
@@ -220,13 +229,13 @@ fun PrimaryButton(
         shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-            disabledContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = if (busy) container else container.copy(alpha = 0.4f),
+            disabledContentColor = if (busy) content else content.copy(alpha = 0.8f)
         )
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        BusyLabel(label, busy, onLight = LocalCrewExtras.current.dark)
     }
 }
 
@@ -236,11 +245,14 @@ fun SecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    spoken: String = label
+    spoken: String = label,
+    busy: Boolean = false
 ) {
+    val container = MaterialTheme.colorScheme.surfaceContainerHigh
+    val content = MaterialTheme.colorScheme.onSurface
     Button(
         onClick = onClick,
-        enabled = enabled,
+        enabled = enabled && !busy,
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 52.dp)
@@ -248,12 +260,23 @@ fun SecondaryButton(
         shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = if (busy) container else container.copy(alpha = 0.5f),
+            disabledContentColor = if (busy) content else content.copy(alpha = 0.4f)
         )
     ) {
+        BusyLabel(label, busy, onLight = !LocalCrewExtras.current.dark)
+    }
+}
+
+/** The button label, led by a 20dp shake loader while [busy]. Stones are slate on a light fill, cream on a dark one. */
+@Composable
+fun BusyLabel(label: String, busy: Boolean, onLight: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (busy) {
+            CairnShakeLoader(modifier = Modifier.size(20.dp), onLight = onLight)
+        }
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }

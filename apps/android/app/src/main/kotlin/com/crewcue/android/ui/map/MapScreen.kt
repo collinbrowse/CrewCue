@@ -58,12 +58,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.brand.CairnLoader
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CircleIconButton
 import com.crewcue.android.ui.theme.CrewClock
 import com.crewcue.android.ui.theme.CrewProgressBar
 import com.crewcue.android.ui.theme.CrewTextField
 import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricColumn
 import com.crewcue.android.ui.theme.MetricLargeStyle
 import com.crewcue.android.ui.theme.PrimaryButton
@@ -389,7 +391,26 @@ private fun CourseMapHost(
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
-        renderer.Render(points, line, modifier, onMapTap, onStyleReady, onStyleFailed, onTilesUnavailable, recenterRequest)
+        // A loader sits over the map until its style loads or fails.
+        var settled by remember { mutableStateOf(false) }
+        Box(modifier, contentAlignment = Alignment.Center) {
+            renderer.Render(
+                points,
+                line,
+                Modifier.fillMaxSize(),
+                onMapTap,
+                { settled = true; onStyleReady() },
+                { settled = true; onStyleFailed() },
+                { settled = true; onTilesUnavailable() },
+                recenterRequest
+            )
+            if (!settled) {
+                CairnLoader(
+                    modifier = Modifier.size(64.dp).testTag("crewcue.map-loading"),
+                    onLight = !LocalCrewExtras.current.dark
+                )
+            }
+        }
     } else if (BuildConfig.MAP_LIBRE) {
         LaunchedEffect(Unit) { onStyleFailed() }
     }
@@ -407,7 +428,7 @@ private fun CheckpointSection(model: MapViewModel, tagged: Boolean) {
         CrewTextField(model.pickLatitude, model::updatePickLatitude, "Latitude")
         CrewTextField(model.pickLongitude, model::updatePickLongitude, "Longitude")
         Text(model.pickMessage, modifier = Modifier.semantics { contentDescription = model.pickMessage })
-        PrimaryButton("Save checkpoint", onClick = model::saveCheckpoint, enabled = !model.pickBusy)
+        PrimaryButton("Save checkpoint", onClick = model::saveCheckpoint, busy = model.pickBusy)
     }
 }
 
@@ -425,8 +446,20 @@ private fun NavigateSection(model: MapViewModel, tagged: Boolean) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton("Hike", onClick = { model.startRoute("hike") }, enabled = !model.navigateBusy, modifier = Modifier.weight(1f))
-            SecondaryButton("Drive", onClick = { model.startRoute("drive") }, enabled = !model.navigateBusy, modifier = Modifier.weight(1f))
+            PrimaryButton(
+                "Hike",
+                onClick = { model.startRoute("hike") },
+                enabled = !model.navigateBusy,
+                busy = model.navigateMode == "hike",
+                modifier = Modifier.weight(1f)
+            )
+            SecondaryButton(
+                "Drive",
+                onClick = { model.startRoute("drive") },
+                enabled = !model.navigateBusy,
+                busy = model.navigateMode == "drive",
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
