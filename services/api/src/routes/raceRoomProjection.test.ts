@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { RaceRoomProjection } from "@crewcue/contracts";
+import type { PacingEstimate, RaceRoomProjection } from "@crewcue/contracts";
 import { checkpointsWithProjectedDistances } from "@crewcue/map-core";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
@@ -366,6 +366,132 @@ test("projection uses baseline track payloads and keeps ETA anchored within a ch
   );
 
   await app.close();
+});
+
+test("attaching pacing estimate refreshes stored projection split clocks after ping", async () => {
+  const app = buildApp();
+  await app.ready();
+  try {
+    const ownerToken = app.jwt.sign(buildClaims("owner-plan-refresh"));
+    const checkpoints = checkpointsWithProjectedDistances(
+      [
+        { id: "cp0", latitude: 42.03, longitude: -70.0 },
+        { id: "cp1", latitude: 42.04, longitude: -70.0 },
+        { id: "cp2", latitude: 42.05, longitude: -70.0 }
+      ],
+      [
+        { latitude: 42.03, longitude: -70.0 },
+        { latitude: 42.04, longitude: -70.0 },
+        { latitude: 42.05, longitude: -70.0 }
+      ]
+    );
+    const cum = cumulativeDistanceAtCheckpoints(checkpoints);
+    const raceStartMs = Date.now() - 90_000;
+    const raceStartAt = new Date(raceStartMs).toISOString();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Plan refresh projection",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    const entitlement = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(entitlement.statusCode, 200);
+
+    const courseResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints,
+          baselineTrack: {
+            points: [
+              { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+              { distanceMetersFromStart: cum[1]!, referenceElapsedSeconds: 30 },
+              { distanceMetersFromStart: cum[2]!, referenceElapsedSeconds: 90 }
+            ]
+          }
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 42.03, longitude: -70.0 },
+          { latitude: 42.04, longitude: -70.0 },
+          { latitude: 42.05, longitude: -70.0 }
+        ]),
+        plannedPaceSecondsPerKm: 1200,
+        raceStartAt
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(courseResponse.statusCode, 200);
+
+    const pingResponse = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: {
+        latitude: 42.035,
+        longitude: -70.0,
+        recordedAt: new Date(raceStartMs + 60_000).toISOString()
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(pingResponse.statusCode, 201);
+    const before = pingResponse.json() as { projection?: RaceRoomProjection };
+    assert.ok(before.projection);
+    assert.equal(before.projection.checkpointSplits[2]?.plannedElapsedSecondsAtCross, 90);
+
+    const estimateResponse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      payload: {
+        roomId,
+        seed: "projection-refresh-plan-of-record"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
+    const estimate = estimateResponse.json() as PacingEstimate;
+    assert.notEqual(estimate.expectedFinishElapsedSeconds, 90);
+
+    const attachResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/pacing-estimate`,
+      payload: {
+        pacingEstimateId: estimate.id
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(attachResponse.statusCode, 200, attachResponse.body);
+
+    const refreshedResponse = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(refreshedResponse.statusCode, 200);
+    const refreshed = refreshedResponse.json() as RaceRoomProjection;
+    const finishSplit = refreshed.checkpointSplits[2];
+    assert.ok(finishSplit);
+    assert.equal(refreshed.asOfPingId, before.projection.asOfPingId);
+    assert.ok(
+      Math.abs(finishSplit.plannedElapsedSecondsAtCross - estimate.expectedFinishElapsedSeconds) < 1.5,
+      `expected refreshed finish split near ${estimate.expectedFinishElapsedSeconds}, got ${finishSplit.plannedElapsedSecondsAtCross}`
+    );
+  } finally {
+    await app.close();
+  }
 });
 
 test("GET projection returns 403 for non-member", async () => {
