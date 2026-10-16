@@ -48,11 +48,11 @@ Units are a 1024 × 1024 icon canvas. Stones are pills (corner radius = half the
 
 ## Shake
 For small inline use, 16–24 pt, inside or next to a busy button. Units are the same 1024-unit icon space as the mark.
-- Crop: a 600-unit square at x 212, y 212, centred on (512, 512), so the lifted stones and the jitter stay inside.
+- Crop: a 640-unit square at x 192, y 192, centred on (512, 512), so the lifted and tilted stones stay inside.
 - Opacity is always 1. Colours and the light-surface option are the same as the mark.
 - Period 1400 ms, repeating:
   - Separate, 0–250 ms: the gaps open with ease-in-out cubic. The base stays put. The middle stone lifts 48 units and the top stone lifts 96, so a 48-unit gap opens above each row.
-  - Shake, 250–1050 ms: with q = (t − 250) / 800, each stone moves `dx = 32 · sin(6πq + φ) · sin(πq)` units sideways and rotates an extra `2° · sin(6πq + φ) · sin(πq)` about its pivot. φ is 0 for the base, 2π/3 for the middle, and 4π/3 for the top. That is three wobbles that swell and die away, each stone a third of a cycle behind the one below.
+  - Shake, 250–1050 ms: with q = (t − 250) / 800 and w = sin(6πq + φ) · sin(πq), each stone rocks an extra `7° · w` about its pivot, so its ends tip up and down, and moves `20 · w` units sideways. φ is 0 for the base, 2π/3 for the middle, and 4π/3 for the top. That is three rocks that swell and die away, each stone a third of a cycle behind the one below.
   - Close, 1050–1300 ms: the gaps close with ease-in-out cubic.
   - Rest, 1300–1400 ms: the plain stack.
 - Ease-in-out cubic: p < 0.5 ? 4p³ : 1 − (2 − 2p)³ / 2.
