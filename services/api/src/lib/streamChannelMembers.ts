@@ -11,7 +11,7 @@
  */
 import type { FastifyBaseLogger } from "fastify";
 import { StreamChat } from "stream-chat";
-import { chatChannelIdForRoom, type RaceRoom } from "@crewcue/contracts";
+import { chatChannelIdForRoom, type ChatStreamMember, type RaceRoom } from "@crewcue/contracts";
 import { deriveStreamUserId, readStreamCredentials } from "./streamChat.js";
 
 function isStreamChannelExistsError(err: unknown): boolean {
@@ -33,6 +33,19 @@ function isStreamChannelExistsError(err: unknown): boolean {
 }
 
 /**
+ * Room roster keyed by Stream user id, with each member's display name for this room.
+ * Stream's user name is global, so clients label chat authors from this list instead.
+ */
+export function streamChatMembersForRoom(room: RaceRoom): ChatStreamMember[] {
+  const members = room.memberships.map((m): ChatStreamMember => {
+    const streamUserId = deriveStreamUserId(m.userId);
+    const trimmed = (m.displayName ?? "").trim();
+    return trimmed ? { streamUserId, displayName: trimmed } : { streamUserId };
+  });
+  return Array.from(new Map(members.map((m) => [m.streamUserId, m])).values());
+}
+
+/**
  * Upsert Stream users for all crew members, ensure the room's messaging channel exists,
  * and set channel members to exactly the current race-room roster.
  */
@@ -43,12 +56,9 @@ export async function syncRaceRoomStreamChannelMembers(
   const creds = readStreamCredentials();
   if (!creds) return;
 
-  const streamUsers = room.memberships.map((m) => {
-    const id = deriveStreamUserId(m.userId);
-    const trimmed = (m.displayName ?? "").trim();
-    return trimmed ? { id, name: trimmed } : { id };
-  });
-  const dedupedUsers = Array.from(new Map(streamUsers.map((u) => [u.id, u])).values());
+  const dedupedUsers = streamChatMembersForRoom(room).map((m) =>
+    m.displayName ? { id: m.streamUserId, name: m.displayName } : { id: m.streamUserId }
+  );
   const memberStreamIds = dedupedUsers.map((u) => u.id);
   if (memberStreamIds.length === 0) return;
 

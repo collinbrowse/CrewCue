@@ -15,7 +15,7 @@ import Dispatch
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
 /// projectAidSheet,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
-/// loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
+/// myRaces, loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// completeOutbox, updateDisplayName, removeMember, incidents, createIncident,
 /// stravaStart, stravaConnection, stravaDisconnect.
@@ -97,6 +97,8 @@ enum RuntimeCall {
             let code = object["code"] as? String ?? ""
             let room = try await RaceDayAPI.join(graph: graph, code: code)
             return try jsonValue(room)
+        case "myRaces":
+            return try await myRaces(object)
         case "loadRoom":
             return try await loadRoom(object)
         case "placeCheckpoint":
@@ -659,6 +661,22 @@ enum RuntimeCall {
         return try jsonValue(room)
     }
 
+    /// The user's races plus the one every tab follows. `roomId` is the preferred active room.
+    private static func myRaces(_ object: [String: Any]) async throws -> Any {
+        let graph = try graph(object)
+        let userId = object["userId"] as? String ?? ""
+        let races = try await RaceDayAPI.myRaces(graph: graph, userId: userId)
+        let roster = RaceRoster.reconciled(races: races, preferred: text(object, "roomId"))
+        return [
+            "races": try races.map { race -> Any in
+                var row = try jsonValue(race) as? [String: Any] ?? [:]
+                row["roleLabel"] = race.roleLabel
+                return row
+            },
+            "activeRoomId": roster.activeRoomId ?? NSNull()
+        ] as [String: Any]
+    }
+
     private static func loadRoom(_ object: [String: Any]) async throws -> Any {
         let base = try graph(object)
         let capture = CapturingTransport(base.transport)
@@ -762,11 +780,15 @@ enum RuntimeCall {
         do {
             let graph = try graph(object)
             let minted = try await RaceDayAPI.streamToken(graph: graph, roomId: roomId)
+            let authors = ChatAuthors(token: minted)
             return [
                 "token": minted.token,
                 "streamUserId": minted.streamUserId,
                 "streamApiKey": minted.streamApiKey,
                 "channelId": channelId,
+                "authorNames": authors.names,
+                "selfAuthor": authors.selfLabel,
+                "unknownAuthor": ChatAuthors.unknown,
                 "offline": false
             ]
         } catch {
@@ -776,6 +798,9 @@ enum RuntimeCall {
                     "streamUserId": "",
                     "streamApiKey": "",
                     "channelId": channelId,
+                    "authorNames": [String: String](),
+                    "selfAuthor": ChatAuthors.you,
+                    "unknownAuthor": ChatAuthors.unknown,
                     "offline": true
                 ]
             }
@@ -1075,13 +1100,20 @@ enum RuntimeCall {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
     }
 
-    private static func directory(_ object: [String: Any]) -> URL? {
+    /// The user's storage root. Only the outbox lives here; it keys rows by room itself.
+    private static func userDirectory(_ object: [String: Any]) -> URL? {
         guard let path = object["storageDir"] as? String, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
+    /// Per-room caches and drafts. Nil without a room, so one race never reads another's files.
+    private static func directory(_ object: [String: Any]) -> URL? {
+        guard let root = userDirectory(object), let roomId = text(object, "roomId") else { return nil }
+        return RoomStorage.directory(userDirectory: root, roomId: roomId)
+    }
+
     private static func store(_ object: [String: Any]) throws -> OutboxStore {
-        guard let directory = directory(object) else {
+        guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
         return try OutboxStore(userId: object["userId"] as? String ?? "guest", directory: directory)

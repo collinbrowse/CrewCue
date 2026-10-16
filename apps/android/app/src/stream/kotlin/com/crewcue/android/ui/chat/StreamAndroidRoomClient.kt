@@ -29,7 +29,8 @@ private class StreamAndroidRoomClient : StreamRoomClient {
         apiKey: String,
         userId: String,
         token: String,
-        channelId: String
+        channelId: String,
+        authors: ChatAuthorLabels
     ): CrewChatSnapshot = gate.withLock {
         val client = chatClient(context.applicationContext, apiKey)
         client.connectUser(User(id = userId), token).awaitOrNull()
@@ -43,13 +44,13 @@ private class StreamAndroidRoomClient : StreamRoomClient {
                 .joinToString(" ") { "${it.key} ${it.value}" }
             val body = message.text.trim()
             if (body.isEmpty() && image.isNullOrBlank() && reactions.isEmpty()) return@mapNotNull null
-            val name = message.user.name.ifBlank { message.user.id }
+            val mine = message.user.id == userId
             CrewChatMessage(
                 id = message.id,
                 text = body,
-                author = name,
+                author = authors.label(message.user.id, mine),
                 time = message.createdAt?.let { DateFormat.getTimeInstance(DateFormat.SHORT).format(it) }.orEmpty(),
-                mine = message.user.id == userId,
+                mine = mine,
                 reactions = reactions,
                 imageUrl = image
             )

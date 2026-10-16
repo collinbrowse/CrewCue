@@ -93,6 +93,7 @@ import Testing
     let saved = try await runtimeCall([
         "op": "writeCourseSettings",
         "storageDir": directory.path,
+        "roomId": "room",
         "cutoffNote": "Aid 1 cutoff 18:30",
         "stoppageSeconds": 90
     ])
@@ -118,11 +119,12 @@ import Testing
     )
     try ScheduleCache.save(
         CrewScheduleSheet(roomId: "room-1", raceStartAt: "2026-08-15T13:00:00.000Z", stops: [stop]),
-        directory: directory
+        directory: RoomStorage.directory(userDirectory: directory, roomId: "room-1")
     )
     let exported = try await runtimeCall([
         "op": "exportCrewSheet",
-        "storageDir": directory.path
+        "storageDir": directory.path,
+        "roomId": "room-1"
     ])
     let sheet = try resultObject(exported)
     let text = try #require(sheet["text"] as? String)
