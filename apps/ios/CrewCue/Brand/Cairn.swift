@@ -37,11 +37,11 @@ enum Cairn {
     }
 
     /// Shake loader: separate, shake, close, rest. See "Shake" in the spec.
-    static let shakeCrop = CGRect(x: 212, y: 212, width: 600, height: 600)
+    static let shakeCrop = CGRect(x: 192, y: 192, width: 640, height: 640)
     static let shakePeriod = 1.4
     static let shakeGap = 48.0
-    static let shakeAmplitude = 32.0
-    static let shakeDegrees = 2.0
+    static let shakeAmplitude = 20.0
+    static let shakeDegrees = 7.0
 
     struct ShakePose {
         var dx = 0.0
