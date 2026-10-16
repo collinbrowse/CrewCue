@@ -1,4 +1,5 @@
 import Foundation
+import CrewCueClientCore
 
 enum StreamChannelFailure: Error, Sendable {
     case notLinked
@@ -100,7 +101,7 @@ final class StreamRoomSession {
         #endif
     }
 
-    func lines() -> [ChatLine] {
+    func lines(authors: ChatAuthors) -> [ChatLine] {
         #if canImport(StreamChat)
         guard let chat else { return [] }
         // The SDK keeps messages newest-first. The transcript reads oldest at the top, like Android.
@@ -113,12 +114,11 @@ final class StreamRoomSession {
                 .joined(separator: " ")
             let body = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !body.isEmpty || image != nil || !reactions.isEmpty else { return nil }
-            let name = message.author.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let author = (name?.isEmpty == false) ? name! : message.author.id
+            // Stream's user name is global; names are per race, so label from this room's roster.
             return ChatLine(
                 id: message.id,
                 text: body,
-                author: author,
+                author: message.isSentByCurrentUser ? authors.selfLabel : authors.label(streamUserId: message.author.id),
                 time: Self.clock.string(from: message.createdAt),
                 mine: message.isSentByCurrentUser,
                 reactions: reactions,
@@ -126,6 +126,7 @@ final class StreamRoomSession {
             )
         }
         #else
+        _ = authors
         return []
         #endif
     }

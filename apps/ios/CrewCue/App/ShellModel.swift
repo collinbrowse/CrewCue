@@ -40,6 +40,11 @@ final class ShellModel {
     private(set) var signedInRole: String?
     private(set) var signedInRoomId: String?
     private(set) var signedInDisplayName: String?
+    /// Every race the user belongs to. `signedInRoomId` is the active one; every tab follows it.
+    private(set) var roster = RaceRoster()
+    private(set) var racesMessage = ""
+    private(set) var racesLoading = false
+    private var racesGeneration = 0
     private var suppressTabRouteSync = false
     private var didRegisterSessionWipe = false
 
@@ -154,7 +159,62 @@ final class ShellModel {
         if let name = session.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             athleteModel.displayName = name
         }
+        roster = RaceRoster(activeRoomId: session.roomId)
         enterShellIfNeeded()
+        Task { await loadRaces() }
+    }
+
+    /// Load the user's races. The stored active room stays active while the server still lists it.
+    func loadRaces() async {
+        guard let userId = signedInUserId else { return }
+        racesGeneration += 1
+        let ticket = racesGeneration
+        racesLoading = true
+        defer { if ticket == racesGeneration { racesLoading = false } }
+        do {
+            let races = try await RaceDayAPI.myRaces(graph: client.graph, userId: userId)
+            guard ticket == racesGeneration, signedInUserId == userId else { return }
+            let next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
+            roster = next
+            racesMessage = races.isEmpty ? "No races yet." : ""
+            if let active = next.active {
+                if active.id != signedInRoomId || active.role != signedInRole {
+                    apply(active)
+                }
+            } else if signedInRoomId != nil {
+                clearActiveRoom()
+            }
+        } catch {
+            guard ticket == racesGeneration else { return }
+            racesMessage = APIFailure.isOffline(error) ? "Offline. Showing your last race." : "Couldn't load your races."
+        }
+    }
+
+    /// Switch every tab to another loaded race.
+    func selectRace(_ roomId: String) {
+        guard roomId != signedInRoomId, let race = roster.races.first(where: { $0.id == roomId }) else { return }
+        roster.select(roomId)
+        apply(race)
+    }
+
+    private func apply(_ race: RaceSummary) {
+        client.graph.session?.select(race)
+        signedInRoomId = race.id
+        signedInRole = race.role
+        signedInDisplayName = race.displayName
+        if let session = client.graph.session?.session {
+            persist(session)
+        }
+    }
+
+    private func clearActiveRoom() {
+        client.graph.session?.update { session in
+            session.roomId = nil
+        }
+        signedInRoomId = nil
+        if let session = client.graph.session?.session {
+            persist(session)
+        }
     }
 
     func noteJoined(roomId: String, role: String?) {
@@ -171,6 +231,8 @@ final class ShellModel {
         if let session = client.graph.session?.session {
             persist(session)
         }
+        roster.adopt(RaceSummary(id: roomId, name: roster.races.first { $0.id == roomId }?.name ?? "New race", role: signedInRole ?? "crew_member"))
+        Task { await loadRaces() }
     }
 
     func updateDisplayName(_ name: String) {
@@ -180,6 +242,10 @@ final class ShellModel {
         signedInDisplayName = name
         if let session = client.graph.session?.session {
             persist(session)
+        }
+        if var active = roster.active {
+            active.displayName = name
+            roster.adopt(active)
         }
     }
 
@@ -195,6 +261,10 @@ final class ShellModel {
         signedInRole = nil
         signedInRoomId = nil
         signedInDisplayName = nil
+        racesGeneration += 1
+        roster = RaceRoster()
+        racesMessage = ""
+        racesLoading = false
         profileModel.clear()
         stravaModel.clear()
         membersModel.clear()

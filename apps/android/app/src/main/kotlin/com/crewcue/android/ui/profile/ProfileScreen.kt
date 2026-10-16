@@ -14,10 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.ReportProblem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.R
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.ui.RaceChoice
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.map.RaceReadout
@@ -52,6 +60,7 @@ import com.crewcue.android.ui.map.isOnline
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CrewListRow
 import com.crewcue.android.ui.theme.CrewProgressBar
+import com.crewcue.android.ui.theme.IconDisc
 import com.crewcue.android.ui.theme.CrewTextField
 import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricLargeStyle
@@ -100,7 +109,7 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
     ) {
         ProfileHero(
             name = model.name.ifBlank { "Profile" },
-            role = session?.role,
+            role = shell.races.firstOrNull { it.id == roomId }?.roleLabel,
             live = readout.lastPingLabel != null
         )
         val status = model.status
@@ -137,6 +146,21 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
         }
         ProductCard {
             SectionHeader("Your races")
+            if (shell.races.isNotEmpty()) {
+                Column(Modifier.padding(top = 8.dp).testTag("crewcue.race-switcher")) {
+                    shell.races.forEach { item ->
+                        RaceRow(item, active = item.id == roomId) { shell.selectRace(item.id) }
+                    }
+                }
+            }
+            if (shell.racesMessage.isNotBlank()) {
+                Text(
+                    shell.racesMessage,
+                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 CrewTextField(model.raceName, model::updateRaceName, "Race name")
                 PrimaryButton(
@@ -149,6 +173,42 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
                 )
                 SecondaryButton("Join race room", onClick = shell::openJoinCrew)
             }
+        }
+    }
+}
+
+/** One loaded race. Tapping it makes it the race Map, Pace, Chat, and Profile follow. */
+@Composable
+private fun RaceRow(race: RaceChoice, active: Boolean, onSelect: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val label = if (active) "${race.name}, active race" else race.name
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .selectable(selected = active, enabled = !active, role = Role.RadioButton, onClick = onSelect)
+            .padding(vertical = 8.dp)
+            .testTag("crewcue.race-switcher.${race.id}")
+            .semantics(mergeDescendants = true) { contentDescription = label },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconDisc(if (active) Icons.Filled.Flag else Icons.Outlined.Flag, if (active) colors.primary else colors.outline)
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(
+                race.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (active) colors.primary else colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                race.roleLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant
+            )
+        }
+        if (active) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.primary)
         }
     }
 }
@@ -184,7 +244,7 @@ private fun ProfileHero(name: String, role: String?, live: Boolean) {
                 Text(name, style = MaterialTheme.typography.displaySmall, color = Color.White, maxLines = 2)
                 if (!role.isNullOrBlank()) {
                     Text(
-                        role.replace('_', ' ').replaceFirstChar(Char::uppercase),
+                        role,
                         style = MaterialTheme.typography.labelMedium,
                         color = extras.heroAccent
                     )

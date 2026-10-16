@@ -1,4 +1,5 @@
 import Foundation
+import CrewCueClientCore
 
 @MainActor
 enum AppDirectories {
@@ -19,6 +20,13 @@ enum AppDirectories {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")
         let directory = try root().appendingPathComponent(safe, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// Schedule cache, estimate, course draft, and course map for one race.
+    static func roomDirectory(userId: String, roomId: String) throws -> URL {
+        let directory = RoomStorage.directory(userDirectory: try userDirectory(userId: userId), roomId: roomId)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }

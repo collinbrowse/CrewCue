@@ -180,7 +180,7 @@ class PaceViewModel(
             courseBusy = true
             try {
                 val result = withContext(Dispatchers.IO) {
-                    raceDay.writeCourseSettings(cutoffNote, seconds)
+                    raceDay.writeCourseSettings(roomId, cutoffNote, seconds)
                 }
                 when (result) {
                     is RuntimeResult.Failure -> {
@@ -200,7 +200,7 @@ class PaceViewModel(
     private suspend fun loadScheduleAndExport() {
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
-        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet() }
+        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId) }
         applyExport(exported, scheduleOffline = offline)
     }
 

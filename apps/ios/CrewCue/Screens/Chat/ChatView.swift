@@ -11,6 +11,7 @@ struct ChatTabPage: View {
             roomId: model.signedInRoomId,
             role: model.signedInRole,
             displayName: model.signedInDisplayName,
+            raceName: model.roster.races.first { $0.id == model.signedInRoomId }?.name ?? "",
             status: ChatRaceStatus(map: model.mapModel)
         )
     }
@@ -43,11 +44,12 @@ struct ChatView: View {
     var roomId: String?
     var role: String?
     var displayName: String?
+    var raceName: String
     var status: ChatRaceStatus
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatStatusHeader(status: status, channelId: model.channelId)
+            ChatStatusHeader(status: status, raceName: raceName)
             ScrollViewReader { proxy in
                 ScrollView {
                     ChatTranscript(lines: model.lines)
@@ -83,7 +85,7 @@ struct ChatView: View {
 
 struct ChatStatusHeader: View {
     let status: ChatRaceStatus
-    let channelId: String
+    let raceName: String
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -119,7 +121,7 @@ struct ChatStatusHeader: View {
             .padding(.horizontal, CrewSpace.margin)
             .padding(.vertical, CrewSpace.stackSm)
             .crewGlass(in: Capsule())
-            ChatChannelLabel(channelId: channelId)
+            ChatRaceLabel(raceName: raceName)
         }
         .padding(.horizontal, CrewSpace.gutter)
         .padding(.vertical, CrewSpace.stackSm)
@@ -127,17 +129,19 @@ struct ChatStatusHeader: View {
     }
 }
 
-struct ChatChannelLabel: View {
-    let channelId: String
+/// Names the race this chat belongs to. The Stream channel id never reaches the screen.
+struct ChatRaceLabel: View {
+    let raceName: String
 
     var body: some View {
-        if channelId.isEmpty == false {
-            Text(verbatim: channelId)
+        let name = raceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty == false {
+            Text(verbatim: name)
                 .font(CrewFont.kicker)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .truncationMode(.middle)
-                .accessibilityLabel("Channel")
+                .truncationMode(.tail)
+                .accessibilityLabel("Race: \(name)")
         }
     }
 }
@@ -167,7 +171,7 @@ struct ChatBubble: View {
                 HStack(spacing: 8) {
                     if line.mine, line.time.isEmpty == false { time }
                     if line.author.isEmpty == false {
-                        Text(verbatim: line.mine ? "\(line.author) (you)" : line.author)
+                        Text(verbatim: line.author)
                             .crewKicker()
                             .foregroundStyle(line.mine ? theme.primary : theme.body)
                     }

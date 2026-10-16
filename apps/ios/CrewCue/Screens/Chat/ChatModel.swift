@@ -34,6 +34,7 @@ final class ChatModel {
     private let client: AppClient
     private let session = StreamRoomSession()
     private var members: [MentionMember] = []
+    private var authors = ChatAuthors(selfStreamUserId: "", members: nil)
     private var roomId: String?
     private var role = ""
     private var generation = 0
@@ -58,6 +59,7 @@ final class ChatModel {
         self.role = role ?? ""
         channelId = nextRoom.map { RaceDayAPI.channelId(roomId: $0) } ?? ""
         members = []
+        authors = ChatAuthors(selfStreamUserId: "", members: nil)
         lines = []
         openWasOffline = false
         await session.close()
@@ -71,6 +73,7 @@ final class ChatModel {
         do {
             let minted = try await RaceDayAPI.streamToken(graph: client.graph, roomId: nextRoom)
             guard ticket == generation, !Task.isCancelled else { return }
+            authors = ChatAuthors(token: minted)
             let graph = client.graph
             try await session.open(
                 apiKey: minted.streamApiKey,
@@ -99,6 +102,7 @@ final class ChatModel {
         draft = ""
         lines = []
         members = []
+        authors = ChatAuthors(selfStreamUserId: "", members: nil)
         channelId = ""
         statusMessage = ""
         roomId = nil
@@ -155,7 +159,7 @@ final class ChatModel {
             await showChannelResult(ticket: ticket, opened: true)
             guard ticket == generation else { return }
             if lines.contains(where: { $0.id == clientMessageId }) == false {
-                lines.append(ChatLine(id: clientMessageId, text: text, author: "You", mine: true))
+                lines.append(ChatLine(id: clientMessageId, text: text, author: authors.selfLabel, mine: true))
                 statusMessage = ""
             }
         } catch {
@@ -231,7 +235,7 @@ final class ChatModel {
 
     @discardableResult
     private func refreshLines() async -> Bool {
-        var next = session.lines()
+        var next = session.lines(authors: authors)
         var pending = false
         if let roomId, let outbox = client.graph.outbox {
             let operations = (try? await outbox.operations()) ?? []
@@ -241,7 +245,7 @@ final class ChatModel {
                 guard !known.contains(operation.id) else { continue }
                 let text = Self.text(in: operation.payloadJSON)
                 guard !text.isEmpty else { continue }
-                next.append(ChatLine(id: operation.id, text: text, author: "You", mine: true))
+                next.append(ChatLine(id: operation.id, text: text, author: authors.selfLabel, mine: true))
             }
         }
         unreadCount = session.unreadCount()
