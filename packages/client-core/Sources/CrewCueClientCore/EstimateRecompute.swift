@@ -90,6 +90,16 @@ public enum PlanAuthority {
     public static func maySeedColdStart(role: String) -> Bool {
         mayExplicitRecalculate(role: role)
     }
+
+    /// Course edits (planned stops included). Mirrors the API's `canEditRaceSetup`.
+    public static func mayEditCourse(role: String) -> Bool {
+        switch role {
+        case "athlete", "crew_chief", "team_manager":
+            true
+        default:
+            false
+        }
+    }
 }
 
 public enum EstimateRecompute {

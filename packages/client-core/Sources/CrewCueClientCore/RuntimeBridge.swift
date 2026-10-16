@@ -13,7 +13,7 @@ import Dispatch
 /// JSON RPC used by Android. iOS calls `RaceDayAPI` directly.
 /// `op` is one of openSession, loadSchedule, loadEstimate, decideEstimate, computeEstimate,
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
-/// projectAidSheet,
+/// projectAidSheet, stopPlanDraft, updatePlannedStops,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
@@ -48,6 +48,10 @@ enum RuntimeCall {
             return try await loadSchedule(object)
         case "projectAidSheet":
             return projectAidSheet(object)
+        case "stopPlanDraft":
+            return stopPlanDraft(object)
+        case "updatePlannedStops":
+            return try await updatePlannedStops(object)
         case "loadEstimate":
             return try await loadEstimate(object)
         case "decideEstimate":
@@ -163,6 +167,75 @@ enum RuntimeCall {
         payload["readout"] = readoutPayload(sheet: sheet, request: object)
         payload["timeline"] = timelinePayload(sheet: sheet, request: object)
         return payload
+    }
+
+    /// Pace edit draft for Android: rebuilds the draft from the course, replays the typed minutes
+    /// (`minutes`: checkpointId → text), applies an optional stepper tap (`step`: checkpointId +
+    /// deltaMinutes), and returns rows, projected stops, and the timeline.
+    private static func stopPlanDraft(_ object: [String: Any]) -> [String: Any] {
+        let checkpoints = aidCheckpoints(object["checkpoints"])
+        // Progress comes from the runner, never this device: Android sends `progressMeters` derived from
+        // the checkpoints the athlete-ping timeline marks passed; otherwise use the `runner` object.
+        let progress = requestNumber(object["progressMeters"]) ?? requestProgress(object, checkpoints)
+        var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: progress)
+        let typed = object["minutes"] as? [String: Any] ?? [:]
+        for row in draft.rows where row.editable {
+            if let text = typed[row.checkpointId] as? String {
+                draft.setMinutes(text, for: row.checkpointId)
+            }
+        }
+        if let step = object["step"] as? [String: Any], let id = step["checkpointId"] as? String,
+           let delta = intValue(step["deltaMinutes"]) {
+            draft.step(id, deltaMinutes: delta)
+        }
+        let sheet = decodeSheet(object["sheet"])
+        let projected = sheet.map { CrewScheduleSheet(roomId: $0.roomId, raceStartAt: $0.raceStartAt, stops: draft.projectedStops($0.stops)) }
+        let rows: [[String: Any]] = draft.rows.map { row in
+            var item: [String: Any] = [
+                "checkpointId": row.checkpointId,
+                "title": row.title,
+                "savedSeconds": row.savedSeconds,
+                "draftSeconds": row.draftSeconds,
+                "minutesText": row.minutesText,
+                "editable": row.editable,
+                "changed": row.isChanged,
+                "stopLabel": StopPlanDraft.stopLabel(seconds: Double(row.draftSeconds)),
+                "savedLabel": StopPlanDraft.stopLabel(seconds: Double(row.savedSeconds))
+            ]
+            if let error = row.error { item["error"] = error }
+            return item
+        }
+        var payload: [String: Any] = [
+            "rows": rows,
+            "hasChanges": draft.hasChanges,
+            "hasErrors": draft.hasErrors,
+            "canSave": draft.canSave,
+            "mayEdit": PlanAuthority.mayEditCourse(role: object["role"] as? String ?? ""),
+            "edits": draft.edits.map { ["checkpointId": $0.checkpointId, "plannedStopSeconds": $0.plannedStopSeconds] },
+            "timeline": timelinePayload(sheet: projected, request: object)
+        ]
+        if let projected, let stops = try? jsonValue(projected.stops) {
+            payload["stops"] = stops
+        }
+        return payload
+    }
+
+    private static func updatePlannedStops(_ object: [String: Any]) async throws -> Any {
+        let edits = (object["stops"] as? [Any] ?? []).compactMap { item -> PlannedStopEdit? in
+            guard let row = item as? [String: Any], let id = row["checkpointId"] as? String, !id.isEmpty,
+                  let seconds = intValue(row["plannedStopSeconds"]) else { return nil }
+            return PlannedStopEdit(checkpointId: id, plannedStopSeconds: seconds)
+        }
+        guard edits.isEmpty == false else {
+            throw ClientHTTPError(status: 400, message: "No stop changes to save.")
+        }
+        let graph = try graph(object)
+        do {
+            let room = try await RaceDayAPI.updatePlannedStops(graph: graph, roomId: object["roomId"] as? String ?? "", edits: edits)
+            return ["saved": true, "offline": false, "message": StopPlanCopy.saved, "room": try jsonValue(room)]
+        } catch {
+            return ["saved": false, "offline": TransportFailure.isOffline(error), "message": StopPlanCopy.failure(error)]
+        }
     }
 
     /// `runner` is the `latest` object from a `latestPing` result, passed back unchanged.
@@ -322,6 +395,11 @@ enum RuntimeCall {
             "lines": lines,
             "checkpointIds": sheet.stops.map(\.checkpointId),
             "sheet": try jsonValue(sheet),
+            "mayEditCourse": PlanAuthority.mayEditCourse(role: request["role"] as? String ?? ""),
+            "plannedStopLabels": Dictionary(
+                sheet.stops.map { ($0.checkpointId, StopPlanDraft.stopLabel(seconds: $0.plannedStoppageSeconds)) },
+                uniquingKeysWith: { first, _ in first }
+            ),
             "aidSheet": AidStationSheet.payload(aidProjection(sheet: sheet, request: request)),
             "readout": readoutPayload(sheet: sheet, request: request),
             "timeline": timelinePayload(sheet: sheet, request: request)

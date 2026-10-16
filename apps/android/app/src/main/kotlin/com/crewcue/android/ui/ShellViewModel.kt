@@ -493,7 +493,8 @@ class ShellViewModel(
             "outbox-status",
             "check-in",
             "course-settings",
-            "gpx-import"
+            "gpx-import",
+            "pace-stop-edit"
         )
     }
 
