@@ -99,6 +99,7 @@ fun PaceScreen(
         if (focus == "check-in") model.scheduleStops.firstOrNull()?.let { model.openCheckIn(it.id) }
         if (focus in TOOL_FOCUSES) showsTools = true
     }
+    LaunchedEffect(passedIds) { model.runnerPassed(passedIds) }
     LaunchedEffect(focus, model.mayEditStops) {
         if (focus == "pace-stop-edit" && model.mayEditStops && !model.stopEditing) model.beginStopEdit(passedIds)
     }

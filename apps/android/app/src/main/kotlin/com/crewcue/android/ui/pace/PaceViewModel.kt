@@ -255,6 +255,18 @@ class PaceViewModel(
         }
     }
 
+    /**
+     * The athlete's ping timeline marked more checkpoints passed. While editing, lock them (the draft is
+     * rebuilt from the larger progress, so their typed minutes are dropped). Progress never goes back.
+     */
+    fun runnerPassed(passedIds: Set<String>) {
+        if (!stopEditing) return
+        val progress = passedDistance(stopCheckpoints, passedIds)
+        if (progress <= stopProgressMeters) return
+        stopProgressMeters = progress
+        viewModelScope.launch { projectStops() }
+    }
+
     fun cancelStopEdit() {
         if (stopBusy) return
         stopEditing = false
