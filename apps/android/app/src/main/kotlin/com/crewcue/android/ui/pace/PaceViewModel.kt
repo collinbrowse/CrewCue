@@ -60,6 +60,8 @@ class PaceViewModel(
         private set
     var estimateMessage by mutableStateOf<String?>(null)
         private set
+    val showsColdStart: Boolean
+        get() = estimateMessage == COLD_START
     var estimateDetail by mutableStateOf<String?>(null)
         private set
     var mayRecalculate by mutableStateOf(false)
@@ -410,7 +412,7 @@ class PaceViewModel(
                 }
                 val offline = json.optBoolean("offline")
                 scheduleMessage = when {
-                    offline -> SCHEDULE_OFFLINE
+                    offline -> SCHEDULE_OFFLINE_CACHED
                     parsed.first.isEmpty() -> SCHEDULE_EMPTY
                     else -> null
                 }
@@ -636,6 +638,7 @@ class PaceViewModel(
         const val SCHEDULE_EMPTY = "No stops on this sheet."
         const val SCHEDULE_ERROR = "Couldn't load the schedule."
         const val SCHEDULE_OFFLINE = "Offline. Schedule not updated."
+        const val SCHEDULE_OFFLINE_CACHED = "Offline. Schedule not updated. The last sheet stays readable on this device."
         const val COLD_START = "Cold start: no history yet. Coarse estimate only."
         const val ESTIMATE_EMPTY = "No estimate yet."
         const val ESTIMATE_ERROR = "Couldn't load the pace estimate."

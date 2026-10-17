@@ -189,7 +189,8 @@ private fun EstimateCard(model: PaceViewModel) {
             Column(Modifier.padding(start = 12.dp)) {
                 Kicker("Pace estimate", color = MaterialTheme.colorScheme.primary)
                 model.estimateMessage?.let { line ->
-                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                    val tag = if (model.showsColdStart) Modifier.testTag("crewcue.cold-start") else Modifier
+                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = tag.semantics { contentDescription = line })
                 }
                 model.estimateDetail?.let { line ->
                     Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
@@ -304,8 +305,12 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
                 Text(
                     when {
                         row.isFinish -> "TARGET"
-                        done -> stop?.let { "${it.arrival} · ${it.elapsed}" } ?: "PLANNED"
-                        stop != null && stop.stopLabel.isNotBlank() && stop.stopLabel != "NO STOP" -> "PROJECTED · ${stop.stopLabel}"
+                        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+                        stop != null -> listOfNotNull(
+                            "${stop.arrival} · ${stop.elapsed}",
+                            stop.stopLabel.takeIf { !done && it.isNotBlank() && it != "NO STOP" }
+                        ).joinToString(" · ")
+                        done -> "PLANNED"
                         else -> "PROJECTED"
                     },
                     style = MaterialTheme.typography.labelSmall,

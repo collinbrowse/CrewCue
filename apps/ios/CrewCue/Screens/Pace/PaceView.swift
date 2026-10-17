@@ -316,9 +316,12 @@ struct PaceCheckpointCard: View {
 
     private var caption: String {
         if row.isFinish { return "TARGET" }
-        if row.state == .done { return stop.map { "\($0.arrival) · \($0.elapsed)" } ?? "PLANNED" }
-        if let stop, stop.stopLabel != "NO STOP" { return "PROJECTED · \(stop.stopLabel)" }
-        return "PROJECTED"
+        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+        if let stop {
+            let times = "\(stop.arrival) · \(stop.elapsed)"
+            return row.state != .done && stop.stopLabel != "NO STOP" ? "\(times) · \(stop.stopLabel)" : times
+        }
+        return row.state == .done ? "PLANNED" : "PROJECTED"
     }
 
     private var cutoffColor: Color {

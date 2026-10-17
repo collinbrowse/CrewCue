@@ -583,8 +583,9 @@ final class PaceModel {
         stops = []
         let offline = APIFailure.isTransport(error)
         scheduleOffline = offline
+        // No sheet is cached here, so don't promise one.
         scheduleMessage = offline
-            ? "Offline. Schedule not updated. The last sheet stays readable on this device."
+            ? "Offline. Schedule not updated."
             : "Couldn't load the schedule."
         exportText = ""
         exportMessage = "Couldn't build the crew sheet."
