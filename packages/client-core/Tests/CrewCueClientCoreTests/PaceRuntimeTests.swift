@@ -195,6 +195,15 @@ import Testing
     #expect(try ScheduleCache.load(directory: directory)?.stops.isEmpty == true)
 }
 
+@Test func transportFailureReadsURLErrorDomainCodes() {
+    #expect(TransportFailure.isOffline(URLError(.notConnectedToInternet)))
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.notConnectedToInternet.rawValue)))
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)))
+    #expect(!TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.badServerResponse.rawValue)))
+    #expect(!TransportFailure.isOffline(NSError(domain: "other", code: URLError.notConnectedToInternet.rawValue)))
+    #expect(!TransportFailure.isOffline(ClientHTTPError(status: 500, message: "down")))
+}
+
 @Test func estimateLoadFetchesHistoryOnlyForTheAthlete() async throws {
     let body = #"{"items":[{"id":"run-1","distanceMeters":44949,"elapsedSeconds":21600,"elevationGainMeters":4568},{"id":"run-2","distanceMeters":7991}]}"#
     let transport = RecordingTransport(body: Data(body.utf8))
