@@ -11,11 +11,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.text.font.FontWeight
-import com.crewcue.android.ui.theme.PrimaryButton
-import com.crewcue.android.ui.theme.ProductCard
-import com.crewcue.android.ui.theme.ProductTitle
-import com.crewcue.android.ui.theme.SecondaryButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -33,8 +29,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.map.isOnline
+import com.crewcue.android.ui.theme.PrimaryButton
+import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.ProductTitle
+import com.crewcue.android.ui.theme.SecondaryButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +47,15 @@ const val MEMBERS_ERROR = "Couldn't update members."
 const val MEMBERS_OFFLINE = "Offline. Roster not updated."
 
 data class RosterMember(val userId: String, val role: String, val displayName: String)
+
+/** Mirrors the API: only the race's athlete may remove members, and never themselves. */
+object MemberPermissions {
+    fun mayRemoveMembers(viewerId: String?, athleteId: String?): Boolean =
+        !viewerId.isNullOrBlank() && viewerId == athleteId
+
+    fun mayRemove(viewerId: String?, athleteId: String?, memberId: String?): Boolean =
+        mayRemoveMembers(viewerId, athleteId) && !memberId.isNullOrBlank() && memberId != athleteId
+}
 
 @Composable
 fun RoomMembersScreen(
@@ -100,12 +110,15 @@ fun RoomMembersScreen(
                     }
                 }
             }
-            SecondaryButton(
-                "Remove",
-                onClick = { model.removeSelected(context.isOnline()) },
-                modifier = Modifier.padding(top = 12.dp),
-                enabled = !model.busy && model.selectedId != null
-            )
+            // The API lets only the race's athlete remove members, so nobody else sees the button.
+            if (MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId)) {
+                SecondaryButton(
+                    "Remove",
+                    onClick = { model.removeSelected(context.isOnline()) },
+                    modifier = Modifier.padding(top = 12.dp),
+                    enabled = !model.busy && MemberPermissions.mayRemove(shell.session?.userId, model.athleteId, model.selectedId)
+                )
+            }
         }
         if (onBack != null) {
             SecondaryButton("Profile", onClick = onBack, modifier = Modifier.padding(top = 12.dp))
@@ -118,6 +131,8 @@ class RoomMembersViewModel(
     private val roomId: String
 ) : ViewModel() {
     var members by mutableStateOf<List<RosterMember>>(emptyList())
+        private set
+    var athleteId by mutableStateOf<String?>(null)
         private set
     var selectedId by mutableStateOf<String?>(null)
         private set
@@ -239,6 +254,7 @@ class RoomMembersViewModel(
                     status = MEMBERS_OFFLINE
                     return
                 }
+                athleteId = result.result.optText("athleteId").ifBlank { null }
                 adopt(parseMembers(result.result))
             }
         }
@@ -264,7 +280,7 @@ class RoomMembersViewModel(
             rows += RosterMember(
                 userId = userId,
                 role = row.optString("role"),
-                displayName = row.optString("displayName").trim()
+                displayName = row.optText("displayName").trim()
             )
         }
         return rows

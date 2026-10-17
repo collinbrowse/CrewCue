@@ -1,8 +1,9 @@
 package com.crewcue.android.session
 
 import android.content.Context
-import org.json.JSONObject
+import com.crewcue.android.data.optText
 import java.io.File
+import org.json.JSONObject
 
 data class StoredSession(
     val userId: String,
@@ -66,7 +67,7 @@ class SessionStore(context: Context) {
                 userId = obj.optString("userId"),
                 role = obj.optString("role"),
                 token = obj.optString("token"),
-                displayName = obj.optString("displayName").ifBlank { null },
+                displayName = obj.optText("displayName").ifBlank { null },
                 roomId = obj.optString("roomId").ifBlank { null },
                 fromAuth0 = obj.optBoolean("fromAuth0")
             )

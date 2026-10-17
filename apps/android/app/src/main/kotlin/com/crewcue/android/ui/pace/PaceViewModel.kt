@@ -470,21 +470,9 @@ class PaceViewModel(
         }
         val hasEstimate = json.optBoolean("hasEstimate")
         hasPlanOfRecord = hasEstimate
-        val cold = json.optBoolean("coldStart")
-        when {
-            !hasEstimate && usableHistoryCount > 0 -> {
-                estimateMessage = ESTIMATE_EMPTY
-                estimateDetail = null
-            }
-            !hasEstimate || cold || usableHistoryCount == 0 -> {
-                estimateMessage = COLD_START
-                estimateDetail = if (hasEstimate) summary else null
-            }
-            else -> {
-                estimateMessage = summary ?: ESTIMATE_EMPTY
-                estimateDetail = null
-            }
-        }
+        val copy = estimateCopy(hasEstimate, json.optBoolean("coldStart"), usableHistoryCount, summary)
+        estimateMessage = copy.first
+        estimateDetail = copy.second
     }
 
     private suspend fun sendGpx(xml: String) {
@@ -634,7 +622,19 @@ class PaceViewModel(
         }
     }
 
-    private companion object {
+    companion object {
+        /**
+         * Message and detail for the estimate card. Crew never load the athlete's history, so only the
+         * estimate's own cold-start flag decides whether a plan of record is a cold start.
+         */
+        fun estimateCopy(hasEstimate: Boolean, coldStart: Boolean, usableHistoryCount: Int, summary: String?): Pair<String, String?> =
+            when {
+                !hasEstimate && usableHistoryCount > 0 -> ESTIMATE_EMPTY to null
+                !hasEstimate -> COLD_START to null
+                coldStart -> COLD_START to summary
+                else -> (summary ?: ESTIMATE_EMPTY) to null
+            }
+
         const val SCHEDULE_EMPTY = "No stops on this sheet."
         const val SCHEDULE_ERROR = "Couldn't load the schedule."
         const val SCHEDULE_OFFLINE = "Offline. Schedule not updated."
