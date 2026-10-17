@@ -165,6 +165,30 @@ Updates `room.entitlement` (manual source, server timestamp).
 | 403 | Not a member or insufficient role |
 | 404 | Unknown `roomId` |
 
+### `PATCH /race-rooms/:roomId/checkpoint-stops`
+
+Sets the planned stop (aid dwell) for one or more checkpoints (#250, Pace edit). Each row is the new absolute value, so a retried request is idempotent. All rows apply or none. The stored projection is recomputed, so `/schedule` arrivals after a changed checkpoint move by the change.
+
+Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependent crew state (task board, adaptive plan, sync). A planned stop changes timing, not the course. This is not the deferred stop-plan overlay API (`/stop-plans`, `delayOverrideSeconds`).
+
+**Body (JSON)**
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `stops` | array, 1–500 | each checkpoint at most once |
+| `stops[].checkpointId` | string | must exist on the room's course |
+| `stops[].plannedStopSeconds` | integer | 0–21600 (6 h) |
+
+**Responses**
+
+| Code | Meaning |
+| --- | --- |
+| 200 | Returns the updated race room |
+| 400 | Invalid payload |
+| 401 | Missing/invalid JWT or malformed claims |
+| 403 | Not a member, not a course editor (athlete, crew chief, team manager), or entitlement |
+| 404 | Unknown room, no course, or unknown checkpoint ids (`checkpointIds` lists them; nothing is saved) |
+
 ## Notes for consumers
 
 - In-memory stores reset on process restart; treat this as a **contract + behavior sketch** until persistence lands in a later slice.

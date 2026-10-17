@@ -16,6 +16,8 @@ struct PaceStop: Identifiable, Equatable {
     var moving: String?
     var waited: String?
     var stoppage: String
+    /// Dwell rail label for the planned stop, e.g. "5 MIN STOP".
+    var stopLabel: String
     var delay: String?
     var line: String
 }
@@ -60,6 +62,12 @@ final class PaceModel {
     private(set) var stoppageLines: [PaceLine] = []
     private(set) var courseMessage = "No course settings yet."
 
+    /// #250 Pace edit: planned stop minutes. Non-nil while editing; the timeline renders from it.
+    private(set) var stopDraft: StopPlanDraft?
+    private(set) var stopsMessage = ""
+    private(set) var stopsBusy = false
+    private var latestRunner = RunnerProgress.none
+
     private(set) var outboxRows: [PaceLine] = []
     private(set) var outboxMessage = "Outbox is empty."
 
@@ -80,6 +88,12 @@ final class PaceModel {
     var canRecalculate: Bool {
         PlanAuthority.mayExplicitRecalculate(role: role)
     }
+
+    var canEditStops: Bool {
+        PlanAuthority.mayEditCourse(role: role) && courseCheckpoints.count >= 2 && loadedStops.isEmpty == false
+    }
+
+    var isEditingStops: Bool { stopDraft != nil }
 
     var canSeedColdStart: Bool {
         showColdStart && PlanAuthority.maySeedColdStart(role: role)
@@ -124,12 +138,63 @@ final class PaceModel {
         estimateBusy = false
         checkInBusy = false
         gpxBusy = false
+        stopsBusy = false
         clearFields()
     }
 
     func recalculate() async {
         guard canRecalculate else { return }
         await computeAndAttach(ticket: generation)
+    }
+
+    /// Stops the runner has passed (by the athlete's latest ping) stay read-only in the draft.
+    func beginStopEdit() {
+        guard canEditStops, stopsBusy == false else { return }
+        let checkpoints = aidCheckpoints
+        stopDraft = StopPlanDraft(checkpoints: checkpoints, progressMeters: latestRunner.progressMeters(checkpoints: checkpoints))
+        stopsMessage = ""
+    }
+
+    /// The athlete's latest ping (from the shell's poll). Recorded even when not editing, so a draft opened
+    /// later starts from it; while a draft is open, any stop the runner passed is locked.
+    func runnerMoved(_ runner: RunnerProgress) {
+        latestRunner = runner
+        stopDraft?.lockPassed(progressMeters: runner.progressMeters(checkpoints: aidCheckpoints))
+    }
+
+    func cancelStopEdit() {
+        guard stopsBusy == false else { return }
+        stopDraft = nil
+        stopsMessage = ""
+    }
+
+    func setStopMinutes(_ text: String, for checkpointId: String) {
+        stopDraft?.setMinutes(text, for: checkpointId)
+    }
+
+    func stepStop(_ checkpointId: String, by deltaMinutes: Int) {
+        stopDraft?.step(checkpointId, deltaMinutes: deltaMinutes)
+    }
+
+    /// Sends only the changed stops. On failure the draft stays open so nothing typed is lost.
+    func saveStopEdit() async {
+        let ticket = generation
+        guard let roomId, let draft = stopDraft, draft.canSave, stopsBusy == false else { return }
+        stopsBusy = true
+        defer { stopsBusy = false }
+        do {
+            let room = try await RaceDayAPI.updatePlannedStops(graph: client.graph, roomId: roomId, edits: draft.edits)
+            guard ticket == generation else { return }
+            courseCheckpoints = room.course?.checkpoints ?? courseCheckpoints
+            stopDraft = nil
+            stopsMessage = StopPlanCopy.saved
+            await loadScheduleSection(ticket: ticket)
+            guard ticket == generation else { return }
+            refreshCourseReadout()
+        } catch {
+            guard ticket == generation else { return }
+            stopsMessage = StopPlanCopy.failure(error)
+        }
     }
 
     func openCheckIn(checkpointId: String) {
@@ -453,7 +518,25 @@ final class PaceModel {
         if checkpointId.isEmpty, let first = sheet.stops.first?.checkpointId, first.isEmpty == false {
             checkpointId = first
         }
-        let rows = sheet.stops.enumerated().map { index, stop in
+        let rows = paceStops(sheet.stops)
+        stops = rows
+        stopLines = rows.map { PaceLine(id: $0.id, text: $0.line) }
+        scheduleOffline = offline
+        if offline {
+            scheduleMessage = "Offline. Schedule not updated. The last sheet stays readable on this device."
+        } else if failed {
+            scheduleMessage = "Couldn't load the schedule."
+        } else if sheet.stops.isEmpty {
+            scheduleMessage = "No stops on this sheet."
+        } else {
+            scheduleMessage = ""
+        }
+        applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+    }
+
+    /// Display rows for schedule stops (server sheet, or the draft projection while editing).
+    private func paceStops(_ stops: [ScheduleStop]) -> [PaceStop] {
+        stops.enumerated().map { index, stop in
             let title = ScheduleFormat.checkpointDisplayTitle(
                 id: stop.checkpointId,
                 title: courseTitle(for: stop.checkpointId)
@@ -473,23 +556,17 @@ final class PaceModel {
                 moving: moving,
                 waited: waited,
                 stoppage: ScheduleFormat.formatDurationSeconds(stop.plannedStoppageSeconds),
+                stopLabel: StopPlanDraft.stopLabel(seconds: stop.plannedStoppageSeconds),
                 delay: stop.delayOverrideSeconds.map { ScheduleFormat.formatDurationSeconds($0) },
                 line: "\(title)  \(duration)  \(clock)"
             )
         }
-        stops = rows
-        stopLines = rows.map { PaceLine(id: $0.id, text: $0.line) }
-        scheduleOffline = offline
-        if offline {
-            scheduleMessage = "Offline. Schedule not updated. The last sheet stays readable on this device."
-        } else if failed {
-            scheduleMessage = "Couldn't load the schedule."
-        } else if sheet.stops.isEmpty {
-            scheduleMessage = "No stops on this sheet."
-        } else {
-            scheduleMessage = ""
-        }
-        applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+    }
+
+    /// Stops the Pace cards show: the draft projection while editing planned stops.
+    var displayStops: [PaceStop] {
+        guard let stopDraft else { return stops }
+        return paceStops(stopDraft.projectedStops(loadedStops))
     }
 
     private func applyScheduleFailure(_ error: Error) {
@@ -640,9 +717,11 @@ final class PaceModel {
         stops.first { $0.checkpointId == checkpointId }
     }
 
+    /// The server sheet, or while editing stops, the sheet as it will read after saving.
     private var loadedSheet: CrewScheduleSheet? {
         guard loadedStops.isEmpty == false else { return nil }
-        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: loadedStops)
+        let stops = stopDraft?.projectedStops(loadedStops) ?? loadedStops
+        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops)
     }
 
     private var aidCheckpoints: [AidStationCheckpoint] {
@@ -764,6 +843,9 @@ final class PaceModel {
         exportMessage = "Nothing to export."
         cutoffNote = ""
         stoppageText = ""
+        stopDraft = nil
+        stopsMessage = ""
+        latestRunner = .none
         cutoffLines = []
         stoppageLines = []
         courseMessage = "No course settings yet."
