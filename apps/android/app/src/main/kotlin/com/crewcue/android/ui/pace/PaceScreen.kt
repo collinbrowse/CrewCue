@@ -504,9 +504,10 @@ private fun Marker(row: TimelineRow) {
 /** Scrolls the tool a deeplink names into view when the sheet opens, as iOS does. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun bringIntoViewWhen(active: Boolean): Modifier {
+private fun bringIntoViewWhen(active: Boolean, contentAbove: Any? = null): Modifier {
     val requester = remember { BringIntoViewRequester() }
-    LaunchedEffect(active) {
+    // Content that loads after the sheet opens pushes later tools down, so ask again when it changes.
+    LaunchedEffect(active, contentAbove) {
         if (active) requester.bringIntoView()
     }
     return Modifier.bringIntoViewRequester(requester)
@@ -580,7 +581,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             spoken = "Share crew sheet"
         )
     }
-    ProductCard(Modifier.testTag("crewcue.course-settings").then(bringIntoViewWhen(focus == "course-settings"))) {
+    ProductCard(Modifier.testTag("crewcue.course-settings").then(bringIntoViewWhen(focus == "course-settings", model.exportText))) {
         Text("Course settings", style = MaterialTheme.typography.titleLarge)
         Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             model.courseMessage?.let { line ->
@@ -596,7 +597,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             PrimaryButton("Save draft", onClick = model::saveCourse, enabled = !model.courseBusy, spoken = "Save course settings")
         }
     }
-    ProductCard(Modifier.testTag("crewcue.outbox").then(bringIntoViewWhen(focus == "outbox-status"))) {
+    ProductCard(Modifier.testTag("crewcue.outbox").then(bringIntoViewWhen(focus == "outbox-status", model.exportText))) {
         Text("Outbox", style = MaterialTheme.typography.titleLarge)
         model.outboxMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })

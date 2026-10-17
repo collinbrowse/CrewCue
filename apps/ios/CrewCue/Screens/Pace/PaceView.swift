@@ -460,6 +460,8 @@ struct PaceToolsSheet: View {
                         .id("outbox-status")
                 }
                 .onAppear { proxy.scrollTo(focus, anchor: .top) }
+                // The crew sheet loads after the sheet opens and pushes later tools down; keep the focus in view.
+                .onChange(of: model.exportText) { proxy.scrollTo(focus, anchor: .top) }
             }
         }
     }

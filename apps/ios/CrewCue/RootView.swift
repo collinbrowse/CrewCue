@@ -29,6 +29,8 @@ struct CrewCueScreenModifier: ViewModifier {
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(CrewBackground())
+            // Contain the children so the screen label names the screen, not every control on it.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(label)
     }
