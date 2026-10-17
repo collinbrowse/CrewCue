@@ -132,6 +132,9 @@ class PaceViewModel(
         stoppageText = value
     }
 
+    /** The room has an attached estimate. Sent with each compute so client-core can check the trigger. */
+    private var hasPlanOfRecord = false
+
     fun recalculate() {
         viewModelScope.launch { refreshEstimate(explicit = true) }
     }
@@ -245,8 +248,10 @@ class PaceViewModel(
                     val shouldCompute = loaded is RuntimeResult.Success && loaded.result.optBoolean("recompute")
                     if (!shouldCompute) return@withLock
                 }
+                // Only the athlete's history recomputes automatically; a tap is an explicit Recalculate.
+                val trigger = if (explicit) "recalculate" else "auto"
                 val computed = withContext(Dispatchers.IO) {
-                    raceDay.computeEstimate(roomId, historyFingerprint, usableHistoryCount)
+                    raceDay.computeEstimate(roomId, historyFingerprint, usableHistoryCount, trigger, hasPlanOfRecord)
                 }
                 applyEstimate(computed)
             } finally {
@@ -281,6 +286,7 @@ class PaceViewModel(
             return
         }
         val hasEstimate = json.optBoolean("hasEstimate")
+        hasPlanOfRecord = hasEstimate
         val cold = json.optBoolean("coldStart")
         when {
             !hasEstimate && usableHistoryCount > 0 -> {
