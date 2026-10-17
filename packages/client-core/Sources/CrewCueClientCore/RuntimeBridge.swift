@@ -1473,6 +1473,8 @@ enum CoursePayload {
             "offline": false,
             "checkpoints": checkpoints,
             "name": (room["name"] as? String) ?? "",
+            // Android shows Remove member only to the race's athlete, as the API allows.
+            "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
             "elevation": elevationRows(room),
             "memberships": membershipRows(room)
