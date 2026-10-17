@@ -15,6 +15,7 @@ struct FeatureScreenView: View {
         .crewCard()
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(screen.accessibilityIdentifier)
         .accessibilityLabel(screen.title)
     }

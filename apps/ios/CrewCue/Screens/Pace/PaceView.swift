@@ -515,9 +515,9 @@ struct PaceEstimateMessage: View {
     let coldStart: Bool
 
     var body: some View {
+        // VoiceOver reads the estimate itself; the card is already labelled "Pace estimate".
         Text(verbatim: message)
             .font(CrewFont.body)
-            .accessibilityLabel(coldStart ? "Cold start" : "Pace estimate")
             .modifier(PaceColdStartIdentifier(enabled: coldStart))
     }
 }
