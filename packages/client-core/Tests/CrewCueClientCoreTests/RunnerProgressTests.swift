@@ -212,3 +212,19 @@ private func date(_ iso: String) -> Date {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.date(from: iso) ?? Date(timeIntervalSince1970: 0)
 }
+
+/// JSON `0` passes `is Bool` on Darwin. The start line's 0 m distance must survive the Android `loadRoom` payload,
+/// or the start is never "done" and the timeline marks it current while the runner is miles in.
+@Test func androidTimelineMarksStartDoneFromRunnerWhenStartDistanceIsZero() async throws {
+    let roomJSON = #"{"room":{"id":"room","course":{"checkpoints":[{"id":"start","title":"Start","latitude":39.15,"longitude":-120.25,"distanceMetersFromStart":0},{"id":"aid-1","title":"Aid 1","latitude":39.24,"longitude":-120.25,"distanceMetersFromStart":9988.7},{"id":"aid-2","title":"Aid 2","latitude":39.33,"longitude":-120.25,"distanceMetersFromStart":19977.5},{"id":"finish","title":"Finish","latitude":39.6,"longitude":-120.25,"distanceMetersFromStart":49943.9}]}}}"#
+    let course = CoursePayload.make(from: Data(roomJSON.utf8))
+    let rows = try #require(course["checkpoints"] as? [[String: Any]])
+    #expect(rows.first?["distanceMetersFromStart"] as? Double == 0)
+
+    let runner = try #require(try JSONSerialization.jsonObject(with: Data(latestJSON(ping: #"{"pingId":"p","latitude":39.28,"longitude":-120.25,"recordedAt":"2026-08-15T12:58:00.000Z","receivedAt":"2026-08-15T12:58:02.000Z","progressMeters":14455.4}"#).utf8)))
+    let request: [String: Any] = ["op": "projectAidSheet", "checkpoints": rows, "runner": runner, "selectedIndex": 0, "follow": true]
+    let raw = await RuntimeCall.perform(String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self))
+    let result = try #require((try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])?["result"] as? [String: Any])
+    let states = try #require(result["timeline"] as? [[String: Any]]).map { "\($0["checkpointId"]!)=\($0["state"]!)" }
+    #expect(states == ["start=done", "aid-1=done", "aid-2=current", "finish=projected"])
+}

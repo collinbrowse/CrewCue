@@ -360,15 +360,7 @@ enum RuntimeCall {
     }
 
     private static func requestNumber(_ value: Any?) -> Double? {
-        if value is NSNull { return nil }
-        // JSON numbers 0 and 1 also cast to Bool, so only an NSNumber that is a real boolean ("c") is rejected.
-        if let number = value as? NSNumber {
-            return String(cString: number.objCType) == "c" ? nil : number.doubleValue
-        }
-        if value is Bool { return nil }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 
     private static func schedulePayload(_ sheet: CrewScheduleSheet?, offline: Bool, request: [String: Any] = [:]) throws -> [String: Any] {
@@ -1492,11 +1484,7 @@ enum CoursePayload {
     }
 
     private static func number(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 }
 

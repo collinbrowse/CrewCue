@@ -463,11 +463,7 @@ public enum RaceDayAPI {
     }
 
     private static func jsonNumber(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 
     private static func cutoffLine(checkpointId: String, cutoff: [String: Any]) -> String? {
