@@ -1,0 +1,17 @@
+{
+  "id": "hello",
+  "entry": "crewcue://dev/hello",
+  "commit": "c1fbec9 (local build: main + #572 + #576 + #575 + #573 + this branch)",
+  "action": "Opened crewcue://dev/hello signed out, then each ?state= overlay. hello is a harness row: the shared client-core stamp is the product, so its overlays are its states.",
+  "screenshots": "Attached to the PR, not committed.",
+  "platform": "android",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-17",
+  "checked": {
+    "Success": "Card titled CrewCue with the client-core helloStamp body.",
+    "Empty": "?state=empty shows 'No message yet.'",
+    "Error": "?state=error shows 'Hello failed.'",
+    "Offline": "?state=offline shows 'Offline.'",
+    "Accessibility labels": "resource-id crewcue.hello, content-desc CrewCue (uiautomator dump)."
+  }
+}

@@ -18,8 +18,8 @@
       "label": "crewcue.hello",
       "sdk": "none",
       "scope": "harness",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "schedule-sheet",

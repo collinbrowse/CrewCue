@@ -1,0 +1,17 @@
+{
+  "id": "hello",
+  "entry": "crewcue://dev/hello",
+  "commit": "c1fbec9 (local build: main + #572 + #576 + #575 + #573 + this branch)",
+  "action": "Opened crewcue://dev/hello signed out, then each ?state= overlay. hello is a harness row: the shared client-core stamp is the product, so its overlays are its states.",
+  "screenshots": "Attached to the PR, not committed.",
+  "platform": "ios",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-17",
+  "checked": {
+    "Success": "Card titled CrewCue with the client-core helloStamp body; both texts carry identifier crewcue.hello.",
+    "Empty": "?state=empty shows 'No message yet.'",
+    "Error": "?state=error shows 'Hello failed.'",
+    "Offline": "?state=offline shows 'Offline.'",
+    "Accessibility labels": "AXUniqueId crewcue.hello on the stamp (AXe describe-ui)."
+  }
+}
