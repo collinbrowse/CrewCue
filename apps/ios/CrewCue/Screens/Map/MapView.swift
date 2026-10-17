@@ -97,9 +97,8 @@ private struct MapOverlayControls: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: CrewSpace.stackSm) {
-                    if let ping = model.readout.lastPingLabel {
-                        StatusChip(text: "LAST PING: \(ping)", style: .glass, dot: true)
-                    }
+                    StatusChip(text: model.readout.pingLabel, style: .glass, dot: model.readout.pingState == .live)
+                        .accessibilityLabel(pingAccessibility)
                     CircleIconButton(systemImage: "scope", label: "Fit course") {
                         model.recenter()
                     }
@@ -121,6 +120,14 @@ private struct MapOverlayControls: View {
                 }
             }
             .padding(.horizontal, CrewSpace.gutter)
+        }
+    }
+
+    private var pingAccessibility: String {
+        switch model.readout.pingState {
+        case .none: return "No runner ping yet"
+        case .live: return "Runner \(model.readout.pingLabel.lowercased())"
+        case .stale: return "Runner signal is stale. \(model.readout.pingLabel.lowercased())"
         }
     }
 }

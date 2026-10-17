@@ -33,27 +33,28 @@ class RaceDayBridge(
 
     fun loadSchedule(roomId: String): RuntimeResult = call("loadSchedule") { put("roomId", roomId) }
 
+    /**
+     * Readouts and aid pages placed by [runner], the `latest` object from [latestPing].
+     * There is deliberately no device-location input: this phone's GPS never drives race progress.
+     */
     fun projectAidSheet(
         sheet: JSONObject?,
         checkpoints: JSONArray,
-        latitude: Double?,
-        longitude: Double?,
+        runner: JSONObject?,
         selectedIndex: Int,
         follow: Boolean,
-        elevation: JSONArray? = null,
-        lastPingAtMs: Long? = null
+        elevation: JSONArray? = null
     ): RuntimeResult = call("projectAidSheet") {
         if (sheet != null) put("sheet", sheet)
         put("checkpoints", checkpoints)
-        if (latitude != null && longitude != null) {
-            put("latitude", latitude)
-            put("longitude", longitude)
-        }
+        if (runner != null) put("runner", runner)
         put("selectedIndex", selectedIndex)
         put("follow", follow)
         if (elevation != null && elevation.length() > 0) put("elevation", elevation)
-        if (lastPingAtMs != null) put("lastPingAtMs", lastPingAtMs)
     }
+
+    /** The athlete's latest accepted ping: `{ offline, latest?, refreshSeconds }`. */
+    fun latestPing(roomId: String): RuntimeResult = call("latestPing") { put("roomId", roomId) }
 
     fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
 

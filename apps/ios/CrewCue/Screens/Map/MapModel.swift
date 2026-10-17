@@ -25,9 +25,9 @@ final class MapModel {
     private var courseFailed = false
     private var schedule: CrewScheduleSheet?
     private var courseCheckpoints: [AidStationCheckpoint] = []
-    private(set) var progressMeters: Double = 0
+    /// The athlete's latest ping from the API. The only source of race progress on this phone.
+    private(set) var runner: RunnerProgress = .none
     private var elevation: ElevationProfile?
-    private var lastPingAt: Date?
     private var styleOffline = false
     private var styleFailed = false
 
@@ -36,7 +36,7 @@ final class MapModel {
     private(set) var aidLiveNextIndex: Int?
     private(set) var aidIndex = 0
     private(set) var aidFollow = true
-    private(set) var readout = RaceDayReadouts.make(sheet: nil, checkpoints: [], progressMeters: 0, now: Date(), lastPingAt: nil)
+    private(set) var readout = RaceDayReadouts.make(sheet: nil, checkpoints: [], runner: .none, now: Date())
     /// Bumped to ask the map to fit the course again.
     private(set) var recenterRequest = 0
     private(set) var mapMessage = "No course on the map."
@@ -88,8 +88,22 @@ final class MapModel {
         }
         if contextChanged {
             resetActions()
+            runner = .none
         }
         await loadCourse(ticket: ticket)
+        await refreshRunner(ticket: ticket)
+    }
+
+    /// Reads the athlete's latest ping until the calling task is cancelled.
+    func followRunner() async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(RunnerProgress.refreshIntervalSeconds))
+            } catch {
+                return
+            }
+            await refreshRunner(ticket: generation)
+        }
     }
 
     func clear() {
@@ -103,9 +117,8 @@ final class MapModel {
         points = []
         schedule = nil
         courseCheckpoints = []
-        progressMeters = 0
+        runner = .none
         elevation = nil
-        lastPingAt = nil
         aidPages = []
         aidIndex = 0
         aidFollow = true
@@ -245,16 +258,14 @@ final class MapModel {
         reproject(follow: true, selected: aidIndex)
     }
 
-    // TODO(runner-progress): progress must come from the athlete's pings for every crew member,
-    // not this device's GPS. See "Product invariant: runner progress" in AGENTS.md.
+    /// Course progress for Pace and the aid sheet, from the athlete's ping.
+    var progressMeters: Double {
+        runner.progressMeters(checkpoints: courseCheckpoints)
+    }
+
+    /// This phone's GPS only uploads (athlete role). It never feeds readouts; those come from
+    /// `runner`, so every crew member sees the same progress.
     private func receive(latitude: Double, longitude: Double, accuracy: Double) {
-        progressMeters = AidStationSheet.progressMeters(
-            latitude: latitude,
-            longitude: longitude,
-            checkpoints: courseCheckpoints
-        )
-        lastPingAt = Date()
-        reproject(follow: aidFollow, selected: aidIndex)
         guard wantsLocation, !recording else { return }
         recording = true
         let ticket = generation
@@ -343,9 +354,11 @@ final class MapModel {
         do {
             let report = try await RaceDayAPI.flushOutbox(graph: client.graph)
             guard ticket == generation else { return }
-            locationMessage = report.pending.contains(operation.id)
-                ? "Offline. Sample queued in the outbox."
-                : "Location sample queued."
+            let sent = !report.pending.contains(operation.id)
+            locationMessage = sent ? "Location sample queued." : "Offline. Sample queued in the outbox."
+            if sent {
+                await refreshRunner(ticket: ticket)
+            }
         } catch {
             guard ticket == generation else { return }
             locationMessage = "Offline. Sample queued in the outbox."
@@ -399,6 +412,17 @@ final class MapModel {
             }
             refreshMapMessage()
         }
+    }
+
+    /// Offline or failed reads keep the last ping, which then ages into the stale state.
+    private func refreshRunner(ticket: Int) async {
+        guard let roomId else { return }
+        if let next = try? await RaceDayAPI.latestPing(graph: client.graph, roomId: roomId) {
+            guard ticket == generation else { return }
+            runner = next
+        }
+        guard ticket == generation else { return }
+        reproject(follow: aidFollow, selected: aidIndex)
     }
 
     private func refreshMapMessage() {
@@ -459,11 +483,12 @@ final class MapModel {
     }
 
     private func reproject(follow: Bool, selected: Int) {
+        let now = client.graph.clock.now()
         let projection = AidStationSheet.project(
             sheet: schedule,
             checkpoints: courseCheckpoints,
             progressMeters: progressMeters,
-            now: Date(),
+            now: now,
             paceSecondsPerKm: nil,
             selectedIndex: selected,
             follow: follow,
@@ -472,9 +497,8 @@ final class MapModel {
         readout = RaceDayReadouts.make(
             sheet: schedule,
             checkpoints: courseCheckpoints,
-            progressMeters: progressMeters,
-            now: Date(),
-            lastPingAt: lastPingAt
+            runner: runner,
+            now: now
         )
         aidPages = projection.pages
         aidLiveNextIndex = projection.liveNextIndex

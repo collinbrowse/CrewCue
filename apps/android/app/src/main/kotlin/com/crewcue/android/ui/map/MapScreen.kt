@@ -150,9 +150,7 @@ private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: 
         }
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            readout.lastPingLabel?.let { ping ->
-                StatusChip("Last ping: $ping", ChipStyle.Surface, dot = true)
-            }
+            StatusChip(readout.pingLabel, ChipStyle.Surface, dot = readout.pingState == "live")
             CircleIconButton(Icons.Outlined.MyLocation, "Fit course", onClick = model::recenter)
             Box {
                 CircleIconButton(Icons.Outlined.Layers, "Map tools", onClick = { menu = true })
