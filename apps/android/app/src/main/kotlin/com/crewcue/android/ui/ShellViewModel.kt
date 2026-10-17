@@ -127,6 +127,7 @@ class ShellViewModel(
     var racesLoading by mutableStateOf(false)
         private set
     private var racesJob: Job? = null
+    private var racesTicket = 0
 
     fun noteChatUnread(count: Int) {
         chatUnread = count
@@ -141,18 +142,19 @@ class ShellViewModel(
         if (racesJob == null) loadRaces()
     }
 
-    /** Load the user's races. Client-core picks the active room; the stored one wins while still listed. */
+    /** Load the user's races. The room they are on now stays active while the server still lists it. */
     fun loadRaces() {
         val current = session ?: return
+        val ticket = ++racesTicket
         racesJob?.cancel()
         racesLoading = true
         racesJob = viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) { container.raceDay.myRaces(current.roomId) }
             } finally {
-                if (coroutineContext[Job] == racesJob) racesLoading = false
+                if (ticket == racesTicket) racesLoading = false
             }
-            if (session?.userId != current.userId) return@launch
+            if (ticket != racesTicket || session?.userId != current.userId) return@launch
             when (result) {
                 is RuntimeResult.Failure -> {
                     racesMessage = if (result.offline) "Offline. Showing your last race." else "Couldn't load your races."
@@ -178,7 +180,7 @@ class ShellViewModel(
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
-                    val active = loaded.firstOrNull { it.id == activeId }
+                    val active = activeRaceAfterRefresh(loaded, session?.roomId, activeId)
                     when {
                         active != null && (active.id != session?.roomId || active.role != session?.role) -> apply(active)
                         active == null && session?.roomId != null -> {
