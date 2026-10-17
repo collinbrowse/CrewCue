@@ -28,7 +28,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
-import { getPermissions, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
+import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
   .object({
@@ -140,7 +140,7 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       const authority = decidePlanAuthority({
         room,
         userId: callerUserId,
-        canEditRaceSetup: getPermissions(membership.role).canEditRaceSetup,
+        role: membership.role,
         trigger: parsedBody.data.trigger ?? "auto"
       });
       if (!authority.ok) {

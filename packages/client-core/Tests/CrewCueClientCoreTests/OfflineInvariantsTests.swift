@@ -455,6 +455,23 @@ import Testing
     #expect(!PlanAuthority.allows(role: "spectator", trigger: .recalculate, hasPlanOfRecord: true))
 }
 
+@Test func planRolesMatchTheServer() {
+    // Same role set as services/api planOfRecordAuthority.test.ts: every crew role may seed a
+    // cold start and Recalculate; only the athlete recomputes automatically.
+    let crew = ["crew_member", "crew_chief", "team_manager"]
+    for role in crew {
+        #expect(PlanAuthority.allows(role: role, trigger: .coldStart, hasPlanOfRecord: false))
+        #expect(PlanAuthority.allows(role: role, trigger: .recalculate, hasPlanOfRecord: true))
+        #expect(!PlanAuthority.allows(role: role, trigger: .auto, hasPlanOfRecord: true))
+        #expect(!PlanAuthority.allows(role: role, trigger: .coldStart, hasPlanOfRecord: true))
+    }
+    for trigger in PlanTrigger.allCases {
+        #expect(PlanAuthority.allows(role: "athlete", trigger: trigger, hasPlanOfRecord: true))
+        #expect(!PlanAuthority.allows(role: "", trigger: trigger, hasPlanOfRecord: false))
+        #expect(!PlanAuthority.allows(role: "spectator", trigger: trigger, hasPlanOfRecord: false))
+    }
+}
+
 @Test func crewAutoRecomputeNeverReachesTheServer() async throws {
     let transport = EstimateTransport()
     let graph = graph(transport: transport, outbox: nil)

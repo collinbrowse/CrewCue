@@ -1053,7 +1053,7 @@ type PermissionSet = {
   canEditCheckpointStops: boolean;
 };
 
-export function getPermissions(role: Role): PermissionSet {
+function getPermissions(role: Role): PermissionSet {
   const canEditRaceSetup = role === "athlete" || role === "crew_chief" || role === "team_manager";
   const canIssueInvite = role === "athlete" || role === "crew_chief" || role === "team_manager";
   return {

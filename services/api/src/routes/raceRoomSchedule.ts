@@ -20,7 +20,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, saveRaceRoom } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -433,14 +433,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
   /**
    * Attach a pacing estimate as the room plan of record.
-   * Ownership: the race athlete attaches their own estimates for any trigger. Other race-setup
-   * editors may attach only an estimate built from the athlete's history (owned by the athlete),
-   * and only to seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise.
+   * Ownership: the race athlete attaches their own estimates for any trigger. Crew members may
+   * attach only an estimate built from the athlete's history (owned by the athlete), and only to
+   * seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise. Membership and
+   * entitlement gate the route; `decidePlanAuthority` decides the role and trigger.
    * Idempotent when the same estimate id is already attached.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireCourseEditor(app, request, reply, roomId);
+    const room = await requireRoomMember(app, request, reply, roomId);
     if (!room) {
       return;
     }
@@ -451,10 +452,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     const callerUserId = request.identity!.sub;
+    const membership = room.memberships.find((member) => member.userId === callerUserId);
     const authority = decidePlanAuthority({
       room,
       userId: callerUserId,
-      canEditRaceSetup: true,
+      role: membership?.role ?? "",
       trigger: parsedBody.data.trigger ?? "auto"
     });
     if (!authority.ok) {

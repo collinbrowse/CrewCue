@@ -227,10 +227,30 @@ test("crew cannot make their own history the plan of record", async () => {
   });
 });
 
-test("crew members without race-setup rights cannot change the plan", async () => {
-  await withRoom(async ({ app, roomId, token }) => {
-    const response = await compute(app, token(MEMBER), roomId, "recalculate");
-    assert.equal(response.statusCode, 403, response.body);
+test("every crew role may seed a cold start and Recalculate; only the athlete triggers auto", async () => {
+  // The same role set is pinned client-side in OfflineInvariantsTests.planRolesMatchTheServer.
+  await withRoom(async ({ app, roomId, token, athleteHistoryId }) => {
+    const seeded = await compute(app, token(MEMBER), roomId, "cold_start");
+    assert.equal(seeded.statusCode, 200, seeded.body);
+    const seed = parsePacingEstimate(seeded.json());
+    assert.deepEqual(seed.historyRefIds, [athleteHistoryId]);
+    const attachedSeed = await attach(app, token(MEMBER), roomId, { pacingEstimateId: seed.id, trigger: "cold_start" });
+    assert.equal(attachedSeed.statusCode, 200, attachedSeed.body);
+
+    const recalculated = await compute(app, token(MEMBER), roomId, "recalculate");
+    assert.equal(recalculated.statusCode, 200, recalculated.body);
+    const estimate = parsePacingEstimate(recalculated.json());
+    const attached = await attach(app, token(MEMBER), roomId, { pacingEstimateId: estimate.id, trigger: "recalculate" });
+    assert.equal(attached.statusCode, 200, attached.body);
+    assert.equal(await planOfRecordId(app, token(MEMBER), roomId), estimate.id);
+
+    for (const bearer of [token(MEMBER), token(CHIEF)]) {
+      const auto = await compute(app, bearer, roomId, "auto");
+      assert.equal(auto.statusCode, 403, auto.body);
+      assert.equal(code(auto), "plan_authority");
+    }
+    const outsider = await compute(app, token("plan-outsider"), roomId, "recalculate");
+    assert.equal(outsider.statusCode, 403, outsider.body);
   });
 });
 
