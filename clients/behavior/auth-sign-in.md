@@ -4,7 +4,7 @@
 crewcue://dev/auth-signed-out
 
 ## Action
-Launch signed out and tap Sign in. Auth0 performs authorize. Sign-out wipes every per-user store.
+Launch signed out and tap Sign in. Auth0 performs authorize. Sign-out wipes every per-user store. So does session expiry: any authorized API call answered 401 for the current token signs out. Signing in removes every other account's files, so a second account never sends the first account's queue.
 
 ## API
 Auth0 authorize. API calls then send Authorization Bearer.

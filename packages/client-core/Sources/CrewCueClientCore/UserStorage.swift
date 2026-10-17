@@ -63,20 +63,23 @@ public struct UserStorage: Sendable {
 }
 
 /// Wraps a transport and reports an authorized request that came back 401. Every API 401 means
-/// the session is no longer valid; the app answers with the same wipe as sign-out.
+/// the session is no longer valid; the app answers with the same wipe as sign-out. The handler
+/// gets the rejected bearer token so a late reply for an old session can't end a newer one.
 public struct SessionExpiryTransport: HTTPTransport {
     private let inner: any HTTPTransport
-    private let onExpired: @Sendable () -> Void
+    private let onExpired: @Sendable (_ rejectedToken: String) -> Void
 
-    public init(wrapping inner: any HTTPTransport, onExpired: @escaping @Sendable () -> Void) {
+    public init(wrapping inner: any HTTPTransport, onExpired: @escaping @Sendable (_ rejectedToken: String) -> Void) {
         self.inner = inner
         self.onExpired = onExpired
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let response = try await inner.send(request)
-        if response.status == 401, request.headers["Authorization"] != nil {
-            onExpired()
+        if response.status == 401,
+           let header = request.headers["Authorization"],
+           header.hasPrefix("Bearer ") {
+            onExpired(String(header.dropFirst("Bearer ".count)))
         }
         return response
     }

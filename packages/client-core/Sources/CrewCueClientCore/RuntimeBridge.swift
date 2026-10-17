@@ -17,7 +17,7 @@ import Dispatch
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
 /// myRaces, loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
-/// completeOutbox, claimPendingChat, settleChat, wipeUserData, updateDisplayName, removeMember,
+/// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
@@ -143,12 +143,17 @@ enum RuntimeCall {
             return try await enqueueChat(object)
         case "completeOutbox":
             return try await completeOutbox(object)
+        case "claimChat":
+            let claimed = try await store(object).claimChat(id: object["id"] as? String ?? "")
+            return ["claimed": claimed]
         case "claimPendingChat":
             return try await claimPendingChat(object)
         case "settleChat":
             return try await settleChat(object)
         case "wipeUserData":
             return try wipeUserData(object)
+        case "adoptUser":
+            return try adoptUser(object)
         case "updateDisplayName":
             return try await updateDisplayName(object)
         case "removeMember":
@@ -970,13 +975,33 @@ enum RuntimeCall {
         return ["status": delivered ? "delivered" : "pending", "id": id]
     }
 
-    /// Sign-out and session expiry: every user's files under the storage root.
+    /// Sign-out and session expiry: every user's files under the storage root. Open outboxes are
+    /// closed even when the app already deleted their directory, so a late write can't recreate them.
     private static func wipeUserData(_ object: [String: Any]) throws -> Any {
         guard let root = storageRoot(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
+        try OutboxStore.wipeShared(inside: root)
         try UserStorage(root: root).wipeAll()
         return ["status": "wiped"]
+    }
+
+    /// Sign-in: the storage root belongs to the runtime, so everything but this user's directory
+    /// goes, including other accounts and the unscoped layout from before #538.
+    private static func adoptUser(_ object: [String: Any]) throws -> Any {
+        guard let root = storageRoot(object), let userId = text(object, "userId") else {
+            throw ClientHTTPError(status: 0, message: "storageDir and userId are required.")
+        }
+        let storage = UserStorage(root: root)
+        try storage.wipeAll(except: userId)
+        let keep = storage.usersDirectory.lastPathComponent
+        if FileManager.default.fileExists(atPath: root.path) {
+            for name in try FileManager.default.contentsOfDirectory(atPath: root.path) where name != keep {
+                try FileManager.default.removeItem(at: root.appendingPathComponent(name))
+            }
+        }
+        _ = try storage.directory(userId: userId)
+        return ["status": "adopted"]
     }
 
     private static func chatText(_ payloadJSON: String) -> String {

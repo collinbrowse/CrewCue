@@ -239,6 +239,16 @@ import Testing
     #expect(try await relaunched.operations().map(\.id) == ["m-2"])
 }
 
+@Test func aMessageBeingSentIsNotClaimedByRedelivery() async throws {
+    let store = try OutboxStore.shared(userId: "crew-1", directory: temporaryDirectory())
+    _ = try await store.enqueueChat(roomId: "room", text: "One", clientMessageId: "m-1", role: "crew_member")
+    _ = try await store.enqueueChat(roomId: "room", text: "Two", clientMessageId: "m-2", role: "crew_member")
+    #expect(try await store.claimChat(id: "m-1"))
+    #expect(try await store.claimChat(id: "m-1") == false)
+    #expect(try await store.claimPendingChat(roomId: "room").map(\.id) == ["m-2"])
+    #expect(try await store.claimChat(id: "missing") == false)
+}
+
 @Test func bridgeSettleChatTreatsAlreadyExistsAsDelivered() async throws {
     let root = temporaryDirectory()
     let base: [String: Any] = ["storageDir": root.path, "userId": "crew-1", "role": "crew_member", "roomId": "room"]
@@ -362,6 +372,35 @@ import Testing
     #expect(number(after["pending"]) == 0)
 }
 
+@Test func bridgeAdoptUserWipesOtherAccountsAndTheLegacyLayout() async throws {
+    let root = temporaryDirectory()
+    for user in ["athlete-a", "crew-b"] {
+        _ = try await runtime(["op": "enqueuePush", "storageDir": root.path, "userId": user, "role": "crew_member", "deviceId": "d", "token": "t"])
+    }
+    // Before #538 Android kept one unscoped outbox and room caches directly under the root.
+    try Data("[]".utf8).write(to: root.appendingPathComponent("outbox.json"))
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("rooms/room"), withIntermediateDirectories: true)
+
+    let adopted = try await runtime(["op": "adoptUser", "storageDir": root.path, "userId": "crew-b"])
+    #expect(flag(adopted, "ok"))
+    #expect(try UserStorage(root: root).userIds() == ["crew-b"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["users"])
+    let kept = try resultObject(try await runtime(["op": "listOutbox", "storageDir": root.path, "userId": "crew-b"]))
+    #expect(number(kept["pending"]) == 1)
+}
+
+@Test func bridgeClaimChatHandsOutOneSendOnly() async throws {
+    let root = temporaryDirectory()
+    let base: [String: Any] = ["storageDir": root.path, "userId": "crew-1", "role": "crew_member", "roomId": "room"]
+    _ = try await runtime(base.merging(["op": "enqueueChat", "text": "Hi", "clientMessageId": "m-1"]) { $1 })
+    let first = try resultObject(try await runtime(base.merging(["op": "claimChat", "id": "m-1"]) { $1 }))
+    let second = try resultObject(try await runtime(base.merging(["op": "claimChat", "id": "m-1"]) { $1 }))
+    #expect(flag(first, "claimed"))
+    #expect(flag(second, "claimed") == false)
+    let pending = try resultObject(try await runtime(base.merging(["op": "claimPendingChat"]) { $1 }))
+    #expect((pending["messages"] as? [[String: Any]])?.isEmpty == true)
+}
+
 @Test func expiredSessionStopsTheFlushWithoutRejectingWork() async throws {
     let store = try OutboxStore.shared(userId: "athlete-1", directory: temporaryDirectory())
     for index in 0..<3 {
@@ -385,13 +424,13 @@ import Testing
     let expired = Flags()
     let transport = SessionExpiryTransport(
         wrapping: ScriptedTransport(status: 401, body: #"{"error":"Unauthorized"}"#),
-        onExpired: { expired.set("expired") }
+        onExpired: { token in expired.set(token) }
     )
     let url = URL(string: "https://example.invalid/me")!
     _ = try await transport.send(HTTPRequest(url: url, method: .get))
     #expect(expired.values.isEmpty)
     _ = try await transport.send(APIClient.authorized(url: url, method: .get, token: "token"))
-    #expect(expired.values == ["expired"])
+    #expect(expired.values == ["token"])
 }
 
 @Test func bridgeFlagsSessionExpiryOnFourOhOne() async throws {

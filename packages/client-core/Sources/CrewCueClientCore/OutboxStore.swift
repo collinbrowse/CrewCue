@@ -169,6 +169,16 @@ public actor OutboxStore: UserDataStore {
         return claimed
     }
 
+    /// Claims one pending chat message (the send that just queued it). False when it is gone or already claimed.
+    public func claimChat(id: String) throws -> Bool {
+        guard !inFlight.contains(id),
+              try load().contains(where: { $0.id == id && $0.type == "chat" && $0.status == "pending" }) else {
+            return false
+        }
+        inFlight.insert(id)
+        return true
+    }
+
     /// Ends a claim. Delivered, or already on the server, removes the message; anything else keeps it pending.
     public func settleChat(id: String, error: (any Error)?) throws {
         inFlight.remove(id)
