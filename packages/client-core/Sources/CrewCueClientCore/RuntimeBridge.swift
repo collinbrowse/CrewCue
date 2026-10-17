@@ -212,7 +212,7 @@ enum RuntimeCall {
             "canSave": draft.canSave,
             "mayEdit": PlanAuthority.mayEditCourse(role: object["role"] as? String ?? ""),
             "edits": draft.edits.map { ["checkpointId": $0.checkpointId, "plannedStopSeconds": $0.plannedStopSeconds] },
-            "timeline": timelinePayload(sheet: projected, request: object)
+            "timeline": timelinePayload(sheet: projected, request: object, progressMeters: progress)
         ]
         if let projected, let stops = try? jsonValue(projected.stops) {
             payload["stops"] = stops
@@ -294,12 +294,13 @@ enum RuntimeCall {
         return row
     }
 
-    private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [[String: Any]] {
+    /// `progressMeters` overrides the request's runner when the caller already resolved it (stop-plan draft).
+    private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any], progressMeters: Double? = nil) -> [[String: Any]] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: requestProgress(request, checkpoints)
+            progressMeters: progressMeters ?? requestProgress(request, checkpoints)
         ).map { item in
             var row: [String: Any] = [
                 "checkpointId": item.checkpointId,

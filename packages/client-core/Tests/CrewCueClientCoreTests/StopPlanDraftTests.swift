@@ -237,3 +237,40 @@ private func bridge(_ fields: [String: Any]) async throws -> [String: Any] {
     #expect(raw.contains(#""ok":false"#))
     #expect(raw.contains("No stop changes to save."))
 }
+
+/// AGENTS.md runner-progress invariant: passed stops lock from the athlete's latest ping, never from the
+/// device the crew member is holding.
+@Test func runtimeStopPlanDraftLocksFromRunnerNeverDeviceLocation() async throws {
+    let checkpointRows: [[String: Any]] = [
+        ["id": "start", "title": "Start", "distanceMetersFromStart": 0],
+        ["id": "aid-1", "title": "Creek", "distanceMetersFromStart": 10 * mile, "latitude": 39.1, "longitude": -120.0],
+        ["id": "aid-2", "title": "Ridge", "distanceMetersFromStart": 20 * mile, "latitude": 39.2, "longitude": -120.0],
+        ["id": "finish", "title": "Finish", "distanceMetersFromStart": 30 * mile]
+    ]
+    func editable(_ result: [String: Any]) throws -> [String: Bool] {
+        let rows = try #require(result["rows"] as? [[String: Any]])
+        return Dictionary(uniqueKeysWithValues: rows.map { ($0["checkpointId"] as! String, $0["editable"] as! Bool) })
+    }
+
+    // A crew phone standing at aid-2 must not lock anything: lat/long in the request is ignored.
+    let device = try await bridge(["op": "stopPlanDraft", "checkpoints": checkpointRows, "latitude": 39.2, "longitude": -120.0])
+    #expect(try editable(device)["aid-1"] == true)
+    #expect(try editable(device)["aid-2"] == true)
+
+    // The runner's latest ping past aid-1 (server progress 12 mi) locks aid-1 only.
+    let runner: [String: Any] = [
+        "roomId": "room", "stalenessThresholdSeconds": 900, "evaluatedAt": "2026-08-15T13:00:00.000Z",
+        "ping": ["pingId": "p", "latitude": 39.12, "longitude": -120.0, "recordedAt": "2026-08-15T12:58:00.000Z",
+                 "receivedAt": "2026-08-15T12:58:02.000Z", "progressMeters": 12 * mile]
+    ]
+    let fromRunner = try await bridge(["op": "stopPlanDraft", "checkpoints": checkpointRows, "runner": runner])
+    #expect(try editable(fromRunner)["aid-1"] == false)
+    #expect(try editable(fromRunner)["aid-2"] == true)
+
+    // Android passes the runner-derived distance directly; it wins over any runner object.
+    let fromAndroid = try await bridge(["op": "stopPlanDraft", "checkpoints": checkpointRows, "progressMeters": 20 * mile])
+    #expect(try editable(fromAndroid)["aid-2"] == false)
+    // The draft timeline uses the same runner progress, so passed rows stay done while editing.
+    let timeline = try #require(fromAndroid["timeline"] as? [[String: Any]])
+    #expect(timeline.first { $0["checkpointId"] as? String == "aid-1" }?["state"] as? String == "done")
+}
