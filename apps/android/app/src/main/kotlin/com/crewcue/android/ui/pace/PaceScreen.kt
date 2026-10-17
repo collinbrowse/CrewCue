@@ -31,6 +31,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -243,7 +244,10 @@ private fun PaceTimeline(
             }
         } else {
             rows.forEach { row ->
+                val edit = editRows.firstOrNull { it.checkpointId == row.checkpointId }
+                // While editing, the dwell rail shows the draft stop, like the arrivals above it.
                 val stop = stops.firstOrNull { it.id == row.checkpointId }
+                    ?.let { live -> edit?.let { live.copy(stopLabel = it.stopLabel) } ?: live }
                 if (row.state == "current") {
                     CurrentCheckpoint(row, stop) { onCheckIn(stop?.id ?: row.checkpointId) }
                 } else {
@@ -384,14 +388,14 @@ private fun StopEditBar(model: PaceViewModel, onBegin: () -> Unit) {
                     "Cancel",
                     onClick = model::cancelStopEdit,
                     enabled = !model.stopBusy,
-                    modifier = Modifier.testTag("crewcue.pace.cancel-stops")
+                    modifier = Modifier.weight(1f).testTag("crewcue.pace.cancel-stops")
                 )
                 PrimaryButton(
                     "Save stops",
                     onClick = model::saveStops,
                     enabled = model.stopCanSave,
                     busy = model.stopBusy,
-                    modifier = Modifier.testTag("crewcue.pace.save-stops")
+                    modifier = Modifier.weight(1f).testTag("crewcue.pace.save-stops")
                 )
             }
         } else if (model.mayEditStops) {
@@ -434,7 +438,7 @@ private fun StopEditor(row: StopEditRow, onMinutes: (String) -> Unit, onStep: (I
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                GhostButton("−", onClick = { onStep(-1) }, spoken = "One minute less at $name")
+                StepButton("−", "One minute less at $name") { onStep(-1) }
                 CrewTextField(
                     value = row.minutesText,
                     onValueChange = onMinutes,
@@ -445,13 +449,28 @@ private fun StopEditor(row: StopEditRow, onMinutes: (String) -> Unit, onStep: (I
                         .semantics { contentDescription = "Planned stop minutes at $name" },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
-                GhostButton("+", onClick = { onStep(1) }, spoken = "One minute more at $name")
+                StepButton("+", "One minute more at $name") { onStep(1) }
             }
             when {
                 row.error != null -> Text(row.error, style = MaterialTheme.typography.labelMedium, color = colors.error)
                 row.changed -> Text("Was ${row.savedLabel.lowercase()}", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
             }
         }
+    }
+}
+
+/** Compact − / + for the stop editor; the theme buttons always fill the row width. */
+@Composable
+private fun StepButton(label: String, spoken: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { contentDescription = spoken },
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.titleLarge)
     }
 }
 
