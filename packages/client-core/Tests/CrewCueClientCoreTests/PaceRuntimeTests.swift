@@ -199,6 +199,8 @@ import Testing
     #expect(TransportFailure.isOffline(URLError(.notConnectedToInternet)))
     #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.notConnectedToInternet.rawValue)))
     #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)))
+    // Android's Foundation reports "Failed to connect" in airplane mode as NSURLErrorUnknown.
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnknown)))
     #expect(!TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.badServerResponse.rawValue)))
     #expect(!TransportFailure.isOffline(NSError(domain: "other", code: URLError.notConnectedToInternet.rawValue)))
     #expect(!TransportFailure.isOffline(ClientHTTPError(status: 500, message: "down")))

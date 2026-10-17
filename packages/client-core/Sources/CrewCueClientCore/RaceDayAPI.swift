@@ -44,10 +44,12 @@ enum TransportFailure {
         offlineCodes.contains(urlErrorCode(error) ?? 0)
     }
 
+    /// `.unknown` (-1) is how Foundation on Android reports a host it could not connect to or
+    /// resolve (airplane mode included); Apple platforms use the specific codes.
     private static let offlineCodes: Set<Int> = [
         URLError.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost,
         .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
-        .cannotLoadFromNetwork
+        .cannotLoadFromNetwork, .unknown
     ].reduce(into: []) { codes, code in codes.insert(code.rawValue) }
 
     /// Off Apple platforms an `NSError` in `NSURLErrorDomain` does not bridge to `URLError`,
