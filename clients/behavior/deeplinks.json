@@ -27,7 +27,7 @@
       "label": "crewcue.schedule-sheet",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {

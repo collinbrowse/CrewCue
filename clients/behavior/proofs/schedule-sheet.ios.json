@@ -1,0 +1,17 @@
+{
+  "id": "schedule-sheet",
+  "platform": "ios",
+  "entry": "crewcue://dev/schedule-sheet",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-17",
+  "commit": "8a09dbf (local build: main + #572 + #576 + #575 + #573 + this branch)",
+  "action": "Signed in as crew (dev session, local memory API, 50k course with aid stations) and opened crewcue://dev/schedule-sheet. Pace opens with the schedule; every stop shows its elapsed time and UTC clock.",
+  "checked": {
+    "Success": "API stops listed: e.g. 'START 00:00 08:29 UTC', 'AID 1 1:22:37 09:52 UTC'; each row caption shows '<UTC clock> \u00b7 <elapsed>' (projected rows add the planned stop).",
+    "Empty": "Room with no course: 'No stops on this sheet.' under 'No aid stations yet'.",
+    "Error": "GET /schedule returned 500 for a room never loaded on this device: 'Couldn't load the schedule.'",
+    "Offline": "Loaded online, then the connection dropped and the app relaunched: 'Offline. Schedule not updated. The last sheet stays readable on this device.' with the cached rows still listed.",
+    "Accessibility labels": "AXUniqueId crewcue.schedule-sheet on the schedule group."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
