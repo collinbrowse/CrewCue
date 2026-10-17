@@ -73,6 +73,25 @@ private let stops = [
     #expect(draft.row("aid-2")?.minutesText == "5")
 }
 
+@Test func runnerPassingAStopWhileEditingLocksItAndDropsItsDraft() {
+    var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: 0)
+    draft.setMinutes("30", for: "aid-1")
+    draft.setMinutes("x", for: "aid-2")
+    #expect(draft.row("aid-1")?.editable == true)
+
+    // The athlete's next ping lands past aid-1 (12 mi) while the crew member is still editing.
+    draft.lockPassed(progressMeters: 12 * mile)
+    #expect(draft.row("aid-1")?.editable == false)
+    #expect(draft.row("aid-1")?.draftSeconds == 120, "a passed stop reverts to its saved value")
+    #expect(draft.edits.isEmpty)
+    #expect(draft.row("aid-2")?.editable == true)
+    #expect(draft.row("aid-2")?.error != nil, "rows still ahead keep what was typed")
+
+    // Progress never unlocks: an older or zero reading leaves locks alone.
+    draft.lockPassed(progressMeters: 0)
+    #expect(draft.row("aid-1")?.editable == false)
+}
+
 @Test func stepperClampsToRange() {
     var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: 0)
     draft.step("aid-1", deltaMinutes: -5)

@@ -24,7 +24,7 @@ struct PaceView: View {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
                 PaceEstimateSection(model: model)
                 if model.canEditStops || model.stopsMessage.isEmpty == false {
-                    PaceStopEditBar(model: model, runner: runner)
+                    PaceStopEditBar(model: model)
                 }
                 PaceTimeline(
                     rows: rows,
@@ -62,6 +62,9 @@ struct PaceView: View {
         .sheet(isPresented: $showsTools) {
             PaceToolsSheet(model: model, focus: toolFocus)
         }
+        .onChange(of: runner, initial: true) { _, latest in
+            model.runnerMoved(latest)
+        }
         .task(id: activationID) {
             if focus == "check-in", let first = model.stops.first {
                 model.openCheckIn(checkpointId: first.checkpointId)
@@ -74,7 +77,7 @@ struct PaceView: View {
                 openTools(focus)
             }
             if focus == "pace-stop-edit" {
-                model.beginStopEdit(runner: runner)
+                model.beginStopEdit()
             }
         }
     }
@@ -329,7 +332,6 @@ struct PaceCheckpointCard: View {
 /// #250 Pace edit: enter/leave planned-stop editing and save the draft.
 struct PaceStopEditBar: View {
     @Bindable var model: PaceModel
-    let runner: RunnerProgress
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -355,7 +357,7 @@ struct PaceStopEditBar: View {
                     .accessibilityIdentifier("crewcue.pace.save-stops")
                 }
             } else if model.canEditStops {
-                Button("Edit planned stops") { model.beginStopEdit(runner: runner) }
+                Button("Edit planned stops") { model.beginStopEdit() }
                     .buttonStyle(.crewSecondary)
                     .accessibilityIdentifier("crewcue.pace.edit-stops")
             }

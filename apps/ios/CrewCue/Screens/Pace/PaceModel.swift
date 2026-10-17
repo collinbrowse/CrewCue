@@ -66,6 +66,7 @@ final class PaceModel {
     private(set) var stopDraft: StopPlanDraft?
     private(set) var stopsMessage = ""
     private(set) var stopsBusy = false
+    private var latestRunner = RunnerProgress.none
 
     private(set) var outboxRows: [PaceLine] = []
     private(set) var outboxMessage = "Outbox is empty."
@@ -147,11 +148,18 @@ final class PaceModel {
     }
 
     /// Stops the runner has passed (by the athlete's latest ping) stay read-only in the draft.
-    func beginStopEdit(runner: RunnerProgress) {
+    func beginStopEdit() {
         guard canEditStops, stopsBusy == false else { return }
         let checkpoints = aidCheckpoints
-        stopDraft = StopPlanDraft(checkpoints: checkpoints, progressMeters: runner.progressMeters(checkpoints: checkpoints))
+        stopDraft = StopPlanDraft(checkpoints: checkpoints, progressMeters: latestRunner.progressMeters(checkpoints: checkpoints))
         stopsMessage = ""
+    }
+
+    /// The athlete's latest ping (from the shell's poll). Recorded even when not editing, so a draft opened
+    /// later starts from it; while a draft is open, any stop the runner passed is locked.
+    func runnerMoved(_ runner: RunnerProgress) {
+        latestRunner = runner
+        stopDraft?.lockPassed(progressMeters: runner.progressMeters(checkpoints: aidCheckpoints))
     }
 
     func cancelStopEdit() {
@@ -837,6 +845,7 @@ final class PaceModel {
         stoppageText = ""
         stopDraft = nil
         stopsMessage = ""
+        latestRunner = .none
         cutoffLines = []
         stoppageLines = []
         courseMessage = "No course settings yet."

@@ -58,6 +58,8 @@ public struct StopPlanDraft: Equatable, Sendable {
         public var error: String?
         /// False for the start, the finish, and checkpoints the runner has already passed.
         public var editable: Bool
+        /// Course distance, used to lock the row once the runner passes it.
+        var distanceMetersFromStart: Double?
 
         public var id: String { checkpointId }
         public var isChanged: Bool { draftSeconds != savedSeconds }
@@ -87,7 +89,8 @@ public struct StopPlanDraft: Equatable, Sendable {
                 draftSeconds: saved,
                 minutesText: Self.minutesText(seconds: saved),
                 error: nil,
-                editable: !(isStart || isFinish || passed)
+                editable: !(isStart || isFinish || passed),
+                distanceMetersFromStart: distance
             )
         }
     }
@@ -145,6 +148,21 @@ public struct StopPlanDraft: Equatable, Sendable {
         let current = row.error == nil ? row.draftSeconds / 60 : row.savedSeconds / 60
         let next = min(Self.maxMinutes, max(0, current + deltaMinutes))
         setMinutes(String(next), for: checkpointId)
+    }
+
+    /// Locks stops the runner has passed since editing began (same 5 m rule as the timeline). Their draft
+    /// reverts to the saved value, so a save never changes a stop that is already behind the athlete.
+    /// Only locks: runner progress from the athlete's pings does not move backwards.
+    public mutating func lockPassed(progressMeters: Double) {
+        let progress = progressMeters.isFinite ? max(0, progressMeters) : 0
+        guard progress > 5 else { return }
+        for index in rows.indices where rows[index].editable {
+            guard let distance = rows[index].distanceMetersFromStart, distance <= progress + 5 else { continue }
+            rows[index].editable = false
+            rows[index].draftSeconds = rows[index].savedSeconds
+            rows[index].minutesText = Self.minutesText(seconds: rows[index].savedSeconds)
+            rows[index].error = nil
+        }
     }
 
     /// Back to what the server has.
