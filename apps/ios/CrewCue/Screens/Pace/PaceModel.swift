@@ -684,20 +684,8 @@ final class PaceModel {
     }
 
     private func fetchHistory() async throws -> [ActivityHistoryRef] {
-        guard let baseURL = client.graph.baseURL, let url = APIClient.endpoint(baseURL, "/activity-history") else {
-            return []
-        }
-        let token = await client.graph.tokenProvider?.accessToken()
-        let request = APIClient.authorized(url: url, method: .get, token: token)
-        let payload: ActivityHistoryListPayload = try await APIClient.send(request, transport: client.graph.transport)
-        return payload.items.map { item in
-            ActivityHistoryRef(
-                id: item.id,
-                distanceMeters: item.distanceMeters,
-                elapsedSeconds: item.elapsedSeconds,
-                elevationGainMeters: item.elevationGainMeters
-            )
-        }
+        guard client.graph.baseURL != nil else { return [] }
+        return try await RaceDayAPI.activityHistory(graph: client.graph)
     }
 
     private func resolvedCheckpointId() -> String {
@@ -869,17 +857,6 @@ final class PaceModel {
         scheduleRaceStart = nil
         plannedPaceSecondsPerKm = nil
     }
-}
-
-private struct ActivityHistoryListPayload: Decodable {
-    var items: [ActivityHistoryItemPayload]
-}
-
-private struct ActivityHistoryItemPayload: Decodable {
-    var id: String
-    var distanceMeters: Double?
-    var elapsedSeconds: Double?
-    var elevationGainMeters: Double?
 }
 
 private struct SavedEstimateHistory: Codable {

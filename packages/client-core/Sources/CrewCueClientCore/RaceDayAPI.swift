@@ -182,6 +182,14 @@ public enum RaceDayAPI {
                 try? ScheduleCache.save(sheet, directory: cacheDirectory)
             }
             return ScheduleLoadResult(sheet: sheet, offline: false)
+        } catch let failure as ClientHTTPError where failure.status == 400 {
+            // The API answers 400 only while the room has no schedule yet: no course, fewer than
+            // two checkpoints, no start time, or no planned pace. That is an empty sheet, not an error.
+            let sheet = CrewScheduleSheet(roomId: roomId, raceStartAt: "", stops: [])
+            if let cacheDirectory {
+                try? ScheduleCache.save(sheet, directory: cacheDirectory)
+            }
+            return ScheduleLoadResult(sheet: sheet, offline: false)
         } catch {
             if TransportFailure.isOffline(error),
                let cacheDirectory,
@@ -208,6 +216,19 @@ public enum RaceDayAPI {
     public static func latestPing(graph: ClientGraph, roomId: String) async throws -> RunnerProgress {
         let response: RaceRoomLatestPingResponse = try await get(graph, "/race-rooms/\(roomId)/pings/latest")
         return RunnerProgress(response: response)
+    }
+
+    /// The signed-in athlete's activity history, used to decide whether the estimate needs a recompute.
+    public static func activityHistory(graph: ClientGraph) async throws -> [ActivityHistoryRef] {
+        let payload: ActivityHistoryList = try await get(graph, "/activity-history")
+        return payload.items.map { item in
+            ActivityHistoryRef(
+                id: item.id,
+                distanceMeters: item.distanceMeters,
+                elapsedSeconds: item.elapsedSeconds,
+                elevationGainMeters: item.elevationGainMeters
+            )
+        }
     }
 
     /// Local draft fields read from a room payload. Does not call stop-plan APIs.
@@ -481,5 +502,16 @@ public enum RaceDayAPI {
             return "\(title) cutoff \(ScheduleFormat.formatDurationSeconds(seconds))"
         }
         return nil
+    }
+}
+
+private struct ActivityHistoryList: Decodable {
+    var items: [Item]
+
+    struct Item: Decodable {
+        var id: String
+        var distanceMeters: Double?
+        var elapsedSeconds: Double?
+        var elevationGainMeters: Double?
     }
 }
