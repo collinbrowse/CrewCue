@@ -20,7 +20,8 @@ final class MapModel {
     private var roomId: String?
     private var role = ""
     private var wantsLocation = false
-    private var recording = false
+    /// Five-second upload cooldown. Released when the signed-in race changes.
+    private var locationGate = LocationUploadGate()
     private var courseOffline = false
     private var courseFailed = false
     private var schedule: CrewScheduleSheet?
@@ -63,7 +64,7 @@ final class MapModel {
     }
 
     func activate(userId: String?, roomId: String?, role: String?) async {
-        generation += 1
+        invalidateInFlight()
         let ticket = generation
         let nextUser = userId
         let trimmedRoom = roomId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,9 +94,8 @@ final class MapModel {
     }
 
     func clear() {
-        generation += 1
+        invalidateInFlight()
         wantsLocation = false
-        recording = false
         locator.stop()
         userId = nil
         roomId = nil
@@ -255,19 +255,39 @@ final class MapModel {
         )
         lastPingAt = Date()
         reproject(follow: aidFollow, selected: aidIndex)
-        guard wantsLocation, !recording else { return }
-        recording = true
+        guard wantsLocation, let sampledRoom = roomId else { return }
+        guard let cooldown = locationGate.acquire() else { return }
+        let sampledRole = role
         let ticket = generation
         Task {
-            await self.record(latitude: latitude, longitude: longitude, accuracy: accuracy, ticket: ticket)
+            await self.record(
+                roomId: sampledRoom,
+                role: sampledRole,
+                latitude: latitude,
+                longitude: longitude,
+                accuracy: accuracy,
+                ticket: ticket
+            )
             try? await Task.sleep(for: .seconds(5))
-            guard ticket == self.generation else { return }
-            self.recording = false
+            self.locationGate.release(ticket: cooldown)
         }
     }
 
-    private func record(latitude: Double, longitude: Double, accuracy: Double, ticket: Int) async {
-        guard let roomId else { return }
+    /// Room and role changes abandon in-flight samples. The upload cooldown has to drop with them,
+    /// or `locationGate` stays held and the athlete's later pings never enqueue.
+    private func invalidateInFlight() {
+        generation += 1
+        locationGate.advance()
+    }
+
+    private func record(
+        roomId: String,
+        role: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Double,
+        ticket: Int
+    ) async {
         guard let outbox = client.graph.outbox else {
             client.graph.logger.log("outbox unavailable")
             return
@@ -276,6 +296,7 @@ final class MapModel {
             let outcome = try await enqueueIncreasing(
                 outbox: outbox,
                 roomId: roomId,
+                role: role,
                 latitude: latitude,
                 longitude: longitude,
                 accuracy: accuracy
@@ -296,6 +317,7 @@ final class MapModel {
     private func enqueueIncreasing(
         outbox: OutboxStore,
         roomId: String,
+        role: String,
         latitude: Double,
         longitude: Double,
         accuracy: Double
