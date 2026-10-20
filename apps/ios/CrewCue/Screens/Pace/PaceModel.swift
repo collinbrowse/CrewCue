@@ -199,8 +199,11 @@ final class PaceModel {
         await Task.yield()
         guard ticket == generation else { return }
         gpxMessage = CourseImportStage.calculating.message
-        let pace = (plannedPaceSecondsPerKm ?? 0) > 0 ? (plannedPaceSecondsPerKm ?? 360) : 360
-        let start = raceAnchor ?? isoNow()
+        // Empty start and a non-positive pace mean "not loaded yet". The import fills those
+        // from the room so an offline or in-flight upload cannot move the race clock.
+        let knownPace = plannedPaceSecondsPerKm ?? 0
+        let pace = knownPace > 0 ? knownPace : 0
+        let start = raceAnchor ?? ""
         do {
             _ = try await RaceDayAPI.importGpx(
                 graph: client.graph,
