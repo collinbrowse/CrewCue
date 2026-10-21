@@ -1116,7 +1116,12 @@ enum RuntimeCall {
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
-        return try OutboxStore(userId: object["userId"] as? String ?? "guest", directory: directory)
+        // Android calls the runtime once per op, so each call used to build a new actor.
+        // Two actors reading outbox.json could each write their own snapshot and drop the other row.
+        return try OutboxRegistry.shared.store(
+            userId: object["userId"] as? String ?? "guest",
+            directory: directory
+        )
     }
 
     private static func graph(_ object: [String: Any]) throws -> ClientGraph {
@@ -1191,6 +1196,29 @@ private enum EstimateRecordFile {
         let saved = PersistedEstimateRecord(estimateId: record.estimateId, fingerprint: record.fingerprint)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? JSONEncoder().encode(saved).write(to: file(directory), options: .atomic)
+    }
+}
+
+/// One file-backed outbox per directory. Every runtime call for that user shares the actor,
+/// so a location sample and a chat send cannot overwrite each other's pending rows.
+private final class OutboxRegistry: @unchecked Sendable {
+    static let shared = OutboxRegistry()
+    private let lock = NSLock()
+    private var stores: [String: OutboxStore] = [:]
+
+    func store(userId: String, directory: URL) throws -> OutboxStore {
+        let url = directory.standardizedFileURL
+        // Sign-out deletes this directory. Recreate it before reuse so the next enqueue can write.
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let key = url.path
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = stores[key] {
+            return existing
+        }
+        let created = try OutboxStore(userId: userId, directory: url)
+        stores[key] = created
+        return created
     }
 }
 

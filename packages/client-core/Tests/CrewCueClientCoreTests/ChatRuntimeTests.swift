@@ -115,6 +115,32 @@ import Testing
     #expect(operations.first?.payloadJSON.contains("fcm-2") == true)
 }
 
+@Test func concurrentChatEnqueuesKeepEveryMessage() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let count = 32
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for index in 0..<count {
+            group.addTask {
+                let response = try await chatRuntime([
+                    "op": "enqueueChat",
+                    "storageDir": directory.path,
+                    "userId": "crew-1",
+                    "role": "crew_member",
+                    "roomId": "room",
+                    "text": "Message \(index)",
+                    "clientMessageId": "m-\(index)"
+                ])
+                #expect(flag(response, "ok") == true)
+            }
+        }
+        try await group.waitForAll()
+    }
+    let store = try OutboxStore(userId: "crew-1", directory: directory)
+    let pending = try await store.operations()
+    #expect(pending.count == count)
+    #expect(Set(pending.map(\.id)) == Set((0..<count).map { "m-\($0)" }))
+}
+
 @Test func runtimeChatOpsRejectMissingStorageOrBadPreference() async throws {
     let missing = try await chatRuntime(["op": "enqueueChat", "roomId": "room", "text": "Hi", "clientMessageId": "m"])
     #expect(flag(missing, "ok") == false)
