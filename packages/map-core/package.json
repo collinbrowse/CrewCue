@@ -13,13 +13,13 @@
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
-    "@turf/distance": "^7.3.5",
+    "@turf/distance": "^7.4.0",
     "@turf/helpers": "^7.3.5",
-    "@turf/length": "^7.3.5",
-    "@turf/nearest-point-on-line": "^7.3.5"
+    "@turf/length": "^7.4.0",
+    "@turf/nearest-point-on-line": "^7.4.0"
   },
   "devDependencies": {
-    "tsx": "^4.20.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }
 }
