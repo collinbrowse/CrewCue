@@ -2,7 +2,7 @@
 
 **Goal:** a racer uploads their history (Strava or manual GPX) and gets an accurate prediction of their finish time and their arrival time at every aid station.
 
-**Status:** PR A–D below shipped in #485 (Expo client). The native clients must rebuild PR A's client wiring; see `clients/behavior/pace-estimate.md`. Open item: validate the model against a real completed effort (`fixtures/pacing/backtest-<real>.json` + `npm run pacing:backtest -w @crewcue/api`).
+**Status:** PR A–D below shipped in #485 (Expo client). The native clients must rebuild PR A's client wiring; see `clients/behavior/pace-estimate.md`. Open item: validate the model against real completed efforts. Import them into the evaluation corpus with `npm run pacing:eval:import -w @crewcue/api` and evaluate with `npm run pacing:eval -w @crewcue/api`; see [pacing-evaluation.md](pacing-evaluation.md).
 
 ---
 
