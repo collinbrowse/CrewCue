@@ -105,7 +105,16 @@ public enum OutboxPolicy {
         if http.status == 409 {
             return OutboxFailureResolution(status: "conflict", retryable: false, feedback: http.bodyError ?? http.message)
         }
-        if [400, 401, 403, 404].contains(http.status) {
+        // The session token expires while the app still looks signed in. The queued
+        // check-in or location sample is the only copy; a later sign-in can send it.
+        if http.status == 401 {
+            return OutboxFailureResolution(
+                status: "pending",
+                retryable: true,
+                feedback: "Sign in again to send this."
+            )
+        }
+        if [400, 403, 404].contains(http.status) {
             return OutboxFailureResolution(status: "rejected", retryable: false, feedback: http.bodyError ?? http.message)
         }
         return OutboxFailureResolution(status: "pending", retryable: true, feedback: http.bodyError ?? http.message)

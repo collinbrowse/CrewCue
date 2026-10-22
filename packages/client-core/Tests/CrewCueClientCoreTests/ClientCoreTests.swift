@@ -230,6 +230,49 @@ struct SilentLogger: Logger {
     #expect(screen.accessibilityIdentifier == "crewcue.hello")
 }
 
+struct UnauthorizedTransport: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        HTTPResponse(status: 401, body: Data(#"{"error":"Unauthorized"}"#.utf8))
+    }
+}
+
+@Test func expiredTokenKeepsCheckInQueued() async throws {
+    let expired = OutboxPolicy.resolve(ClientHTTPError(status: 401, message: "Unauthorized", bodyError: "Unauthorized"))
+    #expect(expired.status == "pending")
+    #expect(expired.retryable)
+    let invalid = OutboxPolicy.resolve(ClientHTTPError(status: 400, message: "Invalid ping payload"))
+    #expect(invalid.status == "rejected")
+    #expect(!invalid.retryable)
+
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let queued = try await store.enqueueCheckIn(
+        roomId: "room",
+        checkpointId: "aid-1",
+        arrivalAt: "2026-08-15T14:10:00.000Z",
+        departureAt: "2026-08-15T14:16:00.000Z",
+        role: "athlete"
+    )
+    guard case .queued(let operation) = queued else {
+        Issue.record("expected the check-in to queue")
+        return
+    }
+    let graph = ClientGraph(
+        transport: UnauthorizedTransport(),
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "expired"),
+        outbox: store
+    )
+    let report = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(report.pending == [operation.id])
+    #expect(report.rejected.isEmpty)
+    let remaining = try await store.operations()
+    #expect(remaining.contains { $0.id == operation.id && $0.status == "pending" })
+    try store.wipe()
+}
+
 @Test func stalePingIsDroppedAndAlreadyExistsIsSuccess() {
     let stale = OutboxPolicy.resolve(ClientHTTPError(status: 422, message: "old", reason: "stale_recorded_at"))
     #expect(stale.status == "dropped")
