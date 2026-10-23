@@ -12,6 +12,7 @@ import {
   type CrewScheduleSheet,
   type PacingEstimate,
   type RaceCourseCheckpoint,
+  type RaceRoomProjection,
   type RaceRoom
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
@@ -497,6 +498,73 @@ test("attach preserves closed check-ins when the athlete has no GPS ping yet", a
       `Pace planned split must still refresh after attach; got ${aid1Split.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
     );
     assert.ok(seeded.id);
+  });
+});
+
+test("in-race attach refreshes projection from the accepted ping without dropping live progress", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("owner-w34-pace-live-proj");
+    const roomId = await createPaidRoom(app, ownerToken, "Pace live projection refresh");
+    const room = await put50kCourse(app, roomId, ownerToken);
+    const aid1 = room.course?.checkpoints.find((checkpoint) => checkpoint.id === "aid-1");
+    assert.ok(aid1);
+
+    const pingResponse = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: {
+        latitude: aid1.latitude,
+        longitude: aid1.longitude,
+        recordedAt: new Date().toISOString()
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(pingResponse.statusCode, 201, pingResponse.body);
+    const pingProjection = (pingResponse.json() as { projection?: RaceRoomProjection }).projection;
+    assert.ok(pingProjection);
+    assert.notEqual(pingProjection.asOfPingId, "bootstrap");
+    assert.ok(pingProjection.progressMeters > 0);
+
+    const beforeAid1 = pingProjection.checkpointSplits.find((split) => split.checkpointId === "aid-1");
+    assert.ok(beforeAid1);
+
+    const estimateResponse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId }
+    });
+    assert.equal(estimateResponse.statusCode, 200, estimateResponse.body);
+    const estimate = parsePacingEstimate(estimateResponse.json());
+
+    const attach = await attachEstimate(app, roomId, ownerToken, { pacingEstimateId: estimate.id });
+    assert.equal(attach.statusCode, 200, attach.body);
+
+    const afterProj = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(afterProj.statusCode, 200, afterProj.body);
+    const afterBody = afterProj.json() as RaceRoomProjection;
+    assert.equal(afterBody.asOfPingId, pingProjection.asOfPingId);
+    assert.notEqual(afterBody.asOfPingId, "bootstrap");
+    assert.equal(afterBody.progressMeters, pingProjection.progressMeters);
+
+    const afterAid1 = afterBody.checkpointSplits.find((split) => split.checkpointId === "aid-1");
+    assert.ok(afterAid1);
+    assert.notEqual(
+      afterAid1.plannedElapsedSecondsAtCross,
+      beforeAid1.plannedElapsedSecondsAtCross,
+      "live Pace planned split must change when the estimate attaches"
+    );
+
+    const aid1Eta = estimate.aidEtas.find((row) => row.checkpointId === "aid-1");
+    assert.ok(aid1Eta);
+    assert.ok(
+      Math.abs(afterAid1.plannedElapsedSecondsAtCross - aid1Eta.elapsedSeconds) <= 2,
+      `projection aid-1 planned ${afterAid1.plannedElapsedSecondsAtCross} vs estimate ${aid1Eta.elapsedSeconds}`
+    );
   });
 });
 
