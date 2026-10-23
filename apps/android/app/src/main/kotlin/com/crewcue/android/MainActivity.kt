@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.AppRouter
+import com.crewcue.android.ui.ConfigurationErrorScreen
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.ShellViewModelFactory
 import com.crewcue.android.ui.brand.LaunchSplash
@@ -31,6 +32,10 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        container.authConfig.problem?.let { problem ->
+            setContent { CrewCueTheme { ConfigurationErrorScreen(problem) } }
+            return
+        }
         // The theme paints the launch colour until the first frame; screens draw on white.
         window.setBackgroundDrawableResource(android.R.color.white)
         installMapLibre()
@@ -70,6 +75,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (container.authConfig.problem != null) return
         shellModel.open(intent)
     }
 }
