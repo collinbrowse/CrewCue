@@ -1292,6 +1292,26 @@ function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): 
   return ids;
 }
 
+/**
+ * Course-shape writes used to drop in-memory projection whenever no GPS ping had
+ * been accepted, then bootstrap empty splits. Closed check-ins live only in that
+ * projection, so adding/removing an unvisited waypoint (or re-saving the course)
+ * silently destroyed visits and reverted GET /schedule ETAs to plan.
+ *
+ * Keep the stored projection when it already has visit logs; only discard when
+ * there is neither a live ping nor a check-in/auto visit to preserve.
+ */
+function discardStaleProjectionIfNoLivePing(roomId: string): void {
+  if (getOrInitPingState(roomId).lastAccepted) {
+    return;
+  }
+  const prev = roomProjectionState.get(roomId);
+  if (prev && visitedCheckpointIdsFromStoredProjection(prev).size > 0) {
+    return;
+  }
+  roomProjectionState.delete(roomId);
+}
+
 function pruneProjectionStateMaps(
   state: Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps">,
   allowedCheckpointIds: Set<string>
@@ -1793,9 +1813,7 @@ async function saveRoomAndRecomputeProjection(
   updatedRoom: RaceRoom
 ): Promise<void> {
   await saveRaceRoom(updatedRoom);
-  if (!getOrInitPingState(roomId).lastAccepted) {
-    roomProjectionState.delete(roomId);
-  }
+  discardStaleProjectionIfNoLivePing(roomId);
   try {
     await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
   } catch (err) {
@@ -2135,9 +2153,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearWs5RoomLocalState(roomId);
     }
 
-      if (!getOrInitPingState(roomId).lastAccepted) {
-        roomProjectionState.delete(roomId);
-      }
+      discardStaleProjectionIfNoLivePing(roomId);
       try {
         await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
       } catch (err) {
