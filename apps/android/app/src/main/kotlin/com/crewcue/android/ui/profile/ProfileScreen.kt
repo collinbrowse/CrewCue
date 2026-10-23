@@ -112,7 +112,7 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
         ProfileHero(
             name = model.name.ifBlank { "Profile" },
             role = shell.races.firstOrNull { it.id == roomId }?.roleLabel,
-            live = readout.lastPingLabel != null
+            live = readout.pingState == "live"
         )
         val status = model.status
         if (status != null) {

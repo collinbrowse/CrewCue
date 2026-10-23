@@ -54,6 +54,9 @@ android {
         versionCode = (findProperty("crewcue.versionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("crewcue.versionName") as String?) ?: "0.0.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // client-core is cross-compiled for these two ABIs only (scripts/build-swift-android.mjs).
+        // Without the filter, MapLibre's 32-bit libs make Play offer the app to devices that crash loading Swift.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
 
         val auth0Domain = crewcueResolved("crewcue_auth0_domain")
         val auth0ClientId = crewcueResolved("crewcue_auth0_client_id")
@@ -87,7 +90,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -150,6 +155,7 @@ dependencies {
         implementation(coordinate)
     }
 
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

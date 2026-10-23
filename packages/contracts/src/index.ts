@@ -395,12 +395,41 @@ export interface AthletePingIngestPayload {
   uploadIntervalSeconds?: number;
 }
 
+/** Latest accepted athlete ping, as every crew member reads it. */
+export interface AthleteLatestPing {
+  pingId: string;
+  latitude: number;
+  longitude: number;
+  /** Device time the athlete's phone took the sample. Crew "last ping" readouts use this. */
+  recordedAt: string;
+  /** Server time the ping was accepted. */
+  receivedAt: string;
+  /**
+   * Route-snapped course progress from the room projection for this exact ping.
+   * Absent when the room has no projection for it (no planned pace, start time, or route line).
+   */
+  progressMeters?: number;
+}
+
+/** `GET /race-rooms/:roomId/pings/latest` */
+export interface RaceRoomLatestPingResponse {
+  roomId: string;
+  /** Absent until the athlete's first accepted ping. */
+  ping?: AthleteLatestPing;
+  /** Seconds after `ping.recordedAt` when the reading counts as stale (same rule as projection confidence). */
+  stalenessThresholdSeconds: number;
+  /** Server time this response was built. */
+  evaluatedAt: string;
+}
+
 /** Business-rule rejections after auth, membership, and entitlement gates */
 export type AthletePingRejectReason =
   | "room_not_active"
   | "clock_skew"
   | "implausible_motion"
-  | "accuracy_too_poor";
+  | "accuracy_too_poor"
+  /** recordedAt is not after the room's last accepted ping. Clients drop it, never retry (#538). */
+  | "stale_recorded_at";
 
 export interface AthletePingAcceptedResponse {
   decision: "accepted";

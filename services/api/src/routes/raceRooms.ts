@@ -11,6 +11,7 @@ import {
   parseWaypointTags,
   type AthletePingHistoryEntry,
   type AthletePingRejectReason,
+  type RaceRoomLatestPingResponse,
   type CheckpointVisit,
   type CheckpointVisitManualData,
   type CheckpointVisitSource,
@@ -51,7 +52,7 @@ import {
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
-import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
+import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
@@ -145,6 +146,32 @@ const patchRaceCheckpointInput = z
   })
   .refine((value) => value.title !== undefined || value.tags !== undefined, {
     message: "Provide title and/or tags"
+  });
+
+/**
+ * Longest planned stop a checkpoint may carry (6 h). Covers sleep stops on 200-mile races while
+ * still rejecting obvious unit mistakes (seconds typed as minutes × 60 twice).
+ */
+export const MAX_PLANNED_STOP_SECONDS = 6 * 3600;
+
+/**
+ * #250 Pace edit: per-checkpoint planned stop. Set semantics (each row is the new absolute value),
+ * so a retried request is naturally idempotent.
+ */
+const patchCheckpointStopsInput = z
+  .object({
+    stops: z
+      .array(
+        z.object({
+          checkpointId: z.string().min(1),
+          plannedStopSeconds: z.number().int().min(0).max(MAX_PLANNED_STOP_SECONDS)
+        })
+      )
+      .min(1)
+      .max(500)
+  })
+  .refine((value) => new Set(value.stops.map((stop) => stop.checkpointId)).size === value.stops.length, {
+    message: "Each checkpoint may appear once"
   });
 
 const postRaceCheckpointInput = z.object({
@@ -1681,6 +1708,19 @@ async function persistCourseShapeChange(
       clearWs5RoomLocalState(roomId);
     }
   }
+  await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+}
+
+/**
+ * Save a course edit and refresh the stored projection so schedule, ETAs, and live remaining reflect
+ * it. Does NOT reset course-dependent crew state (task board, adaptive plan, sync); callers decide
+ * that first (see {@link persistCourseShapeChange}).
+ */
+async function saveRoomAndRecomputeProjection(
+  app: FastifyInstance,
+  roomId: string,
+  updatedRoom: RaceRoom
+): Promise<void> {
   await saveRaceRoom(updatedRoom);
   if (!getOrInitPingState(roomId).lastAccepted) {
     roomProjectionState.delete(roomId);
@@ -2115,6 +2155,50 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       nextCheckpoints
     );
     await saveRaceRoom(updatedRoom);
+    return reply.send(updatedRoom);
+  });
+
+  /**
+   * #250: set planned stop minutes for one or more checkpoints (Pace edit mode).
+   *
+   * Deliberately not `PUT /course`: that path fingerprints the whole course, so changing only a stop
+   * duration would reset the crew task board, adaptive plan, and sync state. A planned stop changes
+   * timing, not the course shape, so only the projection is recomputed here. All rows apply or none.
+   */
+  app.patch("/race-rooms/:roomId/checkpoint-stops", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = patchCheckpointStopsInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid planned stop payload" });
+    }
+    if (!room.course) {
+      return reply.code(404).send({ error: "Course not found" });
+    }
+
+    const known = new Set(room.course.checkpoints.map((checkpoint) => checkpoint.id));
+    const unknown = parsed.data.stops
+      .map((stop) => stop.checkpointId)
+      .filter((checkpointId) => !known.has(checkpointId));
+    if (unknown.length > 0) {
+      return reply.code(404).send({ error: "Checkpoint not found", checkpointIds: unknown });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+    const secondsById = new Map(parsed.data.stops.map((stop) => [stop.checkpointId, stop.plannedStopSeconds]));
+    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
+      const plannedStopSeconds = secondsById.get(checkpoint.id);
+      return plannedStopSeconds === undefined ? checkpoint : { ...checkpoint, plannedStopSeconds };
+    });
+    const updatedRoom = syncWorkspaceCheckpoints(
+      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
+      nextCheckpoints
+    );
+    await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
     return reply.send(updatedRoom);
   });
 
@@ -2672,6 +2756,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
+    if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
+      // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
+      return await reject("stale_recorded_at", "recordedAt must be after the last accepted ping");
+    }
     if (pingState.lastAccepted) {
       const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
       if (dtSec > 0) {
@@ -3487,5 +3575,55 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const state = getOrInitPingState(roomId);
     const decisions = state.history.slice(-limit);
     return reply.send({ decisions });
+  });
+
+  /**
+   * Latest accepted athlete ping. Crew phones drive race progress readouts from this, never from
+   * their own GPS, so every member sees the same mile, ETA, and "last ping".
+   */
+  app.get("/race-rooms/:roomId/pings/latest", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+
+    const state = getOrInitPingState(roomId);
+    const body: RaceRoomLatestPingResponse = {
+      roomId,
+      stalenessThresholdSeconds: getStalenessThresholdSeconds(state.lastUploadIntervalSeconds),
+      evaluatedAt: new Date().toISOString()
+    };
+    const last = state.lastAccepted;
+    if (last) {
+      const core = roomProjectionState.get(roomId)?.lastProjectionCore;
+      body.ping = {
+        pingId: last.pingId,
+        latitude: last.latitude,
+        longitude: last.longitude,
+        recordedAt: new Date(last.recordedAtMs).toISOString(),
+        receivedAt: new Date(last.receivedAtMs).toISOString(),
+        ...(core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
+          ? { progressMeters: core.progressMeters }
+          : {})
+      };
+    }
+    return reply.send(body);
   });
 }

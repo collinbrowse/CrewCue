@@ -11,22 +11,28 @@ struct PaceView: View {
     var roomId: String?
     var role: String?
     var focus: String = "schedule-sheet"
-    var progressMeters: Double = 0
+    var runner: RunnerProgress = .none
     @State private var showsTools = false
     @State private var toolFocus = "gpx-import"
     @Environment(\.crew) private var theme
 
     var body: some View {
-        let rows = model.timeline(progressMeters: progressMeters)
-        let readout = model.readout(progressMeters: progressMeters)
+        let rows = model.timeline(runner: runner)
+        let readout = model.readout(runner: runner)
         ScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
                 PaceEstimateSection(model: model)
+                if model.canEditStops || model.stopsMessage.isEmpty == false {
+                    PaceStopEditBar(model: model)
+                }
                 PaceTimeline(
                     rows: rows,
-                    stops: model.stops,
+                    stops: model.displayStops,
                     message: model.scheduleMessage,
+                    draft: model.stopDraft,
+                    onStopMinutes: model.setStopMinutes,
+                    onStepStop: model.stepStop,
                     onCheckIn: openCheckIn,
                     onImport: { openTools("gpx-import") }
                 )
@@ -56,6 +62,9 @@ struct PaceView: View {
         .sheet(isPresented: $showsTools) {
             PaceToolsSheet(model: model, focus: toolFocus)
         }
+        .onChange(of: runner, initial: true) { _, latest in
+            model.runnerMoved(latest)
+        }
         .task(id: activationID) {
             if focus == "check-in", let first = model.stops.first {
                 model.openCheckIn(checkpointId: first.checkpointId)
@@ -66,6 +75,9 @@ struct PaceView: View {
             }
             if paceToolFocuses.contains(focus) {
                 openTools(focus)
+            }
+            if focus == "pace-stop-edit" {
+                model.beginStopEdit()
             }
         }
     }
@@ -125,6 +137,9 @@ struct PaceTimeline: View {
     let rows: [CheckpointTimelineRow]
     let stops: [PaceStop]
     let message: String
+    var draft: StopPlanDraft? = nil
+    var onStopMinutes: (String, String) -> Void = { _, _ in }
+    var onStepStop: (String, Int) -> Void = { _, _ in }
     let onCheckIn: (String) -> Void
     let onImport: () -> Void
     @Environment(\.crew) private var theme
@@ -149,8 +164,17 @@ struct PaceTimeline: View {
                         .foregroundStyle(theme.body)
                 }
                 ForEach(rows) { row in
-                    PaceCheckpointCard(row: row, stop: stops.first { $0.checkpointId == row.checkpointId }) {
-                        onCheckIn(row.checkpointId)
+                    VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                        PaceCheckpointCard(row: row, stop: stops.first { $0.checkpointId == row.checkpointId }) {
+                            onCheckIn(row.checkpointId)
+                        }
+                        if let draftRow = draft?.row(row.checkpointId), draftRow.editable {
+                            PaceStopEditor(
+                                row: draftRow,
+                                onMinutes: { onStopMinutes($0, row.checkpointId) },
+                                onStep: { onStepStop(row.checkpointId, $0) }
+                            )
+                        }
                     }
                 }
             }
@@ -252,7 +276,7 @@ struct PaceCheckpointCard: View {
                 MetricColumn(label: "Dist. to", value: row.distanceToLabel, alignment: .trailing)
             }
             if let stop {
-                Text("\(stop.arrival) · \(stop.elapsed) elapsed")
+                Text("\(stop.arrival) · \(stop.elapsed) elapsed · \(stop.stopLabel.lowercased())")
                     .font(CrewFont.label)
                     .foregroundStyle(theme.body)
             }
@@ -293,6 +317,7 @@ struct PaceCheckpointCard: View {
     private var caption: String {
         if row.isFinish { return "TARGET" }
         if row.state == .done { return stop.map { "\($0.arrival) · \($0.elapsed)" } ?? "PLANNED" }
+        if let stop, stop.stopLabel != "NO STOP" { return "PROJECTED · \(stop.stopLabel)" }
         return "PROJECTED"
     }
 
@@ -301,6 +326,111 @@ struct PaceCheckpointCard: View {
         case "warn", "breach": theme.danger
         default: theme.ink
         }
+    }
+}
+
+/// #250 Pace edit: enter/leave planned-stop editing and save the draft.
+struct PaceStopEditBar: View {
+    @Bindable var model: PaceModel
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            if model.isEditingStops {
+                Text("Planned stops")
+                    .crewKicker()
+                    .foregroundStyle(theme.primary)
+                Text("Minutes at each aid. Later arrivals move with your changes; nothing is saved until you tap Save.")
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                HStack(spacing: CrewSpace.stackSm) {
+                    Button("Cancel") { model.cancelStopEdit() }
+                        .buttonStyle(.crewGhost)
+                        .disabled(model.stopsBusy)
+                        .accessibilityIdentifier("crewcue.pace.cancel-stops")
+                    Button("Save stops") {
+                        Task { await model.saveStopEdit() }
+                    }
+                    .buttonStyle(.crewPrimary)
+                    .crewBusy(model.stopsBusy)
+                    .disabled(model.stopDraft?.canSave != true)
+                    .accessibilityIdentifier("crewcue.pace.save-stops")
+                }
+            } else if model.canEditStops {
+                Button("Edit planned stops") { model.beginStopEdit() }
+                    .buttonStyle(.crewSecondary)
+                    .accessibilityIdentifier("crewcue.pace.edit-stops")
+            }
+            if model.stopsMessage.isEmpty == false {
+                Text(verbatim: model.stopsMessage)
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.body)
+                    .accessibilityIdentifier("crewcue.pace.stops-message")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("crewcue.pace-stop-edit")
+        .accessibilityLabel("Planned stops")
+    }
+}
+
+/// Minutes field with − / + for one checkpoint's planned stop.
+struct PaceStopEditor: View {
+    let row: StopPlanDraft.Row
+    let onMinutes: (String) -> Void
+    let onStep: (Int) -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: CrewSpace.stackSm) {
+                Text("Stop at \(row.title.capitalized)")
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button {
+                    onStep(-1)
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.crewGhost)
+                .accessibilityLabel("One minute less at \(row.title.capitalized)")
+                TextField("0", text: Binding(get: { row.minutesText }, set: onMinutes))
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(.crew)
+                    .frame(width: 64)
+                    .accessibilityLabel("Planned stop minutes at \(row.title.capitalized)")
+                    .accessibilityIdentifier("crewcue.pace.stop-minutes.\(row.checkpointId)")
+                Text("min")
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.body)
+                Button {
+                    onStep(1)
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.crewGhost)
+                .accessibilityLabel("One minute more at \(row.title.capitalized)")
+            }
+            if let error = row.error {
+                Text(verbatim: error)
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.danger)
+            } else if row.isChanged {
+                Text("Was \(StopPlanDraft.stopLabel(seconds: Double(row.savedSeconds)).lowercased())")
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.body)
+            }
+        }
+        .padding(.horizontal, CrewSpace.margin - 4)
+        .padding(.vertical, CrewSpace.stackSm)
+        .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
     }
 }
 

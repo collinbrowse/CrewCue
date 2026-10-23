@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import type { FastifyRequest } from "fastify";
+import { logSafeUrl } from "../lib/logSafeUrl.js";
 
 interface AuditEntry {
   at: string;
@@ -19,7 +20,7 @@ export const auditPlugin = fp(async (app) => {
     const entry: AuditEntry = {
       at: new Date().toISOString(),
       method: request.method,
-      path: request.url,
+      path: logSafeUrl(request.url),
       actor: getActor(request),
       statusCode: reply.statusCode,
       requestId: request.id

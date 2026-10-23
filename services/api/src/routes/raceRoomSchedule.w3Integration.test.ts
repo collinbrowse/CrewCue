@@ -68,7 +68,7 @@ async function createPaidRoom(app: TestApp, ownerToken: string, name: string): P
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: (app.jwt.decode(ownerToken) as { sub: string }).sub, // owner is the race athlete (#538)
       name,
       creatorRole: "team_manager"
     },
