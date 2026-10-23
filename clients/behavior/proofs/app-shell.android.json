@@ -1,0 +1,18 @@
+{
+  "id": "app-shell",
+  "platform": "android",
+  "entry": "crewcue://dev/app-shell",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Opened crewcue://dev/app-shell signed out (app data cleared), then as crew; tapped Pace, Chat, Profile and the Settings gear.",
+  "checked": {
+    "Success": "Map, Pace, Chat, Profile tabs each open their feature; the gear opens Settings. Signed out shows sign-in.",
+    "Empty": "Tab bar reads Map, Pace, Chat, Profile.",
+    "Error": "Not reachable: the shell has no load step; tabs select local routes.",
+    "Offline": "Airplane mode: the shell stays usable and the map shows 'Offline. Map tiles are unavailable.'",
+    "Accessibility labels": "crewcue.app-shell"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
