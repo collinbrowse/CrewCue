@@ -50,15 +50,37 @@ public final class SessionController: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Registered store ids, so callers and tests can see what a sign-out will wipe.
+    public var registeredStores: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return wipers.keys.sorted()
+    }
+
+    /// Ends the session and wipes every registered per-user store. One failing wiper never
+    /// stops the others; the first error is rethrown after all of them ran.
     public func signOut() throws {
         let hooks: [@Sendable () throws -> Void]
         lock.lock()
-        hooks = Array(wipers.values)
+        hooks = wipers.keys.sorted().compactMap { wipers[$0] }
         session = nil
         lock.unlock()
+        var firstError: (any Error)?
         for hook in hooks {
-            try hook()
+            do {
+                try hook()
+            } catch {
+                firstError = firstError ?? error
+            }
         }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    /// The server rejected the session (401). Same wipe as sign-out: nothing outlives the account.
+    public func expire() throws {
+        try signOut()
     }
 }
 

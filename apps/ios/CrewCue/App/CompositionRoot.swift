@@ -6,9 +6,15 @@ struct CompositionRoot {
     func makeModel() -> ShellModel {
         let launch = LaunchConfiguration.resolve()
         let restored = launch.devSession ?? (launch.signedOut ? nil : Self.loadPersistedSession())
+        let expiry = SessionExpiryRelay()
+        let transport = SessionExpiryTransport(wrapping: URLSessionTransport()) { rejectedToken in
+            Task { @MainActor in
+                expiry.model?.expireSession(rejectedToken: rejectedToken)
+            }
+        }
         let client = AppClient(
             graph: ClientGraph(
-                transport: URLSessionTransport(),
+                transport: transport,
                 clock: SystemClock(),
                 logger: OSLogLogger(),
                 baseURL: launch.baseURL,
@@ -22,6 +28,7 @@ struct CompositionRoot {
             fixtureOverlay: launch.fixtureOverlay,
             authConfiguration: launch.auth
         )
+        expiry.model = model
         model.prepareStores()
         if let restored {
             model.adopt(restored)
@@ -33,4 +40,10 @@ struct CompositionRoot {
         guard let root = try? AppDirectories.root() else { return nil }
         return try? SessionFile.load(directory: root)
     }
+}
+
+/// Hands an authorized 401 from the transport to the shell, which decides whether it ends the session.
+@MainActor
+private final class SessionExpiryRelay {
+    weak var model: ShellModel?
 }
