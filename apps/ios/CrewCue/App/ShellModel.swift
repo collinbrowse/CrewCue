@@ -98,8 +98,9 @@ final class ShellModel {
             return
         }
         let raw = url.absoluteString
-        fixtureOverlay = LaunchConfiguration.isFixtureOverlay(raw)
-        let next = Route.parse(raw) ?? Route(featureId: "app-shell", state: .success)
+        fixtureOverlay = DevLinks.enabled && LaunchConfiguration.isFixtureOverlay(raw)
+        let parsed = DevLinks.enabled ? Route.parse(raw) : nil
+        let next = parsed ?? Route(featureId: "app-shell", state: .success)
         show(next)
         if !fixtureOverlay {
             enterShellIfNeeded()

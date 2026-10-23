@@ -4,6 +4,7 @@ struct JoinCrewView: View {
     @Bindable var model: JoinCrewModel
     var onBack: (() -> Void)? = nil
     @Environment(\.crew) private var theme
+    @ScaledMetric(relativeTo: .largeTitle) private var codeSize: CGFloat = 32
 
     var body: some View {
         ScrollView {
@@ -20,7 +21,7 @@ struct JoinCrewView: View {
                     .font(CrewFont.button)
                     .foregroundStyle(theme.body)
                 TextField("Invite code", text: $model.code)
-                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .font(.system(size: codeSize, weight: .bold, design: .monospaced))
                     .multilineTextAlignment(.center)
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)

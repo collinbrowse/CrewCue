@@ -33,12 +33,16 @@ struct LaunchConfiguration: Equatable {
     var baseURL: URL
     var auth: Auth0Configuration
 
-    static func resolve(arguments: [String] = CommandLine.arguments, bundle: Bundle = .main) -> LaunchConfiguration {
-        let deeplink = parsedDeeplink(arguments: arguments)
+    static func resolve(
+        arguments: [String] = CommandLine.arguments,
+        bundle: Bundle = .main,
+        devLinks: Bool = DevLinks.enabled
+    ) -> LaunchConfiguration {
+        let deeplink = devLinks ? parsedDeeplink(arguments: arguments) : nil
         return LaunchConfiguration(
             route: deeplink?.route ?? Route(featureId: "app-shell", state: .success),
             fixtureOverlay: deeplink?.fixtureOverlay ?? false,
-            devSession: devSession(arguments: arguments),
+            devSession: devLinks ? devSession(arguments: arguments) : nil,
             signedOut: arguments.contains("--signed-out"),
             baseURL: baseURL(bundle: bundle),
             auth: Auth0Configuration.load(bundle: bundle)

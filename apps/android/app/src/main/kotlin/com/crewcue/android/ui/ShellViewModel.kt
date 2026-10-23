@@ -235,7 +235,7 @@ class ShellViewModel(
         }
         if (opened && isOAuthCallback(url)) return
         opened = true
-        val feature = DevRoutes.featureId(url)
+        val feature = DevRoutes.inboundFeatureId(url)
         val state = if (url == null) "success" else queryState(url)
         when {
             feature == "app-shell" && state == "success" -> showShell(ShellTab.Map)

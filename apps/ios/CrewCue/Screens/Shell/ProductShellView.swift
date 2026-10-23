@@ -139,6 +139,10 @@ struct CrewTabBar: View {
                 .accessibilityLabel(tab.title)
                 .accessibilityValue(tab == .chat && chatBadge > 0 ? "\(chatBadge) unread" : "")
                 .accessibilityAddTraits(selection == tab ? .isSelected : [])
+                // The pill bar keeps a fixed size. At large text sizes a long press shows the tab enlarged, as the system tab bar does.
+                .accessibilityShowsLargeContentViewer {
+                    Label(tab.title, systemImage: tab.barImage)
+                }
             }
         }
         .padding(6)
