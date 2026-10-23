@@ -160,6 +160,43 @@ actor HeaderCaptureTransport: HTTPTransport {
     }
 }
 
+actor CourseImportTransport: HTTPTransport {
+    private let failRoomGet: Bool
+    private var putBody: Data?
+
+    init(failRoomGet: Bool = false) {
+        self.failRoomGet = failRoomGet
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.url.path.hasSuffix("gpx-preview") {
+            let json = #"{"course":{"checkpoints":[{"id":"a","latitude":1,"longitude":2},{"id":"b","latitude":3,"longitude":4}]},"plannedPaceSecondsPerKm":360,"courseFileName":"route.gpx"}"#
+            return HTTPResponse(status: 200, body: Data(json.utf8))
+        }
+        if request.method == .get {
+            if failRoomGet {
+                return HTTPResponse(status: 500, body: Data(#"{"error":"room get should not run"}"#.utf8))
+            }
+            let json = """
+            {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
+            """
+            return HTTPResponse(status: 200, body: Data(json.utf8))
+        }
+        putBody = request.body
+        return HTTPResponse(status: 200, body: Data(#"{}"#.utf8))
+    }
+
+    func coursePut() -> (raceStartAt: String, pace: Double)? {
+        guard let putBody,
+              let object = try? JSONSerialization.jsonObject(with: putBody) as? [String: Any],
+              let raceStartAt = object["raceStartAt"] as? String,
+              let pace = (object["plannedPaceSecondsPerKm"] as? NSNumber)?.doubleValue else {
+            return nil
+        }
+        return (raceStartAt, pace)
+    }
+}
+
 @Test func fetchHealthUsesTransport() async throws {
     let health = try await APIClient.fetchHealth(baseURL: URL(string: "https://example.invalid")!, transport: MockTransport())
     #expect(health.service == "api")
@@ -317,6 +354,54 @@ struct SilentLogger: Logger {
     let report = try await RaceDayAPI.flushOutbox(graph: graph)
     #expect(report.accepted == [queued.id])
     #expect(await transport.putIdempotencyKey() == queued.idempotencyKey)
+    try store.wipe()
+}
+
+@Test func gpxImportKeepsTheRoomRaceClockWhenTheCallerHasNone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let queued = try await store.enqueueGpx(
+        roomId: "room",
+        fileName: "route.gpx",
+        gpxXml: "<gpx/>",
+        raceStartAt: "",
+        plannedPaceSecondsPerKm: 0,
+        role: "athlete"
+    )
+    let transport = CourseImportTransport()
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token"),
+        outbox: store
+    )
+    let report = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(report.accepted == [queued.id])
+    let put = await transport.coursePut()
+    #expect(put?.raceStartAt == "2026-08-15T12:00:00.000Z")
+    #expect(put?.pace == 720)
+
+    let explicit = CourseImportTransport(failRoomGet: true)
+    let explicitGraph = ClientGraph(
+        transport: explicit,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token")
+    )
+    _ = try await RaceDayAPI.importGpx(
+        graph: explicitGraph,
+        roomId: "room",
+        fileName: "route.gpx",
+        gpxXml: "<gpx/>",
+        raceStartAt: "2026-09-01T06:00:00.000Z",
+        plannedPaceSecondsPerKm: 400
+    )
+    let kept = await explicit.coursePut()
+    #expect(kept?.raceStartAt == "2026-09-01T06:00:00.000Z")
+    #expect(kept?.pace == 400)
     try store.wipe()
 }
 
