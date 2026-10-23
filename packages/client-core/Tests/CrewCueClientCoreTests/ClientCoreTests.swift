@@ -178,6 +178,7 @@ actor HeaderCaptureTransport: HTTPTransport {
         ("crewcue://dev/athlete-setup", "athlete-setup"),
         ("crewcue://dev/onboarding-notifications", "onboarding-notifications"),
         ("crewcue://dev/check-in", "check-in"),
+        ("crewcue://dev/pace-stop-edit", "pace-stop-edit"),
         ("crewcue://dev/course-settings", "course-settings"),
         ("crewcue://dev/readouts-incidents", "readouts-incidents"),
         ("crewcue://dev/gpx-import-progress", "gpx-import"),

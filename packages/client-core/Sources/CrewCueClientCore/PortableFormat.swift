@@ -1,3 +1,5 @@
+import Foundation
+
 /// Text helpers that stay off `String(format:)`, which traps in the Swift Android runtime.
 enum PortableFormat: Sendable {
     private static let hexDigits: [Character] = Array("0123456789abcdef")
@@ -48,5 +50,21 @@ enum PortableFormat: Sendable {
             return "-" + text
         }
         return text
+    }
+}
+
+/// Numbers read out of `JSONSerialization` results.
+enum JSONNumber {
+    /// JSON numbers 0 and 1 also pass `is Bool` (they bridge through NSNumber), so only an NSNumber that is a
+    /// real boolean (`objCType` "c") is rejected. A `0` distance (the start line) must survive.
+    static func double(_ value: Any?) -> Double? {
+        guard let value, !(value is NSNull) else { return nil }
+        if let number = value as? NSNumber {
+            return String(cString: number.objCType) == "c" ? nil : number.doubleValue
+        }
+        if value is Bool { return nil }
+        if let number = value as? Double { return number }
+        if let number = value as? Int { return Double(number) }
+        return nil
     }
 }

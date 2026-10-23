@@ -99,7 +99,7 @@ enum ShellTab: String, CaseIterable, Identifiable, Hashable {
 
     static func isPaceFeature(_ featureId: String) -> Bool {
         switch featureId {
-        case "schedule-sheet", "cold-start", "pace-estimate", "crew-sheet-export", "outbox-status", "check-in", "course-settings", "gpx-import":
+        case "schedule-sheet", "cold-start", "pace-estimate", "crew-sheet-export", "outbox-status", "check-in", "course-settings", "gpx-import", "pace-stop-edit":
             true
         default:
             false

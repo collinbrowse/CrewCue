@@ -121,6 +121,15 @@
       "android": "fail"
     },
     {
+      "id": "pace-stop-edit",
+      "entry": "crewcue://dev/pace-stop-edit",
+      "label": "crewcue.pace-stop-edit",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
       "id": "readouts-incidents",
       "entry": "crewcue://dev/readouts-incidents",
       "label": "crewcue.readouts-incidents",

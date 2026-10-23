@@ -282,6 +282,14 @@ public enum RaceDayAPI {
         )
     }
 
+    /// #250: save planned stop minutes. Sends only the changed checkpoints; the server applies all
+    /// of them or none and recomputes the schedule without resetting crew task state.
+    public static func updatePlannedStops(graph: ClientGraph, roomId: String, edits: [PlannedStopEdit]) async throws -> RaceRoom {
+        let stops: [[String: Any]] = edits.map { ["checkpointId": $0.checkpointId, "plannedStopSeconds": $0.plannedStopSeconds] }
+        let data = try await sendJSON(graph, "/race-rooms/\(roomId)/checkpoint-stops", method: .patch, object: ["stops": stops])
+        return try JSONDecoder().decode(RaceRoom.self, from: data)
+    }
+
     public static func placeCheckpoint(graph: ClientGraph, roomId: String, id: String, title: String, latitude: Double, longitude: Double) async throws -> Data {
         let body: [String: Any] = ["id": id, "title": title, "latitude": latitude, "longitude": longitude]
         return try await sendJSON(graph, "/race-rooms/\(roomId)/checkpoints", method: .post, object: body)
@@ -455,11 +463,7 @@ public enum RaceDayAPI {
     }
 
     private static func jsonNumber(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 
     private static func cutoffLine(checkpointId: String, cutoff: [String: Any]) -> String? {
