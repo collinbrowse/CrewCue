@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { deterministicRaceRoomId } from "../lib/deterministicRaceRoomId.js";
 import {
   beginIdempotentMutation,
   completeIdempotentMutation,
   idempotencyErrorReply,
+  readIdempotencyKey,
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
 import { z } from "zod";
@@ -78,6 +80,7 @@ import {
   persistTaskBoardSnapshot,
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 
@@ -444,6 +447,20 @@ export function ingestPersistedRaceRoomWithoutClobberForTests(room: RaceRoom): R
   return rememberRaceRoomIfAbsent(room);
 }
 
+function rememberRaceRoomInviteIfAbsent(invite: RaceRoomInvite): RaceRoomInvite {
+  const live = raceRoomInvites.get(invite.token);
+  if (live) {
+    return live;
+  }
+  raceRoomInvites.set(invite.token, invite);
+  return invite;
+}
+
+/** Test helper: simulate a late invite SELECT completing against the live cache. */
+export function ingestPersistedRaceRoomInviteWithoutClobberForTests(invite: RaceRoomInvite): RaceRoomInvite {
+  return rememberRaceRoomInviteIfAbsent(invite);
+}
+
 function mergeListedRaceRooms(
   persisted: readonly RaceRoom[],
   include: (room: RaceRoom) => boolean
@@ -504,12 +521,7 @@ async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefi
   if (!loaded) {
     return undefined;
   }
-  const live = raceRoomInvites.get(token);
-  if (live) {
-    return live;
-  }
-  raceRoomInvites.set(token, loaded);
-  return loaded;
+  return rememberRaceRoomInviteIfAbsent(loaded);
 }
 
 function toJoinPreview(room: RaceRoom): RaceRoomJoinPreview {
@@ -602,7 +614,7 @@ type RoomProjectionState = {
 
 const roomProjectionState = new Map<string, RoomProjectionState>();
 
-const ws2RuntimeHydratedFromDb = new Set<string>();
+const ws2RuntimeHydrator = createLazyHydrator();
 
 function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
   if (!x || typeof x !== "object") {
@@ -664,18 +676,16 @@ async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws2RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws2RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs2RuntimePayload(roomId);
-  const { ping, projection } = normalizeWs2RuntimePayload(raw);
-  if (ping) {
-    roomPingState.set(roomId, ping);
-  }
-  if (projection) {
-    roomProjectionState.set(roomId, projection);
-  }
+  await ws2RuntimeHydrator.loadIfNeeded(roomId, async () => {
+    const raw = await loadWs2RuntimePayload(roomId);
+    const { ping, projection } = normalizeWs2RuntimePayload(raw);
+    if (ping) {
+      roomPingState.set(roomId, ping);
+    }
+    if (projection) {
+      roomProjectionState.set(roomId, projection);
+    }
+  });
 }
 
 async function saveWs2RuntimeSnapshot(roomId: string): Promise<void> {
@@ -774,8 +784,11 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
  * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
  * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
  *
- * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan.
- * In-race (ping present): recompute over the last accepted ping with the new baseline/pace.
+ * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan, then copy
+ * any closed/auto visit logs onto the matching checkpoint ids so Recalculate cannot erase
+ * check-ins that landed before the first GPS ping.
+ * In-race (ping present): recompute over the last accepted ping with the new baseline/pace
+ * (visit state is already carried via `previous`).
  */
 export async function refreshProjectionAfterPlanOfRecordChange(
   roomId: string,
@@ -783,7 +796,13 @@ export async function refreshProjectionAfterPlanOfRecordChange(
   log?: { warn: (obj: object, msg?: string) => void }
 ): Promise<void> {
   await loadWs2RuntimeIfNeeded(roomId);
-  if (!getOrInitPingState(roomId).lastAccepted) {
+  const pingState = getOrInitPingState(roomId);
+  const previous = roomProjectionState.get(roomId);
+  const visitsToRestore =
+    !pingState.lastAccepted && previous
+      ? previous.lastProjectionCore.checkpointSplits.filter(checkpointSplitHasVisitLog)
+      : [];
+  if (!pingState.lastAccepted) {
     roomProjectionState.delete(roomId);
   }
   try {
@@ -792,6 +811,9 @@ export async function refreshProjectionAfterPlanOfRecordChange(
     log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed");
   }
   await ensureBootstrapProjection(roomId, room, true);
+  if (visitsToRestore.length > 0) {
+    restoreProjectionVisitLogs(roomId, visitsToRestore, room);
+  }
   await saveWs2RuntimeSnapshot(roomId);
 }
 
@@ -1220,6 +1242,48 @@ function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
   });
 }
 
+/**
+ * Copy visit logs onto a freshly bootstrapped projection after plan-of-record attach.
+ * Checkpoint geometry is unchanged on attach, so ids match 1:1; planned splits stay on the
+ * new baseline (#487) while closed actuals keep shifting GET `/schedule`.
+ */
+function restoreProjectionVisitLogs(
+  roomId: string,
+  previousSplits: readonly RaceCheckpointSplitRow[],
+  room: RaceRoom
+): void {
+  const stored = roomProjectionState.get(roomId);
+  const raceAnchor = resolveRaceAnchorIso(room);
+  if (!stored || !raceAnchor) {
+    return;
+  }
+  const previousById = new Map(previousSplits.map((row) => [row.checkpointId, row]));
+  let restored = false;
+  for (const split of stored.lastProjectionCore.checkpointSplits) {
+    const previous = previousById.get(split.checkpointId);
+    if (!previous || previous.visits.length === 0) {
+      continue;
+    }
+    split.visits = structuredClone(previous.visits);
+    refreshCheckpointSplitStoppageDerivedFields(split);
+    restored = true;
+  }
+  if (!restored) {
+    return;
+  }
+  recomputeProjectionStoppageSummary(stored.lastProjectionCore, raceAnchor);
+  syncProjectionAccumulatorStateFromCore(stored);
+  const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+  if (routeForLive) {
+    stored.lastProjectionCore = enrichProjectionWithLiveRemaining(
+      stored.lastProjectionCore,
+      room,
+      routeForLive,
+      raceAnchor
+    );
+  }
+}
+
 function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): Set<string> {
   const ids = new Set<string>();
   for (const row of stored.lastProjectionCore.checkpointSplits) {
@@ -1228,6 +1292,26 @@ function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): 
     }
   }
   return ids;
+}
+
+/**
+ * Course-shape writes used to drop in-memory projection whenever no GPS ping had
+ * been accepted, then bootstrap empty splits. Closed check-ins live only in that
+ * projection, so adding/removing an unvisited waypoint (or re-saving the course)
+ * silently destroyed visits and reverted GET /schedule ETAs to plan.
+ *
+ * Keep the stored projection when it already has visit logs; only discard when
+ * there is neither a live ping nor a check-in/auto visit to preserve.
+ */
+function discardStaleProjectionIfNoLivePing(roomId: string): void {
+  if (getOrInitPingState(roomId).lastAccepted) {
+    return;
+  }
+  const prev = roomProjectionState.get(roomId);
+  if (prev && visitedCheckpointIdsFromStoredProjection(prev).size > 0) {
+    return;
+  }
+  roomProjectionState.delete(roomId);
 }
 
 function pruneProjectionStateMaps(
@@ -1559,16 +1643,27 @@ function stableStringify(value: unknown): string {
   });
 }
 
-function courseDependentStateFingerprint(input: {
-  course: RaceCourse | undefined;
-  plannedPaceSecondsPerKm: number | undefined;
-  courseFileName: string | undefined;
-}): string {
-  return stableStringify({
-    course: input.course ?? null,
-    plannedPaceSecondsPerKm: input.plannedPaceSecondsPerKm ?? null,
-    courseFileName: input.courseFileName ?? null
-  });
+/** ~1.1 m. Ignores float noise from re-projection so a metadata save does not look like a moved pin. */
+const COURSE_SHAPE_COORD_DECIMALS = 1e5;
+
+function roundCourseShapeCoord(value: number): number {
+  return Math.round(value * COURSE_SHAPE_COORD_DECIMALS) / COURSE_SHAPE_COORD_DECIMALS;
+}
+
+/**
+ * Identity of the course shape that task assignments, protocol notes, and incidents hang off.
+ * Cutoff, title, tags, planned stop, pace, baseline, and derived metrics are not part of this
+ * key: editing them on Pace must not delete that operational data.
+ */
+function courseOperationalResetSignature(course: RaceCourse | undefined): string {
+  const checkpoints = course?.checkpoints ?? [];
+  return stableStringify(
+    checkpoints.map((checkpoint) => ({
+      id: checkpoint.id,
+      latitude: roundCourseShapeCoord(checkpoint.latitude),
+      longitude: roundCourseShapeCoord(checkpoint.longitude)
+    }))
+  );
 }
 
 function syncWorkspaceCheckpoints(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): RaceRoom {
@@ -1686,14 +1781,15 @@ async function persistCourseShapeChange(
   updatedRoom: RaceRoom
 ): Promise<void> {
   await loadWs2RuntimeIfNeeded(roomId);
+  // Save before wiping dependents, as PUT /course does: a failed save must not leave the
+  // task board, adaptive plan and sync deleted while the room keeps its previous course.
+  await saveRaceRoom(updatedRoom);
   const nextCourse = updatedRoom.course;
   const nextPace = updatedRoom.plannedPaceSecondsPerKm;
   if (nextCourse && nextPace !== undefined) {
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
       previousRoom,
       nextCourse,
-      nextPlannedPaceSecondsPerKm: nextPace,
-      nextCourseFileName: updatedRoom.courseFileName,
       routeOverlayLayer: undefined
     });
     if (shouldResetCourseDependentState) {
@@ -1708,7 +1804,7 @@ async function persistCourseShapeChange(
       clearWs5RoomLocalState(roomId);
     }
   }
-  await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
 }
 
 /**
@@ -1722,9 +1818,15 @@ async function saveRoomAndRecomputeProjection(
   updatedRoom: RaceRoom
 ): Promise<void> {
   await saveRaceRoom(updatedRoom);
-  if (!getOrInitPingState(roomId).lastAccepted) {
-    roomProjectionState.delete(roomId);
-  }
+  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
+}
+
+async function recomputeProjectionAfterCourseSave(
+  app: FastifyInstance,
+  roomId: string,
+  updatedRoom: RaceRoom
+): Promise<void> {
+  discardStaleProjectionIfNoLivePing(roomId);
   try {
     await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
   } catch (err) {
@@ -1737,24 +1839,15 @@ async function saveRoomAndRecomputeProjection(
 function courseDependentStateNeedsReset(input: {
   previousRoom: RaceRoom;
   nextCourse: RaceCourse;
-  nextPlannedPaceSecondsPerKm: number;
-  nextCourseFileName: string | undefined;
   routeOverlayLayer: MapWorkspaceLayer | undefined;
 }): boolean {
   if (input.routeOverlayLayer) {
     return true;
   }
-  const previous = courseDependentStateFingerprint({
-    course: input.previousRoom.course,
-    plannedPaceSecondsPerKm: input.previousRoom.plannedPaceSecondsPerKm,
-    courseFileName: input.previousRoom.courseFileName
-  });
-  const next = courseDependentStateFingerprint({
-    course: input.nextCourse,
-    plannedPaceSecondsPerKm: input.nextPlannedPaceSecondsPerKm,
-    courseFileName: input.nextCourseFileName
-  });
-  return previous !== next;
+  return (
+    courseOperationalResetSignature(input.previousRoom.course) !==
+    courseOperationalResetSignature(input.nextCourse)
+  );
 }
 
 function applyRaceMapWorkspacePut(
@@ -1852,8 +1945,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return idempotencyErrorReply(reply, idemCreate);
     }
 
+    const idempotencyKey = readIdempotencyKey(request);
+    const roomId = idempotencyKey
+      ? deterministicRaceRoomId(request.identity.sub, idempotencyKey)
+      : randomUUID();
+
+    // Reclaim/retry after persist+release (or stale lease) must return the same room.
+    if (idempotencyKey) {
+      const existing = await getRaceRoom(roomId);
+      if (existing) {
+        const isMember = existing.memberships.some((member) => member.userId === request.identity?.sub);
+        if (!isMember) {
+          await releaseIdempotentMutation(request, parsed.data);
+          return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
+        }
+        scheduleStreamChannelMembershipSync(existing, request.log);
+        await completeIdempotentMutation(request, parsed.data, 201, existing);
+        return reply.code(201).send(existing);
+      }
+    }
+
     const now = new Date().toISOString();
-    const roomId = randomUUID();
     const joinCode = await generateUniqueJoinCode();
     const room: RaceRoom = {
       id: roomId,
@@ -1880,14 +1992,28 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ]
     };
 
+    let roomPersisted = false;
     try {
       await saveRaceRoom(room);
+      roomPersisted = true;
       scheduleStreamChannelMembershipSync(room, request.log);
       await completeIdempotentMutation(request, parsed.data, 201, room);
       return reply.code(201).send(room);
     } catch (err) {
-      await releaseIdempotentMutation(request, parsed.data);
-      throw err;
+      if (!roomPersisted) {
+        await releaseIdempotentMutation(request, parsed.data);
+        throw err;
+      }
+      // Room is durable — do not release the lease (that created orphans on retry).
+      try {
+        await completeIdempotentMutation(request, parsed.data, 201, room);
+      } catch (completeErr) {
+        request.log.warn(
+          { err: completeErr, roomId: room.id },
+          "idempotency complete failed after race room save"
+        );
+      }
+      return reply.code(201).send(room);
     }
   });
 
@@ -1981,6 +2107,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     let idemCourseFinished = false;
+    let coursePersisted = false;
     try {
     await loadWs2RuntimeIfNeeded(roomId);
     const prevProjection = roomProjectionState.get(roomId);
@@ -2039,15 +2166,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         recomputedCourse.checkpoints
       );
       updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
+      // New GPX / route overlay is a different course. The attached plan-of-record estimate
+      // (and its aid ETAs) were computed for the previous polyline; keeping it would leave
+      // GET /schedule on the old race's clocks. Drop it so the next schedule view can
+      // auto-create a fresh estimate for this geometry (#481 attach + replace-file).
+      if (updatedRoom.pacingEstimate !== undefined || updatedRoom.pacingEstimateId !== undefined) {
+        delete updatedRoom.pacingEstimate;
+        delete updatedRoom.pacingEstimateId;
+      }
     }
 
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
       previousRoom: room,
       nextCourse: recomputedCourse,
-      nextPlannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      nextCourseFileName: updatedRoom.courseFileName,
       routeOverlayLayer: parsed.data.routeOverlayLayer
     });
+
+      // Persist the course before wiping dependents. Otherwise a failed save after
+      // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
+      await saveRaceRoom(updatedRoom);
+      coursePersisted = true;
+
     if (shouldResetCourseDependentState) {
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
@@ -2060,10 +2199,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearWs5RoomLocalState(roomId);
     }
 
-      await saveRaceRoom(updatedRoom);
-      if (!getOrInitPingState(roomId).lastAccepted) {
-        roomProjectionState.delete(roomId);
-      }
+      discardStaleProjectionIfNoLivePing(roomId);
       try {
         await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
       } catch (err) {
@@ -2075,7 +2211,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       idemCourseFinished = true;
       return reply.send(updatedRoom);
     } finally {
-      if (!idemCourseFinished) {
+      // Never release after a durable course write — retry/reclaim must not treat
+      // a partially completed PUT as a fresh mutation that can wipe again freely.
+      if (!idemCourseFinished && !coursePersisted) {
         await releaseIdempotentMutation(request, parsed.data);
       }
     }
@@ -2312,9 +2450,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       throw err;
     }
 
+    // Persist workspace before wiping dependents so a failed save cannot destroy
+    // task boards / adaptive / sync payloads while leaving the prior workspace.
+    await saveRaceRoom(updatedRoom);
+
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
-    ws2RuntimeHydratedFromDb.delete(roomId);
+    ws2RuntimeHydrator.delete(roomId);
     clearTaskBoardLocalState(roomId);
     await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
@@ -2326,7 +2468,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
     clearWs5RoomLocalState(roomId);
 
-    await saveRaceRoom(updatedRoom);
     return reply.send(updatedRoom);
   });
 

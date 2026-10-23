@@ -269,8 +269,14 @@ public enum RaceDayAPI {
         guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
             throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
         }
-        object["plannedPaceSecondsPerKm"] = plannedPaceSecondsPerKm
-        object["raceStartAt"] = raceStartAt
+        let anchors = try await courseImportAnchors(
+            graph: graph,
+            roomId: roomId,
+            raceStartAt: raceStartAt,
+            plannedPaceSecondsPerKm: plannedPaceSecondsPerKm
+        )
+        object["plannedPaceSecondsPerKm"] = anchors.pace
+        object["raceStartAt"] = anchors.start
         object["courseGpxXml"] = gpxXml
         object["courseFileName"] = fileName
         return try await sendJSON(
@@ -436,6 +442,42 @@ public enum RaceDayAPI {
         let token = await graph.tokenProvider?.accessToken()
         let request = APIClient.authorized(url: url, method: method, token: token, body: body?.data(using: .utf8))
         return try await APIClient.send(request, transport: graph.transport).body
+    }
+
+    /// A caller that has not loaded the room yet passes an empty start or a non-positive pace.
+    /// Those must not replace the race clock or plan already stored on the room. A first import,
+    /// where the room has neither, still supplies a clock and the default pace.
+    private static func courseImportAnchors(
+        graph: ClientGraph,
+        roomId: String,
+        raceStartAt: String,
+        plannedPaceSecondsPerKm: Double
+    ) async throws -> (start: String, pace: Double) {
+        var start = raceStartAt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var pace = plannedPaceSecondsPerKm
+        if start.isEmpty || pace <= 0 {
+            let room = try await loadRoom(graph: graph, roomId: roomId).room
+            if start.isEmpty {
+                start = room.raceStartAt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            if pace <= 0, let existing = room.plannedPaceSecondsPerKm, existing > 0 {
+                pace = existing
+            }
+        }
+        if start.isEmpty {
+            start = iso8601(graph.clock.now())
+        }
+        if pace <= 0 {
+            pace = 360
+        }
+        return (start, pace)
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     private static func importQueuedGpx(_ graph: ClientGraph, _ operation: StoredOperation) async throws -> Data {

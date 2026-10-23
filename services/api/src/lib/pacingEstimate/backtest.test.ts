@@ -65,6 +65,23 @@ function scenarioFromFixture(): BacktestScenario {
   };
 }
 
+function gpxWithStartAndAidButNoFinish(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="crewcue-test" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="39.000000" lon="-120.000000"><name>Start</name><ele>1000</ele></wpt>
+  <wpt lat="39.001000" lon="-120.000000"><name>Aid 1</name><ele>1010</ele></wpt>
+  <trk>
+    <trkseg>
+      <trkpt lat="39.000000" lon="-120.000000"><ele>1000</ele></trkpt>
+      <trkpt lat="39.001000" lon="-120.000000"><ele>1010</ele></trkpt>
+      <trkpt lat="39.002000" lon="-120.000000"><ele>1020</ele></trkpt>
+      <trkpt lat="39.003000" lon="-120.000000"><ele>1010</ele></trkpt>
+      <trkpt lat="39.004000" lon="-120.000000"><ele>1000</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>`;
+}
+
 test("harness reports the estimator's own predicted moving times (wiring, not golden numbers)", () => {
   const scenario = scenarioFromFixture();
   const result = runPacingBacktest(scenario);
@@ -159,4 +176,24 @@ test("materially different history produces materially different finish predicti
     fast.finishPredictedElapsedSeconds < slow.finishPredictedElapsedSeconds,
     "faster history must predict an earlier finish"
   );
+});
+
+test("backtest emits and scores finish split when GPX waypoints omit a finish checkpoint", () => {
+  const result = runPacingBacktest({
+    name: "no finish waypoint",
+    raceStartAt: RACE_START_AT,
+    courseGpxXml: gpxWithStartAndAidButNoFinish(),
+    history: [],
+    actualSplits: [{ checkpointId: "finish", actualElapsedSeconds: 1800 }]
+  });
+
+  const finishRow = result.rows.at(-1);
+  assert.equal(finishRow?.checkpointId, "finish");
+  assert.equal(finishRow?.label, "Finish");
+  assert.equal(finishRow?.distanceMetersFromStart, result.courseLengthMeters);
+  assert.equal(finishRow?.predictedElapsedSeconds, result.finishPredictedElapsedSeconds);
+  assert.equal(finishRow?.actualElapsedSeconds, result.finishActualElapsedSeconds);
+  assert.equal(finishRow?.signedErrorSeconds, result.finishSignedErrorSeconds);
+  assert.equal(result.scoredRowCount, 1);
+  assert.equal(result.meanAbsoluteErrorSeconds, Math.abs(result.finishSignedErrorSeconds as number));
 });
