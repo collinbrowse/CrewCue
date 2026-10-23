@@ -85,7 +85,7 @@ fun RoomMembersScreen(
         if (model.members.isNotEmpty()) {
             ProductCard(Modifier.padding(top = 16.dp)) {
                 model.members.forEach { member ->
-                    val label = member.displayName.ifBlank { member.userId }
+                    val label = member.displayName.ifBlank { "Crew member" }
                     val selected = model.selectedId == member.userId
                     Button(
                         onClick = { model.select(member.userId) },
@@ -262,7 +262,8 @@ class RoomMembersViewModel(
 
     private fun adopt(rows: List<RosterMember>) {
         members = rows
-        val current = rows.firstOrNull { it.userId == selectedId } ?: rows.firstOrNull()
+        // Keep the user's own pick. Selecting the first row would arm Remove on someone nobody chose.
+        val current = rows.firstOrNull { it.userId == selectedId }
         selectedId = current?.userId
         draft = current?.displayName.orEmpty()
         status = if (rows.isEmpty()) MEMBERS_EMPTY else null

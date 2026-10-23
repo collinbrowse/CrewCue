@@ -239,7 +239,8 @@ class ShellViewModel(
         val feature = DevRoutes.inboundFeatureId(url)
         val state = if (url == null) "success" else queryState(url)
         when {
-            feature == "app-shell" && state == "success" -> showShell(ShellTab.Map)
+            feature == "app-shell" && state == "success" ->
+                if (container.sessionStore.current() != null) showShell(ShellTab.Map) else showSignedOut()
             feature != null && url != null -> openLinkedFeature(feature, url)
             container.sessionStore.current() != null -> showShell(ShellTab.Map)
             else -> showSignedOut()
@@ -548,6 +549,10 @@ class ShellViewModel(
         profilePane = profilePaneFor(screen.featureId)
         uiState = UiState.from(screen, state)
         routeId = "${screen.featureId}?state=$state"
+        // The fixture body is the preview copy; nothing has been typed yet.
+        if (screen.featureId == "join-crew" && !stateOverlay) {
+            replaceBody("Enter an invite code.", kind = "empty")
+        }
     }
 
     private fun showSignedOut(
