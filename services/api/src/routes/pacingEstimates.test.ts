@@ -89,9 +89,11 @@ async function ingestGpx(
   return parseActivityHistoryRef(response.json());
 }
 
+/** The owner is the room's athlete: only the athlete may own the plan of record (#576). */
 async function createPaidRoom(
   app: ReturnType<typeof buildApp>,
   ownerToken: string,
+  ownerId: string,
   name: string
 ): Promise<string> {
   const createResponse = await app.inject({
@@ -100,7 +102,7 @@ async function createPaidRoom(
     headers: { authorization: `Bearer ${ownerToken}` },
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: ownerId,
       name,
       creatorRole: "team_manager"
     }
@@ -248,7 +250,7 @@ test("roomId estimate denies non-members before using private room course or his
       "activity-long-trail.gpx",
       "gpx:room-private-history"
     );
-    const roomId = await createPaidRoom(app, ownerToken, "Private room estimate");
+    const roomId = await createPaidRoom(app, ownerToken, "room-estimate-owner", "Private room estimate");
     await put50kCourse(app, roomId, ownerToken);
 
     const response = await app.inject({
@@ -266,6 +268,32 @@ test("roomId estimate denies non-members before using private room course or his
   });
 });
 
+test("roomId estimate returns 404 for a missing room and 400 for a room without a course", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerId = "room-estimate-no-course";
+    const ownerToken = tokenFor(ownerId);
+    const roomId = await createPaidRoom(app, ownerToken, ownerId, "Room without a course");
+
+    const missingRoom = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId: "room_does_not_exist" }
+    });
+    assert.equal(missingRoom.statusCode, 404, missingRoom.body);
+    assert.equal((missingRoom.json() as { code?: string }).code, "room_not_found");
+
+    const noCourse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId }
+    });
+    assert.equal(noCourse.statusCode, 400, noCourse.body);
+    assert.equal((noCourse.json() as { code?: string }).code, "course_incomplete");
+  });
+});
+
 test("roomId estimate uses the room route, room race start, scoped history, and stores baseline", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const ownerToken = tokenFor("room-estimate-member");
@@ -276,7 +304,7 @@ test("roomId estimate uses the room route, room race start, scoped history, and 
       "gpx:room-member-long"
     );
     await ingestGpx(app, ownerToken, "activity-short-road.gpx", "gpx:room-member-short");
-    const roomId = await createPaidRoom(app, ownerToken, "Room-backed estimate");
+    const roomId = await createPaidRoom(app, ownerToken, "room-estimate-member", "Room-backed estimate");
     await put50kCourse(app, roomId, ownerToken);
 
     const response = await app.inject({
@@ -297,6 +325,11 @@ test("roomId estimate uses the room route, room race start, scoped history, and 
     assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
     assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
     assert.match(estimate.expectedFinishAt, ISO_Z);
+    assert.equal(
+      (Date.parse(estimate.expectedFinishAt) - Date.parse(RACE_START)) / 1000,
+      estimate.expectedFinishElapsedSeconds,
+      "the finish clock must be anchored on the room's race start"
+    );
 
     const stored = await getPacingEstimateById(estimate.id);
     assert.equal(stored?.athleteUserId, "room-estimate-member");
