@@ -2756,6 +2756,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
+    if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
+      // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
+      return await reject("stale_recorded_at", "recordedAt must be after the last accepted ping");
+    }
     if (pingState.lastAccepted) {
       const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
       if (dtSec > 0) {

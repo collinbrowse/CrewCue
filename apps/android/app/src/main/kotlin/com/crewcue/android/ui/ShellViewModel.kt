@@ -138,8 +138,26 @@ class ShellViewModel(
     private var previewJob: Job? = null
 
     init {
+        container.raceDay.onSessionExpired = { rejectedToken ->
+            viewModelScope.launch(Dispatchers.Main) {
+                // Only the session that sent the request can expire; a late 401 for an old one is ignored.
+                if (session?.token == rejectedToken) signOut(null)
+            }
+        }
+        session?.let { adoptStorage(it.userId) }
         open(launchIntent)
         if (racesJob == null) loadRaces()
+    }
+
+    override fun onCleared() {
+        container.raceDay.onSessionExpired = null
+        super.onCleared()
+    }
+
+    /** Keeps only this account's files on the device (#538). */
+    private fun adoptStorage(userId: String) {
+        if (userId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) { container.raceDay.adoptUser(userId) }
     }
 
     /** Load the user's races. Client-core picks the active room; the stored one wins while still listed. */
@@ -302,6 +320,8 @@ class ShellViewModel(
         }
         container.sessionStore.clear()
         session = null
+        // The store already deleted the files; this closes any open outbox so a late write can't recreate them.
+        viewModelScope.launch(Dispatchers.IO) { container.raceDay.wipeUserData() }
         racesJob?.cancel()
         races = emptyList()
         racesMessage = ""
@@ -377,6 +397,7 @@ class ShellViewModel(
         )
         container.sessionStore.save(stored)
         session = stored
+        adoptStorage(stored.userId)
         loadRaces()
     }
 
@@ -394,6 +415,7 @@ class ShellViewModel(
                 )
                 container.sessionStore.save(stored)
                 session = stored
+                adoptStorage(stored.userId)
                 loadRaces()
                 if (pendingJoin) {
                     pendingJoin = false
