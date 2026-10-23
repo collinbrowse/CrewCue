@@ -1268,6 +1268,74 @@ test("PUT course keeps task board when room persist fails after reset would wipe
   }
 });
 
+test("DELETE checkpoint keeps task board when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-checkpoint-delete-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Checkpoint delete wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const points = [
+      { latitude: 41.0, longitude: -71.0 },
+      { latitude: 41.01, longitude: -71.0 },
+      { latitude: 41.02, longitude: -71.0 }
+    ];
+    const activateResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", ...points[0] },
+            { id: "cp1", ...points[1] },
+            { id: "cp2", ...points[2] }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints(points),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(activateResponse.statusCode, 200, activateResponse.body);
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-checkpoint-delete" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingDelete = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${roomId}/checkpoints/cp1`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(failingDelete.statusCode, 500);
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
+});
+
 test("PUT map-workspace keeps task board when room persist fails", async () => {
   const app = buildApp();
   await app.ready();

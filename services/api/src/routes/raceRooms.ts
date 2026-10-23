@@ -1779,6 +1779,9 @@ async function persistCourseShapeChange(
   updatedRoom: RaceRoom
 ): Promise<void> {
   await loadWs2RuntimeIfNeeded(roomId);
+  // Save before wiping dependents, as PUT /course does: a failed save must not leave the
+  // task board, adaptive plan and sync deleted while the room keeps its previous course.
+  await saveRaceRoom(updatedRoom);
   const nextCourse = updatedRoom.course;
   const nextPace = updatedRoom.plannedPaceSecondsPerKm;
   if (nextCourse && nextPace !== undefined) {
@@ -1799,7 +1802,7 @@ async function persistCourseShapeChange(
       clearWs5RoomLocalState(roomId);
     }
   }
-  await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
 }
 
 /**
@@ -1813,6 +1816,14 @@ async function saveRoomAndRecomputeProjection(
   updatedRoom: RaceRoom
 ): Promise<void> {
   await saveRaceRoom(updatedRoom);
+  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
+}
+
+async function recomputeProjectionAfterCourseSave(
+  app: FastifyInstance,
+  roomId: string,
+  updatedRoom: RaceRoom
+): Promise<void> {
   discardStaleProjectionIfNoLivePing(roomId);
   try {
     await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
