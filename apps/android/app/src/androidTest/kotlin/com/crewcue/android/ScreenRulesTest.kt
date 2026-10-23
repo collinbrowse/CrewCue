@@ -37,6 +37,14 @@ class ScreenRulesTest {
     }
 
     @Test
+    fun crewSheetWithoutAScheduleIsAnErrorNotEmpty() {
+        assertEquals(PaceViewModel.EXPORT_ERROR, PaceViewModel.exportCopy(empty = true, scheduleOffline = false, scheduleFailed = true))
+        assertEquals(PaceViewModel.EXPORT_EMPTY, PaceViewModel.exportCopy(empty = true, scheduleOffline = false, scheduleFailed = false))
+        assertEquals(PaceViewModel.EXPORT_OFFLINE, PaceViewModel.exportCopy(empty = false, scheduleOffline = true, scheduleFailed = false))
+        assertEquals(PaceViewModel.EXPORT_SUCCESS, PaceViewModel.exportCopy(empty = false, scheduleOffline = false, scheduleFailed = false))
+    }
+
+    @Test
     fun jsonNullTextIsBlank() {
         val row = JSONObject("""{"displayName":null,"name":"Ada"}""")
         assertEquals("", row.optText("displayName"))

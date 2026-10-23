@@ -385,7 +385,7 @@ class PaceViewModel(
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
         val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId) }
-        applyExport(exported, scheduleOffline = offline)
+        applyExport(exported, scheduleOffline = offline, scheduleFailed = result is RuntimeResult.Failure && !offline)
     }
 
     private fun applySchedule(result: RuntimeResult): Boolean {
@@ -500,7 +500,7 @@ class PaceViewModel(
         }
     }
 
-    private fun applyExport(result: RuntimeResult, scheduleOffline: Boolean) {
+    private fun applyExport(result: RuntimeResult, scheduleOffline: Boolean, scheduleFailed: Boolean) {
         when (result) {
             is RuntimeResult.Failure -> {
                 exportText = null
@@ -509,13 +509,8 @@ class PaceViewModel(
             is RuntimeResult.Success -> {
                 val text = result.result.optString("text").ifBlank { null }
                 val empty = result.result.optBoolean("empty") || text == null
-                if (empty) {
-                    exportText = null
-                    exportMessage = EXPORT_EMPTY
-                } else {
-                    exportText = text
-                    exportMessage = if (scheduleOffline) EXPORT_OFFLINE else EXPORT_SUCCESS
-                }
+                exportText = if (empty) null else text
+                exportMessage = exportCopy(empty, scheduleOffline, scheduleFailed)
             }
         }
     }
@@ -623,6 +618,17 @@ class PaceViewModel(
     }
 
     companion object {
+        /**
+         * Message for the crew sheet card. The sheet is built from the schedule saved on this device,
+         * so a schedule that failed with nothing saved is an error, not an empty sheet.
+         */
+        fun exportCopy(empty: Boolean, scheduleOffline: Boolean, scheduleFailed: Boolean): String = when {
+            empty && scheduleFailed -> EXPORT_ERROR
+            empty -> EXPORT_EMPTY
+            scheduleOffline -> EXPORT_OFFLINE
+            else -> EXPORT_SUCCESS
+        }
+
         /**
          * Message and detail for the estimate card. Crew never load the athlete's history, so only the
          * estimate's own cold-start flag decides whether a plan of record is a cold start.
