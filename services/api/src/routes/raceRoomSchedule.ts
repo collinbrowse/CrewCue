@@ -144,6 +144,20 @@ function checkpointDistanceMeters(checkpoint: RaceCourseCheckpoint): number {
   return distance;
 }
 
+/** Farthest checkpoint along the course. Ties keep the later row. */
+function farthestCheckpoint(checkpoints: readonly RaceCourseCheckpoint[]): RaceCourseCheckpoint | undefined {
+  let best: RaceCourseCheckpoint | undefined;
+  let bestDistance = -1;
+  for (const checkpoint of checkpoints) {
+    const distance = checkpointDistanceMeters(checkpoint);
+    if (distance >= bestDistance) {
+      best = checkpoint;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
   const fromDerived = room.course?.derivedMetrics?.canonicalDistanceMeters;
   if (typeof fromDerived === "number" && Number.isFinite(fromDerived) && fromDerived >= 0) {
@@ -190,10 +204,9 @@ export function movingElapsedSecondsFromEstimate(
   const finishElapsed = estimate.expectedFinishElapsedSeconds;
   anchors.push({ distanceMeters: courseLengthMeters, elapsedSeconds: finishElapsed });
 
-  // Prefer explicit finish checkpoint id when present.
-  const finishCp =
-    checkpoints.find((cp) => cp.id === "finish") ??
-    [...checkpoints].sort((a, b) => checkpointDistanceMeters(b) - checkpointDistanceMeters(a))[0];
+  // Stamp the plan finish on the farthest checkpoint. An earlier id of `finish`
+  // is the first pass of a loop or out-and-back, not the end of the race.
+  const finishCp = farthestCheckpoint(checkpoints);
   if (finishCp) {
     byId.set(finishCp.id, finishElapsed);
   }
