@@ -76,6 +76,12 @@ final class PaceModel {
     private var hasDraft = false
     private var didApplyDraft = false
     private var didLoadHistory = false
+    /// The room's attached estimate id. Crew may seed a cold start only while this is nil.
+    private var planOfRecordId: String?
+
+    private var hasPlanOfRecord: Bool {
+        planOfRecordId != nil || loadedEstimate != nil
+    }
 
     var canRecalculate: Bool {
         PlanAuthority.mayExplicitRecalculate(role: role)
@@ -129,7 +135,7 @@ final class PaceModel {
 
     func recalculate() async {
         guard canRecalculate else { return }
-        await computeAndAttach(ticket: generation)
+        await computeAndAttach(ticket: generation, trigger: .recalculate)
     }
 
     func openCheckIn(checkpointId: String) {
@@ -139,9 +145,10 @@ final class PaceModel {
         checkInOpen = true
     }
 
+    /// Seeding twice is a recalculation: once the room has a plan of record, crew may only Recalculate.
     func seedColdStart() async {
         guard canSeedColdStart else { return }
-        await computeAndAttach(ticket: generation)
+        await computeAndAttach(ticket: generation, trigger: hasPlanOfRecord ? .recalculate : .coldStart)
     }
 
     func submitCheckIn() async {
@@ -326,6 +333,7 @@ final class PaceModel {
         raceStartAt = room.raceStartAt
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
+        planOfRecordId = room.pacingEstimateId ?? room.pacingEstimate?.id
         await loadHistoryIfNeeded(ticket: ticket)
         guard ticket == generation else { return }
         applyEstimatePresentation()
@@ -345,7 +353,7 @@ final class PaceModel {
             persistHistory()
             return
         }
-        await computeAndAttach(ticket: ticket)
+        await computeAndAttach(ticket: ticket, trigger: .auto)
     }
 
     private func loadHistoryIfNeeded(ticket: Int) async {
@@ -369,21 +377,21 @@ final class PaceModel {
         }
     }
 
-    private func computeAndAttach(ticket: Int) async {
+    private func computeAndAttach(ticket: Int, trigger: PlanTrigger) async {
         guard ticket == generation, let roomId, estimateBusy == false else { return }
         estimateBusy = true
         defer { estimateBusy = false }
         do {
-            let graph = client.graph
-            let computed = try await RaceDayAPI.computeEstimate(graph: graph, roomId: roomId)
-            guard ticket == generation else { return }
-            let attached = try await RaceDayAPI.attachEstimate(
-                graph: graph,
+            let attached = try await PlanOfRecord.recompute(
+                graph: client.graph,
                 roomId: roomId,
-                estimateId: computed.id
+                role: role,
+                trigger: trigger,
+                hasPlanOfRecord: hasPlanOfRecord
             )
             guard ticket == generation else { return }
             loadedEstimate = attached
+            planOfRecordId = attached.id
             if let usableFingerprint {
                 historyRecord = EstimateHistoryRecord(estimateId: attached.id, fingerprint: usableFingerprint)
                 persistHistory()
@@ -749,6 +757,7 @@ final class PaceModel {
         estimateMessage = "No estimate yet."
         showColdStart = false
         loadedEstimate = nil
+        planOfRecordId = nil
         historyEmpty = true
         usableFingerprint = nil
         historyRecord = .empty

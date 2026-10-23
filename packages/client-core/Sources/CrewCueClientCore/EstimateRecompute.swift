@@ -124,7 +124,7 @@ public enum EstimateRecompute {
         return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: next)
     }
 
-    /// Automatic history recompute is athlete-only. The server does not enforce this yet.
+    /// Automatic history recompute is athlete-only. The API enforces the same rule by trigger.
     public static func decide(role: String, _ input: EstimateRecomputeInput) -> EstimateRecomputeDecision {
         guard PlanAuthority.mayAutoRecompute(role: role) else {
             return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: input.record)
