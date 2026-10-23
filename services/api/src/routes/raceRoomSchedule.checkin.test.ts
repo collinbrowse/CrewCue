@@ -651,7 +651,7 @@ test("closed check-in without GPS pings survives adding a waypoint and re-saving
 
   const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
   const deltaSeconds = 240;
-  const actualStopSeconds = AID1_PLANNED_DWELL + deltaSeconds;
+  const actualStopSeconds = AID1_PLANNED_STOPPAGE + deltaSeconds;
   const arrivalAt = "2026-08-15T14:00:00.000Z";
   const departureAt = new Date(Date.parse(arrivalAt) + actualStopSeconds * 1000).toISOString();
   const posted = await postManualStop(app, roomId, "aid-1", ownerToken, { arrivalAt, departureAt });
