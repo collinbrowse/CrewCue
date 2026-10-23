@@ -7,6 +7,7 @@ import {
   coldStartGapSecondsPerMeter,
   COLD_START_GAP_SECONDS_PER_MILE,
   estimatePacingMicroModelWithArtifacts,
+  interpolateElapsedAtDistance,
   minettiRelativeCost,
   runScenarioSims,
   SURFACE_COMPLEXITY
@@ -216,6 +217,35 @@ test("scenario bands: conservative >= expected >= aggressive", () => {
   const agg = sims.aggressive.state.elapsedSeconds;
   assert.ok(cons >= exp);
   assert.ok(exp >= agg);
+});
+
+test("interpolateElapsedAtDistance clamps outside the baseline curve and interpolates within it", () => {
+  const curve = [
+    { distanceMetersFromStart: 100, referenceElapsedSeconds: 30 },
+    { distanceMetersFromStart: 600, referenceElapsedSeconds: 330 },
+    { distanceMetersFromStart: 1100, referenceElapsedSeconds: 930 }
+  ];
+
+  assert.equal(interpolateElapsedAtDistance([], 500), 0);
+  assert.equal(interpolateElapsedAtDistance(curve, -50), 30);
+  assert.equal(interpolateElapsedAtDistance(curve, 100), 30);
+  assert.equal(interpolateElapsedAtDistance(curve, 350), 180);
+  assert.equal(interpolateElapsedAtDistance(curve, 850), 630);
+  assert.equal(interpolateElapsedAtDistance(curve, 1500), 930);
+});
+
+test("interpolateElapsedAtDistance keeps duplicate-distance baseline points deterministic", () => {
+  const curve = [
+    { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+    { distanceMetersFromStart: 500, referenceElapsedSeconds: 300 },
+    { distanceMetersFromStart: 500, referenceElapsedSeconds: 360 },
+    { distanceMetersFromStart: 1000, referenceElapsedSeconds: 660 }
+  ];
+
+  // Duplicate distances can appear when the baseline includes a zero-length plateau. Exact hits use
+  // the first reachable point, while later distances continue from the last duplicate point.
+  assert.equal(interpolateElapsedAtDistance(curve, 500), 300);
+  assert.equal(interpolateElapsedAtDistance(curve, 750), 510);
 });
 
 test("PR D: aid ETA fallback emits only planned-stop checkpoints when none are aid-like", () => {
