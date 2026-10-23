@@ -813,6 +813,21 @@ type PersistedTaskBoardRecord = {
 };
 
 const roomTaskBoardState = new Map<string, RoomTaskBoardState>();
+/** Bumped when local board state is cleared so an in-flight hydrate cannot republish a wiped board. */
+const taskBoardHydrateEpoch = new Map<string, number>();
+/** One cold load per room. A second cache-miss must not apply an older snapshot over a write. */
+const taskBoardHydrateInflight = new Map<string, Promise<RoomTaskBoardState>>();
+
+/**
+ * Test-only pause at the start of a cold hydrate, before the board is published.
+ * The in-flight slot is registered before the caller yields, so a second cache-miss
+ * waits on the same load instead of publishing a second board.
+ */
+let taskBoardHydrateDelayForTests: (() => Promise<void>) | undefined;
+
+export function setTaskBoardHydrateDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  taskBoardHydrateDelayForTests = delay;
+}
 
 const TASK_TIMELINE_CAP = 100;
 
@@ -962,7 +977,51 @@ async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
     return cached;
   }
 
+  const inflight = taskBoardHydrateInflight.get(room.id);
+  if (inflight) {
+    try {
+      return await inflight;
+    } catch (err) {
+      const live = roomTaskBoardState.get(room.id);
+      if (live) {
+        return live;
+      }
+      throw err;
+    }
+  }
+
+  const epoch = taskBoardHydrateEpoch.get(room.id) ?? 0;
+  const load = loadTaskBoardIntoCache(room, epoch);
+  taskBoardHydrateInflight.set(room.id, load);
+  try {
+    return await load;
+  } finally {
+    if (taskBoardHydrateInflight.get(room.id) === load) {
+      taskBoardHydrateInflight.delete(room.id);
+    }
+  }
+}
+
+async function loadTaskBoardIntoCache(room: RaceRoom, epoch: number): Promise<RoomTaskBoardState> {
+  if (taskBoardHydrateDelayForTests) {
+    await taskBoardHydrateDelayForTests();
+  }
+
+  const abandoned = (): RoomTaskBoardState | undefined => {
+    if (!taskBoardHydrateWasReset(room.id, epoch)) {
+      return undefined;
+    }
+    return roomTaskBoardState.get(room.id);
+  };
+
   const snapshot = await loadTaskBoardSnapshot(room.id);
+  const abandonedAfterSnapshot = abandoned();
+  if (abandonedAfterSnapshot) {
+    return abandonedAfterSnapshot;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    throw new Error("task_board_reset_during_load");
+  }
   if (snapshot) {
     const parsedSnapshot = normalizeTaskBoardPayload({
       version: snapshot.version,
@@ -970,24 +1029,53 @@ async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
     });
     if (parsedSnapshot) {
       const persistedVersion = await loadTaskBoardPayloadVersion(room.id);
+      const abandonedAfterVersion = abandoned();
+      if (abandonedAfterVersion) {
+        return abandonedAfterVersion;
+      }
+      if (taskBoardHydrateWasReset(room.id, epoch)) {
+        throw new Error("task_board_reset_during_load");
+      }
       if (persistedVersion === undefined || persistedVersion <= parsedSnapshot.version) {
-        roomTaskBoardState.set(room.id, parsedSnapshot);
-        return parsedSnapshot;
+        return rememberTaskBoardIfAbsent(room.id, parsedSnapshot);
       }
     }
   }
 
   const raw = await loadTaskBoardPayload(room.id);
+  const abandonedAfterPayload = abandoned();
+  if (abandonedAfterPayload) {
+    return abandonedAfterPayload;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    throw new Error("task_board_reset_during_load");
+  }
   const parsed = normalizeTaskBoardPayload(raw);
   if (parsed) {
-    roomTaskBoardState.set(room.id, parsed);
-    await refreshTaskBoardSnapshot(room.id, parsed);
-    return parsed;
+    const published = rememberTaskBoardIfAbsent(room.id, parsed);
+    if (published === parsed) {
+      await refreshTaskBoardSnapshot(room.id, parsed);
+    }
+    return roomTaskBoardState.get(room.id) ?? published;
   }
 
   const built = buildInitialTaskBoard(room);
+  const published = rememberTaskBoardIfAbsent(room.id, built);
+  if (published !== built) {
+    return published;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    if (roomTaskBoardState.get(room.id) === built) {
+      roomTaskBoardState.delete(room.id);
+    }
+    const live = roomTaskBoardState.get(room.id);
+    if (live) {
+      return live;
+    }
+    throw new Error("task_board_reset_during_load");
+  }
   await saveTaskBoard(room.id, built);
-  return built;
+  return roomTaskBoardState.get(room.id) ?? built;
 }
 
 async function saveTaskBoard(roomId: string, board: RoomTaskBoardState): Promise<void> {
@@ -1048,6 +1136,25 @@ function sortTimelineAscending(events: OpsTimelineEvent[]): OpsTimelineEvent[] {
 
 export function clearTaskBoardLocalState(roomId: string): void {
   roomTaskBoardState.delete(roomId);
+  taskBoardHydrateEpoch.set(roomId, (taskBoardHydrateEpoch.get(roomId) ?? 0) + 1);
+}
+
+/**
+ * Install a board read from persistence only when this room has no live board.
+ * Check and set stay synchronous so a later hydrate continuation cannot roll back
+ * a task write that landed after this load started.
+ */
+function rememberTaskBoardIfAbsent(roomId: string, board: RoomTaskBoardState): RoomTaskBoardState {
+  const live = roomTaskBoardState.get(roomId);
+  if (live) {
+    return live;
+  }
+  roomTaskBoardState.set(roomId, board);
+  return board;
+}
+
+function taskBoardHydrateWasReset(roomId: string, epoch: number): boolean {
+  return (taskBoardHydrateEpoch.get(roomId) ?? 0) !== epoch;
 }
 
 async function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): Promise<void> {
