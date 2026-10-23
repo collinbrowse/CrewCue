@@ -243,6 +243,30 @@ class RaceDayBridge(
 
     fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }
 
+    /** #250 Pace edit draft: rows, projected stops, and timeline for the typed minutes. Pure; no network. */
+    fun stopPlanDraft(
+        checkpoints: JSONArray,
+        sheet: JSONObject?,
+        progressMeters: Double,
+        minutes: Map<String, String>,
+        stepCheckpointId: String? = null,
+        stepMinutes: Int = 0
+    ): RuntimeResult = call("stopPlanDraft") {
+        put("checkpoints", checkpoints)
+        if (sheet != null) put("sheet", sheet)
+        put("progressMeters", progressMeters)
+        put("minutes", JSONObject(minutes))
+        if (stepCheckpointId != null) {
+            put("step", JSONObject().put("checkpointId", stepCheckpointId).put("deltaMinutes", stepMinutes))
+        }
+    }
+
+    /** Saves the changed planned stops. The result always carries `saved` and shared `message` copy. */
+    fun updatePlannedStops(roomId: String, edits: JSONArray): RuntimeResult = call("updatePlannedStops") {
+        put("roomId", roomId)
+        put("stops", edits)
+    }
+
     fun readCourseSettings(roomId: String): RuntimeResult = call("readCourseSettings") { put("roomId", roomId) }
 
     fun writeCourseSettings(roomId: String, cutoffNote: String, stoppageSeconds: Double): RuntimeResult = call("writeCourseSettings") {
