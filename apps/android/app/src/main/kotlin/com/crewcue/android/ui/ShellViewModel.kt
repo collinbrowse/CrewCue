@@ -14,6 +14,7 @@ import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.DevRoutes
 import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
+import com.crewcue.android.session.applyingJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -457,8 +458,9 @@ class ShellViewModel(
             when (result) {
                 is RuntimeResult.Success -> {
                     val roomId = result.result.optJSONObject("room")?.optString("id").orEmpty()
+                    val assignedRole = result.result.optString("assignedRole")
                     if (roomId.isNotBlank()) {
-                        container.sessionStore.update { it.copy(roomId = roomId) }
+                        container.sessionStore.update { it.applyingJoin(roomId, assignedRole) }
                         session = container.sessionStore.current()
                         loadRaces()
                     }

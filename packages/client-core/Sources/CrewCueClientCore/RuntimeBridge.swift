@@ -15,7 +15,7 @@ import Dispatch
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
 /// projectAidSheet,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
-/// myRaces, loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
+/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
@@ -123,6 +123,8 @@ enum RuntimeCall {
             return try await myRaces(object)
         case "loadRoom":
             return try await loadRoom(object)
+        case "latestPing":
+            return try await latestPing(object)
         case "placeCheckpoint":
             return try await placeCheckpoint(object)
         case "route":
@@ -196,11 +198,20 @@ enum RuntimeCall {
         return payload
     }
 
-    private static func requestProgress(_ request: [String: Any], _ checkpoints: [AidStationCheckpoint]) -> Double {
-        if let latitude = requestNumber(request["latitude"]), let longitude = requestNumber(request["longitude"]) {
-            return AidStationSheet.progressMeters(latitude: latitude, longitude: longitude, checkpoints: checkpoints)
+    /// `runner` is the `latest` object from a `latestPing` result, passed back unchanged.
+    /// Progress never comes from the calling device's location.
+    private static func requestRunner(_ request: [String: Any]) -> RunnerProgress {
+        guard let value = request["runner"], !(value is NSNull),
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let response = try? JSONDecoder().decode(RaceRoomLatestPingResponse.self, from: data) else {
+            return .none
         }
-        return requestNumber(request["progressMeters"]) ?? 0
+        return RunnerProgress(response: response)
+    }
+
+    private static func requestProgress(_ request: [String: Any], _ checkpoints: [AidStationCheckpoint]) -> Double {
+        requestRunner(request).progressMeters(checkpoints: checkpoints)
     }
 
     private static func requestNow(_ request: [String: Any]) -> Date {
@@ -221,9 +232,8 @@ enum RuntimeCall {
         let readout = RaceDayReadouts.make(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: requestProgress(request, checkpoints),
-            now: requestNow(request),
-            lastPingAt: requestNumber(request["lastPingAtMs"]).map { Date(timeIntervalSince1970: $0 / 1000) }
+            runner: requestRunner(request),
+            now: requestNow(request)
         )
         var row: [String: Any] = [
             "status": readout.status.rawValue,
@@ -234,7 +244,9 @@ enum RuntimeCall {
             "totalMilesLabel": readout.totalMilesLabel,
             "currentMileLabel": readout.currentMileLabel,
             "elapsedLabel": readout.elapsedLabel,
-            "averagePaceLabel": readout.averagePaceLabel
+            "averagePaceLabel": readout.averagePaceLabel,
+            "pingState": readout.pingState.rawValue,
+            "pingLabel": readout.pingLabel
         ]
         if let ping = readout.lastPingLabel {
             row["lastPingLabel"] = ping
@@ -307,8 +319,12 @@ enum RuntimeCall {
     }
 
     private static func requestNumber(_ value: Any?) -> Double? {
-        if value is Bool || value is NSNull { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
+        if value is NSNull { return nil }
+        // JSON numbers 0 and 1 also cast to Bool, so only an NSNumber that is a real boolean ("c") is rejected.
+        if let number = value as? NSNumber {
+            return String(cString: number.objCType) == "c" ? nil : number.doubleValue
+        }
+        if value is Bool { return nil }
         if let number = value as? Double { return number }
         if let number = value as? Int { return Double(number) }
         return nil
@@ -737,6 +753,34 @@ enum RuntimeCall {
         } catch {
             if TransportFailure.isOffline(error) {
                 return CoursePayload.empty(offline: true)
+            }
+            throw error
+        }
+    }
+
+    /// `latest` is the wire response; hand it back as `runner` to `projectAidSheet`.
+    /// Offline keeps no ping here, so the app keeps the last one it had and lets it go stale.
+    private static func latestPing(_ object: [String: Any]) async throws -> Any {
+        let base = try graph(object)
+        let capture = CapturingTransport(base.transport)
+        let reading = ClientGraph(
+            transport: capture,
+            clock: base.clock,
+            logger: base.logger,
+            baseURL: base.baseURL,
+            tokenProvider: base.tokenProvider,
+            outbox: base.outbox
+        )
+        let refresh = RunnerProgress.refreshIntervalSeconds
+        do {
+            _ = try await RaceDayAPI.latestPing(graph: reading, roomId: object["roomId"] as? String ?? "")
+            guard let data = capture.lastBody, let latest = try? JSONSerialization.jsonObject(with: data) else {
+                return ["offline": false, "refreshSeconds": refresh]
+            }
+            return ["offline": false, "latest": latest, "refreshSeconds": refresh]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true, "refreshSeconds": refresh]
             }
             throw error
         }

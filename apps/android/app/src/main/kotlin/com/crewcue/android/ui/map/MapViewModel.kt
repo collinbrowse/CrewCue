@@ -9,6 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -69,12 +72,13 @@ class MapViewModel(
     var raceName by mutableStateOf("")
         private set
     private var elevation: JSONArray? = null
-    private var lastPingAtMs: Long? = null
+    /** The athlete's latest ping from the API. The only source of race progress on this phone. */
+    private var runner: JSONObject? = null
+    private var runnerRefreshMs = DEFAULT_RUNNER_REFRESH_MS
+    private var runnerJob: Job? = null
 
     private var lastRecordedMillis = 0L
     private var scheduleSheet: JSONObject? = null
-    private var sampleLatitude: Double? = null
-    private var sampleLongitude: Double? = null
     private val recordedAtFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
@@ -95,6 +99,33 @@ class MapViewModel(
                 }
             }
         }
+        followRunner()
+    }
+
+    /** Reads the athlete's latest ping now and then on the client-core interval while this model lives. */
+    private fun followRunner() {
+        runnerJob?.cancel()
+        runnerJob = viewModelScope.launch {
+            while (isActive) {
+                refreshRunner()
+                delay(runnerRefreshMs)
+            }
+        }
+    }
+
+    /** Offline or failed reads keep the last ping, which then ages into the stale state. */
+    private suspend fun refreshRunner() {
+        val result = try {
+            withContext(Dispatchers.IO) { raceDay.latestPing(roomId) }
+        } catch (_: Throwable) {
+            null
+        }
+        if (result is RuntimeResult.Success) {
+            val seconds = result.result.optDouble("refreshSeconds", Double.NaN)
+            if (!seconds.isNaN() && seconds > 0) runnerRefreshMs = (seconds * 1000).toLong()
+            result.result.optJSONObject("latest")?.let { runner = it }
+        }
+        projectAid()
     }
 
     fun showAid(index: Int) {
@@ -226,13 +257,11 @@ class MapViewModel(
         recenterRequest += 1
     }
 
-    // TODO(runner-progress): progress must come from the athlete's pings for every crew member,
-    // not this device's GPS. See "Product invariant: runner progress" in AGENTS.md.
+    /**
+     * This phone's GPS only uploads (athlete role). It never feeds readouts; those come from
+     * [runner], so every crew member sees the same progress.
+     */
     fun onSample(latitude: Double, longitude: Double, accuracy: Double?, online: Boolean) {
-        sampleLatitude = latitude
-        sampleLongitude = longitude
-        lastPingAtMs = System.currentTimeMillis()
-        projectAid()
         if (role != "athlete") {
             locationMessage = String.format(Locale.US, "%.6f, %.6f", latitude, longitude)
             return
@@ -280,6 +309,7 @@ class MapViewModel(
                 }
                 val flushOffline = flushed is RuntimeResult.Failure && flushed.offline
                 locationMessage = if (!online || flushOffline) LOCATION_OFFLINE else LOCATION_QUEUED
+                if (online && !flushOffline) refreshRunner()
             }
         }
     }
@@ -321,16 +351,14 @@ class MapViewModel(
     private fun projectAid() {
         val sheet = scheduleSheet
         val checkpoints = checkpointPayload()
-        val latitude = sampleLatitude
-        val longitude = sampleLongitude
+        val latest = runner
         val index = aidIndex
         val follow = aidFollow
         val profile = elevation
-        val pingAt = lastPingAtMs
         viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) {
-                    raceDay.projectAidSheet(sheet, checkpoints, latitude, longitude, index, follow, profile, pingAt)
+                    raceDay.projectAidSheet(sheet, checkpoints, latest, index, follow, profile)
                 }
             } catch (_: Throwable) {
                 return@launch
@@ -395,7 +423,9 @@ class MapViewModel(
         currentMileLabel = row.optString("currentMileLabel", "0.0"),
         elapsedLabel = row.optString("elapsedLabel", "—"),
         averagePaceLabel = row.optString("averagePaceLabel", "—"),
-        lastPingLabel = row.optString("lastPingLabel").ifBlank { null }
+        lastPingLabel = row.optString("lastPingLabel").ifBlank { null },
+        pingState = row.optString("pingState", "none"),
+        pingLabel = row.optString("pingLabel").ifBlank { NO_PING_LABEL }
     )
 
     private fun parseTimeline(array: JSONArray): List<TimelineRow> {

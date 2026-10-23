@@ -42,7 +42,8 @@ private let sheet = CrewScheduleSheet(
     #expect(readout.percentLabel == "25%")
     #expect(readout.totalMilesLabel == "20.0")
     #expect(readout.elapsedLabel == "1:00:00")
-    #expect(readout.averagePaceLabel == "12'00\" / MI")
+    // Progress is as of the 12:58 ping: 5 miles in 58 minutes.
+    #expect(readout.averagePaceLabel == "11'36\" / MI")
     #expect(readout.lastPingLabel == "2 MIN AGO")
 }
 

@@ -203,6 +203,13 @@ public enum RaceDayAPI {
         }
     }
 
+    /// The athlete's latest accepted ping. Race progress readouts come from this on every crew
+    /// phone, never from the viewing device's GPS.
+    public static func latestPing(graph: ClientGraph, roomId: String) async throws -> RunnerProgress {
+        let response: RaceRoomLatestPingResponse = try await get(graph, "/race-rooms/\(roomId)/pings/latest")
+        return RunnerProgress(response: response)
+    }
+
     /// Local draft fields read from a room payload. Does not call stop-plan APIs.
     public static func courseDraftSeed(graph: ClientGraph, roomId: String) async throws -> CourseSettingsDraft {
         let data = try await sendData(graph, "/race-rooms/\(roomId)", method: .get, body: nil)

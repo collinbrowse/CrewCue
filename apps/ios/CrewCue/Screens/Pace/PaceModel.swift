@@ -630,19 +630,17 @@ final class PaceModel {
         return loadedStops.first?.checkpointId ?? ""
     }
 
-    /// Pace timeline rows for the course progress list.
-    func timeline(progressMeters: Double) -> [CheckpointTimelineRow] {
-        RaceDayReadouts.timeline(sheet: loadedSheet, checkpoints: aidCheckpoints, progressMeters: progressMeters)
-    }
-
-    func readout(progressMeters: Double) -> RaceDayReadout {
-        RaceDayReadouts.make(
+    /// Pace timeline rows for the course progress list, placed by the athlete's latest ping.
+    func timeline(runner: RunnerProgress) -> [CheckpointTimelineRow] {
+        RaceDayReadouts.timeline(
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
-            progressMeters: progressMeters,
-            now: Date(),
-            lastPingAt: nil
+            progressMeters: runner.progressMeters(checkpoints: aidCheckpoints)
         )
+    }
+
+    func readout(runner: RunnerProgress) -> RaceDayReadout {
+        RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: Date())
     }
 
     /// Display stop for a checkpoint, used for the check-in button and accessibility line.

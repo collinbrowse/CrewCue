@@ -11,14 +11,14 @@ struct PaceView: View {
     var roomId: String?
     var role: String?
     var focus: String = "schedule-sheet"
-    var progressMeters: Double = 0
+    var runner: RunnerProgress = .none
     @State private var showsTools = false
     @State private var toolFocus = "gpx-import"
     @Environment(\.crew) private var theme
 
     var body: some View {
-        let rows = model.timeline(progressMeters: progressMeters)
-        let readout = model.readout(progressMeters: progressMeters)
+        let rows = model.timeline(runner: runner)
+        let readout = model.readout(runner: runner)
         ScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)

@@ -31,6 +31,8 @@ const roots = [
   "PacingTimePoint",
   "PacingEstimate",
   "AthletePingIngestPayload",
+  "AthleteLatestPing",
+  "RaceRoomLatestPingResponse",
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
