@@ -115,6 +115,7 @@ export function runPacingBacktest(scenario: BacktestScenario): BacktestResult {
 
   const rows: BacktestRow[] = [];
   const absoluteErrors: number[] = [];
+  let hasFinishRow = false;
 
   for (const checkpoint of inputs.checkpoints) {
     const distance = checkpoint.distanceMetersFromStart ?? 0;
@@ -123,6 +124,7 @@ export function runPacingBacktest(scenario: BacktestScenario): BacktestResult {
       continue;
     }
     const isFinish = checkpoint.id === FINISH_ID || distance >= courseLengthMeters - 1;
+    hasFinishRow ||= isFinish;
     const predicted = isFinish
       ? artifacts.estimate.expectedFinishElapsedSeconds
       : predictedAt(distance);
@@ -146,6 +148,19 @@ export function runPacingBacktest(scenario: BacktestScenario): BacktestResult {
   const finishPredicted = artifacts.estimate.expectedFinishElapsedSeconds;
   const finishActual = actualByCheckpoint.get(FINISH_ID) ?? null;
   const finishSignedError = finishActual === null ? null : finishPredicted - finishActual;
+  if (!hasFinishRow) {
+    if (finishSignedError !== null) {
+      absoluteErrors.push(Math.abs(finishSignedError));
+    }
+    rows.push({
+      checkpointId: FINISH_ID,
+      label: "Finish",
+      distanceMetersFromStart: courseLengthMeters,
+      predictedElapsedSeconds: finishPredicted,
+      actualElapsedSeconds: finishActual,
+      signedErrorSeconds: finishSignedError
+    });
+  }
   const meanAbsoluteErrorSeconds =
     absoluteErrors.length > 0
       ? absoluteErrors.reduce((sum, value) => sum + value, 0) / absoluteErrors.length
