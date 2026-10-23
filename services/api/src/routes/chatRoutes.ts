@@ -28,7 +28,10 @@ import {
   tokensToTargets
 } from "../lib/chatPushDispatch.js";
 import { deriveStreamUserId, mintStreamUserToken, readStreamCredentials } from "../lib/streamChat.js";
-import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
+import {
+  streamChatMembersForRoom,
+  syncRaceRoomStreamChannelMembers
+} from "../lib/streamChannelMembers.js";
 
 const streamTokenBodySchema = z.object({
   roomId: z.string().trim().min(1).optional()
@@ -85,10 +88,12 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(503).send({ error: "Stream Chat is not configured on this deployment" });
     }
 
+    let members: ChatStreamTokenResponse["members"];
     const bodyParse = streamTokenBodySchema.safeParse(request.body ?? {});
     if (bodyParse.success && bodyParse.data.roomId) {
       const room = await getRaceRoom(bodyParse.data.roomId);
       if (room?.memberships.some((m) => m.userId === identity.sub)) {
+        members = streamChatMembersForRoom(room);
         try {
           await syncRaceRoomStreamChannelMembers(room, app.log);
         } catch (err) {
@@ -107,7 +112,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const response: ChatStreamTokenResponse = {
       token,
       streamUserId,
-      streamApiKey: creds.apiKey
+      streamApiKey: creds.apiKey,
+      ...(members ? { members } : {})
     };
     return reply.send(response);
   });

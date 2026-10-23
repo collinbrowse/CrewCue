@@ -1,36 +1,14 @@
-# SDLC docs map
+# SDLC docs
 
-This directory contains both active execution docs and historical references.
-Use the sections below to avoid stale-doc confusion during implementation.
+Most tasks need none of these. Start at `AGENTS.md`. Open a doc here only when its row applies.
 
----
+| Doc | Read when |
+| --- | --- |
+| `agent-handoff.md` | Resuming multi-session work, or closing a PR wave |
+| `dual-client-architecture-guardrails.md` | Changing contracts, the API surface, or the iOS/Android/client-core split |
+| `codebase-maintainability-standard.md` | Adding a module or deciding where code belongs |
+| `github-issues-and-prs.md` | Filing issues or running `agent-ready` work packages |
+| `staging-first-cloud-delivery.md` | Touching Postgres, Auth0, payments, or proving clients on staging |
+| `pacing-accuracy-program.md` | Working on the pacing estimator or backtests |
 
-## Canonical docs (authoritative for active work)
-
-1. `agent-handoff.md` - Required start/end continuity artifact for agent-assisted work.
-2. `token-budget.md` - Context-window and token-usage policy for efficient agent execution.
-3. `mvp-ui-development-spec.md` - Implementation-ready MVP UI requirements and acceptance criteria.
-4. `ui-delivery-roadmap-and-spec.md` - Demo-first Epic roadmap, Sprint sequencing, and Backlog ordering.
-5. `dual-client-architecture-guardrails.md` - Mobile/web architecture boundaries.
-6. `codebase-maintainability-standard.md` - Reuse, layering, and maintainability rules.
-7. `github-issues-and-prs.md` - Issue/PR execution workflow.
-8. `staging-first-cloud-delivery.md` - Named cloud rollout phases (Postgres/events, auth/payments, staging clients, projection/sync) and staging-first rules.
-9. `ios-simulator-agent-qa.md` - Agent/XcodeBuildMCP simulator validation (evidence on PR only).
-
-If instructions conflict, follow in this order:
-`agent-handoff.md` -> `token-budget.md` -> `mvp-ui-development-spec.md` -> `ui-delivery-roadmap-and-spec.md` -> `staging-first-cloud-delivery.md` (when cloud/staging scope applies) -> architecture/maintainability standards.
-
----
-
-## Archive doc (non-authoritative by default)
-
-Use only for concise historical context:
-
-- `archive-completed-work-summary.md`
-
----
-
-## Consolidation notes
-
-- Completed execution/signoff/history docs are removed from active SDLC flow.
-- Keep active planning and guardrail docs short; move finished history into the single archive doc above.
+Product context (not process): `docs/product/`.

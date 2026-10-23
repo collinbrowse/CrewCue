@@ -1,0 +1,35 @@
+{
+  "name": "50k example (SYNTHETIC actuals — replace with a real completed effort)",
+  "raceStartAt": "2026-08-15T13:00:00.000Z",
+  "courseGpx": "course-50k-with-aids.gpx",
+  "seed": "crewcue-pacing-v1",
+  "note": "Actual splits below are placeholders so the harness runs out of the box. Seed real predicted-vs-actual backtests from completed efforts (Railway is the source of real data). actualElapsedSeconds is MOVING elapsed from the start (aid dwell excluded).",
+  "history": [
+    {
+      "id": "hist-long-trail",
+      "source": "gpx_upload",
+      "externalId": "gpx:activity-long-trail",
+      "recordedAt": "2026-06-01T14:00:00.000Z",
+      "ingestedAt": "2026-08-01T09:00:00.000Z",
+      "distanceMeters": 45000,
+      "elapsedSeconds": 21600,
+      "elevationGainMeters": 1800
+    },
+    {
+      "id": "hist-med-trail",
+      "source": "gpx_upload",
+      "externalId": "gpx:activity-med-trail",
+      "recordedAt": "2026-06-15T14:00:00.000Z",
+      "ingestedAt": "2026-08-01T09:00:00.000Z",
+      "distanceMeters": 25000,
+      "elapsedSeconds": 11400,
+      "elevationGainMeters": 900
+    }
+  ],
+  "actualSplits": [
+    { "checkpointId": "aid-1", "actualElapsedSeconds": 3900 },
+    { "checkpointId": "aid-2", "actualElapsedSeconds": 8700 },
+    { "checkpointId": "aid-3", "actualElapsedSeconds": 15600 },
+    { "checkpointId": "finish", "actualElapsedSeconds": 22800 }
+  ]
+}

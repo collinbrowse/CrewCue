@@ -1,6 +1,6 @@
 ---
-description: Staging-first cloud rollout (four named phases); read before Postgres/events, Auth0/payments, staging clients, or projection/sync hardening
-alwaysApply: true
+description: Staging-first cloud rollout when touching Postgres, Auth0, payments, or staging/prod clients
+alwaysApply: false
 ---
 
 # Staging-first cloud delivery
@@ -14,4 +14,4 @@ Phases (same names as in that doc):
 - **Clients prove staging** — mobile + web E2E against **staging** (not production).
 - **Projection & sync hardening** — live projection, sync health, contract-backed reads; do not reintroduce in-memory as source of truth after **Postgres & event log** is authoritative.
 
-Optional GitHub labels when tagging issues: **`postgres-event-log`**, **`auth-payments-staging`**, **`staging-client-e2e`**, **`projection-sync-hardening`**. Staging-first: no new cloud-only behavior in production before staging soak.
+Optional GitHub labels: **`postgres-event-log`**, **`auth-payments-staging`**, **`staging-client-e2e`**, **`projection-sync-hardening`**. No new cloud-only behavior in production before staging soak.

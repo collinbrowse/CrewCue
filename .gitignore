@@ -28,7 +28,22 @@ coverage/
 # Ephemeral agent simulator artifacts — attach to PR only, never commit
 .agent-pr-evidence/
 
+packages/client-core/.build/
+apps/android/.gradle/
+apps/android/.kotlin/
+apps/android/build/
+apps/android/app/build/
+apps/android/local.properties
+
+# Accidental tsc emit next to the pacing fixture helper (import the .ts from tests)
+fixtures/pacing/*.js
+fixtures/pacing/*.d.ts
+fixtures/pacing/*.d.ts.map
+
 # Expo prebuild output when run from repo root
 /android/
 /ios/
 /app.json
+
+# Local iOS secrets (MapTiler key)
+apps/ios/Config/Secrets.xcconfig

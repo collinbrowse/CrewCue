@@ -1,0 +1,59 @@
+{
+  "policy": {
+    "description": "Three deterministic micro-model scenario re-sims (not finish-time ratio stretch). Coherent model per PR C (#483): C1 flat-equivalent GAP from history distance+gain, C2 Riegel endurance scaling, C3 shape-only (renormalized) fatigue, C4 full physiological M(g) at grade-cost blend 1.0. Cold-start GAP 10:00/mi. Regenerate with scripts/regen-estimate-bands.ts after any model change.",
+    "bandMethod": "scenario_resim",
+    "conservative": "GAP×1.06, γ1×1.35, γ2×1.4, altitude penalty×1.15 (γ reshapes only; finish spread from GAP+altitude)",
+    "aggressive": "GAP×0.94, γ1×0.75, γ2×0.7, altitude penalty×0.9 (γ reshapes only; finish spread from GAP+altitude)",
+    "expected": "Primary finish — equal to expectedFinishElapsedSeconds / expectedFinishAt",
+    "ordering": "conservative.finishElapsedSeconds >= expected.finishElapsedSeconds >= aggressive.finishElapsedSeconds",
+    "coldStart": "Same scenario knobs; expected finish uses GAP 10:00/mi + full grade model (blend 1.0) + course mesh + shape-only fatigue",
+    "scheduleBaseline": "Crew schedule moving-time / plan-of-record uses expected finish only; bands are informational.",
+    "seed": "crewcue-pacing-v1",
+    "raceStartAt": "2026-08-15T13:00:00.000Z",
+    "courseFixture": "course-50k-with-aids.gpx",
+    "historyFixture": "schedule-expected.json → historyRefs[0] (hist-long-trail)"
+  },
+  "historyBacked": {
+    "id": "est_c7b6db9e0cb898d4",
+    "coldStart": false,
+    "expectedFinishAt": "2026-08-15T17:51:42.000Z",
+    "expectedFinishElapsedSeconds": 17502,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T18:09:12.000Z",
+        "finishElapsedSeconds": 18552
+      },
+      "expected": {
+        "finishAt": "2026-08-15T17:51:42.000Z",
+        "finishElapsedSeconds": 17502
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T17:34:12.000Z",
+        "finishElapsedSeconds": 16452
+      }
+    },
+    "historyRefIds": [
+      "hist-long-trail"
+    ]
+  },
+  "coldStart": {
+    "id": "est_4b537e93a4ccdb4e",
+    "coldStart": true,
+    "expectedFinishAt": "2026-08-15T18:12:19.000Z",
+    "expectedFinishElapsedSeconds": 18739,
+    "bands": {
+      "conservative": {
+        "finishAt": "2026-08-15T18:31:03.000Z",
+        "finishElapsedSeconds": 19863
+      },
+      "expected": {
+        "finishAt": "2026-08-15T18:12:19.000Z",
+        "finishElapsedSeconds": 18739
+      },
+      "aggressive": {
+        "finishAt": "2026-08-15T17:53:35.000Z",
+        "finishElapsedSeconds": 17615
+      }
+    }
+  }
+}

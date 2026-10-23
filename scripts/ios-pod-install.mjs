@@ -22,10 +22,19 @@ const xcodeEnvLocal = path.join(iosDir, ".xcode.env.local");
 if (existsSync(xcodeEnvLocal)) {
   try {
     const txt = readFileSync(xcodeEnvLocal, "utf8");
-    if (/\/usr\/local\/(Cellar|opt)\/node/.test(txt)) {
+    const nodeMatch = txt.match(/^\s*export\s+NODE_BINARY=(.+)\s*$/m);
+    const nodePath = nodeMatch?.[1]?.replace(/^['"]|['"]$/g, "").trim();
+    const fileOut =
+      nodePath && existsSync(nodePath)
+        ? spawnSync("file", [nodePath], { encoding: "utf8" }).stdout ?? ""
+        : "";
+    const staleIntel =
+      /\/usr\/local\/(Cellar|opt)\/node/.test(txt) ||
+      (os.machine() === "arm64" && /x86_64/.test(fileOut));
+    if (staleIntel) {
       unlinkSync(xcodeEnvLocal);
       console.warn(
-        "ios-pod-install: removed stale .xcode.env.local (referenced old /usr/local Node). Recreate only if you need a custom NODE_BINARY."
+        "ios-pod-install: removed stale .xcode.env.local (Intel /usr/local or nvm x86_64 NODE_BINARY). Recreate only if you need a custom NODE_BINARY."
       );
     }
   } catch {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   beginIdempotentMutation,
   completeIdempotentMutation,
@@ -7,34 +7,39 @@ import {
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
 import { z } from "zod";
-import type {
-  AthletePingHistoryEntry,
-  AthletePingRejectReason,
-  CheckpointVisit,
-  CheckpointVisitManualData,
-  CheckpointVisitSource,
-  CheckpointPlan,
-  CrewAssignment,
-  CrewTask,
-  CrewTaskStatus,
-  OpsTimelineEvent,
-  ProtocolNote,
-  MapWorkspaceLayer,
-  RaceMapWorkspace,
-  RaceRoom,
-  RaceRoomInvite,
-  RaceCheckpointSplitRow,
-  RaceRoomJoinPreview,
-  RaceRoomProjection,
-  RaceRoomProjectionCore,
-  RaceCourse,
-  Role
+import {
+  parseWaypointTags,
+  type AthletePingHistoryEntry,
+  type AthletePingRejectReason,
+  type RaceRoomLatestPingResponse,
+  type CheckpointVisit,
+  type CheckpointVisitManualData,
+  type CheckpointVisitSource,
+  type CheckpointPlan,
+  type CrewAssignment,
+  type CrewTask,
+  type CrewTaskStatus,
+  type OpsTimelineEvent,
+  type ProtocolNote,
+  type MapWorkspaceLayer,
+  type RaceMapWorkspace,
+  type RaceRoom,
+  type RaceRoomInvite,
+  type RaceCheckpointSplitRow,
+  type RaceRoomJoinPreview,
+  type RaceRoomProjection,
+  type RaceRoomProjectionCore,
+  type RaceCourse,
+  type RaceCourseCheckpoint,
+  type Role,
+  type WaypointTag
 } from "@crewcue/contracts";
 import {
   buildDerivedMetricsFromPolyline,
   buildPlanBaselineFromModel,
   checkpointsWithProjectedDistances,
   flattenWorkspaceGeometry,
+  geodesicProjectPointToPolyline,
   mergePrimaryCourseRouteLayer,
   normalizeRaceMapWorkspace,
   PRIMARY_COURSE_ROUTE_LAYER_ID,
@@ -46,7 +51,8 @@ import {
   type ProjectionPing,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
-import { attachProjectionTimeliness } from "../lib/projectionTimeliness.js";
+import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
+import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
@@ -73,6 +79,7 @@ import {
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
+import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 
 function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
   void syncRaceRoomStreamChannelMembers(room, log).catch((err) =>
@@ -102,6 +109,23 @@ const raceCourseCheckpointCutoffInput = z.discriminatedUnion("mode", [
   })
 ]);
 
+/**
+ * Closed waypoint tags (`aid` | `water` | `dropbag` | `crew`). Tags have no clock semantics;
+ * lat/lng stay degrees and distances stay meters. Empty list = untagged landmark. Invalid
+ * strings are rejected (no silent coerce).
+ */
+const waypointTagsInput = z.unknown().transform((value, ctx): WaypointTag[] => {
+  try {
+    return parseWaypointTags(value);
+  } catch (err) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: err instanceof Error ? err.message : "Invalid tags"
+    });
+    return z.NEVER;
+  }
+});
+
 const raceCourseCheckpointInput = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(200).optional(),
@@ -111,8 +135,55 @@ const raceCourseCheckpointInput = z.object({
   plannedStopSeconds: z.number().nonnegative().optional(),
   stoppageRadiusMeters: z.number().positive().optional(),
   slowdownThresholdRatio: z.number().positive().max(1).optional(),
-  cutoff: raceCourseCheckpointCutoffInput.optional()
+  cutoff: raceCourseCheckpointCutoffInput.optional(),
+  tags: waypointTagsInput.optional()
 });
+
+const patchRaceCheckpointInput = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    tags: waypointTagsInput.optional()
+  })
+  .refine((value) => value.title !== undefined || value.tags !== undefined, {
+    message: "Provide title and/or tags"
+  });
+
+/**
+ * Longest planned stop a checkpoint may carry (6 h). Covers sleep stops on 200-mile races while
+ * still rejecting obvious unit mistakes (seconds typed as minutes × 60 twice).
+ */
+export const MAX_PLANNED_STOP_SECONDS = 6 * 3600;
+
+/**
+ * #250 Pace edit: per-checkpoint planned stop. Set semantics (each row is the new absolute value),
+ * so a retried request is naturally idempotent.
+ */
+const patchCheckpointStopsInput = z
+  .object({
+    stops: z
+      .array(
+        z.object({
+          checkpointId: z.string().min(1),
+          plannedStopSeconds: z.number().int().min(0).max(MAX_PLANNED_STOP_SECONDS)
+        })
+      )
+      .min(1)
+      .max(500)
+  })
+  .refine((value) => new Set(value.stops.map((stop) => stop.checkpointId)).size === value.stops.length, {
+    message: "Each checkpoint may appear once"
+  });
+
+const postRaceCheckpointInput = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(200).optional(),
+  latitude: z.number().gte(-90).lte(90),
+  longitude: z.number().gte(-180).lte(180),
+  tags: waypointTagsInput.optional()
+});
+
+const COURSE_ROUTE_LINE_REQUIRED_ERROR =
+  "Upload a GPX, JSON, or KML track with a full route line, or save the map workspace with a projection driving layer on a layer that contains the course polyline. Checkpoint-only courses are not supported.";
 
 const raceCourseBaselinePointInput = z.object({
   distanceMetersFromStart: z.number().finite().gte(0),
@@ -173,6 +244,8 @@ const updateRaceCourseInput = z.object({
   courseDistanceMeters: z.number().finite().nonnegative().optional(),
   courseElevationGainMeters: z.number().finite().nonnegative().optional(),
   courseFileName: z.string().trim().min(1).optional(),
+  /** Raw course GPX XML for reprocess / audit. */
+  courseGpxXml: z.string().min(1).optional(),
   routeOverlayLayer: mapWorkspaceLayerInput.optional(),
   /** Required: official race clock anchor for projection / Pace (ISO datetime). */
   raceStartAt: z.iso.datetime()
@@ -303,11 +376,88 @@ async function resolveStorageRoomId(input: string): Promise<string | undefined> 
   return trimmed;
 }
 
-async function saveRaceRoom(room: RaceRoom): Promise<void> {
-  unindexJoinCodeForRoomId(room.id);
+/** Drop overlays whose checkpoint was removed so GET room and Postgres JSON stay aligned with GET /stop-plans. */
+function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
+  if (!room.stopPlans?.length) {
+    return room;
+  }
+  const knownIds = new Set((room.course?.checkpoints ?? []).map((checkpoint) => checkpoint.id));
+  const stopPlans = room.stopPlans.filter((plan) => knownIds.has(plan.checkpointId));
+  if (stopPlans.length === room.stopPlans.length) {
+    return room;
+  }
+  if (stopPlans.length === 0) {
+    const next = { ...room };
+    delete next.stopPlans;
+    return next;
+  }
+  return { ...room, stopPlans };
+}
+
+export async function saveRaceRoom(room: RaceRoom): Promise<void> {
+  const persisted = pruneStopPlansToLiveCheckpoints(room);
+  unindexJoinCodeForRoomId(persisted.id);
+  raceRooms.set(persisted.id, persisted);
+  indexJoinCode(persisted);
+  await persistRaceRoom(persisted);
+}
+
+/**
+ * Hydrate the live room cache from a DB row without rolling back a newer in-process write.
+ *
+ * GET `/race-rooms/mine`, team listing, and `getRaceRoom` cache-miss loads previously
+ * `raceRooms.set` every persisted row. A SELECT that started before `saveRaceRoom`
+ * committed could resume after the write and replace memory with that stale snapshot.
+ * The next read-modify-write (stop-plan, join, course, estimate attach, …) then
+ * persisted the rollback.
+ *
+ * After deploy the cache is empty, so the first GET of a room (schedule, course, …)
+ * overlaps in-flight writes the same way listing did.
+ */
+function rememberRaceRoomIfAbsent(room: RaceRoom): RaceRoom {
+  const live = raceRooms.get(room.id);
+  if (live) {
+    return live;
+  }
   raceRooms.set(room.id, room);
   indexJoinCode(room);
-  await persistRaceRoom(room);
+  return room;
+}
+
+/**
+ * Hydrate the live room cache from a DB list without rolling back a newer in-process write.
+ */
+function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[]): void {
+  for (const room of rooms) {
+    rememberRaceRoomIfAbsent(room);
+    indexJoinCode(room);
+  }
+}
+
+/** Test helper: simulate a late list payload against the live room cache. */
+export function ingestPersistedRaceRoomsWithoutClobberForTests(rooms: readonly RaceRoom[]): void {
+  ingestPersistedRaceRoomsWithoutClobber(rooms);
+}
+
+/** Test helper: simulate a late `getRaceRoom` SELECT completing against the live cache. */
+export function ingestPersistedRaceRoomWithoutClobberForTests(room: RaceRoom): RaceRoom {
+  return rememberRaceRoomIfAbsent(room);
+}
+
+function mergeListedRaceRooms(
+  persisted: readonly RaceRoom[],
+  include: (room: RaceRoom) => boolean
+): RaceRoom[] {
+  const merged = new Map<string, RaceRoom>();
+  for (const room of persisted) {
+    merged.set(room.id, room);
+  }
+  for (const room of raceRooms.values()) {
+    if (include(room)) {
+      merged.set(room.id, room);
+    }
+  }
+  return [...merged.values()];
 }
 
 async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
@@ -333,9 +483,10 @@ export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | unde
   }
   let room = raceRooms.get(resolvedId);
   if (!room) {
-    room = await loadRaceRoom(resolvedId);
-    if (room) {
-      raceRooms.set(resolvedId, room);
+    const loaded = await loadRaceRoom(resolvedId);
+    if (loaded) {
+      // Re-check live cache after the await — a concurrent saveRaceRoom may have won.
+      room = rememberRaceRoomIfAbsent(loaded);
     }
   }
   if (!room) {
@@ -350,9 +501,14 @@ async function getRaceRoomInvite(token: string): Promise<RaceRoomInvite | undefi
     return cached;
   }
   const loaded = await loadRaceRoomInvite(token);
-  if (loaded) {
-    raceRoomInvites.set(token, loaded);
+  if (!loaded) {
+    return undefined;
   }
+  const live = raceRoomInvites.get(token);
+  if (live) {
+    return live;
+  }
+  raceRoomInvites.set(token, loaded);
   return loaded;
 }
 
@@ -589,13 +745,19 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
       routeMetricPoints,
       canonicalCourseLengthMeters: room.courseDistanceMeters
     });
+    const enrichedCore = enrichProjectionWithLiveRemaining(
+      nextProjectionCore,
+      room,
+      routeMetricPoints,
+      anchor
+    );
     roomProjectionState.set(roomId, {
       lastProgressMeters: state.lastProgressMeters,
       splitCrossedAt: { ...state.splitCrossedAt },
       visitStates: structuredClone(state.visitStates),
       visitMeta: structuredClone(state.visitMeta),
       rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-      lastProjectionCore: nextProjectionCore
+      lastProjectionCore: enrichedCore
     });
     if (persistSnapshot) {
       await saveWs2RuntimeSnapshot(roomId);
@@ -604,6 +766,33 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
   } catch {
     return false;
   }
+}
+
+/**
+ * After attaching a pacing estimate (new baselineTrack + plannedPaceSecondsPerKm), refresh the
+ * stored projection so Pace / map clocks match the schedule. Schedule rebuilds from the estimate
+ * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
+ * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
+ *
+ * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan.
+ * In-race (ping present): recompute over the last accepted ping with the new baseline/pace.
+ */
+export async function refreshProjectionAfterPlanOfRecordChange(
+  roomId: string,
+  room: RaceRoom,
+  log?: { warn: (obj: object, msg?: string) => void }
+): Promise<void> {
+  await loadWs2RuntimeIfNeeded(roomId);
+  if (!getOrInitPingState(roomId).lastAccepted) {
+    roomProjectionState.delete(roomId);
+  }
+  try {
+    await recomputeStoredProjectionAfterCourseChange(roomId, room);
+  } catch (err) {
+    log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed");
+  }
+  await ensureBootstrapProjection(roomId, room, true);
+  await saveWs2RuntimeSnapshot(roomId);
 }
 
 type TaskBoardMaterializedPayload = {
@@ -959,38 +1148,27 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
 
 /** All race rooms for a team id (WS6 aggregate scope). */
 export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]> {
-  const local = [...raceRooms.values()].filter((r) => r.teamId === teamId);
   if (!isRoomPersistenceEnabled()) {
-    return local;
+    return [...raceRooms.values()].filter((r) => r.teamId === teamId);
   }
   const persisted = await listPersistedRaceRoomsByTeamId(teamId);
-  for (const room of persisted) {
-    raceRooms.set(room.id, room);
-    indexJoinCode(room);
-  }
-  const merged = new Map<string, RaceRoom>();
-  for (const room of [...persisted, ...local]) {
-    merged.set(room.id, room);
-  }
-  return [...merged.values()];
+  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  return mergeListedRaceRooms(persisted, (r) => r.teamId === teamId);
 }
 
 export async function listRaceRoomsForMember(userId: string): Promise<RaceRoom[]> {
-  const local = [...raceRooms.values()].filter((r) => r.memberships.some((m) => m.userId === userId));
+  const isMember = (r: RaceRoom) => r.memberships.some((m) => m.userId === userId);
   if (!isRoomPersistenceEnabled()) {
-    const sorted = local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const sorted = [...raceRooms.values()]
+      .filter(isMember)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
   }
   const persisted = await listPersistedRaceRoomsForMember(userId);
-  for (const room of persisted) {
-    raceRooms.set(room.id, room);
-    indexJoinCode(room);
-  }
-  const merged = new Map<string, RaceRoom>();
-  for (const room of [...persisted, ...local]) {
-    merged.set(room.id, room);
-  }
-  const sorted = [...merged.values()].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  const sorted = mergeListedRaceRooms(persisted, isMember).sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
+  );
   return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
 }
 
@@ -1107,11 +1285,17 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     routeMetricPoints,
     canonicalCourseLengthMeters: room.courseDistanceMeters
   });
+  const enrichedCore = enrichProjectionWithLiveRemaining(
+    nextProjectionCore,
+    room,
+    routeMetricPoints,
+    anchor
+  );
   const allowed = new Set(room.course.checkpoints.map((c) => c.id));
   const prunedBase = pruneProjectionStateMaps(nextStateRaw, allowed);
   roomProjectionState.set(roomId, {
     ...prunedBase,
-    lastProjectionCore: nextProjectionCore
+    lastProjectionCore: enrichedCore
   });
 }
 
@@ -1248,6 +1432,54 @@ function resolveMapWorkspace(room: RaceRoom): RaceMapWorkspace {
 }
 
 /** Full route polyline for projection / course metrics; null if missing or degenerate. */
+export function resolveRouteMetricPointsFromRaceRoomExport(room: RaceRoom): CourseMetricPoint[] | null {
+  return resolveRouteMetricPointsFromRaceRoom(room);
+}
+
+/**
+ * Overlay live remaining-course micro-model ETAs onto a projection core (frozen plan vs live).
+ * On failure, returns the core unchanged so GPS split math still ships.
+ */
+function enrichProjectionWithLiveRemaining(
+  core: RaceRoomProjectionCore,
+  room: RaceRoom,
+  routeMetricPoints: CourseMetricPoint[],
+  raceAnchorIso: string
+): RaceRoomProjectionCore {
+  if (!room.course || typeof room.plannedPaceSecondsPerKm !== "number") {
+    return core;
+  }
+  try {
+    const raceStartMs = Date.parse(raceAnchorIso);
+    const recordedMs = Date.parse(core.asOfRecordedAt);
+    if (Number.isNaN(raceStartMs) || Number.isNaN(recordedMs)) {
+      return core;
+    }
+    const actualElapsedSeconds = Math.max(0, (recordedMs - raceStartMs) / 1000);
+    const live = computeLiveRemainingProjection({
+      routeMetricPoints,
+      checkpoints: room.course.checkpoints,
+      courseLengthMeters: core.courseLengthMeters,
+      progressMeters: core.progressMeters,
+      actualElapsedSeconds,
+      raceStartAtIso: raceAnchorIso,
+      recordedAtIso: core.asOfRecordedAt,
+      plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+      frozenBaselineTrack: room.course.baselineTrack,
+      remainingPlannedStoppageSecondsAhead: core.stoppageSummary.remainingPlannedStopSeconds
+    });
+    return {
+      ...core,
+      // Keep anchored plan-pace / baseline-track finish on etaFinishPlanIso.
+      // Live remaining-course ETAs are additive on remainingCheckpointEtas.
+      remainingCheckpointEtas: live.remainingCheckpointEtas
+    };
+  } catch {
+    return core;
+  }
+}
+
+/** Full route polyline for projection / course metrics; null if missing or degenerate. */
 function resolveRouteMetricPointsFromRaceRoom(room: RaceRoom): CourseMetricPoint[] | null {
   const ws = resolveMapWorkspace(room);
   const id = ws.drivesProjectionLayerId ?? PRIMARY_COURSE_ROUTE_LAYER_ID;
@@ -1337,6 +1569,169 @@ function courseDependentStateFingerprint(input: {
     plannedPaceSecondsPerKm: input.plannedPaceSecondsPerKm ?? null,
     courseFileName: input.courseFileName ?? null
   });
+}
+
+function syncWorkspaceCheckpoints(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): RaceRoom {
+  if (!room.mapWorkspace) {
+    return room;
+  }
+  return {
+    ...room,
+    mapWorkspace: {
+      ...room.mapWorkspace,
+      checkpoints
+    }
+  };
+}
+
+export async function requireCourseEditor(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  roomId: string
+): Promise<RaceRoom | undefined> {
+  if (!request.identity) {
+    await reply.code(401).send({ error: "Unauthorized" });
+    return undefined;
+  }
+  const room = await getRaceRoom(roomId);
+  if (!room) {
+    await reply.code(404).send({ error: "Race room not found" });
+    return undefined;
+  }
+  const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+  if (!membership) {
+    await reply.code(403).send({ error: "Forbidden" });
+    return undefined;
+  }
+  if (!getPermissions(membership.role).canEditRaceSetup) {
+    await reply.code(403).send({ error: "Insufficient permissions" });
+    return undefined;
+  }
+  const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+  if (!entitlement.allowed) {
+    await reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    return undefined;
+  }
+  return room;
+}
+
+/**
+ * Place a newly POSTed waypoint by unconstrained route progress. Appending then running
+ * {@link checkpointsWithProjectedDistances} would clamp it to the finish because that helper
+ * is forward-only in array order.
+ */
+function insertCheckpointAlongCourse(
+  existing: RaceCourseCheckpoint[],
+  nextCheckpoint: RaceCourseCheckpoint,
+  routePts: CourseMetricPoint[] | null
+): RaceCourseCheckpoint[] {
+  if (existing.length === 0 || !routePts || routePts.length < 2) {
+    return [...existing, nextCheckpoint];
+  }
+  const progress = geodesicProjectPointToPolyline(routePts, nextCheckpoint).progressMeters;
+  let insertAt = existing.length;
+  // Never displace the official start (index 0); insert before the first later stop already past this progress.
+  for (let index = 1; index < existing.length; index += 1) {
+    const stored = existing[index]!.distanceMetersFromStart;
+    const along =
+      typeof stored === "number" && Number.isFinite(stored)
+        ? stored
+        : geodesicProjectPointToPolyline(routePts, existing[index]!).progressMeters;
+    if (progress < along) {
+      insertAt = index;
+      break;
+    }
+  }
+  const next = existing.slice();
+  next.splice(insertAt, 0, nextCheckpoint);
+  return next;
+}
+
+function rebuildRoomCourseFromCheckpoints(
+  room: RaceRoom,
+  checkpoints: RaceCourseCheckpoint[]
+): { ok: true; room: RaceRoom } | { ok: false; error: string } {
+  if (!room.course || room.plannedPaceSecondsPerKm === undefined) {
+    return { ok: false, error: COURSE_ROUTE_LINE_REQUIRED_ERROR };
+  }
+  const routePts = resolveRouteMetricPointsFromRaceRoom(room);
+  if (!routePts) {
+    return { ok: false, error: COURSE_ROUTE_LINE_REQUIRED_ERROR };
+  }
+  let recomputedCourse: RaceCourse;
+  try {
+    recomputedCourse = recomputeCourseMetricsForSave({
+      course: { ...room.course, checkpoints },
+      plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+      routeMetricPoints: routePts
+    });
+  } catch {
+    return { ok: false, error: "Course route data is invalid or could not be processed." };
+  }
+  const updatedRoom: RaceRoom = {
+    ...room,
+    course: recomputedCourse,
+    courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters,
+    courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
+    courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters
+  };
+  return { ok: true, room: syncWorkspaceCheckpoints(updatedRoom, recomputedCourse.checkpoints) };
+}
+
+async function persistCourseShapeChange(
+  app: FastifyInstance,
+  roomId: string,
+  previousRoom: RaceRoom,
+  updatedRoom: RaceRoom
+): Promise<void> {
+  await loadWs2RuntimeIfNeeded(roomId);
+  const nextCourse = updatedRoom.course;
+  const nextPace = updatedRoom.plannedPaceSecondsPerKm;
+  if (nextCourse && nextPace !== undefined) {
+    const shouldResetCourseDependentState = courseDependentStateNeedsReset({
+      previousRoom,
+      nextCourse,
+      nextPlannedPaceSecondsPerKm: nextPace,
+      nextCourseFileName: updatedRoom.courseFileName,
+      routeOverlayLayer: undefined
+    });
+    if (shouldResetCourseDependentState) {
+      clearTaskBoardLocalState(roomId);
+      await deleteTaskBoardPayload(roomId);
+      await deleteTaskBoardSnapshot(roomId);
+      await deleteWs4AdaptivePayload(roomId);
+      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
+      clearWs4RoomLocalState(roomId);
+      await deleteWs5SyncPayload(roomId);
+      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
+      clearWs5RoomLocalState(roomId);
+    }
+  }
+  await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+}
+
+/**
+ * Save a course edit and refresh the stored projection so schedule, ETAs, and live remaining reflect
+ * it. Does NOT reset course-dependent crew state (task board, adaptive plan, sync); callers decide
+ * that first (see {@link persistCourseShapeChange}).
+ */
+async function saveRoomAndRecomputeProjection(
+  app: FastifyInstance,
+  roomId: string,
+  updatedRoom: RaceRoom
+): Promise<void> {
+  await saveRaceRoom(updatedRoom);
+  if (!getOrInitPingState(roomId).lastAccepted) {
+    roomProjectionState.delete(roomId);
+  }
+  try {
+    await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
+  } catch (err) {
+    app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
+  }
+  await ensureBootstrapProjection(roomId, updatedRoom, true);
+  await saveWs2RuntimeSnapshot(roomId);
 }
 
 function courseDependentStateNeedsReset(input: {
@@ -1604,8 +1999,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       const routePts = resolveRouteMetricPointsForCoursePut(room, parsed.data.routeOverlayLayer);
       if (!routePts) {
         return reply.code(400).send({
-          error:
-            "Upload a GPX, JSON, or KML track with a full route line, or save the map workspace with a projection driving layer on a layer that contains the course polyline. Checkpoint-only courses are not supported."
+          error: COURSE_ROUTE_LINE_REQUIRED_ERROR
         });
       }
       try {
@@ -1633,6 +2027,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
       courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters,
       courseFileName: parsed.data.courseFileName ?? room.courseFileName,
+      courseGpxXml: parsed.data.courseGpxXml ?? room.courseGpxXml,
       raceStartAt: parsed.data.raceStartAt,
       activatedAt: parsed.data.raceStartAt
     };
@@ -1684,6 +2079,164 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await releaseIdempotentMutation(request, parsed.data);
       }
     }
+  });
+
+  app.post("/race-rooms/:roomId/checkpoints", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = postRaceCheckpointInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid checkpoint payload" });
+    }
+
+    if (!room.course) {
+      return reply.code(400).send({ error: COURSE_ROUTE_LINE_REQUIRED_ERROR });
+    }
+    if (room.course.checkpoints.some((checkpoint) => checkpoint.id === parsed.data.id)) {
+      return reply.code(400).send({ error: `Checkpoint already exists: ${parsed.data.id}` });
+    }
+
+    const nextCheckpoint: RaceCourseCheckpoint = {
+      id: parsed.data.id,
+      latitude: parsed.data.latitude,
+      longitude: parsed.data.longitude,
+      ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+      ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
+    };
+    const rebuilt = rebuildRoomCourseFromCheckpoints(
+      room,
+      insertCheckpointAlongCourse(
+        room.course.checkpoints,
+        nextCheckpoint,
+        resolveRouteMetricPointsFromRaceRoom(room)
+      )
+    );
+    if (!rebuilt.ok) {
+      return reply.code(400).send({ error: rebuilt.error });
+    }
+    await persistCourseShapeChange(app, roomId, room, rebuilt.room);
+    return reply.code(201).send(rebuilt.room);
+  });
+
+  app.patch("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { checkpointId: string }).checkpointId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = patchRaceCheckpointInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid checkpoint payload" });
+    }
+
+    const existing = room.course?.checkpoints.find((checkpoint) => checkpoint.id === checkpointId);
+    if (!room.course || !existing) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+
+    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
+      if (checkpoint.id !== checkpointId) {
+        return checkpoint;
+      }
+      return {
+        ...checkpoint,
+        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+        ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
+      };
+    });
+    const updatedRoom = syncWorkspaceCheckpoints(
+      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
+      nextCheckpoints
+    );
+    await saveRaceRoom(updatedRoom);
+    return reply.send(updatedRoom);
+  });
+
+  /**
+   * #250: set planned stop minutes for one or more checkpoints (Pace edit mode).
+   *
+   * Deliberately not `PUT /course`: that path fingerprints the whole course, so changing only a stop
+   * duration would reset the crew task board, adaptive plan, and sync state. A planned stop changes
+   * timing, not the course shape, so only the projection is recomputed here. All rows apply or none.
+   */
+  app.patch("/race-rooms/:roomId/checkpoint-stops", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    const parsed = patchCheckpointStopsInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid planned stop payload" });
+    }
+    if (!room.course) {
+      return reply.code(404).send({ error: "Course not found" });
+    }
+
+    const known = new Set(room.course.checkpoints.map((checkpoint) => checkpoint.id));
+    const unknown = parsed.data.stops
+      .map((stop) => stop.checkpointId)
+      .filter((checkpointId) => !known.has(checkpointId));
+    if (unknown.length > 0) {
+      return reply.code(404).send({ error: "Checkpoint not found", checkpointIds: unknown });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+    const secondsById = new Map(parsed.data.stops.map((stop) => [stop.checkpointId, stop.plannedStopSeconds]));
+    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
+      const plannedStopSeconds = secondsById.get(checkpoint.id);
+      return plannedStopSeconds === undefined ? checkpoint : { ...checkpoint, plannedStopSeconds };
+    });
+    const updatedRoom = syncWorkspaceCheckpoints(
+      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
+      nextCheckpoints
+    );
+    await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+    return reply.send(updatedRoom);
+  });
+
+  app.delete("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
+    const roomId = (request.params as { roomId: string }).roomId;
+    const checkpointId = (request.params as { checkpointId: string }).checkpointId;
+    const room = await requireCourseEditor(app, request, reply, roomId);
+    if (!room) {
+      return;
+    }
+
+    if (!room.course) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+    if (!room.course.checkpoints.some((checkpoint) => checkpoint.id === checkpointId)) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+    const prevProjection = roomProjectionState.get(roomId);
+    if (prevProjection) {
+      const visitedIds = visitedCheckpointIdsFromStoredProjection(prevProjection);
+      if (visitedIds.has(checkpointId)) {
+        return reply.code(400).send({ error: `Cannot remove visited checkpoint: ${checkpointId}` });
+      }
+    }
+
+    const remaining = room.course.checkpoints.filter((checkpoint) => checkpoint.id !== checkpointId);
+    if (remaining.length < 2) {
+      return reply.code(400).send({ error: "Course must retain at least two checkpoints" });
+    }
+
+    const rebuilt = rebuildRoomCourseFromCheckpoints(room, remaining);
+    if (!rebuilt.ok) {
+      return reply.code(400).send({ error: rebuilt.error });
+    }
+    await persistCourseShapeChange(app, roomId, room, rebuilt.room);
+    return reply.send(rebuilt.room);
   });
 
   app.get("/race-rooms/:roomId/map-workspace", async (request, reply) => {
@@ -2208,6 +2761,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
+    if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
+      // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
+      return await reject("stale_recorded_at", "recordedAt must be after the last accepted ping");
+    }
     if (pingState.lastAccepted) {
       const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
       if (dtSec > 0) {
@@ -2292,9 +2849,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             routeMetricPoints,
             canonicalCourseLengthMeters: room.courseDistanceMeters
           });
+          const enrichedCore = enrichProjectionWithLiveRemaining(
+            nextProjectionCore,
+            room,
+            routeMetricPoints,
+            raceAnchor
+          );
         const evaluatedAtMs = Date.now();
         projection = attachProjectionTimeliness(
-          nextProjectionCore,
+          enrichedCore,
           recordedAtMs,
           evaluatedAtMs,
           pingState.lastUploadIntervalSeconds
@@ -2305,15 +2868,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           visitStates: structuredClone(state.visitStates),
           visitMeta: structuredClone(state.visitMeta),
           rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-          lastProjectionCore: nextProjectionCore
+          lastProjectionCore: enrichedCore
         });
         app.log.info(
           {
             projection_recompute: {
               roomId,
               pingId,
-              progressMeters: nextProjectionCore.progressMeters,
-              courseLengthMeters: nextProjectionCore.courseLengthMeters
+              progressMeters: enrichedCore.progressMeters,
+              courseLengthMeters: enrichedCore.courseLengthMeters
             }
           },
           "projection_recompute"
@@ -2383,6 +2946,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(view);
   });
 
+  /**
+   * Closed manual check-in (arrival + departure). Feeds schedule reproject on GET /schedule:
+   * closed visits replace planned stoppage + delayOverride for subsequent stop clocks
+   * (absolute latest closed actual per CP — LWW overwrite, no double-apply). Incomplete/open
+   * visits are not written here (both timestamps required); open auto visits also do not shift.
+   */
   app.post("/race-rooms/:roomId/checkpoints/:cpId/manual-stop", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -2440,13 +3009,18 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs) || departureMs <= arrivalMs) {
       return reply.code(400).send({ error: "departureAt must be after arrivalAt" });
     }
+    // Dynamic import avoids a static raceRooms ↔ raceRoomSchedule cycle.
+    const { closedActualStopSecondsByCheckpointId } = await import("./raceRoomSchedule.js");
+    const beforeClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
+      projectionState.lastProjectionCore.checkpointSplits
+    );
     const manualEntry: CheckpointVisitManualData = {
       arrivalAt: parsed.data.arrivalAt,
       departureAt: parsed.data.departureAt,
       actualStopSeconds: (departureMs - arrivalMs) / 1000,
       recordedByUserId: request.identity.sub
     };
-    const overlapVisit =
+    const overlapAutoVisit =
       split.visits.find(
         (visit) =>
           visit.autoDetected?.arrivalRecordedAt &&
@@ -2455,12 +3029,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             ? Date.parse(visit.autoDetected.departureRecordedAt)
             : Number.POSITIVE_INFINITY) >= arrivalMs
       ) ?? null;
-    if (overlapVisit) {
-      overlapVisit.manualEntry = manualEntry;
+    // Last-write-wins for schedule ETAs: prefer existing manual_crew, else overlapping auto,
+    // else latest closed visit (avoid appending beside a prior closed auto → double actual).
+    const existingManualVisit =
+      [...split.visits].reverse().find((visit) => visit.resolvedSource === "manual_crew" && visit.manualEntry) ??
+      null;
+    const latestClosedVisit =
+      [...split.visits]
+        .reverse()
+        .find(
+          (visit) =>
+            visit.activeActualStopSeconds !== null &&
+            visit.activeActualStopSeconds !== undefined &&
+            Number.isFinite(visit.activeActualStopSeconds)
+        ) ?? null;
+    const targetVisit = existingManualVisit ?? overlapAutoVisit ?? latestClosedVisit;
+    if (targetVisit) {
+      targetVisit.manualEntry = manualEntry;
       if (parsed.data.note) {
-        overlapVisit.note = parsed.data.note;
+        targetVisit.note = parsed.data.note;
       }
-      overlapVisit.resolvedSource = "manual_crew";
+      targetVisit.resolvedSource = "manual_crew";
     } else {
       split.visits.push({
         visitIndex: split.visits.length + 1,
@@ -2472,8 +3061,35 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
+    {
+      const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+      if (routeForLive) {
+        projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
+          projectionState.lastProjectionCore,
+          room,
+          routeForLive,
+          raceAnchor
+        );
+      }
+    }
     syncProjectionAccumulatorStateFromCore(projectionState);
       await saveWs2RuntimeSnapshot(roomId);
+      const afterClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
+        projectionState.lastProjectionCore.checkpointSplits
+      );
+      // W2-2: material later-ETA shift → push notify (prefs + exclude actor). Never fail the write.
+      try {
+        await notifyEntitledMembersOfCheckInEtaShift({
+          room,
+          actorUserId: request.identity.sub,
+          checkpointId,
+          beforeClosedActualByCheckpointId,
+          afterClosedActualByCheckpointId,
+          log: request.log
+        });
+      } catch (err) {
+        request.log.warn({ err, roomId, checkpointId }, "check_in_eta_notify_unexpected_error");
+      }
       const manualStopPayload = { checkpointSplit: split };
       await completeIdempotentMutation(request, parsed.data, 200, manualStopPayload);
       idemManualStopFinished = true;
@@ -2544,6 +3160,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     visit.resolvedSource = parsed.data.resolvedSource;
     refreshCheckpointSplitStoppageDerivedFields(split);
     recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
+    {
+      const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+      if (routeForLive) {
+        projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
+          projectionState.lastProjectionCore,
+          room,
+          routeForLive,
+          raceAnchor
+        );
+      }
+    }
     syncProjectionAccumulatorStateFromCore(projectionState);
     await saveWs2RuntimeSnapshot(roomId);
     return reply.send({ checkpointSplit: split });
@@ -2953,5 +3580,55 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const state = getOrInitPingState(roomId);
     const decisions = state.history.slice(-limit);
     return reply.send({ decisions });
+  });
+
+  /**
+   * Latest accepted athlete ping. Crew phones drive race progress readouts from this, never from
+   * their own GPS, so every member sees the same mile, ETA, and "last ping".
+   */
+  app.get("/race-rooms/:roomId/pings/latest", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+
+    const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+
+    const state = getOrInitPingState(roomId);
+    const body: RaceRoomLatestPingResponse = {
+      roomId,
+      stalenessThresholdSeconds: getStalenessThresholdSeconds(state.lastUploadIntervalSeconds),
+      evaluatedAt: new Date().toISOString()
+    };
+    const last = state.lastAccepted;
+    if (last) {
+      const core = roomProjectionState.get(roomId)?.lastProjectionCore;
+      body.ping = {
+        pingId: last.pingId,
+        latitude: last.latitude,
+        longitude: last.longitude,
+        recordedAt: new Date(last.recordedAtMs).toISOString(),
+        receivedAt: new Date(last.receivedAtMs).toISOString(),
+        ...(core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
+          ? { progressMeters: core.progressMeters }
+          : {})
+      };
+    }
+    return reply.send(body);
   });
 }

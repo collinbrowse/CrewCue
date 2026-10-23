@@ -152,3 +152,47 @@ test("model baseline is strictly increasing for non-trivial routes", () => {
   );
   assert.ok(points.some((point) => typeof point.elevationMeters === "number"));
 });
+
+/**
+ * Pins the fallback climb penalty to one hour per 1000 m of gain. The previous 8 s/m default survived
+ * unnoticed because the only baseline coverage asserted monotonicity, which any positive penalty satisfies.
+ * Uses a monotonic climb so the descent credit is zero and the penalty is the sole non-horizontal term.
+ */
+test("fallback baseline charges 3.6 seconds per meter of climb", () => {
+  const climb = [
+    { latitude: 40, longitude: -105, elevationMeters: 1000 },
+    { latitude: 40.01, longitude: -105, elevationMeters: 1040 },
+    { latitude: 40.02, longitude: -105, elevationMeters: 1080 },
+    { latitude: 40.03, longitude: -105, elevationMeters: 1120 },
+    { latitude: 40.04, longitude: -105, elevationMeters: 1160 }
+  ];
+  const paceSecondsPerKm = 360;
+
+  const finishElapsed = (track: ReturnType<typeof buildPlanBaselineFromModel>): number => {
+    const points = track!.points;
+    return points[points.length - 1]!.referenceElapsedSeconds;
+  };
+
+  // Recompute the expected total from the smoothed profile the builder itself uses.
+  const smoothed = smoothElevations(climb);
+  let smoothedGainMeters = 0;
+  for (let index = 1; index < smoothed.length; index += 1) {
+    const delta = smoothed[index]!.elevationMeters - smoothed[index - 1]!.elevationMeters;
+    if (delta > 0) {
+      smoothedGainMeters += delta;
+    }
+  }
+  assert.ok(smoothedGainMeters > 0, "climb fixture should register positive smoothed gain");
+
+  const horizontalSeconds = (geodesicPolylineLength(climb) / 1000) * paceSecondsPerKm;
+  const expected = horizontalSeconds + smoothedGainMeters * 3.6;
+  const actual = finishElapsed(buildPlanBaselineFromModel(climb, paceSecondsPerKm));
+  assert.ok(
+    Math.abs(actual - expected) < 1,
+    `expected ~${expected.toFixed(1)}s at 3.6 s/m, got ${actual.toFixed(1)}s`
+  );
+
+  // The default must stay 3.6, and the retired 8 s/m value must remain clearly slower.
+  assert.equal(actual, finishElapsed(buildPlanBaselineFromModel(climb, paceSecondsPerKm, { gainPenaltySecondsPerMeter: 3.6 })));
+  assert.ok(finishElapsed(buildPlanBaselineFromModel(climb, paceSecondsPerKm, { gainPenaltySecondsPerMeter: 8 })) > actual);
+});

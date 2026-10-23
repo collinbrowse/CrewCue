@@ -2,7 +2,7 @@
 name: ios-simulator-agent-qa
 description: >-
   Boot iOS simulator, run XcodeBuildMCP UI automation, fix-and-retest until
-  mobile acceptance criteria pass. Use for any apps/mobile UI task or when the
+  mobile acceptance criteria pass. Use for any apps/ios UI task or when the
   user asks to verify on simulator.
 ---
 
@@ -10,18 +10,22 @@ description: >-
 
 ## Before UI automation
 
-1. Read `.xcodebuildmcp/config.yaml` (workspace, scheme, `simulatorName`, `bundleId`).
-2. Run from repo root: **`npm run agent:ios:ready`**. If it fails, follow printed fixes; do not skip to "manual testing."
-3. Install XcodeBuildMCP + Cursor MCP (`xcodebuildmcp mcp`) if tools are missing — report as blocker on non-macOS hosts.
+1. Read `.xcodebuildmcp/config.yaml` (`projectPath`, scheme, `simulatorName`, `bundleId` for `apps/ios`).
+2. Run from repo root: **`npm run agent:ios:ready`**. This builds and installs the SwiftUI app in `apps/ios`. Metro is not part of this gate.
+3. Auth0-free fixture entries:
 
-## Test entry (prefer automation)
+| Goal | Deeplink |
+|------|----------|
+| Fixture shell | `crewcue://dev/app-shell` |
+| Schedule sheet | `crewcue://dev/schedule-sheet` |
+| Pace estimate / cold-start | `crewcue://dev/cold-start` or `crewcue://dev/pace-estimate` |
+| Crew sheet export | `crewcue://dev/crew-sheet-export` |
 
-| Goal | Entry |
-|------|--------|
-| Map / guest shell | `crewcue://guest` via `simctl openurl` or `npm run smoke:mobile:ios` |
-| Operate / readouts | `crewcue://operate`, `crewcue://readouts` (see `scripts/mobile-ios-deeplink-smoke.mjs`) |
+Example: `npm run agent:ios:ready -- --deeplink crewcue://dev/pace-estimate`
 
-Auth0 login in sim is a **blocker** until a deeplink or test fixture exists — stop and list options (see rule `mobile-simulator-agent-qa.mdc`).
+4. Install XcodeBuildMCP + Cursor MCP if tools are missing — report as blocker on non-macOS hosts.
+
+Prefer `crewcue://dev/*` fixtures from `clients/behavior/deeplinks.json` over Auth0 login for schedule/pace proof. Auth0 login remains a **blocker** for production-auth paths only — stop and list options (see rule `mobile-simulator-agent-qa.mdc`).
 
 ## XcodeBuildMCP loop
 
@@ -39,7 +43,7 @@ xcodebuildmcp ui-automation tap --simulator-id "$UDID" --label "Center map on yo
 
 ## Maestro
 
-If `apps/mobile/.maestro/*.yaml` covers the flow, run it before claiming done. Add Maestro when the same flow is validated twice.
+Add a Maestro flow only after the same native path has been validated twice.
 
 ## Evidence → PR only
 

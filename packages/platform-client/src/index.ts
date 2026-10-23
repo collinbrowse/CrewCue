@@ -1,3 +1,4 @@
+// Native iOS and Android use CrewCueClientCore (`ActionGate`, `ErrorCatalog`), not this package.
 export {
   createActionRegistry,
   ActionRegistry,

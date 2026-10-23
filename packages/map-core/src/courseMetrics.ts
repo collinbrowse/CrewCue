@@ -18,6 +18,19 @@ const MIN_REFERENCE_STEP_SECONDS = 0.1;
 const CHECKPOINT_FORWARD_EPS_M = 0.05;
 /** When first and last course checkpoints are this close (m), treat the course as a loop for finish anchoring. */
 const LOOP_START_FINISH_MAX_SEPARATION_M = 150;
+/**
+ * Seconds added per meter of climb in the fallback plan baseline, equal to one hour per 1000 m of gain.
+ *
+ * This is the common trail-running rule of thumb. For comparison, Naismith's rule is 6 s/m and describes
+ * hiking, so anything at or above that overstates climb time for a running plan. The previous default of
+ * 8 s/m added 46 minutes to a nearly flat 50 km (348 m gain) and roughly 6.7 hours to a 3000 m 100k, and
+ * was the dominant error in every schedule produced before a micro-model estimate could be attached.
+ *
+ * Note that the gain this multiplies is summed per vertex with no noise threshold, so on dense tracks it
+ * runs slightly high. Rejecting that noise needs hysteresis over monotonic runs rather than a per-vertex
+ * cutoff, and is deliberately left for a change that can measure its effect. See issue #478.
+ */
+const DEFAULT_GAIN_PENALTY_SECONDS_PER_METER = 3.6;
 
 export type CourseMetricPoint = {
   latitude: number;
@@ -262,7 +275,7 @@ export function buildPlanBaselineFromModel(
   const cumulative = geodesicCumulativeAtVertices(canonical);
   const smoothed = smoothElevations(canonical);
   const elevationByIndex = new Map(smoothed.map((sample, index) => [index, sample.elevationMeters]));
-  const gainPenaltySecondsPerMeter = options.gainPenaltySecondsPerMeter ?? 8;
+  const gainPenaltySecondsPerMeter = options.gainPenaltySecondsPerMeter ?? DEFAULT_GAIN_PENALTY_SECONDS_PER_METER;
   const descentCreditSecondsPerMeter = options.descentCreditSecondsPerMeter ?? 1.5;
   const maxDescentCreditRatio = Math.max(0, Math.min(0.8, options.maxDescentCreditRatio ?? 0.35));
   let elapsedSeconds = 0;

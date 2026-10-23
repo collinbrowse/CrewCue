@@ -4,7 +4,6 @@
 **Intent:** make code understandable, navigable, and safe to extend without hidden coupling.
 
 **Related docs:**  
-- [ui-delivery-roadmap-and-spec.md](./ui-delivery-roadmap-and-spec.md)  
 - [dual-client-architecture-guardrails.md](./dual-client-architecture-guardrails.md)  
 - [github-issues-and-prs.md](./github-issues-and-prs.md)
 
@@ -29,8 +28,8 @@ Use these top-level boundaries consistently:
 
 - `packages/contracts` -> shared DTO/event/auth contracts; no app-specific UI logic
 - `services/api` -> server routes, domain logic, persistence, authz, replay/projections
-- `apps/mobile` -> client presentation, user interaction, sync/outbox orchestration
-- `apps/web` -> desktop/laptop client presentation (when created); consumes same contracts/API semantics
+- `packages/client-core` -> shared Swift client behavior (no UI)
+- `apps/ios` and `apps/android` -> native presentation
 - `docs/sdlc` -> execution plans, runbooks, and operating policy
 
 Do not duplicate domain rules across API and mobile. Domain authority stays server-side unless explicitly designed for offline behavior.
@@ -40,15 +39,15 @@ Do not encode client-specific behavior in contracts/routes unless the behavior i
 
 ## 3) Flow layering rules
 
-Every feature should follow this order:
+Every feature should follow this order.
 
 1. **Contracts** (`packages/contracts`)
 2. **Server behavior + tests** (`services/api`)
-3. **Client transport/sync plumbing + tests** (`apps/mobile/src/api`, `apps/mobile/src/sync`)
-4. **UI composition** (`apps/mobile`)
+3. **Shared client behavior + tests** (`packages/client-core`)
+4. **UI composition** in one of `apps/ios` or `apps/android`
 5. **Runbook/spec updates** (`docs/sdlc`)
 
-Avoid writing UI-first code that invents behavior not yet represented in contracts/routes.
+Avoid writing UI-first code that invents behavior not yet represented in contracts/routes. File layout and presentation rules: `.cursor/rules/client-core-architecture.mdc`, `ios-presentation.mdc`, and `android-presentation.mdc`.
 
 ---
 

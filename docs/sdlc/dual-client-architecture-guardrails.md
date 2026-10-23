@@ -1,104 +1,46 @@
-# Dual-client architecture guardrails (mobile + web)
+# Dual-client architecture guardrails (iOS + Android)
 
-**Audience:** engineers and AI agents preparing CrewCue for separate mobile and web applications.  
-**Intent:** keep domain/backend behavior client-agnostic so new clients can attach without backend rewrites.
+**Audience:** engineers and AI agents shipping CrewCue's two native clients.  
+**Intent:** keep domain and API behavior client-agnostic, and keep shared client behavior in Swift.
 
-**Scope note:** this document defines architecture and delivery guardrails only. It does **not** require building web UI now.
+## 1) Target architecture
 
----
+- `apps/ios` — SwiftUI. An iOS developer should be able to read it as plain SwiftUI.
+- `apps/android` — Jetpack Compose / Kotlin. Kotlin stays in this module.
+- `packages/client-core` — Swift package. No UI. Android calls it through the Swift 6.3+ Android SDK and the swift-java JNI facade.
+- `apps/mobile` (Expo) and `apps/web` — removed (ADR 0008).
+- Server platform, unchanged:
+  - `packages/contracts` — canonical wire shapes
+  - `services/api` — domain rules, authz, persistence, pacing, GPX
+  - `packages/map-core` — server-side geodesic helpers. Clients do not link it.
 
-## 1) Target architecture (Path B)
+Parity is the behavior checklist in `clients/behavior/`, plus each platform's device gate. It is not a screenshot diff and not a line-by-line UI port.
 
-CrewCue supports two first-class clients against one backend platform:
+## 2) Boundaries
 
-- `apps/mobile` -> field-first mobile UX (Expo/React Native)
-- `apps/web` -> desktop/laptop operator UX (future app; separate UI)
-- shared backend platform:
-  - `packages/contracts` -> canonical request/response/event/auth shapes
-  - `services/api` -> canonical domain rules, authz, persistence, projections
+1. Server authority stays in `services/api`. Clients do not reimplement pacing or GPX parsing.
+2. Wire types are generated from `packages/contracts` into Swift and Kotlin. Do not hand-port those structs.
+3. Outbox policy, schedule formatting, and other shared client decisions live in `packages/client-core`.
+4. MapLibre, Stream, and Auth0 stay native SDK calls in each app. Do not wrap them in a shared UI layer.
+5. One issue changes `apps/ios` or `apps/android` or `packages/client-core`, not both UI trees. The checklist issue may touch only `clients/behavior/`.
 
-Design rule: clients may differ in UX, but they must consume the same contracts and server semantics.
+## 3) Presentation and client architecture
 
----
+`packages/contracts` and `services/api` feed `packages/client-core`. Each app renders that package: SwiftUI in `apps/ios`, Compose in `apps/android`.
 
-## 2) Non-negotiable boundaries
+File layout, dependency injection, routes, errors, and screen models live in the path-scoped rules. Load only the trees the task touches:
 
-1. **Server authority**
-   - Domain and workflow rules live in `services/api`.
-   - Clients never become alternate authorities for room/task/projection outcomes.
+- `packages/client-core/**` → `.cursor/rules/client-core-architecture.mdc`
+- `apps/ios/**` → that rule plus `.cursor/rules/ios-presentation.mdc`
+- `apps/android/**` → that rule plus `.cursor/rules/android-presentation.mdc`
 
-2. **Contract authority**
-   - API payloads and enums are defined in `packages/contracts`.
-   - Do not introduce app-specific variants of the same contract shape.
+## 4) Gates
 
-3. **Client isolation**
-   - `apps/mobile` and future `apps/web` may diverge in presentation/layout.
-   - Cross-client duplication of transport/state rules should be extracted into shared modules only when reused by both.
+- `npm run verify:client-behavior`
+- `npm run verify:client-boundary`
+- `npm run verify:client-codegen`
+- `npm run verify:client-core` and `npm run verify:client-core:android-build`
+- `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
+- `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`
 
-4. **No mobile-only assumptions in backend**
-   - Avoid naming and logic that encode mobile UI semantics in routes/contracts.
-   - Prefer neutral operation terms (e.g., room/task/checkpoint verbs) over client-driven naming.
-
----
-
-## 3) Readiness checklist before creating `apps/web`
-
-These steps can be completed now without implementing web UI screens.
-
-1. **Contract audit**
-   - Ensure current endpoint DTOs and enums are neutral (no mobile-specific field names).
-   - Add/adjust contract tests where drift risk exists (auth claims, sync statuses, stoppage/source toggles).
-
-2. **API surface audit**
-   - Confirm every operator workflow is represented by route + contract (not UI-only behavior).
-   - Move any implicit client workflow assumptions into explicit API validation/errors.
-
-3. **Client transport boundary clarity**
-   - Keep `apps/mobile/src/api/client.ts` as the only network entry point in mobile.
-   - Keep outbox behavior centralized in `apps/mobile/src/sync/*`.
-   - When web begins and logic repeats, extract shared client-core modules into `packages/*` (or documented shared app module) rather than copy/paste.
-
-4. **Auth and role mapping neutrality**
-   - Keep role checks and permissions server-side.
-   - Treat client claims as input hints; API remains final authority.
-   - Ensure role/claim docs avoid client-specific assumptions.
-
-5. **Operational verification neutrality**
-   - Keep smoke/runbook steps API-centric so any client can execute them.
-   - Avoid validation steps that require one specific UI implementation unless clearly labeled.
-
----
-
-## 4) PR gating rules for dual-client safety
-
-Any PR that changes contracts, routes, authz, outbox semantics, or sync semantics must confirm:
-
-- [ ] Change is client-agnostic at contract/API layer
-- [ ] No mobile-specific naming leaked into backend contracts/routes
-- [ ] Server remains source of truth for domain outcomes
-- [ ] Tests cover behavior below UI layer (contracts/API/outbox where applicable)
-- [ ] Docs updated if a new client-facing assumption is introduced
-
-If a change fails any item above, it is not merge-ready for dual-client architecture.
-
----
-
-## 5) Implementation order for future web start (no UI yet)
-
-When web implementation begins, use this order:
-
-1. Confirm contracts + API are sufficient (add missing capabilities first).
-2. Extract shared client-core logic only where duplication appears.
-3. Create `apps/web` app shell and wire auth/config.
-4. Build web workflow screens against existing client-core/API contracts.
-5. Run staging verification that compares mobile and web behavior for the same workflows.
-
-This keeps both clients convergent on behavior while allowing specialized UX.
-
----
-
-## 6) Revision history
-
-| Date | Change |
-| --- | --- |
-| 2026-04-24 | Initial publication of dual-client (mobile + web) architecture guardrails and readiness checklist. |
+A feature that has both UI issues is covered when both device gates have passed and `deeplinks.json` is `pass` only with proof under `.agent-pr-evidence/behavior/`. Linux CI does not boot a simulator or emulator.

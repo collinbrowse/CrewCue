@@ -391,3 +391,33 @@ test("rejects ping when horizontal accuracy is too poor", async () => {
 
   await app.close();
 });
+
+test("rejects a ping that is not after the last accepted recordedAt as stale_recorded_at", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+  const post = (recordedAt: string) =>
+    app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: { latitude: 40.0, longitude: -74.0, recordedAt },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+  const latest = new Date(Date.now() - 10_000).toISOString();
+  assert.equal((await post(latest)).statusCode, 201);
+
+  for (const recordedAt of [latest, new Date(Date.now() - 20_000).toISOString()]) {
+    const stale = await post(recordedAt);
+    assert.equal(stale.statusCode, 422, stale.body);
+    const body = stale.json() as { decision: string; reason: string };
+    assert.equal(body.decision, "rejected");
+    assert.equal(body.reason, "stale_recorded_at");
+  }
+
+  const fresh = await post(new Date(Date.now() - 5_000).toISOString());
+  assert.equal(fresh.statusCode, 201, fresh.body);
+
+  await app.close();
+});

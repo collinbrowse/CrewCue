@@ -37,4 +37,4 @@ Ship and soak **cloud-only** behavior on **staging** before relying on it in pro
 ## Related docs
 
 - [GitHub issues and pull requests](./github-issues-and-prs.md) — how tasks link to PRs and merge.
-- [UI delivery roadmap and specification](./ui-delivery-roadmap-and-spec.md) — client epic order and UI guardrails.
+- [Behavior checklists](../../clients/behavior/) — per-feature client acceptance, iOS and Android.

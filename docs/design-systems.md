@@ -1,44 +1,26 @@
-# Design Systems
+# Design systems
 
-CrewCue now supports global runtime switching between design systems on both clients:
+CrewCue has one design system: **Night Trail**. The native iOS and Android apps are the only clients.
 
-- `kinetic`
-- `performance`
+## Sources
 
-Both mobile and web read from shared definitions in `packages/contracts/src/designSystems.ts`.
+- Visual target: `crewcue_design/*/screen.png` (map, expanded milestone, course schedule, crew chat, runner profile). These are day-mode mockups.
+- Token spec: `crewcue_design/night_trail_performance/DESIGN.md`.
+- Canonical tokens: `packages/contracts/src/designSystems.ts` (`nightTrail`, light and dark).
+- iOS: `apps/ios/CrewCue/Design/CrewTheme.swift`.
+- Android: `apps/android/app/src/main/kotlin/com/crewcue/android/ui/theme/CrewTheme.kt`.
 
-## Runtime behavior
+## Rules
 
-- Mobile toggle location: `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
-- Web toggle location: `apps/web/src/MapWorkspace.tsx`
-- Changes apply immediately across the app tree.
-- Light/dark variants auto-follow the device color-scheme setting.
-- Preference persists across relaunch/refresh.
+- Light matches the mockups. Dark uses the `nightTrail.dark` variant and follows the device setting.
+- Fonts are the platform system fonts (SF Pro, Roboto) at the DESIGN.md sizes and weights. Lexend and Inter are not bundled.
+- Shapes: capsule buttons and chips, 32pt cards, circular icon containers.
+- iOS uses a toned-down Liquid Glass (`glassEffect` with a strong surface tint) on the tab bar, top bar, map chips and sheet, and content cards. Android uses solid tonal surfaces and no blur.
+- Feature screens do not hardcode colors or font sizes. Add a token or component in the theme file instead.
 
-## Add a new design file
+## Changing tokens
 
-1. Add a new entry to `DESIGN_SYSTEMS` in `packages/contracts/src/designSystems.ts`.
-2. Add a new `DesignSystemId` union member.
-3. Ensure all required token groups are provided:
-  - `colors`
-  - `typography`
-  - `radius`
-  - `spacing`
-4. Update web CSS token mapping in `apps/web/src/index.css` with a new `:root[data-design-system="..."]` block.
-5. If needed, refine mobile mapping logic in `apps/mobile/src/design-system/theme.ts` (`toMobileTokens`).
-6. Expose the new option in both toggles:
-  - `apps/mobile/src/navigation/WorkspaceMenuScreen.tsx`
-  - `apps/web/src/MapWorkspace.tsx`
-
-## Validation
-
-Run:
-
-- `npm run build -w @crewcue/contracts`
-- `npm run typecheck -w @crewcue/web`
-- `npm run typecheck -w @crewcue/mobile`
-
-Then manually verify:
-
-- Switching updates UI immediately on both clients.
-- Selected system remains active after restart/refresh.
+1. Edit `nightTrail` in `packages/contracts/src/designSystems.ts`.
+2. Mirror the change in both native theme files.
+3. Run `npm run verify:contracts`.
+4. Check light and dark with `npm run agent:ios:ready` and `npm run agent:android:ready`.

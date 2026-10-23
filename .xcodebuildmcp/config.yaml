@@ -13,7 +13,7 @@ setupPreferences:
   platforms:
     - iOS
 sessionDefaults:
-  workspacePath: apps/mobile/ios/CrewCue.xcworkspace
+  projectPath: apps/ios/CrewCue.xcodeproj
   scheme: CrewCue
-  simulatorName: iPhone 16e
-  bundleId: com.crewcue.mobile
+  simulatorName: iPhone 18 Pro
+  bundleId: com.crewcue.ios

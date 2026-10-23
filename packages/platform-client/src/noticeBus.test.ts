@@ -20,6 +20,15 @@ test("dedupes same fingerprint within window", () => {
   assert.equal(bus.getState().transient?.id, id);
 });
 
+test("dedupes same fingerprint after dismiss within window", () => {
+  const bus = new NoticeBus();
+  bus.presentTransient({ fingerprint: "same", catalogKey: "unknown", dedupeMs: 5_000 });
+  bus.dismissTransient();
+  assert.equal(bus.getState().transient, undefined);
+  bus.presentTransient({ fingerprint: "same", catalogKey: "unknown", dedupeMs: 5_000 });
+  assert.equal(bus.getState().transient, undefined);
+});
+
 test("inline notices are scoped by anchorId", () => {
   const bus = new NoticeBus();
   bus.presentInline({ anchorId: "save", catalogKey: "saveFailed" });
