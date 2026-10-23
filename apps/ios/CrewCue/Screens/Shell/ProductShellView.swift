@@ -30,10 +30,11 @@ struct ProductShellView: View {
         .task(id: raceDayID) {
             await model.mapModel.activate(userId: model.signedInUserId, roomId: model.signedInRoomId, role: model.signedInRole)
             model.mapModel.beginLocation()
+            await model.mapModel.followRunner()
         }
     }
 
-    /// Course, schedule, and location feed the readouts on every tab, so they load with the shell.
+    /// Course, schedule, and the athlete's latest ping feed the readouts on every tab, so they load with the shell.
     private var raceDayID: String {
         "\(model.signedInUserId ?? "")|\(model.signedInRoomId ?? "")|\(model.signedInRole ?? "")"
     }
@@ -60,7 +61,7 @@ struct ProductTabPage: View {
                     roomId: model.signedInRoomId,
                     role: model.signedInRole,
                     focus: model.route.featureId,
-                    progressMeters: model.mapModel.progressMeters
+                    runner: model.mapModel.runner
                 )
             }
         case .chat:

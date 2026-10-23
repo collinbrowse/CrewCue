@@ -178,6 +178,7 @@ actor HeaderCaptureTransport: HTTPTransport {
         ("crewcue://dev/athlete-setup", "athlete-setup"),
         ("crewcue://dev/onboarding-notifications", "onboarding-notifications"),
         ("crewcue://dev/check-in", "check-in"),
+        ("crewcue://dev/pace-stop-edit", "pace-stop-edit"),
         ("crewcue://dev/course-settings", "course-settings"),
         ("crewcue://dev/readouts-incidents", "readouts-incidents"),
         ("crewcue://dev/gpx-import-progress", "gpx-import"),
@@ -258,7 +259,7 @@ struct SilentLogger: Logger {
 
 @Test func outboxKeepsWorkQueuedDuringFlush() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let first = try await store.enqueuePing(
         roomId: "room",
         role: "athlete",
@@ -295,7 +296,7 @@ struct SilentLogger: Logger {
 
 @Test func gpxFlushSendsIdempotencyKeyOnCoursePut() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let queued = try await store.enqueueGpx(
         roomId: "room",
         fileName: "route.gpx",
@@ -321,7 +322,7 @@ struct SilentLogger: Logger {
 
 @Test func chatMutationsDoNotDropConcurrentAppends() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     try await withThrowingTaskGroup(of: Void.self) { group in
         group.addTask {
             try await store.mutate(roomId: "room") { operations in
@@ -372,7 +373,7 @@ struct SilentLogger: Logger {
         role: "athlete"
     )]
     try JSONEncoder().encode(seeded).write(to: directory.appendingPathComponent("outbox.json"))
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let reclaimed = try await store.operations()
     #expect(reclaimed.first?.status == "pending")
     let session = SessionController(session: ClientSession(userId: "athlete-1", role: "athlete"))

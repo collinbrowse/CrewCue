@@ -10,12 +10,14 @@ import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.pendingWork
 import com.crewcue.android.data.stopLines
+import com.crewcue.android.ui.map.TimelineRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class PaceStop(
@@ -27,7 +29,21 @@ data class PaceStop(
     val waited: String?,
     val stoppage: String,
     val delay: String?,
-    val line: String
+    val line: String,
+    /** Dwell rail label for the planned stop, e.g. "5 MIN STOP". */
+    val stopLabel: String = ""
+)
+
+/** One checkpoint row in Pace edit mode (#250). Values come from client-core `StopPlanDraft`. */
+data class StopEditRow(
+    val checkpointId: String,
+    val title: String,
+    val minutesText: String,
+    val editable: Boolean,
+    val changed: Boolean,
+    val error: String?,
+    val savedLabel: String,
+    val stopLabel: String
 )
 
 class PaceViewModel(
@@ -80,12 +96,32 @@ class PaceViewModel(
         private set
     var courseBusy by mutableStateOf(false)
         private set
+    var mayEditStops by mutableStateOf(false)
+        private set
+    var stopEditing by mutableStateOf(false)
+        private set
+    var stopRows by mutableStateOf<List<StopEditRow>>(emptyList())
+        private set
+    /** Timeline rendered from the draft while editing; null otherwise. */
+    var stopTimeline by mutableStateOf<List<TimelineRow>?>(null)
+        private set
+    var stopCanSave by mutableStateOf(false)
+        private set
+    var stopBusy by mutableStateOf(false)
+        private set
+    var stopMessage by mutableStateOf<String?>(null)
+        private set
     var outboxMessage by mutableStateOf<String?>(null)
         private set
     var outboxLines by mutableStateOf<List<String>>(emptyList())
         private set
 
     private var raceStartAt = ""
+    private var scheduleSheet: JSONObject? = null
+    private var stopCheckpoints = JSONArray()
+    private var stopProgressMeters = 0.0
+    private val stopMinutes = mutableMapOf<String, String>()
+    private var stopEdits = JSONArray()
     private var plannedPace: Double? = null
     private var historyFingerprint: String? = null
     private var usableHistoryCount = 0
@@ -131,6 +167,9 @@ class PaceViewModel(
         courseDirty = true
         stoppageText = value
     }
+
+    /** The room has an attached estimate. Sent with each compute so client-core can check the trigger. */
+    private var hasPlanOfRecord = false
 
     fun recalculate() {
         viewModelScope.launch { refreshEstimate(explicit = true) }
@@ -197,6 +236,149 @@ class PaceViewModel(
         }
     }
 
+    /**
+     * Opens planned-stop editing. `passedIds` are the checkpoints the runner has passed (timeline
+     * rows marked done); they stay locked, like the start and finish.
+     */
+    fun beginStopEdit(passedIds: Set<String>) {
+        if (!mayEditStops || stopBusy) return
+        viewModelScope.launch {
+            val room = withContext(Dispatchers.IO) { raceDay.loadRoom(roomId) }
+            if (room !is RuntimeResult.Success) {
+                stopMessage = if (room is RuntimeResult.Failure && room.offline) STOPS_OFFLINE else STOPS_ERROR
+                return@launch
+            }
+            val checkpoints = room.result.optJSONArray("checkpoints") ?: JSONArray()
+            stopCheckpoints = checkpoints
+            stopProgressMeters = passedDistance(checkpoints, passedIds)
+            stopMinutes.clear()
+            stopMessage = null
+            stopEditing = true
+            projectStops()
+        }
+    }
+
+    /**
+     * The athlete's ping timeline marked more checkpoints passed. While editing, lock them (the draft is
+     * rebuilt from the larger progress, so their typed minutes are dropped). Progress never goes back.
+     */
+    fun runnerPassed(passedIds: Set<String>) {
+        if (!stopEditing) return
+        val progress = passedDistance(stopCheckpoints, passedIds)
+        if (progress <= stopProgressMeters) return
+        stopProgressMeters = progress
+        viewModelScope.launch { projectStops() }
+    }
+
+    fun cancelStopEdit() {
+        if (stopBusy) return
+        stopEditing = false
+        stopTimeline = null
+        stopRows = emptyList()
+        stopMinutes.clear()
+        stopMessage = null
+    }
+
+    fun updateStopMinutes(checkpointId: String, text: String) {
+        stopMinutes[checkpointId] = text
+        viewModelScope.launch { projectStops() }
+    }
+
+    fun stepStop(checkpointId: String, deltaMinutes: Int) {
+        viewModelScope.launch { projectStops(stepCheckpointId = checkpointId, stepMinutes = deltaMinutes) }
+    }
+
+    /** Sends only the changed stops. On failure the draft stays open so nothing typed is lost. */
+    fun saveStops() {
+        if (!stopCanSave || stopBusy) return
+        viewModelScope.launch {
+            stopBusy = true
+            try {
+                val result = withContext(Dispatchers.IO) { raceDay.updatePlannedStops(roomId, stopEdits) }
+                when (result) {
+                    is RuntimeResult.Failure -> stopMessage = if (result.offline) STOPS_OFFLINE else STOPS_ERROR
+                    is RuntimeResult.Success -> {
+                        stopMessage = result.result.optString("message").ifBlank { null }
+                        if (result.result.optBoolean("saved")) {
+                            stopEditing = false
+                            stopTimeline = null
+                            stopRows = emptyList()
+                            stopMinutes.clear()
+                            loadScheduleAndExport()
+                        }
+                    }
+                }
+            } finally {
+                stopBusy = false
+            }
+        }
+    }
+
+    private suspend fun projectStops(stepCheckpointId: String? = null, stepMinutes: Int = 0) {
+        if (!stopEditing) return
+        val minutes = stopMinutes.toMap()
+        val result = withContext(Dispatchers.IO) {
+            raceDay.stopPlanDraft(stopCheckpoints, scheduleSheet, stopProgressMeters, minutes, stepCheckpointId, stepMinutes)
+        }
+        if (result !is RuntimeResult.Success || !stopEditing) return
+        val json = result.result
+        val rows = json.optJSONArray("rows") ?: JSONArray()
+        stopRows = buildList {
+            for (index in 0 until rows.length()) {
+                val row = rows.optJSONObject(index) ?: continue
+                add(
+                    StopEditRow(
+                        checkpointId = row.optString("checkpointId"),
+                        title = row.optString("title"),
+                        minutesText = row.optString("minutesText"),
+                        editable = row.optBoolean("editable"),
+                        changed = row.optBoolean("changed"),
+                        error = row.optString("error").ifBlank { null },
+                        savedLabel = row.optString("savedLabel"),
+                        stopLabel = row.optString("stopLabel")
+                    )
+                )
+            }
+        }
+        // A stepper tap changes the field text; keep the map in step with what the draft shows.
+        if (stepCheckpointId != null) {
+            stopRows.firstOrNull { it.checkpointId == stepCheckpointId }?.let { stopMinutes[stepCheckpointId] = it.minutesText }
+        }
+        stopTimeline = json.optJSONArray("timeline")?.let(::parseTimeline)
+        stopCanSave = json.optBoolean("canSave")
+        stopEdits = json.optJSONArray("edits") ?: JSONArray()
+    }
+
+    private fun passedDistance(checkpoints: JSONArray, passedIds: Set<String>): Double {
+        var farthest = 0.0
+        for (index in 0 until checkpoints.length()) {
+            val row = checkpoints.optJSONObject(index) ?: continue
+            if (row.optString("id") !in passedIds) continue
+            val distance = row.optDouble("distanceMetersFromStart", 0.0)
+            if (distance.isFinite() && distance > farthest) farthest = distance
+        }
+        return farthest
+    }
+
+    private fun parseTimeline(array: JSONArray): List<TimelineRow> = buildList {
+        for (index in 0 until array.length()) {
+            val row = array.optJSONObject(index) ?: continue
+            add(
+                TimelineRow(
+                    checkpointId = row.optString("checkpointId"),
+                    state = row.optString("state", "projected"),
+                    kicker = row.optString("kicker"),
+                    title = row.optString("title"),
+                    clockArrivalAt = row.optString("clockArrivalAt").ifBlank { null },
+                    cutoffAt = row.optString("cutoffAt").ifBlank { null },
+                    cutoffStatus = row.optString("cutoffStatus").ifBlank { null },
+                    distanceToLabel = row.optString("distanceToLabel", "—"),
+                    isFinish = row.optBoolean("isFinish")
+                )
+            )
+        }
+    }
+
     private suspend fun loadScheduleAndExport() {
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
@@ -219,6 +401,8 @@ class PaceViewModel(
                     json.optJSONObject("sheet")?.optString("raceStartAt").orEmpty()
                 }
                 if (start.isNotBlank()) raceStartAt = start
+                json.optJSONObject("sheet")?.let { scheduleSheet = it }
+                mayEditStops = json.optBoolean("mayEditCourse") && parsed.first.isNotEmpty()
                 scheduleLines = parsed.first
                 scheduleStops = paceStops(json)
                 if (!checkpointEdited) {
@@ -245,8 +429,10 @@ class PaceViewModel(
                     val shouldCompute = loaded is RuntimeResult.Success && loaded.result.optBoolean("recompute")
                     if (!shouldCompute) return@withLock
                 }
+                // Only the athlete's history recomputes automatically; a tap is an explicit Recalculate.
+                val trigger = if (explicit) "recalculate" else "auto"
                 val computed = withContext(Dispatchers.IO) {
-                    raceDay.computeEstimate(roomId, historyFingerprint, usableHistoryCount)
+                    raceDay.computeEstimate(roomId, historyFingerprint, usableHistoryCount, trigger, hasPlanOfRecord)
                 }
                 applyEstimate(computed)
             } finally {
@@ -281,6 +467,7 @@ class PaceViewModel(
             return
         }
         val hasEstimate = json.optBoolean("hasEstimate")
+        hasPlanOfRecord = hasEstimate
         val cold = json.optBoolean("coldStart")
         when {
             !hasEstimate && usableHistoryCount > 0 -> {
@@ -437,7 +624,8 @@ class PaceViewModel(
                         waited = page.optString("waitedLabel").ifBlank { null },
                         stoppage = page.optString("stoppageDurationLabel").ifBlank { page.optString("stoppageLabel") },
                         delay = page.optString("delayLabel").ifBlank { null },
-                        line = page.optString("scheduleLine")
+                        line = page.optString("scheduleLine"),
+                        stopLabel = json.optJSONObject("plannedStopLabels")?.optString(id).orEmpty()
                     )
                 )
             }
@@ -469,6 +657,9 @@ class PaceViewModel(
         const val COURSE_EMPTY = "No course settings yet."
         const val COURSE_ERROR = "Couldn't save course settings."
         const val COURSE_OFFLINE = "Offline. Course settings stay on this device."
+        // Fallbacks only; the runtime returns client-core StopPlanCopy on every save outcome.
+        const val STOPS_ERROR = "Couldn't save planned stops."
+        const val STOPS_OFFLINE = "Offline. Planned stops not saved. Try again when you're online."
     }
 }
 

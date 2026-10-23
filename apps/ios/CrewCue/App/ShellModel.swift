@@ -138,13 +138,32 @@ final class ShellModel {
         }
     }
 
+    /// Sign-out and session expiry wipe every per-user store: the session file, every account's
+    /// directory (outbox, ping order, room caches, drafts), and the offline athlete-setup draft.
     func prepareStores() {
         guard !didRegisterSessionWipe else { return }
         didRegisterSessionWipe = true
         guard let root = try? AppDirectories.root() else { return }
+        let storage = UserStorage(root: root)
+        let athleteDraft = try? AppDirectories.athleteDraftURL()
         client.graph.session?.register(id: "session-file") {
             try SessionFile.wipe(directory: root)
         }
+        client.graph.session?.register(id: "user-storage") {
+            try storage.wipeAll()
+        }
+        client.graph.session?.register(id: "athlete-draft") {
+            if let athleteDraft, FileManager.default.fileExists(atPath: athleteDraft.path) {
+                try FileManager.default.removeItem(at: athleteDraft)
+            }
+        }
+    }
+
+    /// An authorized request came back 401. If it carried this session's token, the session is over.
+    func expireSession(rejectedToken: String) {
+        guard isSignedIn, client.graph.session?.session?.accessToken == rejectedToken else { return }
+        client.graph.logger.log("session expired")
+        signOut()
     }
 
     func adopt(_ session: ClientSession) {
@@ -335,14 +354,18 @@ final class ShellModel {
         }
     }
 
+    /// Opens this user's outbox. Another account's leftover files (a crash before sign-out
+    /// finished, or a pre-#538 layout) are wiped first, so this user never sends or sees them.
     private func installOutbox(userId: String) {
         do {
+            try AppDirectories.userStorage().wipeAll(except: userId)
+            try AppDirectories.removeLegacyUserDirectories()
+        } catch {
+            client.graph.logger.log("stale user data wipe failed")
+        }
+        do {
             let directory = try AppDirectories.userDirectory(userId: userId)
-            let outbox = try OutboxStore(userId: userId, directory: directory)
-            client.graph.outbox = outbox
-            client.graph.session?.register(id: "outbox") {
-                try outbox.wipe()
-            }
+            client.graph.outbox = try OutboxStore.shared(userId: userId, directory: directory)
         } catch {
             client.graph.logger.log("outbox unavailable")
         }

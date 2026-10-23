@@ -4,7 +4,7 @@
 crewcue://dev/chat
 
 ## Action
-Open Chat. The app mints a Stream token and shows the room channel. Mentions parse crew names. Chat outbox mutations for one room run one at a time.
+Open Chat. The app mints a Stream token and shows the room channel. Mentions parse crew names. Chat outbox mutations for one room run one at a time. Opening the channel resends queued messages under their stable client message id. Stream answering "already exists" counts as sent.
 
 The header names the race (e.g. "Leadville 100"), or shows nothing. It never shows the channel id.
 

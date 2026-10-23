@@ -119,7 +119,7 @@ import Testing
     )
     try ScheduleCache.save(
         CrewScheduleSheet(roomId: "room-1", raceStartAt: "2026-08-15T13:00:00.000Z", stops: [stop]),
-        directory: RoomStorage.directory(userDirectory: directory, roomId: "room-1")
+        directory: RoomStorage.directory(userDirectory: UserStorage(root: directory).directory(userId: "guest"), roomId: "room-1")
     )
     let exported = try await runtimeCall([
         "op": "exportCrewSheet",

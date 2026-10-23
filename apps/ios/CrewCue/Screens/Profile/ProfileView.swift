@@ -70,7 +70,7 @@ struct ProfileView: View {
                 ProfileHero(
                     name: model.showsName ? model.displayName : "Profile",
                     role: role,
-                    live: readout.lastPingLabel != nil
+                    live: readout.pingState == .live
                 )
                 if model.message.isEmpty == false {
                     Text(verbatim: model.message)

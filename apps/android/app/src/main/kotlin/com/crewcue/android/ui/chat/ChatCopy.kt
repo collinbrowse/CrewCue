@@ -52,7 +52,8 @@ interface StreamRoomClient {
         channelId: String,
         authors: ChatAuthorLabels
     ): CrewChatSnapshot
-    suspend fun send(text: String, clientMessageId: String): Boolean
+    /** Sends under the stable client message id. Null on success, otherwise Stream's error text. */
+    suspend fun send(text: String, clientMessageId: String): String?
 }
 
 object StreamRooms {

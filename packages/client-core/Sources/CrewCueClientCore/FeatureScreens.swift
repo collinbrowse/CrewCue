@@ -126,6 +126,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.check-in", title: "Check in", body: checkInBody(state))
         case "course-settings":
             return FeatureCopy(accessibilityIdentifier: "crewcue.course-settings", title: "Course settings", body: courseSettingsBody(state))
+        case "pace-stop-edit":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.pace-stop-edit", title: "Planned stops", body: stopEditBody(state))
         case "readouts-incidents":
             return FeatureCopy(accessibilityIdentifier: "crewcue.readouts-incidents", title: "Incidents", body: incidentsBody(state))
         case "gpx-import":
@@ -277,6 +279,15 @@ private func courseSettingsBody(_ state: FeatureState) -> String {
     case .empty: "No course settings yet."
     case .error: "Couldn't save course settings."
     case .offline: "Offline. Course settings stay on this device."
+    }
+}
+
+private func stopEditBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: StopPlanCopy.saved
+    case .empty: StopPlanCopy.empty
+    case .error: StopPlanCopy.failed
+    case .offline: StopPlanCopy.offline
     }
 }
 

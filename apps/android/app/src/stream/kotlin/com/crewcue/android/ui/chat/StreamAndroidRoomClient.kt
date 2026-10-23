@@ -60,15 +60,24 @@ private class StreamAndroidRoomClient : StreamRoomClient {
         CrewChatSnapshot(rows, unread)
     }
 
-    override suspend fun send(text: String, clientMessageId: String): Boolean = gate.withLock {
-        val room = channel ?: return@withLock false
-        room.sendMessage(Message(id = clientMessageId, text = text)).awaitOrNull() != null
+    override suspend fun send(text: String, clientMessageId: String): String? = gate.withLock {
+        val room = channel ?: return@withLock "Channel is not open."
+        when (val result = room.sendMessage(Message(id = clientMessageId, text = text)).awaitResult()) {
+            is Result.Success -> null
+            is Result.Failure -> result.value.message.ifBlank { "Send failed." }
+        }
     }
 }
 
 private fun chatClient(context: Context, apiKey: String): ChatClient {
     if (ChatClient.isInitialized) return ChatClient.instance()
     return ChatClient.Builder(apiKey, context).build()
+}
+
+private suspend fun <T : Any> Call<T>.awaitResult(): Result<T> = suspendCancellableCoroutine { continuation ->
+    enqueue { result ->
+        if (continuation.isActive) continuation.resume(result)
+    }
 }
 
 private suspend fun <T : Any> Call<T>.awaitOrNull(): T? = suspendCancellableCoroutine { continuation ->

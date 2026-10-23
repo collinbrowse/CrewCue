@@ -19,6 +19,7 @@ object DevRoutes {
         "dev/onboarding-notifications" to "onboarding-notifications",
         "dev/check-in" to "check-in",
         "dev/course-settings" to "course-settings",
+        "dev/pace-stop-edit" to "pace-stop-edit",
         "dev/readouts-incidents" to "readouts-incidents",
         "dev/gpx-import-progress" to "gpx-import",
         "dev/map" to "map-track",
