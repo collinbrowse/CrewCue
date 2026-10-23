@@ -941,3 +941,157 @@ test("PUT course rejects removing a visited checkpoint", async () => {
 
   await app.close();
 });
+
+test("PUT course keeps protocol notes and incidents when only cutoff or pace changes", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-metadata"));
+  const headers = { authorization: `Bearer ${ownerToken}` };
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-course-metadata",
+      name: "Cutoff edit room",
+      creatorRole: "athlete"
+    },
+    headers
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const payResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers
+  });
+  assert.equal(payResponse.statusCode, 200);
+
+  const checkpoints = [
+    { id: "cp0", latitude: 42.0, longitude: -70.0 },
+    { id: "cp1", latitude: 42.02, longitude: -70.0 }
+  ];
+  const activateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: { checkpoints },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints(checkpoints),
+      plannedPaceSecondsPerKm: 600,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const savedCourse = (
+    activateResponse.json() as {
+      course: { checkpoints: Array<{ id: string; latitude: number; longitude: number }> };
+    }
+  ).course;
+
+  const noteResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    payload: {
+      checkpointId: "cp1",
+      category: "nutrition",
+      body: "Two gels at the second aid."
+    },
+    headers
+  });
+  assert.equal(noteResponse.statusCode, 200);
+  const noteId = (noteResponse.json() as { protocolNote: { id: string } }).protocolNote.id;
+
+  const incidentResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/incidents`,
+    payload: {
+      category: "hydration",
+      severity: "medium",
+      checkpointId: "cp1",
+      summary: "Crew missed the first bottle handoff"
+    },
+    headers
+  });
+  assert.equal(incidentResponse.statusCode, 201);
+  const incidentId = (incidentResponse.json() as { incident: { id: string } }).incident.id;
+
+  const metadataSave = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: savedCourse.checkpoints.map((checkpoint) =>
+          checkpoint.id === "cp1"
+            ? { ...checkpoint, cutoff: { mode: "elapsed_from_start", seconds: 4 * 60 * 60 } }
+            : checkpoint
+        )
+      },
+      plannedPaceSecondsPerKm: 540,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(metadataSave.statusCode, 200);
+
+  const notesAfterMetadata = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    headers
+  });
+  assert.equal(notesAfterMetadata.statusCode, 200);
+  const notes = (notesAfterMetadata.json() as { protocolNotes: Array<{ id: string; body: string }> }).protocolNotes;
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0]?.id, noteId);
+  assert.equal(notes[0]?.body, "Two gels at the second aid.");
+
+  const incidentsAfterMetadata = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/incidents`,
+    headers
+  });
+  assert.equal(incidentsAfterMetadata.statusCode, 200);
+  const incidents = (incidentsAfterMetadata.json() as { incidents: Array<{ id: string }> }).incidents;
+  assert.equal(incidents.length, 1);
+  assert.equal(incidents[0]?.id, incidentId);
+
+  const moved = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: savedCourse.checkpoints.map((checkpoint) =>
+          checkpoint.id === "cp1" ? { ...checkpoint, latitude: checkpoint.latitude + 0.05 } : checkpoint
+        )
+      },
+      plannedPaceSecondsPerKm: 540,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(moved.statusCode, 200);
+
+  const notesAfterMove = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    headers
+  });
+  assert.equal(notesAfterMove.statusCode, 200);
+  assert.equal(
+    (notesAfterMove.json() as { protocolNotes: unknown[] }).protocolNotes.length,
+    0
+  );
+
+  const incidentsAfterMove = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/incidents`,
+    headers
+  });
+  assert.equal(incidentsAfterMove.statusCode, 200);
+  assert.equal((incidentsAfterMove.json() as { incidents: unknown[] }).incidents.length, 0);
+
+  await app.close();
+});
