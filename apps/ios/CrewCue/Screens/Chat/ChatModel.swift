@@ -2,13 +2,7 @@ import Foundation
 import Observation
 import CrewCueClientCore
 
-private enum ChatOutboxAppend {
-    static func append(_ operation: StoredOperation, to outbox: OutboxStore, roomId: String) async throws {
-        try await outbox.mutate(roomId: roomId, type: "chat") { operations in
-            operations.append(operation)
-        }
-    }
-}
+private struct ChatDeliveryStopped: Error {}
 
 struct ChatLine: Identifiable, Equatable {
     var id: String
@@ -133,19 +127,13 @@ final class ChatModel {
         isSending = true
         defer { isSending = false }
         let clientMessageId = UUID().uuidString
-        let payload = Self.payloadJSON(text: text, clientMessageId: clientMessageId)
-        let operation = StoredOperation(
-            id: clientMessageId,
-            type: "chat",
-            conflictKey: "chat:\(clientMessageId)",
-            roomId: roomId,
-            payloadJSON: payload,
-            idempotencyKey: IdempotencyKey.hashPayload(payload),
-            clientMessageId: clientMessageId,
-            role: role.isEmpty ? "crew" : role
-        )
         do {
-            try await ChatOutboxAppend.append(operation, to: outbox, roomId: roomId)
+            _ = try await outbox.enqueueChat(
+                roomId: roomId,
+                text: text,
+                clientMessageId: clientMessageId,
+                role: role.isEmpty ? "crew" : role
+            )
         } catch {
             guard ticket == generation else { return }
             statusMessage = "Couldn't open the channel."
@@ -153,13 +141,12 @@ final class ChatModel {
         }
         guard ticket == generation else { return }
         draft = ""
-        guard session.isOpen else {
+        guard session.isOpen, (try? await outbox.claimChat(id: clientMessageId)) == true else {
             await showChannelResult(ticket: ticket, opened: false)
             return
         }
         do {
-            try await session.send(text: text, messageId: clientMessageId)
-            try await outbox.complete(id: clientMessageId)
+            try await sendClaimed(text: text, clientMessageId: clientMessageId, outbox: outbox)
             guard ticket == generation else { return }
             openWasOffline = false
             await showChannelResult(ticket: ticket, opened: true)
@@ -182,10 +169,24 @@ final class ChatModel {
         }
     }
 
+    /// Sends one claimed message under its stable id. Stream answering "already exists" means an
+    /// earlier attempt landed (a crash or lost reply), so it counts as delivered.
+    private func sendClaimed(text: String, clientMessageId: String, outbox: OutboxStore) async throws {
+        do {
+            try await session.send(text: text, messageId: clientMessageId)
+        } catch {
+            try? await outbox.settleChat(id: clientMessageId, error: error)
+            if OutboxPolicy.isAlreadyDelivered(error) { return }
+            throw error
+        }
+        try await outbox.settleChat(id: clientMessageId, error: nil)
+    }
+
+    /// Redelivers this room's queued messages, including ones a crash left behind. Each message is
+    /// claimed in memory first, so a send already in progress is never sent twice.
     private func deliverPending(roomId: String, ticket: Int) async -> Bool {
         guard session.isOpen, !isSending, let outbox = client.graph.outbox else { return false }
-        let operations = (try? await outbox.operations()) ?? []
-        let pending = operations.filter { $0.roomId == roomId && $0.type == "chat" && $0.status == "pending" }
+        let pending = (try? await outbox.claimPendingChat(roomId: roomId)) ?? []
         guard !pending.isEmpty else { return false }
         isSending = true
         defer {
@@ -193,21 +194,34 @@ final class ChatModel {
                 isSending = false
             }
         }
-        for operation in pending {
-            guard ticket == generation, session.isOpen else { return true }
+        for (index, operation) in pending.enumerated() {
+            guard ticket == generation, session.isOpen else {
+                await release(pending[index...], outbox: outbox)
+                return true
+            }
             let text = Self.text(in: operation.payloadJSON)
-            guard !text.isEmpty else { continue }
+            guard !text.isEmpty else {
+                await release(pending[index...index], outbox: outbox)
+                continue
+            }
             do {
-                try await session.send(text: text, messageId: operation.clientMessageId)
-                try await outbox.complete(id: operation.id)
+                try await sendClaimed(text: text, clientMessageId: operation.clientMessageId, outbox: outbox)
             } catch {
                 if APIFailure.isOffline(error) {
                     openWasOffline = true
                 }
+                await release(pending[(index + 1)...], outbox: outbox)
                 return true
             }
         }
         return false
+    }
+
+    /// Gives claimed messages back to the queue without sending them.
+    private func release(_ operations: ArraySlice<StoredOperation>, outbox: OutboxStore) async {
+        for operation in operations {
+            try? await outbox.settleChat(id: operation.id, error: ChatDeliveryStopped())
+        }
     }
 
     private func loadMembers(roomId: String, ticket: Int) async {
@@ -260,12 +274,6 @@ final class ChatModel {
             !line.text.isEmpty || line.imageURL != nil || !line.reactions.isEmpty
         }
         return pending
-    }
-
-    private static func payloadJSON(text: String, clientMessageId: String) -> String {
-        let object: [String: Any] = ["text": text, "clientMessageId": clientMessageId]
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return "{}" }
-        return String(decoding: data, as: UTF8.self)
     }
 
     private static func text(in payload: String) -> String {

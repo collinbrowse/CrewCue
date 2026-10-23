@@ -19,6 +19,13 @@ class RaceDayBridge(
     private val sessionStore: SessionStore,
     private val logger: AndroidLogger
 ) {
+    /**
+     * Called (on the calling thread) when an authorized runtime call came back 401. The argument is
+     * the token that request carried, so a late reply for an old session can't end a newer one.
+     */
+    @Volatile
+    var onSessionExpired: ((rejectedToken: String) -> Unit)? = null
+
     fun previewJoin(code: String): RuntimeResult = call("previewJoin") { put("code", code) }
 
     fun join(code: String): RuntimeResult = call("join") { put("code", code) }
@@ -57,10 +64,22 @@ class RaceDayBridge(
 
     fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
 
-    fun computeEstimate(roomId: String, historyFingerprint: String?, usableHistoryCount: Int): RuntimeResult =
+    /**
+     * [trigger] is "auto" (athlete history changed), "cold_start" (crew seeds a room with no plan)
+     * or "recalculate" (explicit tap). client-core refuses a trigger the role may not use.
+     */
+    fun computeEstimate(
+        roomId: String,
+        historyFingerprint: String?,
+        usableHistoryCount: Int,
+        trigger: String,
+        hasPlanOfRecord: Boolean
+    ): RuntimeResult =
         call("computeEstimate") {
             put("roomId", roomId)
             put("usableHistoryCount", usableHistoryCount)
+            put("trigger", trigger)
+            put("hasPlanOfRecord", hasPlanOfRecord)
             if (!historyFingerprint.isNullOrBlank()) put("historyFingerprint", historyFingerprint)
         }
 
@@ -163,6 +182,28 @@ class RaceDayBridge(
 
     fun completeOutbox(id: String): RuntimeResult = call("completeOutbox") { put("id", id) }
 
+    /** Claims the message this device is about to send, so redelivery can't send it too. */
+    fun claimChat(roomId: String, id: String): RuntimeResult = call("claimChat") {
+        put("roomId", roomId)
+        put("id", id)
+    }
+
+    /** Queued messages for the room that nothing else is sending, including ones a crash left. */
+    fun claimPendingChat(roomId: String): RuntimeResult = call("claimPendingChat") { put("roomId", roomId) }
+
+    /** Ends a claim. A null [error] means sent; client-core treats "already exists" as sent too. */
+    fun settleChat(roomId: String, id: String, error: String?): RuntimeResult = call("settleChat") {
+        put("roomId", roomId)
+        put("id", id)
+        if (error != null) put("error", error)
+    }
+
+    /** Sign-out and session expiry: every account's files under the runtime storage root. */
+    fun wipeUserData(): RuntimeResult = call("wipeUserData")
+
+    /** Sign-in: keep only [userId]'s files, so this account never sends another account's queue. */
+    fun adoptUser(userId: String): RuntimeResult = call("adoptUser") { put("userId", userId) }
+
     fun updateDisplayName(roomId: String, memberUserId: String, displayName: String): RuntimeResult =
         call("updateDisplayName") {
             put("roomId", roomId)
@@ -220,16 +261,19 @@ class RaceDayBridge(
             .put("storageDir", sessionStore.storageDir().absolutePath)
         request.fill()
         val raw = ClientCoreBridge.runtimeJson(request.toString())
-        return parse(op, raw)
+        return parse(op, raw, session?.token.orEmpty())
     }
 
-    private fun parse(op: String, raw: String): RuntimeResult {
+    private fun parse(op: String, raw: String, token: String): RuntimeResult {
         val obj = try {
             JSONObject(raw)
         } catch (_: Exception) {
             return RuntimeResult.Failure("Request failed", offline = false)
         }
         if (!obj.optBoolean("ok")) {
+            if (obj.optBoolean("sessionExpired") && token.isNotEmpty()) {
+                onSessionExpired?.invoke(token)
+            }
             val message = obj.optString("message").ifBlank { "Request failed" }
             logger.log("$op failed: $message")
             return RuntimeResult.Failure(message, offline = isOffline(message))
