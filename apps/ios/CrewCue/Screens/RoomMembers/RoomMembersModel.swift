@@ -61,7 +61,7 @@ final class RoomMembersModel {
             return name
         } catch {
             guard ticket == generation, !Task.isCancelled else { return nil }
-            message = Self.actionFailure(error)
+            message = Self.failureMessage(error)
             return nil
         }
     }
@@ -77,7 +77,7 @@ final class RoomMembersModel {
             await load(roomId: roomId, ticket: ticket)
         } catch {
             guard ticket == generation, !Task.isCancelled else { return }
-            message = Self.actionFailure(error)
+            message = Self.failureMessage(error)
         }
     }
 
@@ -88,7 +88,7 @@ final class RoomMembersModel {
 
     func visibleName(_ member: RoomMemberLine) -> String {
         let trimmed = member.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? member.id : trimmed
+        return trimmed.isEmpty ? "Crew member" : trimmed
     }
 
     func clear() {
@@ -111,7 +111,7 @@ final class RoomMembersModel {
             guard ticket == generation, !Task.isCancelled else { return }
             members = []
             athleteId = nil
-            message = Self.loadFailure(error)
+            message = Self.failureMessage(error)
         }
     }
 
@@ -126,22 +126,10 @@ final class RoomMembersModel {
         message = members.isEmpty ? "No members yet." : "Roster lists members."
     }
 
-    private static func loadFailure(_ error: Error) -> String {
+    private static func failureMessage(_ error: Error) -> String {
         APIFailure.isOffline(error) ? "Offline. Roster not updated." : "Couldn't update members."
     }
 
-    private static func actionFailure(_ error: Error) -> String {
-        if APIFailure.isOffline(error) {
-            return "Offline. Roster not updated."
-        }
-        if let http = error as? ClientHTTPError {
-            let text = http.message.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty == false {
-                return text
-            }
-        }
-        return "Couldn't update members."
-    }
 
     private static func trimmed(_ value: String?) -> String? {
         let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

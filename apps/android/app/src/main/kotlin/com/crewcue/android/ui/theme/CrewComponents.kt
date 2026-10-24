@@ -40,6 +40,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -51,6 +52,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -282,7 +284,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
 }
 
 /** Modal sheet for secondary tools, on the warm ground with 40dp corners. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun ToolSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(
@@ -293,6 +295,8 @@ fun ToolSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnS
     ) {
         Column(
             Modifier
+                // The sheet is its own window, so the root's resource-id export does not reach it.
+                .semantics { testTagsAsResourceId = true }
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = CrewSpace.gutter)

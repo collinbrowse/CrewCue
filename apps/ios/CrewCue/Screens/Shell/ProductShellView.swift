@@ -21,6 +21,8 @@ struct ProductShellView: View {
             CrewTabBar(selection: $model.selectedTab, chatBadge: model.chatModel.unreadCount)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Contain the children, or the shell's label replaces every tab button's own label.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.app-shell")
         .accessibilityLabel("CrewCue")
         .sheet(isPresented: $model.showsSettings, onDismiss: { model.settingsFocus = nil }) {

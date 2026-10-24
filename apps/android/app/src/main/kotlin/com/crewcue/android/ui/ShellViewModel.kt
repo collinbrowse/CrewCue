@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.auth.AuthResult
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.DevRoutes
 import com.crewcue.android.session.DevSession
@@ -189,7 +190,7 @@ class ShellViewModel(
                                     name = row.optString("name"),
                                     role = row.optString("role"),
                                     roleLabel = row.optString("roleLabel"),
-                                    displayName = row.optString("displayName").trim().ifBlank { null }
+                                    displayName = row.optText("displayName").trim().ifBlank { null }
                                 )
                             )
                         }
@@ -240,7 +241,8 @@ class ShellViewModel(
         val feature = DevRoutes.inboundFeatureId(url)
         val state = if (url == null) "success" else queryState(url)
         when {
-            feature == "app-shell" && state == "success" -> showShell(ShellTab.Map)
+            feature == "app-shell" && state == "success" ->
+                if (container.sessionStore.current() != null) showShell(ShellTab.Map) else showSignedOut()
             feature != null && url != null -> openLinkedFeature(feature, url)
             container.sessionStore.current() != null -> showShell(ShellTab.Map)
             else -> showSignedOut()
@@ -394,7 +396,8 @@ class ShellViewModel(
             role = request.role.ifBlank { "crew_member" },
             token = request.token,
             displayName = request.displayName?.trim()?.ifBlank { null },
-            roomId = request.roomId ?: session?.roomId,
+            // Another user's dev session must not land in the previous user's race.
+            roomId = request.roomId ?: session?.takeIf { it.userId == request.userId }?.roomId,
             fromAuth0 = false
         )
         container.sessionStore.save(stored)
@@ -548,6 +551,10 @@ class ShellViewModel(
         profilePane = profilePaneFor(screen.featureId)
         uiState = UiState.from(screen, state)
         routeId = "${screen.featureId}?state=$state"
+        // The fixture body is the preview copy; nothing has been typed yet.
+        if (screen.featureId == "join-crew" && !stateOverlay) {
+            replaceBody("Enter an invite code.", kind = "empty")
+        }
     }
 
     private fun showSignedOut(

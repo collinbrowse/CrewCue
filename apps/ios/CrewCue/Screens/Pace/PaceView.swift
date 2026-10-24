@@ -316,9 +316,12 @@ struct PaceCheckpointCard: View {
 
     private var caption: String {
         if row.isFinish { return "TARGET" }
-        if row.state == .done { return stop.map { "\($0.arrival) · \($0.elapsed)" } ?? "PLANNED" }
-        if let stop, stop.stopLabel != "NO STOP" { return "PROJECTED · \(stop.stopLabel)" }
-        return "PROJECTED"
+        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+        if let stop {
+            let times = "\(stop.arrival) · \(stop.elapsed)"
+            return row.state != .done && stop.stopLabel != "NO STOP" ? "\(times) · \(stop.stopLabel)" : times
+        }
+        return row.state == .done ? "PLANNED" : "PROJECTED"
     }
 
     private var cutoffColor: Color {
@@ -457,6 +460,8 @@ struct PaceToolsSheet: View {
                         .id("outbox-status")
                 }
                 .onAppear { proxy.scrollTo(focus, anchor: .top) }
+                // The crew sheet loads after the sheet opens and pushes later tools down; keep the focus in view.
+                .onChange(of: model.exportText) { proxy.scrollTo(focus, anchor: .top) }
             }
         }
     }
@@ -510,9 +515,9 @@ struct PaceEstimateMessage: View {
     let coldStart: Bool
 
     var body: some View {
+        // VoiceOver reads the estimate itself; the card is already labelled "Pace estimate".
         Text(verbatim: message)
             .font(CrewFont.body)
-            .accessibilityLabel(coldStart ? "Cold start" : "Pace estimate")
             .modifier(PaceColdStartIdentifier(enabled: coldStart))
     }
 }

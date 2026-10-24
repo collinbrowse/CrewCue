@@ -21,10 +21,14 @@ function deeplinksFromChecklists() {
 
 function parseArgs(argv) {
   let deeplink = process.env.AGENT_IOS_DEEPLINK?.trim() || "crewcue://dev/hello";
+  // Parallel agents each pass their own simulator so no one reinstalls over another's device.
+  let udid = process.env.AGENT_IOS_UDID?.trim() || undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--deeplink") deeplink = argv[++i];
     else if (arg.startsWith("--deeplink=")) deeplink = arg.slice("--deeplink=".length);
+    else if (arg === "--udid") udid = argv[++i];
+    else if (arg.startsWith("--udid=")) udid = arg.slice("--udid=".length);
     else if (arg === "--allow-no-metro") {
       process.stdout.write("agent-ios-ready: Metro is not used by the SwiftUI app\n");
     } else if (arg === "--list-deeplinks") {
@@ -32,7 +36,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
   }
-  return { deeplink };
+  return { deeplink, udid };
 }
 
 async function run(command, args) {
@@ -105,6 +109,14 @@ async function ensureSimulator(name) {
   return target.udid;
 }
 
+async function ensureSimulatorByUdid(udid) {
+  const device = await deviceByUdid(udid);
+  if (!device) throw new Error(`No available simulator with UDID ${udid}.`);
+  await bootSimulator(udid);
+  process.stdout.write(`agent-ios-ready: using simulator ${device.name} (${udid})\n`);
+  return udid;
+}
+
 function findApp(dir) {
   if (!fs.existsSync(dir)) return undefined;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -140,9 +152,10 @@ async function installApp(udid) {
 
 async function main() {
   if (process.platform !== "darwin") throw new Error("agent:ios:ready requires macOS.");
-  const { deeplink } = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  const { deeplink } = args;
   if (!fs.existsSync(PROJECT)) throw new Error(`Missing ${PROJECT}`);
-  const udid = await ensureSimulator(readSimulatorName());
+  const udid = args.udid ? await ensureSimulatorByUdid(args.udid) : await ensureSimulator(readSimulatorName());
   await installApp(udid);
   await bootSimulator(udid);
   await run("xcrun", ["simctl", "terminate", udid, BUNDLE_ID]).catch(() => {});

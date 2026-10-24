@@ -1,0 +1,18 @@
+{
+  "id": "location-heartbeat",
+  "platform": "android",
+  "entry": "crewcue://dev/location-heartbeat",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Athlete opened crewcue://dev/location-heartbeat with a simulated fix and tapped Send location; crew did the same.",
+  "checked": {
+    "Success": "Athlete: 'Location sample queued.' Crew: no sample is queued or uploaded.",
+    "Empty": "'No location sample yet.' before the first sample.",
+    "Error": "Permission revoked and Don't allow: 'Location permission was denied.'",
+    "Offline": "Airplane mode: 'Offline. Sample queued in the outbox.'",
+    "Accessibility labels": "crewcue.location-heartbeat"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
