@@ -43,6 +43,13 @@ val streamFailure = if (streamCoordinate == null) streamFailures.joinToString(" 
 val repoRoot = rootProject.projectDir.parentFile.parentFile
 val releaseKeystore = System.getenv("CREWCUE_ANDROID_KEYSTORE")
 
+// Release builds talk only to the server and Auth0 tenant passed in by release.yml
+// (-Pcrewcue.release.*). The dev values in strings.xml never reach a release build.
+val releaseApiBaseUrl = crewcueProp("crewcue.release.apiBaseUrl").trimEnd('/')
+val releaseAuth0Domain = crewcueProp("crewcue.release.auth0Domain").removePrefix("https://").trimEnd('/')
+val releaseAuth0ClientId = crewcueProp("crewcue.release.auth0ClientId")
+val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
+
 android {
     namespace = "com.crewcue.android"
     compileSdk = 35
@@ -90,6 +97,11 @@ android {
 
     buildTypes {
         release {
+            buildConfigField("String", "crewcue_auth0_domain", crewcueQuoted(releaseAuth0Domain))
+            buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(releaseAuth0ClientId))
+            buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(releaseAuth0Audience))
+            buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(releaseApiBaseUrl))
+            manifestPlaceholders["auth0Domain"] = releaseAuth0Domain.ifBlank { "auth0.invalid" }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -131,6 +143,32 @@ android {
         getByName("androidTest") {
             assets.srcDir(repoRoot.resolve("clients/behavior"))
         }
+    }
+}
+
+// Fail before building a release APK or bundle that has no usable server or sign-in settings.
+// Debug builds are not checked; they keep the local API fallback.
+gradle.taskGraph.whenReady {
+    val buildsRelease = allTasks.any { task ->
+        task.project == project && (task.name == "assembleRelease" || task.name == "bundleRelease")
+    }
+    if (!buildsRelease) return@whenReady
+    val problems = buildList {
+        val host = releaseApiBaseUrl.removePrefix("https://").substringBefore('/').substringBefore(':').lowercase()
+        if (!releaseApiBaseUrl.startsWith("https://") || host.isBlank() ||
+            host in setOf("localhost", "127.0.0.1", "10.0.2.2", "0.0.0.0")
+        ) {
+            add("crewcue.release.apiBaseUrl must be an https server address (got \"$releaseApiBaseUrl\")")
+        }
+        if (releaseAuth0Domain.isBlank()) add("crewcue.release.auth0Domain is empty")
+        if (releaseAuth0ClientId.isBlank()) add("crewcue.release.auth0ClientId is empty")
+        if (releaseAuth0Audience.isBlank()) add("crewcue.release.auth0Audience is empty")
+    }
+    if (problems.isNotEmpty()) {
+        throw GradleException(
+            "Release build config is incomplete (see docs/runbooks/mobile-release.md):\n- " +
+                problems.joinToString("\n- ")
+        )
     }
 }
 

@@ -9,7 +9,7 @@ Status key: **done** = meets the store or production bar today; **gap** = engine
 Ordered by what unblocks the first TestFlight build and the first Play internal-testing build soonest. The pipeline already exists: `npm run release -- X.Y.Z` pushes a tag, and `.github/workflows/release.yml` archives, signs and uploads both apps. It stops at "Check release secrets" until items 1 and 3 are done.
 
 1. **Apple Developer team and App Store Connect app record** for bundle id `com.crewcue.ios`. Add these GitHub secrets: `APPLE_TEAM_ID`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64` (App Store Connect API key with App Manager role). `apps/ios/ExportOptions.plist` already uses automatic signing with `__TEAM_ID__` replaced in CI.
-2. **Choose the API and Auth0 tenant the first test builds talk to** (#561). Release builds today call `http://127.0.0.1:3000` (iOS) and `http://10.0.2.2:3000` (Android), so a TestFlight build cannot sign in or load data. Fastest unblock: point Release at the https staging API, which already matches the staging Auth0 tenant in the apps, and keep production for later. Then add `crewcue://auth` callback and logout URLs for the iOS and Android Auth0 applications.
+2. **Choose the API and Auth0 tenant the first test builds talk to.** Since #561, release builds take them only from the `release` environment variables `CREWCUE_API_BASE_URL`, `CREWCUE_AUTH0_DOMAIN`, `CREWCUE_AUTH0_CLIENT_ID` and `CREWCUE_AUTH0_AUDIENCE` (`docs/runbooks/mobile-release.md`). The release workflow stops until they are set. Fastest unblock: use the https staging API and the staging Auth0 tenant, and keep production for later. Then add `crewcue://auth` callback and logout URLs for the iOS and Android Auth0 applications.
 3. **Google Play Console developer account and app record** for `com.crewcue.android`.
    - Enroll in Play App Signing and create an upload keystore.
    - Add these GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `PLAY_SERVICE_ACCOUNT_JSON` (service account granted release access in the Play Console).
@@ -59,7 +59,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Version and build numbers | done | `MARKETING_VERSION 0.0.0` / `CURRENT_PROJECT_VERSION 1` in the project. `release.yml` sets version from the tag and build to `GITHUB_RUN_NUMBER + 100`. | none |
 | Release build config | done | Release: `SWIFT_COMPILATION_MODE = wholemodule`, `dwarf-with-dsym`, `VALIDATE_PRODUCT`. `DEBUG` condition only in Debug. dSYMs are archived by CI. | none |
 | Dev routes in Release | done (this PR) | `DevLinks.enabled` is false outside `DEBUG` | none |
-| Environment config | gap, **TestFlight blocker** | `Info.plist`: `CrewCueAPIBaseURL = http://127.0.0.1:3000`, dev Auth0 tenant, staging audience. `LaunchConfiguration.swift` falls back to localhost. | #561 |
+| Environment config | done (#561), needs-user values | `Info.plist` reads `$(CREWCUE_API_BASE_URL)` and the Auth0 settings from `Config/CrewCue.xcconfig`. Debug uses the local API; Release has no defaults, so `release.yml` passes them. `LaunchConfiguration.swift` accepts only an https, non-local server in Release and shows "CrewCue can't start" otherwise. | Needs-you item 2 |
 | Token storage | gap | `packages/client-core/.../Session.swift` writes `session.json` (plain JSON, no file protection) | #567 |
 | Crash reporting | gap | none present | #564 |
 | Accessibility | mostly done | `CrewFont` uses text styles. Labels on icon buttons (`CrewComponents.swift`, `ChatView.swift`). Race switcher has `.isSelected`. | Map and Pace screens not audited, since parallel sessions own them: #570 |
@@ -75,8 +75,8 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Signing | needs-user | Release `signingConfig` is created only when `CREWCUE_ANDROID_KEYSTORE` is set (`build.gradle.kts`). `release.yml` decodes the keystore from secrets. | Needs-you item 3 |
 | Version numbers | done | `-Pcrewcue.versionCode/versionName` from `release.yml`. The default `1` / `0.0.0-dev` applies to local builds only. | none |
 | Dev routes and dev session in release | done (this PR) | `DevSession.parse` and `DevRoutes.inboundFeatureId` gated on `BuildConfig.DEBUG` | none |
-| Environment config | gap, **internal-testing blocker** | `res/values/strings.xml` uses the dev Auth0 tenant and an empty API URL, so `AuthConfig.kt` falls back to `http://10.0.2.2:3000` | #561 |
-| Cleartext | done | No `usesCleartextTraffic` and no network security config, so cleartext is blocked at targetSdk 35 for platform stacks. The Swift networking layer was not verified to honour it. #561 removes the http fallback. | #561 |
+| Environment config | done (#561), needs-user values | The release build type takes the API and Auth0 settings only from `-Pcrewcue.release.*` (`release.yml`), and `bundleRelease`/`assembleRelease` fail at configuration time without an https API. `AuthConfig.kt` keeps the `10.0.2.2` fallback for debug only, and a release build without config shows "CrewCue can't start". | Needs-you item 2 |
+| Cleartext | done | No `usesCleartextTraffic` and no network security config, so cleartext is blocked at targetSdk 35 for platform stacks. The Swift networking layer was not verified to honour it. Since #561, release builds accept only an https API. | none |
 | Backup | done | `android:allowBackup="false"` | none |
 | Account deletion | gap, **release blocker** | `ui/settings/SettingsSheet.kt` has only Sign out | #560 (in-app) and needs-you item 7 (web URL) |
 | Push (FCM) | gap | Firebase is not a dependency. `ui/chat/PushRegistrationScreen.kt` uses reflection, so the token is always null. | #563 |
