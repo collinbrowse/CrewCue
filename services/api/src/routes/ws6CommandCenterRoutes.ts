@@ -80,10 +80,13 @@ async function loadTeamMetricConfigIfNeeded(teamId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  await teamMetricHydrator.loadIfNeeded(teamId, async () => {
+  await teamMetricHydrator.loadIfNeeded(teamId, async ({ stillCurrent }) => {
     const raw = await loadTeamMetricConfigPayload(teamId);
+    if (!stillCurrent()) {
+      return;
+    }
     const parsed = normalizeTeamMetricConfigPayload(raw, teamId);
-    if (parsed) {
+    if (parsed && stillCurrent()) {
       teamMetricConfigs.set(teamId, parsed);
     }
   });
