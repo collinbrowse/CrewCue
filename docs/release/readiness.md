@@ -14,7 +14,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
    - Enroll in Play App Signing and create an upload keystore.
    - Add these GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, `PLAY_SERVICE_ACCOUNT_JSON` (service account granted release access in the Play Console).
    - Upload the first AAB to internal testing by hand in the Console. The Play API cannot create an app's first release.
-4. **Play target API extension, only if #571 is not merged first.** Play accepts new apps only at API 36 since 2026-08-31. You can request an extension to 2026-11-01 in the Play Console.
+4. **Play target API extension:** not needed once #571 is merged (the app targets API 36).
 5. **Privacy policy URL.** Both stores need it: App Store Connect before external TestFlight, and Play before any track goes out (Data safety form). In-app links are tracked in #569.
 6. **App privacy answers (App Store) and Data safety form (Play).** Use [Privacy inputs](#privacy-inputs) below. Confirm the export-compliance answer: the app uses only HTTPS/TLS from the OS, and `ITSAppUsesNonExemptEncryption = NO` is already set for Release.
 7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing.
@@ -70,13 +70,13 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Item | Status | Evidence | Fix |
 | --- | --- | --- | --- |
 | Permissions | done for foreground use | `AndroidManifest.xml`: `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`. There is no background location and no foreground service, so Play needs no background-location declaration today. | Background tracking: #562 adds a `location`-type foreground service (`FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION`) and the Play declaration |
-| Target API level | gap, **internal-testing blocker** | `compileSdk`/`targetSdk` 35, `minSdk` 28 (`app/build.gradle.kts`). Since 2026-08-31 Play accepts new apps and updates only at API 36 ([Play policy](https://support.google.com/googleplay/android-developer/answer/11926878)). An extension to 2026-11-01 can be requested in the Console. | #571 (needs AGP > 8.7.3; overlaps Dependabot #551). If #571 is not merged before the first upload, request the extension (needs-user). |
+| Target API level | done (#571) | `compileSdk`/`targetSdk` 36, `minSdk` 28 (`app/build.gradle.kts`), on AGP 8.13 and Gradle 8.14. Play accepts new apps and updates only at API 36 since 2026-08-31 ([Play policy](https://support.google.com/googleplay/android-developer/answer/11926878)). | AGP 9 / Gradle 9 is a separate migration (Dependabot #551 was closed for it). |
 | Release minify / R8 | done (this PR) | `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-rules.pro` | Upload `mapping.txt` with the AAB once crash reporting lands (#564) |
 | Signing | needs-user | Release `signingConfig` is created only when `CREWCUE_ANDROID_KEYSTORE` is set (`build.gradle.kts`). `release.yml` decodes the keystore from secrets. | Needs-you item 3 |
 | Version numbers | done | `-Pcrewcue.versionCode/versionName` from `release.yml`. The default `1` / `0.0.0-dev` applies to local builds only. | none |
 | Dev routes and dev session in release | done (this PR) | `DevSession.parse` and `DevRoutes.inboundFeatureId` gated on `BuildConfig.DEBUG` | none |
 | Environment config | done (#561), needs-user values | The release build type takes the API and Auth0 settings only from `-Pcrewcue.release.*` (`release.yml`), and `bundleRelease`/`assembleRelease` fail at configuration time without an https API. `AuthConfig.kt` keeps the `10.0.2.2` fallback for debug only, and a release build without config shows "CrewCue can't start". | Needs-you item 2 |
-| Cleartext | done | No `usesCleartextTraffic` and no network security config, so cleartext is blocked at targetSdk 35 for platform stacks. The Swift networking layer was not verified to honour it. Since #561, release builds accept only an https API. | none |
+| Cleartext | done | No `usesCleartextTraffic` and no network security config, so cleartext is blocked at targetSdk 36 for platform stacks. The Swift networking layer was not verified to honour it. Since #561, release builds accept only an https API. | none |
 | Backup | done | `android:allowBackup="false"` | none |
 | Account deletion | gap, **release blocker** | `ui/settings/SettingsSheet.kt` has only Sign out | #560 (in-app) and needs-you item 7 (web URL) |
 | Push (FCM) | gap | Firebase is not a dependency. `ui/chat/PushRegistrationScreen.kt` uses reflection, so the token is always null. | #563 |

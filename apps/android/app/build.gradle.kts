@@ -52,12 +52,12 @@ val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
 
 android {
     namespace = "com.crewcue.android"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.crewcue.android"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (findProperty("crewcue.versionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("crewcue.versionName") as String?) ?: "0.0.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
