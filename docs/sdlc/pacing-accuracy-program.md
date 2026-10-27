@@ -82,7 +82,7 @@ Acceptance:
 - Two athletes with materially different history produce different aid clocks on the same course.
 - No history yields the cold-start estimate plus prompt, never a silent 6:00/km.
 
-Mobile UI, so simulator proof is required per `.cursor/rules/mobile-simulator-agent-qa.mdc`. Auth0 is a known unattended-sim blocker (#333); if it blocks, stop and report what was verified plus options. Do not fake a pass.
+Mobile UI, so simulator proof is required per `.claude/rules/mobile-simulator-agent-qa.md`. Auth0 is a known unattended-sim blocker (#333); if it blocks, stop and report what was verified plus options. Do not fake a pass.
 
 ### PR B — backtest harness (no behavior change)
 

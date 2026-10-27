@@ -1,6 +1,5 @@
 ---
 description: Update agent-handoff.md at PR/wave boundaries for multi-session continuity
-alwaysApply: false
 ---
 
 # Agent handoff continuity

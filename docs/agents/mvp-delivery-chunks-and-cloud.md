@@ -1,6 +1,5 @@
 ---
 description: Staging-first cloud rollout when touching Postgres, Auth0, payments, or staging/prod clients
-alwaysApply: false
 ---
 
 # Staging-first cloud delivery

@@ -1,6 +1,5 @@
 ---
 description: Keep agent context small; skip ceremony on trivial tasks
-alwaysApply: true
 ---
 
 # Token budget (always on, short)
