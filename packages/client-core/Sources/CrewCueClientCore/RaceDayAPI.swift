@@ -293,28 +293,38 @@ public enum RaceDayAPI {
         plannedPaceSecondsPerKm: Double,
         idempotencyKey: String? = nil
     ) async throws -> Data {
-        let previewBody: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
-        let preview = try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: previewBody)
-        guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
-            throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
+        guard let gate = graph.outbox?.courseUploads else {
+            return try await uploadCourse(
+                graph: graph,
+                roomId: roomId,
+                fileName: fileName,
+                gpxXml: gpxXml,
+                raceStartAt: raceStartAt,
+                plannedPaceSecondsPerKm: plannedPaceSecondsPerKm,
+                idempotencyKey: idempotencyKey
+            )
         }
-        let anchors = try await courseImportAnchors(
-            graph: graph,
-            roomId: roomId,
-            raceStartAt: raceStartAt,
-            plannedPaceSecondsPerKm: plannedPaceSecondsPerKm
-        )
-        object["plannedPaceSecondsPerKm"] = anchors.pace
-        object["raceStartAt"] = anchors.start
-        object["courseGpxXml"] = gpxXml
-        object["courseFileName"] = fileName
-        return try await sendJSON(
-            graph,
-            "/race-rooms/\(roomId)/course",
-            method: .put,
-            object: object,
-            idempotencyKey: idempotencyKey
-        )
+        let ticket = await gate.bump(roomId: roomId)
+        do {
+            let data = try await gate.perform(roomId: roomId, ticket: ticket) {
+                try await uploadCourse(
+                    graph: graph,
+                    roomId: roomId,
+                    fileName: fileName,
+                    gpxXml: gpxXml,
+                    raceStartAt: raceStartAt,
+                    plannedPaceSecondsPerKm: plannedPaceSecondsPerKm,
+                    idempotencyKey: idempotencyKey
+                )
+            }
+            try await graph.outbox?.removePendingGpx(roomId: roomId, beforeTicket: ticket)
+            return data
+        } catch is CourseUploadSuperseded {
+            throw CourseUploadSuperseded()
+        } catch {
+            await gate.abandon(roomId: roomId, ticket: ticket)
+            throw error
+        }
     }
 
     /// #250: save planned stop minutes. Sends only the changed checkpoints; the server applies all
@@ -518,14 +528,56 @@ public enum RaceDayAPI {
               let pace = (object["plannedPaceSecondsPerKm"] as? NSNumber)?.doubleValue else {
             throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
         }
-        return try await importGpx(
+        let roomId = operation.roomId
+        let idempotencyKey = operation.idempotencyKey
+        let upload: @Sendable () async throws -> Data = {
+            try await uploadCourse(
+                graph: graph,
+                roomId: roomId,
+                fileName: fileName,
+                gpxXml: gpxXml,
+                raceStartAt: raceStartAt,
+                plannedPaceSecondsPerKm: pace,
+                idempotencyKey: idempotencyKey
+            )
+        }
+        guard let gate = graph.outbox?.courseUploads else {
+            return try await upload()
+        }
+        let ticket = OutboxStore.courseUploadTicket(in: operation.payloadJSON) ?? 0
+        return try await gate.perform(roomId: operation.roomId, ticket: ticket, upload)
+    }
+
+    private static func uploadCourse(
+        graph: ClientGraph,
+        roomId: String,
+        fileName: String,
+        gpxXml: String,
+        raceStartAt: String,
+        plannedPaceSecondsPerKm: Double,
+        idempotencyKey: String?
+    ) async throws -> Data {
+        let previewBody: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
+        let preview = try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: previewBody)
+        guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
+            throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
+        }
+        let anchors = try await courseImportAnchors(
             graph: graph,
-            roomId: operation.roomId,
-            fileName: fileName,
-            gpxXml: gpxXml,
+            roomId: roomId,
             raceStartAt: raceStartAt,
-            plannedPaceSecondsPerKm: pace,
-            idempotencyKey: operation.idempotencyKey
+            plannedPaceSecondsPerKm: plannedPaceSecondsPerKm
+        )
+        object["plannedPaceSecondsPerKm"] = anchors.pace
+        object["raceStartAt"] = anchors.start
+        object["courseGpxXml"] = gpxXml
+        object["courseFileName"] = fileName
+        return try await sendJSON(
+            graph,
+            "/race-rooms/\(roomId)/course",
+            method: .put,
+            object: object,
+            idempotencyKey: idempotencyKey
         )
     }
 

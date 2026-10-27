@@ -83,6 +83,8 @@ public enum OutboxStoreError: Error, Equatable, Sendable {
 public actor OutboxStore: UserDataStore {
     public let userId: String
     public nonisolated let fileURL: URL
+    /// Shared with course import so a queued GPX upload and a newer import cannot overlap.
+    public nonisolated let courseUploads = CourseUploadGate()
     private nonisolated let file: OutboxFile
     private var inFlight: Set<String> = []
 
@@ -299,33 +301,72 @@ public actor OutboxStore: UserDataStore {
         return operation
     }
 
-    public func enqueueGpx(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double, role: String) throws -> StoredOperation {
+    public func enqueueGpx(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double, role: String) async throws -> StoredOperation {
+        let ticket = await courseUploads.bump(roomId: roomId)
         let payload: [String: Any] = [
             "fileName": fileName,
             "gpxXml": gpxXml,
             "raceStartAt": raceStartAt,
-            "plannedPaceSecondsPerKm": plannedPaceSecondsPerKm
+            "plannedPaceSecondsPerKm": plannedPaceSecondsPerKm,
+            "courseUploadTicket": ticket
         ]
-        let data = try JSONSerialization.data(withJSONObject: payload)
-        let json = String(decoding: data, as: UTF8.self)
-        let operation = StoredOperation(
-            id: "gpx-\(roomId)-\(fileName)",
-            type: "gpx",
-            conflictKey: "gpx:\(roomId)",
-            roomId: roomId,
-            payloadJSON: json,
-            idempotencyKey: IdempotencyKey.hashPayload(json),
-            clientMessageId: "gpx-\(roomId)-\(fileName)",
-            role: role
-        )
-        var all = try load()
-        if let index = all.firstIndex(where: { $0.conflictKey == operation.conflictKey && $0.status == "pending" }) {
-            all[index] = operation
-        } else {
-            all.append(operation)
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let json = String(decoding: data, as: UTF8.self)
+            let operation = StoredOperation(
+                id: "gpx-\(roomId)-\(fileName)",
+                type: "gpx",
+                conflictKey: "gpx:\(roomId)",
+                roomId: roomId,
+                payloadJSON: json,
+                idempotencyKey: IdempotencyKey.hashPayload(json),
+                clientMessageId: "gpx-\(roomId)-\(fileName)",
+                role: role
+            )
+            var all = try load()
+            if let index = all.firstIndex(where: { $0.conflictKey == operation.conflictKey && $0.status == "pending" }) {
+                all[index] = operation
+            } else {
+                all.append(operation)
+            }
+            try save(all)
+            return operation
+        } catch {
+            await courseUploads.abandon(roomId: roomId, ticket: ticket)
+            throw error
         }
-        try save(all)
-        return operation
+    }
+
+    /// Drop queued route files this successful import replaced. A newer ticket stays queued.
+    public func removePendingGpx(roomId: String, beforeTicket: Int) throws {
+        var all = try load()
+        let original = all.count
+        all.removeAll { operation in
+            guard operation.roomId == roomId, operation.type == "gpx", operation.status == "pending" else {
+                return false
+            }
+            guard let ticket = Self.courseUploadTicket(in: operation.payloadJSON) else {
+                return true
+            }
+            return ticket < beforeTicket
+        }
+        if all.count != original {
+            try save(all)
+        }
+    }
+
+    public nonisolated static func courseUploadTicket(in payloadJSON: String) -> Int? {
+        guard let data = payloadJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let number = object["courseUploadTicket"] as? Int {
+            return number
+        }
+        if let number = object["courseUploadTicket"] as? NSNumber {
+            return number.intValue
+        }
+        return nil
     }
 
     /// Sends the pending snapshot. Each result is merged into the file as it is now: only the exact
