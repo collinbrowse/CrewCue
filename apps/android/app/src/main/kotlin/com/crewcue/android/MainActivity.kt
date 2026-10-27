@@ -15,6 +15,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import com.auth0.android.provider.WebAuthProvider
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.AppRouter
 import com.crewcue.android.ui.ConfigurationErrorScreen
@@ -76,6 +77,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (container.authConfig.problem != null) return
+        // Auth0 returns to crewcue://auth, which this activity's bare-scheme filter catches
+        // before the SDK's RedirectActivity (that one only listens on the tenant host).
+        if (intent.data?.host == AUTH_REDIRECT_HOST && WebAuthProvider.resume(intent)) return
         shellModel.open(intent)
+    }
+
+    private companion object {
+        const val AUTH_REDIRECT_HOST = "auth"
     }
 }
