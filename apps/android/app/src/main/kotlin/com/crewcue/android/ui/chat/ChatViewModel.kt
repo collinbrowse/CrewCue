@@ -9,7 +9,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.ui.map.isOnline
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -18,7 +20,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 class ChatViewModel(
     private val raceDay: RaceDayBridge,
@@ -259,7 +260,7 @@ class ChatViewModel(
         for (index in 0 until tokens.length()) {
             val token = tokens.optJSONObject(index) ?: continue
             if (token.optString("type") != "mention") continue
-            val name = token.optString("displayName")
+            val name = token.optText("displayName")
             if (name.isNotBlank()) names += name
         }
         return names

@@ -57,7 +57,7 @@ Use a branch name that matches the issue number or slug when helpful (not requir
   - Decision tree and rationale
   - Implicit assumptions and invariants
   - Higher-order effects check (fill `- Summary:`; value may be `None identified`)
-- Agents: always-on `.cursor/rules/pr-decision-doc-guard.mdc`; `npm run agent:pr:done` enforces the same checks as CI `pr-decision-doc-guard`. Do not use a Summary-only `--body`.
+- Agents: always-on `.claude/rules/pr-decision-doc-guard.md`; `npm run agent:pr:done` enforces the same checks as CI `pr-decision-doc-guard`. Do not use a Summary-only `--body`.
 
 ## 4. Link the PR to the issue (required for auto-close)
 

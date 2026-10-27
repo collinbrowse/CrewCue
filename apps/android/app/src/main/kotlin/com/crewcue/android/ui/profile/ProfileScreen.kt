@@ -53,6 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.crewcue.android.R
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.ui.RaceChoice
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.brand.CairnLoader
@@ -62,8 +63,8 @@ import com.crewcue.android.ui.map.isOnline
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CrewListRow
 import com.crewcue.android.ui.theme.CrewProgressBar
-import com.crewcue.android.ui.theme.IconDisc
 import com.crewcue.android.ui.theme.CrewTextField
+import com.crewcue.android.ui.theme.IconDisc
 import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricLargeStyle
 import com.crewcue.android.ui.theme.MetricStyle
@@ -384,7 +385,7 @@ class ProfileViewModel(
         for (index in 0 until rows.length()) {
             val row = rows.optJSONObject(index) ?: continue
             if (row.optString("userId") != userId) continue
-            return row.optString("displayName").trim()
+            return row.optText("displayName").trim()
         }
         return ""
     }

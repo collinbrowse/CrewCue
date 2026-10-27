@@ -253,6 +253,16 @@ final class ShellModel {
         }
         roster.adopt(RaceSummary(id: roomId, name: roster.races.first { $0.id == roomId }?.name ?? "New race", role: signedInRole ?? "crew_member"))
         Task { await loadRaces() }
+        // Join is a full-screen route. Return to Profile, where the joined race is now active.
+        if route.featureId == "join-crew" {
+            showProfile()
+        }
+    }
+
+    /// Leaves a full-screen route for the shell's Profile tab.
+    func showProfile() {
+        show(Route(featureId: "profile", state: .success))
+        enterShellIfNeeded()
     }
 
     func updateDisplayName(_ name: String) {

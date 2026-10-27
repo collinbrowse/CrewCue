@@ -79,7 +79,7 @@ jobs:
       && needs.dual-client-guard.result == 'success'
       && (needs.pr-decision-doc-guard.result == 'success' || needs.pr-decision-doc-guard.result == 'skipped')
     needs: [pr-decision-doc-guard, dual-client-guard]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -148,7 +148,7 @@ jobs:
   android:
     needs: changes
     if: needs.changes.outputs.android == 'true' || github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     timeout-minutes: 60
     env:
       CREWCUE_REQUIRE_ANDROID_SWIFT: "1"
