@@ -1,7 +1,7 @@
 ---
 description: iOS simulator QA via XcodeBuildMCP before completing mobile UI work
-globs: apps/ios/**
-alwaysApply: false
+paths:
+  - "apps/ios/**"
 ---
 
 # Mobile simulator agent QA
