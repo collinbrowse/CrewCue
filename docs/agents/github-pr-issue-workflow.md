@@ -1,6 +1,5 @@
 ---
 description: Issue/PR workflow for features and merges to main; required PR decision-guard sections (pr-decision-doc-guard)
-alwaysApply: false
 ---
 
 # GitHub issues and pull requests

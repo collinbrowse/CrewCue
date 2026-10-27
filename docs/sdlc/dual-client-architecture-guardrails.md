@@ -30,9 +30,9 @@ Parity is the behavior checklist in `clients/behavior/`, plus each platform's de
 
 File layout, dependency injection, routes, errors, and screen models live in the path-scoped rules. Load only the trees the task touches:
 
-- `packages/client-core/**` → `.cursor/rules/client-core-architecture.mdc`
-- `apps/ios/**` → that rule plus `.cursor/rules/ios-presentation.mdc`
-- `apps/android/**` → that rule plus `.cursor/rules/android-presentation.mdc`
+- `packages/client-core/**` → `.claude/rules/client-core-architecture.md`
+- `apps/ios/**` → that rule plus `.claude/rules/ios-presentation.md`
+- `apps/android/**` → that rule plus `.claude/rules/android-presentation.md`
 
 ## 4) Gates
 

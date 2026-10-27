@@ -1,7 +1,7 @@
 ---
 description: Compose presentation structure for apps/android
-globs: apps/android/**
-alwaysApply: false
+paths:
+  - "apps/android/**"
 ---
 
 # Android presentation
@@ -14,8 +14,8 @@ Same responsibilities as iOS, in Compose. Use this when a screen does more than 
 - `logging/AndroidLogger.kt` adapts `android.util.Log`. Coroutines only. No `GlobalScope`. No new policy `object`s. `ClientCoreBridge` stays the JNI edge.
 - `ui/<feature>/` holds the ViewModel and composable. Test tag is `crewcue.<feature>`. `contentDescription` is a human label, separate from the test id.
 - SDK pockets (MapLibre, Stream, Auth0) stay in the app module.
-- Shared policy, errors, and routes: `.cursor/rules/client-core-architecture.mdc`.
+- Shared policy, errors, and routes: `.claude/rules/client-core-architecture.md`.
 
 ## Proof
 
-`npm run agent:android:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.cursor/rules/android-emulator-agent-qa.mdc`.
+`npm run agent:android:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.claude/rules/android-emulator-agent-qa.md`.

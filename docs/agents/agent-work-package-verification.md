@@ -1,6 +1,5 @@
 ---
 description: Ready/Done checks for agent-ready work packages and async delivery waves
-alwaysApply: false
 ---
 
 # Agent work-package verification
