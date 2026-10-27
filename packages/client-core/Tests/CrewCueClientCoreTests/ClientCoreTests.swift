@@ -162,10 +162,14 @@ actor HeaderCaptureTransport: HTTPTransport {
 
 actor CourseImportTransport: HTTPTransport {
     private let failRoomGet: Bool
+    private let roomJSON: String
     private var putBody: Data?
 
-    init(failRoomGet: Bool = false) {
+    init(failRoomGet: Bool = false, roomJSON: String? = nil) {
         self.failRoomGet = failRoomGet
+        self.roomJSON = roomJSON ?? """
+        {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
+        """
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -177,10 +181,7 @@ actor CourseImportTransport: HTTPTransport {
             if failRoomGet {
                 return HTTPResponse(status: 500, body: Data(#"{"error":"room get should not run"}"#.utf8))
             }
-            let json = """
-            {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
-            """
-            return HTTPResponse(status: 200, body: Data(json.utf8))
+            return HTTPResponse(status: 200, body: Data(roomJSON.utf8))
         }
         putBody = request.body
         return HTTPResponse(status: 200, body: Data(#"{}"#.utf8))
@@ -403,6 +404,35 @@ struct SilentLogger: Logger {
     #expect(kept?.raceStartAt == "2026-09-01T06:00:00.000Z")
     #expect(kept?.pace == 400)
     try store.wipe()
+}
+
+@Test func androidGpxImportUploadsARoomThatHasNoClockYet() async throws {
+    let bare = """
+    {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"}}}
+    """
+    let transport = CourseImportTransport(roomJSON: bare)
+    RuntimeCall.setTransportForTests(transport)
+    defer { RuntimeCall.setTransportForTests(nil) }
+    let response = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+    #expect(object?["ok"] as? Bool == true)
+    #expect((object?["result"] as? [String: Any])?["status"] as? String == "saved")
+    let put = await transport.coursePut()
+    #expect(put?.pace == 360)
+    #expect(put?.raceStartAt.isEmpty == false)
+
+    let stored = CourseImportTransport()
+    RuntimeCall.setTransportForTests(stored)
+    let kept = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let keptObject = try JSONSerialization.jsonObject(with: Data(kept.utf8)) as? [String: Any]
+    #expect(keptObject?["ok"] as? Bool == true)
+    let keptPut = await stored.coursePut()
+    #expect(keptPut?.raceStartAt == "2026-08-15T12:00:00.000Z")
+    #expect(keptPut?.pace == 720)
 }
 
 @Test func chatMutationsDoNotDropConcurrentAppends() async throws {

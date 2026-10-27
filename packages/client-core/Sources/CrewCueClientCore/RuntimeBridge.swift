@@ -23,6 +23,30 @@ import Dispatch
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
 enum RuntimeCall {
+    private final class TransportBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var transport: (any HTTPTransport)?
+
+        func get() -> (any HTTPTransport)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return transport
+        }
+
+        func set(_ transport: (any HTTPTransport)?) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.transport = transport
+        }
+    }
+
+    /// Tests inject a transport. Production calls leave this nil and use `URLSessionTransport`.
+    private static let transportForTests = TransportBox()
+
+    static func setTransportForTests(_ transport: (any HTTPTransport)?) {
+        transportForTests.set(transport)
+    }
+
     static func perform(_ json: String) async -> String {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -572,9 +596,9 @@ enum RuntimeCall {
                 if start.isEmpty { start = room.room.raceStartAt ?? "" }
                 if pace <= 0 { pace = room.room.plannedPaceSecondsPerKm ?? 0 }
             }
-            if start.isEmpty || pace <= 0 {
-                throw ClientHTTPError(status: 400, message: "Couldn't read the route file.")
-            }
+            // A new room has neither clock nor pace until this upload sets them. Do not fail
+            // here: RaceDayAPI.importGpx keeps a stored clock and otherwise uses the device
+            // clock and the 360 s/km default, same as the iOS import path.
             _ = try await RaceDayAPI.importGpx(
                 graph: graph,
                 roomId: roomId,
@@ -1349,7 +1373,7 @@ enum RuntimeCall {
         let token = object["token"] as? String
         let outbox = try? store(object)
         return ClientGraph(
-            transport: URLSessionTransport(),
+            transport: transportForTests.get() ?? URLSessionTransport(),
             clock: SystemClock(),
             logger: SilentRuntimeLogger(),
             baseURL: baseURL,
