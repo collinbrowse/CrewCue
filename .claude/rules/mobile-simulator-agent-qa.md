@@ -1,0 +1,36 @@
+---
+description: iOS simulator QA via XcodeBuildMCP before completing mobile UI work
+paths:
+  - "apps/ios/**"
+---
+
+# Mobile simulator agent QA
+
+Applies when changing **`apps/ios/**`** (SwiftUI).
+
+## Done means
+
+1. `npm run verify` (or scoped tests if agreed) **and**
+2. Acceptance criteria exercised on a **booted iOS simulator** via XcodeBuildMCP (or Maestro when a flow exists).
+
+Never report a mobile UI task complete without simulator proof.
+
+## Loop
+
+1. `npm run agent:ios:ready -- --deeplink crewcue://dev/hello` — builds and installs the SwiftUI app. Metro is not part of this gate. Prefer a checklist deeplink from `clients/behavior/deeplinks.json`.
+2. Skill **ios-simulator-agent-qa**: `snapshot_ui` → act by accessibility label → assert → screenshot on fail/pass.
+3. Fail → fix code → re-run harness if needed → repeat (cap **5** sim iterations, then stop with a blocker report).
+4. Before Done: `npm run agent:pr:done -- <pr>`.
+
+## Evidence (PR only)
+
+- Put screenshots, `snapshot_ui` excerpts, and pass/fail notes in the **PR description or PR comments**.
+- **Do not** commit evidence under `docs/` or permanent repo paths. Ephemeral local files only under `.agent-pr-evidence/` (gitignored).
+
+## Human blocker
+
+Stop (do not claim done) if the sim cannot proceed without human-only steps. Report what blocked, what was verified, and options to proceed.
+
+## Out of scope
+
+- API-only / web-only changes: existing test plans; no iOS sim required.

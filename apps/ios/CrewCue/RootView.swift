@@ -15,6 +15,7 @@ struct FeatureScreenView: View {
         .crewCard()
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(screen.accessibilityIdentifier)
         .accessibilityLabel(screen.title)
     }
@@ -29,6 +30,8 @@ struct CrewCueScreenModifier: ViewModifier {
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(CrewBackground())
+            // Contain the children so the screen label names the screen, not every control on it.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier(identifier)
             .accessibilityLabel(label)
     }

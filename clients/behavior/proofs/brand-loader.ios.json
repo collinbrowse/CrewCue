@@ -1,0 +1,18 @@
+{
+  "id": "brand-loader",
+  "platform": "ios",
+  "entry": "crewcue://dev/loader",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Opened crewcue://dev/loader and each ?state= overlay; three screenshots one second apart. Harness row: the loader page is the product.",
+  "checked": {
+    "Success": "App icon, standalone and inline stacking loaders, two shake loaders and a busy Recalculate button; frames differ across the three shots. Copy 'Three stones stack, then the stack clears and repeats.'",
+    "Empty": "?state=empty: 'Loading.'",
+    "Error": "?state=error: 'Couldn't load.'",
+    "Offline": "?state=offline: 'Offline. Waiting for a connection.'",
+    "Accessibility labels": "crewcue.loader, crewcue.loader-shake"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

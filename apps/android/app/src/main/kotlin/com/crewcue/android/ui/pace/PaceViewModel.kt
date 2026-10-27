@@ -60,6 +60,8 @@ class PaceViewModel(
         private set
     var estimateMessage by mutableStateOf<String?>(null)
         private set
+    val showsColdStart: Boolean
+        get() = estimateMessage == COLD_START
     var estimateDetail by mutableStateOf<String?>(null)
         private set
     var mayRecalculate by mutableStateOf(false)
@@ -383,7 +385,7 @@ class PaceViewModel(
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
         val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId) }
-        applyExport(exported, scheduleOffline = offline)
+        applyExport(exported, scheduleOffline = offline, scheduleFailed = result is RuntimeResult.Failure && !offline)
     }
 
     private fun applySchedule(result: RuntimeResult): Boolean {
@@ -410,7 +412,7 @@ class PaceViewModel(
                 }
                 val offline = json.optBoolean("offline")
                 scheduleMessage = when {
-                    offline -> SCHEDULE_OFFLINE
+                    offline -> SCHEDULE_OFFLINE_CACHED
                     parsed.first.isEmpty() -> SCHEDULE_EMPTY
                     else -> null
                 }
@@ -468,21 +470,9 @@ class PaceViewModel(
         }
         val hasEstimate = json.optBoolean("hasEstimate")
         hasPlanOfRecord = hasEstimate
-        val cold = json.optBoolean("coldStart")
-        when {
-            !hasEstimate && usableHistoryCount > 0 -> {
-                estimateMessage = ESTIMATE_EMPTY
-                estimateDetail = null
-            }
-            !hasEstimate || cold || usableHistoryCount == 0 -> {
-                estimateMessage = COLD_START
-                estimateDetail = if (hasEstimate) summary else null
-            }
-            else -> {
-                estimateMessage = summary ?: ESTIMATE_EMPTY
-                estimateDetail = null
-            }
-        }
+        val copy = estimateCopy(hasEstimate, json.optBoolean("coldStart"), usableHistoryCount, summary)
+        estimateMessage = copy.first
+        estimateDetail = copy.second
     }
 
     private suspend fun sendGpx(xml: String) {
@@ -510,7 +500,7 @@ class PaceViewModel(
         }
     }
 
-    private fun applyExport(result: RuntimeResult, scheduleOffline: Boolean) {
+    private fun applyExport(result: RuntimeResult, scheduleOffline: Boolean, scheduleFailed: Boolean) {
         when (result) {
             is RuntimeResult.Failure -> {
                 exportText = null
@@ -519,13 +509,8 @@ class PaceViewModel(
             is RuntimeResult.Success -> {
                 val text = result.result.optString("text").ifBlank { null }
                 val empty = result.result.optBoolean("empty") || text == null
-                if (empty) {
-                    exportText = null
-                    exportMessage = EXPORT_EMPTY
-                } else {
-                    exportText = text
-                    exportMessage = if (scheduleOffline) EXPORT_OFFLINE else EXPORT_SUCCESS
-                }
+                exportText = if (empty) null else text
+                exportMessage = exportCopy(empty, scheduleOffline, scheduleFailed)
             }
         }
     }
@@ -632,10 +617,34 @@ class PaceViewModel(
         }
     }
 
-    private companion object {
+    companion object {
+        /**
+         * Message for the crew sheet card. The sheet is built from the schedule saved on this device,
+         * so a schedule that failed with nothing saved is an error, not an empty sheet.
+         */
+        fun exportCopy(empty: Boolean, scheduleOffline: Boolean, scheduleFailed: Boolean): String = when {
+            empty && scheduleFailed -> EXPORT_ERROR
+            empty -> EXPORT_EMPTY
+            scheduleOffline -> EXPORT_OFFLINE
+            else -> EXPORT_SUCCESS
+        }
+
+        /**
+         * Message and detail for the estimate card. Crew never load the athlete's history, so only the
+         * estimate's own cold-start flag decides whether a plan of record is a cold start.
+         */
+        fun estimateCopy(hasEstimate: Boolean, coldStart: Boolean, usableHistoryCount: Int, summary: String?): Pair<String, String?> =
+            when {
+                !hasEstimate && usableHistoryCount > 0 -> ESTIMATE_EMPTY to null
+                !hasEstimate -> COLD_START to null
+                coldStart -> COLD_START to summary
+                else -> (summary ?: ESTIMATE_EMPTY) to null
+            }
+
         const val SCHEDULE_EMPTY = "No stops on this sheet."
         const val SCHEDULE_ERROR = "Couldn't load the schedule."
         const val SCHEDULE_OFFLINE = "Offline. Schedule not updated."
+        const val SCHEDULE_OFFLINE_CACHED = "Offline. Schedule not updated. The last sheet stays readable on this device."
         const val COLD_START = "Cold start: no history yet. Coarse estimate only."
         const val ESTIMATE_EMPTY = "No estimate yet."
         const val ESTIMATE_ERROR = "Couldn't load the pace estimate."

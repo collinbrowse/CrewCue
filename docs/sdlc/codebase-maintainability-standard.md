@@ -47,7 +47,7 @@ Every feature should follow this order.
 4. **UI composition** in one of `apps/ios` or `apps/android`
 5. **Runbook/spec updates** (`docs/sdlc`)
 
-Avoid writing UI-first code that invents behavior not yet represented in contracts/routes. File layout and presentation rules: `.cursor/rules/client-core-architecture.mdc`, `ios-presentation.mdc`, and `android-presentation.mdc`.
+Avoid writing UI-first code that invents behavior not yet represented in contracts/routes. File layout and presentation rules: `.claude/rules/client-core-architecture.md`, `ios-presentation.md`, and `android-presentation.md`.
 
 ---
 

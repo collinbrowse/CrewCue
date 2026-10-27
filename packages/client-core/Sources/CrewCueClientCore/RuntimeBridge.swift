@@ -468,7 +468,11 @@ enum RuntimeCall {
             if let estimate, let directory {
                 try? EstimateCache.save(estimate, directory: directory)
             }
-            let input = recomputeInput(object, estimate: estimate, record: record)
+            let input = recomputeInput(
+                await withActivityHistory(object, role: role, graph: graph),
+                estimate: estimate,
+                record: record
+            )
             let decision = RaceDayAPI.decideAutoRecompute(role: role, input: input)
             if !decision.recompute {
                 EstimateRecordFile.save(decision.nextRecord, directory)
@@ -778,6 +782,23 @@ enum RuntimeCall {
             historyFingerprint: fingerprint,
             record: record
         )
+    }
+
+    /// Adds the athlete's history when the caller did not send one, so every platform decides
+    /// the auto recompute from the same server history. Only roles that may auto-recompute fetch it.
+    /// A history failure leaves the estimate readable and simply skips the recompute.
+    static func withActivityHistory(_ object: [String: Any], role: String, graph: ClientGraph) async -> [String: Any] {
+        guard object["history"] == nil, PlanAuthority.mayAutoRecompute(role: role) else { return object }
+        guard let history = try? await RaceDayAPI.activityHistory(graph: graph) else { return object }
+        var filled = object
+        filled["history"] = history.map { row -> [String: Any] in
+            var fields: [String: Any] = ["id": row.id]
+            if let value = row.distanceMeters { fields["distanceMeters"] = value }
+            if let value = row.elapsedSeconds { fields["elapsedSeconds"] = value }
+            if let value = row.elevationGainMeters { fields["elevationGainMeters"] = value }
+            return fields
+        }
+        return filled
     }
 
     private static func activityHistory(_ object: [String: Any]) -> [ActivityHistoryRef] {
@@ -1476,6 +1497,8 @@ enum CoursePayload {
             "offline": false,
             "checkpoints": checkpoints,
             "name": (room["name"] as? String) ?? "",
+            // Android shows Remove member only to the race's athlete, as the API allows.
+            "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
             "elevation": elevationRows(room),
             "memberships": membershipRows(room)

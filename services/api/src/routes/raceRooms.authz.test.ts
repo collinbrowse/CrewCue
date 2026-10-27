@@ -310,3 +310,149 @@ test("returns 403 when crew_member cannot update entitlement", async () => {
 
   await app.close();
 });
+
+test("crew member cannot read another invite token from the room list", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const athleteToken = app.jwt.sign(buildClaims("athlete-user"));
+  const crewToken = app.jwt.sign(buildClaims("crew-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-user",
+      name: "Race Room",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const crewInvite = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "crew@example.com", role: "crew_member" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(crewInvite.statusCode, 201);
+  const crewTokenValue = (crewInvite.json() as { token: string }).token;
+
+  const acceptCrew = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: crewTokenValue },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(acceptCrew.statusCode, 200);
+
+  const chiefInvite = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "chief@example.com", role: "crew_chief" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(chiefInvite.statusCode, 201);
+  const chiefTokenValue = (chiefInvite.json() as { token: string }).token;
+
+  const crewList = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(crewList.statusCode, 200);
+  const crewInvites = (crewList.json() as { invites: Array<Record<string, unknown>> }).invites;
+  const listedChief = crewInvites.find((invite) => invite.email === "chief@example.com");
+  assert.ok(listedChief);
+  assert.equal(listedChief.role, "crew_chief");
+  assert.equal(Object.hasOwn(listedChief, "token"), false);
+
+  const athleteList = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(athleteList.statusCode, 200);
+  const athleteInvites = (athleteList.json() as { invites: Array<{ email: string; token?: string }> }).invites;
+  assert.equal(athleteInvites.find((invite) => invite.email === "chief@example.com")?.token, chiefTokenValue);
+
+  await app.close();
+});
+
+test("accepting a crew invite does not demote the race athlete", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const athleteToken = app.jwt.sign(buildClaims("athlete-user"));
+  const crewToken = app.jwt.sign(buildClaims("crew-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-user",
+      name: "Race Room",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "crew@example.com", role: "crew_member" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(inviteResponse.statusCode, 201);
+  const token = (inviteResponse.json() as { token: string }).token;
+
+  const selfAccept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(selfAccept.statusCode, 409);
+  assert.equal(
+    (selfAccept.json() as { error: string }).error,
+    "Race owner role cannot be changed from athlete"
+  );
+
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(paid.statusCode, 200);
+
+  const roomAfter = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}`,
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(roomAfter.statusCode, 200);
+  const viewed = roomAfter.json() as {
+    permissions: { canEditRaceSetup: boolean };
+    room: { memberships: Array<{ userId: string; role: string }> };
+  };
+  assert.equal(viewed.room.memberships.find((member) => member.userId === "athlete-user")?.role, "athlete");
+  assert.equal(viewed.permissions.canEditRaceSetup, true);
+
+  const crewAccept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(crewAccept.statusCode, 200);
+  assert.equal((crewAccept.json() as { assignedRole: string }).assignedRole, "crew_member");
+
+  await app.close();
+});

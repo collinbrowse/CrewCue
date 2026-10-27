@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Behavior checklists are the parity spec.
- * `ios` / `android` may be "pass" only when a device proof file exists.
+ * `ios` / `android` may be "pass" only when a device proof file exists in
+ * clients/behavior/proofs/<id>.<platform>.json. The proof records what was seen on
+ * the device for each checklist state; screenshots go on the PR, not in the repo.
  * Usage: node scripts/verify-client-behavior.mjs
  */
 import fs from "node:fs";
@@ -9,8 +11,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const behaviorDir = path.join(repoRoot, "clients/behavior");
-const proofDir = path.join(repoRoot, ".agent-pr-evidence/behavior");
+const behaviorDir = process.env.CREWCUE_BEHAVIOR_DIR ?? path.join(repoRoot, "clients/behavior");
+const proofDir = path.join(behaviorDir, "proofs");
+const proofStates = ["Success", "Empty", "Error", "Offline"];
 const required = [
   "Entry",
   "Action",
@@ -39,15 +42,26 @@ function section(text, name) {
   return body.join("\n").trim();
 }
 
-function proofOk(id, platform) {
+/** Returns the problem with a proof file, or undefined when it is usable. */
+function proofProblem(id, platform, entry) {
   const file = path.join(proofDir, `${id}.${platform}.json`);
-  if (!fs.existsSync(file)) return false;
+  if (!fs.existsSync(file)) return "missing";
+  let parsed;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return parsed.id === id && parsed.platform === platform && typeof parsed.action === "string" && parsed.action.length > 0;
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
-    return false;
+    return "not JSON";
   }
+  const filled = (value) => typeof value === "string" && value.trim().length > 0;
+  if (parsed.id !== id || parsed.platform !== platform) return "id or platform does not match the file name";
+  if (parsed.entry !== entry) return `entry ${parsed.entry} != ${entry}`;
+  if (!filled(parsed.action)) return "action is empty";
+  if (!filled(parsed.device)) return "device is empty";
+  if (!filled(parsed.commit)) return "commit is empty";
+  for (const state of proofStates) {
+    if (!filled(parsed.checked?.[state])) return `checked.${state} is empty`;
+  }
+  return undefined;
 }
 
 function main() {
@@ -89,8 +103,9 @@ function main() {
       for (const platform of ["ios", "android"]) {
         const status = row[platform];
         if (!allowedStatus.has(status)) errors.push(`${id} ${platform} status ${status} is not allowed`);
-        if (status === "pass" && !proofOk(id, platform)) {
-          errors.push(`${id} ${platform} pass without .agent-pr-evidence/behavior/${id}.${platform}.json`);
+        if (status === "pass") {
+          const problem = proofProblem(id, platform, row.entry);
+          if (problem) errors.push(`${id} ${platform} pass without a usable proofs/${id}.${platform}.json (${problem})`);
         }
         if (status === "deferred") errors.push(`${id} is a feature row and cannot be deferred; move it to deeplinks.deferred`);
       }
@@ -99,6 +114,13 @@ function main() {
 
   for (const row of index.features ?? []) {
     if (!files.includes(`${row.id}.md`)) errors.push(`deeplinks.json id ${row.id} has no checklist`);
+  }
+
+  if (fs.existsSync(proofDir)) {
+    for (const name of fs.readdirSync(proofDir)) {
+      const match = name.match(/^(.+)\.(ios|android)\.json$/);
+      if (!match || !byId.has(match[1])) errors.push(`proofs/${name} does not name a feature row and platform`);
+    }
   }
 
   if (errors.length) {

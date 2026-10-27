@@ -1,0 +1,22 @@
+---
+description: SwiftUI presentation structure for apps/ios
+paths:
+  - "apps/ios/**"
+---
+
+# iOS presentation
+
+Use this when a screen does more than render `FeatureScreen`. A bugfix inside an existing fixture view does not restructure the shell.
+
+- SwiftUI. `@Observable` model per screen. The view renders. The model calls `packages/client-core`. No view-model base class and no second repository.
+- `App/CompositionRoot.swift` builds `ClientGraph` and passes it in.
+- `App/AppRouter.swift` is a `NavigationStack` bound to `Route`.
+- `Logging/OSLogLogger.swift` adapts the client-core `Logger`.
+- `Screens/<Feature>/` holds the model and view. Pockets stay app-local, same split as `apps/ios/CrewCue/Pockets.swift`.
+- Accessibility id `crewcue.<feature>`, a spoken label, and Dynamic Type. Identifiers stay stable for `snapshot_ui`.
+- The first iOS code task that compiles the app sets `SWIFT_VERSION` and strict concurrency on the app target.
+- Shared policy, errors, and routes: `.claude/rules/client-core-architecture.md`.
+
+## Proof
+
+`npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.claude/rules/mobile-simulator-agent-qa.md`.
