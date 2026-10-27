@@ -88,3 +88,72 @@ test("concurrent waiter sees state written by the shared load", async () => {
   assert.equal(a, "durable-visits");
   assert.equal(b, "durable-visits");
 });
+
+test("a load in flight during reset cannot commit the row reset is deleting", async () => {
+  const hydrator = createLazyHydrator();
+  let db = "durable-incidents";
+  const memory = new Map<string, string>();
+  let releaseRead!: () => void;
+  const readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let releaseDelete!: () => void;
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+
+  const loading = hydrator.loadIfNeeded("room-1", async ({ stillCurrent }) => {
+    const seen = db;
+    await readGate;
+    if (!stillCurrent() || seen.length === 0) {
+      return;
+    }
+    memory.set("room-1", seen);
+  });
+
+  await Promise.resolve();
+  const resetting = hydrator.reset("room-1", async () => {
+    memory.delete("room-1");
+    await deleteGate;
+    db = "";
+    memory.delete("room-1");
+  });
+
+  await Promise.resolve();
+  releaseRead();
+  releaseDelete();
+  await Promise.all([loading, resetting]);
+
+  assert.notEqual(memory.get("room-1"), "durable-incidents");
+  assert.equal(hydrator.isHydrated("room-1"), true);
+  assert.equal(db, "");
+});
+
+test("delete during an in-flight load does not commit that stale read", async () => {
+  const hydrator = createLazyHydrator();
+  const memory = new Map<string, string>();
+  let db = "stale";
+  let releaseRead!: () => void;
+  const readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+
+  const loading = hydrator.loadIfNeeded("room-1", async ({ stillCurrent }) => {
+    const seen = db;
+    await readGate;
+    if (!stillCurrent()) {
+      return;
+    }
+    memory.set("room-1", seen);
+  });
+
+  await Promise.resolve();
+  hydrator.delete("room-1");
+  db = "fresh";
+  assert.equal(hydrator.isHydrated("room-1"), false);
+  releaseRead();
+  await loading;
+
+  assert.equal(memory.get("room-1"), "fresh");
+  assert.equal(hydrator.isHydrated("room-1"), true);
+});

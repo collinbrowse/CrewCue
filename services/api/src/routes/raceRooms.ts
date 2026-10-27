@@ -59,8 +59,6 @@ import {
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
   deleteWs2RuntimePayload,
-  deleteWs4AdaptivePayload,
-  deleteWs5SyncPayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
@@ -676,15 +674,32 @@ async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  await ws2RuntimeHydrator.loadIfNeeded(roomId, async () => {
+  await ws2RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
     const raw = await loadWs2RuntimePayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
     const { ping, projection } = normalizeWs2RuntimePayload(raw);
+    if (!stillCurrent()) {
+      return;
+    }
     if (ping) {
       roomPingState.set(roomId, ping);
     }
     if (projection) {
       roomProjectionState.set(roomId, projection);
     }
+  });
+}
+
+/** Drop live ping/projection and the durable copy together so a concurrent hydrate cannot restore either. */
+async function discardWs2Runtime(roomId: string): Promise<void> {
+  await ws2RuntimeHydrator.reset(roomId, async () => {
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
+    await deleteWs2RuntimePayload(roomId);
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
   });
 }
 
@@ -1814,12 +1829,10 @@ async function persistCourseShapeChange(
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
       await deleteTaskBoardSnapshot(roomId);
-      await deleteWs4AdaptivePayload(roomId);
-      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-      clearWs4RoomLocalState(roomId);
-      await deleteWs5SyncPayload(roomId);
-      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-      clearWs5RoomLocalState(roomId);
+      const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+      await discardWs4RoomState(roomId);
+      const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+      await discardWs5RoomState(roomId);
     }
   }
   await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
@@ -2209,12 +2222,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
       await deleteTaskBoardSnapshot(roomId);
-      await deleteWs4AdaptivePayload(roomId);
-      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-      clearWs4RoomLocalState(roomId);
-      await deleteWs5SyncPayload(roomId);
-      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-      clearWs5RoomLocalState(roomId);
+      const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+      await discardWs4RoomState(roomId);
+      const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+      await discardWs5RoomState(roomId);
     }
 
       discardStaleProjectionIfNoLivePing(roomId);
@@ -2472,19 +2483,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // task boards / adaptive / sync payloads while leaving the prior workspace.
     await saveRaceRoom(updatedRoom);
 
-    roomPingState.delete(roomId);
-    roomProjectionState.delete(roomId);
-    ws2RuntimeHydrator.delete(roomId);
     clearTaskBoardLocalState(roomId);
-    await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
     await deleteTaskBoardSnapshot(roomId);
-    await deleteWs4AdaptivePayload(roomId);
-    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-    clearWs4RoomLocalState(roomId);
-    await deleteWs5SyncPayload(roomId);
-    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-    clearWs5RoomLocalState(roomId);
+    await discardWs2Runtime(roomId);
+    const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+    await discardWs4RoomState(roomId);
+    const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+    await discardWs5RoomState(roomId);
 
     return reply.send(updatedRoom);
   });
