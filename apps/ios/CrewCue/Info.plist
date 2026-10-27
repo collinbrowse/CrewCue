@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>CrewCue</string>
+  <key>CrewCueAPIBaseURL</key>
+  <string>$(CREWCUE_API_BASE_URL)</string>
+  <key>CrewCueMapTilerKey</key>
+  <string>$(CREWCUE_MAPTILER_KEY)</string>
+  <key>CrewCueAuth0Domain</key>
+  <string>$(CREWCUE_AUTH0_DOMAIN)</string>
+  <key>CrewCueAuth0ClientId</key>
+  <string>$(CREWCUE_AUTH0_CLIENT_ID)</string>
+  <key>CrewCueAuth0Audience</key>
+  <string>$(CREWCUE_AUTH0_AUDIENCE)</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>com.crewcue.ios</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>crewcue</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>auth0</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>com.crewcue.ios</string>
+      </array>
+    </dict>
+  </array>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>CrewCue uses your location while you are using the app to share the athlete's position with the crew.</string>
+  <key>UILaunchScreen</key>
+  <dict>
+    <key>UIColorName</key>
+    <string>LaunchBackground</string>
+  </dict>
+</dict>
+</plist>

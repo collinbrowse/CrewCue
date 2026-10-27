@@ -19,7 +19,8 @@ import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
-import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
+import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
+import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, saveRaceRoom } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -143,6 +144,20 @@ function checkpointDistanceMeters(checkpoint: RaceCourseCheckpoint): number {
   return distance;
 }
 
+/** Farthest checkpoint along the course. Ties keep the later row. */
+function farthestCheckpoint(checkpoints: readonly RaceCourseCheckpoint[]): RaceCourseCheckpoint | undefined {
+  let best: RaceCourseCheckpoint | undefined;
+  let bestDistance = -1;
+  for (const checkpoint of checkpoints) {
+    const distance = checkpointDistanceMeters(checkpoint);
+    if (distance >= bestDistance) {
+      best = checkpoint;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
   const fromDerived = room.course?.derivedMetrics?.canonicalDistanceMeters;
   if (typeof fromDerived === "number" && Number.isFinite(fromDerived) && fromDerived >= 0) {
@@ -189,10 +204,9 @@ export function movingElapsedSecondsFromEstimate(
   const finishElapsed = estimate.expectedFinishElapsedSeconds;
   anchors.push({ distanceMeters: courseLengthMeters, elapsedSeconds: finishElapsed });
 
-  // Prefer explicit finish checkpoint id when present.
-  const finishCp =
-    checkpoints.find((cp) => cp.id === "finish") ??
-    [...checkpoints].sort((a, b) => checkpointDistanceMeters(b) - checkpointDistanceMeters(a))[0];
+  // Stamp the plan finish on the farthest checkpoint. An earlier id of `finish`
+  // is the first pass of a loop or out-and-back, not the end of the race.
+  const finishCp = farthestCheckpoint(checkpoints);
   if (finishCp) {
     byId.set(finishCp.id, finishElapsed);
   }
@@ -374,7 +388,9 @@ const attachPacingEstimateBody = z
   .object({
     pacingEstimateId: z.string().min(1).optional(),
     /** Full estimate snapshot (alternative to id when client already holds POST /pacing-estimates output). */
-    estimate: z.unknown().optional()
+    estimate: z.unknown().optional(),
+    /** Why the plan changes (#538). Absent means "auto", which only the race athlete may use. */
+    trigger: planTriggerSchema.optional()
   })
   .strict()
   .refine((body) => body.pacingEstimateId !== undefined || body.estimate !== undefined, {
@@ -430,12 +446,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
   /**
    * Attach a pacing estimate as the room plan of record.
-   * Ownership: only the athlete who created the estimate may attach it (401/403 otherwise).
+   * Ownership: the race athlete attaches their own estimates for any trigger. Crew members may
+   * attach only an estimate built from the athlete's history (owned by the athlete), and only to
+   * seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise. Membership and
+   * entitlement gate the route; `decidePlanAuthority` decides the role and trigger.
    * Idempotent when the same estimate id is already attached.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireCourseEditor(app, request, reply, roomId);
+    const room = await requireRoomMember(app, request, reply, roomId);
     if (!room) {
       return;
     }
@@ -445,7 +464,23 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.code(400).send({ error: "Invalid pacing estimate attach payload", code: "invalid_payload" });
     }
 
-    const athleteUserId = request.identity!.sub;
+    const callerUserId = request.identity!.sub;
+    const membership = room.memberships.find((member) => member.userId === callerUserId);
+    const authority = decidePlanAuthority({
+      room,
+      userId: callerUserId,
+      role: membership?.role ?? "",
+      trigger: parsedBody.data.trigger ?? "auto"
+    });
+    if (!authority.ok) {
+      return reply.code(authority.status).send({ error: authority.error, code: authority.code });
+    }
+    const athleteUserId = authority.historyOwnerUserId;
+    const crewChange = !isRoomAthlete(room, callerUserId);
+    const notTheAthletesEstimate = () =>
+      crewChange
+        ? reply.code(403).send({ error: "Only an estimate built from the athlete's history can be the plan", code: "plan_authority" })
+        : reply.code(403).send({ error: "Forbidden" });
     let estimate: PacingEstimate;
     let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
 
@@ -455,11 +490,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(400).send({ error: "Unknown pacingEstimateId", code: "invalid_estimate_id" });
       }
       if (stored.athleteUserId !== athleteUserId) {
-        return reply.code(403).send({ error: "Forbidden" });
+        return notTheAthletesEstimate();
       }
       estimate = stored.estimate;
       storedBaseline = stored.baselineTrack;
     } else {
+      if (crewChange) {
+        // A snapshot proves nothing about whose history built it.
+        return notTheAthletesEstimate();
+      }
       try {
         estimate = parsePacingEstimate(parsedBody.data.estimate);
       } catch {

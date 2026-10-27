@@ -1,0 +1,259 @@
+{
+  "deferred": [
+    "command-center",
+    "billing",
+    "crew-tasks",
+    "protocol-notes",
+    "projection",
+    "stop-plan-api",
+    "activity-history",
+    "recommendations",
+    "sync-health",
+    "geocode-search"
+  ],
+  "features": [
+    {
+      "id": "hello",
+      "entry": "crewcue://dev/hello",
+      "label": "crewcue.hello",
+      "sdk": "none",
+      "scope": "harness",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "schedule-sheet",
+      "entry": "crewcue://dev/schedule-sheet",
+      "label": "crewcue.schedule-sheet",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "cold-start",
+      "entry": "crewcue://dev/cold-start",
+      "label": "crewcue.cold-start",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "pace-estimate",
+      "entry": "crewcue://dev/pace-estimate",
+      "label": "crewcue.pace-estimate",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "crew-sheet-export",
+      "entry": "crewcue://dev/crew-sheet-export",
+      "label": "crewcue.crew-sheet-export",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "outbox-status",
+      "entry": "crewcue://dev/outbox",
+      "label": "crewcue.outbox",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "auth-sign-in",
+      "entry": "crewcue://dev/auth-signed-out",
+      "label": "crewcue.auth-signed-out",
+      "sdk": "auth0",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "join-crew",
+      "entry": "crewcue://dev/join-crew",
+      "label": "crewcue.join-crew",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "athlete-setup",
+      "entry": "crewcue://dev/athlete-setup",
+      "label": "crewcue.athlete-setup",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "onboarding-notifications",
+      "entry": "crewcue://dev/onboarding-notifications",
+      "label": "crewcue.onboarding-notifications",
+      "sdk": "push",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "pass"
+    },
+    {
+      "id": "check-in",
+      "entry": "crewcue://dev/check-in",
+      "label": "crewcue.check-in",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "course-settings",
+      "entry": "crewcue://dev/course-settings",
+      "label": "crewcue.course-settings",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "pace-stop-edit",
+      "entry": "crewcue://dev/pace-stop-edit",
+      "label": "crewcue.pace-stop-edit",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "readouts-incidents",
+      "entry": "crewcue://dev/readouts-incidents",
+      "label": "crewcue.readouts-incidents",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "pass"
+    },
+    {
+      "id": "gpx-import",
+      "entry": "crewcue://dev/gpx-import-progress",
+      "label": "crewcue.gpx-import",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "map-track",
+      "entry": "crewcue://dev/map",
+      "label": "crewcue.map",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "map-checkpoint-pick",
+      "entry": "crewcue://dev/map-checkpoint-pick",
+      "label": "crewcue.map-checkpoint-pick",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "pass"
+    },
+    {
+      "id": "map-navigate",
+      "entry": "crewcue://dev/map-navigate",
+      "label": "crewcue.map-navigate",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "pass"
+    },
+    {
+      "id": "location-heartbeat",
+      "entry": "crewcue://dev/location-heartbeat",
+      "label": "crewcue.location-heartbeat",
+      "sdk": "location",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "chat-thread",
+      "entry": "crewcue://dev/chat",
+      "label": "crewcue.chat",
+      "sdk": "stream",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "chat-notification-prefs",
+      "entry": "crewcue://dev/chat-notification-prefs",
+      "label": "crewcue.chat-notification-prefs",
+      "sdk": "push",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "push-registration",
+      "entry": "crewcue://dev/push-registration",
+      "label": "crewcue.push-registration",
+      "sdk": "push",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "profile",
+      "entry": "crewcue://dev/profile",
+      "label": "crewcue.profile",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "room-members",
+      "entry": "crewcue://dev/room-members",
+      "label": "crewcue.room-members",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "strava",
+      "entry": "crewcue://dev/strava",
+      "label": "crewcue.strava",
+      "sdk": "auth0",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "app-shell",
+      "entry": "crewcue://dev/app-shell",
+      "label": "crewcue.app-shell",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "brand-loader",
+      "entry": "crewcue://dev/loader",
+      "label": "crewcue.loader",
+      "sdk": "none",
+      "scope": "harness",
+      "ios": "pass",
+      "android": "pass"
+    }
+  ]
+}

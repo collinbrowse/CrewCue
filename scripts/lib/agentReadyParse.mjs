@@ -2,6 +2,7 @@
  * Shared Ready/Done parsers for agent harness scripts.
  * Keep stdout consumers short — callers print ≤15 lines.
  */
+import { assessPrDecisionDoc } from "./prDecisionDocGuard.mjs";
 
 /** @typedef {{ ok: boolean, missing: string[], warnings: string[], summary: string[] }} ReadyResult */
 
@@ -98,54 +99,65 @@ export function countEmptyProofCells(body) {
   return empty;
 }
 
+const EVIDENCE_COMMANDS = {
+  ios: /agent:ios:ready|test:ios/,
+  android: /agent:android:ready|test:android/
+};
+
+function stripComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/** A ticked `- [x]` line naming the platform's proof command, or a filled `Blocker:` line. */
+export function hasDeviceEvidence(body, platform) {
+  const lines = stripComments(body).split("\n");
+  const checked = lines.some((line) => /^\s*[-*]\s+\[[xX]\]/.test(line) && EVIDENCE_COMMANDS[platform].test(line));
+  const blocker = lines.some((line) => {
+    const match = /^[ \t]*[-*]?[ \t]*\**Blocker\**[ \t]*[:\u2014-][ \t]*(.+)$/i.exec(line);
+    if (!match) return false;
+    const value = match[1].trim();
+    const placeholder = /^_.*_$/.test(value) || /^none\b/i.test(value);
+    return !placeholder && value.replace(/[_*`]/g, "").length >= 10;
+  });
+  return checked || blocker;
+}
+
 /**
  * @param {string} body
- * @param {{ mobileChanged?: boolean }} [opts]
+ * @param {{ iosChanged?: boolean, androidChanged?: boolean }} [opts]
  * @returns {{ ok: boolean, missing: string[], summary: string[] }}
  */
 export function assessPrDoneBody(body, opts = {}) {
-  const text = (body ?? "").replace(/\uFEFF/g, "").replace(/\u00A0/g, " ");
+  const text = stripComments((body ?? "").replace(/\uFEFF/g, "").replace(/\u00A0/g, " "));
   const missing = [];
   const summary = [];
 
-  if (!/\b(Closes|Fixes|Resolves)\s+#\d+/i.test(text)) {
-    missing.push("Closes #<n>");
+  if (!/\b(Closes|Fixes|Resolves)\s+#\d+/i.test(text) && !/^[ \t]*[-*]?[ \t]*No issue:[ \t]*\S/im.test(text)) {
+    missing.push("Closes #<n> (or `No issue: <reason>`)");
   }
 
-  const hasEdgeProof =
-    /edge[- ]case/i.test(text) ||
-    /\bEC\d+\b/.test(text) ||
-    /\bProof\b/i.test(text);
-  if (!hasEdgeProof) {
-    missing.push("edge-case proof section");
+  if (!/^[ \t]*[-*]?[ \t]*\**EC\d+\**[ \t]*[:\u2014-][ \t]*\S/m.test(text)) {
+    missing.push("edge-case proof (`EC1: <how it was proven>`)");
   }
 
-  if (opts.mobileChanged) {
-    const hasSimNote =
-      /agent:ios:ready/i.test(text) ||
-      /simulator/i.test(text) ||
-      /snapshot_ui/i.test(text) ||
-      /\bBlocker\b/i.test(text);
-    if (!hasSimNote) {
-      missing.push("mobile sim evidence / blocker note");
-    }
+  const decision = assessPrDecisionDoc(text);
+  if (!decision.ok) {
+    missing.push("pr-decision-doc-guard sections");
   }
+
+  if (opts.iosChanged && !hasDeviceEvidence(text, "ios")) missing.push("ios evidence (checked test:ios / agent:ios:ready, or Blocker:)");
+  if (opts.androidChanged && !hasDeviceEvidence(text, "android"))
+    missing.push("android evidence (checked test:android / agent:android:ready, or Blocker:)");
 
   const ok = missing.length === 0;
   summary.push(ok ? "PASS: Done checklist" : "FAIL: Done incomplete");
   if (missing.length) {
     summary.push(`missing: ${missing.join(", ")}`);
   }
-  if (opts.mobileChanged) {
-    summary.push("mobile paths changed: sim evidence required");
+  if (!decision.ok) {
+    summary.push(...decision.errors);
   }
+  if (opts.iosChanged) summary.push("ios paths changed: simulator evidence required");
+  if (opts.androidChanged) summary.push("android paths changed: emulator evidence required");
   return { ok, missing, summary };
-}
-
-/**
- * @param {string[]} files
- * @returns {boolean}
- */
-export function pathsTouchMobile(files) {
-  return files.some((f) => f.startsWith("apps/mobile/") || f.includes("/apps/mobile/"));
 }

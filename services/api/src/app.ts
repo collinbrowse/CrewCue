@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
+import { logSafeUrl } from "./lib/logSafeUrl.js";
 import { healthRoutes } from "./routes/health.js";
 import { eventRoutes } from "./routes/events.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
@@ -8,6 +9,7 @@ import { chatRoutes } from "./routes/chatRoutes.js";
 import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
+import { courseGpxRoutes } from "./routes/courseGpxRoutes.js";
 import { raceRoomStopPlanRoutes } from "./routes/raceRoomStopPlans.js";
 import { raceRoomScheduleRoutes } from "./routes/raceRoomSchedule.js";
 import { activityHistoryRoutes } from "./routes/activityHistory.js";
@@ -23,7 +25,21 @@ const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
 
 export function buildApp() {
   const app = Fastify({
-    logger: true,
+    logger: {
+      // Never log credentials. Request URLs drop their query (OAuth codes, search text).
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-chat-push-secret']"],
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: logSafeUrl(request.url),
+            host: request.host,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort
+          };
+        }
+      }
+    },
     bodyLimit: BODY_LIMIT_BYTES
   });
 
@@ -32,6 +48,7 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(eventRoutes);
   app.register(raceRoomRoutes);
+  app.register(courseGpxRoutes);
   app.register(raceRoomStopPlanRoutes);
   app.register(raceRoomScheduleRoutes);
   app.register(activityHistoryRoutes);

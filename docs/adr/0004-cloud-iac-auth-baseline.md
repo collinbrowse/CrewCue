@@ -1,6 +1,6 @@
 # ADR 0004: Cloud, IaC, and auth baseline
 
-- Status: Approved
+- Status: Cloud provider and IaC superseded (2026-10-13) by [ADR 0009](./0009-railway-hosting.md). The Auth0 and authorization decisions stand.
 - Date: 2026-04-15
 
 ## Context

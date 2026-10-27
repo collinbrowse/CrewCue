@@ -1,0 +1,89 @@
+package com.crewcue.android
+
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import com.auth0.android.provider.WebAuthProvider
+import com.crewcue.android.di.AppContainer
+import com.crewcue.android.nav.AppRouter
+import com.crewcue.android.ui.ConfigurationErrorScreen
+import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.ShellViewModelFactory
+import com.crewcue.android.ui.brand.LaunchSplash
+import com.crewcue.android.ui.theme.CrewCueTheme
+
+class MainActivity : ComponentActivity() {
+    private val container by lazy { AppContainer(applicationContext) }
+    private val shellModel: ShellViewModel by viewModels {
+        ShellViewModelFactory(container, intent)
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        container.authConfig.problem?.let { problem ->
+            setContent { CrewCueTheme { ConfigurationErrorScreen(problem) } }
+            return
+        }
+        // The theme paints the launch colour until the first frame; screens draw on white.
+        window.setBackgroundDrawableResource(android.R.color.white)
+        installMapLibre()
+        installStream()
+        // Dev deeplink launches go straight to their fixture.
+        val playSplash = savedInstanceState == null && intent?.data == null
+        setContent {
+            var showSplash by rememberSaveable { mutableStateOf(playSplash) }
+            CrewCueTheme {
+                Box(Modifier.semantics { testTagsAsResourceId = true }) {
+                    AppRouter(shellModel)
+                    if (showSplash) {
+                        LaunchSplash { showSplash = false }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun installMapLibre() {
+        if (!BuildConfig.MAP_LIBRE) return
+        runCatching {
+            val type = Class.forName("com.crewcue.android.ui.map.MapLibreBootstrap")
+            type.getMethod("install", Context::class.java).invoke(null, applicationContext)
+        }
+    }
+
+    private fun installStream() {
+        if (!BuildConfig.STREAM_CHAT) return
+        runCatching {
+            Class.forName("com.crewcue.android.ui.chat.StreamChatBootstrap")
+                .getMethod("install")
+                .invoke(null)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (container.authConfig.problem != null) return
+        // Auth0 returns to crewcue://auth, which this activity's bare-scheme filter catches
+        // before the SDK's RedirectActivity (that one only listens on the tenant host).
+        if (intent.data?.host == AUTH_REDIRECT_HOST && WebAuthProvider.resume(intent)) return
+        shellModel.open(intent)
+    }
+
+    private companion object {
+        const val AUTH_REDIRECT_HOST = "auth"
+    }
+}

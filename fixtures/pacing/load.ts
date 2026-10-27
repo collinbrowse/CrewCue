@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 export const PACING_FIXTURES_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Required pack files from `docs/sdlc/agent-async-delivery-program.md` §5.
+ * Required pacing fixture pack.
  * Paths are unique; do not add a second golden for the same id.
  */
 export const PACING_FIXTURE_FILES = [

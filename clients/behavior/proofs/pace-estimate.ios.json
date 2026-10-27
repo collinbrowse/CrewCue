@@ -1,0 +1,18 @@
+{
+  "id": "pace-estimate",
+  "platform": "ios",
+  "entry": "crewcue://dev/pace-estimate",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Athlete with two GPX activities opened Pace; crew seeded a cold start with Starting estimate, the athlete's history then recomputed it, and crew tapped Recalculate.",
+  "checked": {
+    "Success": "Athlete and crew both see the history-backed plan of record ('History-backed pace from 1 activity\u2026'); crew without history sees the cold-start copy.",
+    "Empty": "Athlete with history while the first compute is still pending: 'No estimate yet.'",
+    "Error": "GET /race-rooms/:id returned 500: 'Couldn't load the pace estimate.'",
+    "Offline": "Connection dropped after a load: 'Offline. Estimate not updated.'",
+    "Accessibility labels": "crewcue.pace-estimate; VoiceOver now reads the estimate text"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

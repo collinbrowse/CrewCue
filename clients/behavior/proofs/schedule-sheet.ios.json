@@ -1,0 +1,18 @@
+{
+  "id": "schedule-sheet",
+  "platform": "ios",
+  "entry": "crewcue://dev/schedule-sheet",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Crew opened crewcue://dev/schedule-sheet for a room with the 50k course. Every stop shows its elapsed time and UTC clock.",
+  "checked": {
+    "Success": "Rows such as 'AID 1 1:22:37 13:03 UTC'; each caption reads '<UTC clock> \u00b7 <elapsed>' (projected stops add the planned stop).",
+    "Empty": "Room with no course: 'No stops on this sheet.'",
+    "Error": "GET /schedule returned 500 with nothing saved: 'Couldn't load the schedule.'",
+    "Offline": "Loaded online, then the connection dropped and the app relaunched: 'Offline. Schedule not updated. The last sheet stays readable on this device.' with the saved rows still listed.",
+    "Accessibility labels": "crewcue.schedule-sheet"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

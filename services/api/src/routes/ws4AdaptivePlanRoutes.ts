@@ -11,7 +11,9 @@ import type {
   Recommendation,
   Role
 } from "@crewcue/contracts";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
+  deleteWs4AdaptivePayload,
   isRoomPersistenceEnabled,
   loadWs4AdaptivePayload,
   persistWs4AdaptivePayload
@@ -36,7 +38,7 @@ type Ws4RoomState = {
 
 const ws4RoomState = new Map<string, Ws4RoomState>();
 
-const ws4RuntimeHydratedFromDb = new Set<string>();
+const ws4RuntimeHydrator = createLazyHydrator();
 
 function normalizeWs4AdaptivePayload(raw: unknown): Ws4RoomState | undefined {
   if (!raw || typeof raw !== "object") {
@@ -63,15 +65,16 @@ async function loadWs4AdaptiveIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws4RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws4RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs4AdaptivePayload(roomId);
-  const parsed = normalizeWs4AdaptivePayload(raw);
-  if (parsed) {
-    ws4RoomState.set(roomId, parsed);
-  }
+  await ws4RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
+    const raw = await loadWs4AdaptivePayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
+    const parsed = normalizeWs4AdaptivePayload(raw);
+    if (parsed && stillCurrent()) {
+      ws4RoomState.set(roomId, parsed);
+    }
+  });
 }
 
 function ensureWs4InMemory(roomId: string): Ws4RoomState {
@@ -99,7 +102,19 @@ async function saveWs4AdaptiveSnapshot(roomId: string): Promise<void> {
 /** Clears in-memory WS4 state for a room (e.g. after activation). */
 export function clearWs4RoomLocalState(roomId: string): void {
   ws4RoomState.delete(roomId);
-  ws4RuntimeHydratedFromDb.delete(roomId);
+  ws4RuntimeHydrator.delete(roomId);
+}
+
+/**
+ * Wipe adaptive incidents/plans. Holds hydration until the durable row is gone so a
+ * concurrent reader cannot load the pre-wipe payload and persist it back.
+ */
+export async function discardWs4RoomState(roomId: string): Promise<void> {
+  await ws4RuntimeHydrator.reset(roomId, async () => {
+    ws4RoomState.delete(roomId);
+    await deleteWs4AdaptivePayload(roomId);
+    ws4RoomState.delete(roomId);
+  });
 }
 
 function canDecideRecommendations(role: Role): boolean {

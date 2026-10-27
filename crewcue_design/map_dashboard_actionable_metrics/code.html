@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary": "#6D5AD3",
+                    "primary-container": "#6d5ad3",
+                    "on-error-container": "#93000a",
+                    "secondary": "#0058be",
+                    "on-primary-fixed": "#1a0063",
+                    "on-primary-container": "#f3edff",
+                    "tertiary-container": "#666d7f",
+                    "surface-tint": "#5e4ac3",
+                    "inverse-on-surface": "#f4f1e8",
+                    "surface-container-highest": "#e5e2da",
+                    "secondary-fixed": "#d8e2ff",
+                    "secondary-fixed-dim": "#adc6ff",
+                    "surface-variant": "#e5e2da",
+                    "tertiary-fixed": "#dce2f7",
+                    "outline": "#797584",
+                    "on-tertiary-fixed": "#141b2b",
+                    "surface-dim": "#dddad1",
+                    "error-container": "#ffdad6",
+                    "outline-variant": "#c9c4d5",
+                    "tertiary-fixed-dim": "#c0c6db",
+                    "on-secondary": "#ffffff",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f6f3ea",
+                    "error": "#ba1a1a",
+                    "on-surface-variant": "#484553",
+                    "on-secondary-fixed": "#001a42",
+                    "on-tertiary-fixed-variant": "#404758",
+                    "on-error": "#ffffff",
+                    "on-background": "#1c1c17",
+                    "on-tertiary-container": "#ecf0ff",
+                    "on-primary": "#ffffff",
+                    "on-secondary-fixed-variant": "#004395",
+                    "tertiary": "#4e5566",
+                    "surface-container": "#f1eee5",
+                    "inverse-surface": "#31312b",
+                    "on-secondary-container": "#fefcff",
+                    "secondary-container": "#2170e4",
+                    "surface": "#fcf9f0",
+                    "primary-fixed": "#e5deff",
+                    "on-surface": "#1c1c17",
+                    "primary-fixed-dim": "#c9bfff",
+                    "background": "#fcf9f0",
+                    "inverse-primary": "#c9bfff",
+                    "on-tertiary": "#ffffff",
+                    "surface-bright": "#fcf9f0",
+                    "surface-container-high": "#ebe8df",
+                    "on-primary-fixed-variant": "#462faa"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "stack-md": "24px",
+                    "container-margin": "24px",
+                    "base": "8px",
+                    "stack-sm": "12px",
+                    "gutter": "16px",
+                    "stack-lg": "48px"
+            },
+            "fontFamily": {
+                    "lexend": ["Lexend", "sans-serif"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #fcf9f0; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; font-family: 'Lexend', sans-serif; }
+        .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(109, 90, 211, 0.1); }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .card-elevation { shadow-sm: 0 2px 4px rgba(109,90,211,0.05); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="text-on-surface bg-surface font-lexend">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-[#F7F4EB]/80 backdrop-blur-md border-b border-[#E5E1D3]">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full border-2 border-primary overflow-hidden active:scale-95 transition-transform duration-200 cursor-pointer">
+<img alt="User profile photo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBnphouvPwMi4td7p4oVfZwivftxjvrQpbEwKK4un_3A0R10Kn1ZVkwjGhwHPsAzVpGQRFf6FzRzhZQye2kIWUzjkPfhjB8uiBEDrNpVeJ0kldSUdoELcWzPyb68ho6Y2HcpqVrNv5P4oL4omKHNCD7-rOKCDuXk7eGKqmNNhzMI_pCrwE6l1I6_ZBjstD6uLAUu92RwCczNjSr3HA6OkxDk7z0PVAw8QYEyP_lsbPyVR7Uzr81kmptx9QxQFGIAEv00gjEPgA2iMA"/>
+</div>
+<span class="text-xl font-bold text-primary tracking-tight">CrewTrack</span>
+</div>
+<button class="material-symbols-outlined text-primary hover:bg-[#E5E1D3]/50 p-2 rounded-full transition-all duration-200 active:scale-95">settings</button>
+</header>
+<!-- Status Badges -->
+<div class="absolute top-24 left-6 z-20">
+<span class="px-4 py-1.5 bg-primary text-white font-bold text-[10px] rounded-full tracking-widest shadow-lg uppercase">ON TRACK</span>
+</div>
+<div class="absolute top-24 right-6 z-20">
+<span class="px-4 py-1.5 bg-white/90 backdrop-blur-md text-primary font-bold text-[10px] rounded-full border border-primary/20 tracking-widest shadow-md flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+        LAST PING: 2 MIN AGO
+    </span>
+</div>
+<!-- Main Map Canvas -->
+<main class="relative w-full h-screen bg-surface overflow-hidden">
+<div class="absolute inset-0 w-full h-full">
+<!-- Slightly softened map for light theme transition -->
+<img class="w-full h-full object-cover grayscale opacity-70 contrast-100" data-alt="A dark, high-contrast satellite topographic map showing a rugged mountain trail." data-location="High Sierras" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD89X1R3s43kGBMoyRpZ2utwrHhlyDKPh1itWqDCAxyRP43Z8fJ-TPeCGtTve-gq7ZEfjEmslNHQrF74M4m5JPva1LN26exV8IqneOt3_UgxdXjQHi8Ku7RuUTltDx3UzUd6xaxLJk7-86Ol0jJENWHqPJxYu7ly4ENiKPXGKHUKt-aCJD_D0kBLhA1svsO00jdRYxawQgYmVLoYODdgUhB9zty_9VwVNTriXLmBGp6DQ9X-eAspZM_NLBXeoD11vWjYCQWas7fWl0"/>
+<!-- Gradient overlay to blend with light UI -->
+<div class="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-surface/20 z-10"></div>
+<!-- Map Controls -->
+<div class="absolute top-36 right-6 z-20 flex flex-col gap-3">
+<button class="w-12 h-12 glass-panel rounded-full flex items-center justify-center text-primary shadow-sm active:scale-90 transition-transform">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+<button class="w-12 h-12 glass-panel rounded-full flex items-center justify-center text-primary shadow-sm active:scale-90 transition-transform">
+<span class="material-symbols-outlined">layers</span>
+</button>
+</div>
+</div>
+<!-- Stats Overlay -->
+<section class="absolute inset-x-0 z-30 bottom-[92px] mx-0">
+<div class="bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-surface-container-highest flex flex-col items-center rounded-t-xl relative">
+<div class="w-12 h-1.5 bg-surface-container-highest rounded-full mb-4"></div>
+<div class="w-full flex justify-between items-center mb-4 px-4"><div class="flex flex-col gap-1">
+<p class="text-[10px] font-bold text-primary uppercase tracking-[0.2em]">NEXT AID STATION</p>
+<h2 class="text-2xl font-black text-on-surface leading-tight">CP4 Forest Ridge</h2>
+</div>
+<div class="flex flex-col items-end">
+<div class="flex flex-col items-end mb-2">
+<p class="text-xl font-black text-primary leading-none">4:15 PM</p>
+<p class="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest">EST. ARRIVAL</p>
+</div>
+<div class="bg-primary/10 px-3 py-1 rounded-lg">
+<span class="text-xl font-black text-primary font-mono tracking-tight">1H 45M</span>
+</div>
+</div></div>
+<!-- Stats Grid -->
+<div class="w-full flex justify-around items-center pt-4 border-t border-surface-container-low"><div class="text-center flex-1">
+<p class="text-[9px] font-bold text-on-surface-variant uppercase mb-1 leading-tight">DISTANCE<br/>REMAINING</p>
+<p class="text-lg font-black text-on-surface">3.2 MI</p>
+</div>
+<div class="h-10 w-px bg-surface-container-highest self-center"></div>
+<div class="text-center flex-1">
+<p class="text-[9px] font-bold text-on-surface-variant uppercase mb-1 leading-tight">ELEVATION<br/>REMAINING</p>
+<p class="text-lg font-black text-on-surface">+840 FT</p>
+</div>
+<div class="h-10 w-px bg-surface-container-highest self-center"></div>
+<div class="text-center flex-1">
+<p class="text-[9px] font-bold text-on-surface-variant uppercase mb-1 leading-tight">AVG<br/>PACE</p>
+<p class="text-lg font-black text-on-surface">12"45' / MI</p>
+</div></div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-8 pt-3 bg-white/90 backdrop-blur-xl rounded-t-[32px] border-t border-[#E5E1D3] shadow-[0_-4px_20px_rgba(109,90,211,0.08)]">
+<!-- MAP - Active -->
+<a class="flex flex-col items-center justify-center bg-primary text-white rounded-full px-6 py-2 transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">explore</span>
+<span class="text-[10px] font-semibold uppercase tracking-wider mt-0.5">Map</span>
+</a>
+<!-- PACE -->
+<a class="flex flex-col items-center justify-center text-slate-400 px-4 py-2 hover:bg-slate-100 rounded-full transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined text-[22px]">timer</span>
+<span class="text-[10px] font-semibold uppercase tracking-wider mt-0.5">Pace</span>
+</a>
+<!-- CHAT -->
+<a class="flex flex-col items-center justify-center text-slate-400 px-4 py-2 hover:bg-slate-100 rounded-full transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined text-[22px]">chat</span>
+<span class="text-[10px] font-semibold uppercase tracking-wider mt-0.5">Chat</span>
+</a>
+<!-- PROFILE -->
+<a class="flex flex-col items-center justify-center text-slate-400 px-4 py-2 hover:bg-slate-100 rounded-full transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined text-[22px]">person</span>
+<span class="text-[10px] font-semibold uppercase tracking-wider mt-0.5">Profile</span>
+</a>
+</nav>
+</body></html>

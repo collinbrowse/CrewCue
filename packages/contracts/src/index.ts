@@ -391,9 +391,35 @@ export interface AthletePingIngestPayload {
   /**
    * Target seconds between pings from the athlete app (battery + race-length policy).
    * When set, the server derives projection staleness threshold as `min(3 × this value, 15 minutes)`.
-   * @see docs/sdlc/mobile-athlete-ping-battery-deferred.md
    */
   uploadIntervalSeconds?: number;
+}
+
+/** Latest accepted athlete ping, as every crew member reads it. */
+export interface AthleteLatestPing {
+  pingId: string;
+  latitude: number;
+  longitude: number;
+  /** Device time the athlete's phone took the sample. Crew "last ping" readouts use this. */
+  recordedAt: string;
+  /** Server time the ping was accepted. */
+  receivedAt: string;
+  /**
+   * Route-snapped course progress from the room projection for this exact ping.
+   * Absent when the room has no projection for it (no planned pace, start time, or route line).
+   */
+  progressMeters?: number;
+}
+
+/** `GET /race-rooms/:roomId/pings/latest` */
+export interface RaceRoomLatestPingResponse {
+  roomId: string;
+  /** Absent until the athlete's first accepted ping. */
+  ping?: AthleteLatestPing;
+  /** Seconds after `ping.recordedAt` when the reading counts as stale (same rule as projection confidence). */
+  stalenessThresholdSeconds: number;
+  /** Server time this response was built. */
+  evaluatedAt: string;
 }
 
 /** Business-rule rejections after auth, membership, and entitlement gates */
@@ -401,7 +427,9 @@ export type AthletePingRejectReason =
   | "room_not_active"
   | "clock_skew"
   | "implausible_motion"
-  | "accuracy_too_poor";
+  | "accuracy_too_poor"
+  /** recordedAt is not after the room's last accepted ping. Clients drop it, never retry (#538). */
+  | "stale_recorded_at";
 
 export interface AthletePingAcceptedResponse {
   decision: "accepted";
@@ -431,7 +459,6 @@ export interface AthletePingHistoryEntry {
 }
 
 // --- WS3: crew orchestration & protocol execution (Sprint 1 read models) ---
-// Shapes align with ws3-crew-orchestration-and-protocol-execution-plan.md; persistence defers to WS7.
 
 /** Athlete / crew intent for a single course checkpoint (aid-station planning). */
 export interface CheckpointPlan {
@@ -509,7 +536,6 @@ export interface OpsTimelineEvent {
 }
 
 // --- WS4: structured incidents and adaptive plan loop (Sprint 1) ---
-// Shapes align with ws4-structured-incidents-and-adaptive-plan-loop-plan.md; persistence defers to WS7.
 
 export type IncidentCategory =
   | "fuel"
@@ -579,7 +605,6 @@ export interface ExplainabilityRecord {
 }
 
 // --- WS5: connectivity resilience and sync health (Sprint 1 HTTP slice) ---
-// Shapes align with ws5-connectivity-resilience-and-sync-health-plan.md; BLE + canonical merge defer to later slices.
 
 export type LocalOpQueueItemStatus = "pending" | "flushed" | "failed";
 
@@ -642,7 +667,6 @@ export interface MergeRecord {
 }
 
 // --- WS6: team command center and multi-athlete concurrency (Sprint 1) ---
-// Shapes align with ws6-team-command-center-and-multi-athlete-concurrency-plan.md; persistence defers to WS7.
 
 export type CommandCenterMetricKind =
   | "calories_per_hr"
@@ -764,12 +788,9 @@ export interface CheckpointDemandHeatmap {
 }
 
 // --- WS7: shared platform contracts and data model (Sprint 1) ---
-// Aligns with ws7-shared-platform-contracts-and-data-model-plan.md and ADR 0003 (PostgreSQL append-only is a later slice).
+// See ADR 0003 (PostgreSQL append-only is a later slice).
 
-/**
- * Current published contract batch for platform events.
- * @see docs/sdlc/ws7-schema-compatibility.md
- */
+/** Current published contract batch for platform events. */
 export const PLATFORM_SCHEMA_VERSION = "2026.05.0" as const;
 export type PlatformSchemaVersion = typeof PLATFORM_SCHEMA_VERSION;
 
@@ -905,6 +926,14 @@ export interface ReplayedRaceRoomAggregate {
 // End-to-end encryption was removed for MVP reliability; any future crypto must
 // be a blank-slate redesign (do not revive the retired room-key/envelope model).
 
+/** One race-room member as Stream Chat sees them, with the display name for that room. */
+export interface ChatStreamMember {
+  /** Stream user id derived from the member's auth subject. */
+  streamUserId: string;
+  /** Display name on this race-room membership. Names are per race, not global. */
+  displayName?: string;
+}
+
 /** Mints a short-lived Stream Chat user token bound to the authenticated user. */
 export interface ChatStreamTokenResponse {
   /** Stream Chat user token (JWT signed with the server-side Stream secret). */
@@ -913,6 +942,11 @@ export interface ChatStreamTokenResponse {
   streamUserId: string;
   /** Stream Chat API key (public, safe to embed in clients). */
   streamApiKey: string;
+  /**
+   * Members of the requested room with their per-room display names, so clients label
+   * authors by room instead of by the global Stream user name. Present when `roomId` was sent.
+   */
+  members?: ChatStreamMember[];
 }
 
 /** Returns the deterministic Stream channel id for a CrewCue race room. */

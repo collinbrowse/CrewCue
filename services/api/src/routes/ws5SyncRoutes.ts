@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { DeviceHealth, MergeRecord, Role, SyncQueueDiagnostics, SyncStatus } from "@crewcue/contracts";
+import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
+  deleteWs5SyncPayload,
   isRoomPersistenceEnabled,
   loadWs5SyncPayload,
   persistWs5SyncPayload
@@ -43,7 +45,7 @@ type Ws5RoomState = {
 
 const ws5RoomState = new Map<string, Ws5RoomState>();
 
-const ws5RuntimeHydratedFromDb = new Set<string>();
+const ws5RuntimeHydrator = createLazyHydrator();
 
 const DEFAULT_STALE_AFTER_SECONDS = Number.parseInt(process.env.SYNC_STALE_AFTER_SECONDS ?? "120", 10);
 const DIAGNOSTICS_CAP = 50;
@@ -77,15 +79,16 @@ async function loadWs5SyncIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  if (ws5RuntimeHydratedFromDb.has(roomId)) {
-    return;
-  }
-  ws5RuntimeHydratedFromDb.add(roomId);
-  const raw = await loadWs5SyncPayload(roomId);
-  const parsed = normalizeWs5SyncPayload(raw);
-  if (parsed) {
-    ws5RoomState.set(roomId, parsed);
-  }
+  await ws5RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
+    const raw = await loadWs5SyncPayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
+    const parsed = normalizeWs5SyncPayload(raw);
+    if (parsed && stillCurrent()) {
+      ws5RoomState.set(roomId, parsed);
+    }
+  });
 }
 
 function ensureWs5InMemory(roomId: string): Ws5RoomState {
@@ -118,7 +121,16 @@ async function saveWs5SyncSnapshot(roomId: string): Promise<void> {
 /** Clears in-memory WS5 state for a room (e.g. after activation). */
 export function clearWs5RoomLocalState(roomId: string): void {
   ws5RoomState.delete(roomId);
-  ws5RuntimeHydratedFromDb.delete(roomId);
+  ws5RuntimeHydrator.delete(roomId);
+}
+
+/** Wipe sync heartbeats. See {@link discardWs4RoomState} for why hydration waits on the delete. */
+export async function discardWs5RoomState(roomId: string): Promise<void> {
+  await ws5RuntimeHydrator.reset(roomId, async () => {
+    ws5RoomState.delete(roomId);
+    await deleteWs5SyncPayload(roomId);
+    ws5RoomState.delete(roomId);
+  });
 }
 
 /** Read-only roll-up for WS6 boards without mutating room state. */

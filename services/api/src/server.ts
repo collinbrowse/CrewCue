@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.js";
 import { startTelemetry, stopTelemetry } from "./telemetry.js";
 import { validateRoomPersistenceEnv } from "./lib/roomPersistence.js";
+import { validateAuthEnv } from "./lib/authEnv.js";
 import {
   startChatRetentionScheduler,
   stopChatRetentionScheduler
@@ -21,6 +22,7 @@ const host = process.env.HOST ?? "0.0.0.0";
 
 async function start() {
   validateRoomPersistenceEnv();
+  validateAuthEnv();
   await startTelemetry();
   const app = buildApp();
   await app.listen({ port, host });

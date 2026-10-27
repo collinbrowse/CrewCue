@@ -1,7 +1,0 @@
-# Local native projects from `expo prebuild` / `expo run:ios|android` (not tracked in-repo).
-/ios/
-/android/
-
-# Expo / Metro
-.expo/
-dist/

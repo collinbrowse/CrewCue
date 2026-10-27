@@ -44,8 +44,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 XCODE_ENV_LOCAL="${REPO_ROOT}/apps/mobile/ios/.xcode.env.local"
 if [[ -f "${XCODE_ENV_LOCAL}" ]]; then
-  if grep -qE '/usr/local/Cellar/node|/usr/local/opt/node' "${XCODE_ENV_LOCAL}" 2>/dev/null; then
-    echo "==> Removing stale ${XCODE_ENV_LOCAL} (old NODE_BINARY path)"
+  node_bin="$(sed -n 's/^export NODE_BINARY=//p' "${XCODE_ENV_LOCAL}" | tr -d '"' | tr -d "'" | head -1)"
+  if grep -qE '/usr/local/(Cellar|opt)/node' "${XCODE_ENV_LOCAL}" 2>/dev/null \
+    || { [[ -n "${node_bin}" && -x "${node_bin}" ]] && file "${node_bin}" | grep -q 'x86_64'; }; then
+    echo "==> Removing stale ${XCODE_ENV_LOCAL} (Intel NODE_BINARY)"
     rm -f "${XCODE_ENV_LOCAL}"
   fi
 fi
