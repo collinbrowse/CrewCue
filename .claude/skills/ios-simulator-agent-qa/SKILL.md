@@ -23,9 +23,9 @@ description: >-
 
 Example: `npm run agent:ios:ready -- --deeplink crewcue://dev/pace-estimate`
 
-4. Install XcodeBuildMCP + Cursor MCP if tools are missing — report as blocker on non-macOS hosts.
+4. Install the XcodeBuildMCP server if tools are missing — report as blocker on non-macOS hosts.
 
-Prefer `crewcue://dev/*` fixtures from `clients/behavior/deeplinks.json` over Auth0 login for schedule/pace proof. Auth0 login remains a **blocker** for production-auth paths only — stop and list options (see rule `mobile-simulator-agent-qa.mdc`).
+Prefer `crewcue://dev/*` fixtures from `clients/behavior/deeplinks.json` over Auth0 login for schedule/pace proof. Auth0 login remains a **blocker** for production-auth paths only — stop and list options (see rule `mobile-simulator-agent-qa.md`).
 
 ## XcodeBuildMCP loop
 

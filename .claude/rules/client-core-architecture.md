@@ -1,7 +1,9 @@
 ---
 description: Shared client architecture for client-core, used by iOS and Android
-globs: packages/client-core/**,apps/ios/**,apps/android/**
-alwaysApply: false
+paths:
+  - "packages/client-core/**"
+  - "apps/ios/**"
+  - "apps/android/**"
 ---
 
 # Client-core architecture

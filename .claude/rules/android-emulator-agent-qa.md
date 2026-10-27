@@ -1,7 +1,7 @@
 ---
 description: Android emulator QA before completing Android UI work
-globs: apps/android/**
-alwaysApply: false
+paths:
+  - "apps/android/**"
 ---
 
 # Android emulator agent QA

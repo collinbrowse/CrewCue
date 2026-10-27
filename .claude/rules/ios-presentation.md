@@ -1,7 +1,7 @@
 ---
 description: SwiftUI presentation structure for apps/ios
-globs: apps/ios/**
-alwaysApply: false
+paths:
+  - "apps/ios/**"
 ---
 
 # iOS presentation
@@ -15,8 +15,8 @@ Use this when a screen does more than render `FeatureScreen`. A bugfix inside an
 - `Screens/<Feature>/` holds the model and view. Pockets stay app-local, same split as `apps/ios/CrewCue/Pockets.swift`.
 - Accessibility id `crewcue.<feature>`, a spoken label, and Dynamic Type. Identifiers stay stable for `snapshot_ui`.
 - The first iOS code task that compiles the app sets `SWIFT_VERSION` and strict concurrency on the app target.
-- Shared policy, errors, and routes: `.cursor/rules/client-core-architecture.mdc`.
+- Shared policy, errors, and routes: `.claude/rules/client-core-architecture.md`.
 
 ## Proof
 
-`npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.cursor/rules/mobile-simulator-agent-qa.mdc`.
+`npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`. QA loop: `.claude/rules/mobile-simulator-agent-qa.md`.
