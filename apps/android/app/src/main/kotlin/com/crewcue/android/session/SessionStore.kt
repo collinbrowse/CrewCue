@@ -1,8 +1,8 @@
 package com.crewcue.android.session
 
 import android.content.Context
-import org.json.JSONObject
 import java.io.File
+import org.json.JSONObject
 
 data class StoredSession(
     val userId: String,

@@ -180,6 +180,83 @@ import Testing
     #expect(flag(outbox, "rejected") == false)
 }
 
+@Test func scheduleWithoutCourseIsAnEmptySheet() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let graph = ClientGraph(
+        transport: StatusTransport(status: 400),
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")
+    )
+    let loaded = try await RaceDayAPI.loadScheduleResult(graph: graph, roomId: "room", cacheDirectory: directory)
+    #expect(!loaded.offline)
+    #expect(loaded.sheet.roomId == "room")
+    #expect(loaded.sheet.stops.isEmpty)
+    #expect(try ScheduleCache.load(directory: directory)?.stops.isEmpty == true)
+}
+
+@Test func transportFailureReadsURLErrorDomainCodes() {
+    #expect(TransportFailure.isOffline(URLError(.notConnectedToInternet)))
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.notConnectedToInternet.rawValue)))
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)))
+    // Android's Foundation reports "Failed to connect" in airplane mode as NSURLErrorUnknown.
+    #expect(TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnknown)))
+    #expect(!TransportFailure.isOffline(NSError(domain: NSURLErrorDomain, code: URLError.badServerResponse.rawValue)))
+    #expect(!TransportFailure.isOffline(NSError(domain: "other", code: URLError.notConnectedToInternet.rawValue)))
+    #expect(!TransportFailure.isOffline(ClientHTTPError(status: 500, message: "down")))
+}
+
+@Test func estimateLoadFetchesHistoryOnlyForTheAthlete() async throws {
+    let body = #"{"items":[{"id":"run-1","distanceMeters":44949,"elapsedSeconds":21600,"elevationGainMeters":4568},{"id":"run-2","distanceMeters":7991}]}"#
+    let transport = RecordingTransport(body: Data(body.utf8))
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")
+    )
+
+    let athlete = await RuntimeCall.withActivityHistory(["roomId": "room"], role: "athlete", graph: graph)
+    let rows = try #require(athlete["history"] as? [[String: Any]])
+    #expect(rows.map { $0["id"] as? String } == ["run-1", "run-2"])
+    #expect(rows[1]["elapsedSeconds"] == nil)
+    #expect(transport.paths() == ["/activity-history"])
+
+    let crew = await RuntimeCall.withActivityHistory(["roomId": "room"], role: "crew_member", graph: graph)
+    #expect(crew["history"] == nil)
+    let provided = await RuntimeCall.withActivityHistory(["history": [[String: Any]]()], role: "athlete", graph: graph)
+    #expect((provided["history"] as? [[String: Any]])?.isEmpty == true)
+    #expect(transport.paths().count == 1)
+
+    let offline = ClientGraph(
+        transport: OfflineTransport(),
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")
+    )
+    let unreachable = await RuntimeCall.withActivityHistory(["roomId": "room"], role: "athlete", graph: offline)
+    #expect(unreachable["history"] == nil)
+}
+
+private final class RecordingTransport: HTTPTransport, @unchecked Sendable {
+    private let body: Data
+    private let lock = NSLock()
+    private var seen: [String] = []
+
+    init(body: Data) {
+        self.body = body
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        lock.withLock { seen.append(request.url.path) }
+        return HTTPResponse(status: 200, body: body)
+    }
+
+    func paths() -> [String] {
+        lock.withLock { seen }
+    }
+}
+
 private struct OfflineTransport: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         throw URLError(.notConnectedToInternet)

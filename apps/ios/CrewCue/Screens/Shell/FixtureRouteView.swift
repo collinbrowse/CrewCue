@@ -51,7 +51,7 @@ struct ProductRouteView: View {
     var body: some View {
         switch model.route.featureId {
         case "join-crew":
-            JoinCrewView(model: model.joinModel, onBack: model.isSignedIn ? nil : {
+            JoinCrewView(model: model.joinModel, onBack: model.isSignedIn ? { model.showProfile() } : {
                 model.show(Route(featureId: "auth-sign-in", state: .success))
             })
         case "athlete-setup":

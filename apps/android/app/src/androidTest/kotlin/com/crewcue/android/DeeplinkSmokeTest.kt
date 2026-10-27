@@ -35,12 +35,14 @@ class DeeplinkSmokeTest {
             val feature = features.getJSONObject(index)
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(feature.getString("entry")))
                 .setClass(target, MainActivity::class.java)
+            // Signed out, the shell entry shows sign-in instead of the shell.
+            val label = if (feature.getString("id") == "app-shell") "crewcue.auth-signed-out" else feature.getString("label")
             ActivityScenario.launch<MainActivity>(intent).use {
                 // Collect every miss so one run reports all broken screens, not just the first.
                 runCatching {
-                    compose.onNodeWithTag(feature.getString("label"), useUnmergedTree = true).assertExists()
+                    compose.onNodeWithTag(label, useUnmergedTree = true).assertExists()
                 }.onFailure {
-                    missing += "${feature.getString("id")}: ${feature.getString("label")} missing for ${feature.getString("entry")}"
+                    missing += "${feature.getString("id")}: $label missing for ${feature.getString("entry")}"
                 }
             }
         }
