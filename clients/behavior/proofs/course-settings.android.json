@@ -1,0 +1,18 @@
+{
+  "id": "course-settings",
+  "platform": "android",
+  "entry": "crewcue://dev/course-settings",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Athlete opened crewcue://dev/course-settings, edited stoppage seconds and saved the draft.",
+  "checked": {
+    "Success": "'Cutoff and stoppage saved as a draft.'",
+    "Empty": "Room with no course: 'No course settings yet.'",
+    "Error": "Stoppage 'abc': 'Couldn't save course settings.'",
+    "Offline": "Airplane mode: 'Offline. Course settings stay on this device.'",
+    "Accessibility labels": "crewcue.course-settings"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

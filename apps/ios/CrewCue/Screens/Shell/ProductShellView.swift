@@ -21,6 +21,8 @@ struct ProductShellView: View {
             CrewTabBar(selection: $model.selectedTab, chatBadge: model.chatModel.unreadCount)
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Contain the children, or the shell's label replaces every tab button's own label.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.app-shell")
         .accessibilityLabel("CrewCue")
         .sheet(isPresented: $model.showsSettings, onDismiss: { model.settingsFocus = nil }) {
@@ -46,6 +48,20 @@ struct ProductTabPage: View {
     var onSettings: () -> Void
 
     var body: some View {
+        if tab != .profile && model.signedInRoomId == nil {
+            ShellPage(onSettings: onSettings) {
+                NoRaceView(
+                    onCreate: { model.selectedTab = .profile },
+                    onJoin: { model.show(Route(featureId: "join-crew", state: .success)) }
+                )
+            }
+        } else {
+            tabContent
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         switch tab {
         case .map:
             MapView(
@@ -73,6 +89,33 @@ struct ProductTabPage: View {
                 ProfileTabPage(model: model)
             }
         }
+    }
+}
+
+/// Map, Pace, and Chat need a race. Until there is one, point at the two ways to get one.
+struct NoRaceView: View {
+    var onCreate: () -> Void
+    var onJoin: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            Text("No race yet")
+                .font(CrewFont.headline)
+                .foregroundStyle(theme.ink)
+            Text("Create a race for your run, or join your crew's race with an invite code.")
+                .font(CrewFont.bodyLarge)
+                .foregroundStyle(theme.body)
+            Button("Create new race", action: onCreate)
+                .buttonStyle(.crewPrimary)
+            Button("Join race room", action: onJoin)
+                .buttonStyle(.crewSecondary)
+        }
+        .crewGlassCard()
+        .padding(.horizontal, CrewSpace.gutter)
+        .padding(.top, CrewSpace.gutter)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("crewcue.no-race")
     }
 }
 

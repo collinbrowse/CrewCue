@@ -16,17 +16,21 @@ const APP_ID = "com.crewcue.android";
 
 function parseArgs(argv) {
   let deeplink = process.env.AGENT_ANDROID_DEEPLINK?.trim() || "crewcue://dev/hello";
+  // Parallel agents each pass their own emulator so no one reinstalls over another's device.
+  let serial = process.env.ANDROID_SERIAL?.trim() || undefined;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--deeplink") deeplink = argv[++i];
     else if (arg.startsWith("--deeplink=")) deeplink = arg.slice("--deeplink=".length);
+    else if (arg === "--serial") serial = argv[++i];
+    else if (arg.startsWith("--serial=")) serial = arg.slice("--serial=".length);
     else if (arg === "--list-deeplinks") {
       const index = JSON.parse(fs.readFileSync(path.join(repoRoot, "clients/behavior/deeplinks.json"), "utf8"));
       for (const row of index.features ?? []) process.stdout.write(`${row.entry}\n`);
       process.exit(0);
     }
   }
-  return { deeplink };
+  return { deeplink, serial };
 }
 
 function avdName() {
@@ -78,13 +82,22 @@ async function onlineSerial() {
 }
 
 async function main() {
-  const { deeplink } = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  const { deeplink } = args;
   try {
     await run("adb", ["version"]);
   } catch {
     throw new Error("adb not found. Install Android platform-tools and set ANDROID_HOME.");
   }
-  let serial = await onlineSerial();
+  let serial = args.serial;
+  if (serial) {
+    const { stdout } = await run("adb", ["devices"]);
+    if (!stdout.split("\n").some((line) => line.trim().startsWith(`${serial}\t`) && line.trim().endsWith("device"))) {
+      throw new Error(`${serial} is not an online adb device.`);
+    }
+  } else {
+    serial = await onlineSerial();
+  }
   if (!serial) {
     const name = avdName();
     process.stdout.write(`agent-android-ready: booting AVD ${name}\n`);

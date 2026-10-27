@@ -41,15 +41,23 @@ public struct ChatPreference: Codable, Sendable {
 
 enum TransportFailure {
     static func isOffline(_ error: Error) -> Bool {
-        guard let urlError = error as? URLError else { return false }
-        switch urlError.code {
-        case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost,
-             .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
-             .cannotLoadFromNetwork:
-            return true
-        default:
-            return false
-        }
+        offlineCodes.contains(urlErrorCode(error) ?? 0)
+    }
+
+    /// `.unknown` (-1) is how Foundation on Android reports a host it could not connect to or
+    /// resolve (airplane mode included); Apple platforms use the specific codes.
+    private static let offlineCodes: Set<Int> = [
+        URLError.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost,
+        .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
+        .cannotLoadFromNetwork, .unknown
+    ].reduce(into: []) { codes, code in codes.insert(code.rawValue) }
+
+    /// Off Apple platforms an `NSError` in `NSURLErrorDomain` does not bridge to `URLError`,
+    /// so the Android build reads the domain and code instead.
+    private static func urlErrorCode(_ error: Error) -> Int? {
+        if let urlError = error as? URLError { return urlError.code.rawValue }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain ? nsError.code : nil
     }
 }
 
@@ -165,6 +173,19 @@ public enum RaceDayAPI {
         try await get(graph, "/race-rooms/\(roomId)")
     }
 
+    /// The signed-in athlete's activity history, used to decide whether the estimate needs a recompute.
+    public static func activityHistory(graph: ClientGraph) async throws -> [ActivityHistoryRef] {
+        let payload: ActivityHistoryList = try await get(graph, "/activity-history")
+        return payload.items.map { item in
+            ActivityHistoryRef(
+                id: item.id,
+                distanceMeters: item.distanceMeters,
+                elapsedSeconds: item.elapsedSeconds,
+                elevationGainMeters: item.elevationGainMeters
+            )
+        }
+    }
+
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {
         let body = #"{"displayName":"\#(jsonEscape(displayName))"}"#
         return try await send(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .patch, body: body)
@@ -178,6 +199,14 @@ public enum RaceDayAPI {
     public static func loadScheduleResult(graph: ClientGraph, roomId: String, cacheDirectory: URL?) async throws -> ScheduleLoadResult {
         do {
             let sheet: CrewScheduleSheet = try await get(graph, "/race-rooms/\(roomId)/schedule")
+            if let cacheDirectory {
+                try? ScheduleCache.save(sheet, directory: cacheDirectory)
+            }
+            return ScheduleLoadResult(sheet: sheet, offline: false)
+        } catch let failure as ClientHTTPError where failure.status == 400 {
+            // The API answers 400 only while the room has no schedule yet: no course, fewer than
+            // two checkpoints, no start time, or no planned pace. That is an empty sheet, not an error.
+            let sheet = CrewScheduleSheet(roomId: roomId, raceStartAt: "", stops: [])
             if let cacheDirectory {
                 try? ScheduleCache.save(sheet, directory: cacheDirectory)
             }
@@ -523,5 +552,16 @@ public enum RaceDayAPI {
             return "\(title) cutoff \(ScheduleFormat.formatDurationSeconds(seconds))"
         }
         return nil
+    }
+}
+
+private struct ActivityHistoryList: Decodable {
+    var items: [Item]
+
+    struct Item: Decodable {
+        var id: String
+        var distanceMeters: Double?
+        var elapsedSeconds: Double?
+        var elevationGainMeters: Double?
     }
 }

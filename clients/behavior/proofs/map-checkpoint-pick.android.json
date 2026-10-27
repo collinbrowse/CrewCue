@@ -1,0 +1,18 @@
+{
+  "id": "map-checkpoint-pick",
+  "platform": "android",
+  "entry": "crewcue://dev/map-checkpoint-pick",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Athlete opened crewcue://dev/map-checkpoint-pick, tapped the map (latitude/longitude filled), titled it 'Crew spot' and saved (POST checkpoints 200; the map then shows CREW SPOT).",
+  "checked": {
+    "Success": "'Tap the map to place a checkpoint.' guidance; tap placed it and Save created it.",
+    "Empty": "'No checkpoint selected.'",
+    "Error": "POST checkpoints returned 500: 'Couldn't save the checkpoint.'",
+    "Offline": "Airplane mode: 'Offline. Checkpoint placement needs the network.'",
+    "Accessibility labels": "crewcue.map-checkpoint-pick"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

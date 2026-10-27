@@ -1,0 +1,18 @@
+{
+  "id": "room-members",
+  "platform": "android",
+  "entry": "crewcue://dev/room-members",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Athlete opened crewcue://dev/room-members, selected Ben and removed him; crew opened it too.",
+  "checked": {
+    "Success": "Roster lists members; only the athlete sees Remove (crew do not); removing Ben updates the roster.",
+    "Empty": "Not reachable: a viewer is always on the roster they load. The copy 'No members yet.' exists for an empty payload.",
+    "Error": "DELETE member returned 500: 'Couldn't update members.'",
+    "Offline": "Airplane mode: 'Offline. Roster not updated.'",
+    "Accessibility labels": "crewcue.room-members"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

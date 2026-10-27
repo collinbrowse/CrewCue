@@ -18,8 +18,8 @@
       "label": "crewcue.hello",
       "sdk": "none",
       "scope": "harness",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "schedule-sheet",
@@ -27,8 +27,8 @@
       "label": "crewcue.schedule-sheet",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "cold-start",
@@ -36,8 +36,8 @@
       "label": "crewcue.cold-start",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "pace-estimate",
@@ -45,8 +45,8 @@
       "label": "crewcue.pace-estimate",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "crew-sheet-export",
@@ -54,8 +54,8 @@
       "label": "crewcue.crew-sheet-export",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "outbox-status",
@@ -81,8 +81,8 @@
       "label": "crewcue.join-crew",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "athlete-setup",
@@ -100,7 +100,7 @@
       "sdk": "push",
       "scope": "v1",
       "ios": "fail",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "check-in",
@@ -108,8 +108,8 @@
       "label": "crewcue.check-in",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "course-settings",
@@ -117,8 +117,8 @@
       "label": "crewcue.course-settings",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "pace-stop-edit",
@@ -136,7 +136,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "fail",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "gpx-import",
@@ -163,7 +163,7 @@
       "sdk": "maplibre",
       "scope": "v1",
       "ios": "fail",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "map-navigate",
@@ -172,7 +172,7 @@
       "sdk": "maplibre",
       "scope": "v1",
       "ios": "fail",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "location-heartbeat",
@@ -180,8 +180,8 @@
       "label": "crewcue.location-heartbeat",
       "sdk": "location",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "chat-thread",
@@ -198,8 +198,8 @@
       "label": "crewcue.chat-notification-prefs",
       "sdk": "push",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "push-registration",
@@ -216,8 +216,8 @@
       "label": "crewcue.profile",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "room-members",
@@ -225,8 +225,8 @@
       "label": "crewcue.room-members",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "strava",
@@ -243,8 +243,8 @@
       "label": "crewcue.app-shell",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "brand-loader",
@@ -252,8 +252,8 @@
       "label": "crewcue.loader",
       "sdk": "none",
       "scope": "harness",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     }
   ]
 }

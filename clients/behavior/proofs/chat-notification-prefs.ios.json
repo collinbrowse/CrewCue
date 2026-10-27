@@ -1,0 +1,18 @@
+{
+  "id": "chat-notification-prefs",
+  "platform": "ios",
+  "entry": "crewcue://dev/chat-notification-prefs",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Crew opened crewcue://dev/chat-notification-prefs (Settings opens at Chat alerts) and chose Mentions, None, All.",
+  "checked": {
+    "Success": "All or Mentions: 'Mentions and check-ins notify.'",
+    "Empty": "None: 'Alerts are off.'",
+    "Error": "POST notification-prefs returned 500: 'Couldn't save alert settings.'",
+    "Offline": "Connection dropped: 'Offline. Alert settings stay on this device.'",
+    "Accessibility labels": "crewcue.chat-notification-prefs"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

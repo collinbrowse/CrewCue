@@ -1132,6 +1132,24 @@ function canEditCheckpointStoppage(role: Role): boolean {
   return role === "crew_member" || role === "crew_chief" || role === "team_manager";
 }
 
+/** List payload. The bearer token is omitted unless the viewer can issue invites. */
+function inviteForViewer(invite: RaceRoomInvite, includeToken: boolean) {
+  if (includeToken) {
+    return invite;
+  }
+  return {
+    roomId: invite.roomId,
+    email: invite.email,
+    role: invite.role,
+    invitedBy: invite.invitedBy,
+    invitedAt: invite.invitedAt,
+    expiresAt: invite.expiresAt,
+    status: invite.status,
+    ...(invite.acceptedBy !== undefined ? { acceptedBy: invite.acceptedBy } : {}),
+    ...(invite.acceptedAt !== undefined ? { acceptedAt: invite.acceptedAt } : {})
+  };
+}
+
 function refreshCheckpointVisitDerivedFields(visit: CheckpointVisit): void {
   visit.activeActualStopSeconds =
     visit.resolvedSource === "manual_crew"
@@ -2557,7 +2575,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         .map((invite) => saveRaceRoomInvite(invite))
     );
 
-    return reply.send({ invites });
+    // The token is the capability to join as `role`. Only people who can issue
+    // invites may read it back; every other member still sees status and email.
+    const includeToken = getPermissions(membership.role).canIssueInvite;
+    return reply.send({
+      invites: invites.map((invite) => inviteForViewer(invite, includeToken))
+    });
   });
 
   app.post("/race-rooms/:roomId/invites/accept", async (request, reply) => {
@@ -2591,6 +2614,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const existing = room.memberships.find((member) => member.userId === request.identity?.sub);
+    // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
+    // link the athlete just created must not take that role away either, and must
+    // leave the invite pending for the person it was meant for.
+    if (
+      existing &&
+      existing.userId === room.athleteId &&
+      existing.role === "athlete" &&
+      invite.role !== "athlete"
+    ) {
+      return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+    }
     const nextMemberships = existing
       ? room.memberships.map((member) =>
           member.userId === request.identity?.sub ? { ...member, role: invite.role } : member
