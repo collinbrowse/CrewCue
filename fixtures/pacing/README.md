@@ -18,6 +18,7 @@ The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nes
 | `estimate-bands.json` | W4-2 three-band golden (history-backed + cold-start) + spread policy |
 | `cutoff-compare.json` | W4-1 cutoff modes + UTC race-day wall-clock policy notes for schedule warnings |
 | `strava-activity-summary.json` | Mock Strava payload (no live API) |
+| `eval/` | Pacing evaluation corpus (efforts, courses, `metrics-baseline.json`). Currently all SYNTHETIC; see `docs/sdlc/pacing-evaluation.md` |
 | `load.ts` | Fixture path list + GPX inspect / JSON load helpers (`package.json` marks this folder ESM) |
 
 ### Confidence / A-B bands

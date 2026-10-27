@@ -13,13 +13,40 @@ import Dispatch
 /// JSON RPC used by Android. iOS calls `RaceDayAPI` directly.
 /// `op` is one of openSession, loadSchedule, loadEstimate, decideEstimate, computeEstimate,
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
-/// projectAidSheet,
+/// projectAidSheet, stopPlanDraft, updatePlannedStops,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
-/// myRaces, loadRoom, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
+/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
-/// completeOutbox, updateDisplayName, removeMember, incidents, createIncident,
-/// stravaStart, stravaConnection, stravaDisconnect.
+/// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
+///
+/// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
+/// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
 enum RuntimeCall {
+    private final class TransportBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var transport: (any HTTPTransport)?
+
+        func get() -> (any HTTPTransport)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return transport
+        }
+
+        func set(_ transport: (any HTTPTransport)?) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.transport = transport
+        }
+    }
+
+    /// Tests inject a transport. Production calls leave this nil and use `URLSessionTransport`.
+    private static let transportForTests = TransportBox()
+
+    static func setTransportForTests(_ transport: (any HTTPTransport)?) {
+        transportForTests.set(transport)
+    }
+
     static func perform(_ json: String) async -> String {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -31,10 +58,23 @@ enum RuntimeCall {
             let encoded = try JSONSerialization.data(withJSONObject: ["ok": true, "result": value])
             return String(decoding: encoded, as: UTF8.self)
         } catch {
-            let message = (error as? ClientHTTPError)?.message ?? "\(error)"
-            let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
-            return #"{"ok":false,"message":"\#(escaped)"}"#
+            return failureJSON(error)
         }
+    }
+
+    static func failureJSON(_ error: any Error) -> String {
+        let message: String
+        if let authority = error as? PlanAuthorityError {
+            message = authority.message
+        } else {
+            message = (error as? ClientHTTPError)?.message ?? "\(error)"
+        }
+        let expired = (error as? ClientHTTPError)?.status == 401
+        let object: [String: Any] = ["ok": false, "message": message, "sessionExpired": expired]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return #"{"ok":false,"message":"Request failed."}"#
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func dispatch(_ op: String, _ object: [String: Any]) async throws -> Any {
@@ -48,6 +88,10 @@ enum RuntimeCall {
             return try await loadSchedule(object)
         case "projectAidSheet":
             return projectAidSheet(object)
+        case "stopPlanDraft":
+            return stopPlanDraft(object)
+        case "updatePlannedStops":
+            return try await updatePlannedStops(object)
         case "loadEstimate":
             return try await loadEstimate(object)
         case "decideEstimate":
@@ -76,7 +120,13 @@ enum RuntimeCall {
         case "flushOutbox":
             let graph = try graph(object)
             let report = try await RaceDayAPI.flushOutbox(graph: graph)
-            return ["accepted": report.accepted, "dropped": report.dropped, "rejected": report.rejected, "pending": report.pending]
+            return [
+                "accepted": report.accepted,
+                "dropped": report.dropped,
+                "rejected": report.rejected,
+                "pending": report.pending,
+                "sessionExpired": report.sessionExpired
+            ]
         case "listOutbox":
             return try await listOutbox(object)
         case "exportCrewSheet":
@@ -101,6 +151,8 @@ enum RuntimeCall {
             return try await myRaces(object)
         case "loadRoom":
             return try await loadRoom(object)
+        case "latestPing":
+            return try await latestPing(object)
         case "placeCheckpoint":
             return try await placeCheckpoint(object)
         case "route":
@@ -121,6 +173,17 @@ enum RuntimeCall {
             return try await enqueueChat(object)
         case "completeOutbox":
             return try await completeOutbox(object)
+        case "claimChat":
+            let claimed = try await store(object).claimChat(id: object["id"] as? String ?? "")
+            return ["claimed": claimed]
+        case "claimPendingChat":
+            return try await claimPendingChat(object)
+        case "settleChat":
+            return try await settleChat(object)
+        case "wipeUserData":
+            return try wipeUserData(object)
+        case "adoptUser":
+            return try adoptUser(object)
         case "updateDisplayName":
             return try await updateDisplayName(object)
         case "removeMember":
@@ -163,11 +226,89 @@ enum RuntimeCall {
         return payload
     }
 
-    private static func requestProgress(_ request: [String: Any], _ checkpoints: [AidStationCheckpoint]) -> Double {
-        if let latitude = requestNumber(request["latitude"]), let longitude = requestNumber(request["longitude"]) {
-            return AidStationSheet.progressMeters(latitude: latitude, longitude: longitude, checkpoints: checkpoints)
+    /// Pace edit draft for Android: rebuilds the draft from the course, replays the typed minutes
+    /// (`minutes`: checkpointId → text), applies an optional stepper tap (`step`: checkpointId +
+    /// deltaMinutes), and returns rows, projected stops, and the timeline.
+    private static func stopPlanDraft(_ object: [String: Any]) -> [String: Any] {
+        let checkpoints = aidCheckpoints(object["checkpoints"])
+        // Progress comes from the runner, never this device: Android sends `progressMeters` derived from
+        // the checkpoints the athlete-ping timeline marks passed; otherwise use the `runner` object.
+        let progress = requestNumber(object["progressMeters"]) ?? requestProgress(object, checkpoints)
+        var draft = StopPlanDraft(checkpoints: checkpoints, progressMeters: progress)
+        let typed = object["minutes"] as? [String: Any] ?? [:]
+        for row in draft.rows where row.editable {
+            if let text = typed[row.checkpointId] as? String {
+                draft.setMinutes(text, for: row.checkpointId)
+            }
         }
-        return requestNumber(request["progressMeters"]) ?? 0
+        if let step = object["step"] as? [String: Any], let id = step["checkpointId"] as? String,
+           let delta = intValue(step["deltaMinutes"]) {
+            draft.step(id, deltaMinutes: delta)
+        }
+        let sheet = decodeSheet(object["sheet"])
+        let projected = sheet.map { CrewScheduleSheet(roomId: $0.roomId, raceStartAt: $0.raceStartAt, stops: draft.projectedStops($0.stops)) }
+        let rows: [[String: Any]] = draft.rows.map { row in
+            var item: [String: Any] = [
+                "checkpointId": row.checkpointId,
+                "title": row.title,
+                "savedSeconds": row.savedSeconds,
+                "draftSeconds": row.draftSeconds,
+                "minutesText": row.minutesText,
+                "editable": row.editable,
+                "changed": row.isChanged,
+                "stopLabel": StopPlanDraft.stopLabel(seconds: Double(row.draftSeconds)),
+                "savedLabel": StopPlanDraft.stopLabel(seconds: Double(row.savedSeconds))
+            ]
+            if let error = row.error { item["error"] = error }
+            return item
+        }
+        var payload: [String: Any] = [
+            "rows": rows,
+            "hasChanges": draft.hasChanges,
+            "hasErrors": draft.hasErrors,
+            "canSave": draft.canSave,
+            "mayEdit": PlanAuthority.mayEditCourse(role: object["role"] as? String ?? ""),
+            "edits": draft.edits.map { ["checkpointId": $0.checkpointId, "plannedStopSeconds": $0.plannedStopSeconds] },
+            "timeline": timelinePayload(sheet: projected, request: object, progressMeters: progress)
+        ]
+        if let projected, let stops = try? jsonValue(projected.stops) {
+            payload["stops"] = stops
+        }
+        return payload
+    }
+
+    private static func updatePlannedStops(_ object: [String: Any]) async throws -> Any {
+        let edits = (object["stops"] as? [Any] ?? []).compactMap { item -> PlannedStopEdit? in
+            guard let row = item as? [String: Any], let id = row["checkpointId"] as? String, !id.isEmpty,
+                  let seconds = intValue(row["plannedStopSeconds"]) else { return nil }
+            return PlannedStopEdit(checkpointId: id, plannedStopSeconds: seconds)
+        }
+        guard edits.isEmpty == false else {
+            throw ClientHTTPError(status: 400, message: "No stop changes to save.")
+        }
+        let graph = try graph(object)
+        do {
+            let room = try await RaceDayAPI.updatePlannedStops(graph: graph, roomId: object["roomId"] as? String ?? "", edits: edits)
+            return ["saved": true, "offline": false, "message": StopPlanCopy.saved, "room": try jsonValue(room)]
+        } catch {
+            return ["saved": false, "offline": TransportFailure.isOffline(error), "message": StopPlanCopy.failure(error)]
+        }
+    }
+
+    /// `runner` is the `latest` object from a `latestPing` result, passed back unchanged.
+    /// Progress never comes from the calling device's location.
+    private static func requestRunner(_ request: [String: Any]) -> RunnerProgress {
+        guard let value = request["runner"], !(value is NSNull),
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let response = try? JSONDecoder().decode(RaceRoomLatestPingResponse.self, from: data) else {
+            return .none
+        }
+        return RunnerProgress(response: response)
+    }
+
+    private static func requestProgress(_ request: [String: Any], _ checkpoints: [AidStationCheckpoint]) -> Double {
+        requestRunner(request).progressMeters(checkpoints: checkpoints)
     }
 
     private static func requestNow(_ request: [String: Any]) -> Date {
@@ -188,9 +329,8 @@ enum RuntimeCall {
         let readout = RaceDayReadouts.make(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: requestProgress(request, checkpoints),
-            now: requestNow(request),
-            lastPingAt: requestNumber(request["lastPingAtMs"]).map { Date(timeIntervalSince1970: $0 / 1000) }
+            runner: requestRunner(request),
+            now: requestNow(request)
         )
         var row: [String: Any] = [
             "status": readout.status.rawValue,
@@ -201,7 +341,9 @@ enum RuntimeCall {
             "totalMilesLabel": readout.totalMilesLabel,
             "currentMileLabel": readout.currentMileLabel,
             "elapsedLabel": readout.elapsedLabel,
-            "averagePaceLabel": readout.averagePaceLabel
+            "averagePaceLabel": readout.averagePaceLabel,
+            "pingState": readout.pingState.rawValue,
+            "pingLabel": readout.pingLabel
         ]
         if let ping = readout.lastPingLabel {
             row["lastPingLabel"] = ping
@@ -209,12 +351,13 @@ enum RuntimeCall {
         return row
     }
 
-    private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [[String: Any]] {
+    /// `progressMeters` overrides the request's runner when the caller already resolved it (stop-plan draft).
+    private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any], progressMeters: Double? = nil) -> [[String: Any]] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: requestProgress(request, checkpoints)
+            progressMeters: progressMeters ?? requestProgress(request, checkpoints)
         ).map { item in
             var row: [String: Any] = [
                 "checkpointId": item.checkpointId,
@@ -274,11 +417,7 @@ enum RuntimeCall {
     }
 
     private static func requestNumber(_ value: Any?) -> Double? {
-        if value is Bool || value is NSNull { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 
     private static func schedulePayload(_ sheet: CrewScheduleSheet?, offline: Bool, request: [String: Any] = [:]) throws -> [String: Any] {
@@ -306,6 +445,11 @@ enum RuntimeCall {
             "lines": lines,
             "checkpointIds": sheet.stops.map(\.checkpointId),
             "sheet": try jsonValue(sheet),
+            "mayEditCourse": PlanAuthority.mayEditCourse(role: request["role"] as? String ?? ""),
+            "plannedStopLabels": Dictionary(
+                sheet.stops.map { ($0.checkpointId, StopPlanDraft.stopLabel(seconds: $0.plannedStoppageSeconds)) },
+                uniquingKeysWith: { first, _ in first }
+            ),
             "aidSheet": AidStationSheet.payload(aidProjection(sheet: sheet, request: request)),
             "readout": readoutPayload(sheet: sheet, request: request),
             "timeline": timelinePayload(sheet: sheet, request: request)
@@ -324,7 +468,11 @@ enum RuntimeCall {
             if let estimate, let directory {
                 try? EstimateCache.save(estimate, directory: directory)
             }
-            let input = recomputeInput(object, estimate: estimate, record: record)
+            let input = recomputeInput(
+                await withActivityHistory(object, role: role, graph: graph),
+                estimate: estimate,
+                record: record
+            )
             let decision = RaceDayAPI.decideAutoRecompute(role: role, input: input)
             if !decision.recompute {
                 EstimateRecordFile.save(decision.nextRecord, directory)
@@ -378,15 +526,22 @@ enum RuntimeCall {
 
     private static func computeEstimate(_ object: [String: Any]) async throws -> Any {
         let role = object["role"] as? String ?? ""
-        guard PlanAuthority.mayExplicitRecalculate(role: role) || PlanAuthority.mayAutoRecompute(role: role) else {
-            throw ClientHTTPError(status: 403, message: "Couldn't load the pace estimate.")
+        // Without a trigger the request is an automatic recompute, which only the athlete may make.
+        let trigger = text(object, "trigger").flatMap(PlanTrigger.init(rawValue:)) ?? .auto
+        let hasPlanOfRecord = (object["hasPlanOfRecord"] as? Bool) ?? true
+        guard PlanAuthority.allows(role: role, trigger: trigger, hasPlanOfRecord: hasPlanOfRecord) else {
+            throw PlanAuthorityError.notAllowed
         }
         let directory = directory(object)
         do {
             let graph = try graph(object)
-            let roomId = object["roomId"] as? String ?? ""
-            let computed = try await RaceDayAPI.computeEstimate(graph: graph, roomId: roomId)
-            let attached = try await RaceDayAPI.attachEstimate(graph: graph, roomId: roomId, estimateId: computed.id)
+            let attached = try await PlanOfRecord.recompute(
+                graph: graph,
+                roomId: object["roomId"] as? String ?? "",
+                role: role,
+                trigger: trigger,
+                hasPlanOfRecord: hasPlanOfRecord
+            )
             if let directory {
                 try? EstimateCache.save(attached, directory: directory)
             }
@@ -441,9 +596,9 @@ enum RuntimeCall {
                 if start.isEmpty { start = room.room.raceStartAt ?? "" }
                 if pace <= 0 { pace = room.room.plannedPaceSecondsPerKm ?? 0 }
             }
-            if start.isEmpty || pace <= 0 {
-                throw ClientHTTPError(status: 400, message: "Couldn't read the route file.")
-            }
+            // A new room has neither clock nor pace until this upload sets them. Do not fail
+            // here: RaceDayAPI.importGpx keeps a stored clock and otherwise uses the device
+            // clock and the 360 s/km default, same as the iOS import path.
             _ = try await RaceDayAPI.importGpx(
                 graph: graph,
                 roomId: roomId,
@@ -629,6 +784,23 @@ enum RuntimeCall {
         )
     }
 
+    /// Adds the athlete's history when the caller did not send one, so every platform decides
+    /// the auto recompute from the same server history. Only roles that may auto-recompute fetch it.
+    /// A history failure leaves the estimate readable and simply skips the recompute.
+    static func withActivityHistory(_ object: [String: Any], role: String, graph: ClientGraph) async -> [String: Any] {
+        guard object["history"] == nil, PlanAuthority.mayAutoRecompute(role: role) else { return object }
+        guard let history = try? await RaceDayAPI.activityHistory(graph: graph) else { return object }
+        var filled = object
+        filled["history"] = history.map { row -> [String: Any] in
+            var fields: [String: Any] = ["id": row.id]
+            if let value = row.distanceMeters { fields["distanceMeters"] = value }
+            if let value = row.elapsedSeconds { fields["elapsedSeconds"] = value }
+            if let value = row.elevationGainMeters { fields["elevationGainMeters"] = value }
+            return fields
+        }
+        return filled
+    }
+
     private static func activityHistory(_ object: [String: Any]) -> [ActivityHistoryRef] {
         guard let rows = object["history"] as? [[String: Any]] else { return [] }
         return rows.compactMap { row in
@@ -697,6 +869,34 @@ enum RuntimeCall {
         } catch {
             if TransportFailure.isOffline(error) {
                 return CoursePayload.empty(offline: true)
+            }
+            throw error
+        }
+    }
+
+    /// `latest` is the wire response; hand it back as `runner` to `projectAidSheet`.
+    /// Offline keeps no ping here, so the app keeps the last one it had and lets it go stale.
+    private static func latestPing(_ object: [String: Any]) async throws -> Any {
+        let base = try graph(object)
+        let capture = CapturingTransport(base.transport)
+        let reading = ClientGraph(
+            transport: capture,
+            clock: base.clock,
+            logger: base.logger,
+            baseURL: base.baseURL,
+            tokenProvider: base.tokenProvider,
+            outbox: base.outbox
+        )
+        let refresh = RunnerProgress.refreshIntervalSeconds
+        do {
+            _ = try await RaceDayAPI.latestPing(graph: reading, roomId: object["roomId"] as? String ?? "")
+            guard let data = capture.lastBody, let latest = try? JSONSerialization.jsonObject(with: data) else {
+                return ["offline": false, "refreshSeconds": refresh]
+            }
+            return ["offline": false, "latest": latest, "refreshSeconds": refresh]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true, "refreshSeconds": refresh]
             }
             throw error
         }
@@ -901,33 +1101,75 @@ enum RuntimeCall {
 
     private static func enqueueChat(_ object: [String: Any]) async throws -> Any {
         let store = try store(object)
-        let roomId = object["roomId"] as? String ?? ""
-        let messageText = object["text"] as? String ?? ""
         let clientMessageId = text(object, "clientMessageId") ?? "chat-\(UUID().uuidString)"
-        let payloadData = try JSONSerialization.data(withJSONObject: [
-            "text": messageText,
-            "clientMessageId": clientMessageId
-        ])
-        let payloadJSON = String(decoding: payloadData, as: UTF8.self)
-        let operation = StoredOperation(
-            id: clientMessageId,
-            type: "chat",
-            status: "pending",
-            conflictKey: "chat:\(clientMessageId)",
-            roomId: roomId,
-            payloadJSON: payloadJSON,
-            idempotencyKey: IdempotencyKey.hashPayload(payloadJSON),
+        let operation = try await store.enqueueChat(
+            roomId: object["roomId"] as? String ?? "",
+            text: object["text"] as? String ?? "",
             clientMessageId: clientMessageId,
             role: object["role"] as? String ?? "crew_member"
         )
-        try await store.mutate(roomId: roomId) { operations in
-            if let index = operations.firstIndex(where: { $0.clientMessageId == clientMessageId || $0.id == clientMessageId }) {
-                operations[index] = operation
-            } else {
-                operations.append(operation)
+        return ["status": "pending", "id": operation.id, "clientMessageId": clientMessageId]
+    }
+
+    /// Pending chat for the room that no other caller is already sending.
+    private static func claimPendingChat(_ object: [String: Any]) async throws -> Any {
+        let store = try store(object)
+        let claimed = try await store.claimPendingChat(roomId: object["roomId"] as? String ?? "")
+        let messages: [[String: Any]] = claimed.map { operation in
+            [
+                "id": operation.id,
+                "clientMessageId": operation.clientMessageId,
+                "text": chatText(operation.payloadJSON)
+            ]
+        }
+        return ["messages": messages]
+    }
+
+    /// Ends a claim. No `error` means delivered; an "already exists" error also counts as delivered.
+    private static func settleChat(_ object: [String: Any]) async throws -> Any {
+        let store = try store(object)
+        let id = object["id"] as? String ?? ""
+        let failure = text(object, "error").map { RuntimeSendFailure(description: $0) }
+        try await store.settleChat(id: id, error: failure)
+        let delivered = failure.map(OutboxPolicy.isAlreadyDelivered) ?? true
+        return ["status": delivered ? "delivered" : "pending", "id": id]
+    }
+
+    /// Sign-out and session expiry: every user's files under the storage root. Open outboxes are
+    /// closed even when the app already deleted their directory, so a late write can't recreate them.
+    private static func wipeUserData(_ object: [String: Any]) throws -> Any {
+        guard let root = storageRoot(object) else {
+            throw ClientHTTPError(status: 0, message: "storageDir is required.")
+        }
+        try OutboxStore.wipeShared(inside: root)
+        try UserStorage(root: root).wipeAll()
+        return ["status": "wiped"]
+    }
+
+    /// Sign-in: the storage root belongs to the runtime, so everything but this user's directory
+    /// goes, including other accounts and the unscoped layout from before #538.
+    private static func adoptUser(_ object: [String: Any]) throws -> Any {
+        guard let root = storageRoot(object), let userId = text(object, "userId") else {
+            throw ClientHTTPError(status: 0, message: "storageDir and userId are required.")
+        }
+        let storage = UserStorage(root: root)
+        try storage.wipeAll(except: userId)
+        let keep = storage.usersDirectory.lastPathComponent
+        if FileManager.default.fileExists(atPath: root.path) {
+            for name in try FileManager.default.contentsOfDirectory(atPath: root.path) where name != keep {
+                try FileManager.default.removeItem(at: root.appendingPathComponent(name))
             }
         }
-        return ["status": "pending", "id": operation.id, "clientMessageId": clientMessageId]
+        _ = try storage.directory(userId: userId)
+        return ["status": "adopted"]
+    }
+
+    private static func chatText(_ payloadJSON: String) -> String {
+        guard let data = payloadJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ""
+        }
+        return object["text"] as? String ?? ""
     }
 
     private static func completeOutbox(_ object: [String: Any]) async throws -> Any {
@@ -1100,10 +1342,15 @@ enum RuntimeCall {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
     }
 
-    /// The user's storage root. Only the outbox lives here; it keys rows by room itself.
-    private static func userDirectory(_ object: [String: Any]) -> URL? {
+    private static func storageRoot(_ object: [String: Any]) -> URL? {
         guard let path = object["storageDir"] as? String, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    /// The signed-in user's directory under the storage root. The outbox keys rows by room itself.
+    private static func userDirectory(_ object: [String: Any]) -> URL? {
+        guard let root = storageRoot(object) else { return nil }
+        return try? UserStorage(root: root).directory(userId: object["userId"] as? String ?? "")
     }
 
     /// Per-room caches and drafts. Nil without a room, so one race never reads another's files.
@@ -1116,7 +1363,7 @@ enum RuntimeCall {
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
-        return try OutboxStore(userId: object["userId"] as? String ?? "guest", directory: directory)
+        return try OutboxStore.shared(userId: object["userId"] as? String ?? "guest", directory: directory)
     }
 
     private static func graph(_ object: [String: Any]) throws -> ClientGraph {
@@ -1126,7 +1373,7 @@ enum RuntimeCall {
         let token = object["token"] as? String
         let outbox = try? store(object)
         return ClientGraph(
-            transport: URLSessionTransport(),
+            transport: transportForTests.get() ?? URLSessionTransport(),
             clock: SystemClock(),
             logger: SilentRuntimeLogger(),
             baseURL: baseURL,
@@ -1250,6 +1497,8 @@ enum CoursePayload {
             "offline": false,
             "checkpoints": checkpoints,
             "name": (room["name"] as? String) ?? "",
+            // Android shows Remove member only to the race's athlete, as the API allows.
+            "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
             "elevation": elevationRows(room),
             "memberships": membershipRows(room)
@@ -1369,11 +1618,7 @@ enum CoursePayload {
     }
 
     private static func number(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 }
 
@@ -1404,4 +1649,8 @@ public func crewcue_runtime_json(_ request: UnsafePointer<CChar>?) -> UnsafeMuta
     }
     semaphore.wait()
     return strdup(box.value ?? #"{"ok":false,"message":"bridge failed"}"#)
+}
+
+private struct RuntimeSendFailure: Error, CustomStringConvertible {
+    var description: String
 }

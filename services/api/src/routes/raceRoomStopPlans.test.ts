@@ -90,6 +90,16 @@ async function getRoom(app: TestApp, roomId: string, token: string): Promise<Rac
   return (getResponse.json() as { room: RaceRoom }).room;
 }
 
+async function getMyRooms(app: TestApp, token: string): Promise<RaceRoom[]> {
+  const response = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${token}` }
+  });
+  assert.equal(response.statusCode, 200);
+  return (response.json() as { rooms: RaceRoom[] }).rooms;
+}
+
 async function getStopPlans(app: TestApp, roomId: string, token: string) {
   return app.inject({
     method: "GET",
@@ -604,6 +614,14 @@ test("stale GET /mine snapshot does not wipe a newer stop-plan on the next write
   delete staleListSnapshot.stopPlans;
   // Late list continuation: a SELECT started before the aid-1 write committed.
   ingestPersistedRaceRoomsWithoutClobberForTests([staleListSnapshot]);
+
+  const roomsAfterLateList = await getMyRooms(app, ownerToken);
+  const listedRoom = roomsAfterLateList.find((room) => room.id === roomId);
+  assert.ok(listedRoom);
+  assert.equal(
+    listedRoom.stopPlans?.find((plan) => plan.checkpointId === "aid-1")?.planNotes?.body,
+    "Drop bag at aid 1"
+  );
 
   const second = await putStopPlan(app, roomId, "aid-2", ownerToken, {
     planNotes: { id: "note-aid-2", body: "Crew at aid 2" }

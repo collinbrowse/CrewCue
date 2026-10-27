@@ -4,38 +4,65 @@ Update at **PR/wave boundaries**, not every chat. Current state only. Feature ag
 
 ## Snapshot
 
-- Last updated: 2026-09-14 (UTC)
-- **On `main`:** Pacing accuracy #485 (#481–#484, #487) + agent harness gates #491 (#490).
-- **Process:** Fast path default; machine gates `agent:issue:ready` / `agent:pr:done` / scoped `verify:*` / hardened `agent:ios:ready`.
-- **Active next:** Single field validation (real backtest fixture).
+- Last updated: 2026-10-16 (UTC)
+- **Clients are native.** iOS SwiftUI (`apps/ios`) and Android Compose (`apps/android`) share behaviour through the Swift core in `packages/client-core`. Android consumes that core over JNI: Swift Android SDK cross-compile, `scripts/build-swift-android.mjs`. Expo and `apps/mobile` were removed; do not add them back.
+- **Parity source of truth:** `clients/behavior/**` checklists plus `deeplinks.json`. A `pass` needs a device proof file. Native race day is unfinished while checklist rows are `fail`.
+- **API:** Fastify on Railway (`railway.toml`), with Postgres or memory persistence and Auth0 RS256 (staging tenant).
+- **Release pipeline:** `npm run release -- X.Y.Z` → `.github/workflows/release.yml` → TestFlight and the Play internal track. It is blocked on the owner's secrets and config: see `docs/release/readiness.md` "Needs you".
+- **Process:** Fast path default. Machine gates are `agent:issue:ready`, `agent:pr:done` (includes `pr-decision-doc-guard`), scoped `verify:*`, `agent:ios:ready` and `agent:android:ready` (dev deeplinks need a **Debug** build).
+- **Latest on `main`:** Cairn loaders, shared, iOS and Android (#555, #556, #559).
 
-## Completed (merged)
+- Last updated: 2026-08-07 (UTC)
+- **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
+- **Branch:** `cursor/critical-bug-investigation-20a4` (athlete ping authz fix).
+- **Active follow-up:** Merge ping authz fix; then staging chat smoke from prior handoff.
+## In flight: weekend wave (2026-10-16)
 
-- #485: history → plan wiring, backtest CLI, model C1–C4, aid dwell, estimate recompute/projection refresh.
-- #491: Ready/Done scripts, scoped verify, Cursor hooks, Ready lint Action, `crewcue://dev/pace-estimate`.
-- Auth0-free sim proof: `crewcue://dev/pace-estimate` on guest stack (2026-09-14) — cold-start DEV fixture; no login.
+Six parallel sessions, each in its own worktree and each ending in an open PR for owner review. Nothing merges without the owner.
 
-## Next 1-3 tasks
+- Critical bug hunt: `POST /race-rooms/:roomId/pings` allowed any room member to forge athlete location/projection. Restricted to `room.athleteId`; regression in `raceRoomPings.test.ts`.
+| Session | Area | Branch | PR scope |
+| --- | --- | --- | --- |
+| A | Runner progress from the runner's phone | `claude/runner-progress-from-athlete-pings-e95a83` | iOS `MapModel` and Android `MapViewModel` readouts and `AidStationSheet` read the latest athlete ping (AGENTS.md invariant) |
+| B | Offline-safety invariants (#538) | `claude/client-core-offline-invariants-8958e9` | `packages/client-core` outbox, sessions and pings |
+| C | Parity checklist device-proof sweep | `claude/parity-checklist-proof-sweep-44823b` | `clients/behavior/**` rows with device proof |
+| D | Open PR queue cleanup | `claude/pr-queue-triage-2f8603` | Triage of Dependabot and older cursor PRs |
+| E | Pacing evaluation and planned aid stops (#250) | `claude/pacing-evaluation-aid-stops-6400cd` | API pacing and the Pace edit screens |
+| F | Release readiness | `claude/release-readiness-audit-d77b63` | `docs/release/readiness.md`. Dev links and dev sessions limited to Debug on both apps. iOS privacy manifest. Android R8. API production auth guard and log scrubbing. Issues #560–#571. |
 
-1. **Single field validation:** add `fixtures/pacing/backtest-<real>.json` from a completed effort, run `npm run pacing:backtest`, tune C1/C2 against evidence.
-2. Staging/device smoke: recalculate from history → Pace tab clocks match schedule.
-3. (Optional) Re-sign into sim if you need production-auth Pace tabs — AsyncStorage was cleared for guest deeplink QA.
+Expected overlap when merging:
+- A and F both touch Android `ShellViewModel.kt`. F only changes the `open()` line.
+- B and F both touch client-core neighbours. F changes no client-core source.
+- Merge order does not matter otherwise.
 
+1. Review/merge athlete ping authz PR on `cursor/critical-bug-investigation-20a4`.
+2. Deploy staging API; confirm migrate `0014` if not already; signed-in chat smoke.
+3. Consider open drafts #334–#344 (membership/outbox races) separately — do not reopen blindly.
+## Next 1-3 tasks (after the wave lands)
+
+1. **TestFlight / Play internal unblock:** owner items 1–4 in `docs/release/readiness.md`, then #561 (per-environment build config) and #571 (Android target API 36).
+2. **Store blockers:** #560 (account deletion), #569 (privacy policy and support links), #562 (background runner heartbeat).
+3. **Production hardening:** #565 (rate limits), #566 (readiness check and migration ledger), #564 (crash reporting), #567 (secure token storage).
+
+- Auth0 still blocks unattended sim chat E2E.
+- Many prior critical-bug draft PRs (#334–#344) still open/unmerged.
+- Push webhook contract notes Stream user ids while tests/routes use Auth0 ids — verify before wiring Stream→API fanout.
 ## Validation evidence
 
-- #485 / #491 on `main` (`0666ef8`).
-- Sim: `agent:ios:ready -- --deeplink crewcue://dev/pace-estimate` → “Pace estimate (DEV)” + cold-start banner (local evidence under `.agent-pr-evidence/`, not committed).
+- Each wave PR carries its own `npm run verify` and `agent:pr:done` results, plus device screenshots (attached to the PR, not committed).
 
 ## Blockers
 
-- Model constants provisional until real-effort backtest.
-- Production-auth mobile paths still need Auth0; **fixture** schedule/pace proof does not (`crewcue://dev/*`). Guest DEV routes require guest stack (clear session or sign out if already authed).
-- Leave unrelated stashes alone.
+- Release builds point at localhost API and the dev Auth0 tenant until #561 and the owner's endpoint choice.
+- Play rejects new apps below API 36 (#571), unless the owner requests the extension to 2026-11-01.
+- Pacing model constants stay provisional until a real-effort backtest (`fixtures/pacing/backtest-<real>.json`).
+- Leave unrelated stashes alone. The stash stack is shared across worktrees.
 
 ## Successor prompt
 
 ```text
-main has #485 + #491. Next: fixtures/pacing/backtest-<real>.json + npm run pacing:backtest;
-tune GAIN_FLAT_EQUIVALENT / RIEGEL_ENDURANCE from evidence. Auth0-free sim already proven via
-crewcue://dev/pace-estimate (guest stack). Use agent:issue:ready / agent:pr:done.
+Ping authz fix on cursor/critical-bug-investigation-20a4: only room.athleteId may POST /pings. Review PR; then staging chat smoke / CHAT_PUSH_WEBHOOK_SECRET as needed. Do not reopen #334–#344 unless picking one deliberately.
+Native clients only (apps/ios, apps/android, packages/client-core). Read docs/release/readiness.md
+"Needs you" + issues #560–#571 for the release path. Weekend wave A–F PRs are open for owner review;
+rebase on whatever merged. Use agent:issue:ready / agent:pr:done; device proof for UI changes.
 ```

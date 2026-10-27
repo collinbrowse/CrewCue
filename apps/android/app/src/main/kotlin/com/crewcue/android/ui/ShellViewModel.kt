@@ -10,10 +10,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.auth.AuthResult
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.DevRoutes
 import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
+import com.crewcue.android.session.applyingJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -127,6 +129,7 @@ class ShellViewModel(
     var racesLoading by mutableStateOf(false)
         private set
     private var racesJob: Job? = null
+    private var racesTicket = 0
 
     fun noteChatUnread(count: Int) {
         chatUnread = count
@@ -137,22 +140,41 @@ class ShellViewModel(
     private var previewJob: Job? = null
 
     init {
+        container.raceDay.onSessionExpired = { rejectedToken ->
+            viewModelScope.launch(Dispatchers.Main) {
+                // Only the session that sent the request can expire; a late 401 for an old one is ignored.
+                if (session?.token == rejectedToken) signOut(null)
+            }
+        }
+        session?.let { adoptStorage(it.userId) }
         open(launchIntent)
         if (racesJob == null) loadRaces()
     }
 
-    /** Load the user's races. Client-core picks the active room; the stored one wins while still listed. */
+    override fun onCleared() {
+        container.raceDay.onSessionExpired = null
+        super.onCleared()
+    }
+
+    /** Keeps only this account's files on the device (#538). */
+    private fun adoptStorage(userId: String) {
+        if (userId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) { container.raceDay.adoptUser(userId) }
+    }
+
+    /** Load the user's races. The room they are on now stays active while the server still lists it. */
     fun loadRaces() {
         val current = session ?: return
+        val ticket = ++racesTicket
         racesJob?.cancel()
         racesLoading = true
         racesJob = viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) { container.raceDay.myRaces(current.roomId) }
             } finally {
-                if (coroutineContext[Job] == racesJob) racesLoading = false
+                if (ticket == racesTicket) racesLoading = false
             }
-            if (session?.userId != current.userId) return@launch
+            if (ticket != racesTicket || session?.userId != current.userId) return@launch
             when (result) {
                 is RuntimeResult.Failure -> {
                     racesMessage = if (result.offline) "Offline. Showing your last race." else "Couldn't load your races."
@@ -168,7 +190,7 @@ class ShellViewModel(
                                     name = row.optString("name"),
                                     role = row.optString("role"),
                                     roleLabel = row.optString("roleLabel"),
-                                    displayName = row.optString("displayName").trim().ifBlank { null }
+                                    displayName = row.optText("displayName").trim().ifBlank { null }
                                 )
                             )
                         }
@@ -178,7 +200,7 @@ class ShellViewModel(
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
-                    val active = loaded.firstOrNull { it.id == activeId }
+                    val active = activeRaceAfterRefresh(loaded, session?.roomId, activeId)
                     when {
                         active != null && (active.id != session?.roomId || active.role != session?.role) -> apply(active)
                         active == null && session?.roomId != null -> {
@@ -216,10 +238,11 @@ class ShellViewModel(
         }
         if (opened && isOAuthCallback(url)) return
         opened = true
-        val feature = DevRoutes.featureId(url)
+        val feature = DevRoutes.inboundFeatureId(url)
         val state = if (url == null) "success" else queryState(url)
         when {
-            feature == "app-shell" && state == "success" -> showShell(ShellTab.Map)
+            feature == "app-shell" && state == "success" ->
+                if (container.sessionStore.current() != null) showShell(ShellTab.Map) else showSignedOut()
             feature != null && url != null -> openLinkedFeature(feature, url)
             container.sessionStore.current() != null -> showShell(ShellTab.Map)
             else -> showSignedOut()
@@ -301,6 +324,8 @@ class ShellViewModel(
         }
         container.sessionStore.clear()
         session = null
+        // The store already deleted the files; this closes any open outbox so a late write can't recreate them.
+        viewModelScope.launch(Dispatchers.IO) { container.raceDay.wipeUserData() }
         racesJob?.cancel()
         races = emptyList()
         racesMessage = ""
@@ -371,11 +396,13 @@ class ShellViewModel(
             role = request.role.ifBlank { "crew_member" },
             token = request.token,
             displayName = request.displayName?.trim()?.ifBlank { null },
-            roomId = request.roomId ?: session?.roomId,
+            // Another user's dev session must not land in the previous user's race.
+            roomId = request.roomId ?: session?.takeIf { it.userId == request.userId }?.roomId,
             fromAuth0 = false
         )
         container.sessionStore.save(stored)
         session = stored
+        adoptStorage(stored.userId)
         loadRaces()
     }
 
@@ -393,6 +420,7 @@ class ShellViewModel(
                 )
                 container.sessionStore.save(stored)
                 session = stored
+                adoptStorage(stored.userId)
                 loadRaces()
                 if (pendingJoin) {
                     pendingJoin = false
@@ -435,8 +463,9 @@ class ShellViewModel(
             when (result) {
                 is RuntimeResult.Success -> {
                     val roomId = result.result.optJSONObject("room")?.optString("id").orEmpty()
+                    val assignedRole = result.result.optString("assignedRole")
                     if (roomId.isNotBlank()) {
-                        container.sessionStore.update { it.copy(roomId = roomId) }
+                        container.sessionStore.update { it.applyingJoin(roomId, assignedRole) }
                         session = container.sessionStore.current()
                         loadRaces()
                     }
@@ -491,7 +520,8 @@ class ShellViewModel(
             "outbox-status",
             "check-in",
             "course-settings",
-            "gpx-import"
+            "gpx-import",
+            "pace-stop-edit"
         )
     }
 
@@ -521,6 +551,10 @@ class ShellViewModel(
         profilePane = profilePaneFor(screen.featureId)
         uiState = UiState.from(screen, state)
         routeId = "${screen.featureId}?state=$state"
+        // The fixture body is the preview copy; nothing has been typed yet.
+        if (screen.featureId == "join-crew" && !stateOverlay) {
+            replaceBody("Enter an invite code.", kind = "empty")
+        }
     }
 
     private fun showSignedOut(

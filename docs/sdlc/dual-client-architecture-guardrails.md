@@ -30,9 +30,9 @@ Parity is the behavior checklist in `clients/behavior/`, plus each platform's de
 
 File layout, dependency injection, routes, errors, and screen models live in the path-scoped rules. Load only the trees the task touches:
 
-- `packages/client-core/**` → `.cursor/rules/client-core-architecture.mdc`
-- `apps/ios/**` → that rule plus `.cursor/rules/ios-presentation.mdc`
-- `apps/android/**` → that rule plus `.cursor/rules/android-presentation.mdc`
+- `packages/client-core/**` → `.claude/rules/client-core-architecture.md`
+- `apps/ios/**` → that rule plus `.claude/rules/ios-presentation.md`
+- `apps/android/**` → that rule plus `.claude/rules/android-presentation.md`
 
 ## 4) Gates
 
@@ -43,4 +43,4 @@ File layout, dependency injection, routes, errors, and screen models live in the
 - `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
 - `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`
 
-A feature that has both UI issues is covered when both device gates have passed and `deeplinks.json` is `pass` only with proof under `.agent-pr-evidence/behavior/`. Linux CI does not boot a simulator or emulator.
+A feature that has both UI issues is covered when both device gates have passed. `deeplinks.json` may say `pass` for a platform only with a committed proof at `clients/behavior/proofs/<id>.<platform>.json`. Linux CI does not boot a simulator or emulator, so the proof is how CI knows a device was used. It holds `id`, `platform`, `entry`, `device`, `commit`, `action`, and `checked` with what the device showed for `Success`, `Empty`, `Error`, and `Offline`. Screenshots go on the PR, never in the repo. Fixture copy from `?state=` alone is not a pass.

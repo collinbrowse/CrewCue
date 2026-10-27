@@ -43,6 +43,86 @@ public struct ElevationProfile: Equatable, Sendable {
     }
 }
 
+/// The athlete's latest accepted ping, read from the API. Race progress comes only from this,
+/// never from the viewing phone's GPS, so every crew member sees the same readout.
+public struct RunnerPing: Equatable, Sendable {
+    public var pingId: String
+    public var latitude: Double
+    public var longitude: Double
+    /// Athlete device time for the sample. "Last ping" readouts use this.
+    public var recordedAt: Date
+    /// Route-snapped progress from the server projection for this ping. Nil when the room has none.
+    public var progressMeters: Double?
+
+    public init(pingId: String, latitude: Double, longitude: Double, recordedAt: Date, progressMeters: Double? = nil) {
+        self.pingId = pingId
+        self.latitude = latitude
+        self.longitude = longitude
+        self.recordedAt = recordedAt
+        self.progressMeters = progressMeters
+    }
+}
+
+/// Whether crew can trust the runner readouts right now.
+public enum RunnerPingState: String, Equatable, Sendable {
+    /// The athlete has not sent an accepted ping yet.
+    case none
+    case live
+    /// The latest ping is older than the room's staleness threshold.
+    case stale
+}
+
+/// What every crew phone knows about the runner's position.
+public struct RunnerProgress: Equatable, Sendable {
+    /// Server default when the athlete app has not declared an upload interval (15 minutes).
+    public static let defaultStalenessThresholdSeconds: Double = 15 * 60
+    /// How often crew phones read the latest ping again while race day is on screen.
+    public static let refreshIntervalSeconds: Double = 30
+
+    public static let none = RunnerProgress(ping: nil)
+
+    public var ping: RunnerPing?
+    public var stalenessThresholdSeconds: Double
+
+    public init(ping: RunnerPing?, stalenessThresholdSeconds: Double = RunnerProgress.defaultStalenessThresholdSeconds) {
+        self.ping = ping
+        self.stalenessThresholdSeconds = stalenessThresholdSeconds.isFinite && stalenessThresholdSeconds > 0
+            ? stalenessThresholdSeconds
+            : RunnerProgress.defaultStalenessThresholdSeconds
+    }
+
+    /// Maps the wire response. A ping with an unreadable time or position counts as no ping.
+    public init(response: RaceRoomLatestPingResponse) {
+        let ping = response.ping.flatMap { wire -> RunnerPing? in
+            guard let recordedAt = ScheduleFormat.parseISO8601(wire.recordedAt),
+                  wire.latitude.isFinite, wire.longitude.isFinite,
+                  (-90...90).contains(wire.latitude), (-180...180).contains(wire.longitude) else {
+                return nil
+            }
+            return RunnerPing(
+                pingId: wire.pingId,
+                latitude: wire.latitude,
+                longitude: wire.longitude,
+                recordedAt: recordedAt,
+                progressMeters: wire.progressMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+            )
+        }
+        self.init(ping: ping, stalenessThresholdSeconds: response.stalenessThresholdSeconds)
+    }
+
+    /// Server progress when the projection has it, else the ping snapped to the nearest checkpoint.
+    public func progressMeters(checkpoints: [AidStationCheckpoint]) -> Double {
+        guard let ping else { return 0 }
+        if let meters = ping.progressMeters { return meters }
+        return AidStationSheet.progressMeters(latitude: ping.latitude, longitude: ping.longitude, checkpoints: checkpoints)
+    }
+
+    public func state(now: Date) -> RunnerPingState {
+        guard let ping else { return .none }
+        return now.timeIntervalSince(ping.recordedAt) > stalenessThresholdSeconds ? .stale : .live
+    }
+}
+
 /// Race-wide readouts for the map sheet, chat header, and profile stats.
 public struct RaceDayReadout: Equatable, Sendable {
     public var status: TrackStatus
@@ -55,6 +135,9 @@ public struct RaceDayReadout: Equatable, Sendable {
     public var elapsedLabel: String
     public var averagePaceLabel: String
     public var lastPingLabel: String?
+    public var pingState: RunnerPingState
+    /// Chip text: "NO PING YET" or "LAST PING: 3 MIN AGO".
+    public var pingLabel: String
 
     public init(
         status: TrackStatus,
@@ -66,7 +149,9 @@ public struct RaceDayReadout: Equatable, Sendable {
         currentMileLabel: String,
         elapsedLabel: String,
         averagePaceLabel: String,
-        lastPingLabel: String?
+        lastPingLabel: String?,
+        pingState: RunnerPingState = .none,
+        pingLabel: String = RaceDayReadouts.noPingLabel
     ) {
         self.status = status
         self.statusLabel = statusLabel
@@ -78,6 +163,8 @@ public struct RaceDayReadout: Equatable, Sendable {
         self.elapsedLabel = elapsedLabel
         self.averagePaceLabel = averagePaceLabel
         self.lastPingLabel = lastPingLabel
+        self.pingState = pingState
+        self.pingLabel = pingLabel
     }
 }
 
@@ -128,6 +215,32 @@ public enum RaceDayReadouts {
     /// Slack either side of the planned arrival that still counts as on track.
     public static let onTrackToleranceSeconds: Double = 600
 
+    public static let noPingLabel = "NO PING YET"
+
+    /// Readouts from the athlete's latest ping. A stale ping keeps its position but drops the
+    /// on-track call, because the runner may have moved on since.
+    public static func make(
+        sheet: CrewScheduleSheet?,
+        checkpoints: [AidStationCheckpoint],
+        runner: RunnerProgress,
+        now: Date
+    ) -> RaceDayReadout {
+        let state = runner.state(now: now)
+        var readout = make(
+            sheet: sheet,
+            checkpoints: checkpoints,
+            progressMeters: runner.progressMeters(checkpoints: checkpoints),
+            now: now,
+            lastPingAt: runner.ping?.recordedAt
+        )
+        readout.pingState = state
+        if state != .live {
+            readout.status = .unknown
+            readout.statusLabel = ""
+        }
+        return readout
+    }
+
     public static func make(
         sheet: CrewScheduleSheet?,
         checkpoints: [AidStationCheckpoint],
@@ -143,6 +256,9 @@ public enum RaceDayReadouts {
         let status = status(sheet: sheet, checkpoints: checkpoints, progressMeters: progress, now: now)
         let totalMiles = total / metersPerMile
         let currentMiles = progress / metersPerMile
+        // Progress is as of the ping, so pace divides by the time the ping was taken, not now.
+        let paceElapsed = lastPingAt.flatMap { at in start.map { at.timeIntervalSince($0) } } ?? elapsed
+        let pingAge = lastPingAt.map { lastPingLabel(at: $0, now: now) }
         return RaceDayReadout(
             status: status.status,
             statusLabel: status.label,
@@ -152,8 +268,10 @@ public enum RaceDayReadouts {
             totalMilesLabel: total > 0 ? PortableFormat.oneDecimal(totalMiles) : "—",
             currentMileLabel: PortableFormat.oneDecimal(currentMiles),
             elapsedLabel: elapsed.map(ScheduleFormat.formatDurationSeconds) ?? "—",
-            averagePaceLabel: averagePaceLabel(elapsedSeconds: elapsed, progressMeters: progress),
-            lastPingLabel: lastPingAt.map { lastPingLabel(at: $0, now: now) }
+            averagePaceLabel: averagePaceLabel(elapsedSeconds: paceElapsed, progressMeters: progress),
+            lastPingLabel: pingAge,
+            pingState: lastPingAt == nil ? .none : .live,
+            pingLabel: pingAge.map { "LAST PING: \($0)" } ?? noPingLabel
         )
     }
 

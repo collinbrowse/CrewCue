@@ -41,6 +41,7 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/onboarding-notifications": "onboarding-notifications"
         case "dev/check-in": "check-in"
         case "dev/course-settings": "course-settings"
+        case "dev/pace-stop-edit": "pace-stop-edit"
         case "dev/readouts-incidents": "readouts-incidents"
         case "dev/gpx-import-progress": "gpx-import"
         case "dev/map": "map-track"

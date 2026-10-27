@@ -90,6 +90,16 @@ public enum PlanAuthority {
     public static func maySeedColdStart(role: String) -> Bool {
         mayExplicitRecalculate(role: role)
     }
+
+    /// Course edits (planned stops included). Mirrors the API's `canEditRaceSetup`.
+    public static func mayEditCourse(role: String) -> Bool {
+        switch role {
+        case "athlete", "crew_chief", "team_manager":
+            true
+        default:
+            false
+        }
+    }
 }
 
 public enum EstimateRecompute {
@@ -124,7 +134,7 @@ public enum EstimateRecompute {
         return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: next)
     }
 
-    /// Automatic history recompute is athlete-only. The server does not enforce this yet.
+    /// Automatic history recompute is athlete-only. The API enforces the same rule by trigger.
     public static func decide(role: String, _ input: EstimateRecomputeInput) -> EstimateRecomputeDecision {
         guard PlanAuthority.mayAutoRecompute(role: role) else {
             return EstimateRecomputeDecision(reason: .none, recompute: false, nextRecord: input.record)

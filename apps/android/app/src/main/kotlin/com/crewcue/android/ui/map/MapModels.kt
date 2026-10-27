@@ -14,6 +14,10 @@ const val LOCATION_QUEUED = "Location sample queued."
 const val LOCATION_EMPTY = "No location sample yet."
 const val LOCATION_DENIED = "Location permission was denied."
 const val LOCATION_OFFLINE = "Offline. Sample queued in the outbox."
+/** Shown until client-core's first readout arrives; matches `RaceDayReadouts.noPingLabel`. */
+const val NO_PING_LABEL = "NO PING YET"
+/** Used until the first `latestPing` result supplies client-core's `refreshSeconds`. */
+const val DEFAULT_RUNNER_REFRESH_MS = 30_000L
 
 data class MapCheckpoint(
     val id: String,
@@ -52,7 +56,10 @@ data class RaceReadout(
     val currentMileLabel: String = "0.0",
     val elapsedLabel: String = "—",
     val averagePaceLabel: String = "—",
-    val lastPingLabel: String? = null
+    val lastPingLabel: String? = null,
+    /** `none`, `live`, or `stale`, from the athlete's latest ping. */
+    val pingState: String = "none",
+    val pingLabel: String = NO_PING_LABEL
 )
 
 /** One Pace timeline row: done, current, or projected. */

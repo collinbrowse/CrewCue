@@ -266,20 +266,29 @@ export function estimatePacingMicroModelWithArtifacts(
   };
 }
 
+/**
+ * Distance of the farthest checkpoint. A loop or out-and-back often has an earlier
+ * waypoint whose id is exactly `finish` (the first pass of the finish line, then
+ * `finish-2` at the return). That first id is not the end of the course.
+ */
+function farthestCheckpointDistance(checkpoints: readonly RaceCourseCheckpoint[]): number | undefined {
+  let best = -1;
+  for (const cp of checkpoints) {
+    const d = cp.distanceMetersFromStart;
+    if (typeof d === "number" && Number.isFinite(d) && d >= best) {
+      best = d;
+    }
+  }
+  return best >= 0 ? best : undefined;
+}
+
 function interpolateFinish(
   sim: { distanceElapsedCurve: Array<{ distanceMetersFromStart: number; referenceElapsedSeconds: number }> },
   courseDistance: number,
   checkpoints: RaceCourseCheckpoint[]
 ): number {
-  const finishCp =
-    checkpoints.find((cp) => cp.id === "finish") ??
-    [...checkpoints].sort(
-      (a, b) => (b.distanceMetersFromStart ?? 0) - (a.distanceMetersFromStart ?? 0)
-    )[0];
-  const d =
-    finishCp && typeof finishCp.distanceMetersFromStart === "number"
-      ? finishCp.distanceMetersFromStart
-      : courseDistance;
+  const farthest = farthestCheckpointDistance(checkpoints);
+  const d = farthest !== undefined && farthest > 0 ? farthest : courseDistance;
   return interpolateElapsedAtDistance(sim.distanceElapsedCurve, d);
 }
 

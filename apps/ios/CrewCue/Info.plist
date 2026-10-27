@@ -5,15 +5,15 @@
   <key>CFBundleDisplayName</key>
   <string>CrewCue</string>
   <key>CrewCueAPIBaseURL</key>
-  <string>http://127.0.0.1:3000</string>
+  <string>$(CREWCUE_API_BASE_URL)</string>
   <key>CrewCueMapTilerKey</key>
   <string>$(CREWCUE_MAPTILER_KEY)</string>
   <key>CrewCueAuth0Domain</key>
-  <string>dev-ozh1r6603ymvszq6.us.auth0.com</string>
+  <string>$(CREWCUE_AUTH0_DOMAIN)</string>
   <key>CrewCueAuth0ClientId</key>
-  <string>oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia</string>
+  <string>$(CREWCUE_AUTH0_CLIENT_ID)</string>
   <key>CrewCueAuth0Audience</key>
-  <string>https://api.crewcue.staging</string>
+  <string>$(CREWCUE_AUTH0_AUDIENCE)</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

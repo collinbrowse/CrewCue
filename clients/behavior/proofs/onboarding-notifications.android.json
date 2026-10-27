@@ -1,0 +1,18 @@
+{
+  "id": "onboarding-notifications",
+  "platform": "android",
+  "entry": "crewcue://dev/onboarding-notifications",
+  "device": "crewcue_api_35 emulator (API 35), port 5580, debug APK",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Fresh install, opened crewcue://dev/onboarding-notifications and tapped Allow notifications.",
+  "checked": {
+    "Success": "The platform prompt 'Allow CrewCue to send you notifications?' appeared.",
+    "Empty": "'Notifications are off.'",
+    "Error": "Don't allow: 'Notification permission was denied.'",
+    "Offline": "In airplane mode the screen and its permission state work unchanged (the decision is on the device).",
+    "Accessibility labels": "crewcue.onboarding-notifications"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

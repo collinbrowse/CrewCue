@@ -2,7 +2,7 @@
 
 **Goal:** a racer uploads their history (Strava or manual GPX) and gets an accurate prediction of their finish time and their arrival time at every aid station.
 
-**Status:** PR A–D below shipped in #485 (Expo client). The native clients must rebuild PR A's client wiring; see `clients/behavior/pace-estimate.md`. Open item: validate the model against a real completed effort (`fixtures/pacing/backtest-<real>.json` + `npm run pacing:backtest -w @crewcue/api`).
+**Status:** PR A–D below shipped in #485 (Expo client). The native clients must rebuild PR A's client wiring; see `clients/behavior/pace-estimate.md`. Open item: validate the model against real completed efforts. Import them into the evaluation corpus with `npm run pacing:eval:import -w @crewcue/api` and evaluate with `npm run pacing:eval -w @crewcue/api`; see [pacing-evaluation.md](pacing-evaluation.md).
 
 ---
 
@@ -82,7 +82,7 @@ Acceptance:
 - Two athletes with materially different history produce different aid clocks on the same course.
 - No history yields the cold-start estimate plus prompt, never a silent 6:00/km.
 
-Mobile UI, so simulator proof is required per `.cursor/rules/mobile-simulator-agent-qa.mdc`. Auth0 is a known unattended-sim blocker (#333); if it blocks, stop and report what was verified plus options. Do not fake a pass.
+Mobile UI, so simulator proof is required per `.claude/rules/mobile-simulator-agent-qa.md`. Auth0 is a known unattended-sim blocker (#333); if it blocks, stop and report what was verified plus options. Do not fake a pass.
 
 ### PR B — backtest harness (no behavior change)
 

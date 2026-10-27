@@ -9,7 +9,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
+import com.crewcue.android.data.optText
 import com.crewcue.android.ui.map.isOnline
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -18,7 +20,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 class ChatViewModel(
     private val raceDay: RaceDayBridge,
@@ -138,25 +139,72 @@ class ChatViewModel(
             status = CHAT_ERROR
             return
         }
-        val accepted = try {
-            StreamRooms.client?.send(text, clientMessageId) == true
-        } catch (_: Throwable) {
-            false
-        }
-        if (!accepted) {
+        val claimed = (call { raceDay.claimChat(roomId, id) } as? RuntimeResult.Success)
+            ?.result?.optBoolean("claimed") == true
+        if (!claimed) {
             status = CHAT_ERROR
             return
         }
-        val completed = try {
-            withContext(Dispatchers.IO) { raceDay.completeOutbox(id) }
-        } catch (_: Throwable) {
-            status = CHAT_ERROR
-            return
+        status = when (sendClaimed(id, text)) {
+            ChatDelivery.Delivered -> if (messages.isEmpty()) CHAT_EMPTY else null
+            ChatDelivery.Queued -> if (context.isOnline()) CHAT_ERROR else CHAT_OFFLINE
         }
-        status = when (completed) {
-            is RuntimeResult.Failure -> if (completed.offline) CHAT_OFFLINE else CHAT_ERROR
-            is RuntimeResult.Success -> if (messages.isEmpty()) CHAT_EMPTY else null
+    }
+
+    /**
+     * Sends a claimed message under its stable id, then settles the claim. Client-core decides
+     * whether Stream's error ("already exists" after a crash or lost reply) still means delivered.
+     */
+    private suspend fun sendClaimed(id: String, text: String): ChatDelivery {
+        val error = try {
+            StreamRooms.client?.send(text, id) ?: "Channel is not open."
+        } catch (failure: Throwable) {
+            failure.message ?: "Send failed."
         }
+        val settled = call { raceDay.settleChat(roomId, id, error) }
+        val delivered = settled is RuntimeResult.Success && settled.result.optString("status") == "delivered"
+        return if (delivered) ChatDelivery.Delivered else ChatDelivery.Queued
+    }
+
+    /** Sends this room's queued messages after the channel opens, including ones a crash left behind. */
+    private suspend fun deliverPending(context: Context) {
+        val claimed = (call { raceDay.claimPendingChat(roomId) } as? RuntimeResult.Success)
+            ?.result?.optJSONArray("messages") ?: return
+        val pending = (0 until claimed.length()).mapNotNull { claimed.optJSONObject(it) }
+        for ((index, row) in pending.withIndex()) {
+            val id = row.optString("id")
+            val text = row.optString("text")
+            if (id.isBlank()) continue
+            if (text.isBlank()) {
+                call { raceDay.settleChat(roomId, id, "Empty message.") }
+                continue
+            }
+            if (sendClaimed(id, text) == ChatDelivery.Queued) {
+                pending.drop(index + 1).forEach { rest ->
+                    call { raceDay.settleChat(roomId, rest.optString("id"), "Delivery stopped.") }
+                }
+                status = if (context.isOnline()) CHAT_ERROR else CHAT_OFFLINE
+                return
+            }
+            if (messages.none { it.id == id }) {
+                messages = messages + CrewChatMessage(
+                    id = id,
+                    text = text,
+                    author = authors.self,
+                    time = "",
+                    mine = true,
+                    reactions = "",
+                    imageUrl = null
+                )
+            }
+        }
+        if (pending.isNotEmpty()) status = null
+    }
+
+    private suspend fun call(block: () -> RuntimeResult): RuntimeResult = try {
+        withContext(Dispatchers.IO) { block() }
+    } catch (failure: Throwable) {
+        RuntimeResult.Failure(failure.message ?: "Request failed", offline = false)
     }
 
     private suspend fun openChannel(context: Context, json: JSONObject) {
@@ -186,6 +234,7 @@ class ChatViewModel(
         messages = opened.messages
         unread = opened.unread
         status = if (opened.messages.isEmpty()) CHAT_EMPTY else null
+        deliverPending(context)
     }
 
     private fun authorLabelsIn(json: JSONObject): ChatAuthorLabels {
@@ -211,12 +260,14 @@ class ChatViewModel(
         for (index in 0 until tokens.length()) {
             val token = tokens.optJSONObject(index) ?: continue
             if (token.optString("type") != "mention") continue
-            val name = token.optString("displayName")
+            val name = token.optText("displayName")
             if (name.isNotBlank()) names += name
         }
         return names
     }
 }
+
+private enum class ChatDelivery { Delivered, Queued }
 
 class ChatViewModelFactory(
     private val raceDay: RaceDayBridge,
