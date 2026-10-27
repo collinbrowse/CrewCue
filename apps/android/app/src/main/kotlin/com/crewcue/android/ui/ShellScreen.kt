@@ -70,7 +70,9 @@ import com.crewcue.android.ui.members.RoomMembersScreen
 import com.crewcue.android.ui.outbox.OutboxScreen
 import com.crewcue.android.ui.pace.PaceScreen
 import com.crewcue.android.ui.profile.ProfileScreen
+import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
+import com.crewcue.android.ui.theme.SecondaryButton
 import com.crewcue.android.ui.settings.ShellSettingsSheet
 
 @Composable
@@ -109,21 +111,21 @@ private fun AppShell(viewModel: ShellViewModel) {
                 }
                 ShellTab.Pace -> {
                     if (roomId.isNullOrBlank()) {
-                        FeatureScreen(viewModel.uiState, Modifier.weight(1f))
+                        NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
                         PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus, race)
                     }
                 }
                 ShellTab.Map -> {
                     if (roomId.isNullOrBlank()) {
-                        FeatureScreen(viewModel.uiState, Modifier.weight(1f))
+                        NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
                         MapScreen(viewModel, roomId, "map-track", Modifier.weight(1f), bottomInset = TAB_BAR_SPACE)
                     }
                 }
                 ShellTab.Chat -> {
                     if (roomId.isNullOrBlank()) {
-                        FeatureScreen(viewModel.uiState, Modifier.weight(1f))
+                        NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
                         ChatPane(viewModel, roomId, Modifier.weight(1f), race = race)
                     }
@@ -285,6 +287,30 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         }
         "brand-loader" -> FeatureScreen(viewModel.uiState) { BrandLoaderDemo(viewModel.uiState.screen.title) }
         else -> FeatureScreen(viewModel.uiState)
+    }
+}
+
+/** Map, Pace, and Chat need a race. Until there is one, point at the two ways to get one. */
+@Composable
+private fun NoRaceScreen(viewModel: ShellViewModel, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .testTag("crewcue.no-race")
+    ) {
+        ProductCard {
+            Text("No race yet", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Create a race for your run, or join your crew's race with an invite code.",
+                modifier = Modifier.padding(top = 8.dp),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("Create new race", onClick = { viewModel.selectTab(ShellTab.Profile) })
+                SecondaryButton("Join race room", onClick = viewModel::openJoinCrew)
+            }
+        }
     }
 }
 
