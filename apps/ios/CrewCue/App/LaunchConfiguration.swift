@@ -30,23 +30,57 @@ struct LaunchConfiguration: Equatable {
     var devSession: ClientSession?
     /// `--signed-out` ignores the persisted session so UI tests start from a clean launch.
     var signedOut: Bool
-    var baseURL: URL
+    /// Nil only in a Release build made without a usable https server address.
+    var baseURL: URL?
     var auth: Auth0Configuration
+    /// Why this build can't reach its server or Auth0. Release shows it instead of the app.
+    var configurationProblem: String?
 
     static func resolve(
         arguments: [String] = CommandLine.arguments,
         bundle: Bundle = .main,
-        devLinks: Bool = DevLinks.enabled
+        devLinks: Bool = DevLinks.enabled,
+        localFallback: Bool = DevLinks.enabled
     ) -> LaunchConfiguration {
         let deeplink = devLinks ? parsedDeeplink(arguments: arguments) : nil
+        let raw = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String) ?? ""
+        let baseURL = baseURL(raw: raw, localFallback: localFallback)
+        let auth = Auth0Configuration.load(bundle: bundle)
         return LaunchConfiguration(
             route: deeplink?.route ?? Route(featureId: "app-shell", state: .success),
             fixtureOverlay: deeplink?.fixtureOverlay ?? false,
             devSession: devLinks ? devSession(arguments: arguments) : nil,
             signedOut: arguments.contains("--signed-out"),
-            baseURL: baseURL(bundle: bundle),
-            auth: Auth0Configuration.load(bundle: bundle)
+            baseURL: baseURL,
+            auth: auth,
+            configurationProblem: configurationProblem(baseURL: baseURL, auth: auth, localFallback: localFallback)
         )
+    }
+
+    /// Debug falls back to the local API. Release takes only an https server that is not this machine.
+    static func baseURL(raw: String, localFallback: Bool) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if localFallback {
+            if !trimmed.isEmpty, let url = URL(string: trimmed), url.scheme != nil {
+                return url
+            }
+            return URL(string: "http://127.0.0.1:3000")
+        }
+        guard let url = URL(string: trimmed),
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              !host.isEmpty,
+              !["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else {
+            return nil
+        }
+        return url
+    }
+
+    static func configurationProblem(baseURL: URL?, auth: Auth0Configuration, localFallback: Bool) -> String? {
+        if localFallback { return nil }
+        if baseURL == nil { return "This build has no server address." }
+        if !auth.hasKeys { return "This build has no sign-in settings." }
+        return nil
     }
 
     /// `?state=` selects fixture copy. It is not the product's own empty, error, or offline state.
@@ -94,14 +128,5 @@ struct LaunchConfiguration: Equatable {
         let value = arguments[target]
         guard !value.hasPrefix("--") else { return nil }
         return value
-    }
-
-    private static func baseURL(bundle: Bundle) -> URL {
-        let raw = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !raw.isEmpty, let url = URL(string: raw), url.scheme != nil {
-            return url
-        }
-        return URL(string: "http://127.0.0.1:3000") ?? URL(fileURLWithPath: "/")
     }
 }

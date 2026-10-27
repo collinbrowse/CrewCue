@@ -12,10 +12,15 @@ Update at **PR/wave boundaries**, not every chat. Current state only. Feature ag
 - **Process:** Fast path default. Machine gates are `agent:issue:ready`, `agent:pr:done` (includes `pr-decision-doc-guard`), scoped `verify:*`, `agent:ios:ready` and `agent:android:ready` (dev deeplinks need a **Debug** build).
 - **Latest on `main`:** Cairn loaders, shared, iOS and Android (#555, #556, #559).
 
+- Last updated: 2026-08-07 (UTC)
+- **Roadmap phase:** MVP chat reliability (plaintext Stream) — prove on staging.
+- **Branch:** `cursor/critical-bug-investigation-20a4` (athlete ping authz fix).
+- **Active follow-up:** Merge ping authz fix; then staging chat smoke from prior handoff.
 ## In flight: weekend wave (2026-10-16)
 
 Six parallel sessions, each in its own worktree and each ending in an open PR for owner review. Nothing merges without the owner.
 
+- Critical bug hunt: `POST /race-rooms/:roomId/pings` allowed any room member to forge athlete location/projection. Restricted to `room.athleteId`; regression in `raceRoomPings.test.ts`.
 | Session | Area | Branch | PR scope |
 | --- | --- | --- | --- |
 | A | Runner progress from the runner's phone | `claude/runner-progress-from-athlete-pings-e95a83` | iOS `MapModel` and Android `MapViewModel` readouts and `AidStationSheet` read the latest athlete ping (AGENTS.md invariant) |
@@ -30,12 +35,18 @@ Expected overlap when merging:
 - B and F both touch client-core neighbours. F changes no client-core source.
 - Merge order does not matter otherwise.
 
+1. Review/merge athlete ping authz PR on `cursor/critical-bug-investigation-20a4`.
+2. Deploy staging API; confirm migrate `0014` if not already; signed-in chat smoke.
+3. Consider open drafts #334–#344 (membership/outbox races) separately — do not reopen blindly.
 ## Next 1-3 tasks (after the wave lands)
 
 1. **TestFlight / Play internal unblock:** owner items 1–4 in `docs/release/readiness.md`, then #561 (per-environment build config) and #571 (Android target API 36).
 2. **Store blockers:** #560 (account deletion), #569 (privacy policy and support links), #562 (background runner heartbeat).
 3. **Production hardening:** #565 (rate limits), #566 (readiness check and migration ledger), #564 (crash reporting), #567 (secure token storage).
 
+- Auth0 still blocks unattended sim chat E2E.
+- Many prior critical-bug draft PRs (#334–#344) still open/unmerged.
+- Push webhook contract notes Stream user ids while tests/routes use Auth0 ids — verify before wiring Stream→API fanout.
 ## Validation evidence
 
 - Each wave PR carries its own `npm run verify` and `agent:pr:done` results, plus device screenshots (attached to the PR, not committed).
@@ -50,6 +61,7 @@ Expected overlap when merging:
 ## Successor prompt
 
 ```text
+Ping authz fix on cursor/critical-bug-investigation-20a4: only room.athleteId may POST /pings. Review PR; then staging chat smoke / CHAT_PUSH_WEBHOOK_SECRET as needed. Do not reopen #334–#344 unless picking one deliberately.
 Native clients only (apps/ios, apps/android, packages/client-core). Read docs/release/readiness.md
 "Needs you" + issues #560–#571 for the release path. Weekend wave A–F PRs are open for owner review;
 rebase on whatever merged. Use agent:issue:ready / agent:pr:done; device proof for UI changes.

@@ -2,7 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
+import { clearHttpIdempotencyStoreForTests } from "../lib/httpIdempotency.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import {
+  loadTaskBoardPayload,
+  persistTaskBoardPayload,
+  setPersistRaceRoomFailureForTests
+} from "../lib/roomPersistence.js";
+import { ingestPersistedRaceRoomInviteWithoutClobberForTests } from "./raceRooms.js";
+import type { RaceRoomInvite } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
   return {
@@ -60,6 +68,62 @@ test("race room creation replays idempotent retries and rejects conflicting reus
   });
   assert.equal(conflict.statusCode, 409);
   assert.match((conflict.json() as { error: string }).error, /different request body/);
+
+  await app.close();
+});
+
+test("race room create retry after idempotency lease loss does not orphan a second room", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerSub = "owner-create-release-reclaim";
+  const ownerToken = app.jwt.sign(buildClaims(ownerSub));
+  const idempotencyKey = "create-room-release-after-save";
+  const headers = {
+    authorization: `Bearer ${ownerToken}`,
+    "idempotency-key": idempotencyKey
+  };
+  const payload = {
+    teamId: "team-1",
+    athleteId: "athlete-1",
+    name: "Release Reclaim Room",
+    creatorName: "Owner User",
+    creatorRole: "team_manager"
+  };
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(first.statusCode, 201);
+  const firstBody = first.json() as { id: string };
+
+  // Simulate release-after-save / complete failure: room row remains, lease is gone.
+  clearHttpIdempotencyStoreForTests();
+
+  const retry = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload,
+    headers
+  });
+  assert.equal(retry.statusCode, 201);
+  const retryBody = retry.json() as { id: string };
+  assert.equal(retryBody.id, firstBody.id);
+
+  const mine = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(mine.statusCode, 200);
+  const rooms = (mine.json() as { rooms: { id: string; name: string }[] }).rooms.filter(
+    (room) => room.name === "Release Reclaim Room"
+  );
+  assert.equal(rooms.length, 1);
+  assert.equal(rooms[0]?.id, firstBody.id);
 
   await app.close();
 });
@@ -307,6 +371,88 @@ test("rejects expired invite token", async () => {
     }
   });
   assert.equal(acceptResponse.statusCode, 410);
+
+  await app.close();
+});
+
+test("stale invite hydrate does not reopen an accepted invite", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-stale-invite"));
+  const inviteeToken = app.jwt.sign(buildClaims("invitee-stale-invite"));
+  const replayToken = app.jwt.sign(buildClaims("replay-stale-invite"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "athlete-1",
+      name: "Invite hydrate room",
+      creatorName: "Owner User",
+      creatorRole: "team_manager"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string };
+
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites`,
+    payload: {
+      email: "Crew@Example.com",
+      role: "crew_member"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const issued = issueResponse.json() as {
+    token: string;
+    roomId: string;
+    email: string;
+    role: RaceRoomInvite["role"];
+    expiresAt: string;
+  };
+  const stalePendingInvite: RaceRoomInvite = {
+    ...issued,
+    status: "pending",
+    invitedBy: "owner-stale-invite",
+    invitedAt: "2026-08-15T13:00:00.000Z"
+  };
+
+  const accepted = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: { token: issued.token },
+    headers: { authorization: `Bearer ${inviteeToken}` }
+  });
+  assert.equal(accepted.statusCode, 200);
+
+  const liveAfterHydrate = ingestPersistedRaceRoomInviteWithoutClobberForTests(stalePendingInvite);
+  assert.equal(liveAfterHydrate.status, "accepted");
+  assert.equal(liveAfterHydrate.acceptedBy, "invitee-stale-invite");
+
+  const replayAccept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites/accept`,
+    payload: { token: issued.token },
+    headers: { authorization: `Bearer ${replayToken}` }
+  });
+  assert.equal(replayAccept.statusCode, 409);
+  assert.match((replayAccept.json() as { error: string }).error, /not pending/);
+
+  const listResponse = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${room.id}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(listResponse.statusCode, 200);
+  const listed = listResponse.json() as { invites: RaceRoomInvite[] };
+  const listedInvite = listed.invites.find((invite) => invite.token === issued.token);
+  assert.equal(listedInvite?.status, "accepted");
+  assert.equal(listedInvite?.acceptedBy, "invitee-stale-invite");
 
   await app.close();
 });
@@ -834,7 +980,7 @@ test("PUT course rejects removing a visited checkpoint", async () => {
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId: "owner-user",
       name: "Visited CP room",
       creatorRole: "team_manager"
     },
@@ -870,26 +1016,26 @@ test("PUT course rejects removing a visited checkpoint", async () => {
     headers: { authorization: `Bearer ${ownerToken}` }
   });
   assert.equal(activateResponse.statusCode, 200);
-  const activatedAt = (activateResponse.json() as { activatedAt: string }).activatedAt;
-  const activatedAtMs = Date.parse(activatedAt);
 
-  await app.inject({
+  const pingAtMs = Date.now();
+  const pingResponse = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
     payload: {
       latitude: 41.0,
       longitude: -71.0,
-      recordedAt: new Date(activatedAtMs + 30_000).toISOString()
+      recordedAt: new Date(pingAtMs).toISOString()
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
+  assert.equal(pingResponse.statusCode, 201);
 
   const manual = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
     payload: {
-      arrivalAt: new Date(activatedAtMs + 40_000).toISOString(),
-      departureAt: new Date(activatedAtMs + 200_000).toISOString()
+      arrivalAt: new Date(pingAtMs + 10_000).toISOString(),
+      departureAt: new Date(pingAtMs + 170_000).toISOString()
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -940,4 +1086,366 @@ test("PUT course rejects removing a visited checkpoint", async () => {
   assert.equal(body.course.checkpoints[0]?.title, "Renamed");
 
   await app.close();
+});
+
+test("PUT course keeps protocol notes and incidents when only cutoff or pace changes", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-metadata"));
+  const headers = { authorization: `Bearer ${ownerToken}` };
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-course-metadata",
+      name: "Cutoff edit room",
+      creatorRole: "athlete"
+    },
+    headers
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const payResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers
+  });
+  assert.equal(payResponse.statusCode, 200);
+
+  const checkpoints = [
+    { id: "cp0", latitude: 42.0, longitude: -70.0 },
+    { id: "cp1", latitude: 42.02, longitude: -70.0 }
+  ];
+  const activateResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: { checkpoints },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints(checkpoints),
+      plannedPaceSecondsPerKm: 600,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(activateResponse.statusCode, 200);
+  const savedCourse = (
+    activateResponse.json() as {
+      course: { checkpoints: Array<{ id: string; latitude: number; longitude: number }> };
+    }
+  ).course;
+
+  const noteResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    payload: {
+      checkpointId: "cp1",
+      category: "nutrition",
+      body: "Two gels at the second aid."
+    },
+    headers
+  });
+  assert.equal(noteResponse.statusCode, 200);
+  const noteId = (noteResponse.json() as { protocolNote: { id: string } }).protocolNote.id;
+
+  const incidentResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/incidents`,
+    payload: {
+      category: "hydration",
+      severity: "medium",
+      checkpointId: "cp1",
+      summary: "Crew missed the first bottle handoff"
+    },
+    headers
+  });
+  assert.equal(incidentResponse.statusCode, 201);
+  const incidentId = (incidentResponse.json() as { incident: { id: string } }).incident.id;
+
+  const metadataSave = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: savedCourse.checkpoints.map((checkpoint) =>
+          checkpoint.id === "cp1"
+            ? { ...checkpoint, cutoff: { mode: "elapsed_from_start", seconds: 4 * 60 * 60 } }
+            : checkpoint
+        )
+      },
+      plannedPaceSecondsPerKm: 540,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(metadataSave.statusCode, 200);
+
+  const notesAfterMetadata = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    headers
+  });
+  assert.equal(notesAfterMetadata.statusCode, 200);
+  const notes = (notesAfterMetadata.json() as { protocolNotes: Array<{ id: string; body: string }> }).protocolNotes;
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0]?.id, noteId);
+  assert.equal(notes[0]?.body, "Two gels at the second aid.");
+
+  const incidentsAfterMetadata = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/incidents`,
+    headers
+  });
+  assert.equal(incidentsAfterMetadata.statusCode, 200);
+  const incidents = (incidentsAfterMetadata.json() as { incidents: Array<{ id: string }> }).incidents;
+  assert.equal(incidents.length, 1);
+  assert.equal(incidents[0]?.id, incidentId);
+
+  const moved = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: savedCourse.checkpoints.map((checkpoint) =>
+          checkpoint.id === "cp1" ? { ...checkpoint, latitude: checkpoint.latitude + 0.05 } : checkpoint
+        )
+      },
+      plannedPaceSecondsPerKm: 540,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers
+  });
+  assert.equal(moved.statusCode, 200);
+
+  const notesAfterMove = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/protocol-notes`,
+    headers
+  });
+  assert.equal(notesAfterMove.statusCode, 200);
+  assert.equal(
+    (notesAfterMove.json() as { protocolNotes: unknown[] }).protocolNotes.length,
+    0
+  );
+
+  const incidentsAfterMove = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/incidents`,
+    headers
+  });
+  assert.equal(incidentsAfterMove.statusCode, 200);
+  assert.equal((incidentsAfterMove.json() as { incidents: unknown[] }).incidents.length, 0);
+
+  await app.close();
+});
+
+test("PUT course keeps task board when room persist fails after reset would wipe", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Course wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const activateResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 41.0, longitude: -71.0 },
+            { id: "cp1", latitude: 41.01, longitude: -71.0 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 41.0, longitude: -71.0 },
+          { latitude: 41.01, longitude: -71.0 }
+        ]),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(activateResponse.statusCode, 200);
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-course-put" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingUpdate = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: 600,
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 41.0, longitude: -71.0 },
+            { id: "cp1", latitude: 41.02, longitude: -71.01 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 41.0, longitude: -71.0 },
+          { latitude: 41.02, longitude: -71.01 }
+        ]),
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        "idempotency-key": "course-put-persist-fail"
+      }
+    });
+    assert.equal(failingUpdate.statusCode, 500);
+
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
+});
+
+test("DELETE checkpoint keeps task board when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-checkpoint-delete-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Checkpoint delete wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const points = [
+      { latitude: 41.0, longitude: -71.0 },
+      { latitude: 41.01, longitude: -71.0 },
+      { latitude: 41.02, longitude: -71.0 }
+    ];
+    const activateResponse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", ...points[0] },
+            { id: "cp1", ...points[1] },
+            { id: "cp2", ...points[2] }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints(points),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(activateResponse.statusCode, 200, activateResponse.body);
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-checkpoint-delete" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingDelete = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${roomId}/checkpoints/cp1`,
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(failingDelete.statusCode, 500);
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
+});
+
+test("PUT map-workspace keeps task board when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-workspace-wipe"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-1",
+        name: "Workspace wipe room",
+        creatorRole: "team_manager"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+
+    await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+
+    const boardMarker = { version: 1, marker: "keep-me-on-failed-workspace-put" };
+    await persistTaskBoardPayload(roomId, boardMarker);
+
+    setPersistRaceRoomFailureForTests(true);
+    const overlay = lineStringRouteOverlayForCheckpoints([
+      { latitude: 40.0, longitude: -70.0 },
+      { latitude: 40.01, longitude: -70.0 }
+    ]);
+    const failingUpdate = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/map-workspace`,
+      payload: {
+        layers: [overlay],
+        selectedLayerId: overlay.id,
+        drivesProjectionLayerId: overlay.id,
+        checkpoints: [
+          { id: "cp0", latitude: 40.0, longitude: -70.0 },
+          { id: "cp1", latitude: 40.01, longitude: -70.0 }
+        ]
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(failingUpdate.statusCode, 500);
+    assert.deepEqual(await loadTaskBoardPayload(roomId), boardMarker);
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
 });
