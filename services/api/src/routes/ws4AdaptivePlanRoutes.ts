@@ -13,6 +13,7 @@ import type {
 } from "@crewcue/contracts";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
+  deleteWs4AdaptivePayload,
   isRoomPersistenceEnabled,
   loadWs4AdaptivePayload,
   persistWs4AdaptivePayload
@@ -64,10 +65,13 @@ async function loadWs4AdaptiveIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  await ws4RuntimeHydrator.loadIfNeeded(roomId, async () => {
+  await ws4RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
     const raw = await loadWs4AdaptivePayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
     const parsed = normalizeWs4AdaptivePayload(raw);
-    if (parsed) {
+    if (parsed && stillCurrent()) {
       ws4RoomState.set(roomId, parsed);
     }
   });
@@ -99,6 +103,18 @@ async function saveWs4AdaptiveSnapshot(roomId: string): Promise<void> {
 export function clearWs4RoomLocalState(roomId: string): void {
   ws4RoomState.delete(roomId);
   ws4RuntimeHydrator.delete(roomId);
+}
+
+/**
+ * Wipe adaptive incidents/plans. Holds hydration until the durable row is gone so a
+ * concurrent reader cannot load the pre-wipe payload and persist it back.
+ */
+export async function discardWs4RoomState(roomId: string): Promise<void> {
+  await ws4RuntimeHydrator.reset(roomId, async () => {
+    ws4RoomState.delete(roomId);
+    await deleteWs4AdaptivePayload(roomId);
+    ws4RoomState.delete(roomId);
+  });
 }
 
 function canDecideRecommendations(role: Role): boolean {
