@@ -160,6 +160,44 @@ actor HeaderCaptureTransport: HTTPTransport {
     }
 }
 
+actor CourseImportTransport: HTTPTransport {
+    private let failRoomGet: Bool
+    private let roomJSON: String
+    private var putBody: Data?
+
+    init(failRoomGet: Bool = false, roomJSON: String? = nil) {
+        self.failRoomGet = failRoomGet
+        self.roomJSON = roomJSON ?? """
+        {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
+        """
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.url.path.hasSuffix("gpx-preview") {
+            let json = #"{"course":{"checkpoints":[{"id":"a","latitude":1,"longitude":2},{"id":"b","latitude":3,"longitude":4}]},"plannedPaceSecondsPerKm":360,"courseFileName":"route.gpx"}"#
+            return HTTPResponse(status: 200, body: Data(json.utf8))
+        }
+        if request.method == .get {
+            if failRoomGet {
+                return HTTPResponse(status: 500, body: Data(#"{"error":"room get should not run"}"#.utf8))
+            }
+            return HTTPResponse(status: 200, body: Data(roomJSON.utf8))
+        }
+        putBody = request.body
+        return HTTPResponse(status: 200, body: Data(#"{}"#.utf8))
+    }
+
+    func coursePut() -> (raceStartAt: String, pace: Double)? {
+        guard let putBody,
+              let object = try? JSONSerialization.jsonObject(with: putBody) as? [String: Any],
+              let raceStartAt = object["raceStartAt"] as? String,
+              let pace = (object["plannedPaceSecondsPerKm"] as? NSNumber)?.doubleValue else {
+            return nil
+        }
+        return (raceStartAt, pace)
+    }
+}
+
 @Test func fetchHealthUsesTransport() async throws {
     let health = try await APIClient.fetchHealth(baseURL: URL(string: "https://example.invalid")!, transport: MockTransport())
     #expect(health.service == "api")
@@ -178,6 +216,7 @@ actor HeaderCaptureTransport: HTTPTransport {
         ("crewcue://dev/athlete-setup", "athlete-setup"),
         ("crewcue://dev/onboarding-notifications", "onboarding-notifications"),
         ("crewcue://dev/check-in", "check-in"),
+        ("crewcue://dev/pace-stop-edit", "pace-stop-edit"),
         ("crewcue://dev/course-settings", "course-settings"),
         ("crewcue://dev/readouts-incidents", "readouts-incidents"),
         ("crewcue://dev/gpx-import-progress", "gpx-import"),
@@ -258,7 +297,7 @@ struct SilentLogger: Logger {
 
 @Test func outboxKeepsWorkQueuedDuringFlush() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let first = try await store.enqueuePing(
         roomId: "room",
         role: "athlete",
@@ -295,7 +334,7 @@ struct SilentLogger: Logger {
 
 @Test func gpxFlushSendsIdempotencyKeyOnCoursePut() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let queued = try await store.enqueueGpx(
         roomId: "room",
         fileName: "route.gpx",
@@ -319,9 +358,86 @@ struct SilentLogger: Logger {
     try store.wipe()
 }
 
-@Test func chatMutationsDoNotDropConcurrentAppends() async throws {
+@Test func gpxImportKeepsTheRoomRaceClockWhenTheCallerHasNone() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let queued = try await store.enqueueGpx(
+        roomId: "room",
+        fileName: "route.gpx",
+        gpxXml: "<gpx/>",
+        raceStartAt: "",
+        plannedPaceSecondsPerKm: 0,
+        role: "athlete"
+    )
+    let transport = CourseImportTransport()
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token"),
+        outbox: store
+    )
+    let report = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(report.accepted == [queued.id])
+    let put = await transport.coursePut()
+    #expect(put?.raceStartAt == "2026-08-15T12:00:00.000Z")
+    #expect(put?.pace == 720)
+
+    let explicit = CourseImportTransport(failRoomGet: true)
+    let explicitGraph = ClientGraph(
+        transport: explicit,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token")
+    )
+    _ = try await RaceDayAPI.importGpx(
+        graph: explicitGraph,
+        roomId: "room",
+        fileName: "route.gpx",
+        gpxXml: "<gpx/>",
+        raceStartAt: "2026-09-01T06:00:00.000Z",
+        plannedPaceSecondsPerKm: 400
+    )
+    let kept = await explicit.coursePut()
+    #expect(kept?.raceStartAt == "2026-09-01T06:00:00.000Z")
+    #expect(kept?.pace == 400)
+    try store.wipe()
+}
+
+@Test func androidGpxImportUploadsARoomThatHasNoClockYet() async throws {
+    let bare = """
+    {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"}}}
+    """
+    let transport = CourseImportTransport(roomJSON: bare)
+    RuntimeCall.setTransportForTests(transport)
+    defer { RuntimeCall.setTransportForTests(nil) }
+    let response = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+    #expect(object?["ok"] as? Bool == true)
+    #expect((object?["result"] as? [String: Any])?["status"] as? String == "saved")
+    let put = await transport.coursePut()
+    #expect(put?.pace == 360)
+    #expect(put?.raceStartAt.isEmpty == false)
+
+    let stored = CourseImportTransport()
+    RuntimeCall.setTransportForTests(stored)
+    let kept = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let keptObject = try JSONSerialization.jsonObject(with: Data(kept.utf8)) as? [String: Any]
+    #expect(keptObject?["ok"] as? Bool == true)
+    let keptPut = await stored.coursePut()
+    #expect(keptPut?.raceStartAt == "2026-08-15T12:00:00.000Z")
+    #expect(keptPut?.pace == 720)
+}
+
+@Test func chatMutationsDoNotDropConcurrentAppends() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     try await withThrowingTaskGroup(of: Void.self) { group in
         group.addTask {
             try await store.mutate(roomId: "room") { operations in
@@ -372,7 +488,7 @@ struct SilentLogger: Logger {
         role: "athlete"
     )]
     try JSONEncoder().encode(seeded).write(to: directory.appendingPathComponent("outbox.json"))
-    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: directory)
     let reclaimed = try await store.operations()
     #expect(reclaimed.first?.status == "pending")
     let session = SessionController(session: ClientSession(userId: "athlete-1", role: "athlete"))

@@ -63,6 +63,26 @@ jobs:
             echo "::error title=Missing release secrets::Add to the 'release' environment: ${missing[*]} (see docs/runbooks/mobile-release.md)"
             exit 1
           fi
+      - name: Check release build config
+        env:
+          CREWCUE_API_BASE_URL: ${{ vars.CREWCUE_API_BASE_URL }}
+          CREWCUE_AUTH0_DOMAIN: ${{ vars.CREWCUE_AUTH0_DOMAIN }}
+          CREWCUE_AUTH0_CLIENT_ID: ${{ vars.CREWCUE_AUTH0_CLIENT_ID }}
+          CREWCUE_AUTH0_AUDIENCE: ${{ vars.CREWCUE_AUTH0_AUDIENCE }}
+        run: |
+          missing=()
+          for key in CREWCUE_API_BASE_URL CREWCUE_AUTH0_DOMAIN CREWCUE_AUTH0_CLIENT_ID CREWCUE_AUTH0_AUDIENCE; do
+            [ -z "${!key}" ] && missing+=("$key")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Missing release variables::Add to the 'release' environment variables: ${missing[*]} (see docs/runbooks/mobile-release.md)"
+            exit 1
+          fi
+          host="${CREWCUE_API_BASE_URL#https://}"; host="${host%%/*}"; host="${host%%:*}"
+          if [[ "$CREWCUE_API_BASE_URL" != https://* ]] || [[ " localhost 127.0.0.1 10.0.2.2 0.0.0.0 " == *" $host "* ]]; then
+            echo "::error title=Bad release API URL::CREWCUE_API_BASE_URL must be an https server address, got $CREWCUE_API_BASE_URL"
+            exit 1
+          fi
 
   ios:
     needs: preflight
@@ -92,6 +112,10 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CREWCUE_API_BASE_URL="${{ vars.CREWCUE_API_BASE_URL }}" \
+            CREWCUE_AUTH0_DOMAIN="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
+            CREWCUE_AUTH0_CLIENT_ID="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
+            CREWCUE_AUTH0_AUDIENCE="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
             MARKETING_VERSION="${{ needs.preflight.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ needs.preflight.outputs.build }}"
       - name: Upload to TestFlight
@@ -113,7 +137,7 @@ jobs:
 
   android:
     needs: preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     environment: release
     timeout-minutes: 45
     steps:
@@ -144,6 +168,10 @@ jobs:
           export CREWCUE_ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$CREWCUE_ANDROID_KEYSTORE"
           ./apps/android/gradlew -p apps/android :app:bundleRelease \
+            -Pcrewcue.release.apiBaseUrl="${{ vars.CREWCUE_API_BASE_URL }}" \
+            -Pcrewcue.release.auth0Domain="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
+            -Pcrewcue.release.auth0ClientId="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
+            -Pcrewcue.release.auth0Audience="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
             -Pcrewcue.versionName="${{ needs.preflight.outputs.version }}" \
             -Pcrewcue.versionCode="${{ needs.preflight.outputs.build }}"
       - name: Upload to Google Play internal testing

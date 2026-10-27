@@ -50,6 +50,7 @@ Includes `pingId`, `roomId`, `recordedAt`, `receivedAt`, coordinates, optional a
 | `clock_skew` | `recordedAt` too far from server time. |
 | `implausible_motion` | Distance vs time from last accepted ping implies speed above threshold. |
 | `accuracy_too_poor` | `horizontalAccuracyMeters` above threshold. |
+| `stale_recorded_at` | `recordedAt` is not after the room's last accepted ping (replay or out of order). Clients drop the sample and do not retry. |
 
 ## `GET /race-rooms/:roomId/pings/history`
 
@@ -64,6 +65,22 @@ Returns recent ping decisions for the room. Requires membership and **paid** ent
 **200 response:** `{ "decisions": [ ... ] }` — newest entries at the end of the array (last `limit` items).
 
 Each entry: `id`, `at`, `actor`, `decision` (`accepted` | `rejected`), optional `reason`, optional `pingId` (when accepted).
+
+## `GET /race-rooms/:roomId/pings/latest`
+
+The latest **accepted** ping for the room. Crew phones drive race progress (mile, % complete, next aid, ETA, on-track, average pace, elevation remaining, last ping) from this response, never from their own GPS, so every member sees the same readout. Same gates as ping history (401 / 404 / 403 / 402).
+
+**200 response** (`RaceRoomLatestPingResponse` in `@crewcue/contracts`):
+
+| Field | Notes |
+| --- | --- |
+| `roomId` | Room id. |
+| `ping` | Absent until the first accepted ping. `pingId`, `latitude`, `longitude`, `recordedAt` (athlete device time, used for "last ping"), `receivedAt` (server accept time), and optional `progressMeters`. |
+| `ping.progressMeters` | Route-snapped progress from the room projection for this exact ping. Absent when the room has no projection for it (no planned pace, race start, or route line). Clients then snap the ping to the nearest checkpoint. |
+| `stalenessThresholdSeconds` | Seconds after `recordedAt` when the reading is stale. Same rule as projection confidence: `min(3 × uploadIntervalSeconds, 15 min)`, else 15 min. |
+| `evaluatedAt` | Server time the response was built. |
+
+Rejected pings never replace `ping`.
 
 ## Logging
 

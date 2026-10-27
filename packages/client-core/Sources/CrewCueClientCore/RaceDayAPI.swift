@@ -41,15 +41,23 @@ public struct ChatPreference: Codable, Sendable {
 
 enum TransportFailure {
     static func isOffline(_ error: Error) -> Bool {
-        guard let urlError = error as? URLError else { return false }
-        switch urlError.code {
-        case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost,
-             .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
-             .cannotLoadFromNetwork:
-            return true
-        default:
-            return false
-        }
+        offlineCodes.contains(urlErrorCode(error) ?? 0)
+    }
+
+    /// `.unknown` (-1) is how Foundation on Android reports a host it could not connect to or
+    /// resolve (airplane mode included); Apple platforms use the specific codes.
+    private static let offlineCodes: Set<Int> = [
+        URLError.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost,
+        .cannotConnectToHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
+        .cannotLoadFromNetwork, .unknown
+    ].reduce(into: []) { codes, code in codes.insert(code.rawValue) }
+
+    /// Off Apple platforms an `NSError` in `NSURLErrorDomain` does not bridge to `URLError`,
+    /// so the Android build reads the domain and code instead.
+    private static func urlErrorCode(_ error: Error) -> Int? {
+        if let urlError = error as? URLError { return urlError.code.rawValue }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain ? nsError.code : nil
     }
 }
 
@@ -165,6 +173,19 @@ public enum RaceDayAPI {
         try await get(graph, "/race-rooms/\(roomId)")
     }
 
+    /// The signed-in athlete's activity history, used to decide whether the estimate needs a recompute.
+    public static func activityHistory(graph: ClientGraph) async throws -> [ActivityHistoryRef] {
+        let payload: ActivityHistoryList = try await get(graph, "/activity-history")
+        return payload.items.map { item in
+            ActivityHistoryRef(
+                id: item.id,
+                distanceMeters: item.distanceMeters,
+                elapsedSeconds: item.elapsedSeconds,
+                elevationGainMeters: item.elevationGainMeters
+            )
+        }
+    }
+
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {
         let body = #"{"displayName":"\#(jsonEscape(displayName))"}"#
         return try await send(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .patch, body: body)
@@ -178,6 +199,14 @@ public enum RaceDayAPI {
     public static func loadScheduleResult(graph: ClientGraph, roomId: String, cacheDirectory: URL?) async throws -> ScheduleLoadResult {
         do {
             let sheet: CrewScheduleSheet = try await get(graph, "/race-rooms/\(roomId)/schedule")
+            if let cacheDirectory {
+                try? ScheduleCache.save(sheet, directory: cacheDirectory)
+            }
+            return ScheduleLoadResult(sheet: sheet, offline: false)
+        } catch let failure as ClientHTTPError where failure.status == 400 {
+            // The API answers 400 only while the room has no schedule yet: no course, fewer than
+            // two checkpoints, no start time, or no planned pace. That is an empty sheet, not an error.
+            let sheet = CrewScheduleSheet(roomId: roomId, raceStartAt: "", stops: [])
             if let cacheDirectory {
                 try? ScheduleCache.save(sheet, directory: cacheDirectory)
             }
@@ -201,6 +230,13 @@ public enum RaceDayAPI {
             }
             throw error
         }
+    }
+
+    /// The athlete's latest accepted ping. Race progress readouts come from this on every crew
+    /// phone, never from the viewing device's GPS.
+    public static func latestPing(graph: ClientGraph, roomId: String) async throws -> RunnerProgress {
+        let response: RaceRoomLatestPingResponse = try await get(graph, "/race-rooms/\(roomId)/pings/latest")
+        return RunnerProgress(response: response)
     }
 
     /// Local draft fields read from a room payload. Does not call stop-plan APIs.
@@ -262,8 +298,14 @@ public enum RaceDayAPI {
         guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
             throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
         }
-        object["plannedPaceSecondsPerKm"] = plannedPaceSecondsPerKm
-        object["raceStartAt"] = raceStartAt
+        let anchors = try await courseImportAnchors(
+            graph: graph,
+            roomId: roomId,
+            raceStartAt: raceStartAt,
+            plannedPaceSecondsPerKm: plannedPaceSecondsPerKm
+        )
+        object["plannedPaceSecondsPerKm"] = anchors.pace
+        object["raceStartAt"] = anchors.start
         object["courseGpxXml"] = gpxXml
         object["courseFileName"] = fileName
         return try await sendJSON(
@@ -273,6 +315,14 @@ public enum RaceDayAPI {
             object: object,
             idempotencyKey: idempotencyKey
         )
+    }
+
+    /// #250: save planned stop minutes. Sends only the changed checkpoints; the server applies all
+    /// of them or none and recomputes the schedule without resetting crew task state.
+    public static func updatePlannedStops(graph: ClientGraph, roomId: String, edits: [PlannedStopEdit]) async throws -> RaceRoom {
+        let stops: [[String: Any]] = edits.map { ["checkpointId": $0.checkpointId, "plannedStopSeconds": $0.plannedStopSeconds] }
+        let data = try await sendJSON(graph, "/race-rooms/\(roomId)/checkpoint-stops", method: .patch, object: ["stops": stops])
+        return try JSONDecoder().decode(RaceRoom.self, from: data)
     }
 
     public static func placeCheckpoint(graph: ClientGraph, roomId: String, id: String, title: String, latitude: Double, longitude: Double) async throws -> Data {
@@ -423,6 +473,42 @@ public enum RaceDayAPI {
         return try await APIClient.send(request, transport: graph.transport).body
     }
 
+    /// A caller that has not loaded the room yet passes an empty start or a non-positive pace.
+    /// Those must not replace the race clock or plan already stored on the room. A first import,
+    /// where the room has neither, still supplies a clock and the default pace.
+    private static func courseImportAnchors(
+        graph: ClientGraph,
+        roomId: String,
+        raceStartAt: String,
+        plannedPaceSecondsPerKm: Double
+    ) async throws -> (start: String, pace: Double) {
+        var start = raceStartAt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var pace = plannedPaceSecondsPerKm
+        if start.isEmpty || pace <= 0 {
+            let room = try await loadRoom(graph: graph, roomId: roomId).room
+            if start.isEmpty {
+                start = room.raceStartAt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            if pace <= 0, let existing = room.plannedPaceSecondsPerKm, existing > 0 {
+                pace = existing
+            }
+        }
+        if start.isEmpty {
+            start = iso8601(graph.clock.now())
+        }
+        if pace <= 0 {
+            pace = 360
+        }
+        return (start, pace)
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
     private static func importQueuedGpx(_ graph: ClientGraph, _ operation: StoredOperation) async throws -> Data {
         guard let data = operation.payloadJSON.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -448,11 +534,7 @@ public enum RaceDayAPI {
     }
 
     private static func jsonNumber(_ value: Any?) -> Double? {
-        if value is Bool { return nil }
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let number = value as? Double { return number }
-        if let number = value as? Int { return Double(number) }
-        return nil
+        JSONNumber.double(value)
     }
 
     private static func cutoffLine(checkpointId: String, cutoff: [String: Any]) -> String? {
@@ -470,5 +552,16 @@ public enum RaceDayAPI {
             return "\(title) cutoff \(ScheduleFormat.formatDurationSeconds(seconds))"
         }
         return nil
+    }
+}
+
+private struct ActivityHistoryList: Decodable {
+    var items: [Item]
+
+    struct Item: Decodable {
+        var id: String
+        var distanceMeters: Double?
+        var elapsedSeconds: Double?
+        var elevationGainMeters: Double?
     }
 }

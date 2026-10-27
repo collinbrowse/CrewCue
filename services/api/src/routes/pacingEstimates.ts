@@ -27,6 +27,7 @@ import {
   initPacingEstimateStore,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -59,7 +60,12 @@ const estimateBody = z
     /**
      * Optional athlete scope. When present must equal the authenticated user.
      */
-    athleteUserId: z.string().min(1).optional()
+    athleteUserId: z.string().min(1).optional(),
+    /**
+     * Why a room estimate is requested (#538). Absent means "auto", which only the race athlete
+     * may use. Crew may send "cold_start" (no plan yet) or "recalculate" (explicit tap).
+     */
+    trigger: planTriggerSchema.optional()
   })
   .strict()
   .refine((b) => b.roomId !== undefined || (b.checkpoints !== undefined && b.raceStartAt !== undefined), {
@@ -110,10 +116,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       return reply.code(400).send({ error: "Invalid pacing estimate payload", code: "invalid_payload" });
     }
 
-    const athleteUserId = request.identity.sub;
-    if (parsedBody.data.athleteUserId !== undefined && parsedBody.data.athleteUserId !== athleteUserId) {
+    const callerUserId = request.identity.sub;
+    if (parsedBody.data.athleteUserId !== undefined && parsedBody.data.athleteUserId !== callerUserId) {
       return reply.code(403).send({ error: "Forbidden" });
     }
+    /** Whose history feeds the estimate and who owns it. Room estimates always use the race athlete. */
+    let athleteUserId = callerUserId;
 
     let raceStartAt = parsedBody.data.raceStartAt;
     let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
@@ -125,10 +133,20 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       if (!room) {
         return reply.code(404).send({ error: "Race room not found", code: "room_not_found" });
       }
-      const membership = room.memberships.find((m) => m.userId === athleteUserId);
+      const membership = room.memberships.find((m) => m.userId === callerUserId);
       if (!membership) {
         return reply.code(403).send({ error: "Forbidden" });
       }
+      const authority = decidePlanAuthority({
+        room,
+        userId: callerUserId,
+        role: membership.role,
+        trigger: parsedBody.data.trigger ?? "auto"
+      });
+      if (!authority.ok) {
+        return reply.code(authority.status).send({ error: authority.error, code: authority.code });
+      }
+      athleteUserId = authority.historyOwnerUserId;
       if (!room.course || room.course.checkpoints.length < 2) {
         return reply.code(400).send({
           error: "Room course with at least two checkpoints is required",

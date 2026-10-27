@@ -16,6 +16,8 @@ struct PaceStop: Identifiable, Equatable {
     var moving: String?
     var waited: String?
     var stoppage: String
+    /// Dwell rail label for the planned stop, e.g. "5 MIN STOP".
+    var stopLabel: String
     var delay: String?
     var line: String
 }
@@ -60,6 +62,12 @@ final class PaceModel {
     private(set) var stoppageLines: [PaceLine] = []
     private(set) var courseMessage = "No course settings yet."
 
+    /// #250 Pace edit: planned stop minutes. Non-nil while editing; the timeline renders from it.
+    private(set) var stopDraft: StopPlanDraft?
+    private(set) var stopsMessage = ""
+    private(set) var stopsBusy = false
+    private var latestRunner = RunnerProgress.none
+
     private(set) var outboxRows: [PaceLine] = []
     private(set) var outboxMessage = "Outbox is empty."
 
@@ -76,10 +84,22 @@ final class PaceModel {
     private var hasDraft = false
     private var didApplyDraft = false
     private var didLoadHistory = false
+    /// The room's attached estimate id. Crew may seed a cold start only while this is nil.
+    private var planOfRecordId: String?
+
+    private var hasPlanOfRecord: Bool {
+        planOfRecordId != nil || loadedEstimate != nil
+    }
 
     var canRecalculate: Bool {
         PlanAuthority.mayExplicitRecalculate(role: role)
     }
+
+    var canEditStops: Bool {
+        PlanAuthority.mayEditCourse(role: role) && courseCheckpoints.count >= 2 && loadedStops.isEmpty == false
+    }
+
+    var isEditingStops: Bool { stopDraft != nil }
 
     var canSeedColdStart: Bool {
         showColdStart && PlanAuthority.maySeedColdStart(role: role)
@@ -124,12 +144,63 @@ final class PaceModel {
         estimateBusy = false
         checkInBusy = false
         gpxBusy = false
+        stopsBusy = false
         clearFields()
     }
 
     func recalculate() async {
         guard canRecalculate else { return }
-        await computeAndAttach(ticket: generation)
+        await computeAndAttach(ticket: generation, trigger: .recalculate)
+    }
+
+    /// Stops the runner has passed (by the athlete's latest ping) stay read-only in the draft.
+    func beginStopEdit() {
+        guard canEditStops, stopsBusy == false else { return }
+        let checkpoints = aidCheckpoints
+        stopDraft = StopPlanDraft(checkpoints: checkpoints, progressMeters: latestRunner.progressMeters(checkpoints: checkpoints))
+        stopsMessage = ""
+    }
+
+    /// The athlete's latest ping (from the shell's poll). Recorded even when not editing, so a draft opened
+    /// later starts from it; while a draft is open, any stop the runner passed is locked.
+    func runnerMoved(_ runner: RunnerProgress) {
+        latestRunner = runner
+        stopDraft?.lockPassed(progressMeters: runner.progressMeters(checkpoints: aidCheckpoints))
+    }
+
+    func cancelStopEdit() {
+        guard stopsBusy == false else { return }
+        stopDraft = nil
+        stopsMessage = ""
+    }
+
+    func setStopMinutes(_ text: String, for checkpointId: String) {
+        stopDraft?.setMinutes(text, for: checkpointId)
+    }
+
+    func stepStop(_ checkpointId: String, by deltaMinutes: Int) {
+        stopDraft?.step(checkpointId, deltaMinutes: deltaMinutes)
+    }
+
+    /// Sends only the changed stops. On failure the draft stays open so nothing typed is lost.
+    func saveStopEdit() async {
+        let ticket = generation
+        guard let roomId, let draft = stopDraft, draft.canSave, stopsBusy == false else { return }
+        stopsBusy = true
+        defer { stopsBusy = false }
+        do {
+            let room = try await RaceDayAPI.updatePlannedStops(graph: client.graph, roomId: roomId, edits: draft.edits)
+            guard ticket == generation else { return }
+            courseCheckpoints = room.course?.checkpoints ?? courseCheckpoints
+            stopDraft = nil
+            stopsMessage = StopPlanCopy.saved
+            await loadScheduleSection(ticket: ticket)
+            guard ticket == generation else { return }
+            refreshCourseReadout()
+        } catch {
+            guard ticket == generation else { return }
+            stopsMessage = StopPlanCopy.failure(error)
+        }
     }
 
     func openCheckIn(checkpointId: String) {
@@ -139,9 +210,10 @@ final class PaceModel {
         checkInOpen = true
     }
 
+    /// Seeding twice is a recalculation: once the room has a plan of record, crew may only Recalculate.
     func seedColdStart() async {
         guard canSeedColdStart else { return }
-        await computeAndAttach(ticket: generation)
+        await computeAndAttach(ticket: generation, trigger: hasPlanOfRecord ? .recalculate : .coldStart)
     }
 
     func submitCheckIn() async {
@@ -199,8 +271,11 @@ final class PaceModel {
         await Task.yield()
         guard ticket == generation else { return }
         gpxMessage = CourseImportStage.calculating.message
-        let pace = (plannedPaceSecondsPerKm ?? 0) > 0 ? (plannedPaceSecondsPerKm ?? 360) : 360
-        let start = raceAnchor ?? isoNow()
+        // Empty start and a non-positive pace mean "not loaded yet". The import fills those
+        // from the room so an offline or in-flight upload cannot move the race clock.
+        let knownPace = plannedPaceSecondsPerKm ?? 0
+        let pace = knownPace > 0 ? knownPace : 0
+        let start = raceAnchor ?? ""
         do {
             _ = try await RaceDayAPI.importGpx(
                 graph: client.graph,
@@ -326,6 +401,7 @@ final class PaceModel {
         raceStartAt = room.raceStartAt
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
+        planOfRecordId = room.pacingEstimateId ?? room.pacingEstimate?.id
         await loadHistoryIfNeeded(ticket: ticket)
         guard ticket == generation else { return }
         applyEstimatePresentation()
@@ -345,7 +421,7 @@ final class PaceModel {
             persistHistory()
             return
         }
-        await computeAndAttach(ticket: ticket)
+        await computeAndAttach(ticket: ticket, trigger: .auto)
     }
 
     private func loadHistoryIfNeeded(ticket: Int) async {
@@ -369,21 +445,21 @@ final class PaceModel {
         }
     }
 
-    private func computeAndAttach(ticket: Int) async {
+    private func computeAndAttach(ticket: Int, trigger: PlanTrigger) async {
         guard ticket == generation, let roomId, estimateBusy == false else { return }
         estimateBusy = true
         defer { estimateBusy = false }
         do {
-            let graph = client.graph
-            let computed = try await RaceDayAPI.computeEstimate(graph: graph, roomId: roomId)
-            guard ticket == generation else { return }
-            let attached = try await RaceDayAPI.attachEstimate(
-                graph: graph,
+            let attached = try await PlanOfRecord.recompute(
+                graph: client.graph,
                 roomId: roomId,
-                estimateId: computed.id
+                role: role,
+                trigger: trigger,
+                hasPlanOfRecord: hasPlanOfRecord
             )
             guard ticket == generation else { return }
             loadedEstimate = attached
+            planOfRecordId = attached.id
             if let usableFingerprint {
                 historyRecord = EstimateHistoryRecord(estimateId: attached.id, fingerprint: usableFingerprint)
                 persistHistory()
@@ -453,7 +529,25 @@ final class PaceModel {
         if checkpointId.isEmpty, let first = sheet.stops.first?.checkpointId, first.isEmpty == false {
             checkpointId = first
         }
-        let rows = sheet.stops.enumerated().map { index, stop in
+        let rows = paceStops(sheet.stops)
+        stops = rows
+        stopLines = rows.map { PaceLine(id: $0.id, text: $0.line) }
+        scheduleOffline = offline
+        if offline {
+            scheduleMessage = "Offline. Schedule not updated. The last sheet stays readable on this device."
+        } else if failed {
+            scheduleMessage = "Couldn't load the schedule."
+        } else if sheet.stops.isEmpty {
+            scheduleMessage = "No stops on this sheet."
+        } else {
+            scheduleMessage = ""
+        }
+        applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+    }
+
+    /// Display rows for schedule stops (server sheet, or the draft projection while editing).
+    private func paceStops(_ stops: [ScheduleStop]) -> [PaceStop] {
+        stops.enumerated().map { index, stop in
             let title = ScheduleFormat.checkpointDisplayTitle(
                 id: stop.checkpointId,
                 title: courseTitle(for: stop.checkpointId)
@@ -473,23 +567,17 @@ final class PaceModel {
                 moving: moving,
                 waited: waited,
                 stoppage: ScheduleFormat.formatDurationSeconds(stop.plannedStoppageSeconds),
+                stopLabel: StopPlanDraft.stopLabel(seconds: stop.plannedStoppageSeconds),
                 delay: stop.delayOverrideSeconds.map { ScheduleFormat.formatDurationSeconds($0) },
                 line: "\(title)  \(duration)  \(clock)"
             )
         }
-        stops = rows
-        stopLines = rows.map { PaceLine(id: $0.id, text: $0.line) }
-        scheduleOffline = offline
-        if offline {
-            scheduleMessage = "Offline. Schedule not updated. The last sheet stays readable on this device."
-        } else if failed {
-            scheduleMessage = "Couldn't load the schedule."
-        } else if sheet.stops.isEmpty {
-            scheduleMessage = "No stops on this sheet."
-        } else {
-            scheduleMessage = ""
-        }
-        applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+    }
+
+    /// Stops the Pace cards show: the draft projection while editing planned stops.
+    var displayStops: [PaceStop] {
+        guard let stopDraft else { return stops }
+        return paceStops(stopDraft.projectedStops(loadedStops))
     }
 
     private func applyScheduleFailure(_ error: Error) {
@@ -498,8 +586,9 @@ final class PaceModel {
         stops = []
         let offline = APIFailure.isTransport(error)
         scheduleOffline = offline
+        // No sheet is cached here, so don't promise one.
         scheduleMessage = offline
-            ? "Offline. Schedule not updated. The last sheet stays readable on this device."
+            ? "Offline. Schedule not updated."
             : "Couldn't load the schedule."
         exportText = ""
         exportMessage = "Couldn't build the crew sheet."
@@ -598,20 +687,8 @@ final class PaceModel {
     }
 
     private func fetchHistory() async throws -> [ActivityHistoryRef] {
-        guard let baseURL = client.graph.baseURL, let url = APIClient.endpoint(baseURL, "/activity-history") else {
-            return []
-        }
-        let token = await client.graph.tokenProvider?.accessToken()
-        let request = APIClient.authorized(url: url, method: .get, token: token)
-        let payload: ActivityHistoryListPayload = try await APIClient.send(request, transport: client.graph.transport)
-        return payload.items.map { item in
-            ActivityHistoryRef(
-                id: item.id,
-                distanceMeters: item.distanceMeters,
-                elapsedSeconds: item.elapsedSeconds,
-                elevationGainMeters: item.elevationGainMeters
-            )
-        }
+        guard client.graph.baseURL != nil else { return [] }
+        return try await RaceDayAPI.activityHistory(graph: client.graph)
     }
 
     private func resolvedCheckpointId() -> String {
@@ -622,19 +699,17 @@ final class PaceModel {
         return loadedStops.first?.checkpointId ?? ""
     }
 
-    /// Pace timeline rows for the course progress list.
-    func timeline(progressMeters: Double) -> [CheckpointTimelineRow] {
-        RaceDayReadouts.timeline(sheet: loadedSheet, checkpoints: aidCheckpoints, progressMeters: progressMeters)
-    }
-
-    func readout(progressMeters: Double) -> RaceDayReadout {
-        RaceDayReadouts.make(
+    /// Pace timeline rows for the course progress list, placed by the athlete's latest ping.
+    func timeline(runner: RunnerProgress) -> [CheckpointTimelineRow] {
+        RaceDayReadouts.timeline(
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
-            progressMeters: progressMeters,
-            now: Date(),
-            lastPingAt: nil
+            progressMeters: runner.progressMeters(checkpoints: aidCheckpoints)
         )
+    }
+
+    func readout(runner: RunnerProgress) -> RaceDayReadout {
+        RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: Date())
     }
 
     /// Display stop for a checkpoint, used for the check-in button and accessibility line.
@@ -642,9 +717,11 @@ final class PaceModel {
         stops.first { $0.checkpointId == checkpointId }
     }
 
+    /// The server sheet, or while editing stops, the sheet as it will read after saving.
     private var loadedSheet: CrewScheduleSheet? {
         guard loadedStops.isEmpty == false else { return nil }
-        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: loadedStops)
+        let stops = stopDraft?.projectedStops(loadedStops) ?? loadedStops
+        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops)
     }
 
     private var aidCheckpoints: [AidStationCheckpoint] {
@@ -751,6 +828,7 @@ final class PaceModel {
         estimateMessage = "No estimate yet."
         showColdStart = false
         loadedEstimate = nil
+        planOfRecordId = nil
         historyEmpty = true
         usableFingerprint = nil
         historyRecord = .empty
@@ -766,6 +844,9 @@ final class PaceModel {
         exportMessage = "Nothing to export."
         cutoffNote = ""
         stoppageText = ""
+        stopDraft = nil
+        stopsMessage = ""
+        latestRunner = .none
         cutoffLines = []
         stoppageLines = []
         courseMessage = "No course settings yet."
@@ -779,17 +860,6 @@ final class PaceModel {
         scheduleRaceStart = nil
         plannedPaceSecondsPerKm = nil
     }
-}
-
-private struct ActivityHistoryListPayload: Decodable {
-    var items: [ActivityHistoryItemPayload]
-}
-
-private struct ActivityHistoryItemPayload: Decodable {
-    var id: String
-    var distanceMeters: Double?
-    var elapsedSeconds: Double?
-    var elevationGainMeters: Double?
 }
 
 private struct SavedEstimateHistory: Codable {

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "corpusFingerprint": "e982b6e7a17501f6",
+  "predictor": "micro-model",
+  "metrics": {
+    "all": {
+      "finish.mapePct": 9.792,
+      "finish.absBiasPct": 3.823,
+      "checkpoints.mapePct": 12.028,
+      "shape.mapePct": 4.08
+    },
+    "tune": {
+      "finish.mapePct": 10.169,
+      "finish.absBiasPct": 4.98,
+      "checkpoints.mapePct": 12.449,
+      "shape.mapePct": 4.66
+    },
+    "holdout": {
+      "finish.mapePct": 8.912,
+      "finish.absBiasPct": 1.122,
+      "checkpoints.mapePct": 11.046,
+      "shape.mapePct": 2.728
+    }
+  }
+}

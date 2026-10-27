@@ -43,17 +43,27 @@ val streamFailure = if (streamCoordinate == null) streamFailures.joinToString(" 
 val repoRoot = rootProject.projectDir.parentFile.parentFile
 val releaseKeystore = System.getenv("CREWCUE_ANDROID_KEYSTORE")
 
+// Release builds talk only to the server and Auth0 tenant passed in by release.yml
+// (-Pcrewcue.release.*). The dev values in strings.xml never reach a release build.
+val releaseApiBaseUrl = crewcueProp("crewcue.release.apiBaseUrl").trimEnd('/')
+val releaseAuth0Domain = crewcueProp("crewcue.release.auth0Domain").removePrefix("https://").trimEnd('/')
+val releaseAuth0ClientId = crewcueProp("crewcue.release.auth0ClientId")
+val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
+
 android {
     namespace = "com.crewcue.android"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.crewcue.android"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (findProperty("crewcue.versionCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("crewcue.versionName") as String?) ?: "0.0.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // client-core is cross-compiled for these two ABIs only (scripts/build-swift-android.mjs).
+        // Without the filter, MapLibre's 32-bit libs make Play offer the app to devices that crash loading Swift.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
 
         val auth0Domain = crewcueResolved("crewcue_auth0_domain")
         val auth0ClientId = crewcueResolved("crewcue_auth0_client_id")
@@ -87,7 +97,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            buildConfigField("String", "crewcue_auth0_domain", crewcueQuoted(releaseAuth0Domain))
+            buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(releaseAuth0ClientId))
+            buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(releaseAuth0Audience))
+            buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(releaseApiBaseUrl))
+            manifestPlaceholders["auth0Domain"] = releaseAuth0Domain.ifBlank { "auth0.invalid" }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -129,6 +146,32 @@ android {
     }
 }
 
+// Fail before building a release APK or bundle that has no usable server or sign-in settings.
+// Debug builds are not checked; they keep the local API fallback.
+gradle.taskGraph.whenReady {
+    val buildsRelease = allTasks.any { task ->
+        task.project == project && (task.name == "assembleRelease" || task.name == "bundleRelease")
+    }
+    if (!buildsRelease) return@whenReady
+    val problems = buildList {
+        val host = releaseApiBaseUrl.removePrefix("https://").substringBefore('/').substringBefore(':').lowercase()
+        if (!releaseApiBaseUrl.startsWith("https://") || host.isBlank() ||
+            host in setOf("localhost", "127.0.0.1", "10.0.2.2", "0.0.0.0")
+        ) {
+            add("crewcue.release.apiBaseUrl must be an https server address (got \"$releaseApiBaseUrl\")")
+        }
+        if (releaseAuth0Domain.isBlank()) add("crewcue.release.auth0Domain is empty")
+        if (releaseAuth0ClientId.isBlank()) add("crewcue.release.auth0ClientId is empty")
+        if (releaseAuth0Audience.isBlank()) add("crewcue.release.auth0Audience is empty")
+    }
+    if (problems.isNotEmpty()) {
+        throw GradleException(
+            "Release build config is incomplete (see docs/runbooks/mobile-release.md):\n- " +
+                problems.joinToString("\n- ")
+        )
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
@@ -150,6 +193,7 @@ dependencies {
         implementation(coordinate)
     }
 
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

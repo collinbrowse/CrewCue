@@ -10,8 +10,12 @@ import { parseActivityHistoryRef, parsePacingEstimate, type RaceCourseCheckpoint
 import { buildRaceCourseFromGpx, parseGpxTrack } from "@crewcue/map-core";
 import { buildApp } from "../app.js";
 import { resetActivityHistoryStoreForTests } from "../lib/activityHistoryStore.js";
-import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
+import {
+  getPacingEstimateById,
+  resetPacingEstimateStoreForTests
+} from "../lib/pacingEstimateStore.js";
 import { DEFAULT_PACING_ESTIMATE_SEED } from "../lib/pacingEstimate/index.js";
+import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 
 function findPacingFixturesDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +87,57 @@ async function ingestGpx(
   });
   assert.ok(response.statusCode === 201 || response.statusCode === 200, response.body);
   return parseActivityHistoryRef(response.json());
+}
+
+/** The owner is the room's athlete: only the athlete may own the plan of record (#576). */
+async function createPaidRoom(
+  app: ReturnType<typeof buildApp>,
+  ownerToken: string,
+  ownerId: string,
+  name: string
+): Promise<string> {
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {
+      teamId: "team-1",
+      athleteId: ownerId,
+      name,
+      creatorRole: "team_manager"
+    }
+  });
+  assert.equal(createResponse.statusCode, 201, createResponse.body);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const entitlement = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { status: "paid" }
+  });
+  assert.equal(entitlement.statusCode, 200, entitlement.body);
+  return roomId;
+}
+
+async function put50kCourse(
+  app: ReturnType<typeof buildApp>,
+  roomId: string,
+  ownerToken: string
+): Promise<void> {
+  const fixture = load50kCourseWithAids();
+  const response = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {
+      plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
+      course: { checkpoints: fixture.checkpoints },
+      routeOverlayLayer: fixture.routeOverlayLayer,
+      raceStartAt: RACE_START
+    }
+  });
+  assert.equal(response.statusCode, 200, response.body);
 }
 
 test("EC3: unauthorized estimate request returns 401; wrong athleteUserId returns 403", async () => {
@@ -182,6 +237,107 @@ test("historyRefIds are scoped to authenticated athlete and missing ids return 4
     });
     assert.equal(missingId.statusCode, 404);
     assert.match((missingId.json() as { error?: string }).error ?? "", /hist_does_not_exist/);
+  });
+});
+
+test("roomId estimate denies non-members before using private room course or history ids", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("room-estimate-owner");
+    const strangerToken = tokenFor("room-estimate-stranger");
+    const ownerHistory = await ingestGpx(
+      app,
+      ownerToken,
+      "activity-long-trail.gpx",
+      "gpx:room-private-history"
+    );
+    const roomId = await createPaidRoom(app, ownerToken, "room-estimate-owner", "Private room estimate");
+    await put50kCourse(app, roomId, ownerToken);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${strangerToken}` },
+      payload: {
+        roomId,
+        historyRefIds: [ownerHistory.id]
+      }
+    });
+
+    assert.equal(response.statusCode, 403, response.body);
+    assert.deepEqual(response.json(), { error: "Forbidden" });
+  });
+});
+
+test("roomId estimate returns 404 for a missing room and 400 for a room without a course", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerId = "room-estimate-no-course";
+    const ownerToken = tokenFor(ownerId);
+    const roomId = await createPaidRoom(app, ownerToken, ownerId, "Room without a course");
+
+    const missingRoom = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId: "room_does_not_exist" }
+    });
+    assert.equal(missingRoom.statusCode, 404, missingRoom.body);
+    assert.equal((missingRoom.json() as { code?: string }).code, "room_not_found");
+
+    const noCourse = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { roomId }
+    });
+    assert.equal(noCourse.statusCode, 400, noCourse.body);
+    assert.equal((noCourse.json() as { code?: string }).code, "course_incomplete");
+  });
+});
+
+test("roomId estimate uses the room route, room race start, scoped history, and stores baseline", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const ownerToken = tokenFor("room-estimate-member");
+    const long = await ingestGpx(
+      app,
+      ownerToken,
+      "activity-long-trail.gpx",
+      "gpx:room-member-long"
+    );
+    await ingestGpx(app, ownerToken, "activity-short-road.gpx", "gpx:room-member-short");
+    const roomId = await createPaidRoom(app, ownerToken, "room-estimate-member", "Room-backed estimate");
+    await put50kCourse(app, roomId, ownerToken);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: {
+        roomId,
+        historyRefIds: [long.id],
+        seed: DEFAULT_PACING_ESTIMATE_SEED
+      }
+    });
+
+    assert.equal(response.statusCode, 200, response.body);
+    const estimate = parsePacingEstimate(response.json());
+    assert.equal(estimate.coldStart, false);
+    assert.deepEqual(estimate.historyRefIds, [long.id]);
+    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
+    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
+    assert.match(estimate.expectedFinishAt, ISO_Z);
+    assert.equal(
+      (Date.parse(estimate.expectedFinishAt) - Date.parse(RACE_START)) / 1000,
+      estimate.expectedFinishElapsedSeconds,
+      "the finish clock must be anchored on the room's race start"
+    );
+
+    const stored = await getPacingEstimateById(estimate.id);
+    assert.equal(stored?.athleteUserId, "room-estimate-member");
+    assert.ok(stored?.baselineTrack);
+    assert.ok(stored.baselineTrack.points.length >= 2);
+    const finish = stored.baselineTrack.points[stored.baselineTrack.points.length - 1];
+    assert.ok(finish);
+    assert.ok(finish.distanceMetersFromStart > 40_000);
   });
 });
 
