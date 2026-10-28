@@ -25,7 +25,7 @@
     "@crewcue/contracts": "0.1.0",
     "@crewcue/map-core": "0.1.0",
     "@crewcue/platform-client": "0.1.0",
-    "@fastify/jwt": "^9.1.0",
+    "@fastify/jwt": "^10.2.5",
     "@opentelemetry/api": "^1.10.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
     "@opentelemetry/sdk-node": "^0.300.0",
