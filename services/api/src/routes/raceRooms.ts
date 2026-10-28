@@ -397,10 +397,26 @@ function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
 
 export async function saveRaceRoom(room: RaceRoom): Promise<void> {
   const persisted = pruneStopPlansToLiveCheckpoints(room);
+  const previous = raceRooms.get(persisted.id);
   unindexJoinCodeForRoomId(persisted.id);
   raceRooms.set(persisted.id, persisted);
   indexJoinCode(persisted);
-  await persistRaceRoom(persisted);
+  try {
+    await persistRaceRoom(persisted);
+  } catch (err) {
+    // A failed write must not keep serving the new room (a join-by-code membership, say):
+    // retries would get 200 and a restart would drop it. Leave a newer write alone.
+    if (raceRooms.get(persisted.id) === persisted) {
+      unindexJoinCodeForRoomId(persisted.id);
+      if (previous) {
+        raceRooms.set(previous.id, previous);
+        indexJoinCode(previous);
+      } else {
+        raceRooms.delete(persisted.id);
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -487,8 +503,21 @@ async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
 }
 
 async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
+  const previous = raceRoomInvites.get(invite.token);
   raceRoomInvites.set(invite.token, invite);
-  await persistRaceRoomInvite(invite);
+  try {
+    await persistRaceRoomInvite(invite);
+  } catch (err) {
+    // Same rollback as saveRaceRoom, so a failed persist can't leave a ghost invite.
+    if (raceRoomInvites.get(invite.token) === invite) {
+      if (previous) {
+        raceRoomInvites.set(invite.token, previous);
+      } else {
+        raceRoomInvites.delete(invite.token);
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | undefined> {
@@ -615,10 +644,11 @@ const roomProjectionState = new Map<string, RoomProjectionState>();
 const ws2RuntimeHydrator = createLazyHydrator();
 
 /**
- * Per-room queue for ping projection commits and manual check-ins.
+ * Per-room queue for ping projection commits, manual check-ins, and membership writes.
  * A ping copies projection state, awaits history persistence, then replaces the
  * in-memory projection. A check-in that mutates the previous object in that gap
- * returns 200 while the ping's replace drops the visit.
+ * returns 200 while the ping's replace drops the visit. Join-by-code and invite
+ * accept read the member list and write it back whole, so two at once drop one member.
  */
 const roomRuntimeTail = new Map<string, Promise<void>>();
 
@@ -632,6 +662,13 @@ export function setPingProjectionCommitDelayForTests(
 ): void {
   pingProjectionCommitDelayForTests =
     delay === undefined ? undefined : { roomId, delay };
+}
+
+let membershipWriteDelayForTests: (() => Promise<void>) | undefined;
+
+/** Test-only one-shot pause after join-by-code reads the member list and before it saves. */
+export function setMembershipWriteDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  membershipWriteDelayForTests = delay;
 }
 
 /** Test-only signal when a caller has to wait for another runtime write on the same room. */
@@ -2756,78 +2793,82 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await getRaceRoom(roomId);
-    if (!room) {
-      return reply.code(404).send({ error: "Race room not found" });
-    }
+    const userId = request.identity.sub;
+    // Two accepts (or an accept and a join) must not both build on the same member list.
+    return await withRoomRuntimeLock(roomId, async () => {
+      const room = await getRaceRoom(roomId);
+      if (!room) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
 
-    const parsed = acceptInviteInput.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: "Invalid invite acceptance payload" });
-    }
+      const parsed = acceptInviteInput.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Invalid invite acceptance payload" });
+      }
 
-    const invite = await getRaceRoomInvite(parsed.data.token);
-    if (!invite || invite.roomId !== roomId) {
-      return reply.code(404).send({ error: "Invite not found" });
-    }
+      const invite = await getRaceRoomInvite(parsed.data.token);
+      if (!invite || invite.roomId !== roomId) {
+        return reply.code(404).send({ error: "Invite not found" });
+      }
 
-    if (invite.status !== "pending") {
-      return reply.code(409).send({ error: "Invite is not pending" });
-    }
+      if (invite.status !== "pending") {
+        return reply.code(409).send({ error: "Invite is not pending" });
+      }
 
-    if (isExpired(invite.expiresAt)) {
-      await saveRaceRoomInvite({ ...invite, status: "expired" });
-      return reply.code(410).send({ error: "Invite expired" });
-    }
+      if (isExpired(invite.expiresAt)) {
+        await saveRaceRoomInvite({ ...invite, status: "expired" });
+        return reply.code(410).send({ error: "Invite expired" });
+      }
 
-    const existing = room.memberships.find((member) => member.userId === request.identity?.sub);
-    // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
-    // link the athlete just created must not take that role away either, and must
-    // leave the invite pending for the person it was meant for.
-    if (
-      existing &&
-      existing.userId === room.athleteId &&
-      existing.role === "athlete" &&
-      invite.role !== "athlete"
-    ) {
-      return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
-    }
-    const nextMemberships = existing
-      ? room.memberships.map((member) =>
-          member.userId === request.identity?.sub ? { ...member, role: invite.role } : member
-        )
-      : [
-          ...room.memberships,
-          {
-            userId: request.identity.sub,
-            role: invite.role,
-            joinedAt: new Date().toISOString()
-          }
-        ];
+      const existing = room.memberships.find((member) => member.userId === userId);
+      // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
+      // link the athlete just created must not take that role away either, and must
+      // leave the invite pending for the person it was meant for.
+      if (
+        existing &&
+        existing.userId === room.athleteId &&
+        existing.role === "athlete" &&
+        invite.role !== "athlete"
+      ) {
+        return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+      }
+      const nextMemberships = existing
+        ? room.memberships.map((member) =>
+            member.userId === userId ? { ...member, role: invite.role } : member
+          )
+        : [
+            ...room.memberships,
+            {
+              userId: userId,
+              role: invite.role,
+              joinedAt: new Date().toISOString()
+            }
+          ];
 
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: nextMemberships
-    };
+      const updatedRoom: RaceRoom = {
+        ...room,
+        memberships: nextMemberships
+      };
 
-    await saveRaceRoom(updatedRoom);
-    await saveRaceRoomInvite({
-      ...invite,
-      status: "accepted",
-      acceptedBy: request.identity.sub,
-      acceptedAt: new Date().toISOString()
-    });
-    scheduleStreamChannelMembershipSync(updatedRoom, request.log);
+      await saveRaceRoom(updatedRoom);
+      await saveRaceRoomInvite({
+        ...invite,
+        status: "accepted",
+        acceptedBy: userId,
+        acceptedAt: new Date().toISOString()
+      });
+      scheduleStreamChannelMembershipSync(updatedRoom, request.log);
 
-    const membership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
-    if (!membership) {
-      return reply.code(500).send({ error: "Membership assignment failed" });
-    }
+      const membership = updatedRoom.memberships.find((member) => member.userId === userId);
+      if (!membership) {
+        return reply.code(500).send({ error: "Membership assignment failed" });
+      }
 
-    return reply.send({
-      room: updatedRoom,
-      assignedRole: membership.role,
-      permissions: getPermissions(membership.role)
+      return reply.send({
+        room: updatedRoom,
+        assignedRole: membership.role,
+        permissions: getPermissions(membership.role)
+      });
     });
   });
 
@@ -2841,42 +2882,52 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid room join payload" });
     }
 
-    const room = await getRaceRoom(parsed.data.roomCode);
-    if (!room) {
+    const resolved = await getRaceRoom(parsed.data.roomCode);
+    if (!resolved) {
       return reply.code(404).send({ error: "Race room not found" });
     }
 
-    const existingMembership = room.memberships.find((member) => member.userId === request.identity?.sub);
-    const nextMemberships = existingMembership
-      ? room.memberships
-      : [
-          ...room.memberships,
-          {
-            userId: request.identity.sub,
-            role: "crew_member" as const,
-            joinedAt: new Date().toISOString()
-          }
-        ];
+    const userId = request.identity.sub;
+    // Two crew joining at once must not both append to the same member list.
+    return await withRoomRuntimeLock(resolved.id, async () => {
+      const room = (await getRaceRoom(resolved.id)) ?? resolved;
+      const writeDelay = membershipWriteDelayForTests;
+      if (writeDelay) {
+        membershipWriteDelayForTests = undefined;
+        await writeDelay();
+      }
+      const existingMembership = room.memberships.find((member) => member.userId === userId);
+      const nextMemberships = existingMembership
+        ? room.memberships
+        : [
+            ...room.memberships,
+            {
+              userId: userId,
+              role: "crew_member" as const,
+              joinedAt: new Date().toISOString()
+            }
+          ];
 
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: nextMemberships
-    };
+      const updatedRoom: RaceRoom = {
+        ...room,
+        memberships: nextMemberships
+      };
 
-    if (!existingMembership) {
-      await saveRaceRoom(updatedRoom);
-      scheduleStreamChannelMembershipSync(updatedRoom, request.log);
-    }
+      if (!existingMembership) {
+        await saveRaceRoom(updatedRoom);
+        scheduleStreamChannelMembershipSync(updatedRoom, request.log);
+      }
 
-    const assignedMembership = updatedRoom.memberships.find((member) => member.userId === request.identity?.sub);
-    if (!assignedMembership) {
-      return reply.code(500).send({ error: "Membership assignment failed" });
-    }
+      const assignedMembership = updatedRoom.memberships.find((member) => member.userId === userId);
+      if (!assignedMembership) {
+        return reply.code(500).send({ error: "Membership assignment failed" });
+      }
 
-    return reply.send({
-      room: updatedRoom,
-      assignedRole: assignedMembership.role,
-      permissions: getPermissions(assignedMembership.role)
+      return reply.send({
+        room: updatedRoom,
+        assignedRole: assignedMembership.role,
+        permissions: getPermissions(assignedMembership.role)
+      });
     });
   });
 

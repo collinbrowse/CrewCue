@@ -9,7 +9,7 @@ import {
   persistTaskBoardPayload,
   setPersistRaceRoomFailureForTests
 } from "../lib/roomPersistence.js";
-import { ingestPersistedRaceRoomInviteWithoutClobberForTests } from "./raceRooms.js";
+import { ingestPersistedRaceRoomInviteWithoutClobberForTests, setMembershipWriteDelayForTests } from "./raceRooms.js";
 import type { RaceRoomInvite } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
@@ -1448,4 +1448,140 @@ test("PUT map-workspace keeps task board when room persist fails", async () => {
     setPersistRaceRoomFailureForTests(false);
     await app.close();
   }
+});
+
+test("join-by-code does not keep ghost membership when room persist fails", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-join-persist"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-join-persist"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "owner-join-persist",
+        name: "Join Persist Room",
+        creatorRole: "athlete"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const room = createResponse.json() as { id: string; joinCode?: string };
+    assert.ok(room.joinCode);
+
+    setPersistRaceRoomFailureForTests(true);
+    const failingJoin = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(failingJoin.statusCode, 500);
+
+    // /mine reads the in-process room cache; a ghost membership after a failed
+    // persist would incorrectly list this room for the joiner.
+    const mineAfterFailure = await app.inject({
+      method: "GET",
+      url: "/race-rooms/mine",
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(mineAfterFailure.statusCode, 200);
+    const mineBody = mineAfterFailure.json() as { rooms: Array<{ id: string }> };
+    assert.equal(
+      mineBody.rooms.some((r) => r.id === room.id),
+      false,
+      "failed join must not leave membership in the process cache"
+    );
+
+    setPersistRaceRoomFailureForTests(false);
+    const retryJoin = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(retryJoin.statusCode, 200);
+    const retried = retryJoin.json() as {
+      room: { memberships: Array<{ userId: string }> };
+    };
+    assert.equal(
+      retried.room.memberships.some((m) => m.userId === "joiner-join-persist"),
+      true
+    );
+  } finally {
+    setPersistRaceRoomFailureForTests(false);
+    await app.close();
+  }
+});
+
+test("concurrent join-by-code keeps both memberships (no last-write-wins loss)", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("owner-concurrent-join"));
+  const joinerAToken = app.jwt.sign(buildClaims("joiner-a-concurrent"));
+  const joinerBToken = app.jwt.sign(buildClaims("joiner-b-concurrent"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId: "owner-concurrent-join",
+      name: "Concurrent Join Room",
+      creatorName: "Owner",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const room = createResponse.json() as { id: string; joinCode?: string };
+  assert.ok(room.joinCode);
+
+  // Hold the first join between its read and its save, so the second join lands in that gap.
+  setMembershipWriteDelayForTests(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  const [joinA, joinB] = await Promise.all([
+    app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerAToken}` }
+    }),
+    app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${joinerBToken}` }
+    })
+  ]);
+  assert.equal(joinA.statusCode, 200);
+  assert.equal(joinB.statusCode, 200);
+
+  const mineA = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${joinerAToken}` }
+  });
+  const mineB = await app.inject({
+    method: "GET",
+    url: "/race-rooms/mine",
+    headers: { authorization: `Bearer ${joinerBToken}` }
+  });
+  assert.equal(mineA.statusCode, 200);
+  assert.equal(mineB.statusCode, 200);
+  const roomsA = (mineA.json() as { rooms: Array<{ id: string; memberships: Array<{ userId: string }> }> }).rooms;
+  const roomsB = (mineB.json() as { rooms: Array<{ id: string; memberships: Array<{ userId: string }> }> }).rooms;
+  const roomA = roomsA.find((r) => r.id === room.id);
+  const roomB = roomsB.find((r) => r.id === room.id);
+  assert.ok(roomA, "joiner A must retain durable membership after concurrent join");
+  assert.ok(roomB, "joiner B must retain durable membership after concurrent join");
+  const memberIds = new Set(roomA.memberships.map((m) => m.userId));
+  assert.equal(memberIds.has("owner-concurrent-join"), true);
+  assert.equal(memberIds.has("joiner-a-concurrent"), true);
+  assert.equal(memberIds.has("joiner-b-concurrent"), true);
+
+  await app.close();
 });
