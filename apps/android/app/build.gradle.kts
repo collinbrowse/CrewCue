@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -52,7 +51,7 @@ val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
 
 android {
     namespace = "com.crewcue.android"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.crewcue.android"
@@ -114,10 +113,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -131,8 +126,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDir(layout.buildDirectory.dir("generated/swift-java"))
-            jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs"))
+            java.srcDir(layout.buildDirectory.dir("generated/swift-java").get().asFile)
+            jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs").get().asFile)
             if (mapLibreVersionResolved != null) {
                 kotlin.srcDir("src/maplibre/kotlin")
             }
@@ -143,6 +138,12 @@ android {
         getByName("androidTest") {
             assets.srcDir(repoRoot.resolve("clients/behavior"))
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
