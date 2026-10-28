@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { deleteTaskBoardSnapshot } from "../lib/roomPersistence.js";
-import { clearTaskBoardLocalState } from "./raceRooms.js";
+import { clearTaskBoardLocalState, setTaskBoardHydrateDelayForTests } from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -326,4 +326,149 @@ test("task board snapshot path matches canonical replay path", async () => {
   assert.deepEqual(replayResponse.json(), snapshotBoard);
 
   await app.close();
+});
+
+async function createRoomWithCourseForColdLoad(app: ReturnType<typeof buildApp>, athleteId: string) {
+  const athleteToken = app.jwt.sign(buildClaims(athleteId));
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: {
+      teamId: "team-1",
+      athleteId,
+      name: "Task board cold load",
+      creatorRole: "athlete"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const payResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(payResponse.statusCode, 200);
+
+  const courseResponse = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      course: {
+        checkpoints: [
+          { id: "cp0", latitude: 42.0, longitude: -70.0 },
+          { id: "cp1", latitude: 42.01, longitude: -70.0 }
+        ]
+      },
+      routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+        { latitude: 42.0, longitude: -70.0 },
+        { latitude: 42.01, longitude: -70.0 }
+      ]),
+      plannedPaceSecondsPerKm: 720,
+      raceStartAt: "2026-05-12T16:00:00.000Z"
+    },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(courseResponse.statusCode, 200);
+
+  return { roomId, headers: { authorization: `Bearer ${athleteToken}` } };
+}
+
+function gateTaskBoardHydrate() {
+  let releaseHydrate: (() => void) | undefined;
+  const hydrateGate = new Promise<void>((resolve) => {
+    releaseHydrate = resolve;
+  });
+  let markHydrateEntered: (() => void) | undefined;
+  const hydrateEntered = new Promise<void>((resolve) => {
+    markHydrateEntered = resolve;
+  });
+  setTaskBoardHydrateDelayForTests(async () => {
+    markHydrateEntered?.();
+    await hydrateGate;
+  });
+  return { hydrateEntered, release: () => releaseHydrate?.() };
+}
+
+test("concurrent cold task-board loads share one board instead of dropping a write", { timeout: 15_000 }, async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const { roomId, headers } = await createRoomWithCourseForColdLoad(app, "athlete-cold-load");
+  const { hydrateEntered, release: releaseHydrate } = gateTaskBoardHydrate();
+
+  try {
+    const firstLoad = app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    // First cache-miss is inside hydrate, before the board is published.
+    await hydrateEntered;
+
+    const secondLoad = app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    releaseHydrate();
+
+    const [firstResponse, secondResponse] = await Promise.all([firstLoad, secondLoad]);
+    assert.equal(firstResponse.statusCode, 200);
+    assert.equal(secondResponse.statusCode, 200);
+    const firstIds = (firstResponse.json() as { tasks: Array<{ id: string }> }).tasks.map((task) => task.id).sort();
+    const secondIds = (secondResponse.json() as { tasks: Array<{ id: string }> }).tasks.map((task) => task.id).sort();
+    assert.ok(firstIds.length >= 1);
+    assert.deepEqual(secondIds, firstIds);
+
+    const replay = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    assert.equal(replay.statusCode, 200);
+    const replayIds = (replay.json() as { tasks: Array<{ id: string }> }).tasks.map((task) => task.id).sort();
+    assert.deepEqual(replayIds, firstIds);
+  } finally {
+    releaseHydrate();
+    setTaskBoardHydrateDelayForTests(undefined);
+    await app.close();
+  }
+});
+
+test("course reset during a cold task-board load returns retryable 409", { timeout: 15_000 }, async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const { roomId, headers } = await createRoomWithCourseForColdLoad(app, "athlete-reset-mid-load");
+  const { hydrateEntered, release: releaseHydrate } = gateTaskBoardHydrate();
+
+  try {
+    const load = app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    await hydrateEntered;
+    clearTaskBoardLocalState(roomId);
+    releaseHydrate();
+
+    const response = await load;
+    assert.equal(response.statusCode, 409, response.body);
+    assert.equal((response.json() as { code: string }).code, "task_board_reset_during_load");
+
+    setTaskBoardHydrateDelayForTests(undefined);
+    const retry = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    assert.equal(retry.statusCode, 200);
+  } finally {
+    releaseHydrate();
+    setTaskBoardHydrateDelayForTests(undefined);
+    await app.close();
+  }
 });
