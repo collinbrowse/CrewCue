@@ -23,6 +23,30 @@ import Dispatch
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
 enum RuntimeCall {
+    private final class TransportBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var transport: (any HTTPTransport)?
+
+        func get() -> (any HTTPTransport)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return transport
+        }
+
+        func set(_ transport: (any HTTPTransport)?) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.transport = transport
+        }
+    }
+
+    /// Tests inject a transport. Production calls leave this nil and use `URLSessionTransport`.
+    private static let transportForTests = TransportBox()
+
+    static func setTransportForTests(_ transport: (any HTTPTransport)?) {
+        transportForTests.set(transport)
+    }
+
     static func perform(_ json: String) async -> String {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -444,7 +468,11 @@ enum RuntimeCall {
             if let estimate, let directory {
                 try? EstimateCache.save(estimate, directory: directory)
             }
-            let input = recomputeInput(object, estimate: estimate, record: record)
+            let input = recomputeInput(
+                await withActivityHistory(object, role: role, graph: graph),
+                estimate: estimate,
+                record: record
+            )
             let decision = RaceDayAPI.decideAutoRecompute(role: role, input: input)
             if !decision.recompute {
                 EstimateRecordFile.save(decision.nextRecord, directory)
@@ -568,9 +596,9 @@ enum RuntimeCall {
                 if start.isEmpty { start = room.room.raceStartAt ?? "" }
                 if pace <= 0 { pace = room.room.plannedPaceSecondsPerKm ?? 0 }
             }
-            if start.isEmpty || pace <= 0 {
-                throw ClientHTTPError(status: 400, message: "Couldn't read the route file.")
-            }
+            // A new room has neither clock nor pace until this upload sets them. Do not fail
+            // here: RaceDayAPI.importGpx keeps a stored clock and otherwise uses the device
+            // clock and the 360 s/km default, same as the iOS import path.
             _ = try await RaceDayAPI.importGpx(
                 graph: graph,
                 roomId: roomId,
@@ -754,6 +782,23 @@ enum RuntimeCall {
             historyFingerprint: fingerprint,
             record: record
         )
+    }
+
+    /// Adds the athlete's history when the caller did not send one, so every platform decides
+    /// the auto recompute from the same server history. Only roles that may auto-recompute fetch it.
+    /// A history failure leaves the estimate readable and simply skips the recompute.
+    static func withActivityHistory(_ object: [String: Any], role: String, graph: ClientGraph) async -> [String: Any] {
+        guard object["history"] == nil, PlanAuthority.mayAutoRecompute(role: role) else { return object }
+        guard let history = try? await RaceDayAPI.activityHistory(graph: graph) else { return object }
+        var filled = object
+        filled["history"] = history.map { row -> [String: Any] in
+            var fields: [String: Any] = ["id": row.id]
+            if let value = row.distanceMeters { fields["distanceMeters"] = value }
+            if let value = row.elapsedSeconds { fields["elapsedSeconds"] = value }
+            if let value = row.elevationGainMeters { fields["elevationGainMeters"] = value }
+            return fields
+        }
+        return filled
     }
 
     private static func activityHistory(_ object: [String: Any]) -> [ActivityHistoryRef] {
@@ -1328,7 +1373,7 @@ enum RuntimeCall {
         let token = object["token"] as? String
         let outbox = try? store(object)
         return ClientGraph(
-            transport: URLSessionTransport(),
+            transport: transportForTests.get() ?? URLSessionTransport(),
             clock: SystemClock(),
             logger: SilentRuntimeLogger(),
             baseURL: baseURL,
@@ -1452,6 +1497,8 @@ enum CoursePayload {
             "offline": false,
             "checkpoints": checkpoints,
             "name": (room["name"] as? String) ?? "",
+            // Android shows Remove member only to the race's athlete, as the API allows.
+            "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
             "elevation": elevationRows(room),
             "memberships": membershipRows(room)

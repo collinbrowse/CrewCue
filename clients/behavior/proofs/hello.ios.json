@@ -1,0 +1,18 @@
+{
+  "id": "hello",
+  "platform": "ios",
+  "entry": "crewcue://dev/hello",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Opened crewcue://dev/hello and each ?state= overlay. hello is a harness row: the shared client-core stamp is the product.",
+  "checked": {
+    "Success": "Card titled CrewCue with the client-core stamp.",
+    "Empty": "?state=empty: 'No message yet.'",
+    "Error": "?state=error: 'Hello failed.'",
+    "Offline": "?state=offline: 'Offline.'",
+    "Accessibility labels": "crewcue.hello"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

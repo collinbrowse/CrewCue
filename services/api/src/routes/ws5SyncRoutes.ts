@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { DeviceHealth, MergeRecord, Role, SyncQueueDiagnostics, SyncStatus } from "@crewcue/contracts";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import {
+  deleteWs5SyncPayload,
   isRoomPersistenceEnabled,
   loadWs5SyncPayload,
   persistWs5SyncPayload
@@ -78,10 +79,13 @@ async function loadWs5SyncIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  await ws5RuntimeHydrator.loadIfNeeded(roomId, async () => {
+  await ws5RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
     const raw = await loadWs5SyncPayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
     const parsed = normalizeWs5SyncPayload(raw);
-    if (parsed) {
+    if (parsed && stillCurrent()) {
       ws5RoomState.set(roomId, parsed);
     }
   });
@@ -118,6 +122,15 @@ async function saveWs5SyncSnapshot(roomId: string): Promise<void> {
 export function clearWs5RoomLocalState(roomId: string): void {
   ws5RoomState.delete(roomId);
   ws5RuntimeHydrator.delete(roomId);
+}
+
+/** Wipe sync heartbeats. See {@link discardWs4RoomState} for why hydration waits on the delete. */
+export async function discardWs5RoomState(roomId: string): Promise<void> {
+  await ws5RuntimeHydrator.reset(roomId, async () => {
+    ws5RoomState.delete(roomId);
+    await deleteWs5SyncPayload(roomId);
+    ws5RoomState.delete(roomId);
+  });
 }
 
 /** Read-only roll-up for WS6 boards without mutating room state. */

@@ -5,6 +5,7 @@ import Testing
 @Test func coursePayloadKeepsRosterBesideTheCourse() throws {
     let json = """
     {"room":{
+      "athleteId":"a",
       "memberships":[
         {"userId":"a","role":"athlete","joinedAt":"2026-08-15T13:00:00.000Z","displayName":"Ada"},
         {"userId":"b","role":"crew_member","joinedAt":"2026-08-15T13:00:00.000Z","displayName":"  "}
@@ -23,6 +24,7 @@ import Testing
     #expect((members[0]["userId"] as? String) == "a")
     #expect(members[1]["displayName"] == nil)
     #expect((members[1]["userId"] as? String) == "b")
+    #expect((payload["athleteId"] as? String) == "a")
 }
 
 @Test func runtimeProfileOpsRequireBaseURL() async throws {
