@@ -20,7 +20,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange, saveRaceRoom } from "./raceRooms.js";
+import { commitRaceRoomUpdate, evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -525,23 +525,29 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       return reply.send(body);
     }
 
-    const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, room);
-    const updated: RaceRoom = {
-      ...room,
-      pacingEstimateId: estimate.id,
-      pacingEstimate: estimate,
-      ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
-        ? { plannedPaceSecondsPerKm: derivedPlannedPace }
-        : {}),
-      ...(storedBaseline
-        ? {
-            course: room.course
-              ? { ...room.course, baselineTrack: storedBaseline }
-              : room.course
-          }
-        : {})
-    };
-    await saveRaceRoom(updated);
+    // `room` was read before the estimate lookup. Attach onto the live room so that
+    // await cannot drop a membership that joined while the estimate was loading.
+    const updated = await commitRaceRoomUpdate(roomId, (latest) => {
+      const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
+      return {
+        ...latest,
+        pacingEstimateId: estimate.id,
+        pacingEstimate: estimate,
+        ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
+          ? { plannedPaceSecondsPerKm: derivedPlannedPace }
+          : {}),
+        ...(storedBaseline
+          ? {
+              course: latest.course
+                ? { ...latest.course, baselineTrack: storedBaseline }
+                : latest.course
+            }
+          : {})
+      };
+    });
+    if (!updated) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
     // Pace / map read planned splits from the stored projection; schedule rebuilds from the
     // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
     await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
