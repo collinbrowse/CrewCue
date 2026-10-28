@@ -19,7 +19,9 @@ env:
 
 jobs:
   pr-decision-doc-guard:
-    if: github.event_name == 'pull_request'
+    # Dependabot writes its own PR body and rewrites it on every rebase, so it can't carry the
+    # template. Skipping here (not failing) lets `checks` run on dependency bumps.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
