@@ -1,8 +1,8 @@
 package com.crewcue.android.session
 
 import android.content.Context
-import org.json.JSONObject
 import java.io.File
+import org.json.JSONObject
 
 data class StoredSession(
     val userId: String,
@@ -66,14 +66,18 @@ class SessionStore(context: Context) {
                 userId = obj.optString("userId"),
                 role = obj.optString("role"),
                 token = obj.optString("token"),
-                displayName = obj.optString("displayName").ifBlank { null },
-                roomId = obj.optString("roomId").ifBlank { null },
+                displayName = obj.optStringOrNull("displayName"),
+                roomId = obj.optStringOrNull("roomId"),
                 fromAuth0 = obj.optBoolean("fromAuth0")
             )
         } catch (_: Exception) {
             null
         }
     }
+
+    // optString turns a JSON null into the text "null", which reads back as a real room id.
+    private fun JSONObject.optStringOrNull(key: String): String? =
+        if (isNull(key)) null else optString(key).ifBlank { null }
 
     private companion object {
         const val PREFS = "crewcue.session"

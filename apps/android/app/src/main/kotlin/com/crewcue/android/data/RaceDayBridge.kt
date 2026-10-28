@@ -319,6 +319,9 @@ class RaceDayBridge(
 
     private fun isOffline(message: String): Boolean {
         val lower = message.lowercase()
+        // client-core sends server text for HTTP errors, so an NSURLErrorDomain message is a transport
+        // failure. On Android, Foundation reports a refused or unreachable host as code -1.
+        if (lower.contains("nsurlerrordomain")) return !lower.contains("code=-999")
         return lower.contains("offline") ||
             lower.contains("network") ||
             lower.contains("internet") ||

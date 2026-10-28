@@ -59,8 +59,6 @@ import {
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
   deleteWs2RuntimePayload,
-  deleteWs4AdaptivePayload,
-  deleteWs5SyncPayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
@@ -616,6 +614,53 @@ const roomProjectionState = new Map<string, RoomProjectionState>();
 
 const ws2RuntimeHydrator = createLazyHydrator();
 
+/**
+ * Per-room queue for ping projection commits and manual check-ins.
+ * A ping copies projection state, awaits history persistence, then replaces the
+ * in-memory projection. A check-in that mutates the previous object in that gap
+ * returns 200 while the ping's replace drops the visit.
+ */
+const roomRuntimeTail = new Map<string, Promise<void>>();
+
+let pingProjectionCommitDelayForTests: { roomId: string; delay: () => Promise<void> } | undefined;
+let roomRuntimeLockWaitForTests: ((roomId: string) => void) | undefined;
+
+/** Test-only pause after a ping has copied projection state and before it commits the replace. */
+export function setPingProjectionCommitDelayForTests(
+  roomId: string,
+  delay: (() => Promise<void>) | undefined
+): void {
+  pingProjectionCommitDelayForTests =
+    delay === undefined ? undefined : { roomId, delay };
+}
+
+/** Test-only signal when a caller has to wait for another runtime write on the same room. */
+export function setRoomRuntimeLockWaitForTests(listener: ((roomId: string) => void) | undefined): void {
+  roomRuntimeLockWaitForTests = listener;
+}
+
+async function withRoomRuntimeLock<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = roomRuntimeTail.get(roomId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const contended = roomRuntimeTail.has(roomId);
+  roomRuntimeTail.set(roomId, current);
+  if (contended) {
+    roomRuntimeLockWaitForTests?.(roomId);
+  }
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (roomRuntimeTail.get(roomId) === current) {
+      roomRuntimeTail.delete(roomId);
+    }
+  }
+}
+
 function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
   if (!x || typeof x !== "object") {
     return false;
@@ -676,15 +721,32 @@ async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
   if (!isRoomPersistenceEnabled()) {
     return;
   }
-  await ws2RuntimeHydrator.loadIfNeeded(roomId, async () => {
+  await ws2RuntimeHydrator.loadIfNeeded(roomId, async ({ stillCurrent }) => {
     const raw = await loadWs2RuntimePayload(roomId);
+    if (!stillCurrent()) {
+      return;
+    }
     const { ping, projection } = normalizeWs2RuntimePayload(raw);
+    if (!stillCurrent()) {
+      return;
+    }
     if (ping) {
       roomPingState.set(roomId, ping);
     }
     if (projection) {
       roomProjectionState.set(roomId, projection);
     }
+  });
+}
+
+/** Drop live ping/projection and the durable copy together so a concurrent hydrate cannot restore either. */
+async function discardWs2Runtime(roomId: string): Promise<void> {
+  await ws2RuntimeHydrator.reset(roomId, async () => {
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
+    await deleteWs2RuntimePayload(roomId);
+    roomPingState.delete(roomId);
+    roomProjectionState.delete(roomId);
   });
 }
 
@@ -835,6 +897,21 @@ type PersistedTaskBoardRecord = {
 };
 
 const roomTaskBoardState = new Map<string, RoomTaskBoardState>();
+/** Bumped when local board state is cleared so an in-flight hydrate cannot republish a wiped board. */
+const taskBoardHydrateEpoch = new Map<string, number>();
+/** One cold load per room. A second cache-miss must not apply an older snapshot over a write. */
+const taskBoardHydrateInflight = new Map<string, Promise<RoomTaskBoardState>>();
+
+/**
+ * Test-only pause at the start of a cold hydrate, before the board is published.
+ * The in-flight slot is registered before the caller yields, so a second cache-miss
+ * waits on the same load instead of publishing a second board.
+ */
+let taskBoardHydrateDelayForTests: (() => Promise<void>) | undefined;
+
+export function setTaskBoardHydrateDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  taskBoardHydrateDelayForTests = delay;
+}
 
 const TASK_TIMELINE_CAP = 100;
 
@@ -984,7 +1061,51 @@ async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
     return cached;
   }
 
+  const inflight = taskBoardHydrateInflight.get(room.id);
+  if (inflight) {
+    try {
+      return await inflight;
+    } catch (err) {
+      const live = roomTaskBoardState.get(room.id);
+      if (live) {
+        return live;
+      }
+      throw err;
+    }
+  }
+
+  const epoch = taskBoardHydrateEpoch.get(room.id) ?? 0;
+  const load = loadTaskBoardIntoCache(room, epoch);
+  taskBoardHydrateInflight.set(room.id, load);
+  try {
+    return await load;
+  } finally {
+    if (taskBoardHydrateInflight.get(room.id) === load) {
+      taskBoardHydrateInflight.delete(room.id);
+    }
+  }
+}
+
+async function loadTaskBoardIntoCache(room: RaceRoom, epoch: number): Promise<RoomTaskBoardState> {
+  if (taskBoardHydrateDelayForTests) {
+    await taskBoardHydrateDelayForTests();
+  }
+
+  const abandoned = (): RoomTaskBoardState | undefined => {
+    if (!taskBoardHydrateWasReset(room.id, epoch)) {
+      return undefined;
+    }
+    return roomTaskBoardState.get(room.id);
+  };
+
   const snapshot = await loadTaskBoardSnapshot(room.id);
+  const abandonedAfterSnapshot = abandoned();
+  if (abandonedAfterSnapshot) {
+    return abandonedAfterSnapshot;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    throw taskBoardResetDuringLoadError();
+  }
   if (snapshot) {
     const parsedSnapshot = normalizeTaskBoardPayload({
       version: snapshot.version,
@@ -992,24 +1113,53 @@ async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
     });
     if (parsedSnapshot) {
       const persistedVersion = await loadTaskBoardPayloadVersion(room.id);
+      const abandonedAfterVersion = abandoned();
+      if (abandonedAfterVersion) {
+        return abandonedAfterVersion;
+      }
+      if (taskBoardHydrateWasReset(room.id, epoch)) {
+        throw taskBoardResetDuringLoadError();
+      }
       if (persistedVersion === undefined || persistedVersion <= parsedSnapshot.version) {
-        roomTaskBoardState.set(room.id, parsedSnapshot);
-        return parsedSnapshot;
+        return rememberTaskBoardIfAbsent(room.id, parsedSnapshot);
       }
     }
   }
 
   const raw = await loadTaskBoardPayload(room.id);
+  const abandonedAfterPayload = abandoned();
+  if (abandonedAfterPayload) {
+    return abandonedAfterPayload;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    throw taskBoardResetDuringLoadError();
+  }
   const parsed = normalizeTaskBoardPayload(raw);
   if (parsed) {
-    roomTaskBoardState.set(room.id, parsed);
-    await refreshTaskBoardSnapshot(room.id, parsed);
-    return parsed;
+    const published = rememberTaskBoardIfAbsent(room.id, parsed);
+    if (published === parsed) {
+      await refreshTaskBoardSnapshot(room.id, parsed);
+    }
+    return roomTaskBoardState.get(room.id) ?? published;
   }
 
   const built = buildInitialTaskBoard(room);
+  const published = rememberTaskBoardIfAbsent(room.id, built);
+  if (published !== built) {
+    return published;
+  }
+  if (taskBoardHydrateWasReset(room.id, epoch)) {
+    if (roomTaskBoardState.get(room.id) === built) {
+      roomTaskBoardState.delete(room.id);
+    }
+    const live = roomTaskBoardState.get(room.id);
+    if (live) {
+      return live;
+    }
+    throw taskBoardResetDuringLoadError();
+  }
   await saveTaskBoard(room.id, built);
-  return built;
+  return roomTaskBoardState.get(room.id) ?? built;
 }
 
 async function saveTaskBoard(roomId: string, board: RoomTaskBoardState): Promise<void> {
@@ -1070,6 +1220,38 @@ function sortTimelineAscending(events: OpsTimelineEvent[]): OpsTimelineEvent[] {
 
 export function clearTaskBoardLocalState(roomId: string): void {
   roomTaskBoardState.delete(roomId);
+  taskBoardHydrateInflight.delete(roomId);
+  taskBoardHydrateEpoch.set(roomId, (taskBoardHydrateEpoch.get(roomId) ?? 0) + 1);
+}
+
+/**
+ * A course reset landed while this cold load was reading persistence. Not retried here:
+ * the caller's `room` predates the reset, so a rebuild would use the old course.
+ * Fastify maps `statusCode` to a 409 the client can retry.
+ */
+function taskBoardResetDuringLoadError(): Error & { statusCode: number; code: string } {
+  return Object.assign(new Error("task_board_reset_during_load"), {
+    statusCode: 409,
+    code: "task_board_reset_during_load"
+  });
+}
+
+/**
+ * Install a board read from persistence only when this room has no live board.
+ * Check and set stay synchronous so a later hydrate continuation cannot roll back
+ * a task write that landed after this load started.
+ */
+function rememberTaskBoardIfAbsent(roomId: string, board: RoomTaskBoardState): RoomTaskBoardState {
+  const live = roomTaskBoardState.get(roomId);
+  if (live) {
+    return live;
+  }
+  roomTaskBoardState.set(roomId, board);
+  return board;
+}
+
+function taskBoardHydrateWasReset(roomId: string, epoch: number): boolean {
+  return (taskBoardHydrateEpoch.get(roomId) ?? 0) !== epoch;
 }
 
 async function pushPingHistory(roomId: string, entry: AthletePingHistoryEntry): Promise<void> {
@@ -1115,6 +1297,24 @@ function getPermissions(role: Role): PermissionSet {
 
 function canEditCheckpointStoppage(role: Role): boolean {
   return role === "crew_member" || role === "crew_chief" || role === "team_manager";
+}
+
+/** List payload. The bearer token is omitted unless the viewer can issue invites. */
+function inviteForViewer(invite: RaceRoomInvite, includeToken: boolean) {
+  if (includeToken) {
+    return invite;
+  }
+  return {
+    roomId: invite.roomId,
+    email: invite.email,
+    role: invite.role,
+    invitedBy: invite.invitedBy,
+    invitedAt: invite.invitedAt,
+    expiresAt: invite.expiresAt,
+    status: invite.status,
+    ...(invite.acceptedBy !== undefined ? { acceptedBy: invite.acceptedBy } : {}),
+    ...(invite.acceptedAt !== undefined ? { acceptedAt: invite.acceptedAt } : {})
+  };
 }
 
 function refreshCheckpointVisitDerivedFields(visit: CheckpointVisit): void {
@@ -1796,12 +1996,10 @@ async function persistCourseShapeChange(
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
       await deleteTaskBoardSnapshot(roomId);
-      await deleteWs4AdaptivePayload(roomId);
-      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-      clearWs4RoomLocalState(roomId);
-      await deleteWs5SyncPayload(roomId);
-      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-      clearWs5RoomLocalState(roomId);
+      const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+      await discardWs4RoomState(roomId);
+      const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+      await discardWs5RoomState(roomId);
     }
   }
   await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
@@ -2191,12 +2389,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       clearTaskBoardLocalState(roomId);
       await deleteTaskBoardPayload(roomId);
       await deleteTaskBoardSnapshot(roomId);
-      await deleteWs4AdaptivePayload(roomId);
-      const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-      clearWs4RoomLocalState(roomId);
-      await deleteWs5SyncPayload(roomId);
-      const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-      clearWs5RoomLocalState(roomId);
+      const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+      await discardWs4RoomState(roomId);
+      const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+      await discardWs5RoomState(roomId);
     }
 
       discardStaleProjectionIfNoLivePing(roomId);
@@ -2454,19 +2650,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // task boards / adaptive / sync payloads while leaving the prior workspace.
     await saveRaceRoom(updatedRoom);
 
-    roomPingState.delete(roomId);
-    roomProjectionState.delete(roomId);
-    ws2RuntimeHydrator.delete(roomId);
     clearTaskBoardLocalState(roomId);
-    await deleteWs2RuntimePayload(roomId);
     await deleteTaskBoardPayload(roomId);
     await deleteTaskBoardSnapshot(roomId);
-    await deleteWs4AdaptivePayload(roomId);
-    const { clearWs4RoomLocalState } = await import("./ws4AdaptivePlanRoutes.js");
-    clearWs4RoomLocalState(roomId);
-    await deleteWs5SyncPayload(roomId);
-    const { clearWs5RoomLocalState } = await import("./ws5SyncRoutes.js");
-    clearWs5RoomLocalState(roomId);
+    await discardWs2Runtime(roomId);
+    const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+    await discardWs4RoomState(roomId);
+    const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+    await discardWs5RoomState(roomId);
 
     return reply.send(updatedRoom);
   });
@@ -2551,7 +2742,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         .map((invite) => saveRaceRoomInvite(invite))
     );
 
-    return reply.send({ invites });
+    // The token is the capability to join as `role`. Only people who can issue
+    // invites may read it back; every other member still sees status and email.
+    const includeToken = getPermissions(membership.role).canIssueInvite;
+    return reply.send({
+      invites: invites.map((invite) => inviteForViewer(invite, includeToken))
+    });
   });
 
   app.post("/race-rooms/:roomId/invites/accept", async (request, reply) => {
@@ -2585,6 +2781,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const existing = room.memberships.find((member) => member.userId === request.identity?.sub);
+    // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
+    // link the athlete just created must not take that role away either, and must
+    // leave the invite pending for the person it was meant for.
+    if (
+      existing &&
+      existing.userId === room.athleteId &&
+      existing.role === "athlete" &&
+      invite.role !== "athlete"
+    ) {
+      return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+    }
     const nextMemberships = existing
       ? room.memberships.map((member) =>
           member.userId === request.identity?.sub ? { ...member, role: invite.role } : member
@@ -2901,6 +3108,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return await reject("clock_skew", "recordedAt is too far from server time");
     }
 
+    const actorUserId = request.identity.sub;
+    return await withRoomRuntimeLock(roomId, async () => {
     const pingState = getOrInitPingState(roomId);
     if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
       // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
@@ -2938,14 +3147,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const acceptedEntry: AthletePingHistoryEntry = {
       id: randomUUID(),
       at: receivedAt,
-      actor: request.identity.sub,
+      actor: actorUserId,
       decision: "accepted",
       pingId
     };
     await pushPingHistory(roomId, acceptedEntry);
 
     app.log.info(
-      { ping_decision: { roomId, actor: request.identity.sub, decision: "accepted", pingId } },
+      { ping_decision: { roomId, actor: actorUserId, decision: "accepted", pingId } },
       "ping_decision"
     );
 
@@ -2958,6 +3167,20 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         app.log.warn({ roomId }, "projection_skipped_missing_route_layer");
       } else {
         const prev = roomProjectionState.get(roomId);
+        const previousSnapshot = prev
+          ? {
+              lastProgressMeters: prev.lastProgressMeters,
+              splitCrossedAt: { ...prev.splitCrossedAt },
+              visitStates: structuredClone(prev.visitStates),
+              visitMeta: structuredClone(prev.visitMeta),
+              rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+            }
+          : null;
+        const commitDelay = pingProjectionCommitDelayForTests;
+        if (commitDelay?.roomId === roomId) {
+          pingProjectionCommitDelayForTests = undefined;
+          await commitDelay.delay();
+        }
         try {
           const { projection: nextProjectionCore, state } = recomputeRaceProjection({
             roomId,
@@ -2978,15 +3201,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
                   recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
                 }
               : null,
-            previous: prev
-              ? {
-                  lastProgressMeters: prev.lastProgressMeters,
-                  splitCrossedAt: { ...prev.splitCrossedAt },
-                  visitStates: structuredClone(prev.visitStates),
-                  visitMeta: structuredClone(prev.visitMeta),
-                  rollingMovingSpeedMps: prev.rollingMovingSpeedMps
-                }
-              : null,
+            previous: previousSnapshot,
             routeMetricPoints,
             canonicalCourseLengthMeters: room.courseDistanceMeters
           });
@@ -2996,35 +3211,35 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
             routeMetricPoints,
             raceAnchor
           );
-        const evaluatedAtMs = Date.now();
-        projection = attachProjectionTimeliness(
-          enrichedCore,
-          recordedAtMs,
-          evaluatedAtMs,
-          pingState.lastUploadIntervalSeconds
-        );
-        roomProjectionState.set(roomId, {
-          lastProgressMeters: state.lastProgressMeters,
-          splitCrossedAt: { ...state.splitCrossedAt },
-          visitStates: structuredClone(state.visitStates),
-          visitMeta: structuredClone(state.visitMeta),
-          rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-          lastProjectionCore: enrichedCore
-        });
-        app.log.info(
-          {
-            projection_recompute: {
-              roomId,
-              pingId,
-              progressMeters: enrichedCore.progressMeters,
-              courseLengthMeters: enrichedCore.courseLengthMeters
-            }
-          },
-          "projection_recompute"
-        );
-      } catch (err) {
-        app.log.warn({ err, roomId }, "projection_recompute_failed");
-      }
+          const evaluatedAtMs = Date.now();
+          projection = attachProjectionTimeliness(
+            enrichedCore,
+            recordedAtMs,
+            evaluatedAtMs,
+            pingState.lastUploadIntervalSeconds
+          );
+          roomProjectionState.set(roomId, {
+            lastProgressMeters: state.lastProgressMeters,
+            splitCrossedAt: { ...state.splitCrossedAt },
+            visitStates: structuredClone(state.visitStates),
+            visitMeta: structuredClone(state.visitMeta),
+            rollingMovingSpeedMps: state.rollingMovingSpeedMps,
+            lastProjectionCore: enrichedCore
+          });
+          app.log.info(
+            {
+              projection_recompute: {
+                roomId,
+                pingId,
+                progressMeters: enrichedCore.progressMeters,
+                courseLengthMeters: enrichedCore.courseLengthMeters
+              }
+            },
+            "projection_recompute"
+          );
+        } catch (err) {
+          app.log.warn({ err, roomId }, "projection_recompute_failed");
+        }
       }
     }
 
@@ -3042,6 +3257,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         ? { horizontalAccuracyMeters: body.horizontalAccuracyMeters }
         : {}),
       ...(projection ? { projection } : {})
+    });
     });
   });
 
@@ -3135,23 +3351,25 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     let idemManualStopFinished = false;
     try {
+    // Dynamic import avoids a static raceRooms ↔ raceRoomSchedule cycle.
+    const { closedActualStopSecondsByCheckpointId } = await import("./raceRoomSchedule.js");
+    const recordedByUserId = request.identity.sub;
+    const applied = await withRoomRuntimeLock(roomId, async () => {
     await loadWs2RuntimeIfNeeded(roomId);
     const projectionState = roomProjectionState.get(roomId);
     const raceAnchor = resolveRaceAnchorIso(room);
     if (!projectionState || !raceAnchor) {
-      return reply.code(409).send({ error: "Projection state unavailable" });
+      return { ok: false as const, code: 409 as const, error: "Projection state unavailable" };
     }
     const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
     if (!split) {
-      return reply.code(404).send({ error: "Checkpoint not found on room course" });
+      return { ok: false as const, code: 404 as const, error: "Checkpoint not found on room course" };
     }
     const arrivalMs = Date.parse(parsed.data.arrivalAt);
     const departureMs = Date.parse(parsed.data.departureAt);
     if (!Number.isFinite(arrivalMs) || !Number.isFinite(departureMs) || departureMs <= arrivalMs) {
-      return reply.code(400).send({ error: "departureAt must be after arrivalAt" });
+      return { ok: false as const, code: 400 as const, error: "departureAt must be after arrivalAt" };
     }
-    // Dynamic import avoids a static raceRooms ↔ raceRoomSchedule cycle.
-    const { closedActualStopSecondsByCheckpointId } = await import("./raceRoomSchedule.js");
     const beforeClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
       projectionState.lastProjectionCore.checkpointSplits
     );
@@ -3159,7 +3377,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       arrivalAt: parsed.data.arrivalAt,
       departureAt: parsed.data.departureAt,
       actualStopSeconds: (departureMs - arrivalMs) / 1000,
-      recordedByUserId: request.identity.sub
+      recordedByUserId
     };
     const overlapAutoVisit =
       split.visits.find(
@@ -3218,20 +3436,30 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       const afterClosedActualByCheckpointId = closedActualStopSecondsByCheckpointId(
         projectionState.lastProjectionCore.checkpointSplits
       );
+      return {
+        ok: true as const,
+        split,
+        beforeClosedActualByCheckpointId,
+        afterClosedActualByCheckpointId
+      };
+    });
+    if (!applied.ok) {
+      return reply.code(applied.code).send({ error: applied.error });
+    }
       // W2-2: material later-ETA shift → push notify (prefs + exclude actor). Never fail the write.
       try {
         await notifyEntitledMembersOfCheckInEtaShift({
           room,
           actorUserId: request.identity.sub,
           checkpointId,
-          beforeClosedActualByCheckpointId,
-          afterClosedActualByCheckpointId,
+          beforeClosedActualByCheckpointId: applied.beforeClosedActualByCheckpointId,
+          afterClosedActualByCheckpointId: applied.afterClosedActualByCheckpointId,
           log: request.log
         });
       } catch (err) {
         request.log.warn({ err, roomId, checkpointId }, "check_in_eta_notify_unexpected_error");
       }
-      const manualStopPayload = { checkpointSplit: split };
+      const manualStopPayload = { checkpointSplit: applied.split };
       await completeIdempotentMutation(request, parsed.data, 200, manualStopPayload);
       idemManualStopFinished = true;
       return reply.send(manualStopPayload);
@@ -3278,43 +3506,49 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid resolved source payload" });
     }
-    await loadWs2RuntimeIfNeeded(roomId);
-    const projectionState = roomProjectionState.get(roomId);
-    const raceAnchor = resolveRaceAnchorIso(room);
-    if (!projectionState || !raceAnchor) {
-      return reply.code(409).send({ error: "Projection state unavailable" });
-    }
-    const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
-    if (!split) {
-      return reply.code(404).send({ error: "Checkpoint not found on room course" });
-    }
-    const visit = split.visits.find((v) => v.visitIndex === visitIndex);
-    if (!visit) {
-      return reply.code(404).send({ error: "Visit not found" });
-    }
-    if (parsed.data.resolvedSource === "manual_crew" && !visit.manualEntry) {
-      return reply.code(400).send({ error: "manual_crew requires manualEntry on the visit" });
-    }
-    if (parsed.data.resolvedSource === "auto" && !visit.autoDetected) {
-      return reply.code(400).send({ error: "auto requires autoDetected on the visit" });
-    }
-    visit.resolvedSource = parsed.data.resolvedSource;
-    refreshCheckpointSplitStoppageDerivedFields(split);
-    recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
-    {
-      const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
-      if (routeForLive) {
-        projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
-          projectionState.lastProjectionCore,
-          room,
-          routeForLive,
-          raceAnchor
-        );
+    const applied = await withRoomRuntimeLock(roomId, async () => {
+      await loadWs2RuntimeIfNeeded(roomId);
+      const projectionState = roomProjectionState.get(roomId);
+      const raceAnchor = resolveRaceAnchorIso(room);
+      if (!projectionState || !raceAnchor) {
+        return { ok: false as const, code: 409 as const, error: "Projection state unavailable" };
       }
+      const split = projectionState.lastProjectionCore.checkpointSplits.find((row) => row.checkpointId === checkpointId);
+      if (!split) {
+        return { ok: false as const, code: 404 as const, error: "Checkpoint not found on room course" };
+      }
+      const visit = split.visits.find((v) => v.visitIndex === visitIndex);
+      if (!visit) {
+        return { ok: false as const, code: 404 as const, error: "Visit not found" };
+      }
+      if (parsed.data.resolvedSource === "manual_crew" && !visit.manualEntry) {
+        return { ok: false as const, code: 400 as const, error: "manual_crew requires manualEntry on the visit" };
+      }
+      if (parsed.data.resolvedSource === "auto" && !visit.autoDetected) {
+        return { ok: false as const, code: 400 as const, error: "auto requires autoDetected on the visit" };
+      }
+      visit.resolvedSource = parsed.data.resolvedSource;
+      refreshCheckpointSplitStoppageDerivedFields(split);
+      recomputeProjectionStoppageSummary(projectionState.lastProjectionCore, raceAnchor);
+      {
+        const routeForLive = resolveRouteMetricPointsFromRaceRoom(room);
+        if (routeForLive) {
+          projectionState.lastProjectionCore = enrichProjectionWithLiveRemaining(
+            projectionState.lastProjectionCore,
+            room,
+            routeForLive,
+            raceAnchor
+          );
+        }
+      }
+      syncProjectionAccumulatorStateFromCore(projectionState);
+      await saveWs2RuntimeSnapshot(roomId);
+      return { ok: true as const, split };
+    });
+    if (!applied.ok) {
+      return reply.code(applied.code).send({ error: applied.error });
     }
-    syncProjectionAccumulatorStateFromCore(projectionState);
-    await saveWs2RuntimeSnapshot(roomId);
-    return reply.send({ checkpointSplit: split });
+    return reply.send({ checkpointSplit: applied.split });
   });
 
   app.get("/race-rooms/:roomId/tasks", async (request, reply) => {

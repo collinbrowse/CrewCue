@@ -162,10 +162,14 @@ actor HeaderCaptureTransport: HTTPTransport {
 
 actor CourseImportTransport: HTTPTransport {
     private let failRoomGet: Bool
+    private let roomJSON: String
     private var putBody: Data?
 
-    init(failRoomGet: Bool = false) {
+    init(failRoomGet: Bool = false, roomJSON: String? = nil) {
         self.failRoomGet = failRoomGet
+        self.roomJSON = roomJSON ?? """
+        {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
+        """
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -177,10 +181,7 @@ actor CourseImportTransport: HTTPTransport {
             if failRoomGet {
                 return HTTPResponse(status: 500, body: Data(#"{"error":"room get should not run"}"#.utf8))
             }
-            let json = """
-            {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","raceStartAt":"2026-08-15T12:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"},"plannedPaceSecondsPerKm":720}}
-            """
-            return HTTPResponse(status: 200, body: Data(json.utf8))
+            return HTTPResponse(status: 200, body: Data(roomJSON.utf8))
         }
         putBody = request.body
         return HTTPResponse(status: 200, body: Data(#"{}"#.utf8))
@@ -402,6 +403,173 @@ struct SilentLogger: Logger {
     let kept = await explicit.coursePut()
     #expect(kept?.raceStartAt == "2026-09-01T06:00:00.000Z")
     #expect(kept?.pace == 400)
+    try store.wipe()
+}
+
+@Test func androidGpxImportUploadsARoomThatHasNoClockYet() async throws {
+    let bare = """
+    {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"}}}
+    """
+    let transport = CourseImportTransport(roomJSON: bare)
+    RuntimeCall.setTransportForTests(transport)
+    defer { RuntimeCall.setTransportForTests(nil) }
+    let response = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+    #expect(object?["ok"] as? Bool == true)
+    #expect((object?["result"] as? [String: Any])?["status"] as? String == "saved")
+    let put = await transport.coursePut()
+    #expect(put?.pace == 360)
+    #expect(put?.raceStartAt.isEmpty == false)
+
+    let stored = CourseImportTransport()
+    RuntimeCall.setTransportForTests(stored)
+    let kept = await RuntimeCall.perform(#"""
+    {"op":"importGpx","baseURL":"https://example.invalid","roomId":"room","fileName":"route.gpx","gpxXml":"<gpx/>","role":"athlete"}
+    """#)
+    let keptObject = try JSONSerialization.jsonObject(with: Data(kept.utf8)) as? [String: Any]
+    #expect(keptObject?["ok"] as? Bool == true)
+    let keptPut = await stored.coursePut()
+    #expect(keptPut?.raceStartAt == "2026-08-15T12:00:00.000Z")
+    #expect(keptPut?.pace == 720)
+}
+
+@Test func flushKeepsReplacementGpxWithTheSameFileName() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    let first = try await store.enqueueGpx(
+        roomId: "room",
+        fileName: "course.gpx",
+        gpxXml: "<gpx>old</gpx>",
+        raceStartAt: "2026-08-15T12:00:00.000Z",
+        plannedPaceSecondsPerKm: 360,
+        role: "athlete"
+    )
+    _ = try await store.flush { _ in
+        do {
+            _ = try await store.enqueueGpx(
+                roomId: "room",
+                fileName: "course.gpx",
+                gpxXml: "<gpx>new</gpx>",
+                raceStartAt: "2026-08-15T12:00:00.000Z",
+                plannedPaceSecondsPerKm: 360,
+                role: "athlete"
+            )
+        } catch {
+            Issue.record("replacement GPX failed to queue")
+        }
+        return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Sent.")
+    }
+    let remaining = try await store.operations()
+    let payload = try #require(remaining.first?.payloadJSON.data(using: .utf8))
+    let object = try #require(try JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    #expect(remaining.count == 1)
+    #expect(object["gpxXml"] as? String == "<gpx>new</gpx>")
+    #expect(remaining[0].idempotencyKey != first.idempotencyKey)
+    try store.wipe()
+}
+
+actor PausingCourseTransport: HTTPTransport {
+    private(set) var putXmls: [String] = []
+    private var firstBlocked = false
+    private var firstStarted: CheckedContinuation<Void, Never>?
+    private var releaseFirst: CheckedContinuation<Void, Never>?
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.url.path.hasSuffix("gpx-preview") {
+            let json = #"{"course":{"checkpoints":[{"id":"a","latitude":1,"longitude":2},{"id":"b","latitude":3,"longitude":4}]},"plannedPaceSecondsPerKm":360,"courseFileName":"route.gpx"}"#
+            return HTTPResponse(status: 200, body: Data(json.utf8))
+        }
+        if request.method == .put, let xml = Self.courseXml(request.body) {
+            putXmls.append(xml)
+            if putXmls.count == 1 {
+                firstBlocked = true
+                firstStarted?.resume()
+                firstStarted = nil
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    releaseFirst = continuation
+                }
+                firstBlocked = false
+            }
+        }
+        return HTTPResponse(status: 200, body: Data(#"{}"#.utf8))
+    }
+
+    func waitUntilFirstPutBlocked() async {
+        if firstBlocked { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if firstBlocked {
+                continuation.resume()
+            } else {
+                firstStarted = continuation
+            }
+        }
+    }
+
+    func releaseFirstPut() {
+        releaseFirst?.resume()
+        releaseFirst = nil
+    }
+
+    private static func courseXml(_ body: Data?) -> String? {
+        guard let body,
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return nil
+        }
+        return object["courseGpxXml"] as? String
+    }
+}
+
+@Test func newerCourseImportLandsAfterQueuedUpload() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-1", directory: directory)
+    _ = try await store.enqueueGpx(
+        roomId: "room",
+        fileName: "course.gpx",
+        gpxXml: "<gpx>old</gpx>",
+        raceStartAt: "2026-08-15T12:00:00.000Z",
+        plannedPaceSecondsPerKm: 360,
+        role: "athlete"
+    )
+    let transport = PausingCourseTransport()
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token"),
+        outbox: store
+    )
+    let flushTask = Task { try await RaceDayAPI.flushOutbox(graph: graph) }
+    await transport.waitUntilFirstPutBlocked()
+    let importTask = Task {
+        try await RaceDayAPI.importGpx(
+            graph: graph,
+            roomId: "room",
+            fileName: "course.gpx",
+            gpxXml: "<gpx>new</gpx>",
+            raceStartAt: "2026-08-15T13:00:00.000Z",
+            plannedPaceSecondsPerKm: 400
+        )
+    }
+    let deadline = Date().addingTimeInterval(5)
+    while await store.courseUploads.isWaiting(roomId: "room") == false {
+        if Date() > deadline {
+            Issue.record("newer import did not wait for the queued upload")
+            break
+        }
+        await Task.yield()
+    }
+    let during = await transport.putXmls
+    await transport.releaseFirstPut()
+    _ = try await flushTask.value
+    _ = try await importTask.value
+    let puts = await transport.putXmls
+    #expect(during == ["<gpx>old</gpx>"])
+    #expect(puts == ["<gpx>old</gpx>", "<gpx>new</gpx>"])
+    let remaining = try await store.operations()
+    #expect(remaining.isEmpty)
     try store.wipe()
 }
 

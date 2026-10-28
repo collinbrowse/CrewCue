@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -189,7 +192,8 @@ private fun EstimateCard(model: PaceViewModel) {
             Column(Modifier.padding(start = 12.dp)) {
                 Kicker("Pace estimate", color = MaterialTheme.colorScheme.primary)
                 model.estimateMessage?.let { line ->
-                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                    val tag = if (model.showsColdStart) Modifier.testTag("crewcue.cold-start") else Modifier
+                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = tag.semantics { contentDescription = line })
                 }
                 model.estimateDetail?.let { line ->
                     Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
@@ -304,8 +308,12 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
                 Text(
                     when {
                         row.isFinish -> "TARGET"
-                        done -> stop?.let { "${it.arrival} · ${it.elapsed}" } ?: "PLANNED"
-                        stop != null && stop.stopLabel.isNotBlank() && stop.stopLabel != "NO STOP" -> "PROJECTED · ${stop.stopLabel}"
+                        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+                        stop != null -> listOfNotNull(
+                            "${stop.arrival} · ${stop.elapsed}",
+                            stop.stopLabel.takeIf { !done && it.isNotBlank() && it != "NO STOP" }
+                        ).joinToString(" · ")
+                        done -> "PLANNED"
                         else -> "PROJECTED"
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -493,6 +501,18 @@ private fun Marker(row: TimelineRow) {
 }
 
 /** Secondary tools behind the FAB: check-in, route file, crew sheet, course settings, outbox. */
+/** Scrolls the tool a deeplink names into view when the sheet opens, as iOS does. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun bringIntoViewWhen(active: Boolean, contentAbove: Any? = null): Modifier {
+    val requester = remember { BringIntoViewRequester() }
+    // Content that loads after the sheet opens pushes later tools down, so ask again when it changes.
+    LaunchedEffect(active, contentAbove) {
+        if (active) requester.bringIntoView()
+    }
+    return Modifier.bringIntoViewRequester(requester)
+}
+
 @Composable
 private fun PaceTools(model: PaceViewModel, focus: String) {
     val context = LocalContext.current
@@ -505,7 +525,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
         }
     }
     if (model.checkInOpen || focus == "check-in") {
-        ProductCard(Modifier.testTag("crewcue.check-in")) {
+        ProductCard(Modifier.testTag("crewcue.check-in").then(bringIntoViewWhen(focus == "check-in"))) {
             Text("Check in", style = MaterialTheme.typography.titleLarge)
             Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 CrewTextField(model.checkpointId, model::updateCheckpoint, "Checkpoint")
@@ -518,7 +538,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             }
         }
     }
-    ProductCard(Modifier.testTag("crewcue.gpx-import")) {
+    ProductCard(Modifier.testTag("crewcue.gpx-import").then(bringIntoViewWhen(focus == "gpx-import"))) {
         Text("Route file", style = MaterialTheme.typography.titleLarge)
         Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -536,7 +556,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             PrimaryButton("Import", onClick = model::importPastedGpx, spoken = "Import route", busy = model.gpxBusy)
         }
     }
-    ProductCard(Modifier.testTag("crewcue.crew-sheet-export")) {
+    ProductCard(Modifier.testTag("crewcue.crew-sheet-export").then(bringIntoViewWhen(focus == "crew-sheet-export"))) {
         Text("Crew sheet", style = MaterialTheme.typography.titleLarge)
         model.exportMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
@@ -561,7 +581,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             spoken = "Share crew sheet"
         )
     }
-    ProductCard(Modifier.testTag("crewcue.course-settings")) {
+    ProductCard(Modifier.testTag("crewcue.course-settings").then(bringIntoViewWhen(focus == "course-settings", model.exportText))) {
         Text("Course settings", style = MaterialTheme.typography.titleLarge)
         Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             model.courseMessage?.let { line ->
@@ -577,7 +597,7 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             PrimaryButton("Save draft", onClick = model::saveCourse, enabled = !model.courseBusy, spoken = "Save course settings")
         }
     }
-    ProductCard(Modifier.testTag("crewcue.outbox")) {
+    ProductCard(Modifier.testTag("crewcue.outbox").then(bringIntoViewWhen(focus == "outbox-status", model.exportText))) {
         Text("Outbox", style = MaterialTheme.typography.titleLarge)
         model.outboxMessage?.let { line ->
             Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })

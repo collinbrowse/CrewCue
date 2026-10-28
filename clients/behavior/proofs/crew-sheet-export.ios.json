@@ -1,0 +1,18 @@
+{
+  "id": "crew-sheet-export",
+  "platform": "ios",
+  "entry": "crewcue://dev/crew-sheet-export",
+  "device": "iPhone 18 Pro simulator (CrewCue-C), iOS 27.0, Debug build",
+  "date": "2026-10-23",
+  "commit": "a37a543 (this branch on main ced3ee8; Android run on local build 72c7c48 with the identical app, client-core and API tree; iOS redo on 5b481a1)",
+  "session": "Dev session against the local memory API with seeded race rooms; Error and Offline via an injected 500, airplane mode (Android) or a dropped connection (iOS).",
+  "action": "Crew opened crewcue://dev/crew-sheet-export; Race tools opens at Crew sheet with a Share button.",
+  "checked": {
+    "Success": "Plaintext 'Crew sheet / Captured \u2026 / START 00:00 \u2026 UTC / AID 1 \u2026' and 'Share crew sheet'.",
+    "Empty": "Room with no course: 'Nothing to export.'",
+    "Error": "Schedule 500 with nothing saved: 'Couldn't build the crew sheet.'",
+    "Offline": "Connection dropped after a load: 'Offline. Crew sheet is ready to share from this device.' with the saved sheet and Share button.",
+    "Accessibility labels": "crewcue.crew-sheet-export"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

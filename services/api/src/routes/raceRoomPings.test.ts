@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { setRaceRoomStatusForTests } from "./raceRooms.js";
+import {
+  setPingProjectionCommitDelayForTests,
+  setRaceRoomStatusForTests,
+  setRoomRuntimeLockWaitForTests
+} from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -71,6 +75,43 @@ async function createPaidActiveRoom(
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+async function addCrewMember(
+  app: ReturnType<typeof buildApp>,
+  roomId: string,
+  athleteToken: string,
+  crewToken: string
+): Promise<void> {
+  const issueResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "crew@example.com", role: "crew_member" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(issueResponse.statusCode, 201);
+  const invite = issueResponse.json() as { token: string };
+
+  const acceptResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: invite.token },
+    headers: { authorization: `Bearer ${crewToken}` }
+  });
+  assert.equal(acceptResponse.statusCode, 200);
+}
+
+/** Fails the test instead of hanging when a gate is never reached. */
+async function withinMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms waiting for ${label}`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 test("accepts a ping for paid active room and records history", async () => {
@@ -390,6 +431,95 @@ test("rejects ping when horizontal accuracy is too poor", async () => {
   assert.equal((pingResponse.json() as { reason: string }).reason, "accuracy_too_poor");
 
   await app.close();
+});
+
+test("manual check-in survives a ping that already snapshotted projection state", { timeout: 15_000 }, async () => {
+  const app = buildApp();
+  await app.ready();
+  const athleteToken = app.jwt.sign(buildClaims("athlete-checkin-ping-race"));
+  const crewToken = app.jwt.sign(buildClaims("crew-checkin-ping-race"));
+  const roomId = await createPaidActiveRoom(app, athleteToken, "athlete-checkin-ping-race");
+  await addCrewMember(app, roomId, athleteToken, crewToken);
+
+  let releasePingCommit: (() => void) | undefined;
+  const pingCommitGate = new Promise<void>((resolve) => {
+    releasePingCommit = resolve;
+  });
+  let markPingCommitEntered: (() => void) | undefined;
+  const pingCommitEntered = new Promise<void>((resolve) => {
+    markPingCommitEntered = resolve;
+  });
+  setPingProjectionCommitDelayForTests(roomId, async () => {
+    markPingCommitEntered?.();
+    await withinMs(pingCommitGate, 5_000, "ping commit release");
+  });
+
+  let markCheckInWaiting: (() => void) | undefined;
+  const checkInWaiting = new Promise<void>((resolve) => {
+    markCheckInWaiting = resolve;
+  });
+  setRoomRuntimeLockWaitForTests((waitingRoomId) => {
+    if (waitingRoomId === roomId) {
+      markCheckInWaiting?.();
+    }
+  });
+
+  try {
+    const pingResponsePromise = app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: {
+        latitude: 42.005,
+        longitude: -70.0,
+        recordedAt: isoNow(),
+        horizontalAccuracyMeters: 8
+      },
+      headers: { authorization: `Bearer ${athleteToken}` }
+    });
+    await withinMs(pingCommitEntered, 5_000, "athlete ping to reach projection commit");
+
+    const checkInResponsePromise = app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/checkpoints/cp1/manual-stop`,
+      payload: {
+        arrivalAt: "2026-05-12T18:00:00.000Z",
+        departureAt: "2026-05-12T18:10:00.000Z",
+        note: "aid refill"
+      },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    await withinMs(checkInWaiting, 5_000, "crew check-in to queue behind the ping");
+    releasePingCommit?.();
+
+    const [pingResponse, checkInResponse] = await Promise.all([pingResponsePromise, checkInResponsePromise]);
+    assert.equal(pingResponse.statusCode, 201, pingResponse.body);
+    assert.equal(checkInResponse.statusCode, 200, checkInResponse.body);
+
+    const projectionResponse = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/projection`,
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(projectionResponse.statusCode, 200);
+    const projection = projectionResponse.json() as {
+      checkpointSplits: Array<{
+        checkpointId: string;
+        visits: Array<{ manualEntry?: { note?: string; actualStopSeconds: number } }>;
+      }>;
+    };
+    const aid = projection.checkpointSplits.find((row) => row.checkpointId === "cp1");
+    const manual = aid?.visits.find((visit) => visit.manualEntry);
+    assert.equal(
+      manual?.manualEntry?.actualStopSeconds,
+      600,
+      "closed check-in must remain after the overlapping ping commits"
+    );
+  } finally {
+    releasePingCommit?.();
+    setPingProjectionCommitDelayForTests(roomId, undefined);
+    setRoomRuntimeLockWaitForTests(undefined);
+    await app.close();
+  }
 });
 
 test("rejects a ping that is not after the last accepted recordedAt as stale_recorded_at", async () => {
