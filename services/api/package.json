@@ -30,7 +30,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
     "@opentelemetry/sdk-node": "^0.300.0",
     "fastify": "^5.12.7",
-    "fastify-plugin": "^5.1.0",
+    "fastify-plugin": "^6.0.1",
     "jose": "^6.2.13",
     "pg": "^8.23.1",
     "stream-chat": "^9.54.0",
