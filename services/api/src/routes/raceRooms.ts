@@ -2510,6 +2510,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     let idemCourseFinished = false;
     let coursePersisted = false;
+    // Release the key before replying. Releasing in `finally` ran after the 400 was already
+    // sent, so a client that fixed its payload and retried at once got a 409 for a request
+    // that never wrote anything.
+    const rejectBeforeWrite = async (body: { error: string }) => {
+      idemCourseFinished = true;
+      await releaseIdempotentMutation(request, parsed.data);
+      return reply.code(400).send(body);
+    };
     try {
     await loadWs2RuntimeIfNeeded(roomId);
     const prevProjection = roomProjectionState.get(roomId);
@@ -2518,7 +2526,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       const nextIds = new Set(parsed.data.course.checkpoints.map((c) => c.id));
       for (const id of visitedIds) {
         if (!nextIds.has(id)) {
-          return reply.code(400).send({ error: `Cannot remove visited checkpoint: ${id}` });
+          return await rejectBeforeWrite({ error: `Cannot remove visited checkpoint: ${id}` });
         }
       }
     }
@@ -2527,7 +2535,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (parsed.data.course.checkpoints.length >= 2) {
       const routePts = resolveRouteMetricPointsForCoursePut(room, parsed.data.routeOverlayLayer);
       if (!routePts) {
-        return reply.code(400).send({
+        return await rejectBeforeWrite({
           error: COURSE_ROUTE_LINE_REQUIRED_ERROR
         });
       }
@@ -2539,7 +2547,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         });
       } catch (err) {
         request.log.warn({ err, roomId }, "course_metrics_recompute_failed");
-        return reply.code(400).send({ error: "Course route data is invalid or could not be processed." });
+        return await rejectBeforeWrite({ error: "Course route data is invalid or could not be processed." });
       }
     } else {
       recomputedCourse = recomputeCourseMetricsForSave({
