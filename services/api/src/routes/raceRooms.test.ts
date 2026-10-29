@@ -7,9 +7,16 @@ import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLaye
 import {
   loadTaskBoardPayload,
   persistTaskBoardPayload,
+  setPersistRaceRoomBeforeWriteForTests,
   setPersistRaceRoomFailureForTests
 } from "../lib/roomPersistence.js";
-import { ingestPersistedRaceRoomInviteWithoutClobberForTests, setMembershipWriteDelayForTests } from "./raceRooms.js";
+import {
+  getRaceRoom,
+  ingestPersistedRaceRoomInviteWithoutClobberForTests,
+  saveRaceRoom,
+  setMembershipWriteDelayForTests,
+  setWs2LoadDelayForTests
+} from "./raceRooms.js";
 import type { RaceRoomInvite } from "@crewcue/contracts";
 
 function buildClaims(sub: string) {
@@ -1584,4 +1591,190 @@ test("concurrent join-by-code keeps both memberships (no last-write-wins loss)",
   assert.equal(memberIds.has("joiner-b-concurrent"), true);
 
   await app.close();
+});
+
+test("course save keeps a join that lands while the course read is in flight", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-course-join"));
+  const joinerToken = app.jwt.sign(buildClaims("joiner-course-join"));
+  const headers = { authorization: `Bearer ${ownerToken}` };
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "owner-course-join",
+        name: "Course Join Room",
+        creatorRole: "athlete"
+      },
+      headers
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const created = createResponse.json() as { id: string; joinCode?: string };
+    const roomId = created.id;
+    assert.ok(created.joinCode);
+
+    const pay = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers
+    });
+    assert.equal(pay.statusCode, 200);
+
+    const checkpoints = [
+      { id: "cp0", latitude: 42.0, longitude: -70.0 },
+      { id: "cp1", latitude: 42.02, longitude: -70.0 }
+    ];
+    const firstCourse = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: { checkpoints },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints(checkpoints),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers
+    });
+    assert.equal(firstCourse.statusCode, 200, firstCourse.body);
+
+    let releaseLoad: () => void = () => {};
+    const releaseGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    let markEntered: () => void = () => {};
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    setWs2LoadDelayForTests(async () => {
+      markEntered();
+      await releaseGate;
+    });
+
+    const courseSave = app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: { checkpoints },
+        plannedPaceSecondsPerKm: 480,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers
+    });
+    await entered;
+
+    const join = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: created.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(join.statusCode, 200, join.body);
+    releaseLoad();
+
+    const saved = await courseSave;
+    assert.equal(saved.statusCode, 200, saved.body);
+    const body = saved.json() as {
+      plannedPaceSecondsPerKm?: number;
+      memberships: Array<{ userId: string }>;
+    };
+    assert.equal(body.plannedPaceSecondsPerKm, 480);
+    assert.equal(
+      body.memberships.some((member) => member.userId === "joiner-course-join"),
+      true,
+      "course response dropped the join that committed while the course snapshot was stale"
+    );
+
+    const mine = await app.inject({
+      method: "GET",
+      url: "/race-rooms/mine",
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    assert.equal(mine.statusCode, 200);
+    const rooms = (mine.json() as { rooms: Array<{ id: string }> }).rooms;
+    assert.equal(rooms.some((room) => room.id === roomId), true);
+  } finally {
+    setWs2LoadDelayForTests(undefined);
+    await app.close();
+  }
+});
+
+test("overlapping failed room saves do not restore an unpersisted snapshot", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-overlap-fail"));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "owner-overlap-fail",
+        name: "Settled name",
+        creatorRole: "athlete"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const roomId = (createResponse.json() as { id: string }).id;
+    const live = await getRaceRoom(roomId);
+    assert.ok(live);
+    assert.equal(live.name, "Settled name");
+
+    let releaseA: () => void = () => {};
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    let releaseB: () => void = () => {};
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    let markA: () => void = () => {};
+    const enteredA = new Promise<void>((resolve) => {
+      markA = resolve;
+    });
+    setPersistRaceRoomBeforeWriteForTests(async (writing) => {
+      if (writing.name === "unpersisted-a") {
+        markA();
+        await gateA;
+        throw new Error("fail a");
+      }
+      if (writing.name === "unpersisted-b") {
+        await gateB;
+        throw new Error("fail b");
+      }
+    });
+
+    const saveA = saveRaceRoom({ ...live, name: "unpersisted-a" });
+    await enteredA;
+    const saveB = saveRaceRoom({ ...live, name: "unpersisted-b" });
+    // Window where an unlocked second save used to capture A's unpersisted room as its rollback target.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    releaseA();
+    await saveA.then(
+      () => assert.fail("first save should fail"),
+      (err: unknown) => {
+        assert.match(err instanceof Error ? err.message : "", /fail a/);
+      }
+    );
+    releaseB();
+    await saveB.then(
+      () => assert.fail("second save should fail"),
+      (err: unknown) => {
+        assert.match(err instanceof Error ? err.message : "", /fail b/);
+      }
+    );
+
+    const settled = await getRaceRoom(roomId);
+    assert.ok(settled);
+    assert.equal(settled.name, "Settled name");
+  } finally {
+    setPersistRaceRoomBeforeWriteForTests(undefined);
+    await app.close();
+  }
 });
