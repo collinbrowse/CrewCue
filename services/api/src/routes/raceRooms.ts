@@ -395,28 +395,59 @@ function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
   return { ...room, stopPlans };
 }
 
+const roomSaveTail = new Map<string, Promise<void>>();
+const inviteSaveTail = new Map<string, Promise<void>>();
+
+async function withExclusiveTail<T>(
+  tails: Map<string, Promise<void>>,
+  key: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const previous = tails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  tails.set(key, current);
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (tails.get(key) === current) {
+      tails.delete(key);
+    }
+  }
+}
+
 export async function saveRaceRoom(room: RaceRoom): Promise<void> {
   const persisted = pruneStopPlansToLiveCheckpoints(room);
-  const previous = raceRooms.get(persisted.id);
-  unindexJoinCodeForRoomId(persisted.id);
-  raceRooms.set(persisted.id, persisted);
-  indexJoinCode(persisted);
-  try {
-    await persistRaceRoom(persisted);
-  } catch (err) {
-    // A failed write must not keep serving the new room (a join-by-code membership, say):
-    // retries would get 200 and a restart would drop it. Leave a newer write alone.
-    if (raceRooms.get(persisted.id) === persisted) {
-      unindexJoinCodeForRoomId(persisted.id);
-      if (previous) {
-        raceRooms.set(previous.id, previous);
-        indexJoinCode(previous);
-      } else {
-        raceRooms.delete(persisted.id);
+  // One persist at a time per room. Overlapping full-document writes let the slower
+  // UPDATE land last and drop a membership the faster write had already committed.
+  // A failed write's rollback must also restore the last settled room, not another
+  // in-flight snapshot that never reached the database.
+  await withExclusiveTail(roomSaveTail, persisted.id, async () => {
+    const previous = raceRooms.get(persisted.id);
+    unindexJoinCodeForRoomId(persisted.id);
+    raceRooms.set(persisted.id, persisted);
+    indexJoinCode(persisted);
+    try {
+      await persistRaceRoom(persisted);
+    } catch (err) {
+      // A failed write must not keep serving the new room (a join-by-code membership, say):
+      // retries would get 200 and a restart would drop it. Leave a newer write alone.
+      if (raceRooms.get(persisted.id) === persisted) {
+        unindexJoinCodeForRoomId(persisted.id);
+        if (previous) {
+          raceRooms.set(previous.id, previous);
+          indexJoinCode(previous);
+        } else {
+          raceRooms.delete(persisted.id);
+        }
       }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 /**
@@ -503,21 +534,24 @@ async function ensureJoinCodeBackfill(room: RaceRoom): Promise<RaceRoom> {
 }
 
 async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
-  const previous = raceRoomInvites.get(invite.token);
-  raceRoomInvites.set(invite.token, invite);
-  try {
-    await persistRaceRoomInvite(invite);
-  } catch (err) {
-    // Same rollback as saveRaceRoom, so a failed persist can't leave a ghost invite.
-    if (raceRoomInvites.get(invite.token) === invite) {
-      if (previous) {
-        raceRoomInvites.set(invite.token, previous);
-      } else {
-        raceRoomInvites.delete(invite.token);
+  await withExclusiveTail(inviteSaveTail, invite.token, async () => {
+    const previous = raceRoomInvites.get(invite.token);
+    raceRoomInvites.set(invite.token, invite);
+    try {
+      await persistRaceRoomInvite(invite);
+    } catch (err) {
+      // Same rollback as saveRaceRoom, so a failed persist can't leave a ghost invite.
+      // Serialized so the restored invite is the last settled one, not another failed write.
+      if (raceRoomInvites.get(invite.token) === invite) {
+        if (previous) {
+          raceRoomInvites.set(invite.token, previous);
+        } else {
+          raceRoomInvites.delete(invite.token);
+        }
       }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | undefined> {
@@ -643,6 +677,13 @@ const roomProjectionState = new Map<string, RoomProjectionState>();
 
 const ws2RuntimeHydrator = createLazyHydrator();
 
+let ws2LoadDelayForTests: (() => Promise<void>) | undefined;
+
+/** Test-only one-shot pause at the start of a WS2 runtime load. */
+export function setWs2LoadDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  ws2LoadDelayForTests = delay;
+}
+
 /**
  * Per-room queue for ping projection commits, manual check-ins, and membership writes.
  * A ping copies projection state, awaits history persistence, then replaces the
@@ -696,6 +737,27 @@ async function withRoomRuntimeLock<T>(roomId: string, fn: () => Promise<T>): Pro
       roomRuntimeTail.delete(roomId);
     }
   }
+}
+
+/**
+ * Re-read the room after any await and persist `edit(latest)`.
+ * Course, checkpoint, and plan-of-record handlers await (idempotency, runtime
+ * hydrate, estimate lookup) while holding a snapshot. Saving that snapshot
+ * drops a join or display name that landed in the gap.
+ */
+export async function commitRaceRoomUpdate(
+  roomId: string,
+  edit: (latest: RaceRoom) => RaceRoom
+): Promise<RaceRoom | undefined> {
+  return withRoomRuntimeLock(roomId, async () => {
+    const latest = await getRaceRoom(roomId);
+    if (!latest) {
+      return undefined;
+    }
+    const next = edit(latest);
+    await saveRaceRoom(next);
+    return next;
+  });
 }
 
 function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
@@ -755,6 +817,11 @@ function normalizeWs2RuntimePayload(raw: unknown): { ping?: RoomPingState; proje
 }
 
 async function loadWs2RuntimeIfNeeded(roomId: string): Promise<void> {
+  const delay = ws2LoadDelayForTests;
+  if (delay) {
+    ws2LoadDelayForTests = undefined;
+    await delay();
+  }
   if (!isRoomPersistenceEnabled()) {
     return;
   }
@@ -2120,8 +2187,24 @@ async function persistCourseShapeChange(
   await loadWs2RuntimeIfNeeded(roomId);
   // Save before wiping dependents, as PUT /course does: a failed save must not leave the
   // task board, adaptive plan and sync deleted while the room keeps its previous course.
-  await saveRaceRoom(updatedRoom);
-  const nextCourse = updatedRoom.course;
+  // Re-read under the lock so this course edit does not persist a membership list from
+  // before the runtime load (a join in that gap would otherwise 200 and then vanish).
+  const persistedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+    const withCourse: RaceRoom = {
+      ...latest,
+      course: updatedRoom.course,
+      courseDistanceMeters: updatedRoom.courseDistanceMeters,
+      courseElevationGainMeters: updatedRoom.courseElevationGainMeters,
+      courseElevationLossMeters: updatedRoom.courseElevationLossMeters
+    };
+    return updatedRoom.course
+      ? syncWorkspaceCheckpoints(withCourse, updatedRoom.course.checkpoints)
+      : withCourse;
+  });
+  if (!persistedRoom) {
+    throw new Error("Race room not found");
+  }
+  const nextCourse = persistedRoom.course;
   const nextPace = updatedRoom.plannedPaceSecondsPerKm;
   if (nextCourse && nextPace !== undefined) {
     const shouldResetCourseDependentState = courseDependentStateNeedsReset({
@@ -2137,21 +2220,7 @@ async function persistCourseShapeChange(
       await discardWs5RoomState(roomId);
     }
   }
-  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
-}
-
-/**
- * Save a course edit and refresh the stored projection so schedule, ETAs, and live remaining reflect
- * it. Does NOT reset course-dependent crew state (task board, adaptive plan, sync); callers decide
- * that first (see {@link persistCourseShapeChange}).
- */
-async function saveRoomAndRecomputeProjection(
-  app: FastifyInstance,
-  roomId: string,
-  updatedRoom: RaceRoom
-): Promise<void> {
-  await saveRaceRoom(updatedRoom);
-  await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
+  await recomputeProjectionAfterCourseSave(app, roomId, persistedRoom);
 }
 
 async function recomputeProjectionAfterCourseSave(
@@ -2479,45 +2548,55 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    let updatedRoom: RaceRoom = {
-      ...room,
-      course: recomputedCourse,
-      plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
-      courseDistanceMeters: recomputedCourse.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters,
-      courseElevationGainMeters: recomputedCourse.derivedMetrics?.elevationGainMeters ?? room.courseElevationGainMeters,
-      courseElevationLossMeters: recomputedCourse.derivedMetrics?.elevationLossMeters ?? room.courseElevationLossMeters,
-      courseFileName: parsed.data.courseFileName ?? room.courseFileName,
-      courseGpxXml: parsed.data.courseGpxXml ?? room.courseGpxXml,
-      raceStartAt: parsed.data.raceStartAt,
-      activatedAt: parsed.data.raceStartAt
-    };
+    let shouldResetCourseDependentState = false;
+    // Persist the course before wiping dependents. Otherwise a failed save after
+    // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
+    // `room` was read before idempotency and the runtime load. Overlay the new course
+    // onto the live room so a join in that gap stays on the roster.
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      let next: RaceRoom = {
+        ...latest,
+        course: recomputedCourse,
+        plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm,
+        courseDistanceMeters:
+          recomputedCourse.derivedMetrics?.canonicalDistanceMeters ?? latest.courseDistanceMeters,
+        courseElevationGainMeters:
+          recomputedCourse.derivedMetrics?.elevationGainMeters ?? latest.courseElevationGainMeters,
+        courseElevationLossMeters:
+          recomputedCourse.derivedMetrics?.elevationLossMeters ?? latest.courseElevationLossMeters,
+        courseFileName: parsed.data.courseFileName ?? latest.courseFileName,
+        courseGpxXml: parsed.data.courseGpxXml ?? latest.courseGpxXml,
+        raceStartAt: parsed.data.raceStartAt,
+        activatedAt: parsed.data.raceStartAt
+      };
 
-    if (parsed.data.routeOverlayLayer) {
-      const mergedWorkspace = mergePrimaryCourseRouteLayer(
-        resolveMapWorkspace(updatedRoom),
-        parsed.data.routeOverlayLayer,
-        recomputedCourse.checkpoints
-      );
-      updatedRoom = { ...updatedRoom, mapWorkspace: mergedWorkspace };
-      // New GPX / route overlay is a different course. The attached plan-of-record estimate
-      // (and its aid ETAs) were computed for the previous polyline; keeping it would leave
-      // GET /schedule on the old race's clocks. Drop it so the next schedule view can
-      // auto-create a fresh estimate for this geometry (#481 attach + replace-file).
-      if (updatedRoom.pacingEstimate !== undefined || updatedRoom.pacingEstimateId !== undefined) {
-        delete updatedRoom.pacingEstimate;
-        delete updatedRoom.pacingEstimateId;
+      if (parsed.data.routeOverlayLayer) {
+        const mergedWorkspace = mergePrimaryCourseRouteLayer(
+          resolveMapWorkspace(next),
+          parsed.data.routeOverlayLayer,
+          recomputedCourse.checkpoints
+        );
+        next = { ...next, mapWorkspace: mergedWorkspace };
+        // New GPX / route overlay is a different course. The attached plan-of-record estimate
+        // (and its aid ETAs) were computed for the previous polyline; keeping it would leave
+        // GET /schedule on the old race's clocks. Drop it so the next schedule view can
+        // auto-create a fresh estimate for this geometry (#481 attach + replace-file).
+        if (next.pacingEstimate !== undefined || next.pacingEstimateId !== undefined) {
+          delete next.pacingEstimate;
+          delete next.pacingEstimateId;
+        }
       }
-    }
 
-    const shouldResetCourseDependentState = courseDependentStateNeedsReset({
-      previousRoom: room,
-      nextCourse: recomputedCourse,
-      routeOverlayLayer: parsed.data.routeOverlayLayer
+      shouldResetCourseDependentState = courseDependentStateNeedsReset({
+        previousRoom: latest,
+        nextCourse: recomputedCourse,
+        routeOverlayLayer: parsed.data.routeOverlayLayer
+      });
+      return next;
     });
-
-      // Persist the course before wiping dependents. Otherwise a failed save after
-      // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
-      await saveRaceRoom(updatedRoom);
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
       coursePersisted = true;
 
     if (shouldResetCourseDependentState) {
@@ -2657,15 +2736,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await loadWs2RuntimeIfNeeded(roomId);
     const secondsById = new Map(parsed.data.stops.map((stop) => [stop.checkpointId, stop.plannedStopSeconds]));
-    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
-      const plannedStopSeconds = secondsById.get(checkpoint.id);
-      return plannedStopSeconds === undefined ? checkpoint : { ...checkpoint, plannedStopSeconds };
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      if (!latest.course) {
+        return latest;
+      }
+      const nextCheckpoints = latest.course.checkpoints.map((checkpoint) => {
+        const plannedStopSeconds = secondsById.get(checkpoint.id);
+        return plannedStopSeconds === undefined ? checkpoint : { ...checkpoint, plannedStopSeconds };
+      });
+      return syncWorkspaceCheckpoints(
+        { ...latest, course: { ...latest.course, checkpoints: nextCheckpoints } },
+        nextCheckpoints
+      );
     });
-    const updatedRoom = syncWorkspaceCheckpoints(
-      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
-      nextCheckpoints
-    );
-    await saveRoomAndRecomputeProjection(app, roomId, updatedRoom);
+    if (!updatedRoom?.course) {
+      return reply.code(404).send({ error: "Course not found" });
+    }
+    await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
     return reply.send(updatedRoom);
   });
 

@@ -225,12 +225,23 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
 
 /** Test-only: force `persistRaceRoom` to throw (memory and postgres). */
 let persistRaceRoomShouldFailForTests = false;
+/** Test-only: observe or stall a room write before it hits Postgres. */
+let persistRaceRoomBeforeWriteForTests: ((room: RaceRoom) => Promise<void>) | undefined;
 
 export function setPersistRaceRoomFailureForTests(shouldFail: boolean): void {
   persistRaceRoomShouldFailForTests = shouldFail;
 }
 
+export function setPersistRaceRoomBeforeWriteForTests(
+  hook: ((room: RaceRoom) => Promise<void>) | undefined
+): void {
+  persistRaceRoomBeforeWriteForTests = hook;
+}
+
 export async function persistRaceRoom(room: RaceRoom): Promise<void> {
+  if (persistRaceRoomBeforeWriteForTests) {
+    await persistRaceRoomBeforeWriteForTests(room);
+  }
   if (persistRaceRoomShouldFailForTests) {
     throw new Error("persistRaceRoom forced failure for tests");
   }
