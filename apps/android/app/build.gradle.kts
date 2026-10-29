@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -24,7 +23,7 @@ val mapLibreFailure = if (mapLibreVersionResolved == null) mapLibreFailures.join
 
 // Stream stays off the compile classpath when it does not resolve for this AGP and SDK.
 val streamCandidates = listOf(
-    "io.getstream:stream-chat-android-client:6.45.1"
+    "io.getstream:stream-chat-android-client:7.13.0"
 )
 var streamCoordinate: String? = null
 val streamFailures = mutableListOf<String>()
@@ -52,7 +51,7 @@ val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
 
 android {
     namespace = "com.crewcue.android"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.crewcue.android"
@@ -114,10 +113,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -131,8 +126,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDir(layout.buildDirectory.dir("generated/swift-java"))
-            jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs"))
+            java.srcDir(layout.buildDirectory.dir("generated/swift-java").get().asFile)
+            jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs").get().asFile)
             if (mapLibreVersionResolved != null) {
                 kotlin.srcDir("src/maplibre/kotlin")
             }
@@ -143,6 +138,12 @@ android {
         getByName("androidTest") {
             assets.srcDir(repoRoot.resolve("clients/behavior"))
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -173,19 +174,19 @@ gradle.taskGraph.whenReady {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
-    implementation("androidx.navigation:navigation-compose:2.8.3")
+    implementation("androidx.navigation:navigation-compose:2.10.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("com.auth0.android:auth0:3.21.1")
+    implementation("com.auth0.android:auth0:4.2.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
