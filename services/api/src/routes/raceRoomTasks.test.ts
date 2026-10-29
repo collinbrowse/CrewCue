@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { deleteTaskBoardSnapshot } from "../lib/roomPersistence.js";
-import { clearTaskBoardLocalState, setTaskBoardHydrateDelayForTests } from "./raceRooms.js";
+import {
+  clearTaskBoardLocalState,
+  setTaskBoardDiscardDelayForTests,
+  setTaskBoardHydrateDelayForTests
+} from "./raceRooms.js";
 
 function buildClaims(sub: string) {
   return {
@@ -469,6 +473,128 @@ test("course reset during a cold task-board load returns retryable 409", { timeo
   } finally {
     releaseHydrate();
     setTaskBoardHydrateDelayForTests(undefined);
+    await app.close();
+  }
+});
+
+test("course reset does not resurrect the task board while its delete is in flight", { timeout: 15_000 }, async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const { roomId, headers } = await createRoomWithCourseForColdLoad(app, "athlete-wipe-gap");
+
+  const initial = await app.inject({
+    method: "GET",
+    url: `/race-rooms/${roomId}/tasks`,
+    headers
+  });
+  assert.equal(initial.statusCode, 200);
+  const startedTaskId = (initial.json() as { tasks: Array<{ id: string }> }).tasks[0]?.id;
+  assert.ok(startedTaskId);
+
+  const assign = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/tasks/${startedTaskId}/assign`,
+    payload: { assigneeUserId: "athlete-wipe-gap", assigneeRole: "athlete" },
+    headers
+  });
+  assert.equal(assign.statusCode, 200);
+  const start = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/tasks/${startedTaskId}/start`,
+    headers
+  });
+  assert.equal(start.statusCode, 200);
+
+  let releaseDiscard: (() => void) | undefined;
+  const discardGate = new Promise<void>((resolve) => {
+    releaseDiscard = resolve;
+  });
+  let markDiscardEntered: (() => void) | undefined;
+  const discardEntered = new Promise<void>((resolve) => {
+    markDiscardEntered = resolve;
+  });
+  setTaskBoardDiscardDelayForTests(async () => {
+    markDiscardEntered?.();
+    await discardGate;
+  });
+
+  try {
+    const courseReset = app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 42.05, longitude: -70.02 },
+            { id: "cp1", latitude: 42.08, longitude: -70.02 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 42.05, longitude: -70.02 },
+          { latitude: 42.08, longitude: -70.02 }
+        ]),
+        plannedPaceSecondsPerKm: 720,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers
+    });
+    await discardEntered;
+
+    const duringWipe = app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    // While the wipe is held, a poll must wait instead of reading the surviving snapshot.
+    const early = await Promise.race([
+      duringWipe.then(() => "response" as const),
+      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 200))
+    ]);
+    assert.equal(early, "blocked", "task read must wait until the course wipe finishes deleting");
+    releaseDiscard?.();
+
+    const [resetResponse, duringResponse] = await Promise.all([courseReset, duringWipe]);
+    assert.equal(resetResponse.statusCode, 200, resetResponse.body);
+    assert.equal(duringResponse.statusCode, 200, duringResponse.body);
+    const duringIds = (duringResponse.json() as { tasks: Array<{ id: string; status: string }> }).tasks.map(
+      (task) => task.id
+    );
+    assert.equal(
+      duringIds.includes(startedTaskId),
+      false,
+      "a poll during the wipe must not observe the pre-reset task"
+    );
+
+    const note = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/protocol-notes`,
+      payload: { checkpointId: "cp0", category: "heat", body: "Shade at the new start." },
+      headers
+    });
+    assert.equal(note.statusCode, 200, note.body);
+
+    clearTaskBoardLocalState(roomId);
+    const reloaded = await app.inject({
+      method: "GET",
+      url: `/race-rooms/${roomId}/tasks`,
+      headers
+    });
+    assert.equal(reloaded.statusCode, 200, reloaded.body);
+    const reloadedTasks = (reloaded.json() as { tasks: Array<{ id: string; status: string }> }).tasks;
+    assert.equal(
+      reloadedTasks.some((task) => task.id === startedTaskId),
+      false,
+      "a later task write must not persist the pre-reset board"
+    );
+    assert.ok(reloadedTasks.length >= 1);
+    assert.equal(
+      reloadedTasks.every((task) => task.status === "pending"),
+      true
+    );
+  } finally {
+    releaseDiscard?.();
+    setTaskBoardDiscardDelayForTests(undefined);
     await app.close();
   }
 });

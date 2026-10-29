@@ -1160,6 +1160,16 @@ async function refreshTaskBoardSnapshot(roomId: string, board: RoomTaskBoardStat
 }
 
 async function getOrInitTaskBoard(room: RaceRoom): Promise<RoomTaskBoardState> {
+  // A course wipe holds this gate until both durable rows are gone. Waiting
+  // here is what stops a poll from hydrating the snapshot mid-delete.
+  for (;;) {
+    const gate = taskBoardResetGate.get(room.id);
+    if (!gate) {
+      break;
+    }
+    await gate.promise;
+  }
+
   const cached = roomTaskBoardState.get(room.id);
   if (cached) {
     return cached;
@@ -1267,15 +1277,28 @@ async function loadTaskBoardIntoCache(room: RaceRoom, epoch: number): Promise<Ro
 }
 
 async function saveTaskBoard(roomId: string, board: RoomTaskBoardState): Promise<void> {
-  roomTaskBoardState.set(roomId, board);
-  await persistTaskBoardPayload(
-    roomId,
-    {
-      version: board.version,
-      board: toTaskBoardPayload(board)
-    } satisfies PersistedTaskBoardRecord
-  );
-  await refreshTaskBoardSnapshot(roomId, board);
+  await enqueueTaskBoardWrite(roomId, async () => {
+    // The handler mutated `board` before this ran. A course wipe that cleared
+    // the cache in between must not let this persist put that board back.
+    if (taskBoardResetGate.has(roomId) || roomTaskBoardState.get(roomId) !== board) {
+      throw taskBoardResetDuringLoadError();
+    }
+    roomTaskBoardState.set(roomId, board);
+    await persistTaskBoardPayload(
+      roomId,
+      {
+        version: board.version,
+        board: toTaskBoardPayload(board)
+      } satisfies PersistedTaskBoardRecord
+    );
+    if (taskBoardResetGate.has(roomId) || roomTaskBoardState.get(roomId) !== board) {
+      if (roomTaskBoardState.get(roomId) === board) {
+        roomTaskBoardState.delete(roomId);
+      }
+      throw taskBoardResetDuringLoadError();
+    }
+    await refreshTaskBoardSnapshot(roomId, board);
+  });
 }
 
 function bumpTaskBoardVersion(board: RoomTaskBoardState): void {
@@ -1326,6 +1349,83 @@ export function clearTaskBoardLocalState(roomId: string): void {
   roomTaskBoardState.delete(roomId);
   taskBoardHydrateInflight.delete(roomId);
   taskBoardHydrateEpoch.set(roomId, (taskBoardHydrateEpoch.get(roomId) ?? 0) + 1);
+}
+
+type TaskBoardResetGate = {
+  promise: Promise<void>;
+  release: () => void;
+};
+
+/** Held from the moment a course wipe drops the cache until both durable rows are gone. */
+const taskBoardResetGate = new Map<string, TaskBoardResetGate>();
+
+const taskBoardWriteTail = new Map<string, Promise<void>>();
+
+let taskBoardDiscardDelayForTests: (() => Promise<void>) | undefined;
+
+/** Test-only one-shot pause after a course wipe drops the cache and before it deletes durable rows. */
+export function setTaskBoardDiscardDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  taskBoardDiscardDelayForTests = delay;
+}
+
+function enqueueTaskBoardWrite<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = taskBoardWriteTail.get(roomId) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(fn);
+  const settled = run.then(
+    () => undefined,
+    () => undefined
+  );
+  taskBoardWriteTail.set(roomId, settled);
+  void settled.then(() => {
+    if (taskBoardWriteTail.get(roomId) === settled) {
+      taskBoardWriteTail.delete(roomId);
+    }
+  });
+  return run;
+}
+
+function beginTaskBoardResetGate(roomId: string): TaskBoardResetGate {
+  let release: () => void = () => {};
+  const gate: TaskBoardResetGate = {
+    promise: new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    release: () => release()
+  };
+  taskBoardResetGate.set(roomId, gate);
+  return gate;
+}
+
+function endTaskBoardResetGate(roomId: string, gate: TaskBoardResetGate): void {
+  if (taskBoardResetGate.get(roomId) === gate) {
+    taskBoardResetGate.delete(roomId);
+  }
+  gate.release();
+}
+
+/**
+ * Drop the live task board and both durable copies as one operation.
+ * `clear` then `await delete` left a gap: payload was already gone, so a
+ * concurrent GET treated the surviving snapshot as authoritative and cached
+ * the pre-wipe board. The next assignment or protocol note wrote it back.
+ */
+async function discardTaskBoardState(roomId: string): Promise<void> {
+  await enqueueTaskBoardWrite(roomId, async () => {
+    const gate = beginTaskBoardResetGate(roomId);
+    try {
+      clearTaskBoardLocalState(roomId);
+      const delay = taskBoardDiscardDelayForTests;
+      if (delay) {
+        taskBoardDiscardDelayForTests = undefined;
+        await delay();
+      }
+      await deleteTaskBoardPayload(roomId);
+      await deleteTaskBoardSnapshot(roomId);
+    } finally {
+      clearTaskBoardLocalState(roomId);
+      endTaskBoardResetGate(roomId, gate);
+    }
+  });
 }
 
 /**
@@ -2113,9 +2213,7 @@ async function persistCourseShapeChange(
       routeOverlayLayer: undefined
     });
     if (shouldResetCourseDependentState) {
-      clearTaskBoardLocalState(roomId);
-      await deleteTaskBoardPayload(roomId);
-      await deleteTaskBoardSnapshot(roomId);
+      await discardTaskBoardState(roomId);
       const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
       await discardWs4RoomState(roomId);
       const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
@@ -2502,9 +2600,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       coursePersisted = true;
 
     if (shouldResetCourseDependentState) {
-      clearTaskBoardLocalState(roomId);
-      await deleteTaskBoardPayload(roomId);
-      await deleteTaskBoardSnapshot(roomId);
+      await discardTaskBoardState(roomId);
       const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
       await discardWs4RoomState(roomId);
       const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
@@ -2774,9 +2870,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // task boards / adaptive / sync payloads while leaving the prior workspace.
     await saveRaceRoom(updatedRoom);
 
-    clearTaskBoardLocalState(roomId);
-    await deleteTaskBoardPayload(roomId);
-    await deleteTaskBoardSnapshot(roomId);
+    await discardTaskBoardState(roomId);
     await discardWs2Runtime(roomId);
     const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
     await discardWs4RoomState(roomId);
