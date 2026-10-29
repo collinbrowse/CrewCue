@@ -47,3 +47,7 @@ fixtures/pacing/*.d.ts.map
 
 # Local iOS secrets (MapTiler key)
 apps/ios/Config/Secrets.xcconfig
+
+# Xcode and SwiftPM per-user state
+xcuserdata/
+.swiftpm/
