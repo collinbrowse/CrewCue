@@ -25,7 +25,7 @@ jobs:
       AUTH0_AUTOMATION_USER_PASSWORD: ${{ secrets.AUTH0_AUTOMATION_USER_PASSWORD }}
       AUTH0_AUTOMATION_CONNECTION: ${{ secrets.AUTH0_AUTOMATION_CONNECTION }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Validate required env vars are present
         run: |
