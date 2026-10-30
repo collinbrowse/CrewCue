@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { buildRaceCourseFromGpx, parseGpxTrack, parsedTrackToWorkspaceLayer } from "@crewcue/map-core";
+import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
 import { getRaceRoom } from "./raceRooms.js";
 
 const gpxPreviewInput = z.object({
-  gpxXml: z.string().min(1),
+  gpxXml: z.string().min(1).max(MAX_GPX_XML_CHARS),
   courseFileName: z.string().trim().min(1)
 });
 
