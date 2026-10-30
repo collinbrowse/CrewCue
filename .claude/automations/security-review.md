@@ -28,4 +28,5 @@ attacks, or severity in a PR, commit, comment or issue, before or after merge.
 - **Medium or low:** at most one fix PR, label `automation:security`, with a neutral title and Scope
   ("tighten invite token expiry checks") and a regression test named for the behavior, not the attack.
   The full write-up goes in the run's final message, not the PR.
-- Always finish with a short list: what you checked, what you found, what you dropped and why.
+- Always finish with a short list: what you checked, what you found, what you dropped and why. Provide a
+  list of suggestions for user review. 
