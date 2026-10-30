@@ -1,9 +1,9 @@
 import Fastify from "fastify";
 import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
+import { rateLimitPlugin } from "./plugins/rateLimit.js";
 import { logSafeUrl } from "./lib/logSafeUrl.js";
 import { healthRoutes } from "./routes/health.js";
-import { eventRoutes } from "./routes/events.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
 import { chatRoutes } from "./routes/chatRoutes.js";
 import { geocodeRoutes } from "./routes/geocodeRoutes.js";
@@ -45,8 +45,8 @@ export function buildApp() {
 
   app.register(authPlugin);
   app.register(auditPlugin);
+  app.register(rateLimitPlugin);
   app.register(healthRoutes);
-  app.register(eventRoutes);
   app.register(raceRoomRoutes);
   app.register(courseGpxRoutes);
   app.register(raceRoomStopPlanRoutes);

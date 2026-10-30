@@ -53,6 +53,16 @@ ACCESS_TOKEN="$(jq -r '.access_token // empty' "$token_response_file")"
 [[ -n "$ACCESS_TOKEN" ]] || fail "Auth0 token response missing access_token"
 log "Token minted successfully"
 
+# Only the room's athlete may post pings and only crew roles may record manual stops,
+# so the automation user is both the athlete and the creating team manager.
+AUTOMATION_SUB="$(python3 - "$ACCESS_TOKEN" <<'PY'
+import base64, json, sys
+payload = sys.argv[1].split(".")[1]
+print(json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("sub", ""))
+PY
+)"
+[[ -n "$AUTOMATION_SUB" ]] || fail "Access token missing sub claim"
+
 api_request() {
   local method="$1"
   local path="$2"
@@ -91,7 +101,7 @@ PY
 }
 
 log "Step A: create room"
-create_payload="$(jq -n '{teamId:"team-1", athleteId:"athlete-automation", name:"Stoppage Smoke Room", creatorRole:"team_manager"}')"
+create_payload="$(jq -n --arg athlete "$AUTOMATION_SUB" '{teamId:"team-1", athleteId:$athlete, name:"Stoppage Smoke Room", creatorRole:"team_manager"}')"
 create_result="$(api_request POST "/race-rooms" "$create_payload")"
 create_code="$(printf "%s" "$create_result" | sed -n '1p')"
 create_file="$(printf "%s" "$create_result" | sed -n '2p')"
@@ -107,14 +117,16 @@ entitlement_code="$(printf "%s" "$entitlement_result" | sed -n '1p')"
 entitlement_file="$(printf "%s" "$entitlement_result" | sed -n '2p')"
 [[ "$entitlement_code" == "200" ]] || fail "Entitlement update failed (HTTP $entitlement_code): $(jq -c . "$entitlement_file")"
 
-log "Step C: activate room with stoppage checkpoint config"
-event_ends_at="$(python3 - <<'PY'
-from datetime import datetime, timedelta, timezone
-print((datetime.now(timezone.utc) + timedelta(hours=4)).isoformat().replace('+00:00', 'Z'))
+log "Step C: upload course with stoppage checkpoint config and race start"
+race_start_at="$(python3 - <<'PY'
+from datetime import datetime, timezone
+print(datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'))
 PY
 )"
-activate_payload="$(jq -n --arg ends "$event_ends_at" '{
-  eventEndsAt: $ends,
+# PUT /course replaced POST /activate: raceStartAt anchors the race clock, and a course
+# with two or more checkpoints needs a route line through them.
+course_payload="$(jq -n --arg start "$race_start_at" '{
+  raceStartAt: $start,
   plannedPaceSecondsPerKm: 600,
   course: {
     checkpoints: [
@@ -122,14 +134,20 @@ activate_payload="$(jq -n --arg ends "$event_ends_at" '{
       {id:"cp-mid", latitude:40.0008, longitude:-70.0000, plannedStopSeconds:180, stoppageRadiusMeters:900, slowdownThresholdRatio:0.5},
       {id:"cp-finish", latitude:40.0016, longitude:-70.0000}
     ]
+  },
+  routeOverlayLayer: {
+    id: "staging-smoke-route",
+    label: "staging smoke",
+    visible: true,
+    geometry: {type: "LineString", coordinates: [[-70.0000, 40.0000], [-70.0000, 40.0008], [-70.0000, 40.0016]]}
   }
 }')"
-activate_result="$(api_request POST "/race-rooms/${ROOM_ID}/activate" "$activate_payload")"
-activate_code="$(printf "%s" "$activate_result" | sed -n '1p')"
-activate_file="$(printf "%s" "$activate_result" | sed -n '2p')"
-[[ "$activate_code" == "200" ]] || fail "Activate failed (HTTP $activate_code): $(jq -c . "$activate_file")"
-ACTIVATED_AT="$(jq -r '.activatedAt // empty' "$activate_file")"
-[[ -n "$ACTIVATED_AT" ]] || fail "Activate response missing activatedAt"
+course_result="$(api_request PUT "/race-rooms/${ROOM_ID}/course" "$course_payload")"
+course_code="$(printf "%s" "$course_result" | sed -n '1p')"
+course_file="$(printf "%s" "$course_result" | sed -n '2p')"
+[[ "$course_code" == "200" ]] || fail "Course upload failed (HTTP $course_code): $(jq -c . "$course_file")"
+ACTIVATED_AT="$(jq -r '.activatedAt // empty' "$course_file")"
+[[ -n "$ACTIVATED_AT" ]] || fail "Course response missing activatedAt"
 
 log "Step D: post two pings to seed projection"
 recorded_1="$(python3 - "$ACTIVATED_AT" <<'PY'

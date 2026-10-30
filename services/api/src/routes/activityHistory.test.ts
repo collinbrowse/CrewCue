@@ -9,6 +9,7 @@ import {
   countActivityHistoryRows,
   resetActivityHistoryStoreForTests
 } from "../lib/activityHistoryStore.js";
+import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
 
 function findPacingFixturesDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -90,6 +91,21 @@ async function withApp(
     await resetActivityHistoryStoreForTests();
   }
 }
+
+test("rejects oversized GPX payloads and stores no history row", async () => {
+  await withApp(async ({ app, tokenFor }) => {
+    const token = tokenFor("athlete-1");
+    const response = await app.inject({
+      method: "POST",
+      url: "/activity-history/gpx",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { gpxXml: "x".repeat(MAX_GPX_XML_CHARS + 1), externalId: "oversized-1" }
+    });
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(response.json(), { error: "Invalid activity history ingest payload" });
+    assert.equal(await countActivityHistoryRows(), 0);
+  });
+});
 
 test("EC1: empty GPX is rejected and stores no history row", async () => {
   await withApp(async ({ app, tokenFor }) => {
