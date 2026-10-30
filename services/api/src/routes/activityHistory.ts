@@ -11,6 +11,7 @@ import {
   GpxActivityParseError,
   parseGpxActivityMetrics
 } from "../lib/gpxActivityHistory.js";
+import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
 import {
   getActivityHistoryForAthlete,
   initActivityHistoryStore,
@@ -20,7 +21,7 @@ import {
 
 const ingestGpxInput = z
   .object({
-    gpxXml: z.string().min(1),
+    gpxXml: z.string().min(1).max(MAX_GPX_XML_CHARS),
     /** Stable provider/upload id; defaults to a content fingerprint of gpxXml. */
     externalId: z.string().min(1).optional(),
     /**
