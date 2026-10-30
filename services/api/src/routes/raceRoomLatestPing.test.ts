@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceRoomLatestPingResponse, RaceRoomProjection } from "@crewcue/contracts";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { STALENESS_MAX_SECONDS } from "../lib/projectionTimeliness.js";
 
@@ -205,3 +208,58 @@ test("latest ping applies the same auth, membership, and entitlement gates as pi
 
   await app.close();
 });
+
+test(
+  "crew still read the athlete's latest ping after the API restarts",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const athlete = app.jwt.sign(claims("runner"));
+    const crew = app.jwt.sign(claims("crew-a"));
+    const { id: roomId, joinCode } = await createRoom(app, athlete);
+    await joinAsCrew(app, joinCode, crew);
+
+    const recordedAt = new Date(Date.now() - 45_000).toISOString();
+    const accepted = await ping(app, roomId, athlete, {
+      latitude: 42.005,
+      longitude: -70.0,
+      recordedAt,
+      uploadIntervalSeconds: 60
+    });
+    assert.equal(accepted.statusCode, 201);
+    const pingId = (accepted.json() as { pingId: string }).pingId;
+    const before = (await latest(app, roomId, crew)).json() as RaceRoomLatestPingResponse;
+    assert.ok((before.ping?.progressMeters ?? 0) > 0);
+    await app.close();
+
+    // A fresh process has none of this room in memory; it must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const res = await app.inject({
+        method: "GET",
+        url: "/race-rooms/" + process.argv[2] + "/pings/latest",
+        headers: { authorization: "Bearer " + process.argv[3] }
+      });
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ status: res.statusCode, body: res.json() }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crew],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      status: number;
+      body: RaceRoomLatestPingResponse;
+    };
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ping?.pingId, pingId);
+    assert.equal(result.body.ping?.recordedAt, recordedAt);
+    assert.equal(result.body.ping?.progressMeters, before.ping?.progressMeters);
+  }
+);
