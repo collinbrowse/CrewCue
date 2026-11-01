@@ -136,6 +136,65 @@ import Testing
     #expect(screen.body == "No estimate yet.")
 }
 
+private actor FixedStatusTransport: HTTPTransport {
+    private let status: Int
+    private let body: String
+
+    init(status: Int, body: String) {
+        self.status = status
+        self.body = body
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        HTTPResponse(status: status, body: Data(body.utf8))
+    }
+}
+
+private actor RecordingGpxTransport: HTTPTransport {
+    private var starts: [String] = []
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.url.path.hasSuffix("gpx-preview") {
+            let json = #"{"course":{"checkpoints":[{"id":"a","latitude":1,"longitude":2},{"id":"b","latitude":3,"longitude":4}]},"plannedPaceSecondsPerKm":360,"courseFileName":"route.gpx"}"#
+            return HTTPResponse(status: 200, body: Data(json.utf8))
+        }
+        if request.method == .get {
+            let room = """
+            {"room":{"id":"room","teamId":"team","athleteId":"athlete","name":"Race","status":"active","createdAt":"2026-08-01T00:00:00.000Z","memberships":[],"entitlement":{"status":"paid","lastUpdatedAt":"2026-08-01T00:00:00.000Z","source":"manual"}}}
+            """
+            return HTTPResponse(status: 200, body: Data(room.utf8))
+        }
+        if let body = request.body,
+           let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+           let start = object["raceStartAt"] as? String {
+            starts.append(start)
+        }
+        return HTTPResponse(status: 500, body: Data(#"{"error":"still saving"}"#.utf8))
+    }
+
+    func putStarts() -> [String] {
+        starts
+    }
+}
+
+private final class SequenceClock: Clock, @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: [Date]
+
+    init(_ dates: [Date]) {
+        remaining = dates
+    }
+
+    func now() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        if remaining.count > 1 {
+            return remaining.removeFirst()
+        }
+        return remaining[0]
+    }
+}
+
 struct MockTransport: HTTPTransport {
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let body = try Data(contentsOf: Bundle.module.url(forResource: "health-status", withExtension: "json")!)
@@ -275,6 +334,99 @@ struct SilentLogger: Logger {
     #expect(stale.retryable == false)
     let duplicate = OutboxPolicy.resolve(ClientHTTPError(status: 409, message: "already exists", reason: "already_exists"))
     #expect(duplicate.status == "accepted")
+}
+
+@Test func idempotencyLeaseKeepsTheQueuedCheckIn() async throws {
+    let inProgress = OutboxPolicy.resolve(
+        ClientHTTPError(
+            status: 409,
+            message: "A request with this Idempotency-Key is already in progress",
+            bodyError: "A request with this Idempotency-Key is already in progress"
+        )
+    )
+    #expect(inProgress.status == "pending")
+    #expect(inProgress.retryable == true)
+    let mismatched = OutboxPolicy.resolve(
+        ClientHTTPError(
+            status: 409,
+            message: "Idempotency-Key was already used with a different request body",
+            bodyError: "Idempotency-Key was already used with a different request body"
+        )
+    )
+    #expect(mismatched.status == "pending")
+    #expect(mismatched.retryable == true)
+
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-lease", directory: directory)
+    let queued = try await store.enqueueCheckIn(
+        roomId: "room",
+        checkpointId: "aid-1",
+        arrivalAt: "2026-08-15T14:10:00.000Z",
+        departureAt: "2026-08-15T14:16:00.000Z",
+        role: "athlete"
+    )
+    guard case .queued(let operation) = queued else {
+        Issue.record("check-in should queue")
+        return
+    }
+    let transport = FixedStatusTransport(
+        status: 409,
+        body: #"{"error":"A request with this Idempotency-Key is already in progress"}"#
+    )
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SystemClock(),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token"),
+        outbox: store
+    )
+    let report = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(report.accepted.isEmpty)
+    #expect(report.pending == [operation.id])
+    let remaining = try await store.operations()
+    #expect(remaining.contains { $0.id == operation.id && $0.status == "pending" })
+    try store.wipe()
+}
+
+@Test func queuedGpxRetryRepeatsTheStampedRaceClock() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = try OutboxStore(userId: "athlete-gpx-clock", directory: directory)
+    let queued = try await store.enqueueGpx(
+        roomId: "room",
+        fileName: "route.gpx",
+        gpxXml: "<gpx/>",
+        raceStartAt: "",
+        plannedPaceSecondsPerKm: 0,
+        role: "athlete"
+    )
+    let transport = RecordingGpxTransport()
+    let graph = ClientGraph(
+        transport: transport,
+        clock: SequenceClock([
+            Date(timeIntervalSince1970: 1_800_000_000),
+            Date(timeIntervalSince1970: 1_800_003_600)
+        ]),
+        logger: SilentLogger(),
+        baseURL: URL(string: "https://example.invalid")!,
+        tokenProvider: StaticTokenProvider(token: "token"),
+        outbox: store
+    )
+    let firstReport = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(firstReport.pending == [queued.id])
+    let secondReport = try await RaceDayAPI.flushOutbox(graph: graph)
+    #expect(secondReport.pending == [queued.id])
+    let starts = await transport.putStarts()
+    #expect(starts.count == 2)
+    #expect(starts[0] == starts[1])
+    #expect(starts[0].isEmpty == false)
+    let stored = try await store.operations()
+    #expect(stored.count == 1)
+    #expect(stored[0].idempotencyKey == queued.idempotencyKey)
+    let payload = try #require(stored[0].payloadJSON.data(using: .utf8))
+    let object = try #require(try JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    #expect(object["raceStartAt"] as? String == starts[0])
+    try store.wipe()
 }
 
 @Test func crewCannotAutoRecomputePlanOfRecord() {
