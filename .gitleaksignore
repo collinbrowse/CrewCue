@@ -1,0 +1,9 @@
+# Reviewed false positives from the full-history scan (generic-api-key rule).
+# Auth0 public client ID for the native app (not a client secret).
+8099d4405b96bfe26a3be69da9756efe7da200ea:apps/ios/Config/CrewCue.xcconfig:generic-api-key:9
+# Synthetic evaluation course key.
+826aff0574e188897f0e19040d3a073c4f54611d:services/api/src/lib/pacingEstimate/evaluation/synthetic.ts:generic-api-key:247
+# Storage key names in the removed Expo app.
+e36d08f4f6a21714cff30e1ef3ba8d865cc0d689:apps/mobile/src/navigation/onboardingState.ts:generic-api-key:3
+06c5896aa7d66343df74dee8ab80e1b8e4b9399e:apps/mobile/src/sync/pendingHeartbeat.ts:generic-api-key:9
+b34002a1348c4621cda2927cca78863fa47d5940:apps/mobile/src/sync/pendingHeartbeat.ts:generic-api-key:4
