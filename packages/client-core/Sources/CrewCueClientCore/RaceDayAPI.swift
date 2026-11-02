@@ -530,14 +530,31 @@ public enum RaceDayAPI {
         }
         let roomId = operation.roomId
         let idempotencyKey = operation.idempotencyKey
+        let operationId = operation.id
+        // Resolve the clock once and store it on this row before the PUT. A retry must send
+        // the same body under the same Idempotency-Key or the server will not replay the first try.
+        let anchors = try await courseImportAnchors(
+            graph: graph,
+            roomId: roomId,
+            raceStartAt: raceStartAt,
+            plannedPaceSecondsPerKm: pace
+        )
+        try await graph.outbox?.rememberGpxAnchors(
+            id: operationId,
+            idempotencyKey: idempotencyKey,
+            raceStartAt: anchors.start,
+            plannedPaceSecondsPerKm: anchors.pace
+        )
+        let anchoredStart = anchors.start
+        let anchoredPace = anchors.pace
         let upload: @Sendable () async throws -> Data = {
             try await uploadCourse(
                 graph: graph,
                 roomId: roomId,
                 fileName: fileName,
                 gpxXml: gpxXml,
-                raceStartAt: raceStartAt,
-                plannedPaceSecondsPerKm: pace,
+                raceStartAt: anchoredStart,
+                plannedPaceSecondsPerKm: anchoredPace,
                 idempotencyKey: idempotencyKey
             )
         }

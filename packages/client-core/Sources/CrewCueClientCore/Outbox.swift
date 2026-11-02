@@ -94,6 +94,18 @@ public enum OutboxPolicy {
             let haystack = [http.reason, http.decision, http.bodyError, http.message]
                 .compactMap { $0?.lowercased() }
                 .joined(separator: " ")
+            // The idempotency row is not a completed write. "In progress" means the first
+            // try may still be running or the process died and left the lease. "Already used
+            // with a different body" is the same lease when a retry changed the payload.
+            // Dropping the queued copy there deletes the only record of a check-in or course
+            // upload that never landed.
+            if haystack.contains("already in progress") || haystack.contains("already used") {
+                return OutboxFailureResolution(
+                    status: "pending",
+                    retryable: true,
+                    feedback: "The server is still handling the first try. Will retry."
+                )
+            }
             if haystack.contains("already") {
                 return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Already recorded.")
             }

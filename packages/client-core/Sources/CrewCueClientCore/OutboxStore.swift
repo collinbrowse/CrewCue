@@ -337,6 +337,36 @@ public actor OutboxStore: UserDataStore {
         }
     }
 
+    /// Remember the clock and pace a queued GPX upload resolved, without changing its idempotency key.
+    ///
+    /// An empty `raceStartAt` is filled with the device clock at send time. Doing that again on
+    /// retry builds a different PUT body for the same key, so the server answers 409 and the
+    /// route file can be dropped before it is stored.
+    public func rememberGpxAnchors(
+        id: String,
+        idempotencyKey: String,
+        raceStartAt: String,
+        plannedPaceSecondsPerKm: Double
+    ) throws {
+        var all = try load()
+        guard let index = all.firstIndex(where: { $0.id == id && $0.idempotencyKey == idempotencyKey }) else {
+            return
+        }
+        guard let data = all[index].payloadJSON.data(using: .utf8),
+              var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        let storedStart = (object["raceStartAt"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedPace = (object["plannedPaceSecondsPerKm"] as? NSNumber)?.doubleValue ?? 0
+        if storedStart == raceStartAt && storedPace == plannedPaceSecondsPerKm {
+            return
+        }
+        object["raceStartAt"] = raceStartAt
+        object["plannedPaceSecondsPerKm"] = plannedPaceSecondsPerKm
+        all[index].payloadJSON = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        try save(all)
+    }
+
     /// Drop queued route files this successful import replaced. A newer ticket stays queued.
     public func removePendingGpx(roomId: String, beforeTicket: Int) throws {
         var all = try load()
