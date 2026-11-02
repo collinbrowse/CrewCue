@@ -263,3 +263,74 @@ test(
     assert.equal(result.body.ping?.progressMeters, before.ping?.progressMeters);
   }
 );
+
+test(
+  "after an API restart the crew's seat, the paid course, and the room's access rules are all intact",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const athlete = app.jwt.sign(claims("runner"));
+    const crew = app.jwt.sign(claims("crew-a"));
+    const stranger = app.jwt.sign(claims("stranger"));
+    const { id: roomId, joinCode } = await createRoom(app, athlete);
+    await joinAsCrew(app, joinCode, crew);
+    await app.close();
+
+    // A fresh process has none of this room in memory; everything must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, crew, athlete, stranger] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const get = async (url, token) => {
+        const res = await app.inject({ method: "GET", url, headers: { authorization: "Bearer " + token } });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const out = {
+        crewRoom: await get("/race-rooms/" + roomId, crew),
+        crewMine: await get("/race-rooms/mine", crew),
+        strangerRoom: await get("/race-rooms/" + roomId, stranger),
+        crewPing: (await app.inject({
+          method: "POST",
+          url: "/race-rooms/" + roomId + "/pings",
+          payload: { latitude: 42.005, longitude: -70.0, recordedAt: new Date(Date.now() - 20000).toISOString() },
+          headers: { authorization: "Bearer " + crew }
+        })).statusCode,
+        athletePing: (await app.inject({
+          method: "POST",
+          url: "/race-rooms/" + roomId + "/pings",
+          payload: { latitude: 42.005, longitude: -70.0, recordedAt: new Date(Date.now() - 20000).toISOString() },
+          headers: { authorization: "Bearer " + athlete }
+        })).statusCode
+      };
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crew, athlete, stranger],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      crewRoom: { status: number; body: { room: { memberships: Array<{ userId: string; role: string }>; course?: { checkpoints: unknown[] } } } };
+      crewMine: { status: number; body: { rooms: Array<{ id: string }> } };
+      strangerRoom: { status: number };
+      crewPing: number;
+      athletePing: number;
+    };
+
+    assert.equal(result.crewRoom.status, 200, "paid entitlement survives the restart");
+    const roles = Object.fromEntries(result.crewRoom.body.room.memberships.map((m) => [m.userId, m.role]));
+    assert.equal(roles["crew-a"], "crew_member");
+    assert.equal(roles["runner"], "athlete");
+    assert.equal(result.crewRoom.body.room.course?.checkpoints.length, 2);
+    assert.ok(result.crewMine.body.rooms.some((r) => r.id === roomId), "the room is on the crew member's list");
+    assert.equal(result.strangerRoom.status, 403);
+    // Only the athlete's phone may feed runner progress; that rule still holds after a restart.
+    assert.equal(result.crewPing, 403);
+    assert.equal(result.athletePing, 201);
+  }
+);
