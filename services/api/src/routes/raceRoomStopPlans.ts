@@ -8,7 +8,7 @@ import {
   idempotencyErrorReply,
   releaseIdempotentMutation
 } from "../lib/httpIdempotency.js";
-import { evaluateEntitlement, getRaceRoom, requireCourseEditor, saveRaceRoom } from "./raceRooms.js";
+import { commitRaceRoomUpdate, evaluateEntitlement, getRaceRoom, requireCourseEditor } from "./raceRooms.js";
 
 /**
  * Empty note `body` (including whitespace-only) clears that notes field rather than 400.
@@ -172,10 +172,18 @@ async function upsertStopPlan(
 
   let finished = false;
   try {
-    const latest = (await getRaceRoom(roomId)) ?? room;
-    const nextPlan = applyStopPlanUpsert(overlayForCheckpoint(latest, checkpointId), checkpointId, parsed.data);
-    const updatedRoom = replaceStopPlan(latest, checkpointId, nextPlan);
-    await saveRaceRoom(updatedRoom);
+    let missingCheckpoint = false;
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      if (!checkpointExists(latest, checkpointId)) {
+        missingCheckpoint = true;
+        return latest;
+      }
+      const nextPlan = applyStopPlanUpsert(overlayForCheckpoint(latest, checkpointId), checkpointId, parsed.data);
+      return replaceStopPlan(latest, checkpointId, nextPlan);
+    });
+    if (!updatedRoom || missingCheckpoint) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
     const body = toStopPlanResponse(roomId, checkpointId, overlayForCheckpoint(updatedRoom, checkpointId));
     await completeIdempotentMutation(request, parsed.data, 200, body);
     finished = true;
@@ -239,9 +247,17 @@ export async function raceRoomStopPlanRoutes(app: FastifyInstance): Promise<void
 
     let finished = false;
     try {
-      const latest = (await getRaceRoom(roomId)) ?? room;
-      const updatedRoom = replaceStopPlan(latest, checkpointId, undefined);
-      await saveRaceRoom(updatedRoom);
+      let missingCheckpoint = false;
+      const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+        if (!checkpointExists(latest, checkpointId)) {
+          missingCheckpoint = true;
+          return latest;
+        }
+        return replaceStopPlan(latest, checkpointId, undefined);
+      });
+      if (!updatedRoom || missingCheckpoint) {
+        return reply.code(404).send({ error: "Checkpoint not found" });
+      }
       const body = toStopPlanResponse(roomId, checkpointId, undefined);
       await completeIdempotentMutation(request, idemBody, 200, body);
       finished = true;

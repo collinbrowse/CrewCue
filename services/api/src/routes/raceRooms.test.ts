@@ -15,6 +15,8 @@ import {
   ingestPersistedRaceRoomInviteWithoutClobberForTests,
   saveRaceRoom,
   setMembershipWriteDelayForTests,
+  setRoomRuntimeLockWaitForTests,
+  setRoomSaveTailWaitForTests,
   setWs2LoadDelayForTests
 } from "./raceRooms.js";
 import type { RaceRoomInvite } from "@crewcue/contracts";
@@ -1699,6 +1701,126 @@ test("course save keeps a join that lands while the course read is in flight", a
     assert.equal(rooms.some((room) => room.id === roomId), true);
   } finally {
     setWs2LoadDelayForTests(undefined);
+    await app.close();
+  }
+});
+
+test("display-name save queued behind a join does not drop the joiner", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerSub = "owner-name-vs-join";
+  const joinerSub = "joiner-name-vs-join";
+  const ownerToken = app.jwt.sign(buildClaims(ownerSub));
+  const joinerToken = app.jwt.sign(buildClaims(joinerSub));
+
+  try {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: ownerSub,
+        name: "Name Versus Join",
+        creatorName: "Original Owner",
+        creatorRole: "athlete"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const created = createResponse.json() as { id: string; joinCode?: string };
+    assert.ok(created.joinCode);
+    const live = await getRaceRoom(created.id);
+    assert.ok(live);
+
+    let releaseSlow: () => void = () => {};
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let markSlow: () => void = () => {};
+    const slowEntered = new Promise<void>((resolve) => {
+      markSlow = resolve;
+    });
+    let markJoinWaiting: () => void = () => {};
+    const joinWaiting = new Promise<void>((resolve) => {
+      markJoinWaiting = resolve;
+    });
+    let markRenameEntered: () => void = () => {};
+    const renameEntered = new Promise<void>((resolve) => {
+      markRenameEntered = resolve;
+    });
+    let tailWaits = 0;
+    setPersistRaceRoomBeforeWriteForTests(async (writing) => {
+      if (writing.description === "hold-persist") {
+        markSlow();
+        await slowGate;
+      }
+    });
+    setRoomSaveTailWaitForTests((key) => {
+      if (key !== created.id) {
+        return;
+      }
+      tailWaits += 1;
+      if (tailWaits === 1) {
+        markJoinWaiting();
+      } else {
+        markRenameEntered();
+      }
+    });
+    setRoomRuntimeLockWaitForTests((waitingRoomId) => {
+      if (waitingRoomId === created.id) {
+        markRenameEntered();
+      }
+    });
+
+    const slowSave = saveRaceRoom({ ...live, description: "hold-persist" });
+    await slowEntered;
+
+    const joinPromise = app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: created.joinCode },
+      headers: { authorization: `Bearer ${joinerToken}` }
+    });
+    await Promise.race([
+      joinWaiting,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("join did not queue behind the in-flight room save")), 5000);
+      })
+    ]);
+
+    const renamePromise = app.inject({
+      method: "PATCH",
+      url: `/race-rooms/${created.id}/members/${ownerSub}`,
+      payload: { displayName: "Renamed Owner" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    await Promise.race([
+      renameEntered,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("display-name save did not overlap the queued join")), 5000);
+      })
+    ]);
+    releaseSlow();
+
+    const [joined, renamed] = await Promise.all([joinPromise, renamePromise]);
+    await slowSave;
+    assert.equal(joined.statusCode, 200, joined.body);
+    assert.equal(renamed.statusCode, 200, renamed.body);
+
+    const settled = await getRaceRoom(created.id);
+    assert.ok(settled);
+    assert.equal(
+      settled.memberships.some((member) => member.userId === joinerSub),
+      true,
+      "display-name save committed a roster from before the join"
+    );
+    const owner = settled.memberships.find((member) => member.userId === ownerSub);
+    assert.equal(owner?.displayName, "Renamed Owner");
+    assert.equal(settled.creatorName, "Renamed Owner");
+  } finally {
+    setPersistRaceRoomBeforeWriteForTests(undefined);
+    setRoomSaveTailWaitForTests(undefined);
+    setRoomRuntimeLockWaitForTests(undefined);
     await app.close();
   }
 });
