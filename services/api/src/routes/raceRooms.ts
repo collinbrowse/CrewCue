@@ -398,6 +398,13 @@ function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
 const roomSaveTail = new Map<string, Promise<void>>();
 const inviteSaveTail = new Map<string, Promise<void>>();
 
+let roomSaveTailWaitForTests: ((key: string) => void) | undefined;
+
+/** Test-only signal when a room or invite persist has to wait for an in-flight write. */
+export function setRoomSaveTailWaitForTests(listener: ((key: string) => void) | undefined): void {
+  roomSaveTailWaitForTests = listener;
+}
+
 async function withExclusiveTail<T>(
   tails: Map<string, Promise<void>>,
   key: string,
@@ -408,7 +415,11 @@ async function withExclusiveTail<T>(
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const contended = tails.has(key);
   tails.set(key, current);
+  if (contended) {
+    roomSaveTailWaitForTests?.(key);
+  }
   await previous.catch(() => undefined);
   try {
     return await fn();
@@ -740,10 +751,12 @@ async function withRoomRuntimeLock<T>(roomId: string, fn: () => Promise<T>): Pro
 }
 
 /**
- * Re-read the room after any await and persist `edit(latest)`.
- * Course, checkpoint, and plan-of-record handlers await (idempotency, runtime
- * hydrate, estimate lookup) while holding a snapshot. Saving that snapshot
- * drops a join or display name that landed in the gap.
+ * Re-read the room under the runtime lock and persist `edit(latest)`.
+ * A full-document save that snapshotted before an in-flight persist, then
+ * queued behind the writer that adds a member, commits the roster from before
+ * that join. The joiner already received 200 and then vanishes. Course,
+ * checkpoint, stop-plan, map, entitlement, and member handlers all go through
+ * here so they serialize with join and invite accept.
  */
 export async function commitRaceRoomUpdate(
   roomId: string,
@@ -2694,21 +2707,33 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Checkpoint not found" });
     }
 
-    const nextCheckpoints = room.course.checkpoints.map((checkpoint) => {
-      if (checkpoint.id !== checkpointId) {
-        return checkpoint;
+    let checkpointMissing = false;
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      if (!latest.course?.checkpoints.some((checkpoint) => checkpoint.id === checkpointId)) {
+        checkpointMissing = true;
+        return latest;
       }
-      return {
-        ...checkpoint,
-        ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
-        ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
-      };
+      const nextCheckpoints = latest.course.checkpoints.map((checkpoint) => {
+        if (checkpoint.id !== checkpointId) {
+          return checkpoint;
+        }
+        return {
+          ...checkpoint,
+          ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
+          ...(parsed.data.tags !== undefined ? { tags: parsed.data.tags } : {})
+        };
+      });
+      return syncWorkspaceCheckpoints(
+        { ...latest, course: { ...latest.course, checkpoints: nextCheckpoints } },
+        nextCheckpoints
+      );
     });
-    const updatedRoom = syncWorkspaceCheckpoints(
-      { ...room, course: { ...room.course, checkpoints: nextCheckpoints } },
-      nextCheckpoints
-    );
-    await saveRaceRoom(updatedRoom);
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (checkpointMissing) {
+      return reply.code(404).send({ error: "Checkpoint not found" });
+    }
     return reply.send(updatedRoom);
   });
 
@@ -2856,9 +2881,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid map workspace payload" });
     }
 
-    let updatedRoom: RaceRoom;
+    let updatedRoom: RaceRoom | undefined;
     try {
-      updatedRoom = applyRaceMapWorkspacePut(room, parsed.data);
+      // Re-read under the lock. `room` was loaded before body parsing; saving it
+      // whole drops a join that committed while this request was in flight.
+      updatedRoom = await commitRaceRoomUpdate(roomId, (latest) =>
+        applyRaceMapWorkspacePut(latest, parsed.data)
+      );
     } catch (err) {
       const code = err instanceof Error ? err.message : "";
       if (
@@ -2873,10 +2902,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       throw err;
     }
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
 
-    // Persist workspace before wiping dependents so a failed save cannot destroy
-    // task boards / adaptive / sync payloads while leaving the prior workspace.
-    await saveRaceRoom(updatedRoom);
+    // Workspace is already durable. Wipe dependents only after that save so a
+    // failed save cannot destroy task boards while the prior workspace remains.
 
     await discardTaskBoardState(roomId);
     await discardWs2Runtime(roomId);
@@ -3142,16 +3173,29 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(403).send({ error: "You can only update your own display name" });
       }
       const trimmed = nameParsed.data.displayName.trim();
-      let updatedRoom: RaceRoom = {
-        ...room,
-        memberships: room.memberships.map((member) =>
-          member.userId === memberUserId ? { ...member, displayName: trimmed } : member
-        )
-      };
-      if (memberUserId === room.athleteId) {
-        updatedRoom = { ...updatedRoom, creatorName: trimmed };
+      let memberMissing = false;
+      const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+        if (!latest.memberships.some((member) => member.userId === memberUserId)) {
+          memberMissing = true;
+          return latest;
+        }
+        let next: RaceRoom = {
+          ...latest,
+          memberships: latest.memberships.map((member) =>
+            member.userId === memberUserId ? { ...member, displayName: trimmed } : member
+          )
+        };
+        if (memberUserId === latest.athleteId) {
+          next = { ...next, creatorName: trimmed };
+        }
+        return next;
+      });
+      if (!updatedRoom) {
+        return reply.code(404).send({ error: "Race room not found" });
       }
-      await saveRaceRoom(updatedRoom);
+      if (memberMissing) {
+        return reply.code(404).send({ error: "Member not found" });
+      }
       const updatedMembership = updatedRoom.memberships.find((member) => member.userId === memberUserId);
       if (!updatedMembership) {
         return reply.code(500).send({ error: "Could not update display name" });
@@ -3172,13 +3216,34 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
     }
 
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: room.memberships.map((member) =>
-        member.userId === memberUserId ? { ...member, role: parsed.data.role } : member
-      )
-    };
-    await saveRaceRoom(updatedRoom);
+    let memberMissing = false;
+    let ownerRoleBlocked = false;
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      const liveTarget = latest.memberships.find((member) => member.userId === memberUserId);
+      if (!liveTarget) {
+        memberMissing = true;
+        return latest;
+      }
+      if (liveTarget.userId === latest.athleteId && parsed.data.role !== "athlete") {
+        ownerRoleBlocked = true;
+        return latest;
+      }
+      return {
+        ...latest,
+        memberships: latest.memberships.map((member) =>
+          member.userId === memberUserId ? { ...member, role: parsed.data.role } : member
+        )
+      };
+    });
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (memberMissing) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
+    if (ownerRoleBlocked) {
+      return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
+    }
     const updatedMembership = updatedRoom.memberships.find((member) => member.userId === memberUserId);
     if (!updatedMembership) {
       return reply.code(500).send({ error: "Could not update member role" });
@@ -3208,11 +3273,31 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Member not found" });
     }
 
-    const updatedRoom: RaceRoom = {
-      ...room,
-      memberships: room.memberships.filter((member) => member.userId !== memberUserId)
-    };
-    await saveRaceRoom(updatedRoom);
+    let memberMissing = false;
+    let ownerRemovalBlocked = false;
+    const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      if (!latest.memberships.some((member) => member.userId === memberUserId)) {
+        memberMissing = true;
+        return latest;
+      }
+      if (memberUserId === latest.athleteId) {
+        ownerRemovalBlocked = true;
+        return latest;
+      }
+      return {
+        ...latest,
+        memberships: latest.memberships.filter((member) => member.userId !== memberUserId)
+      };
+    });
+    if (!updatedRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (ownerRemovalBlocked) {
+      return reply.code(409).send({ error: "Race owner cannot be removed from room" });
+    }
+    if (memberMissing) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
     scheduleStreamChannelMembershipSync(updatedRoom, request.log);
     return reply.send({ room: updatedRoom });
   });
@@ -3265,16 +3350,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid entitlement payload" });
     }
 
-    const updated: RaceRoom = {
-      ...room,
+    const updated = await commitRaceRoomUpdate(roomId, (latest) => ({
+      ...latest,
       entitlement: {
         status: parsed.data.status,
         lastUpdatedAt: new Date().toISOString(),
         source: "manual"
       }
-    };
-
-    await saveRaceRoom(updated);
+    }));
+    if (!updated) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
     return reply.send(updated.entitlement);
   });
 
