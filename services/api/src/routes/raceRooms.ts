@@ -2945,6 +2945,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite payload" });
     }
 
+    // An invite grants its role on accept, so it must not be a way around the owner-only
+    // role rules. Only the race owner and team managers may invite above crew_member.
+    const canInviteAboveCrewMember =
+      room.athleteId === request.identity.sub || membership.role === "team_manager";
+    if (!canInviteAboveCrewMember && parsed.data.role !== "crew_member") {
+      return reply.code(403).send({ error: "Only the race owner or a team manager can invite above crew_member" });
+    }
+
     const invite: RaceRoomInvite = {
       token: randomUUID(),
       roomId,

@@ -456,3 +456,55 @@ test("accepting a crew invite does not demote the race athlete", async () => {
 
   await app.close();
 });
+
+test("only the owner or a team manager can issue invites above crew_member", async () => {
+  const app = buildApp();
+  await app.ready();
+
+  const ownerToken = app.jwt.sign(buildClaims("athlete-user"));
+  const chiefToken = app.jwt.sign(buildClaims("chief-user"));
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: { teamId: "team-1", athleteId: "athlete-user", name: "Race Room", creatorRole: "athlete" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(createResponse.statusCode, 201);
+  const roomId = (createResponse.json() as { id: string }).id;
+
+  const chiefInvite = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "chief@example.com", role: "crew_chief" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(chiefInvite.statusCode, 201);
+  const accept = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites/accept`,
+    payload: { token: (chiefInvite.json() as { token: string }).token },
+    headers: { authorization: `Bearer ${chiefToken}` }
+  });
+  assert.equal(accept.statusCode, 200);
+
+  for (const role of ["team_manager", "athlete", "crew_chief"]) {
+    const escalated = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/invites`,
+      payload: { email: `${role}@example.com`, role },
+      headers: { authorization: `Bearer ${chiefToken}` }
+    });
+    assert.equal(escalated.statusCode, 403, `crew_chief must not invite ${role}`);
+  }
+
+  const crewInvite = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/invites`,
+    payload: { email: "crew@example.com", role: "crew_member" },
+    headers: { authorization: `Bearer ${chiefToken}` }
+  });
+  assert.equal(crewInvite.statusCode, 201);
+
+  await app.close();
+});
