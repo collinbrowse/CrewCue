@@ -121,7 +121,7 @@ Issues a pending invite for an email and target role.
 | 201 | Returns invite metadata (`token`, `roomId`, `email`, `role`, `expiresAt`) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
-| 403 | Not a member, insufficient role, or a non-owner, non-`team_manager` issuer requested a role other than `crew_member` |
+| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/invites/accept`

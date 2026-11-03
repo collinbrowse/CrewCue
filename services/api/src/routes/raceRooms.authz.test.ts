@@ -457,7 +457,7 @@ test("accepting a crew invite does not demote the race athlete", async () => {
   await app.close();
 });
 
-test("only the owner or a team manager can issue invites above crew_member", async () => {
+test("only the race owner can issue invites above crew_member", async () => {
   const app = buildApp();
   await app.ready();
 

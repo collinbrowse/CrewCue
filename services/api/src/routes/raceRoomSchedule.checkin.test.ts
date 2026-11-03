@@ -39,13 +39,18 @@ function buildClaims(sub: string) {
 
 type TestApp = ReturnType<typeof buildApp>;
 
-async function createPaidRoom(app: TestApp, ownerToken: string, name: string): Promise<string> {
+async function createPaidRoom(
+  app: TestApp,
+  ownerToken: string,
+  name: string,
+  athleteId = "athlete-1"
+): Promise<string> {
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "athlete-1",
+      athleteId,
       name,
       creatorRole: "team_manager"
     },
@@ -401,7 +406,7 @@ test("W2-1 EC3 unauthorized / unpaid write leaves schedule unchanged", async () 
   const ownerToken = app.jwt.sign(buildClaims("owner-w21-ec3"));
   const strangerToken = app.jwt.sign(buildClaims("stranger-w21-ec3"));
   const athleteToken = app.jwt.sign(buildClaims("athlete-w21-ec3"));
-  const roomId = await createPaidRoom(app, ownerToken, "W2-1 EC3 authz");
+  const roomId = await createPaidRoom(app, ownerToken, "W2-1 EC3 authz", "owner-w21-ec3");
   await put50kCourse(app, roomId, ownerToken);
 
   const inviteAthlete = await app.inject({
