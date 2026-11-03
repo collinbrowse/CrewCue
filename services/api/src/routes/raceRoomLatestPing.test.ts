@@ -183,6 +183,48 @@ test("a rejected ping does not replace the latest accepted one", async () => {
   await app.close();
 });
 
+test("an offline outbox replay of older or duplicate pings never rewinds what crew see", async () => {
+  const app = buildApp();
+  await app.ready();
+  const athlete = app.jwt.sign(claims("runner"));
+  const crew = app.jwt.sign(claims("crew-a"));
+  const { id: roomId, joinCode } = await createRoom(app, athlete);
+  await joinAsCrew(app, joinCode, crew);
+
+  const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+  const first = { latitude: 42.001, longitude: -70.0, recordedAt: at(60) };
+  const second = { latitude: 42.002, longitude: -70.0, recordedAt: at(40) };
+  const third = { latitude: 42.003, longitude: -70.0, recordedAt: at(20) };
+
+  // Signal returns: the phone's newest sample lands first, then the queued backlog drains behind it.
+  const firstAccepted = await ping(app, roomId, athlete, first);
+  assert.equal(firstAccepted.statusCode, 201);
+  const thirdAccepted = await ping(app, roomId, athlete, third);
+  assert.equal(thirdAccepted.statusCode, 201);
+  const thirdId = (thirdAccepted.json() as { pingId: string }).pingId;
+
+  const crewBefore = (await latest(app, roomId, crew)).json() as RaceRoomLatestPingResponse;
+  assert.equal(crewBefore.ping?.pingId, thirdId);
+
+  for (const replay of [second, first, third]) {
+    const replayed = await ping(app, roomId, athlete, replay);
+    assert.equal(replayed.statusCode, 422, replayed.body);
+    assert.equal((replayed.json() as { reason: string }).reason, "stale_recorded_at");
+  }
+
+  const crewAfter = (await latest(app, roomId, crew)).json() as RaceRoomLatestPingResponse;
+  assert.deepEqual(crewAfter.ping, crewBefore.ping);
+  assert.equal(crewAfter.ping?.recordedAt, third.recordedAt);
+
+  const projection = await app.inject({ method: "GET", url: `/race-rooms/${roomId}/projection`, headers: auth(crew) });
+  assert.equal(projection.statusCode, 200);
+  const projected = projection.json() as RaceRoomProjection;
+  assert.equal(projected.asOfPingId, thirdId);
+  assert.equal(projected.progressMeters, crewBefore.ping?.progressMeters);
+
+  await app.close();
+});
+
 test("latest ping applies the same auth, membership, and entitlement gates as ping history", async () => {
   const app = buildApp();
   await app.ready();
