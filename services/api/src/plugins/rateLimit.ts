@@ -1,4 +1,5 @@
 import fp from "fastify-plugin";
+import { clientAddress } from "../lib/clientAddress.js";
 
 interface Limit {
   max: number;
@@ -34,11 +35,12 @@ export const rateLimitPlugin = fp(async (app) => {
       }
     }
     const route = request.routeOptions.url;
+    const ip = clientAddress(request);
     const buckets: Array<{ key: string; max: number }> = [
-      { key: `${route}|${request.identity?.sub ?? request.ip}`, max: limit.max }
+      { key: `${route}|${request.identity?.sub ?? ip}`, max: limit.max }
     ];
     if (limit.perIpMax !== undefined) {
-      buckets.push({ key: `${route}|ip|${request.ip}`, max: limit.perIpMax });
+      buckets.push({ key: `${route}|ip|${ip}`, max: limit.perIpMax });
     }
     for (const bucket of buckets) {
       let w = windows.get(bucket.key);

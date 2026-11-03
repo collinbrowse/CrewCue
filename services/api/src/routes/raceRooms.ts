@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { clientAddress } from "../lib/clientAddress.js";
 import { deterministicRaceRoomId } from "../lib/deterministicRaceRoomId.js";
 import {
   beginIdempotentMutation,
@@ -625,8 +626,8 @@ const JOIN_PREVIEW_RATE_WINDOW_MS = 60_000;
 const JOIN_PREVIEW_RATE_LIMIT = 20;
 const joinPreviewRateState = new Map<string, { count: number; windowStartedAtMs: number }>();
 
-function readRequestIp(request: { ip?: string }): string {
-  return typeof request.ip === "string" && request.ip.trim().length > 0 ? request.ip.trim() : "unknown";
+function readRequestIp(request: FastifyRequest): string {
+  return clientAddress(request);
 }
 
 function isJoinPreviewRateLimited(ip: string): boolean {

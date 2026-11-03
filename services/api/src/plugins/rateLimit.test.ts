@@ -60,3 +60,45 @@ test("repeated room code attempts are throttled per user and per client address"
   assert.equal((await call("fresh-final")).statusCode, 429);
   await app.close();
 });
+
+test("join-by-code per-IP cap follows the visitor, not the shared proxy socket", async () => {
+  const app = buildApp();
+  await app.ready();
+  const tokenFor = (sub: string) => app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} });
+  const call = (sub: string, realIp: string) =>
+    app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      headers: { authorization: `Bearer ${tokenFor(sub)}`, "x-real-ip": realIp },
+      payload: { roomCode: "000000" }
+    });
+
+  // Three accounts at the same visitor address use the whole per-IP budget (3 × 10).
+  for (let user = 0; user < 3; user += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      assert.equal((await call(`edge-a-${user}`, "203.0.113.10")).statusCode, 404);
+    }
+  }
+  assert.equal((await call("edge-a-blocked", "203.0.113.10")).statusCode, 429);
+  // A different visitor behind the same proxy socket still has a budget.
+  assert.equal((await call("edge-b", "203.0.113.20")).statusCode, 404);
+  await app.close();
+});
+
+test("join preview rate limit follows the visitor, not the shared proxy socket", async () => {
+  const app = buildApp();
+  await app.ready();
+  const call = (realIp: string) =>
+    app.inject({
+      method: "GET",
+      url: "/race-rooms/join-preview/000000",
+      headers: { "x-real-ip": realIp }
+    });
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    assert.equal((await call("203.0.113.10")).statusCode, 404);
+  }
+  assert.equal((await call("203.0.113.10")).statusCode, 429);
+  assert.equal((await call("203.0.113.20")).statusCode, 404);
+  await app.close();
+});
