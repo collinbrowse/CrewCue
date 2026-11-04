@@ -33,6 +33,12 @@ const roots = [
   "AthletePingIngestPayload",
   "AthleteLatestPing",
   "RaceRoomLatestPingResponse",
+  "AthletePingBatchPoint",
+  "AthletePingBatchPayload",
+  "AthletePingBatchPointResult",
+  "AthletePingBatchResponse",
+  "AthleteTrackPoint",
+  "RaceRoomPingTrackResponse",
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
@@ -44,7 +50,9 @@ const skipProperties = new Set([
   "stopPlans",
   "bands",
   "cutoff",
-  "payload"
+  "payload",
+  // Live projection types join the client contracts with the crew live-ETA work, not with pings.
+  "projection"
 ]);
 const write = process.argv.includes("--write");
 

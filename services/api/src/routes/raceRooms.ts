@@ -12,7 +12,10 @@ import { z } from "zod";
 import {
   parseWaypointTags,
   type AthletePingHistoryEntry,
+  type AthletePingBatchPointResult,
+  type AthletePingBatchResponse,
   type AthletePingRejectReason,
+  type RaceRoomPingTrackResponse,
   type RaceRoomLatestPingResponse,
   type CheckpointVisit,
   type CheckpointVisitManualData,
@@ -51,8 +54,10 @@ import {
 import {
   hasUsableBaselineTrack,
   type ProjectionPing,
+  type ProjectionPreviousState,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
+import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } from "../lib/athletePingTrack.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
@@ -297,6 +302,28 @@ const ingestAthletePingInput = z.object({
   recordedAt: z.iso.datetime(),
   horizontalAccuracyMeters: z.number().positive().optional(),
   uploadIntervalSeconds: z.number().int().min(10).max(900).optional()
+});
+
+const MAX_PING_BATCH_POINTS = 500;
+
+const ingestAthletePingBatchInput = z.object({
+  points: z
+    .array(
+      z.object({
+        latitude: z.number().gte(-90).lte(90),
+        longitude: z.number().gte(-180).lte(180),
+        recordedAt: z.iso.datetime(),
+        horizontalAccuracyMeters: z.number().positive().optional()
+      })
+    )
+    .min(1)
+    .max(MAX_PING_BATCH_POINTS),
+  uploadIntervalSeconds: z.number().int().min(10).max(900).optional()
+});
+
+const pingTrackQuery = z.object({
+  after: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(2000).default(1000)
 });
 
 const manualCheckpointStopInput = z.object({
@@ -862,6 +889,7 @@ async function discardWs2Runtime(roomId: string): Promise<void> {
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
     await deleteWs2RuntimePayload(roomId);
+    await deleteTrack(roomId);
     roomPingState.delete(roomId);
     roomProjectionState.delete(roomId);
   });
@@ -1036,6 +1064,23 @@ const MAX_CLOCK_SKEW_MS = 120_000;
 const MAX_SPEED_MPS = 15;
 const MAX_HORIZONTAL_ACCURACY_M = 500;
 const PING_HISTORY_CAP = 50;
+/** A backlog never reaches further back than this, whatever the race clock says. */
+const MAX_PING_BACKLOG_MS = 48 * 60 * 60 * 1000;
+/** Samples this long before the race clock starts are warm-up, not race (e.g. the walk to the start). */
+const PRE_RACE_BACKLOG_GRACE_MS = 60 * 60 * 1000;
+
+/**
+ * Oldest `recordedAt` (ms) a backlog upload may carry. Older samples are rejected as `clock_skew`.
+ * `raceAnchorMs` is the room's race clock start (`raceStartAt`, else `activatedAt`), when known.
+ */
+export function backlogFloorMs(nowMs: number, raceAnchorMs: number | undefined): number {
+  const hardFloor = nowMs - MAX_PING_BACKLOG_MS;
+  // Before the start (or with no race clock) accept warm-up samples, as the single ping does.
+  if (raceAnchorMs === undefined || raceAnchorMs > nowMs) {
+    return hardFloor;
+  }
+  return Math.max(hardFloor, raceAnchorMs - PRE_RACE_BACKLOG_GRACE_MS);
+}
 
 function getOrInitPingState(roomId: string): RoomPingState {
   let state = roomPingState.get(roomId);
@@ -3364,6 +3409,115 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(updated.entitlement);
   });
 
+  type ProjectionSample = { pingId: string; latitude: number; longitude: number; recordedAtMs: number };
+
+  /**
+   * Fold accepted samples (oldest first) into the room projection. Checkpoint visits, stops and
+   * progress advance per sample; the live remaining-course pass runs once, for the newest sample.
+   * Caller holds the room runtime lock. Returns undefined when the room cannot project.
+   */
+  async function recomputeProjectionForSamples(
+    room: RaceRoom,
+    samples: ProjectionSample[],
+    previousAccepted: AcceptedPing | null,
+    lastUploadIntervalSeconds: number | undefined
+  ): Promise<RaceRoomProjection | undefined> {
+    const roomId = room.id;
+    const raceAnchor = resolveRaceAnchorIso(room);
+    if (samples.length === 0 || !room.course || room.plannedPaceSecondsPerKm === undefined || !raceAnchor) {
+      return undefined;
+    }
+    const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
+    if (!routeMetricPoints) {
+      roomProjectionState.delete(roomId);
+      app.log.warn({ roomId }, "projection_skipped_missing_route_layer");
+      return undefined;
+    }
+    const prev = roomProjectionState.get(roomId);
+    let snapshot: ProjectionPreviousState | null = prev
+      ? {
+          lastProgressMeters: prev.lastProgressMeters,
+          splitCrossedAt: { ...prev.splitCrossedAt },
+          visitStates: structuredClone(prev.visitStates),
+          visitMeta: structuredClone(prev.visitMeta),
+          rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+        }
+      : null;
+    const commitDelay = pingProjectionCommitDelayForTests;
+    if (commitDelay?.roomId === roomId) {
+      pingProjectionCommitDelayForTests = undefined;
+      await commitDelay.delay();
+    }
+    try {
+      let previousPing = previousAccepted
+        ? {
+            pingId: previousAccepted.pingId,
+            latitude: previousAccepted.latitude,
+            longitude: previousAccepted.longitude,
+            recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
+          }
+        : null;
+      let core: RaceRoomProjectionCore | undefined;
+      for (const sample of samples) {
+        const ping = {
+          pingId: sample.pingId,
+          latitude: sample.latitude,
+          longitude: sample.longitude,
+          recordedAt: new Date(sample.recordedAtMs).toISOString()
+        };
+        const next = recomputeRaceProjection({
+          roomId,
+          activatedAt: raceAnchor,
+          course: room.course,
+          plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
+          ping,
+          previousPing,
+          previous: snapshot,
+          routeMetricPoints,
+          canonicalCourseLengthMeters: room.courseDistanceMeters
+        });
+        core = next.projection;
+        snapshot = next.state;
+        previousPing = ping;
+      }
+      if (!core || !snapshot) {
+        return undefined;
+      }
+      const enrichedCore = enrichProjectionWithLiveRemaining(core, room, routeMetricPoints, raceAnchor);
+      const newest = samples[samples.length - 1]!;
+      const projection = attachProjectionTimeliness(
+        enrichedCore,
+        newest.recordedAtMs,
+        Date.now(),
+        lastUploadIntervalSeconds
+      );
+      roomProjectionState.set(roomId, {
+        lastProgressMeters: snapshot.lastProgressMeters,
+        splitCrossedAt: { ...snapshot.splitCrossedAt },
+        visitStates: structuredClone(snapshot.visitStates),
+        visitMeta: structuredClone(snapshot.visitMeta),
+        rollingMovingSpeedMps: snapshot.rollingMovingSpeedMps,
+        lastProjectionCore: enrichedCore
+      });
+      app.log.info(
+        {
+          projection_recompute: {
+            roomId,
+            pingId: newest.pingId,
+            samples: samples.length,
+            progressMeters: enrichedCore.progressMeters,
+            courseLengthMeters: enrichedCore.courseLengthMeters
+          }
+        },
+        "projection_recompute"
+      );
+      return projection;
+    } catch (err) {
+      app.log.warn({ err, roomId }, "projection_recompute_failed");
+      return undefined;
+    }
+  }
+
   app.post("/race-rooms/:roomId/pings", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
@@ -3484,90 +3638,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       "ping_decision"
     );
 
-    let projection: RaceRoomProjection | undefined;
-    const raceAnchor = resolveRaceAnchorIso(room);
-    if (room.course && room.plannedPaceSecondsPerKm !== undefined && raceAnchor) {
-      const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
-      if (!routeMetricPoints) {
-        roomProjectionState.delete(roomId);
-        app.log.warn({ roomId }, "projection_skipped_missing_route_layer");
-      } else {
-        const prev = roomProjectionState.get(roomId);
-        const previousSnapshot = prev
-          ? {
-              lastProgressMeters: prev.lastProgressMeters,
-              splitCrossedAt: { ...prev.splitCrossedAt },
-              visitStates: structuredClone(prev.visitStates),
-              visitMeta: structuredClone(prev.visitMeta),
-              rollingMovingSpeedMps: prev.rollingMovingSpeedMps
-            }
-          : null;
-        const commitDelay = pingProjectionCommitDelayForTests;
-        if (commitDelay?.roomId === roomId) {
-          pingProjectionCommitDelayForTests = undefined;
-          await commitDelay.delay();
-        }
-        try {
-          const { projection: nextProjectionCore, state } = recomputeRaceProjection({
-            roomId,
-            activatedAt: raceAnchor,
-            course: room.course,
-            plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
-            ping: {
-              pingId,
-              latitude: body.latitude,
-              longitude: body.longitude,
-              recordedAt: body.recordedAt
-            },
-            previousPing: previousAccepted
-              ? {
-                  pingId: previousAccepted.pingId,
-                  latitude: previousAccepted.latitude,
-                  longitude: previousAccepted.longitude,
-                  recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
-                }
-              : null,
-            previous: previousSnapshot,
-            routeMetricPoints,
-            canonicalCourseLengthMeters: room.courseDistanceMeters
-          });
-          const enrichedCore = enrichProjectionWithLiveRemaining(
-            nextProjectionCore,
-            room,
-            routeMetricPoints,
-            raceAnchor
-          );
-          const evaluatedAtMs = Date.now();
-          projection = attachProjectionTimeliness(
-            enrichedCore,
-            recordedAtMs,
-            evaluatedAtMs,
-            pingState.lastUploadIntervalSeconds
-          );
-          roomProjectionState.set(roomId, {
-            lastProgressMeters: state.lastProgressMeters,
-            splitCrossedAt: { ...state.splitCrossedAt },
-            visitStates: structuredClone(state.visitStates),
-            visitMeta: structuredClone(state.visitMeta),
-            rollingMovingSpeedMps: state.rollingMovingSpeedMps,
-            lastProjectionCore: enrichedCore
-          });
-          app.log.info(
-            {
-              projection_recompute: {
-                roomId,
-                pingId,
-                progressMeters: enrichedCore.progressMeters,
-                courseLengthMeters: enrichedCore.courseLengthMeters
-              }
-            },
-            "projection_recompute"
-          );
-        } catch (err) {
-          app.log.warn({ err, roomId }, "projection_recompute_failed");
-        }
+    await appendTrackPoints(roomId, [
+      {
+        recordedAtMs,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        ...(body.horizontalAccuracyMeters !== undefined ? { accuracyMeters: body.horizontalAccuracyMeters } : {}),
+        receivedAtMs,
+        pingId
       }
-    }
+    ]);
+
+    const projection = await recomputeProjectionForSamples(
+      room,
+      [{ pingId, latitude: body.latitude, longitude: body.longitude, recordedAtMs }],
+      previousAccepted,
+      pingState.lastUploadIntervalSeconds
+    );
 
     await saveWs2RuntimeSnapshot(roomId);
 
@@ -3585,6 +3672,219 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ...(projection ? { projection } : {})
     });
     });
+  });
+
+  /**
+   * Backlog upload: every sample the athlete phone buffered while it had no service, in one request.
+   * Same gates as the single ping. Points are judged oldest first; each one is accepted, a
+   * `duplicate` of a stored sample (a replayed upload, treated as success), or rejected. Unlike the
+   * single ping, samples may be old: only the future side of the clock-skew window applies, back
+   * to `backlogFloorMs`.
+   */
+  app.post("/race-rooms/:roomId/pings/batch", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (!room.memberships.some((member) => member.userId === request.identity?.sub)) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    if (request.identity.sub !== room.athleteId) {
+      return reply.code(403).send({ error: "Only the race athlete can ingest location pings" });
+    }
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+
+    await loadWs2RuntimeIfNeeded(roomId);
+
+    const parsed = ingestAthletePingBatchInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid ping batch payload" });
+    }
+    const body = parsed.data;
+    const receivedAt = new Date().toISOString();
+    const receivedAtMs = Date.parse(receivedAt);
+    const actorUserId = request.identity.sub;
+
+    if (room.status !== "active") {
+      await pushPingHistory(roomId, {
+        id: randomUUID(),
+        at: receivedAt,
+        actor: actorUserId,
+        decision: "rejected",
+        reason: "room_not_active"
+      });
+      return reply.code(422).send({
+        decision: "rejected" as const,
+        reason: "room_not_active" as const,
+        message: "Race room must be active to ingest pings"
+      });
+    }
+
+    const anchorIso = resolveRaceAnchorIso(room);
+    const anchorMs = anchorIso ? Date.parse(anchorIso) : Number.NaN;
+    const floorMs = backlogFloorMs(receivedAtMs, Number.isNaN(anchorMs) ? undefined : anchorMs);
+    const points = body.points.map((point, index) => ({ ...point, index, recordedAtMs: Date.parse(point.recordedAt) }));
+    const ordered = [...points].sort((a, b) => a.recordedAtMs - b.recordedAtMs || a.index - b.index);
+
+    return await withRoomRuntimeLock(roomId, async () => {
+      const pingState = getOrInitPingState(roomId);
+      const previousAccepted = pingState.lastAccepted;
+      const stored = previousAccepted
+        ? await existingTrackTimes(
+            roomId,
+            ordered.filter((p) => p.recordedAtMs <= previousAccepted.recordedAtMs).map((p) => p.recordedAtMs)
+          )
+        : new Set<number>();
+      if (previousAccepted) {
+        stored.add(previousAccepted.recordedAtMs);
+      }
+
+      const results: AthletePingBatchPointResult[] = new Array(points.length);
+      const accepted: Array<ProjectionSample & { accuracyMeters?: number }> = [];
+      let last = previousAccepted;
+      for (const point of ordered) {
+        const decide = (decision: AthletePingBatchPointResult["decision"], reason?: AthletePingRejectReason, pingId?: string) => {
+          results[point.index] = {
+            recordedAt: point.recordedAt,
+            decision,
+            ...(reason ? { reason } : {}),
+            ...(pingId ? { pingId } : {})
+          };
+        };
+        if (point.horizontalAccuracyMeters !== undefined && point.horizontalAccuracyMeters > MAX_HORIZONTAL_ACCURACY_M) {
+          decide("rejected", "accuracy_too_poor");
+          continue;
+        }
+        if (point.recordedAtMs > receivedAtMs + MAX_CLOCK_SKEW_MS || point.recordedAtMs < floorMs) {
+          decide("rejected", "clock_skew");
+          continue;
+        }
+        if (last && point.recordedAtMs <= last.recordedAtMs) {
+          if (stored.has(point.recordedAtMs)) {
+            decide("duplicate");
+          } else {
+            decide("rejected", "stale_recorded_at");
+          }
+          continue;
+        }
+        if (last) {
+          const dtSec = (point.recordedAtMs - last.recordedAtMs) / 1000;
+          const dist = distanceMeters(last.latitude, last.longitude, point.latitude, point.longitude);
+          if (dist / dtSec > MAX_SPEED_MPS) {
+            decide("rejected", "implausible_motion");
+            continue;
+          }
+        }
+        const pingId = randomUUID();
+        last = {
+          pingId,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          recordedAtMs: point.recordedAtMs,
+          receivedAtMs
+        };
+        stored.add(point.recordedAtMs);
+        accepted.push({
+          pingId,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          recordedAtMs: point.recordedAtMs,
+          ...(point.horizontalAccuracyMeters !== undefined ? { accuracyMeters: point.horizontalAccuracyMeters } : {})
+        });
+        decide("accepted", undefined, pingId);
+      }
+
+      pingState.lastAccepted = last;
+      if (body.uploadIntervalSeconds !== undefined) {
+        pingState.lastUploadIntervalSeconds = body.uploadIntervalSeconds;
+      }
+      for (const result of results) {
+        if (result.decision === "duplicate") {
+          continue;
+        }
+        pingState.history.push({
+          id: randomUUID(),
+          at: receivedAt,
+          actor: actorUserId,
+          decision: result.decision,
+          ...(result.reason ? { reason: result.reason } : {}),
+          ...(result.pingId ? { pingId: result.pingId } : {})
+        });
+      }
+      if (pingState.history.length > PING_HISTORY_CAP) {
+        pingState.history.splice(0, pingState.history.length - PING_HISTORY_CAP);
+      }
+
+      await appendTrackPoints(
+        roomId,
+        accepted.map((sample) => ({ ...sample, receivedAtMs }))
+      );
+      const projection = await recomputeProjectionForSamples(
+        room,
+        accepted,
+        previousAccepted,
+        pingState.lastUploadIntervalSeconds
+      );
+      await saveWs2RuntimeSnapshot(roomId);
+
+      const counts = { accepted: 0, duplicate: 0, rejected: 0 };
+      for (const result of results) {
+        counts[result.decision] += 1;
+      }
+      app.log.info({ ping_batch_decision: { roomId, actor: actorUserId, ...counts } }, "ping_batch_decision");
+
+      const response: AthletePingBatchResponse = {
+        roomId,
+        receivedAt,
+        results,
+        acceptedCount: counts.accepted,
+        ...(projection ? { projection } : {})
+      };
+      return reply.code(200).send(response);
+    });
+  });
+
+  /** The athlete's path: accepted samples oldest first, paged by `after` (exclusive). Any member may read it. */
+  app.get("/race-rooms/:roomId/pings/track", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (!room.memberships.some((member) => member.userId === request.identity?.sub)) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+    const query = pingTrackQuery.safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({ error: "Invalid track query" });
+    }
+    const { after, limit } = query.data;
+    const rows = await listTrackPoints(roomId, after ? Date.parse(after) : undefined, limit);
+    const points = rows.map((row) => ({
+      recordedAt: new Date(row.recordedAtMs).toISOString(),
+      latitude: row.latitude,
+      longitude: row.longitude
+    }));
+    const response: RaceRoomPingTrackResponse = {
+      roomId,
+      points,
+      ...(points.length === limit ? { nextCursor: points[points.length - 1]!.recordedAt } : {})
+    };
+    return reply.send(response);
   });
 
   app.get("/race-rooms/:roomId/projection", async (request, reply) => {
