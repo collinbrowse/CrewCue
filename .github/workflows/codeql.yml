@@ -44,22 +44,33 @@ jobs:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 60
+    env:
+      # Unsigned arm64 simulator build: same sources as the TestFlight archive, no App Store secrets.
+      XCODEBUILD_ARGS: >-
+        -project apps/ios/CrewCue.xcodeproj -scheme CrewCue -configuration Debug
+        -derivedDataPath ${{ github.workspace }}/../DerivedData
+        -clonedSourcePackagesDirPath ${{ github.workspace }}/../SourcePackages
+        ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
     steps:
       - uses: actions/checkout@v7
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../SourcePackages
+          key: spm-${{ hashFiles('apps/ios/CrewCue.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      # Build third-party packages before CodeQL starts tracing, so only our sources are extracted.
+      - name: Build dependencies
+        run: xcodebuild build $XCODEBUILD_ARGS -destination 'generic/platform=iOS Simulator'
       - uses: github/codeql-action/init@v4
         with:
           languages: swift
           build-mode: manual
-      # Unsigned simulator build: same sources as the TestFlight archive, no App Store secrets.
       - name: Build CrewCue
         run: |
-          xcodebuild build \
-            -project apps/ios/CrewCue.xcodeproj -scheme CrewCue -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO
+          find apps/ios packages/client-core/Sources -name '*.swift' -exec touch {} +
+          xcodebuild build $XCODEBUILD_ARGS -destination 'generic/platform=iOS Simulator'
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:swift
