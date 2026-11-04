@@ -27,6 +27,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "pod:ios": "node scripts/ios-pod-install.mjs",
     "postinstall": "patch-package && npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client",
+    "projection:backtest": "npm run projection:backtest -w @crewcue/api --",
     "release": "node scripts/release.mjs",
     "setup:macos-silicon": "bash scripts/setup-apple-silicon-toolchain.sh",
     "test": "npm run test --workspaces --if-present",
