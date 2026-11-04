@@ -9,7 +9,8 @@ import type { RaceCourse, RaceCourseCheckpoint } from "@crewcue/contracts";
 import { checkpointsWithProjectedDistances, geodesicCumulativeAtVertices, type CourseMetricPoint } from "@crewcue/map-core";
 import { recomputeRaceProjection, type ProjectionPreviousState } from "../../src/lib/raceProjection.js";
 import { planAt, type BacktestData, type Effort } from "./data.js";
-import { anchoredEta } from "./formulas.js";
+import { anchoredEta, biasLayerEta, trustFromPlanSigma } from "./formulas.js";
+import { PLAN_LOG_SIGMA_DEFAULT } from "../../src/lib/projectionTuning.js";
 
 function pointAtDistance(route: CourseMetricPoint[], cum: number[], meters: number): CourseMetricPoint {
   const target = Math.max(0, Math.min(cum[cum.length - 1]!, meters));
@@ -25,7 +26,32 @@ function pointAtDistance(route: CourseMetricPoint[], cum: number[], meters: numb
 
 export type ParityResult = { compared: number; maxDiffSeconds: number; failures: string[] };
 
-export function checkServerParity(data: BacktestData, perCourse = 5): ParityResult {
+/**
+ * `today`: the flag-off finish ETA vs `anchoredEta`, to the second.
+ * `tuned`: with PROJECTION_TUNED_CONSTANTS on, the finish ETA vs the backtest's PR 3 formula
+ * (`biasLayerEta`, provisional constants, plan σ 0.12). Pings land 2 m past each checkpoint, so
+ * the production ratio sees slightly more course; allow 0.5% of the remaining time.
+ */
+export function checkServerParity(data: BacktestData, perCourse = 5, mode: "today" | "tuned" = "today"): ParityResult {
+  const before = process.env.PROJECTION_TUNED_CONSTANTS;
+  if (mode === "tuned") {
+    process.env.PROJECTION_TUNED_CONSTANTS = "1";
+  } else {
+    delete process.env.PROJECTION_TUNED_CONSTANTS;
+  }
+  try {
+    return compareFinishEtas(data, perCourse, mode);
+  } finally {
+    if (before === undefined) {
+      delete process.env.PROJECTION_TUNED_CONSTANTS;
+    } else {
+      process.env.PROJECTION_TUNED_CONSTANTS = before;
+    }
+  }
+}
+
+function compareFinishEtas(data: BacktestData, perCourse: number, mode: "today" | "tuned"): ParityResult {
+  const trust = trustFromPlanSigma(PLAN_LOG_SIGMA_DEFAULT);
   const failures: string[] = [];
   let compared = 0;
   let maxDiffSeconds = 0;
@@ -78,12 +104,16 @@ export function checkServerParity(data: BacktestData, perCourse = 5): ParityResu
           continue;
         }
         const production = (Date.parse(result.projection.etaFinishPlanIso) - startMs) / 1000;
-        const formula = Math.max(e.a[k]!, anchoredEta(e as Effort, P, k, n));
+        const formula = Math.max(
+          e.a[k]!,
+          mode === "today" ? anchoredEta(e as Effort, P, k, n) : biasLayerEta(e as Effort, P, k, n, trust)
+        );
         const diff = Math.abs(production - formula);
+        const tolerance = mode === "today" ? 1 : Math.max(1, 0.005 * (P[n]! - P[k]!));
         compared += 1;
         maxDiffSeconds = Math.max(maxDiffSeconds, diff);
-        if (diff > 1) {
-          failures.push(`${course} effort ${e.id} at checkpoint ${k}: production ${production.toFixed(0)} s vs formula ${formula.toFixed(0)} s`);
+        if (diff > tolerance) {
+          failures.push(`${mode}: ${course} effort ${e.id} at checkpoint ${k}: production ${production.toFixed(0)} s vs formula ${formula.toFixed(0)} s`);
         }
       }
     }
