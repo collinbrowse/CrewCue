@@ -12,8 +12,20 @@ import {
   TECHNICAL_DOWNHILL_EXTRA,
   TECHNICAL_DOWNHILL_GRADE
 } from "./constants.js";
+import { NIGHT_PACE_FACTOR, NIGHT_SUN_ELEVATION_DEGREES } from "../../projectionTuning.js";
 import type { CourseMicroSegment } from "./courseMesh.js";
 import type { RunnerProfile } from "./runnerProfile.js";
+import { sunElevationDegrees } from "./sun.js";
+
+/**
+ * Clock-time context for the night factor. A segment that starts while the sun is below −6° at
+ * this location (race start + simulated elapsed) costs NIGHT_PACE_FACTOR more moving time.
+ */
+export type NightContext = {
+  raceStartMs: number;
+  latitude: number;
+  longitude: number;
+};
 
 export type ScenarioKnobs = {
   gapMultiplier: number;
@@ -127,6 +139,10 @@ export function simulateMovingTime(input: {
   knobs: ScenarioKnobs;
   fromDistanceMeters?: number;
   initialState?: SimulationState;
+  /** Whole-course length for the slowdown's progress fraction; defaults to the last segment's end. */
+  courseLengthMeters?: number;
+  /** When set, segments run in the dark cost NIGHT_PACE_FACTOR more (adds time; not renormalized). */
+  night?: NightContext;
 }): SimulationResult {
   const fromDistance = Math.max(0, input.fromDistanceMeters ?? 0);
   const state: SimulationState = input.initialState
@@ -223,6 +239,26 @@ export function simulateMovingTime(input: {
   // finish. Endurance (C2) owns the total; γ owns the shape.
   const fatigueNorm = fatiguedTotal > 0 ? baseTotal / fatiguedTotal : 1;
 
+  // Late-race slowdown (profile.slowdownSlope; 0 = off): stretch later segments and shrink earlier
+  // ones by (1 + s·(progress − 0.5)), renormalized so this pass keeps the same total.
+  const slope = input.profile.slowdownSlope ?? 0;
+  const lastSegment = input.segments[input.segments.length - 1];
+  const courseEnd =
+    input.courseLengthMeters ?? (lastSegment ? lastSegment.startMeters + lastSegment.deltaXMeters : 0);
+  const shape = emitted.map((seg) =>
+    slope !== 0 && courseEnd > 0
+      ? Math.max(0.1, 1 + slope * ((seg.startMeters + seg.endMeters) / 2 / courseEnd - 0.5))
+      : 1
+  );
+  let unshapedTotal = 0;
+  let shapedTotal = 0;
+  emitted.forEach((seg, i) => {
+    const d = seg.baseDuration * seg.fatigue * fatigueNorm;
+    unshapedTotal += d;
+    shapedTotal += d * shape[i]!;
+  });
+  const slowdownNorm = shapedTotal > 0 ? unshapedTotal / shapedTotal : 1;
+
   const results: SegmentPaceResult[] = [];
   const curve: SimulationResult["distanceElapsedCurve"] = [
     {
@@ -231,8 +267,14 @@ export function simulateMovingTime(input: {
     }
   ];
   // Pass 2: apply renormalized fatigue to build per-segment results and the distance/elapsed curve.
-  for (const seg of emitted) {
-    const duration = seg.baseDuration * seg.fatigue * fatigueNorm;
+  for (const [i, seg] of emitted.entries()) {
+    let duration = seg.baseDuration * seg.fatigue * fatigueNorm * shape[i]! * slowdownNorm;
+    if (input.night) {
+      const clockMs = input.night.raceStartMs + state.elapsedSeconds * 1000;
+      if (sunElevationDegrees(clockMs, input.night.latitude, input.night.longitude) < NIGHT_SUN_ELEVATION_DEGREES) {
+        duration *= NIGHT_PACE_FACTOR;
+      }
+    }
     state.elapsedSeconds += duration;
     results.push({
       segmentIndex: seg.index,
