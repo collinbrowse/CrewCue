@@ -12,13 +12,14 @@ struct PaceView: View {
     var role: String?
     var focus: String = "schedule-sheet"
     var runner: RunnerProgress = .none
+    var live: LiveProjection? = nil
     @State private var showsTools = false
     @State private var toolFocus = "gpx-import"
     @Environment(\.crew) private var theme
 
     var body: some View {
-        let rows = model.timeline(runner: runner)
-        let readout = model.readout(runner: runner)
+        let rows = model.timeline(runner: runner, live: live)
+        let readout = model.readout(runner: runner, live: live)
         ScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
@@ -28,6 +29,7 @@ struct PaceView: View {
                 }
                 PaceTimeline(
                     rows: rows,
+                    liveStale: readout.liveEtaStale,
                     stops: model.displayStops,
                     message: model.scheduleMessage,
                     draft: model.stopDraft,
@@ -127,14 +129,40 @@ struct PaceProgressHeader: View {
                 }
             }
             CrewProgressBar(fraction: readout.progressFraction)
+            if let finish = CrewClock.short(readout.finishEtaAt) {
+                HStack(spacing: CrewSpace.stackSm) {
+                    Text("Finish ETA")
+                        .crewKicker()
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: finishText(finish))
+                        .font(CrewFont.label)
+                        .foregroundStyle(theme.ink)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("crewcue.live-eta")
+                .accessibilityLabel("Finish ETA \(finishText(finish))")
+            }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// "14:20 · 13:10–16:05", plus "old ping" when the server built it from a stale sample.
+    private func finishText(_ finish: String) -> String {
+        var parts = [finish]
+        if let start = CrewClock.short(readout.finishWindowStartAt), let end = CrewClock.short(readout.finishWindowEndAt) {
+            parts.append("\(start)–\(end)")
+        }
+        if readout.liveEtaStale {
+            parts.append("old ping")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
 /// Checkpoint list: completed stops muted, the current stop expanded, later stops compact.
 struct PaceTimeline: View {
     let rows: [CheckpointTimelineRow]
+    var liveStale = false
     let stops: [PaceStop]
     let message: String
     var draft: StopPlanDraft? = nil
@@ -165,7 +193,7 @@ struct PaceTimeline: View {
                 }
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-                        PaceCheckpointCard(row: row, stop: stops.first { $0.checkpointId == row.checkpointId }) {
+                        PaceCheckpointCard(row: row, stop: stops.first { $0.checkpointId == row.checkpointId }, liveStale: liveStale) {
                             onCheckIn(row.checkpointId)
                         }
                         if let draftRow = draft?.row(row.checkpointId), draftRow.editable {
@@ -188,6 +216,7 @@ struct PaceTimeline: View {
 struct PaceCheckpointCard: View {
     let row: CheckpointTimelineRow
     let stop: PaceStop?
+    var liveStale = false
     let onCheckIn: () -> Void
     @Environment(\.crew) private var theme
 
@@ -201,6 +230,26 @@ struct PaceCheckpointCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(stop?.line ?? row.title)
+        .accessibilityValue(liveAccessibility)
+    }
+
+    /// Live arrival from the server's projection, when the room has one.
+    private var liveClock: String? { CrewClock.short(row.liveArrivalAt) }
+
+    /// "13:10–16:05" when the server sent a window for this stop.
+    private var windowText: String? {
+        guard let start = CrewClock.short(row.arrivalWindowStartAt), let end = CrewClock.short(row.arrivalWindowEndAt) else {
+            return nil
+        }
+        return "\(start)–\(end)"
+    }
+
+    private var liveAccessibility: String {
+        guard let liveClock else { return "" }
+        var text = "Live arrival \(liveClock)"
+        if let windowText { text += ", likely between \(windowText.replacingOccurrences(of: "–", with: " and "))" }
+        if liveStale { text += ", based on an old ping" }
+        return text
     }
 
     private var compact: some View {
@@ -220,7 +269,7 @@ struct PaceCheckpointCard: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(verbatim: CrewClock.short(row.clockArrivalAt) ?? "—")
+                Text(verbatim: liveClock.map { "ETA \($0)" } ?? CrewClock.short(row.clockArrivalAt) ?? "—")
                     .font(CrewFont.metric)
                     .foregroundStyle(row.isFinish ? theme.primary : (row.state == .done ? theme.body : theme.ink))
                 Text(verbatim: caption)
@@ -263,8 +312,8 @@ struct PaceCheckpointCard: View {
             Divider().overlay(theme.divider)
             HStack(alignment: .top, spacing: 0) {
                 MetricColumn(
-                    label: "Est. arrival",
-                    value: CrewClock.short(row.clockArrivalAt) ?? "—",
+                    label: liveClock == nil ? "Est. arrival" : (liveStale ? "Live ETA (old ping)" : "Live ETA"),
+                    value: liveClock ?? CrewClock.short(row.clockArrivalAt) ?? "—",
                     alignment: .leading,
                     valueColor: theme.primary
                 )
@@ -274,6 +323,12 @@ struct PaceCheckpointCard: View {
                     valueColor: cutoffColor
                 )
                 MetricColumn(label: "Dist. to", value: row.distanceToLabel, alignment: .trailing)
+            }
+            if liveClock != nil {
+                Text(verbatim: caption)
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.body)
+                    .accessibilityIdentifier("crewcue.live-eta.current")
             }
             if let stop {
                 Text("\(stop.arrival) · \(stop.elapsed) elapsed · \(stop.stopLabel.lowercased())")
@@ -315,6 +370,11 @@ struct PaceCheckpointCard: View {
     }
 
     private var caption: String {
+        if liveClock != nil {
+            let plan = CrewClock.short(row.clockArrivalAt).map { "PLAN \($0)" } ?? "LIVE"
+            let parts = [windowText, plan, liveStale ? "OLD PING" : nil].compactMap { $0 }
+            return parts.joined(separator: " · ")
+        }
         if row.isFinish { return "TARGET" }
         // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
         if let stop {

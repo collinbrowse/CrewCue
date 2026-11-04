@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Race-day tracking with the screen off, only after the athlete taps Start tracking. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:allowBackup="false"
@@ -40,5 +44,9 @@
                 <data android:scheme="crewcue" android:host="strava" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".ui.map.RaceTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 </manifest>

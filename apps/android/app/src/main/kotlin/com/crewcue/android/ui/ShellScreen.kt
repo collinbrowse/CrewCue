@@ -234,7 +234,7 @@ private fun CrewTabBar(
 @Composable
 private fun FeatureHost(viewModel: ShellViewModel) {
     val featureId = viewModel.uiState.screen.featureId
-    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate")
+    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate", "runner-track")
     CrewBackground(
         Modifier
             .fillMaxSize()
@@ -262,7 +262,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 FeatureScreen(viewModel.uiState)
             }
         }
-        "map-track", "map-checkpoint-pick", "map-navigate", "location-heartbeat" -> {
+        "map-track", "map-checkpoint-pick", "map-navigate", "location-heartbeat", "runner-track" -> {
             val roomId = viewModel.session?.roomId
             if (!roomId.isNullOrBlank() && !viewModel.stateOverlay) {
                 MapScreen(viewModel, roomId, viewModel.uiState.screen.featureId)

@@ -700,16 +700,21 @@ final class PaceModel {
     }
 
     /// Pace timeline rows for the course progress list, placed by the athlete's latest ping.
-    func timeline(runner: RunnerProgress) -> [CheckpointTimelineRow] {
+    /// `live` is the server's live projection; rows ahead carry its arrival next to the plan.
+    func timeline(runner: RunnerProgress, live: LiveProjection? = nil) -> [CheckpointTimelineRow] {
         RaceDayReadouts.timeline(
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
-            progressMeters: runner.progressMeters(checkpoints: aidCheckpoints)
+            progressMeters: runner.progressMeters(checkpoints: aidCheckpoints),
+            live: live
         )
     }
 
-    func readout(runner: RunnerProgress) -> RaceDayReadout {
-        RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: Date())
+    func readout(runner: RunnerProgress, live: LiveProjection? = nil) -> RaceDayReadout {
+        RaceDayReadouts.withLive(
+            RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: Date()),
+            live: live
+        )
     }
 
     /// Display stop for a checkpoint, used for the check-in button and accessibility line.
