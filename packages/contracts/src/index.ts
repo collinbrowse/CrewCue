@@ -76,6 +76,11 @@ export interface RaceCourseBaselinePoint {
 
 export interface RaceCourseBaselineTrack {
   points: RaceCourseBaselinePoint[];
+  /**
+   * Expected log-error of this plan's finish (from the runner profile that built it). The live
+   * projection trusts a tighter plan longer. Absent means 0.12.
+   */
+  planLogSigma?: number;
 }
 
 /** Source for `elevationGainMeters` / `elevationLossMeters` on the canonical polyline. */
