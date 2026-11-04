@@ -4,6 +4,9 @@ import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
 import { deriveStreamUserId } from "../lib/streamChat.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
@@ -498,3 +501,56 @@ test("chat: diagnostics reports memberCount and streamConfigured only", async ()
     await app.close();
   }
 });
+
+test(
+  "chat: a crew member's notification preference survives an API restart without leaking to others",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const athleteToken = app.jwt.sign(buildClaims("athlete-restart"));
+    const crewToken = app.jwt.sign(buildClaims("crew-restart"));
+    const roomId = await createActivatedRoom(app, athleteToken, "athlete-restart");
+    await inviteAndAcceptMember(app, roomId, athleteToken, crewToken, "crew-restart@example.com");
+    const set = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/notification-prefs`,
+      payload: { preference: "mentions" },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(set.statusCode, 200);
+    await app.close();
+
+    // A fresh process has no prefs in memory; they must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, crew, athlete] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const get = async (token) => {
+        const res = await app.inject({
+          method: "GET",
+          url: "/chat/rooms/" + roomId + "/notification-prefs",
+          headers: { authorization: "Bearer " + token }
+        });
+        return { status: res.statusCode, preference: res.json().preference };
+      };
+      const out = { crew: await get(crew), athlete: await get(athlete) };
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crewToken, athleteToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      crew: { status: number; preference: string };
+      athlete: { status: number; preference: string };
+    };
+    assert.deepEqual(result.crew, { status: 200, preference: "mentions" });
+    assert.deepEqual(result.athlete, { status: 200, preference: "all" });
+  }
+);
