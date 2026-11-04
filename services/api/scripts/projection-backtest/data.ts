@@ -3,7 +3,7 @@
  * and turn every complete finisher into an {@link Effort} the analyses score.
  *
  * Data folder layout (git-ignored by default; see README.md):
- *   manifest.json   { "courses": [{ "key", "gpx", "events": ["file.json", …] }] }
+ *   manifest.json   { "courses": [{ "course", "gpx", "events": ["file.json", …] }] }
  *   <gpx files>     the official course, used for the micro-model plan shape
  *   <event files>   split format (`src/lib/courseHistory/format.ts`), one event or an array
  */
@@ -20,7 +20,7 @@ import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance } from "../../
 import { cohortPlan, reshapePlan } from "./formulas.js";
 import { SeededRandom, slope } from "./stats.js";
 
-export type Manifest = { courses: Array<{ key: string; gpx: string; events: string[] }> };
+export type Manifest = { courses: Array<{ course: string; gpx: string; events: string[] }> };
 
 /** The micro-model's cold-start expected curve over one course GPX (production code). */
 export type CoursePlan = {
@@ -163,10 +163,10 @@ export function loadBacktestData(
   const efforts: Effort[] = [];
   const byCourse = new Map<string, Effort[]>();
 
-  for (const course of manifest.courses) {
-    const plan = buildCoursePlan(course.key, readFileSync(resolve(dataDir, course.gpx), "utf8"));
-    plansByCourse.set(course.key, plan);
-    const events = course.events.flatMap((file) => importCourseHistoryFile(resolve(dataDir, file)));
+  for (const entry of manifest.courses) {
+    const plan = buildCoursePlan(entry.course, readFileSync(resolve(dataDir, entry.gpx), "utf8"));
+    plansByCourse.set(entry.course, plan);
+    const events = entry.events.flatMap((file) => importCourseHistoryFile(resolve(dataDir, file)));
     // One layout per course: the checkpoint signature with the most finishers.
     const bySignature = new Map<string, CourseHistoryEvent[]>();
     for (const event of events) {
@@ -195,7 +195,7 @@ export function loadBacktestData(
         const planned = a[a.length - 1]! * Math.exp(planSigma * z);
         const e: Effort = {
           id: efforts.length,
-          course: course.key,
+          course: entry.course,
           eventId: event.sourceEventId,
           startTime: new Date(event.startTime),
           d,
@@ -216,7 +216,7 @@ export function loadBacktestData(
       }
       prior = [...prior, ...series];
     }
-    byCourse.set(course.key, courseEfforts);
+    byCourse.set(entry.course, courseEfforts);
   }
 
   const slowdownByCourse =

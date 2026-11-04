@@ -1,7 +1,7 @@
 {
   "courses": [
     {
-      "key": "synthetic-50k",
+      "course": "synthetic-50k",
       "gpx": "../pacing/course-50k-with-aids.gpx",
       "events": [
         "synthetic-50k-2025.json",
@@ -9,14 +9,14 @@
       ]
     },
     {
-      "key": "synthetic-mountain-100k",
+      "course": "synthetic-mountain-100k",
       "gpx": "synthetic-mountain-100k.gpx",
       "events": [
         "synthetic-mountain-100k-2026.json"
       ]
     },
     {
-      "key": "synthetic-desert-80k",
+      "course": "synthetic-desert-80k",
       "gpx": "synthetic-desert-80k.gpx",
       "events": [
         "synthetic-desert-80k-2026.json"

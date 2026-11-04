@@ -21,7 +21,7 @@ CI runs `npm run projection:backtest:check -w @crewcue/api` as part of the API `
 ## Data folder
 
 ```
-manifest.json   { "courses": [{ "key": "hardrock-ccw", "gpx": "hardrock.gpx", "events": ["hardrock-2023.json", …] }] }
+manifest.json   { "courses": [{ "course": "hardrock-ccw", "gpx": "hardrock.gpx", "events": ["hardrock-2023.json", …] }] }
 <gpx>           the official course: the plan shape comes from the production micro-model over it
 <events>        split format: services/api/src/lib/courseHistory/format.ts (one event or an array)
 ```

@@ -44,7 +44,7 @@ function syntheticGpx(name: string, startLat: number, startLon: number, km: numb
 }
 
 type CourseSpec = {
-  key: string;
+  course: string;
   gpxFile: string;
   gpxXml: string;
   aidKm: number[];
@@ -53,7 +53,7 @@ type CourseSpec = {
 };
 
 function makeEvent(spec: CourseSpec, ev: CourseSpec["events"][number], rng: SeededRandom): CourseHistoryEvent {
-  const plan = buildCoursePlan(spec.key, spec.gpxXml);
+  const plan = buildCoursePlan(spec.course, spec.gpxXml);
   const totalKm = plan.lengthMeters / 1000;
   const kms = [0, ...spec.aidKm, Math.round(totalKm * 10) / 10];
   const routeAt = (km: number) => plan.route[Math.round((km / totalKm) * (plan.route.length - 1))]!;
@@ -67,7 +67,7 @@ function makeEvent(spec: CourseSpec, ev: CourseSpec["events"][number], rng: Seed
     formatVersion: 1,
     source: "synthetic",
     sourceEventId: ev.id,
-    name: `${spec.key} ${ev.id.slice(-4)} (SYNTHETIC)`,
+    name: `${spec.course} ${ev.id.slice(-4)} (SYNTHETIC)`,
     startTime: ev.start,
     checkpoints,
     efforts: []
@@ -104,7 +104,7 @@ function makeEvent(spec: CourseSpec, ev: CourseSpec["events"][number], rng: Seed
 
 const courses: CourseSpec[] = [
   {
-    key: "synthetic-50k",
+    course: "synthetic-50k",
     gpxFile: "../pacing/course-50k-with-aids.gpx",
     gpxXml: readFileSync(resolve(repoRoot, "fixtures/pacing/course-50k-with-aids.gpx"), "utf8"),
     aidKm: [10, 20, 35, 44],
@@ -115,7 +115,7 @@ const courses: CourseSpec[] = [
     ]
   },
   {
-    key: "synthetic-mountain-100k",
+    course: "synthetic-mountain-100k",
     gpxFile: "synthetic-mountain-100k.gpx",
     gpxXml: syntheticGpx("synthetic-mountain-100k", 46.0, 7.0, 100, 5, 1100),
     aidKm: [12, 25, 40, 55, 70, 85, 94],
@@ -123,7 +123,7 @@ const courses: CourseSpec[] = [
     events: [{ id: "synthetic-mountain-100k-2026", start: "2026-08-28T16:00:00Z", runners: 50 }]
   },
   {
-    key: "synthetic-desert-80k",
+    course: "synthetic-desert-80k",
     gpxFile: "synthetic-desert-80k.gpx",
     gpxXml: syntheticGpx("synthetic-desert-80k", 36.5, -116.8, 80, 2, 500),
     aidKm: [15, 30, 45, 62, 74],
@@ -145,7 +145,7 @@ for (const spec of courses) {
     writeFileSync(resolve(outDir, file), `${JSON.stringify(makeEvent(spec, ev, rng))}\n`);
     files.push(file);
   }
-  manifest.courses.push({ key: spec.key, gpx: spec.gpxFile, events: files });
+  manifest.courses.push({ course: spec.course, gpx: spec.gpxFile, events: files });
 }
 writeFileSync(resolve(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(`wrote ${outDir}\n`);
