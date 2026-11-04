@@ -184,3 +184,21 @@ How slowdown is measured:
 `K = 2` is a reasoned default. Validate it on repeat runners once permitted data with linked runners exists.
 
 `npm run finished-efforts:report` prints rooms per branch, measured σ, slowdowns, and stop medians by tag, race quarter and darkness.
+
+## Course history (PR 4) — data-gated, and behind `PROJECTION_TUNED_CONSTANTS`
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `COURSE_HISTORY_PRODUCT_SOURCES` | env, default **`crewcue`** | Sources whose events may feed the product. Every other source is stored `backtest_only` |
+| `COURSE_HISTORY_MIN_FINISHERS` | **25** | Past finishers needed on the mapped layout before history changes a plan or an ETA. Nov 4 analysis: the gain levels off at 10–25 |
+| Plan band | ±**10%** of planned finish (at least 5, else the nearest 10) | Plan shape = median share of finish at each checkpoint among these finishers |
+| Live band | ±**30%** of the runner's elapsed at the last checkpoint (nearest 100, at least **4**), outliers beyond 1.5×IQR dropped | Past-runners estimate. The live ETA is the average of it and the projection |
+| `LINK_POSITION_METERS` | **300 m** | Checkpoint mapping by position. Fallbacks: name, then share of the course within **2%** |
+| `LINK_MIN_AID_COVERAGE` | **80%** of the room's aid checkpoints | Needed to link an event |
+| Auto-link | start and finish within **500 m**, length within **5%**, one checkpoint layout | Otherwise an operator links with `npm run course-history:link` |
+
+**Data-gated, in practice off today:**
+- With the default source list, only CrewCue's own finished races feed the product, and no course has 25 yet.
+- The plan shape and the live blend also need the tuned flag, because the 25-finisher threshold and the bands come from the Nov 4 backtest.
+
+**Gate before relying on it:** on permitted data with prior years, the backtest must show a finish error of 41 min or less and a next-aid error of 11 min or less (Nov 4 on OpenSplitTime data: 40.1 / 10.5).

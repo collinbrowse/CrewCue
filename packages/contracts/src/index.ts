@@ -302,6 +302,11 @@ export interface RaceRoom {
   createdAt: string;
   /** Official race clock anchor (ISO). Preferred over legacy `activatedAt` for new clients. */
   raceStartAt?: string;
+  /**
+   * Past events this room's course is linked to by an operator (`npm run course-history:link`).
+   * Absent means auto-link. Kept on the room, not the course, so a course save doesn't drop it.
+   */
+  courseHistoryEventIds?: string[];
   /** Legacy anchor for projection elapsed math; mirrors `raceStartAt` when set via course save. */
   activatedAt?: string;
   eventEndsAt?: string;
