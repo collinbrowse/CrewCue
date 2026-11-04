@@ -1,8 +1,8 @@
 name: CodeQL
 
 # Advanced setup (replaces GitHub's default setup, which must stay off or it rejects these uploads).
-# Source-only languages run on every PR and push. Swift needs a full macOS app build, so it runs
-# only on release tags and by hand.
+# Source-only languages run on every PR and push. Swift needs a ~40 min macOS app build, so it runs
+# only on release tags, weekly, and by hand.
 on:
   pull_request:
   push:
@@ -13,7 +13,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  # Keyed by event too, so a merge to main doesn't cancel the weekly Swift scan.
+  group: codeql-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -41,8 +42,10 @@ jobs:
           category: /language:${{ matrix.language }}
 
   analyze-swift:
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    if: github.ref_type == 'tag' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
+    # ~40 min: CodeQL's tracer slows every Xcode process (an untraced build takes ~2 min), and a
+    # prebuild can't be reused because tracing changes the environment Xcode hashes into the build.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -54,12 +57,13 @@ jobs:
           languages: swift
           build-mode: manual
       # Unsigned simulator build: same sources as the TestFlight archive, no App Store secrets.
+      # arm64 only; the generic destination otherwise compiles every file for x86_64 too.
       - name: Build CrewCue
         run: |
           xcodebuild build \
             -project apps/ios/CrewCue.xcodeproj -scheme CrewCue -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:swift
