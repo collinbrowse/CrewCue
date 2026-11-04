@@ -84,14 +84,16 @@ if (values.check) {
       problems.push(`${label}: non-finite score (finish ${s.finish}, next aid ${s.nextAid})`);
     }
   }
-  const parity = checkServerParity(data);
-  process.stdout.write(
-    `\nparity with production recomputeRaceProjection: ${parity.compared} finish ETAs, max diff ${parity.maxDiffSeconds.toFixed(3)} s\n`
-  );
-  if (parity.compared === 0) {
-    problems.push("parity: nothing compared");
+  for (const mode of ["today", "tuned"] as const) {
+    const parity = checkServerParity(data, 5, mode);
+    process.stdout.write(
+      `\nparity (${mode}) with production recomputeRaceProjection: ${parity.compared} finish ETAs, max diff ${parity.maxDiffSeconds.toFixed(3)} s\n`
+    );
+    if (parity.compared === 0) {
+      problems.push(`parity (${mode}): nothing compared`);
+    }
+    problems.push(...parity.failures.slice(0, 10));
   }
-  problems.push(...parity.failures.slice(0, 10));
   if (problems.length > 0) {
     process.stderr.write(`\nprojection backtest check FAILED:\n  ${problems.join("\n  ")}\n`);
     process.exit(1);

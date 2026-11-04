@@ -1,30 +1,39 @@
 /**
- * Projection formulas the backtest scores, in ONE module so PR 3 can swap each for a production
- * call (`services/api/src/lib/raceProjection.ts`, `microModel/`) without touching the analyses.
+ * Projection formulas the backtest scores, in ONE module, each a production call where production
+ * has it (`services/api/src/lib/raceProjection.ts`, `projectionTuning.ts`, `microModel/`).
  *
  * - `anchoredEta` is today's server finish ETA. `parity.ts` checks it against
  *   `recomputeRaceProjection` on the fixture, so the baseline is the real code's behavior.
- * - Everything else here is not in production yet (PR 3–5). The constants are the provisional
- *   Nov 3–4 values fit on OST-heavy data; production keeps them behind `PROJECTION_TUNED_CONSTANTS`.
+ * - PR 3 (in production behind `PROJECTION_TUNED_CONSTANTS`): the constants, the live ratio
+ *   (`advanceLiveRatio`, folded once per checkpoint), the trust + bias scale (`liveRemainingScale`)
+ *   and `sunElevationDegrees` come from production. Sweeps that vary a half-life or refit the bias
+ *   terms keep a local formula for the non-production values.
+ * - The past-runner method and plan reshaping are not in production yet (PR 4–5).
  *
  * Conventions shared by every function: `d[i]` is distance (m) at checkpoint i, `a[i]` actual
  * elapsed (s), `P[i]` planned elapsed (s); i = 0 is the start and n = d.length − 1 the finish.
  * `k` is the last checkpoint reached and `j` the checkpoint being predicted (j > k).
  */
 
-/** Recency half-life of the live ratio (m). */
-export const LIVE_RATIO_HALF_LIFE_METERS = 40_000;
-/** Fixed plan trust (approved first pass), tuned at plan σ 0.12. */
+import { advanceLiveRatio, liveRemainingScale } from "../../src/lib/raceProjection.js";
+import {
+  LIVE_BIAS_A,
+  LIVE_BIAS_B,
+  LIVE_BIAS_C,
+  LIVE_RATIO_HALF_LIFE_METERS,
+  LIVE_TRUST_VARIANCE,
+  NIGHT_PACE_FACTOR,
+  NIGHT_SUN_ELEVATION_DEGREES,
+  SLOWDOWN_SLOPE_DEFAULT
+} from "../../src/lib/projectionTuning.js";
+import { sunElevationDegrees as productionSunElevation } from "../../src/lib/pacingEstimate/microModel/sun.js";
+
+export { LIVE_RATIO_HALF_LIFE_METERS, LIVE_TRUST_VARIANCE, NIGHT_PACE_FACTOR, SLOWDOWN_SLOPE_DEFAULT };
+/** Fixed plan trust (approved first pass); production's rule gives it at plan σ 0.12. */
 export const FIXED_PLAN_TRUST = 0.3;
-/** trust = LIVE_TRUST_VARIANCE / σ²; 0.3 · 0.12² so σ 0.12 gives the fixed 0.3. */
-export const LIVE_TRUST_VARIANCE = FIXED_PLAN_TRUST * 0.12 ** 2;
-/** Late-race slowdown slope applied to the plan shape. */
-export const SLOWDOWN_SLOPE_DEFAULT = 0.24;
-/** Section-time factor while the sun is below CIVIL_TWILIGHT_DEGREES. */
-export const NIGHT_PACE_FACTOR = 1.06;
-export const CIVIL_TWILIGHT_DEGREES = -6;
-/** Provisional 3-term progress-bias layer [A, B·seen, C·ln(ratio)·(1 − w)]. */
-export const LIVE_BIAS_DEFAULT: readonly [number, number, number] = [0.09, -0.21, 0.36];
+export const CIVIL_TWILIGHT_DEGREES = NIGHT_SUN_ELEVATION_DEGREES;
+/** Provisional 3-term progress-bias layer [A, B·seen, C·ln(ratio)·(1 − w)], as production ships it. */
+export const LIVE_BIAS_DEFAULT: readonly [number, number, number] = [LIVE_BIAS_A, LIVE_BIAS_B, LIVE_BIAS_C];
 
 export type Series = { d: readonly number[]; a: readonly number[] };
 
@@ -35,6 +44,22 @@ export function ewmaRatio(
   k: number,
   halfLifeMeters = LIVE_RATIO_HALF_LIFE_METERS
 ): number {
+  if (halfLifeMeters === LIVE_RATIO_HALF_LIFE_METERS) {
+    // Production: fold each checkpoint crossing as a ping (no stops modelled between checkpoints).
+    let acc: ReturnType<typeof advanceLiveRatio>;
+    for (let i = 1; i <= k; i += 1) {
+      acc = advanceLiveRatio({
+        previous: acc,
+        activatedAtMs: 0,
+        recordedAtMs: a[i]! * 1000,
+        progressMeters: d[i]!,
+        hasPreviousPing: i > 1,
+        plannedStopSecondsInInterval: 0,
+        plannedElapsedAt: (m) => interpolatePlan(d, P, m)
+      });
+    }
+    return acc && acc.plannedSeconds > 0 ? acc.actualSeconds / acc.plannedSeconds : 1;
+  }
   let num = 0;
   let den = 0;
   for (let i = 1; i <= k; i += 1) {
@@ -43,6 +68,17 @@ export function ewmaRatio(
     den += w * (P[i]! - P[i - 1]!);
   }
   return num / den;
+}
+
+/** Planned elapsed at `meters`, linear between checkpoints. */
+function interpolatePlan(d: readonly number[], P: readonly number[], meters: number): number {
+  for (let i = 1; i < d.length; i += 1) {
+    if (meters <= d[i]!) {
+      const span = d[i]! - d[i - 1]!;
+      return P[i - 1]! + (span > 0 ? ((meters - d[i - 1]!) / span) * (P[i]! - P[i - 1]!) : 0);
+    }
+  }
+  return P[P.length - 1]!;
 }
 
 export function progressSeen({ d }: Series, k: number): number {
@@ -97,6 +133,12 @@ export function biasLayerEta(
   trust: number,
   betas: readonly number[] = LIVE_BIAS_DEFAULT
 ): number {
+  if (betas === LIVE_BIAS_DEFAULT) {
+    // Production: liveRemainingScale with the plan σ this trust implies.
+    const planLogSigma = Math.sqrt(LIVE_TRUST_VARIANCE / trust);
+    const scale = liveRemainingScale({ ratio: ewmaRatio(series, P, k), seen: progressSeen(series, k), planLogSigma });
+    return series.a[k]! + scale * (P[j]! - P[k]!);
+  }
   const { seen, w, logRatio, logBase } = ratioParts(series, P, k, trust);
   const x = biasLayerFeatures(seen, w, logRatio);
   const adj = x.reduce((s, xi, i) => s + xi * betas[i]!, 0);
@@ -161,20 +203,9 @@ export function slowdownPlan(P: readonly number[], d: readonly number[], slope =
   return reshapePlan(P, d, (x) => 1 + slope * (x - 0.5));
 }
 
-/** NOAA solar elevation approximation (degrees). PR 3 adds the production `sunElevationDegrees`. */
+/** Production solar elevation (degrees), `microModel/sun.ts`. */
 export function sunElevationDegrees(date: Date, latitude: number, longitude: number): number {
-  const rad = Math.PI / 180;
-  const n = date.getTime() / 86_400_000 + 2440587.5 - 2451545.0;
-  const L = (((280.46 + 0.9856474 * n) % 360) + 360) % 360;
-  const g = ((((357.528 + 0.9856003 * n) % 360) + 360) % 360) * rad;
-  const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
-  const eps = (23.439 - 0.0000004 * n) * rad;
-  const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
-  const gmst = (((18.697374558 + 24.06570982441908 * n) % 24) + 24) % 24;
-  const ha = (gmst * 15 + longitude - ra / rad) * rad;
-  const la = latitude * rad;
-  return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) / rad;
+  return productionSunElevation(date.getTime(), latitude, longitude);
 }
 
 /** Share of [t0, t1] (seconds after `start`) with the sun below civil twilight, sampled every ~5 min. */

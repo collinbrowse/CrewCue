@@ -17,6 +17,11 @@ import {
   METERS_PER_MILE,
   RIEGEL_ENDURANCE_PACE_EXPONENT
 } from "./constants.js";
+import {
+  isProjectionTunedConstantsEnabled,
+  PLAN_LOG_SIGMA,
+  SLOWDOWN_SLOPE_DEFAULT
+} from "../../projectionTuning.js";
 
 export type RunnerProfile = {
   /**
@@ -43,6 +48,13 @@ export type RunnerProfile = {
   coldStart: boolean;
   historyRefIds?: string[];
   explanation: string;
+  /**
+   * Late-race slowdown slope (0 = none). SLOWDOWN_SLOPE_DEFAULT when PROJECTION_TUNED_CONSTANTS is on,
+   * else 0 so the simulation matches the pre-flag model.
+   */
+  slowdownSlope: number;
+  /** Expected log-error of a plan built from this profile (live trust uses it). */
+  planLogSigma: number;
 };
 
 function usableHistory(history: ActivityHistoryRef[]): ActivityHistoryRef[] {
@@ -138,8 +150,10 @@ export function buildRunnerProfile(input: {
   let explanation: string;
   let gradeCostBlend: number;
   let enduranceFactor: number;
+  let planLogSigma: number;
 
   if (usable.length === 0) {
+    planLogSigma = PLAN_LOG_SIGMA.coldStart;
     coldStart = true;
     gradeCostBlend = GRADE_COST_BLEND_COLD_START;
     gapSecondsPerMeter = coldStartGapSecondsPerMeter();
@@ -147,6 +161,7 @@ export function buildRunnerProfile(input: {
     explanation =
       "Cold start: grade-adjusted baseline 10:00/mi with default terrain/fatigue coefficients. Upload similar history for a tighter plan.";
   } else if (similar.length > 0) {
+    planLogSigma = PLAN_LOG_SIGMA.similarHistory;
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = flatEquivalentSecondsPerMeter(similar);
@@ -158,6 +173,7 @@ export function buildRunnerProfile(input: {
         ? `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (flat-equivalent GAP with full grade model); ${excluded} outside the window excluded. Default fatigue coefficients.`
         : `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (flat-equivalent GAP with full grade model). Default fatigue coefficients.`;
   } else {
+    planLogSigma = PLAN_LOG_SIGMA.coarseHistory;
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = flatEquivalentSecondsPerMeter(usable);
@@ -178,6 +194,8 @@ export function buildRunnerProfile(input: {
     gamma2: FATIGUE_GAMMA2_PER_METER_DESCENT,
     coldStart,
     ...(historyRefIds !== undefined ? { historyRefIds } : {}),
-    explanation
+    explanation,
+    slowdownSlope: isProjectionTunedConstantsEnabled() ? SLOWDOWN_SLOPE_DEFAULT : 0,
+    planLogSigma
   };
 }

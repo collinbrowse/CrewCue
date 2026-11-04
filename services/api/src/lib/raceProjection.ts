@@ -8,7 +8,8 @@ import type {
   RaceCourse,
   RaceCourseCheckpoint,
   RaceRoomProjectionCore,
-  RaceCheckpointSplitRow
+  RaceCheckpointSplitRow,
+  RemainingCheckpointEta
 } from "@crewcue/contracts";
 import {
   type CourseMetricPoint,
@@ -16,6 +17,18 @@ import {
   geodesicPolylineLength,
   geodesicProjectPointToPolyline
 } from "@crewcue/map-core";
+import {
+  isProjectionTunedConstantsEnabled,
+  K_STOP,
+  LIVE_BIAS_A,
+  LIVE_BIAS_B,
+  LIVE_BIAS_C,
+  LIVE_RATIO_HALF_LIFE_METERS,
+  LIVE_RATIO_MIN_PLAN_SECONDS,
+  LIVE_TRUST_VARIANCE,
+  PLAN_LOG_SIGMA,
+  PLAN_LOG_SIGMA_DEFAULT
+} from "./projectionTuning.js";
 
 const EPS_M = 0.05;
 
@@ -203,13 +216,97 @@ export type ProjectionPing = {
   recordedAt: string;
 };
 
+/**
+ * Recency-weighted actual vs planned time over the course covered so far (tuned live projection).
+ * Both sums decay by half every LIVE_RATIO_HALF_LIFE_METERS of new progress, so ratio = num / den
+ * leans on the recent stretch without forgetting the rest. Time spent stopped at a checkpoint with a
+ * crew-planned stop is left out (the ETA adds planned stops separately); other stops stay in.
+ */
+export type LiveRatioAccumulator = {
+  actualSeconds: number;
+  plannedSeconds: number;
+  /** Furthest progress folded in (monotone, so GPS jitter backwards never subtracts plan time). */
+  progressMeters: number;
+  /** Ping time the sums are folded up to. */
+  asOfMs: number;
+};
+
 export type ProjectionPreviousState = {
   lastProgressMeters: number;
   splitCrossedAt: Record<string, string>;
   visitStates: Record<string, VisitAccumulator[]>;
   visitMeta: Record<string, ProjectionPreviousCheckpointVisit[]>;
   rollingMovingSpeedMps: number;
+  liveRatio?: LiveRatioAccumulator;
 };
+
+function plannedStopSecondsSoFar(
+  checkpoints: RaceCourseCheckpoint[],
+  visitStates: Record<string, VisitAccumulator[]>
+): number {
+  let total = 0;
+  for (const cp of checkpoints) {
+    if (checkpointPlannedStopSeconds(cp) <= 0) {
+      continue;
+    }
+    for (const visit of visitStates[cp.id] ?? []) {
+      total += visit.accumulatedStopSeconds;
+    }
+  }
+  return total;
+}
+
+/** Fold the time and course since the last fold into the live ratio. Pure; returns the next sums. */
+export function advanceLiveRatio(input: {
+  previous: LiveRatioAccumulator | undefined;
+  activatedAtMs: number;
+  recordedAtMs: number;
+  progressMeters: number;
+  hasPreviousPing: boolean;
+  /** Seconds stopped at crew-planned-stop checkpoints during this interval. */
+  plannedStopSecondsInInterval: number;
+  plannedElapsedAt: (distanceMeters: number) => number;
+}): LiveRatioAccumulator | undefined {
+  const prev = input.previous;
+  const asOfMs = prev?.asOfMs ?? input.activatedAtMs;
+  const fromProgress = prev?.progressMeters ?? 0;
+  const advance = Math.max(0, input.progressMeters - fromProgress);
+  // Skip pre-start samples, replays of the same ping, and the synthetic pre-race bootstrap (no
+  // previous ping and no progress), so race time is counted exactly once.
+  if (input.recordedAtMs <= asOfMs || (!input.hasPreviousPing && advance === 0)) {
+    return prev;
+  }
+  const actual = Math.max(0, (input.recordedAtMs - asOfMs) / 1000 - input.plannedStopSecondsInInterval);
+  const planned =
+    advance > 0 ? Math.max(0, input.plannedElapsedAt(fromProgress + advance) - input.plannedElapsedAt(fromProgress)) : 0;
+  const decay = Math.pow(0.5, advance / LIVE_RATIO_HALF_LIFE_METERS);
+  return {
+    actualSeconds: (prev?.actualSeconds ?? 0) * decay + actual,
+    plannedSeconds: (prev?.plannedSeconds ?? 0) * decay + planned,
+    progressMeters: fromProgress + advance,
+    asOfMs: input.recordedAtMs
+  };
+}
+
+/**
+ * How far to scale the plan's remaining moving time, from the live ratio and how trustworthy the
+ * plan is. `seen` = fraction of course covered; `planLogSigma` = the plan's expected log-error.
+ */
+export function liveRemainingScale(input: { ratio: number; seen: number; planLogSigma: number }): number {
+  const seen = Math.min(1, Math.max(0, input.seen));
+  const trust = LIVE_TRUST_VARIANCE / (input.planLogSigma * input.planLogSigma);
+  const w = seen / (seen + trust);
+  const r = 1 + w * (input.ratio - 1);
+  const lnRatio = Math.min(1, Math.max(-1, Math.log(input.ratio)));
+  return r * Math.exp(LIVE_BIAS_A + LIVE_BIAS_B * seen + LIVE_BIAS_C * lnRatio * (1 - w));
+}
+
+/** Runner's stop habit vs crew plans, shrunk toward 1 until a few planned stops have been passed. */
+export function stopHabitRatio(passed: Array<{ actualSeconds: number; plannedSeconds: number }>): number {
+  const usable = passed.filter((p) => p.plannedSeconds > 0 && Number.isFinite(p.actualSeconds));
+  const sum = usable.reduce((acc, p) => acc + Math.max(0, p.actualSeconds) / p.plannedSeconds, 0);
+  return (K_STOP + sum) / (K_STOP + usable.length);
+}
 
 /** Deterministic headwind assumption by course progress (placeholder until a weather provider exists). */
 export function buildProjectionWeatherStub(input: {
@@ -489,6 +586,30 @@ export function recomputeRaceProjection(params: {
     return Math.max(remaining, Math.max(0, row.plannedStopSeconds - (lastVisit.autoDetected.actualStopSeconds ?? 0)));
   }, 0);
 
+  const tuned = isProjectionTunedConstantsEnabled();
+  const plannedElapsedAt = (distanceMeters: number) =>
+    plannedElapsedSecondsForDistance({
+      distanceMetersFromStart: distanceMeters,
+      plannedPaceSecondsPerKm,
+      baselineTrack: course.baselineTrack,
+      courseLengthMeters
+    });
+  const liveRatio = tuned
+    ? advanceLiveRatio({
+        previous: previous?.liveRatio,
+        activatedAtMs,
+        recordedAtMs,
+        progressMeters,
+        hasPreviousPing: previousPing !== null && previousPing !== undefined,
+        plannedStopSecondsInInterval: Math.max(
+          0,
+          plannedStopSecondsSoFar(course.checkpoints, visitStates) -
+            plannedStopSecondsSoFar(course.checkpoints, previous?.visitStates ?? {})
+        ),
+        plannedElapsedAt
+      })
+    : previous?.liveRatio;
+
   const etaFinishMs = hasUsableBaselineTrack(course.baselineTrack, courseLengthMeters)
     ? (() => {
         const anchor =
@@ -514,7 +635,55 @@ export function recomputeRaceProjection(params: {
         (remainingSec + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) * 1000
       );
       })();
-  const etaFinishPlanIso = new Date(etaFinishMs).toISOString();
+  let etaFinishPlanIso = new Date(etaFinishMs).toISOString();
+  let remainingCheckpointEtas: RemainingCheckpointEta[] | undefined;
+
+  if (tuned) {
+    // ETA_j = elapsedNow + r_rem·(plan_j − plan_now) + stopRatio·(planned stops before j).
+    const ratio =
+      liveRatio && liveRatio.plannedSeconds >= LIVE_RATIO_MIN_PLAN_SECONDS
+        ? liveRatio.actualSeconds / liveRatio.plannedSeconds
+        : 1;
+    const covered = liveRatio?.progressMeters ?? progressMeters;
+    const planLogSigma = hasUsableBaselineTrack(course.baselineTrack, courseLengthMeters)
+      ? (course.baselineTrack.planLogSigma ?? PLAN_LOG_SIGMA_DEFAULT)
+      : PLAN_LOG_SIGMA.coldStart;
+    const scale = liveRemainingScale({ ratio, seen: covered / courseLengthMeters, planLogSigma });
+    const stopRatio = stopHabitRatio(
+      checkpointSplits
+        .filter((row) => row.plannedStopSeconds > 0 && row.totalActualStopSeconds !== null)
+        .filter((row) => row.visits.some((v) => v.autoDetected?.departureRecordedAt || v.manualEntry))
+        .map((row) => ({ actualSeconds: row.totalActualStopSeconds!, plannedSeconds: row.plannedStopSeconds }))
+    );
+    const elapsedNow = Math.max(0, (recordedAtMs - activatedAtMs) / 1000);
+    const planNow = plannedElapsedAt(covered);
+    const ahead = checkpointSplits
+      .filter((row) => row.visits.length === 0 && row.distanceMetersFromStart > covered + 0.5)
+      .sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
+    let stopsBefore = 0;
+    remainingCheckpointEtas = ahead.map((row) => {
+      const liveProjectedElapsedSeconds = Math.round(
+        elapsedNow +
+          scale * Math.max(0, row.plannedElapsedSecondsAtCross - planNow) +
+          stopRatio * stopsBefore +
+          currentCheckpointRemainingStop
+      );
+      stopsBefore += row.plannedStopSeconds;
+      const frozenPlanElapsedSeconds = Math.round(row.plannedElapsedSecondsAtCross);
+      return {
+        checkpointId: row.checkpointId,
+        liveProjectedElapsedSeconds,
+        frozenPlanElapsedSeconds,
+        deltaSecondsVsFrozenPlan: liveProjectedElapsedSeconds - frozenPlanElapsedSeconds
+      };
+    });
+    const finishElapsed =
+      elapsedNow +
+      scale * Math.max(0, finishReferenceElapsedSeconds - planNow) +
+      stopRatio * remainingPlannedStopSecondsAhead +
+      currentCheckpointRemainingStop;
+    etaFinishPlanIso = new Date(Math.max(recordedAtMs, activatedAtMs + finishElapsed * 1000)).toISOString();
+  }
 
   const completedRows = checkpointSplits.filter((row) =>
     row.visits.some((visit) => {
@@ -555,7 +724,8 @@ export function recomputeRaceProjection(params: {
     etaFinishPlanIso,
     checkpointSplits,
     stoppageSummary,
-    weatherStub: buildProjectionWeatherStub({ progressMeters, courseLengthMeters })
+    weatherStub: buildProjectionWeatherStub({ progressMeters, courseLengthMeters }),
+    ...(remainingCheckpointEtas ? { remainingCheckpointEtas } : {})
   };
 
   return {
@@ -565,7 +735,8 @@ export function recomputeRaceProjection(params: {
       splitCrossedAt,
       visitStates,
       visitMeta,
-      rollingMovingSpeedMps
+      rollingMovingSpeedMps,
+      ...(liveRatio ? { liveRatio } : {})
     }
   };
 }

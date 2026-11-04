@@ -12,6 +12,7 @@ import type { RunnerProfile } from "./runnerProfile.js";
 import {
   interpolateElapsedAtDistance,
   simulateMovingTime,
+  type NightContext,
   type ScenarioKnobs,
   type SimulationResult
 } from "./simulate.js";
@@ -41,8 +42,16 @@ export function runScenarioSims(input: {
     /** Actual race elapsed at resume (replaces model elapsed for remaining ETA clock). */
     actualElapsedSeconds: number;
   };
+  /** Whole-course length (slowdown progress fraction). */
+  courseLengthMeters?: number;
+  /** Clock context for the night factor; omit to skip it. */
+  night?: NightContext;
 }): ScenarioSimulationBundle {
   const fromDistance = input.fromDistanceMeters ?? 0;
+  const shared = {
+    ...(input.courseLengthMeters !== undefined ? { courseLengthMeters: input.courseLengthMeters } : {}),
+    ...(input.night ? { night: input.night } : {})
+  };
 
   const run = (knobs: ScenarioKnobs): SimulationResult => {
     if (input.initialStateForRemaining) {
@@ -50,6 +59,7 @@ export function runScenarioSims(input: {
         segments: input.segments,
         profile: input.profile,
         knobs,
+        ...shared,
         fromDistanceMeters: fromDistance,
         initialState: {
           workCum: input.initialStateForRemaining.workCum,
@@ -62,6 +72,7 @@ export function runScenarioSims(input: {
       segments: input.segments,
       profile: input.profile,
       knobs,
+      ...shared,
       fromDistanceMeters: fromDistance
     });
   };
@@ -88,7 +99,10 @@ export function elapsedAtCheckpoints(
   return map;
 }
 
-export function baselineTrackFromSimulation(sim: SimulationResult): RaceCourseBaselineTrack {
+export function baselineTrackFromSimulation(
+  sim: SimulationResult,
+  planLogSigma?: number
+): RaceCourseBaselineTrack {
   const points = sim.distanceElapsedCurve.map((row) => ({
     distanceMetersFromStart: row.distanceMetersFromStart,
     referenceElapsedSeconds: row.referenceElapsedSeconds
@@ -105,7 +119,7 @@ export function baselineTrackFromSimulation(sim: SimulationResult): RaceCourseBa
       cleaned.push(p);
     }
   }
-  return { points: cleaned };
+  return { points: cleaned, ...(planLogSigma !== undefined ? { planLogSigma } : {}) };
 }
 
 /** Accumulate expected-scenario fatigue from course start to progressMeters. */
