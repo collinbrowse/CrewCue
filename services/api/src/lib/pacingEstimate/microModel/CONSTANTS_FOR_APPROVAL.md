@@ -129,3 +129,36 @@ single field validation** (per `pacing-accuracy-program.md`, after PR D).
 - [x] C3 fatigue renormalization (shape-only)
 - [x] Fatigue \gamma_1, \gamma_2 (shape)
 - [x] Scenario knob table
+
+---
+
+## Course-aware plan and live projection (PR 3) — behind `PROJECTION_TUNED_CONSTANTS`
+
+**Status: provisional, OFF in production.** Fit on the Nov 3–4 2026 backtest of scraped finisher
+splits (about 5,500 finishers on 6 courses), held out one course at a time. Five courses are
+OpenSplitTime (Hardrock 100, Bear 100, Never Summer 100K and 60K, Quad Rock 50) and one is
+LiveTrail (UTMB 2022). Using OpenSplitTime results to tune CrewCue needs OpenSplitTime's
+permission, which hasn't been granted. So these constants only run when
+`PROJECTION_TUNED_CONSTANTS=1`. Leave it unset in production until permission covers this use, or
+until the constants are refit on permitted data. With it unset, the estimate and the ETAs match the
+pre-PR model exactly.
+
+**Source of truth:** `[../../projectionTuning.ts](../../projectionTuning.ts)`
+
+| Constant | Value | Role | Backtest basis |
+| --- | --- | --- | --- |
+| `SLOWDOWN_SLOPE_DEFAULT` | **0.24** | Section time × (1 + s·(progress − 0.5)), renormalized to keep the total. The GPX model under-predicts late-race slowdown on every course. | Held-out slope 0.22–0.26 on all 6 courses |
+| `NIGHT_PACE_FACTOR` | **1.06** while the sun is below **−6°** | Moving time in the dark, at the course start's location and the simulated clock time. Adds time. | Speed-adjusted: Bear +16%, Hardrock +9%, UTMB +6%, Never Summer +3%; pooled +6% |
+| `PLAN_LOG_SIGMA` | cold **0.30** · coarse history **0.20** · similar history **0.12** | The plan's expected finish log-error, stored as `baselineTrack.planLogSigma`. A missing value means 0.12. | Reasoned tiers; the backtest plan error was synthetic. PR 6 measures them from finished rooms. |
+| `LIVE_RATIO_HALF_LIFE_METERS` | **40,000** | Recency weight on actual ÷ planned time covered so far | Best of 2–80 km |
+| `LIVE_TRUST_VARIANCE` | **0.0043** | trust = 0.0043 / σ²; w = seen / (seen + trust) | Matched the best fixed trust at plan errors of 6/12/20/30%. Mixed field: 90 min vs 102 for the best constant. |
+| `LIVE_BIAS_A, B, C` | **+0.09, −0.21, +0.36** | r_rem = r·exp(A + B·seen + C·clamp(ln ratio, ±1)·(1 − w)). Corrects the shape the slowdown fix leaves behind (fast first and last 10%, slow middle), and returns part of the ratio that trust held back. | All-runner finish error 87 → 78 min; UTMB 109 → 96; every course improved |
+| `K_STOP` | **2** | Stop habit = (2 + Σ actual/planned) / (2 + n) over the planned stops passed, applied to the planned stops ahead | Reasoned shrinkage; not yet backtested (needs in/out times) |
+
+Live formula: `ETA_j = elapsedNow + r_rem · (plan_j − plan_now) + stopHabit · Σ planned stops before j`.
+- Time stopped at a checkpoint with a crew-planned stop is left out of the ratio, so it is counted once.
+- Other stops stay in the ratio and are spread over the rest of the course, as the backtest measured.
+
+Tested and left out:
+- A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
+- Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.

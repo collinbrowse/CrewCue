@@ -19,7 +19,8 @@ import {
 } from "../types.js";
 import { buildCourseMicroSegments, type CourseMicroSegment } from "./courseMesh.js";
 import { buildRunnerProfile, type RunnerProfile } from "./runnerProfile.js";
-import { interpolateElapsedAtDistance } from "./simulate.js";
+import { interpolateElapsedAtDistance, type NightContext } from "./simulate.js";
+import { isProjectionTunedConstantsEnabled } from "../../projectionTuning.js";
 import {
   baselineTrackFromSimulation,
   elapsedAtCheckpoints,
@@ -197,7 +198,17 @@ export function estimatePacingMicroModelWithArtifacts(
     courseDistanceMeters: courseDistance
   });
 
-  const sims = runScenarioSims({ segments, profile });
+  const tuned = isProjectionTunedConstantsEnabled();
+  const start = input.routeMetricPoints[0]!;
+  const night: NightContext | undefined = tuned
+    ? { raceStartMs: Date.parse(raceStartAt), latitude: start.latitude, longitude: start.longitude }
+    : undefined;
+  const sims = runScenarioSims({
+    segments,
+    profile,
+    courseLengthMeters: courseDistance,
+    ...(night ? { night } : {})
+  });
   const expectedElapsedByCp = elapsedAtCheckpoints(sims.expected, checkpoints);
   const finishElapsed = roundElapsed(
     interpolateFinish(sims.expected, courseDistance, checkpoints)
@@ -259,7 +270,7 @@ export function estimatePacingMicroModelWithArtifacts(
 
   return {
     estimate: parsePacingEstimate(candidate),
-    baselineTrack: baselineTrackFromSimulation(sims.expected),
+    baselineTrack: baselineTrackFromSimulation(sims.expected, tuned ? profile.planLogSigma : undefined),
     segments,
     profile,
     courseLengthMeters: courseDistance

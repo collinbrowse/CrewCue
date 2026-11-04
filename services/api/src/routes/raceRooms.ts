@@ -54,9 +54,11 @@ import {
 import {
   hasUsableBaselineTrack,
   type ProjectionPing,
+  type LiveRatioAccumulator,
   type ProjectionPreviousState,
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
+import { isProjectionTunedConstantsEnabled } from "../lib/projectionTuning.js";
 import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } from "../lib/athletePingTrack.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
@@ -198,7 +200,8 @@ const raceCourseBaselinePointInput = z.object({
 });
 
 const raceCourseBaselineTrackInput = z.object({
-  points: z.array(raceCourseBaselinePointInput).min(2)
+  points: z.array(raceCourseBaselinePointInput).min(2),
+  planLogSigma: z.number().finite().positive().max(2).optional()
 });
 
 const raceCourseDerivedMetricsInput = z.object({
@@ -708,6 +711,7 @@ type RoomProjectionState = {
     }>
   >;
   rollingMovingSpeedMps: number;
+  liveRatio?: LiveRatioAccumulator;
   lastProjectionCore: RaceRoomProjectionCore;
 };
 
@@ -814,6 +818,16 @@ function isAcceptedPingPayload(x: unknown): x is AcceptedPing {
   );
 }
 
+function isLiveRatioPayload(x: unknown): x is LiveRatioAccumulator {
+  if (!x || typeof x !== "object") {
+    return false;
+  }
+  const o = x as Record<string, unknown>;
+  return ["actualSeconds", "plannedSeconds", "progressMeters", "asOfMs"].every(
+    (key) => typeof o[key] === "number" && Number.isFinite(o[key])
+  );
+}
+
 function normalizeWs2RuntimePayload(raw: unknown): { ping?: RoomPingState; projection?: RoomProjectionState } {
   if (!raw || typeof raw !== "object") {
     return {};
@@ -849,6 +863,7 @@ function normalizeWs2RuntimePayload(raw: unknown): { ping?: RoomPingState; proje
         visitMeta: (pr.visitMeta as RoomProjectionState["visitMeta"]) ?? {},
         rollingMovingSpeedMps:
           typeof pr.rollingMovingSpeedMps === "number" ? pr.rollingMovingSpeedMps : 0,
+        ...(isLiveRatioPayload(pr.liveRatio) ? { liveRatio: pr.liveRatio } : {}),
         lastProjectionCore: pr.lastProjectionCore as RaceRoomProjectionCore
       };
     }
@@ -974,6 +989,7 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
       visitStates: structuredClone(state.visitStates),
       visitMeta: structuredClone(state.visitMeta),
       rollingMovingSpeedMps: state.rollingMovingSpeedMps,
+      ...(state.liveRatio ? { liveRatio: { ...state.liveRatio } } : {}),
       lastProjectionCore: enrichedCore
     });
     if (persistSnapshot) {
@@ -1777,12 +1793,13 @@ function discardStaleProjectionIfNoLivePing(roomId: string): void {
 }
 
 function pruneProjectionStateMaps(
-  state: Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps">,
+  state: Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps" | "liveRatio">,
   allowedCheckpointIds: Set<string>
-): Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps"> {
+): Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps" | "liveRatio"> {
   return {
     lastProgressMeters: state.lastProgressMeters,
     rollingMovingSpeedMps: state.rollingMovingSpeedMps,
+    ...(state.liveRatio ? { liveRatio: { ...state.liveRatio } } : {}),
     splitCrossedAt: Object.fromEntries(Object.entries(state.splitCrossedAt).filter(([id]) => allowedCheckpointIds.has(id))),
     visitStates: Object.fromEntries(Object.entries(state.visitStates).filter(([id]) => allowedCheckpointIds.has(id))),
     visitMeta: Object.fromEntries(Object.entries(state.visitMeta).filter(([id]) => allowedCheckpointIds.has(id)))
@@ -1817,7 +1834,8 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
         splitCrossedAt: { ...prev.splitCrossedAt },
         visitStates: structuredClone(prev.visitStates),
         visitMeta: structuredClone(prev.visitMeta),
-        rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+        rollingMovingSpeedMps: prev.rollingMovingSpeedMps,
+        ...(prev.liveRatio ? { liveRatio: { ...prev.liveRatio } } : {})
       }
     : null;
   const { projection: nextProjectionCore, state: nextStateRaw } = recomputeRaceProjection({
@@ -1993,6 +2011,10 @@ function enrichProjectionWithLiveRemaining(
   raceAnchorIso: string
 ): RaceRoomProjectionCore {
   if (!room.course || typeof room.plannedPaceSecondsPerKm !== "number") {
+    return core;
+  }
+  if (isProjectionTunedConstantsEnabled()) {
+    // The tuned projection already wrote live remaining ETAs from the runner's own pace.
     return core;
   }
   try {
@@ -3440,7 +3462,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           splitCrossedAt: { ...prev.splitCrossedAt },
           visitStates: structuredClone(prev.visitStates),
           visitMeta: structuredClone(prev.visitMeta),
-          rollingMovingSpeedMps: prev.rollingMovingSpeedMps
+          rollingMovingSpeedMps: prev.rollingMovingSpeedMps,
+          ...(prev.liveRatio ? { liveRatio: { ...prev.liveRatio } } : {})
         }
       : null;
     const commitDelay = pingProjectionCommitDelayForTests;
@@ -3497,6 +3520,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         visitStates: structuredClone(snapshot.visitStates),
         visitMeta: structuredClone(snapshot.visitMeta),
         rollingMovingSpeedMps: snapshot.rollingMovingSpeedMps,
+        ...(snapshot.liveRatio ? { liveRatio: { ...snapshot.liveRatio } } : {}),
         lastProjectionCore: enrichedCore
       });
       app.log.info(
