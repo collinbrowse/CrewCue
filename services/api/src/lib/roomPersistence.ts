@@ -57,6 +57,20 @@ export function validateRoomPersistenceEnv(): void {
   }
 }
 
+/** Mirrors db/migrations/0015_room_athlete_pings.sql. */
+const ROOM_ATHLETE_PINGS_DDL = `
+  CREATE TABLE IF NOT EXISTS room_athlete_pings (
+    room_id TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    accuracy_m DOUBLE PRECISION,
+    received_at TIMESTAMPTZ NOT NULL,
+    ping_id TEXT NOT NULL,
+    PRIMARY KEY (room_id, recorded_at)
+  );
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -189,6 +203,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(`
       CREATE INDEX IF NOT EXISTS http_idempotency_expires_at_idx ON http_idempotency (expires_at);
     `);
+    await client.query(ROOM_ATHLETE_PINGS_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -209,7 +224,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "platform_aggregate_heads",
           "platform_domain_events",
           "race_room_snapshots",
-          "task_board_snapshots"
+          "task_board_snapshots",
+          "room_athlete_pings"
         ]
       }
     },
