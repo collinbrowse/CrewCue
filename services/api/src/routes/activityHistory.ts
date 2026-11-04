@@ -128,7 +128,8 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       ...(metrics.elapsedSeconds !== undefined ? { elapsedSeconds: metrics.elapsedSeconds } : {}),
       ...(metrics.elevationGainMeters !== undefined
         ? { elevationGainMeters: metrics.elevationGainMeters }
-        : {})
+        : {}),
+      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {})
     };
 
     const validated = parseActivityHistoryRef(candidate);

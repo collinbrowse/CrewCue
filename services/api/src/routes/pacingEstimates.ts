@@ -3,6 +3,7 @@
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
  * bodies still work with a sparse polyline from checkpoint centers.
  */
+import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -195,10 +196,20 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     }
 
     try {
+      // The runner's own finished CrewCue races, and plan σ measured across everyone's.
+      const finished = await listFinishedEfforts();
+      const slowdownObservations = finished
+        .filter((e) => e.athleteUserId === athleteUserId && typeof e.slowdownSlope === "number")
+        .map((e) => ({ slope: e.slowdownSlope!, distanceMeters: e.courseLengthMeters }));
+      const planLogSigmaByBranch = Object.fromEntries(
+        Object.entries(measuredPlanLogSigma(finished)).map(([branch, m]) => [branch, m!.sigma])
+      );
       const artifacts = estimatePacingMicroModelWithArtifacts({
         raceStartAt,
         checkpoints,
         history: historyResult.history,
+        slowdownObservations,
+        planLogSigmaByBranch,
         seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED,
         routeMetricPoints,
         courseLengthMeters

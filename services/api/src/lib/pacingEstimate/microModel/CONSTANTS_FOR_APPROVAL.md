@@ -162,3 +162,25 @@ Live formula: `ETA_j = elapsedNow + r_rem · (plan_j − plan_now) + stopHabit �
 Tested and left out:
 - A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
 - Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.
+
+## Learning from CrewCue's own finished races (PR 6)
+
+This is first-party data, so it needs no outside permission. The values below run only when `PROJECTION_TUNED_CONSTANTS` is on, like the rest of the tuned pace model. Measurements are recorded whatever the flag.
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `PLAN_SIGMA_MIN_ROOMS` | **20** finished rooms per branch | Then that branch's σ = RMS of ln(actual ÷ planned finish), replacing the provisional tier |
+| `SLOWDOWN_SHRINK_K` | **2** race-equivalents | personal = (2·0.24 + Σ wᵢ·sᵢ) / (2 + Σ wᵢ) |
+| `SLOWDOWN_FULL_WEIGHT_METERS` | **80 km** | wᵢ = min(1, distanceᵢ / 80 km) |
+| `SLOWDOWN_MIN_EFFORT_METERS` | **30 km** | Shorter efforts are not measured |
+| `SLOWDOWN_MIN_COVERAGE` | **80%** of the course in timed sections, at least 3 sections | Otherwise no slope |
+| `SLOWDOWN_SLOPE_RANGE` | **[0, 0.6]** | Clamp on the personal slope |
+
+How slowdown is measured:
+- For each section, take (actual ÷ planned moving time), normalized by the effort's overall ratio, and regress it on the section's progress.
+- The plan is the micro-model's cold-start shape over the same route without any slowdown, so the measured slope is the whole slowdown.
+- Sources: CrewCue races (sections between checkpoint crossings, stops taken out) and timed GPX uploads (about 5 km sections).
+
+`K = 2` is a reasoned default. Validate it on repeat runners once permitted data with linked runners exists.
+
+`npm run finished-efforts:report` prints rooms per branch, measured σ, slowdowns, and stop medians by tag, race quarter and darkness.

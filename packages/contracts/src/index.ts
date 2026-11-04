@@ -81,6 +81,8 @@ export interface RaceCourseBaselineTrack {
    * projection trusts a tighter plan longer. Absent means 0.12.
    */
   planLogSigma?: number;
+  /** Which runner-profile branch built the plan; finished races are scored against it. */
+  planProfileBranch?: "coldStart" | "coarseHistory" | "similarHistory";
 }
 
 /** Source for `elevationGainMeters` / `elevationLossMeters` on the canonical polyline. */
