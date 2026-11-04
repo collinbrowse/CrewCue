@@ -162,3 +162,19 @@ Live formula: `ETA_j = elapsedNow + r_rem · (plan_j − plan_now) + stopHabit �
 Tested and left out:
 - A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
 - Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.
+
+## Arrival windows (PR 5) — behind `PROJECTION_TUNED_CONSTANTS`, table not fitted yet
+
+**Source of truth:** `[../../arrivalWindows.ts](../../arrivalWindows.ts)`, with the table in `[../../arrivalWindowTable.ts](../../arrivalWindowTable.ts)`.
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| Window | 10th–90th percentile (80% nominal) | `elapsedNow + remaining × [exp(q10), exp(q90)]` around each live ETA |
+| Progress bands | 0–25%, 25–50%, 50–75%, 75–100% of course covered | Table rows, together with σ tier (cold / coarse / similar history) and linked course history |
+| `WINDOW_MIN_COVERAGE` | **70%** held-out | A band below this gets no window, so clients show the ETA alone |
+| Target coverage | **75–85%** held-out | What the backtest reports each band against |
+| Between checkpoints | linear in remaining plan time | Quantiles go from the next-checkpoint band to the finish band |
+
+**Table: empty (`null`).** Fitting it needs permitted race data. The Nov 4 analysis was on OpenSplitTime-heavy data, so it can't be used here. That analysis also found coverage of only 34–43% in the first quarter of courses without history, so those bands would most likely be omitted.
+
+To fill the table, run `npm run projection:backtest -- --data <permitted data> --analysis windows --write-windows --windows-source "<dataset, permission, date>"` and commit the generated table. The tool refuses to write a table from the synthetic fixture.

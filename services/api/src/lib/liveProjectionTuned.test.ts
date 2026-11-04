@@ -206,3 +206,36 @@ test("a fast first 15% (crowded UTMB-style start) is not extrapolated across the
   assert.ok(projected > naive + 0.08 * planFinish, `projected ${projected} vs naive ${naive}`);
   assert.ok(projected < planFinish, "but still credits some of the fast start");
 });
+
+test("arrival windows appear on live ETAs only when a calibrated table exists", async () => {
+  const { setArrivalWindowTableForTests, WINDOW_PROGRESS_BANDS } = await import("./arrivalWindows.js");
+  const setup = course({ baseline: true, planLogSigma: 0.12 });
+  const legs = [{ meters: 6000, seconds: 6 * 600 }];
+  setArrivalWindowTableForTests(null);
+  try {
+    const none = withFlag(true, () => run(setup, legs));
+    assert.equal(none.core.etaFinishWindow, undefined);
+    assert.ok(none.core.remainingCheckpointEtas?.every((r) => r.window === undefined));
+    const bands = (["next", "finish"] as const).flatMap((target) =>
+      WINDOW_PROGRESS_BANDS.flatMap(([lo, hi]) =>
+        (["coldStart", "coarseHistory", "similarHistory"] as const).map((sigmaTier) => ({
+          target, progressLo: lo, progressHi: hi, sigmaTier, hasHistory: false, q10: -0.1, q90: 0.15, coverage: 0.8, samples: 50
+        }))
+      )
+    );
+    setArrivalWindowTableForTests({ source: "test", bands });
+    const withTable = withFlag(true, () => run(setup, legs));
+    const finish = withTable.core.etaFinishWindow!;
+    assert.ok(Date.parse(finish.earliestIso) <= Date.parse(withTable.core.etaFinishPlanIso));
+    assert.ok(Date.parse(finish.latestIso) >= Date.parse(withTable.core.etaFinishPlanIso));
+    for (const eta of withTable.core.remainingCheckpointEtas ?? []) {
+      assert.ok(eta.window!.earliestElapsedSeconds <= eta.liveProjectedElapsedSeconds);
+      assert.ok(eta.window!.latestElapsedSeconds >= eta.liveProjectedElapsedSeconds);
+    }
+    // Flag off: no windows even with a table.
+    const off = withFlag(false, () => run(setup, legs));
+    assert.equal(off.core.etaFinishWindow, undefined);
+  } finally {
+    setArrivalWindowTableForTests(undefined);
+  }
+});
