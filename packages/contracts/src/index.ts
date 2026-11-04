@@ -440,6 +440,60 @@ export interface AthletePingAcceptedResponse {
   latitude: number;
   longitude: number;
   horizontalAccuracyMeters?: number;
+  /** Recomputed room projection; absent when the room has no plan, start time, or route line. */
+  projection?: RaceRoomProjection;
+}
+
+/** One buffered sample in a backlog upload. */
+export interface AthletePingBatchPoint {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  horizontalAccuracyMeters?: number;
+}
+
+/**
+ * `POST /race-rooms/:roomId/pings/batch` — every sample the athlete phone buffered while offline,
+ * sent in one request (1–500 points). Unlike the single ping, points may be backdated.
+ */
+export interface AthletePingBatchPayload {
+  points: AthletePingBatchPoint[];
+  uploadIntervalSeconds?: number;
+}
+
+/**
+ * Per-point outcome. `duplicate` means the server already stored this exact `recordedAt`
+ * (a replayed upload); clients treat it like `accepted` and never resend.
+ */
+export interface AthletePingBatchPointResult {
+  recordedAt: string;
+  decision: "accepted" | "duplicate" | "rejected";
+  reason?: AthletePingRejectReason;
+  pingId?: string;
+}
+
+export interface AthletePingBatchResponse {
+  roomId: string;
+  receivedAt: string;
+  /** Same order as the request's `points`. */
+  results: AthletePingBatchPointResult[];
+  acceptedCount: number;
+  projection?: RaceRoomProjection;
+}
+
+/** One stored point of the athlete's path. */
+export interface AthleteTrackPoint {
+  recordedAt: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** `GET /race-rooms/:roomId/pings/track?after=<iso>&limit=<n>` — accepted points, oldest first. */
+export interface RaceRoomPingTrackResponse {
+  roomId: string;
+  points: AthleteTrackPoint[];
+  /** Pass as `after` to read the next page; absent on the last page. */
+  nextCursor?: string;
 }
 
 export interface AthletePingRejectedResponse {
