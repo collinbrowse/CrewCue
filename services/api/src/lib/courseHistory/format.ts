@@ -14,10 +14,11 @@ export const COURSE_HISTORY_FORMAT_VERSION = 1 as const;
 
 /**
  * Known sources. `file` is a hand-made or exported JSON file in this format; `crewcue` is a
- * finished CrewCue room. Add a source here only once its data may be used (OpenSplitTime waits on
- * permission; LiveTrail's legal notice forbids reuse without written permission).
+ * finished CrewCue room; `opensplittime` is an OpenSplitTime event (permission granted Nov 2026,
+ * with an attribution line). Add a source here only once its data may be used (LiveTrail's legal
+ * notice forbids reuse without written permission).
  */
-export const COURSE_HISTORY_SOURCES = ["file", "crewcue", "synthetic"] as const;
+export const COURSE_HISTORY_SOURCES = ["file", "crewcue", "opensplittime", "synthetic"] as const;
 export type CourseHistorySource = (typeof COURSE_HISTORY_SOURCES)[number];
 
 export type CourseHistoryCheckpoint = {

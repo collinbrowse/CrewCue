@@ -163,7 +163,7 @@ Tested and left out:
 - A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
 - Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.
 
-## Arrival windows (PR 5) — behind `PROJECTION_TUNED_CONSTANTS`, table not fitted yet
+## Arrival windows (PR 5) — behind `PROJECTION_TUNED_CONSTANTS`, table fitted on OpenSplitTime data
 
 **Source of truth:** `[../../arrivalWindows.ts](../../arrivalWindows.ts)`, with the table in `[../../arrivalWindowTable.ts](../../arrivalWindowTable.ts)`.
 
@@ -175,6 +175,15 @@ Tested and left out:
 | Target coverage | **75–85%** held-out | What the backtest reports each band against |
 | Between checkpoints | linear in remaining plan time | Quantiles go from the next-checkpoint band to the finish band |
 
-**Table: empty (`null`).** Fitting it needs permitted race data. The Nov 4 analysis was on OpenSplitTime-heavy data, so it can't be used here. That analysis also found coverage of only 34–43% in the first quarter of courses without history, so those bands would most likely be omitted.
+**Table: fitted Nov 5 2026** on OpenSplitTime public results, used with OpenSplitTime's permission: 5 courses (Hardrock 100 counter-clockwise, Bear 100, Never Summer 100K and 60K, Quad Rock 50), 3,817 finishers. Coverage is held out one course at a time. UTMB (LiveTrail) is left out because LiveTrail hasn't given permission.
 
-To fill the table, run `npm run projection:backtest -- --data <permitted data> --analysis windows --write-windows --windows-source "<dataset, permission, date>"` and commit the generated table. The tool refuses to write a table from the synthetic fixture.
+| Band | Next checkpoint: held-out coverage | Finish: held-out coverage |
+| --- | --- | --- |
+| 0–25% | 72–74% (below target, above the 70% gate) | 80% |
+| 25–50% | 79% | 77–78% |
+| 50–75% | 74–75% (below target, above the gate) | 76% |
+| 75–100% | 77% | 80% |
+
+Ranges span the three σ tiers, which come out nearly the same because the backtest's plan error is synthetic. Every band clears the 70% gate, so every band gets a window. Typical widths: next checkpoint ×0.83–×1.25 of the remaining time; finish ×0.85–×1.18. Bands with linked course history (`hasHistory: true`) aren't fitted yet, so they fall back to no window until a refit with history wired in (follow-up once PR 4 merges).
+
+To refit the table, run `npm run projection:backtest -- --data <permitted data> --analysis windows --write-windows --windows-source "<dataset, permission, date>"` and commit the generated table. The tool refuses to write a table from the synthetic fixture.

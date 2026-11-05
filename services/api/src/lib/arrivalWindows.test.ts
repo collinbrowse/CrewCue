@@ -5,10 +5,12 @@ import {
   setArrivalWindowTableForTests,
   sigmaTierFor,
   windowQuantiles,
+  WINDOW_MIN_COVERAGE,
   WINDOW_PROGRESS_BANDS,
   type WindowBand,
   type WindowTable
 } from "./arrivalWindows.js";
+import { ARRIVAL_WINDOW_TABLE } from "./arrivalWindowTable.js";
 
 /** A table where looser plans and earlier progress get wider windows, as real data should show. */
 function sampleTable(overrides: Partial<WindowBand> & { drop?: (b: WindowBand) => boolean } = {}): WindowTable {
@@ -26,9 +28,23 @@ function sampleTable(overrides: Partial<WindowBand> & { drop?: (b: WindowBand) =
   return { source: "test", bands: bands.filter((b) => !drop?.(b)).map((b) => ({ ...b, ...rest })) };
 }
 
-test("no committed table means no windows", () => {
-  setArrivalWindowTableForTests(undefined);
+test("no table means no windows", () => {
+  setArrivalWindowTableForTests(null);
   assert.equal(windowQuantiles({ target: "finish", seen: 0.5, planLogSigma: 0.12, hasHistory: false }), null);
+  setArrivalWindowTableForTests(undefined);
+});
+
+test("the committed table covers every no-history band, clears the gate, and names its permitted source", () => {
+  const table = ARRIVAL_WINDOW_TABLE!;
+  assert.match(table.source, /OpenSplitTime.*permission/);
+  assert.equal(table.bands.filter((b) => !b.hasHistory).length, 2 * 3 * 4);
+  for (const band of table.bands) {
+    assert.ok(band.coverage >= WINDOW_MIN_COVERAGE, `${band.target} ${band.sigmaTier} ${band.progressLo}`);
+    assert.ok(band.q10 < 0 && band.q90 > 0, "a window always contains the ETA");
+  }
+  setArrivalWindowTableForTests(undefined);
+  assert.ok(windowQuantiles({ target: "finish", seen: 0.5, planLogSigma: 0.12, hasHistory: false }));
+  assert.equal(windowQuantiles({ target: "finish", seen: 0.5, planLogSigma: 0.12, hasHistory: true }), null, "history bands not fitted yet");
 });
 
 test("σ maps to the nearest tier", () => {
