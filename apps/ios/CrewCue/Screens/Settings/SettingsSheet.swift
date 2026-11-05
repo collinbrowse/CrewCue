@@ -35,6 +35,11 @@ struct ShellSettingsSheet: View {
                         .accessibilityLabel("Sign out")
                     }
                     .crewCard()
+                    Text("Pacing model built with race results from [OpenSplitTime.org](https://www.opensplittime.org).")
+                        .font(.footnote)
+                        .foregroundStyle(theme.body)
+                        .tint(theme.body)
+                        .accessibilityIdentifier("crewcue.settings.credits")
                 }
                 .onAppear {
                     if let focus = model.settingsFocus {

@@ -1,5 +1,8 @@
 package com.crewcue.android.ui.settings
 
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -62,6 +65,15 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
                 titleColor = MaterialTheme.colorScheme.error
             )
         }
+        Text(
+            text = buildAnnotatedString {
+                append("Pacing model built with race results from ")
+                withLink(LinkAnnotation.Url("https://www.opensplittime.org")) { append("OpenSplitTime.org") }
+                append(".")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
