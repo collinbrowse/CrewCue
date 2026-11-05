@@ -747,6 +747,16 @@ export function setPingProjectionCommitDelayForTests(
     delay === undefined ? undefined : { roomId, delay };
 }
 
+let pingBeforeLockDelayForTests: { roomId: string; delay: () => Promise<void> } | undefined;
+
+/** Test-only one-shot pause after a ping has read the room and before it takes the room runtime lock. */
+export function setPingBeforeLockDelayForTests(
+  roomId: string,
+  delay: (() => Promise<void>) | undefined
+): void {
+  pingBeforeLockDelayForTests = delay === undefined ? undefined : { roomId, delay };
+}
+
 let membershipWriteDelayForTests: (() => Promise<void>) | undefined;
 
 /** Test-only one-shot pause after join-by-code reads the member list and before it saves. */
@@ -3613,6 +3623,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const actorUserId = request.identity.sub;
+    const beforeLock = pingBeforeLockDelayForTests;
+    if (beforeLock?.roomId === roomId) {
+      pingBeforeLockDelayForTests = undefined;
+      await beforeLock.delay();
+    }
     return await withRoomRuntimeLock(roomId, async () => {
     const pingState = getOrInitPingState(roomId);
     if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
