@@ -34,7 +34,16 @@ export class OpenSplitTimeParseError extends Error {
 // "&amp;lt;" stays "&lt;", and any "<" or ">" left after decoding is dropped.
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&#39;": "'", "&apos;": "'", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&nbsp;": " " };
 const decode = (text: string) => text.replace(/&(?:amp|#39|apos|quot|lt|gt|nbsp);/g, (entity) => ENTITIES[entity]!);
-const toText = (html: string) => decode(html.replace(/<[^>]*>?/g, "")).replace(/[<>]/g, "");
+function toText(html: string): string {
+  // Strip tags until none are left (a removal can join two halves into a new tag), then decode.
+  let text = html;
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(/<[^<>]*>/g, "");
+  } while (text !== previous);
+  return decode(text.replace(/[<>]/g, "")).replace(/[<>]/g, "");
+}
 const stripTags = (text: string) => toText(text).replace(/\s+/g, " ").trim();
 
 /** "h:mm" or "h:mm:ss" elapsed (hours may exceed 24) → seconds; anything else (--, blank) → null. */
