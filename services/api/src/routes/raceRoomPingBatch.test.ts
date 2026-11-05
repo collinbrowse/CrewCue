@@ -290,5 +290,10 @@ test("crossing the finish records one finished effort with its stops", async () 
   assert.equal(efforts[0]!.slowdownSlope, undefined, "a 1 km course is too short to measure slowdown");
   await postBatch(app, roomId, token, { points: [{ latitude: 42.0115, longitude: -70.0, recordedAt: new Date().toISOString() }] });
   assert.equal((await listFinishedEfforts()).filter((e) => e.roomId === roomId).length, 1);
+  // The finished race also becomes CrewCue course history (one effort) for later rooms.
+  const { getCourseHistoryEvents } = await import("../lib/courseHistory/store.js");
+  const [history] = await getCourseHistoryEvents([`crewcue:${roomId}`]);
+  assert.equal(history?.usage, "product");
+  assert.equal(history?.event.efforts.length, 1);
   await app.close();
 });

@@ -23,7 +23,9 @@
     "pacing:eval": "tsx scripts/pacing-eval.ts",
     "pacing:eval:synth": "tsx scripts/pacing-eval-synth.ts",
     "pacing:eval:import": "tsx scripts/pacing-eval-import.ts",
-    "finished-efforts:report": "tsx scripts/finished-efforts-report.ts"
+    "finished-efforts:report": "tsx scripts/finished-efforts-report.ts",
+    "course-history:import": "tsx scripts/course-history-import.ts",
+    "course-history:link": "tsx scripts/course-history-link.ts"
   },
   "dependencies": {
     "@crewcue/contracts": "0.1.0",
