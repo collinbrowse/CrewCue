@@ -92,6 +92,29 @@ import Testing
     }
 }
 
+@Test func runtimeTrackingSettingsAndSessionRoundTripAndOnlyTheAthleteStarts() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let common: [String: Any] = ["storageDir": directory.path, "userId": "athlete-1"]
+    let initial = try resultObject(try await runtimeCall(common.merging(["op": "trackingSettings"]) { $1 }))
+    #expect((initial["intervalSeconds"] as? NSNumber)?.intValue == 180)
+    #expect((initial["allowedIntervalSeconds"] as? [Int]) == [60, 120, 180, 300, 600])
+    _ = try await runtimeCall(common.merging(["op": "setTrackingSettings", "intervalSeconds": 300]) { $1 })
+    let saved = try resultObject(try await runtimeCall(common.merging(["op": "trackingSettings"]) { $1 }))
+    #expect((saved["intervalSeconds"] as? NSNumber)?.intValue == 300)
+
+    let crew = try await runtimeCall(common.merging(["op": "startTrackingSession", "role": "crew_member", "roomId": "room"]) { $1 })
+    #expect(flag(crew, "ok") == false)
+    let started = try resultObject(try await runtimeCall(
+        common.merging(["op": "startTrackingSession", "role": "athlete", "roomId": "room", "startedAt": "2026-08-01T06:00:00.000Z"]) { $1 }
+    ))
+    #expect(flag(started, "active"))
+    let session = try resultObject(try await runtimeCall(common.merging(["op": "trackingSession"]) { $1 }))
+    #expect((session["roomId"] as? String) == "room")
+    _ = try await runtimeCall(common.merging(["op": "stopTrackingSession"]) { $1 })
+    let stopped = try resultObject(try await runtimeCall(common.merging(["op": "trackingSession"]) { $1 }))
+    #expect(flag(stopped, "active") == false)
+}
+
 private func runtimeCall(_ fields: [String: Any]) async throws -> [String: Any] {
     let data = try JSONSerialization.data(withJSONObject: fields)
     let raw = await RuntimeCall.perform(String(decoding: data, as: UTF8.self))

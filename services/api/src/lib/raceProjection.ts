@@ -29,6 +29,7 @@ import {
   PLAN_LOG_SIGMA,
   PLAN_LOG_SIGMA_DEFAULT
 } from "./projectionTuning.js";
+import { arrivalWindow } from "./arrivalWindows.js";
 
 const EPS_M = 0.05;
 
@@ -637,6 +638,7 @@ export function recomputeRaceProjection(params: {
       })();
   let etaFinishPlanIso = new Date(etaFinishMs).toISOString();
   let remainingCheckpointEtas: RemainingCheckpointEta[] | undefined;
+  let etaFinishWindow: { earliestIso: string; latestIso: string } | undefined;
 
   if (tuned) {
     // ETA_j = elapsedNow + r_rem·(plan_j − plan_now) + stopRatio·(planned stops before j).
@@ -660,6 +662,12 @@ export function recomputeRaceProjection(params: {
     const ahead = checkpointSplits
       .filter((row) => row.visits.length === 0 && row.distanceMetersFromStart > covered + 0.5)
       .sort((a, b) => a.distanceMetersFromStart - b.distanceMetersFromStart);
+    const seen = covered / courseLengthMeters;
+    // Course history (PR 4) is not linked yet, so every course uses the no-history bands.
+    const windowInput = { elapsedNow, seen, planLogSigma, hasHistory: false };
+    const nextPlan = ahead[0]?.plannedElapsedSecondsAtCross ?? finishReferenceElapsedSeconds;
+    const towardFinish = (plan: number) =>
+      finishReferenceElapsedSeconds > nextPlan ? (plan - nextPlan) / (finishReferenceElapsedSeconds - nextPlan) : 0;
     let stopsBefore = 0;
     remainingCheckpointEtas = ahead.map((row) => {
       const liveProjectedElapsedSeconds = Math.round(
@@ -670,11 +678,17 @@ export function recomputeRaceProjection(params: {
       );
       stopsBefore += row.plannedStopSeconds;
       const frozenPlanElapsedSeconds = Math.round(row.plannedElapsedSecondsAtCross);
+      const window = arrivalWindow({
+        ...windowInput,
+        etaElapsed: liveProjectedElapsedSeconds,
+        towardFinish: towardFinish(row.plannedElapsedSecondsAtCross)
+      });
       return {
         checkpointId: row.checkpointId,
         liveProjectedElapsedSeconds,
         frozenPlanElapsedSeconds,
-        deltaSecondsVsFrozenPlan: liveProjectedElapsedSeconds - frozenPlanElapsedSeconds
+        deltaSecondsVsFrozenPlan: liveProjectedElapsedSeconds - frozenPlanElapsedSeconds,
+        ...(window ? { window } : {})
       };
     });
     const finishElapsed =
@@ -683,6 +697,13 @@ export function recomputeRaceProjection(params: {
       stopRatio * remainingPlannedStopSecondsAhead +
       currentCheckpointRemainingStop;
     etaFinishPlanIso = new Date(Math.max(recordedAtMs, activatedAtMs + finishElapsed * 1000)).toISOString();
+    const finishWindow = arrivalWindow({ ...windowInput, etaElapsed: finishElapsed, towardFinish: 1 });
+    if (finishWindow) {
+      etaFinishWindow = {
+        earliestIso: new Date(activatedAtMs + finishWindow.earliestElapsedSeconds * 1000).toISOString(),
+        latestIso: new Date(activatedAtMs + finishWindow.latestElapsedSeconds * 1000).toISOString()
+      };
+    }
   }
 
   const completedRows = checkpointSplits.filter((row) =>
@@ -725,7 +746,8 @@ export function recomputeRaceProjection(params: {
     checkpointSplits,
     stoppageSummary,
     weatherStub: buildProjectionWeatherStub({ progressMeters, courseLengthMeters }),
-    ...(remainingCheckpointEtas ? { remainingCheckpointEtas } : {})
+    ...(remainingCheckpointEtas ? { remainingCheckpointEtas } : {}),
+    ...(etaFinishWindow ? { etaFinishWindow } : {})
   };
 
   return {

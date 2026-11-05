@@ -1,0 +1,18 @@
+// Generated from packages/contracts. Do not edit.
+import Foundation
+
+public struct RemainingCheckpointEta: Codable, Equatable, Sendable {
+    public var checkpointId: String
+    public var liveProjectedElapsedSeconds: Double
+    public var frozenPlanElapsedSeconds: Double
+    public var deltaSecondsVsFrozenPlan: Double
+    public var window: ArrivalWindowElapsed?
+
+    public init(checkpointId: String, liveProjectedElapsedSeconds: Double, frozenPlanElapsedSeconds: Double, deltaSecondsVsFrozenPlan: Double, window: ArrivalWindowElapsed? = nil) {
+        self.checkpointId = checkpointId
+        self.liveProjectedElapsedSeconds = liveProjectedElapsedSeconds
+        self.frozenPlanElapsedSeconds = frozenPlanElapsedSeconds
+        self.deltaSecondsVsFrozenPlan = deltaSecondsVsFrozenPlan
+        self.window = window
+    }
+}
