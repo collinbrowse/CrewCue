@@ -4,6 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { computeElevationGainMeters, parseGpxActivityTrack } from "@crewcue/map-core";
+import { slowdownFromTimedTrack } from "./runnerSlowdown.js";
 
 export type GpxActivityParseErrorCode = "gpx_empty" | "gpx_corrupt" | "gpx_parse_failed";
 
@@ -25,6 +26,8 @@ export type ParsedGpxActivityMetrics = {
   elapsedSeconds?: number;
   /** Present only when the GPX includes elevation samples. */
   elevationGainMeters?: number;
+  /** Late-race slowdown from the timed track, for timed activities of 30 km or more. */
+  slowdownSlope?: number;
 };
 
 function toIsoZ(ms: number): string {
@@ -82,6 +85,10 @@ export function parseGpxActivityMetrics(gpxXml: string): ParsedGpxActivityMetric
   if (hasTimestamps) {
     metrics.recordedAt = toIsoZ(parsed.startTimestampMs);
     metrics.elapsedSeconds = parsed.totalDurationSeconds;
+    const slope = slowdownFromTimedTrack(parsed.points);
+    if (slope !== null) {
+      metrics.slowdownSlope = Number(slope.toFixed(4));
+    }
   }
 
   if (elevationGainMeters !== undefined) {

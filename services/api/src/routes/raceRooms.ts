@@ -59,6 +59,8 @@ import {
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { isProjectionTunedConstantsEnabled } from "../lib/projectionTuning.js";
+import { buildFinishedEffort, justFinished } from "../lib/finishedEffort.js";
+import { recordFinishedEffort } from "../lib/finishedEffortStore.js";
 import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } from "../lib/athletePingTrack.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
@@ -201,7 +203,8 @@ const raceCourseBaselinePointInput = z.object({
 
 const raceCourseBaselineTrackInput = z.object({
   points: z.array(raceCourseBaselinePointInput).min(2),
-  planLogSigma: z.number().finite().positive().max(2).optional()
+  planLogSigma: z.number().finite().positive().max(2).optional(),
+  planProfileBranch: z.enum(["coldStart", "coarseHistory", "similarHistory"]).optional()
 });
 
 const raceCourseDerivedMetricsInput = z.object({
@@ -3508,6 +3511,26 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       const enrichedCore = enrichProjectionWithLiveRemaining(core, room, routeMetricPoints, raceAnchor);
       const newest = samples[samples.length - 1]!;
+      if (justFinished(prev?.splitCrossedAt, enrichedCore, room.course)) {
+        // First crossing of the finish: keep what this race says about the plan, stops and slowdown.
+        try {
+          const effort = buildFinishedEffort({
+            roomId,
+            athleteUserId: room.athleteId,
+            course: room.course,
+            core: enrichedCore,
+            routeMetricPoints,
+            raceAnchorIso: raceAnchor,
+            plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm
+          });
+          if (effort) {
+            await recordFinishedEffort(effort);
+            app.log.info({ finished_effort: { roomId, planLogError: effort.planLogError, slowdownSlope: effort.slowdownSlope } }, "finished_effort_recorded");
+          }
+        } catch (err) {
+          app.log.warn({ err, roomId }, "finished_effort_failed");
+        }
+      }
       const projection = attachProjectionTimeliness(
         enrichedCore,
         newest.recordedAtMs,

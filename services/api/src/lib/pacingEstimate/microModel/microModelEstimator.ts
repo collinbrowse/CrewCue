@@ -29,6 +29,10 @@ import {
 } from "./scenarios.js";
 
 export type MicroModelEstimateInput = PacingEstimateInput & {
+  /** The runner's slowdown from CrewCue races they finished. */
+  slowdownObservations?: Array<{ slope: number; distanceMeters: number }>;
+  /** Measured plan σ per profile branch (only branches with enough finished rooms). */
+  planLogSigmaByBranch?: Partial<Record<"coldStart" | "coarseHistory" | "similarHistory", number>>;
   /** Dense course route (required for micro-segments). */
   routeMetricPoints: CourseMetricPoint[];
   /** Optional canonical length override. */
@@ -195,7 +199,9 @@ export function estimatePacingMicroModelWithArtifacts(
 
   const profile = buildRunnerProfile({
     history: Array.isArray(input.history) ? input.history : [],
-    courseDistanceMeters: courseDistance
+    courseDistanceMeters: courseDistance,
+    ...(input.slowdownObservations ? { slowdownObservations: input.slowdownObservations } : {}),
+    ...(input.planLogSigmaByBranch ? { planLogSigmaByBranch: input.planLogSigmaByBranch } : {})
   });
 
   const tuned = isProjectionTunedConstantsEnabled();
@@ -270,7 +276,11 @@ export function estimatePacingMicroModelWithArtifacts(
 
   return {
     estimate: parsePacingEstimate(candidate),
-    baselineTrack: baselineTrackFromSimulation(sims.expected, tuned ? profile.planLogSigma : undefined),
+    baselineTrack: baselineTrackFromSimulation(
+      sims.expected,
+      tuned ? profile.planLogSigma : undefined,
+      tuned ? profile.planBranch : undefined
+    ),
     segments,
     profile,
     courseLengthMeters: courseDistance
