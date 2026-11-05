@@ -67,6 +67,12 @@ test("spread page → split format: start added, miles → meters, in/out kept, 
   assert.ok(!JSON.stringify(event).includes("Runner"), "no names");
 });
 
+test("names come out as plain text: entities decode once, leftover angle brackets are dropped", () => {
+  const html = page([["01:30 / 01:35", "03:10 / 03:10", "05:02:30"]]).replace("Aid One", "Aid &amp;lt;b&amp;gt; &lt;script&gt;x");
+  const name = openSplitTimeEventFromSpreadHtml(html, "x").checkpoints[1]!.name;
+  assert.equal(name, "Aid &lt;b&gt; scriptx");
+});
+
 test("a page without a start time or mileage is rejected", () => {
   assert.throws(() => openSplitTimeEventFromSpreadHtml(page([]).replace("(MDT)", "(XYZ)"), "x"), /start time/);
   assert.throws(() => openSplitTimeEventFromSpreadHtml(page([]).replace("(Mile 10.0)", ""), "x"), /mileage/);

@@ -30,9 +30,12 @@ export class OpenSplitTimeParseError extends Error {
   }
 }
 
-const decode = (text: string) =>
-  text.replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ");
-const stripTags = (text: string) => decode(text.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+// The output is plain text stored as data (never rendered as HTML). Entities decode in one pass so
+// "&amp;lt;" stays "&lt;", and any "<" or ">" left after decoding is dropped.
+const ENTITIES: Record<string, string> = { "&amp;": "&", "&#39;": "'", "&apos;": "'", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&nbsp;": " " };
+const decode = (text: string) => text.replace(/&(?:amp|#39|apos|quot|lt|gt|nbsp);/g, (entity) => ENTITIES[entity]!);
+const toText = (html: string) => decode(html.replace(/<[^>]*>?/g, "")).replace(/[<>]/g, "");
+const stripTags = (text: string) => toText(text).replace(/\s+/g, " ").trim();
 
 /** "h:mm" or "h:mm:ss" elapsed (hours may exceed 24) → seconds; anything else (--, blank) → null. */
 export function parseElapsed(text: string): number | null {
@@ -72,7 +75,7 @@ export function openSplitTimeEventFromSpreadHtml(html: string, slug: string): Co
   const name = title ? stripTags(title[1]!).replace(/^OpenSplitTime:\s*/i, "").replace(/^Full results\s*-\s*/i, "") || slug : slug;
 
   const heads = [...html.matchAll(/<th class="text-nowrap text-center">([\s\S]*?)<\/th>/g)].map((h) =>
-    decode(h[1]!.replace(/<br\s*\/?>/g, "|").replace(/<[^>]+>/g, "")).split("|").map((b) => b.replace(/\s+/g, " ").trim())
+    toText(h[1]!.replace(/<br\s*\/?>/g, "|")).split("|").map((b) => b.replace(/\s+/g, " ").trim())
   );
   if (heads.length < 1) throw new OpenSplitTimeParseError(slug, "no checkpoint columns");
   const timed = heads.map((bits, index) => {
