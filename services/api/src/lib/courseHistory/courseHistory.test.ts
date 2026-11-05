@@ -61,12 +61,15 @@ function stored(e: CourseHistoryEvent, usage: StoredCourseHistoryEvent["usage"] 
   return { id: `${e.source}:${e.sourceEventId}`, usage, importedAt: "2026-01-01T00:00:00Z", event: e };
 }
 
-test("usage comes from the source list (default: only crewcue feeds the product)", () => {
+test("usage comes from the source list (default: crewcue and opensplittime feed the product)", () => {
   const before = process.env.COURSE_HISTORY_PRODUCT_SOURCES;
   try {
     delete process.env.COURSE_HISTORY_PRODUCT_SOURCES;
     assert.equal(usageFor("crewcue"), "product");
+    assert.equal(usageFor("opensplittime"), "product");
     assert.equal(usageFor("file"), "backtest_only");
+    process.env.COURSE_HISTORY_PRODUCT_SOURCES = "crewcue";
+    assert.equal(usageFor("opensplittime"), "backtest_only");
     process.env.COURSE_HISTORY_PRODUCT_SOURCES = "crewcue,file";
     assert.equal(usageFor("file"), "product");
   } finally {
@@ -208,7 +211,11 @@ test("the pre-race estimate follows the cohort's checkpoint shares only with the
     assert.ok(Math.abs(share(on, "cp1") - 0.27) < 0.01, `on ${share(on, "cp1")}`);
     assert.ok(Math.abs(share(on, "cp2") - 0.58) < 0.01);
     assert.ok(Math.abs(share(off, "cp1") - 0.27) > 0.02, "flag off keeps the GPX shape");
-    assert.match(on.explanation, /40 past finishers/);
+    assert.match(on.explanation, /40 past finishers of this course\./);
+    assert.doesNotMatch(on.explanation, /OpenSplitTime/, "no credit for a source that doesn't ask for one");
+    const ost = buildCohort(course, [stored(event("b", 40, { source: "opensplittime" }))]);
+    const credited = estimatePacingMicroModelWithArtifacts({ ...input, courseHistoryCohort: ost }).estimate;
+    assert.match(credited.explanation, /40 past finishers of this course \(results from OpenSplitTime\.org\)\./);
   } finally {
     if (before === undefined) delete process.env.PROJECTION_TUNED_CONSTANTS;
     else process.env.PROJECTION_TUNED_CONSTANTS = before;

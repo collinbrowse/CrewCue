@@ -1,6 +1,7 @@
 /**
  * Physiology micro-model pacing estimator (plan-of-record moving times + scenario bands).
  */
+import { courseHistoryAttribution } from "../../courseHistory/attribution.js";
 import { createHash } from "node:crypto";
 import {
   parseIso8601Utc,
@@ -285,7 +286,9 @@ export function estimatePacingMicroModelWithArtifacts(
       }
     },
     explanation: `${profile.explanation} Bands from three micro-model scenario re-sims (not fixed finish ratios).${
-      cohort ? ` Checkpoint times follow ${cohort.arrivals.length} past finishers of this course.` : ""
+      cohort
+        ? ` Checkpoint times follow ${cohort.arrivals.length} past finishers of this course${courseHistoryAttribution(cohort.eventIds)}.`
+        : ""
     }`,
     ...(profile.historyRefIds !== undefined ? { historyRefIds: profile.historyRefIds } : {})
   };
