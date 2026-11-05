@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import type { AthletePingBatchResponse, RaceRoomPingTrackResponse } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { backlogFloorMs, setRaceRoomStatusForTests } from "./raceRooms.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -266,3 +269,59 @@ test("the track pages with after and nextCursor, and includes single pings", asy
   assert.equal((await readTrack(app, roomId, token, "?after=yesterday")).statusCode, 400);
   await app.close();
 });
+
+test(
+  "the runner's uploaded path survives an API restart, and replaying the same upload still stores nothing twice",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const athlete = app.jwt.sign(buildClaims("owner-user"));
+    const crew = app.jwt.sign(buildClaims("crew-user"));
+    const roomId = await createPaidActiveRoom(app, athlete);
+    await addCrewMember(app, roomId, athlete, crew);
+    const points = backlog(12, 40 * 60 * 1000);
+    const first = await postBatch(app, roomId, athlete, { points });
+    assert.equal(first.statusCode, 200);
+    assert.equal((first.json() as AthletePingBatchResponse).acceptedCount, 12);
+    await app.close();
+
+    // A fresh process has no memory of this room or its path; both must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, athlete, crew, pointsJson] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const headers = (t) => ({ authorization: "Bearer " + t });
+      const track = async () =>
+        (await app.inject({ method: "GET", url: "/race-rooms/" + roomId + "/pings/track", headers: headers(crew) })).json();
+      const before = await track();
+      const replay = await app.inject({
+        method: "POST",
+        url: "/race-rooms/" + roomId + "/pings/batch",
+        payload: { points: JSON.parse(pointsJson) },
+        headers: headers(athlete)
+      });
+      const after = await track();
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ before, replay: replay.json(), after }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, athlete, crew, JSON.stringify(points)],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      before: RaceRoomPingTrackResponse;
+      replay: AthletePingBatchResponse;
+      after: RaceRoomPingTrackResponse;
+    };
+    const times = points.map((p) => p.recordedAt);
+    assert.deepEqual(result.before.points.map((p) => p.recordedAt), times, "crew still see the whole path, oldest first");
+    assert.equal(result.replay.acceptedCount, 0);
+    assert.ok(result.replay.results.every((r) => r.decision === "duplicate"), "a retry after the restart is recognised");
+    assert.deepEqual(result.after.points.map((p) => p.recordedAt), times, "the retry stored nothing twice");
+  }
+);
