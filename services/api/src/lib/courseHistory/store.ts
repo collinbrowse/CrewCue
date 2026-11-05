@@ -3,7 +3,7 @@
  *
  * Each event's `usage` is set from its source at import:
  * - `product`: may feed estimates and live ETAs. Only sources listed in
- *   COURSE_HISTORY_PRODUCT_SOURCES (env, comma-separated, default `crewcue`).
+ *   COURSE_HISTORY_PRODUCT_SOURCES (env, comma-separated, default `crewcue,opensplittime`).
  * - `backtest_only`: stored for analysis, never read by the product.
  * Re-importing an event (same source and sourceEventId) replaces it.
  * Postgres table `course_history_events` (migration 0017); memory mode keeps a map.
@@ -20,10 +20,15 @@ export type StoredCourseHistoryEvent = {
   event: CourseHistoryEvent;
 };
 
-/** Sources whose data may feed the product. OpenSplitTime joins this list only once permitted. */
+/**
+ * Sources whose data may feed the product. OpenSplitTime is on by default since it granted
+ * permission (Nov 2026); set the env to `crewcue` to take it back off without a deploy of code.
+ */
+export const DEFAULT_PRODUCT_SOURCES = "crewcue,opensplittime";
+
 export function productSources(): Set<string> {
   const raw = process.env.COURSE_HISTORY_PRODUCT_SOURCES?.trim();
-  return new Set((raw && raw.length > 0 ? raw : "crewcue").split(",").map((s) => s.trim()).filter(Boolean));
+  return new Set((raw && raw.length > 0 ? raw : DEFAULT_PRODUCT_SOURCES).split(",").map((s) => s.trim()).filter(Boolean));
 }
 
 export function usageFor(source: string): CourseHistoryUsage {

@@ -134,14 +134,22 @@ single field validation** (per `pacing-accuracy-program.md`, after PR D).
 
 ## Course-aware plan and live projection (PR 3) — behind `PROJECTION_TUNED_CONSTANTS`
 
-**Status: provisional, OFF in production.** Fit on the Nov 3–4 2026 backtest of scraped finisher
-splits (about 5,500 finishers on 6 courses), held out one course at a time. Five courses are
-OpenSplitTime (Hardrock 100, Bear 100, Never Summer 100K and 60K, Quad Rock 50) and one is
-LiveTrail (UTMB 2022). Using OpenSplitTime results to tune CrewCue needs OpenSplitTime's
-permission, which hasn't been granted. So these constants only run when
-`PROJECTION_TUNED_CONSTANTS=1`. Leave it unset in production until permission covers this use, or
-until the constants are refit on permitted data. With it unset, the estimate and the ETAs match the
-pre-PR model exactly.
+**Status: confirmed on permitted data; still OFF in production until the flag is turned on.** First
+fit on the Nov 3–4 2026 backtest of scraped finisher splits (about 5,500 finishers on 6 courses,
+held out one course at a time): five OpenSplitTime courses (Hardrock 100, Bear 100, Never Summer
+100K and 60K, Quad Rock 50) and UTMB 2022 from LiveTrail. OpenSplitTime granted permission on
+Nov 5 2026 (it asked for an attribution line). LiveTrail hasn't, so UTMB is out.
+
+**Nov 5 re-check on OpenSplitTime only** (5 courses, 3,817 finishers, leave-one-course-out):
+- Slowdown fits 0.20–0.25 per held-out course. Night pooled +7.3%.
+- Bias terms refit per held-out course: A +0.085…+0.111, B −0.195…−0.218, C +0.303…+0.350. The
+  shipped values are inside or next to those ranges and score slightly better than the refit
+  (all-runner finish 49.2 vs 50.2 min).
+- Finish / next-aid error, all runners: server today 69.5 / 18.1 → PR 3 with the shipped
+  constants 49.2 / 15.2. Mixed plan-quality field: 63.4 → 50.9 min.
+
+The constants run only when `PROJECTION_TUNED_CONSTANTS=1`. With it unset, the estimate and the
+ETAs match the pre-PR model exactly.
 
 **Source of truth:** `[../../projectionTuning.ts](../../projectionTuning.ts)`
 
@@ -189,7 +197,7 @@ How slowdown is measured:
 
 | Constant | Value | Role |
 | --- | --- | --- |
-| `COURSE_HISTORY_PRODUCT_SOURCES` | env, default **`crewcue`** | Sources whose events may feed the product. Every other source is stored `backtest_only` |
+| `COURSE_HISTORY_PRODUCT_SOURCES` | env, default **`crewcue,opensplittime`** | Sources whose events may feed the product. Every other source is stored `backtest_only` |
 | `COURSE_HISTORY_MIN_FINISHERS` | **25** | Past finishers needed on the mapped layout before history changes a plan or an ETA. Nov 4 analysis: the gain levels off at 10–25 |
 | Plan band | ±**10%** of planned finish (at least 5, else the nearest 10) | Plan shape = median share of finish at each checkpoint among these finishers |
 | Live band | ±**30%** of the runner's elapsed at the last checkpoint (nearest 100, at least **4**), outliers beyond 1.5×IQR dropped | Past-runners estimate. The live ETA is the average of it and the projection |
@@ -197,8 +205,10 @@ How slowdown is measured:
 | `LINK_MIN_AID_COVERAGE` | **80%** of the room's aid checkpoints | Needed to link an event |
 | Auto-link | start and finish within **500 m**, length within **5%**, one checkpoint layout | Otherwise an operator links with `npm run course-history:link` |
 
-**Data-gated, in practice off today:**
-- With the default source list, only CrewCue's own finished races feed the product, and no course has 25 yet.
-- The plan shape and the live blend also need the tuned flag, because the 25-finisher threshold and the bands come from the Nov 4 backtest.
+**Data-gated:**
+- With the default source list, CrewCue's own finished races and OpenSplitTime events feed the product. OpenSplitTime events are imported with `npm run course-history:import -- --opensplittime <event-slug…>`.
+- OpenSplitTime gives no checkpoint coordinates, so its events don't auto-link (auto-link matches start and finish positions). Link a room by hand: `npm run course-history:link -- <roomId> opensplittime:<slug>…`. Checkpoints then map by name, then by share of the course.
+- An estimate shaped by OpenSplitTime results says so in its explanation: "(results from OpenSplitTime.org)", the attribution OpenSplitTime asked for.
+- The plan shape and the live blend also need the tuned flag.
 
-**Gate before relying on it:** on permitted data with prior years, the backtest must show a finish error of 41 min or less and a next-aid error of 11 min or less (Nov 4 on OpenSplitTime data: 40.1 / 10.5).
+**Gate: passed on OpenSplitTime data (Nov 5 2026).** On runners whose course has prior years (2,985 runners, 4 courses), the 50/50 blend of the live projection and the past-runners estimate scores a finish error of **40.0 min** and a next-aid error of **10.1 min**, against the gate of 41 / 11. At 25 past finishers per runner it's 40.7 / 10.2. The past-runner plan shape plus the blend together weren't scored yet.

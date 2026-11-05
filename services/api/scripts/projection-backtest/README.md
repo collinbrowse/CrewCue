@@ -14,7 +14,7 @@ CI runs `npm run projection:backtest:check -w @crewcue/api` as part of the API `
 ## Data rules
 
 - **No race data is committed.** Real events go in `services/api/projection-backtest-data/`, which is git-ignored, or in any folder passed with `--data`.
-- **OpenSplitTime:** don't fetch or use its data, including the scraped Nov 3–4 pages, until OST grants permission. There is no OST adapter.
+- **OpenSplitTime:** permitted (Nov 5 2026), with an attribution line wherever its results shape an estimate. Write events with `npm run course-history:import -- --opensplittime <event-slug…> --out <file.json>` and list them in the manifest. The adapter reads one public results page per second.
 - **LiveTrail:** its legal notice requires prior written permission to reuse the site or its databases. Treat its data the same as OST's.
 - The fixture in `fixtures/projection-backtest/` is generated (`npm run projection:backtest:make-fixture -w @crewcue/api`). Its runners follow the micro-model with a known slowdown (0.30), night factor (1.06), noise and aid stops. Its numbers show the tool works; they say nothing about real accuracy.
 
