@@ -39,6 +39,9 @@ const roots = [
   "AthletePingBatchResponse",
   "AthleteTrackPoint",
   "RaceRoomPingTrackResponse",
+  "RemainingCheckpointEta",
+  "RaceRoomProjectionCore",
+  "ProjectionTimeliness",
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
@@ -51,7 +54,7 @@ const skipProperties = new Set([
   "bands",
   "cutoff",
   "payload",
-  // Live projection types join the client contracts with the crew live-ETA work, not with pings.
+  // Ping responses carry a projection; clients read it from GET /projection instead.
   "projection"
 ]);
 const write = process.argv.includes("--write");
@@ -154,7 +157,9 @@ function renderStruct(name) {
     const declaration = prop.valueDeclaration ?? prop.declarations?.[0];
     if (!declaration) continue;
     const propType = checker.getTypeOfSymbolAtLocation(prop, declaration);
-    const optional = Boolean(prop.flags & ts.SymbolFlags.Optional);
+    // `T | null` decodes JSON null, so it is optional on the client like `field?: T`.
+    const nullable = propType.isUnion() && propType.types.some((part) => Boolean(part.flags & ts.TypeFlags.Null));
+    const optional = Boolean(prop.flags & ts.SymbolFlags.Optional) || nullable;
     const rendered = renderType(propType);
     if (!rendered) {
       console.error(`verify:client-codegen skipped ${name}.${prop.getName()}`);

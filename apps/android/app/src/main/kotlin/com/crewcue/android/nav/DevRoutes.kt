@@ -26,6 +26,8 @@ object DevRoutes {
         "dev/map-checkpoint-pick" to "map-checkpoint-pick",
         "dev/map-navigate" to "map-navigate",
         "dev/location-heartbeat" to "location-heartbeat",
+        "dev/runner-track" to "runner-track",
+        "dev/live-eta" to "live-eta",
         "dev/chat" to "chat-thread",
         "dev/chat-notification-prefs" to "chat-notification-prefs",
         "dev/push-registration" to "push-registration",

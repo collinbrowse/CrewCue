@@ -48,6 +48,8 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/map-checkpoint-pick": "map-checkpoint-pick"
         case "dev/map-navigate": "map-navigate"
         case "dev/location-heartbeat": "location-heartbeat"
+        case "dev/runner-track": "runner-track"
+        case "dev/live-eta": "live-eta"
         case "dev/chat": "chat-thread"
         case "dev/chat-notification-prefs": "chat-notification-prefs"
         case "dev/push-registration": "push-registration"

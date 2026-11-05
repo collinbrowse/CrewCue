@@ -125,6 +125,7 @@ fun PaceScreen(
             }
             PaceTimeline(
                 rows = rows,
+                liveStale = readout.liveEtaStale,
                 stops = model.scheduleStops,
                 message = model.scheduleMessage,
                 editRows = if (model.stopEditing) model.stopRows else emptyList(),
@@ -176,8 +177,36 @@ private fun PaceHeader(raceName: String, readout: RaceReadout) {
             }
         }
         CrewProgressBar(readout.progressFraction, Modifier.padding(top = 12.dp))
+        CrewClock.short(readout.finishEtaAt)?.let { finish ->
+            val window = windowText(readout.finishWindowStartAt, readout.finishWindowEndAt)
+            val text = listOfNotNull(finish, window, "old ping".takeIf { readout.liveEtaStale }).joinToString(" · ")
+            Row(
+                Modifier
+                    .padding(top = 8.dp)
+                    .testTag("crewcue.live-eta")
+                    .semantics(mergeDescendants = true) { contentDescription = "Finish ETA $text" },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Kicker("Finish ETA")
+                Text(text, modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelLarge)
+            }
+        }
     }
 }
+
+/** "13:10–16:05" when the server sent a window; null otherwise. */
+private fun windowText(start: String?, end: String?): String? {
+    val from = CrewClock.short(start) ?: return null
+    val to = CrewClock.short(end) ?: return null
+    return "$from–$to"
+}
+
+/** Under a live arrival: the window, the plan, and an old-ping flag. */
+private fun liveCaption(row: TimelineRow, stale: Boolean): String = listOfNotNull(
+    windowText(row.arrivalWindowStartAt, row.arrivalWindowEndAt),
+    CrewClock.short(row.clockArrivalAt)?.let { "PLAN $it" } ?: "LIVE",
+    "OLD PING".takeIf { stale }
+).joinToString(" · ")
 
 @Composable
 private fun EstimateCard(model: PaceViewModel) {
@@ -214,6 +243,7 @@ private fun EstimateCard(model: PaceViewModel) {
 @Composable
 private fun PaceTimeline(
     rows: List<TimelineRow>,
+    liveStale: Boolean = false,
     stops: List<PaceStop>,
     message: String?,
     editRows: List<StopEditRow> = emptyList(),
@@ -254,9 +284,9 @@ private fun PaceTimeline(
                 val stop = stops.firstOrNull { it.id == row.checkpointId }
                     ?.let { live -> edit?.let { live.copy(stopLabel = it.stopLabel) } ?: live }
                 if (row.state == "current") {
-                    CurrentCheckpoint(row, stop) { onCheckIn(stop?.id ?: row.checkpointId) }
+                    CurrentCheckpoint(row, stop, liveStale) { onCheckIn(stop?.id ?: row.checkpointId) }
                 } else {
-                    CompactCheckpoint(row, stop)
+                    CompactCheckpoint(row, stop, liveStale)
                 }
                 editRows.firstOrNull { it.checkpointId == row.checkpointId && it.editable }?.let { edit ->
                     StopEditor(
@@ -271,9 +301,10 @@ private fun PaceTimeline(
 }
 
 @Composable
-private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
+private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Boolean = false) {
     val colors = MaterialTheme.colorScheme
     val done = row.state == "done"
+    val liveClock = CrewClock.short(row.liveArrivalAt)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -297,7 +328,7 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    CrewClock.short(row.clockArrivalAt) ?: "—",
+                    liveClock?.let { "ETA $it" } ?: CrewClock.short(row.clockArrivalAt) ?: "—",
                     style = MetricStyle,
                     color = when {
                         row.isFinish -> colors.primary
@@ -307,6 +338,7 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
                 )
                 Text(
                     when {
+                        liveClock != null -> liveCaption(row, liveStale)
                         row.isFinish -> "TARGET"
                         // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
                         stop != null -> listOfNotNull(
@@ -325,8 +357,9 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?) {
 }
 
 @Composable
-private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, onCheckIn: () -> Unit) {
+private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Boolean = false, onCheckIn: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val liveClock = CrewClock.short(row.liveArrivalAt)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -348,8 +381,8 @@ private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, onCheckIn: () -
             HorizontalDivider(Modifier.padding(vertical = 16.dp), color = colors.outlineVariant)
             Row {
                 MetricColumn(
-                    "Est. arrival",
-                    CrewClock.short(row.clockArrivalAt) ?: "—",
+                    if (liveClock == null) "Est. arrival" else if (liveStale) "Live ETA (old ping)" else "Live ETA",
+                    liveClock ?: CrewClock.short(row.clockArrivalAt) ?: "—",
                     Modifier.weight(1f),
                     alignment = Alignment.Start,
                     valueColor = colors.primary
@@ -361,6 +394,14 @@ private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, onCheckIn: () -
                     valueColor = if (row.cutoffStatus == "warn" || row.cutoffStatus == "breach") colors.error else colors.onSurface
                 )
                 MetricColumn("Dist. to", row.distanceToLabel, Modifier.weight(1f), alignment = Alignment.End)
+            }
+            if (liveClock != null) {
+                Text(
+                    liveCaption(row, liveStale),
+                    modifier = Modifier.padding(top = 12.dp).testTag("crewcue.live-eta.current"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.onSurfaceVariant
+                )
             }
             stop?.let {
                 Text(

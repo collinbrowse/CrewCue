@@ -239,6 +239,50 @@ public enum RaceDayAPI {
         return RunnerProgress(response: response)
     }
 
+    /// One page of the runner's path after `after` (exclusive), oldest first.
+    public static func pingTrack(graph: ClientGraph, roomId: String, after: String?, limit: Int = 1000) async throws -> RaceRoomPingTrackResponse {
+        guard let baseURL = graph.baseURL else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        var query = ["limit": String(limit)]
+        if let after {
+            query["after"] = after
+        }
+        guard let url = APIClient.endpoint(baseURL, "/race-rooms/\(roomId)/pings/track", query: query) else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        return try await APIClient.send(APIClient.authorized(url: url, method: .get, token: token), transport: graph.transport)
+    }
+
+    /// Brings `track` up to date, reading at most `maxPages` pages (a long dead zone can leave
+    /// thousands of new points); the next refresh continues from the cursor.
+    public static func refreshTrack(graph: ClientGraph, roomId: String, track: RunnerTrack, maxPages: Int = 5) async throws -> RunnerTrack {
+        var next = track
+        for _ in 0..<maxPages {
+            let page = try await pingTrack(graph: graph, roomId: roomId, after: next.cursor)
+            next.append(page)
+            if page.nextCursor == nil || page.points.isEmpty {
+                break
+            }
+        }
+        return next
+    }
+
+    /// The server's live projection for crew ETAs. Nil when the room has none yet (no plan,
+    /// start time, or route line).
+    public static func liveProjection(graph: ClientGraph, roomId: String) async throws -> LiveProjection? {
+        let data: Data
+        do {
+            data = try await sendData(graph, "/race-rooms/\(roomId)/projection", method: .get, body: nil)
+        } catch let error as ClientHTTPError where error.status == 404 {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        let core = try decoder.decode(RaceRoomProjectionCore.self, from: data)
+        return LiveProjection(core: core, timeliness: try? decoder.decode(ProjectionTimeliness.self, from: data))
+    }
+
     /// Local draft fields read from a room payload. Does not call stop-plan APIs.
     public static func courseDraftSeed(graph: ClientGraph, roomId: String) async throws -> CourseSettingsDraft {
         let data = try await sendData(graph, "/race-rooms/\(roomId)", method: .get, body: nil)
@@ -393,12 +437,37 @@ public enum RaceDayAPI {
         _ = try await sendData(graph, "/strava/connection", method: .delete, body: nil)
     }
 
-    public static func flushOutbox(graph: ClientGraph) async throws -> FlushReport {
+    /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
+    /// with `uploadIntervalSeconds` so the server can judge staleness from the runner's setting.
+    public static func flushOutbox(graph: ClientGraph, uploadIntervalSeconds: Int? = nil) async throws -> FlushReport {
         guard let outbox = graph.outbox, let baseURL = graph.baseURL else {
             throw ClientHTTPError(status: 0, message: "Outbox is not configured.")
         }
         let token = await graph.tokenProvider?.accessToken()
-        return try await outbox.flush { operation in
+        let pingBatch: @Sendable (String, [StoredOperation]) async -> [OutboxFailureResolution] = { roomId, pings in
+            let whole = { (resolution: OutboxFailureResolution) in Array(repeating: resolution, count: pings.count) }
+            guard let url = APIClient.endpoint(baseURL, "/race-rooms/\(roomId)/pings/batch") else {
+                return whole(OutboxFailureResolution(status: "rejected", retryable: false, feedback: "Couldn't build the request."))
+            }
+            let points = pings.compactMap { ping -> Any? in
+                ping.payloadJSON.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            }
+            var object: [String: Any] = ["points": points]
+            if let uploadIntervalSeconds {
+                object["uploadIntervalSeconds"] = uploadIntervalSeconds
+            }
+            guard points.count == pings.count, let body = try? JSONSerialization.data(withJSONObject: object) else {
+                return whole(OutboxFailureResolution(status: "rejected", retryable: false, feedback: "Couldn't read a queued sample."))
+            }
+            let request = APIClient.authorized(url: url, method: .post, token: token, body: body)
+            do {
+                let response: AthletePingBatchResponse = try await APIClient.send(request, transport: graph.transport)
+                return PingBatchPolicy.resolutions(for: pings, response: response)
+            } catch {
+                return whole(OutboxPolicy.resolve(error))
+            }
+        }
+        return try await outbox.flush({ operation in
             if operation.type == "chat" {
                 return OutboxFailureResolution(status: "pending", retryable: true, feedback: "Waiting for the app to send this.")
             }
@@ -430,7 +499,7 @@ public enum RaceDayAPI {
             } catch {
                 return OutboxPolicy.resolve(error)
             }
-        }
+        }, pingBatch: pingBatch)
     }
 
     private static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {

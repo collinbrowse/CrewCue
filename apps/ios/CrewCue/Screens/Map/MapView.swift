@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import CrewCueClientCore
 
@@ -21,7 +22,7 @@ enum MapTool: String, Hashable {
         case .none: "Aid stations"
         case .pick: "Place checkpoint"
         case .navigate: "Navigate"
-        case .location: "Share location"
+        case .location: "Tracking"
         }
     }
 }
@@ -40,6 +41,7 @@ struct MapView: View {
         ZStack(alignment: .bottom) {
             MapCanvas(
                 points: model.points,
+                track: model.trackCoordinates,
                 recenterRequest: model.recenterRequest,
                 onTap: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
@@ -99,6 +101,9 @@ private struct MapOverlayControls: View {
                 VStack(alignment: .trailing, spacing: CrewSpace.stackSm) {
                     StatusChip(text: model.readout.pingLabel, style: .glass, dot: model.readout.pingState == .live)
                         .accessibilityLabel(pingAccessibility)
+                    StatusChip(text: trackLabel, style: .glass)
+                        .accessibilityIdentifier("crewcue.runner-track")
+                        .accessibilityLabel(trackAccessibility)
                     CircleIconButton(systemImage: "scope", label: "Fit course") {
                         model.recenter()
                     }
@@ -107,7 +112,7 @@ private struct MapOverlayControls: View {
                             Label("Aid stations", systemImage: "flag").tag(MapTool.none)
                             Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
                             Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
-                            Label("Share location", systemImage: "location").tag(MapTool.location)
+                            Label("Tracking", systemImage: "location").tag(MapTool.location)
                         }
                     } label: {
                         Image(systemName: "square.3.layers.3d")
@@ -121,6 +126,17 @@ private struct MapOverlayControls: View {
             }
             .padding(.horizontal, CrewSpace.gutter)
         }
+    }
+
+    /// The runner's path drawn on the map, from the API.
+    private var trackLabel: String {
+        let count = model.track.points.count
+        return count == 0 ? "NO PATH YET" : "PATH · \(count) \(count == 1 ? "POINT" : "POINTS")"
+    }
+
+    private var trackAccessibility: String {
+        let count = model.track.points.count
+        return count == 0 ? "No runner path yet" : "Runner path, \(count) points"
     }
 
     private var pingAccessibility: String {
@@ -382,7 +398,14 @@ struct MapAidSheet: View {
                 }
                 .frame(maxHeight: 360)
             case .location:
-                MapLocationSection(message: model.locationMessage, onShare: model.beginLocation)
+                MapLocationSection(
+                    message: model.locationMessage,
+                    isAthlete: model.isAthlete,
+                    isTracking: model.trackingActive,
+                    intervalText: MapModel.intervalText(model.trackingIntervalSeconds),
+                    onStart: model.startTracking,
+                    onStop: model.stopTracking
+                )
             }
         }
         .padding(.horizontal, CrewSpace.margin)
@@ -397,6 +420,7 @@ struct MapCanvas: View {
     #endif
 
     let points: [MapCoursePoint]
+    var track: [CLLocationCoordinate2D] = []
     var recenterRequest = 0
     @Environment(\.crew) private var theme
     let onTap: (Double, Double) -> Void
@@ -407,11 +431,13 @@ struct MapCanvas: View {
         #if canImport(MapLibre)
         MapLibreCourseMap(
             points: points,
+            track: track,
             onTap: onTap,
             onStyleFailure: onStyleFailure,
             onStyleLoaded: onStyleLoaded,
             recenterRequest: recenterRequest,
-            lineColor: UIColor(theme.primary)
+            lineColor: UIColor(theme.primary),
+            trackColor: UIColor(theme.secondary)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")
@@ -544,14 +570,32 @@ struct MapCheckpointChoice: View {
 
 struct MapLocationSection: View {
     let message: String
-    let onShare: () -> Void
+    let isAthlete: Bool
+    let isTracking: Bool
+    let intervalText: String
+    let onStart: () -> Void
+    let onStop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(verbatim: message)
-                .font(CrewFont.bodyLarge)
-            Button("Share location", action: onShare)
-                .buttonStyle(.crewPrimary)
+            if isAthlete {
+                Text(verbatim: message)
+                    .font(CrewFont.bodyLarge)
+                Text(verbatim: "Your phone sends your position every \(intervalText), saving it while you have no service and sending it all when you're back in range. Change the interval in Settings.")
+                    .font(CrewFont.body)
+                if isTracking {
+                    Button("Stop tracking", action: onStop)
+                        .buttonStyle(.crewSecondary)
+                        .accessibilityHint("Stops sharing your position with your crew")
+                } else {
+                    Button("Start tracking", action: onStart)
+                        .buttonStyle(.crewPrimary)
+                        .accessibilityHint("Shares your position with your crew until the finish")
+                }
+            } else {
+                Text(verbatim: "Location comes from the runner's phone. This phone never shares its own position.")
+                    .font(CrewFont.bodyLarge)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.location-heartbeat")
