@@ -1,0 +1,18 @@
+{
+  "id": "runner-track",
+  "platform": "android",
+  "entry": "crewcue://dev/runner-track",
+  "device": "crewcue_api_35 emulator (API 35), debug APK",
+  "date": "2026-11-04",
+  "commit": "claude/apps-runner-tracking on 50daaac (PR 8 branch, built from the working tree before commit)",
+  "session": "Dev session against the local memory API (port 3001) behind a switchable proxy on 3000 that drops every connection to simulate a dead zone. Race seeded with the 50K fixture course started 2 h earlier and a 2 h backlog of 40 samples uploaded in one batch; a second race with no pings for the empty states.",
+  "action": "Crew opened crewcue://dev/runner-track on the seeded race and on the race with no pings.",
+  "checked": {
+    "Success": "'PATH · 43 POINTS'; blue path from the start past Aid 1 and the runner dot below Aid 2, over the course line.",
+    "Empty": "Race with no pings: 'NO PATH YET'.",
+    "Error": "Not separately forced; failed reads keep the last path (same code path as Offline).",
+    "Offline": "Last ping 15 min old: path stays drawn, ping chip stale.",
+    "Accessibility labels": "crewcue.runner-track, crewcue.map"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

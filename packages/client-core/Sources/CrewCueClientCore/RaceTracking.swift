@@ -163,10 +163,15 @@ public struct LiveProjection: Equatable, Sendable {
         self.finishCrossed = finishCrossed
     }
 
-    /// Nil when the core has no readable time. The race clock is the start checkpoint's crossing,
+    /// The server's pre-race placeholder projection (no athlete ping yet) uses this ping id.
+    public static let bootstrapPingId = "bootstrap"
+
+    /// Nil when the core has no readable time, or before the runner's first real ping (the server's
+    /// placeholder projection is not a live ETA). The race clock is the start checkpoint's crossing,
     /// which the server sets to the room's race start.
     public init?(core: RaceRoomProjectionCore, timeliness: ProjectionTimeliness?) {
-        guard let asOf = ScheduleFormat.parseISO8601(core.asOfRecordedAt) else { return nil }
+        guard core.asOfPingId != Self.bootstrapPingId,
+              let asOf = ScheduleFormat.parseISO8601(core.asOfRecordedAt) else { return nil }
         let start = core.checkpointSplits.first?.crossedAtRecordedAt.flatMap(ScheduleFormat.parseISO8601)
         var arrivals: [String: Date] = [:]
         if let start {
@@ -175,9 +180,13 @@ public struct LiveProjection: Equatable, Sendable {
             }
         }
         let finish = core.checkpointSplits.last
+        // The finish row and the finish readout must agree. With the tuned projection off, the
+        // server's `etaFinishPlanIso` is the older plan-anchored finish while the live remaining
+        // ETAs come from a re-simulation, so prefer the finish checkpoint's live arrival.
+        let liveFinish = finish.flatMap { arrivals[$0.checkpointId] }
         self.init(
             asOfRecordedAt: asOf,
-            finishEtaAt: ScheduleFormat.parseISO8601(core.etaFinishPlanIso),
+            finishEtaAt: liveFinish ?? ScheduleFormat.parseISO8601(core.etaFinishPlanIso),
             arrivals: arrivals,
             degraded: timeliness?.projectionConfidence == "degraded",
             finishCrossed: core.checkpointSplits.count > 1 && finish?.crossedAtRecordedAt != nil

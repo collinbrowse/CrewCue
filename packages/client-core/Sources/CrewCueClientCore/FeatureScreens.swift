@@ -140,6 +140,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.map-navigate", title: "Navigate", body: navigateBody(state))
         case "location-heartbeat":
             return FeatureCopy(accessibilityIdentifier: "crewcue.location-heartbeat", title: "Location", body: locationBody(state))
+        case "runner-track":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.runner-track", title: "Runner path", body: runnerTrackBody(state))
+        case "live-eta":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.live-eta", title: "Live ETAs", body: liveEtaBody(state))
         case "chat-thread":
             return FeatureCopy(accessibilityIdentifier: "crewcue.chat", title: "Chat", body: chatBody(state))
         case "chat-notification-prefs":
@@ -342,10 +346,28 @@ private func locationBody(_ state: FeatureState) -> String {
     let sample = OutboxOperation(id: "loc-1", type: "ping", status: "pending", conflictKey: "ping:room")
     let merged = OutboxPolicy.merge([], sample, conflictKey: sample.conflictKey)
     switch state {
-    case .success: return "Location sample queued. Pending \(OutboxPolicy.countPending(merged))."
+    case .success: return "Tracking. A sample every 3 min. Pending \(OutboxPolicy.countPending(merged))."
     case .empty: return "No location sample yet."
-    case .error: return "Location permission was denied."
+    case .error: return "Location permission was denied. Turn it on in Settings to share your position."
     case .offline: return "Offline. Sample queued in the outbox."
+    }
+}
+
+private func runnerTrackBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: return "PATH · 12 POINTS"
+    case .empty: return "NO PATH YET"
+    case .error: return "The last path stays drawn and the ping chip ages to stale."
+    case .offline: return "The last path stays drawn; new points appear after the connection returns."
+    }
+}
+
+private func liveEtaBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: return "Finish ETA 14:20"
+    case .empty: return "No Finish ETA row; the timeline shows planned times only."
+    case .error: return "The last ETAs stay visible."
+    case .offline: return "The last ETAs stay visible, marked old ping once the server's projection is stale."
     }
 }
 

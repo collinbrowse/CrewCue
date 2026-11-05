@@ -34,7 +34,13 @@
     </dict>
   </array>
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>CrewCue uses your location while you are using the app to share the athlete's position with the crew.</string>
+  <string>CrewCue shares the runner's position with their crew during the race.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>Allow "Always" so CrewCue keeps sharing the runner's position with their crew every few minutes while the phone is locked during the race. Tracking runs only after you tap Start tracking, and stops at the finish.</string>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+  </array>
   <key>UILaunchScreen</key>
   <dict>
     <key>UIColorName</key>

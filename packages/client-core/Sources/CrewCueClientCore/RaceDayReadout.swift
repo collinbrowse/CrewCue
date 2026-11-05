@@ -356,7 +356,8 @@ public enum RaceDayReadouts {
         return next
     }
 
-    static func iso8601(_ date: Date) -> String {
+    /// ISO 8601 UTC with milliseconds, the format every client-core time field uses.
+    public static func iso8601(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)

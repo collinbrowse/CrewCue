@@ -263,6 +263,17 @@ private func core(etas: [(String, Double)], finishCrossed: Bool = false) -> Race
     #expect(live.finishCrossed == false)
     #expect(TrackingSession.shouldAutoStop(live) == false)
 
+    // The finish readout follows the finish row's live arrival, not the older plan-anchored finish.
+    let disagreeing = try #require(LiveProjection(core: core(etas: [("finish", 10_000)]), timeliness: nil))
+    #expect(disagreeing.finishEtaAt == base.addingTimeInterval(10_000))
+    let noRow = try #require(LiveProjection(core: core(etas: [("aid", 5400)]), timeliness: nil))
+    #expect(noRow.finishEtaAt == base.addingTimeInterval(11_000))
+
+    // Before the first real ping the server's placeholder projection is not a live ETA.
+    var placeholder = core(etas: [("finish", 11_000)])
+    placeholder.asOfPingId = "bootstrap"
+    #expect(LiveProjection(core: placeholder, timeliness: nil) == nil)
+
     let finished = try #require(LiveProjection(core: core(etas: [], finishCrossed: true), timeliness: nil))
     #expect(TrackingSession.shouldAutoStop(finished))
 }
