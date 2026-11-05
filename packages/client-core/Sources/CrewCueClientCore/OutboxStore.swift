@@ -87,6 +87,8 @@ public actor OutboxStore: UserDataStore {
     public nonisolated let courseUploads = CourseUploadGate()
     private nonisolated let file: OutboxFile
     private var inFlight: Set<String> = []
+    /// `maxPendingPingsPerRoom`, smaller in tests.
+    private let pendingPingCap: Int
 
     /// The process-wide store for `directory`. Two callers on the same file always share one
     /// actor, so their mutations queue behind each other instead of racing on disk.
@@ -107,8 +109,9 @@ public actor OutboxStore: UserDataStore {
         _ = SharedOutboxStores.instance.remove(inside: directory)
     }
 
-    init(userId: String, directory: URL) throws {
+    init(userId: String, directory: URL, pendingPingCap: Int = OutboxStore.maxPendingPingsPerRoom) throws {
         self.userId = userId
+        self.pendingPingCap = pendingPingCap
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.fileURL = directory.appendingPathComponent("outbox.json")
         self.file = OutboxFile(
@@ -190,8 +193,13 @@ public actor OutboxStore: UserDataStore {
         try complete(id: id)
     }
 
+    /// Most location samples one room keeps while offline (a 3-minute interval covers 100 hours).
+    /// Past this, the oldest pending samples go first: the newest position matters most to crew.
+    public static let maxPendingPingsPerRoom = 2000
+
     /// Athlete sessions only. `recordedAt` must be after every ping this store ever queued for the
-    /// room, not just the ones still pending, so a flush can't reopen an older timestamp.
+    /// room, not just the ones still pending, so a flush can't reopen an older timestamp. Every
+    /// sample is its own row (the whole offline path is the backlog), sent as one batch by `flush`.
     public func enqueuePing(
         roomId: String,
         role: String,
@@ -236,12 +244,14 @@ public actor OutboxStore: UserDataStore {
             recordedAt: recordedAt,
             role: role
         )
-        if let index = all.firstIndex(where: {
-            $0.status == "pending" && $0.conflictKey == operation.conflictKey && !inFlight.contains($0.id)
-        }) {
-            all[index] = operation
-        } else {
-            all.append(operation)
+        all.append(operation)
+        let roomPending = all.indices.filter {
+            all[$0].roomId == roomId && all[$0].type == "ping" && all[$0].status == "pending" && !inFlight.contains(all[$0].id)
+        }
+        if roomPending.count > pendingPingCap {
+            // Rows are appended in recordedAt order, so the first ones are the oldest.
+            let drop = Set(roomPending.prefix(roomPending.count - pendingPingCap))
+            all = all.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
         }
         try save(all)
         watermarks[roomId] = recordedAt
@@ -399,10 +409,20 @@ public actor OutboxStore: UserDataStore {
         return nil
     }
 
+    /// Most samples per batch request (the server's limit).
+    public static let maxPingsPerBatch = 500
+
     /// Sends the pending snapshot. Each result is merged into the file as it is now: only the exact
     /// version that was sent (same id and idempotency key) is removed or marked, so anything queued
     /// or replaced during the send survives. Chat is delivered by the chat screen, not here.
-    public func flush(_ sender: @Sendable (StoredOperation) async -> OutboxFailureResolution) async throws -> FlushReport {
+    ///
+    /// With `pingBatch`, a room's pending pings go out oldest first in batches of up to
+    /// `maxPingsPerBatch`, and each sample settles from its own result. The closure returns one
+    /// resolution per sample, in order; a whole-request failure repeats the same one for all.
+    public func flush(
+        _ sender: @Sendable (StoredOperation) async -> OutboxFailureResolution,
+        pingBatch: (@Sendable (_ roomId: String, _ pings: [StoredOperation]) async -> [OutboxFailureResolution])? = nil
+    ) async throws -> FlushReport {
         var report = FlushReport()
         let pending = try load().filter { $0.status == "pending" && !inFlight.contains($0.id) }
         report.pending.append(contentsOf: pending.filter { $0.type == "chat" }.map(\.id))
@@ -411,7 +431,31 @@ public actor OutboxStore: UserDataStore {
         inFlight.formUnion(ids)
         defer { inFlight.subtract(ids) }
         do {
-            for operation in snapshot {
+            if let pingBatch {
+                for (roomId, pings) in Self.pingBatches(snapshot) {
+                    var mayUpload: [StoredOperation] = []
+                    for operation in pings {
+                        if PingPolicy.mayUpload(role: operation.role) {
+                            mayUpload.append(operation)
+                        } else {
+                            let resolution = OutboxFailureResolution(status: "dropped", retryable: false, feedback: "Only the athlete uploads location.")
+                            try settle(operation, resolution, into: &report)
+                        }
+                    }
+                    guard !mayUpload.isEmpty else { continue }
+                    let resolutions = await pingBatch(roomId, mayUpload)
+                    if resolutions.contains(where: { $0.status == "expired" }) {
+                        report.sessionExpired = true
+                        return report
+                    }
+                    for (operation, resolution) in zip(mayUpload, resolutions) {
+                        try settle(operation, resolution, into: &report)
+                    }
+                    // A short answer leaves the rest pending for the next flush.
+                    report.pending.append(contentsOf: mayUpload.dropFirst(resolutions.count).map(\.id))
+                }
+            }
+            for operation in snapshot where pingBatch == nil || operation.type != "ping" {
                 let resolution: OutboxFailureResolution
                 if operation.type == "ping" && !PingPolicy.mayUpload(role: operation.role) {
                     resolution = OutboxFailureResolution(status: "dropped", retryable: false, feedback: "Only the athlete uploads location.")
@@ -458,6 +502,31 @@ public actor OutboxStore: UserDataStore {
             return
         }
         try save(current)
+    }
+
+    /// Pending pings grouped by room, oldest first, split into server-sized batches.
+    nonisolated static func pingBatches(_ operations: [StoredOperation]) -> [(roomId: String, pings: [StoredOperation])] {
+        var rooms: [String] = []
+        var byRoom: [String: [StoredOperation]] = [:]
+        for operation in operations where operation.type == "ping" {
+            if byRoom[operation.roomId] == nil {
+                rooms.append(operation.roomId)
+            }
+            byRoom[operation.roomId, default: []].append(operation)
+        }
+        var batches: [(roomId: String, pings: [StoredOperation])] = []
+        for roomId in rooms {
+            // Compare instants, not strings: "…:00Z" and "…:00.000Z" sort wrong as text.
+            let time = { (op: StoredOperation) in op.recordedAt.flatMap(ScheduleFormat.parseISO8601) ?? .distantPast }
+            let sorted = byRoom[roomId, default: []].sorted { time($0) < time($1) }
+            var start = 0
+            while start < sorted.count {
+                let end = min(sorted.count, start + maxPingsPerBatch)
+                batches.append((roomId, Array(sorted[start..<end])))
+                start = end
+            }
+        }
+        return batches
     }
 
     public func complete(id: String) throws {

@@ -138,6 +138,13 @@ public struct RaceDayReadout: Equatable, Sendable {
     public var pingState: RunnerPingState
     /// Chip text: "NO PING YET" or "LAST PING: 3 MIN AGO".
     public var pingLabel: String
+    /// Server live finish ETA (ISO 8601 UTC); apps format it in local time. Nil without a live projection.
+    public var finishEtaAt: String?
+    /// Earliest and latest likely finish (ISO 8601 UTC). Nil where the server sends no window.
+    public var finishWindowStartAt: String?
+    public var finishWindowEndAt: String?
+    /// The live ETA is built on a stale ping (server `degraded`): show it, marked stale.
+    public var liveEtaStale: Bool
 
     public init(
         status: TrackStatus,
@@ -151,7 +158,11 @@ public struct RaceDayReadout: Equatable, Sendable {
         averagePaceLabel: String,
         lastPingLabel: String?,
         pingState: RunnerPingState = .none,
-        pingLabel: String = RaceDayReadouts.noPingLabel
+        pingLabel: String = RaceDayReadouts.noPingLabel,
+        finishEtaAt: String? = nil,
+        finishWindowStartAt: String? = nil,
+        finishWindowEndAt: String? = nil,
+        liveEtaStale: Bool = false
     ) {
         self.status = status
         self.statusLabel = statusLabel
@@ -165,6 +176,10 @@ public struct RaceDayReadout: Equatable, Sendable {
         self.lastPingLabel = lastPingLabel
         self.pingState = pingState
         self.pingLabel = pingLabel
+        self.finishEtaAt = finishEtaAt
+        self.finishWindowStartAt = finishWindowStartAt
+        self.finishWindowEndAt = finishWindowEndAt
+        self.liveEtaStale = liveEtaStale
     }
 }
 
@@ -185,6 +200,11 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
     public var cutoffStatus: String?
     public var distanceToLabel: String
     public var isFinish: Bool
+    /// Server live arrival (ISO 8601 UTC) for a stop still ahead. `clockArrivalAt` stays the plan.
+    public var liveArrivalAt: String?
+    /// Earliest and latest likely arrival (ISO 8601 UTC). Nil where the server sends no window.
+    public var arrivalWindowStartAt: String?
+    public var arrivalWindowEndAt: String?
 
     public var id: String { checkpointId }
 
@@ -197,7 +217,10 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
         cutoffAt: String?,
         cutoffStatus: String?,
         distanceToLabel: String,
-        isFinish: Bool
+        isFinish: Bool,
+        liveArrivalAt: String? = nil,
+        arrivalWindowStartAt: String? = nil,
+        arrivalWindowEndAt: String? = nil
     ) {
         self.checkpointId = checkpointId
         self.state = state
@@ -208,6 +231,9 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
         self.cutoffStatus = cutoffStatus
         self.distanceToLabel = distanceToLabel
         self.isFinish = isFinish
+        self.liveArrivalAt = liveArrivalAt
+        self.arrivalWindowStartAt = arrivalWindowStartAt
+        self.arrivalWindowEndAt = arrivalWindowEndAt
     }
 }
 
@@ -279,7 +305,8 @@ public enum RaceDayReadouts {
     public static func timeline(
         sheet: CrewScheduleSheet?,
         checkpoints: [AidStationCheckpoint],
-        progressMeters: Double
+        progressMeters: Double,
+        live: LiveProjection? = nil
     ) -> [CheckpointTimelineRow] {
         let progress = progressMeters.isFinite ? max(0, progressMeters) : 0
         let byID = Dictionary(uniqueKeysWithValues: checkpoints.map { ($0.id, $0) })
@@ -311,9 +338,30 @@ public enum RaceDayReadouts {
                 cutoffAt: cutoffAt(stop),
                 cutoffStatus: stop?.cutoffStatus,
                 distanceToLabel: ScheduleFormat.milesRemaining(progressMeters: progress, checkpointDistanceMeters: distance).uppercased(),
-                isFinish: offset == ids.count - 1 && ids.count > 1
+                isFinish: offset == ids.count - 1 && ids.count > 1,
+                liveArrivalAt: state == .done ? nil : live?.arrivals[id].map(iso8601),
+                arrivalWindowStartAt: state == .done ? nil : live?.arrivalWindows[id].map { iso8601($0.lowerBound) },
+                arrivalWindowEndAt: state == .done ? nil : live?.arrivalWindows[id].map { iso8601($0.upperBound) }
             )
         }
+    }
+
+    /// Adds the server's live finish ETA (and window, when sent) to a readout.
+    public static func withLive(_ readout: RaceDayReadout, live: LiveProjection?) -> RaceDayReadout {
+        var next = readout
+        next.finishEtaAt = live?.finishEtaAt.map(iso8601)
+        next.finishWindowStartAt = live?.finishWindow.map { iso8601($0.lowerBound) }
+        next.finishWindowEndAt = live?.finishWindow.map { iso8601($0.upperBound) }
+        next.liveEtaStale = live?.degraded ?? false
+        return next
+    }
+
+    /// ISO 8601 UTC with milliseconds, the format every client-core time field uses.
+    public static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     public static func elevationLabel(meters: Double?) -> String? {

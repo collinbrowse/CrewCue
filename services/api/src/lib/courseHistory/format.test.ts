@@ -96,7 +96,7 @@ test("rejects duplicate checkpoint ids, half a coordinate, and unknown sources",
   const half = sampleEvent();
   delete half.checkpoints[0]!.longitude;
   assert.match(errorsOf(half).join("\n"), /latitude and longitude must be given together/);
-  assert.match(errorsOf({ ...sampleEvent(), source: "opensplittime" }).join("\n"), /source/);
+  assert.match(errorsOf({ ...sampleEvent(), source: "livetrail" }).join("\n"), /source/);
 });
 
 test("completeArrivalSeconds measures from the runner's start and skips gaps", () => {

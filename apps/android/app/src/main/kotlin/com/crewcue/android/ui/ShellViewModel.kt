@@ -521,7 +521,8 @@ class ShellViewModel(
             "check-in",
             "course-settings",
             "gpx-import",
-            "pace-stop-edit"
+            "pace-stop-edit",
+            "live-eta"
         )
     }
 

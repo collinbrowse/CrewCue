@@ -71,6 +71,18 @@ class MapViewModel(
         private set
     var raceName by mutableStateOf("")
         private set
+    /** The runner's path from the API, oldest first. Every crew phone draws the same one. */
+    var track by mutableStateOf<List<CoursePoint>>(emptyList())
+        private set
+    /** The athlete tapped Start tracking for this race (saved, so it survives a restart). */
+    var trackingActive by mutableStateOf(false)
+        private set
+    var trackingIntervalSeconds by mutableStateOf(DEFAULT_TRACKING_INTERVAL_SECONDS)
+        private set
+    val isAthlete: Boolean get() = role == "athlete"
+    /** The server's live projection, passed back to client-core for readouts and timeline rows. */
+    private var live: JSONObject? = null
+    private var trackCursor: String? = null
     private var elevation: JSONArray? = null
     /** The athlete's latest ping from the API. The only source of race progress on this phone. */
     private var runner: JSONObject? = null
@@ -100,6 +112,56 @@ class MapViewModel(
             }
         }
         followRunner()
+        loadTracking()
+    }
+
+    /** Reads the saved interval and whether this race is being tracked. */
+    fun loadTracking() {
+        viewModelScope.launch {
+            val settings = withContext(Dispatchers.IO) { runCatching { raceDay.trackingSettings() }.getOrNull() }
+            (settings as? RuntimeResult.Success)?.result?.optInt("intervalSeconds", 0)
+                ?.takeIf { it > 0 }?.let { trackingIntervalSeconds = it }
+            val session = withContext(Dispatchers.IO) { runCatching { raceDay.trackingSession() }.getOrNull() }
+            val saved = (session as? RuntimeResult.Success)?.result
+            trackingActive = isAthlete && saved?.optBoolean("active") == true && saved.optString("roomId") == roomId
+        }
+    }
+
+    /** Saves the session; the screen then starts [RaceTrackingService] once permission is granted. */
+    fun startTracking(onStarted: () -> Unit) {
+        if (!isAthlete) {
+            locationMessage = TRACKING_CREW
+            return
+        }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { raceDay.startTrackingSession(roomId) }.getOrNull() }
+            if (result is RuntimeResult.Success) {
+                trackingActive = true
+                locationMessage = TRACKING_ON
+                onStarted()
+            } else {
+                locationMessage = (result as? RuntimeResult.Failure)?.message ?: LOCATION_EMPTY
+            }
+        }
+    }
+
+    fun stopTracking(onStopped: () -> Unit) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { runCatching { raceDay.stopTrackingSession() } }
+            trackingActive = false
+            locationMessage = TRACKING_OFF
+            onStopped()
+        }
+    }
+
+    fun backgroundDenied() {
+        locationMessage = TRACKING_BACKGROUND_DENIED
+    }
+
+    /** App came back to the foreground: read the runner now instead of waiting for the next tick. */
+    fun refreshNow() {
+        viewModelScope.launch { refreshRunner() }
+        loadTracking()
     }
 
     /** Reads the athlete's latest ping now and then on the client-core interval while this model lives. */
@@ -125,7 +187,60 @@ class MapViewModel(
             if (!seconds.isNaN() && seconds > 0) runnerRefreshMs = (seconds * 1000).toLong()
             result.result.optJSONObject("latest")?.let { runner = it }
         }
+        refreshTrack()
+        refreshLive()
+        if (trackingActive) refreshQueued()
         projectAid()
+    }
+
+    /**
+     * The tracking service samples and flushes on its own; this tells the runner when samples are
+     * waiting for service, and when the backlog has gone out.
+     */
+    private suspend fun refreshQueued() {
+        val result = withContext(Dispatchers.IO) { runCatching { raceDay.listOutbox() }.getOrNull() }
+        val rows = (result as? RuntimeResult.Success)?.result?.optJSONArray("operations") ?: return
+        var queued = 0
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            if (row.optString("type") == "ping" && row.optString("status") == "pending") queued += 1
+        }
+        if (queued > 0) {
+            // Service may be back without a network change event (e.g. a dead zone ends): try now.
+            withContext(Dispatchers.IO) { runCatching { raceDay.flushOutbox() } }
+        }
+        locationMessage = when {
+            queued > 0 -> LOCATION_OFFLINE
+            locationMessage == LOCATION_OFFLINE -> LOCATION_QUEUED
+            else -> locationMessage
+        }
+    }
+
+    /** Appends new path points from the cursor; offline keeps the path already drawn. */
+    private suspend fun refreshTrack() {
+        val result = withContext(Dispatchers.IO) { runCatching { raceDay.pingTrack(roomId, trackCursor) }.getOrNull() }
+        if (result !is RuntimeResult.Success || result.result.optBoolean("offline")) return
+        val points = result.result.optJSONArray("points") ?: return
+        val added = mutableListOf<CoursePoint>()
+        for (index in 0 until points.length()) {
+            val point = points.optJSONObject(index) ?: continue
+            val latitude = point.optDouble("latitude", Double.NaN)
+            val longitude = point.optDouble("longitude", Double.NaN)
+            if (!latitude.isNaN() && !longitude.isNaN()) added += CoursePoint(latitude, longitude)
+        }
+        result.result.optString("cursor").ifBlank { null }?.let { trackCursor = it }
+        if (added.isNotEmpty()) track = track + added
+    }
+
+    private suspend fun refreshLive() {
+        val result = withContext(Dispatchers.IO) { runCatching { raceDay.liveProjection(roomId) }.getOrNull() }
+        if (result !is RuntimeResult.Success || result.result.optBoolean("offline")) return
+        live = result.result.optJSONObject("live")
+        if (trackingActive && result.result.optBoolean("finishCrossed")) {
+            withContext(Dispatchers.IO) { runCatching { raceDay.stopTrackingSession() } }
+            trackingActive = false
+            locationMessage = TRACKING_FINISHED
+        }
     }
 
     fun showAid(index: Int) {
@@ -355,10 +470,11 @@ class MapViewModel(
         val index = aidIndex
         val follow = aidFollow
         val profile = elevation
+        val projection = live
         viewModelScope.launch {
             val result = try {
                 withContext(Dispatchers.IO) {
-                    raceDay.projectAidSheet(sheet, checkpoints, latest, index, follow, profile)
+                    raceDay.projectAidSheet(sheet, checkpoints, latest, index, follow, profile, projection)
                 }
             } catch (_: Throwable) {
                 return@launch
@@ -425,7 +541,11 @@ class MapViewModel(
         averagePaceLabel = row.optString("averagePaceLabel", "—"),
         lastPingLabel = row.optString("lastPingLabel").ifBlank { null },
         pingState = row.optString("pingState", "none"),
-        pingLabel = row.optString("pingLabel").ifBlank { NO_PING_LABEL }
+        pingLabel = row.optString("pingLabel").ifBlank { NO_PING_LABEL },
+        finishEtaAt = row.optString("finishEtaAt").ifBlank { null },
+        finishWindowStartAt = row.optString("finishWindowStartAt").ifBlank { null },
+        finishWindowEndAt = row.optString("finishWindowEndAt").ifBlank { null },
+        liveEtaStale = row.optBoolean("liveEtaStale")
     )
 
     private fun parseTimeline(array: JSONArray): List<TimelineRow> {
@@ -441,7 +561,10 @@ class MapViewModel(
                 cutoffAt = row.optString("cutoffAt").ifBlank { null },
                 cutoffStatus = row.optString("cutoffStatus").ifBlank { null },
                 distanceToLabel = row.optString("distanceToLabel", "—"),
-                isFinish = row.optBoolean("isFinish")
+                isFinish = row.optBoolean("isFinish"),
+                liveArrivalAt = row.optString("liveArrivalAt").ifBlank { null },
+                arrivalWindowStartAt = row.optString("arrivalWindowStartAt").ifBlank { null },
+                arrivalWindowEndAt = row.optString("arrivalWindowEndAt").ifBlank { null }
             )
         }
         return rows
