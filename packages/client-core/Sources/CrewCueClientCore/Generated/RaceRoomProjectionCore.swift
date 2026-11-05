@@ -13,8 +13,9 @@ public struct RaceRoomProjectionCore: Codable, Equatable, Sendable {
     public var stoppageSummary: CheckpointStoppageSummary
     public var weatherStub: ProjectionWeatherStub?
     public var remainingCheckpointEtas: [RemainingCheckpointEta]?
+    public var etaFinishWindow: ArrivalWindowClock?
 
-    public init(roomId: String, asOfPingId: String, asOfRecordedAt: String, progressMeters: Double, courseLengthMeters: Double, plannedPaceSecondsPerKm: Double, etaFinishPlanIso: String, checkpointSplits: [RaceCheckpointSplitRow], stoppageSummary: CheckpointStoppageSummary, weatherStub: ProjectionWeatherStub? = nil, remainingCheckpointEtas: [RemainingCheckpointEta]? = nil) {
+    public init(roomId: String, asOfPingId: String, asOfRecordedAt: String, progressMeters: Double, courseLengthMeters: Double, plannedPaceSecondsPerKm: Double, etaFinishPlanIso: String, checkpointSplits: [RaceCheckpointSplitRow], stoppageSummary: CheckpointStoppageSummary, weatherStub: ProjectionWeatherStub? = nil, remainingCheckpointEtas: [RemainingCheckpointEta]? = nil, etaFinishWindow: ArrivalWindowClock? = nil) {
         self.roomId = roomId
         self.asOfPingId = asOfPingId
         self.asOfRecordedAt = asOfRecordedAt
@@ -26,5 +27,6 @@ public struct RaceRoomProjectionCore: Codable, Equatable, Sendable {
         self.stoppageSummary = stoppageSummary
         self.weatherStub = weatherStub
         self.remainingCheckpointEtas = remainingCheckpointEtas
+        self.etaFinishWindow = etaFinishWindow
     }
 }
