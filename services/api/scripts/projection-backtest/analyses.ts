@@ -6,6 +6,7 @@
  * the OTHER courses. With a single course there is nothing to hold out and those rows print "-".
  */
 import { rescaleLevel, type BacktestData, type Effort } from "./data.js";
+import { fitWindowTable } from "./windows.js";
 import {
   FIXED_PLAN_TRUST,
   LIVE_BIAS_DEFAULT,
@@ -702,6 +703,14 @@ export function historySize(data: BacktestData): void {
   }
 }
 
+/** Plan PR 5: the arrival-window table, held-out coverage per band. */
+function windows(data: BacktestData): void {
+  const fit = fitWindowTable(data, "report only");
+  out("80% arrival windows (q10–q90 of remaining-time log error), coverage held out one course at a time.");
+  out("A band under 70% held-out coverage gets no window. Course history isn't linked yet: no-history bands only.");
+  for (const line of fit.lines) out(line);
+}
+
 export const ANALYSES = {
   headline,
   "gpx-backtest": gpxBacktest,
@@ -711,7 +720,8 @@ export const ANALYSES = {
   "fresh-look": freshLook,
   "fresh-look-2": freshLook2,
   "fresh-look-3": freshLook3,
-  "history-size": historySize
+  "history-size": historySize,
+  windows
 } as const satisfies Record<string, (data: BacktestData) => void>;
 
 export type AnalysisName = keyof typeof ANALYSES;

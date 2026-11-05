@@ -86,6 +86,25 @@ fun MapScreen(
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
     LaunchedEffect(roomId) { model.load() }
+    // Back from the lock screen or another app: read the runner now, not at the next tick.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle, model) {
+        var started = false
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (started) model.refreshNow() else started = true
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    // A saved tracking session resumes when the app opens again (the service may have been killed).
+    val context = LocalContext.current
+    LaunchedEffect(model.trackingActive) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        if (model.trackingActive && granted) RaceTrackingService.start(context)
+    }
     var tool by remember(focus) { mutableStateOf(mapTool(focus)) }
     val rootTag = when (focus) {
         "map-checkpoint-pick" -> "crewcue.map-checkpoint-pick"
@@ -110,6 +129,7 @@ fun MapScreen(
             CourseMapHost(
                 points = model.checkpoints,
                 line = model.line,
+                track = model.track,
                 onMapTap = model::onMapTap,
                 onStyleReady = model::onStyleReady,
                 onStyleFailed = model::onStyleFailed,
@@ -151,6 +171,15 @@ private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: 
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusChip(readout.pingLabel, ChipStyle.Surface, dot = readout.pingState == "live")
+            val count = model.track.size
+            val trackLabel = if (count == 0) "NO PATH YET" else "PATH · $count ${if (count == 1) "POINT" else "POINTS"}"
+            StatusChip(
+                trackLabel,
+                ChipStyle.Surface,
+                modifier = Modifier
+                    .testTag("crewcue.runner-track")
+                    .semantics { contentDescription = if (count == 0) "No runner path yet" else "Runner path, $count points" }
+            )
             CircleIconButton(Icons.Outlined.MyLocation, "Fit course", onClick = model::recenter)
             Box {
                 CircleIconButton(Icons.Outlined.Layers, "Map tools", onClick = { menu = true })
@@ -159,7 +188,7 @@ private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: 
                         "none" to "Aid stations",
                         "pick" to "Place checkpoint",
                         "navigate" to "Navigate",
-                        "location" to "Share location"
+                        "location" to "Tracking"
                     ).forEach { (id, label) ->
                         DropdownMenuItem(text = { Text(label) }, onClick = {
                             menu = false
@@ -276,7 +305,7 @@ private fun ToolContent(model: MapViewModel, tool: String, onClose: () -> Unit) 
     val title = when (tool) {
         "pick" -> "Place checkpoint"
         "navigate" -> "Navigate"
-        else -> "Share location"
+        else -> "Tracking"
     }
     Column(Modifier.padding(horizontal = 24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -380,6 +409,7 @@ private fun aidKicker(kicker: String): String = when (kicker) {
 private fun CourseMapHost(
     points: List<MapCheckpoint>,
     line: List<CoursePoint>,
+    track: List<CoursePoint>,
     onMapTap: (Double, Double) -> Unit,
     onStyleReady: () -> Unit,
     onStyleFailed: () -> Unit,
@@ -395,6 +425,7 @@ private fun CourseMapHost(
             renderer.Render(
                 points,
                 line,
+                track,
                 Modifier.fillMaxSize(),
                 onMapTap,
                 { settled = true; onStyleReady() },
@@ -465,30 +496,67 @@ private fun NavigateSection(model: MapViewModel, tagged: Boolean) {
 @Composable
 private fun LocationSection(model: MapViewModel, tagged: Boolean) {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) captureLocation(context, model) else model.permissionDenied()
+    // Android 11+ asks for "all the time" separately, after fine location is granted.
+    val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) model.backgroundDenied()
     }
-    LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) captureLocation(context, model) else launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    val fine = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            model.startTracking { startService(context, background) }
+        } else {
+            model.permissionDenied()
+        }
     }
     Column(sectionModifier(tagged, "crewcue.location-heartbeat", "Location"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (!model.isAthlete) {
+            Text(TRACKING_CREW, modifier = Modifier.semantics { contentDescription = TRACKING_CREW })
+            return@Column
+        }
         Text(model.locationMessage, modifier = Modifier.semantics { contentDescription = model.locationMessage })
-        PrimaryButton(
-            "Send location",
-            onClick = {
-                val granted = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-                if (granted) captureLocation(context, model) else launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
+        val minutes = intervalLabel(model.trackingIntervalSeconds)
+        Text(
+            "Your phone sends your position every $minutes, saving it while you have no service and sending it all when you're back in range. Change the interval in Settings.",
+            style = MaterialTheme.typography.bodyMedium
         )
+        if (model.trackingActive) {
+            SecondaryButton(
+                "Stop tracking",
+                onClick = { model.stopTracking { RaceTrackingService.stop(context) } }
+            )
+        } else {
+            PrimaryButton(
+                "Start tracking",
+                onClick = {
+                    val granted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        model.startTracking { startService(context, background) }
+                    } else {
+                        fine.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                }
+            )
+        }
     }
 }
+
+private fun startService(
+    context: android.content.Context,
+    background: androidx.activity.result.ActivityResultLauncher<String>
+) {
+    RaceTrackingService.start(context)
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) !=
+        PackageManager.PERMISSION_GRANTED
+    ) {
+        background.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    }
+}
+
+internal fun intervalLabel(seconds: Int): String =
+    if (seconds % 60 == 0) "${seconds / 60} min" else "$seconds s"
 
 internal fun captureLocation(context: android.content.Context, model: MapViewModel) {
     requestLocationSample(

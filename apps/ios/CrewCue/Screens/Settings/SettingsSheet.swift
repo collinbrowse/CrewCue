@@ -1,4 +1,5 @@
 import SwiftUI
+import CrewCueClientCore
 
 /// Every app setting, reached from the top-bar gear on any tab. Settings deeplinks open this sheet at their section.
 struct ShellSettingsSheet: View {
@@ -24,6 +25,10 @@ struct ShellSettingsSheet: View {
                         registerOnAppear: model.settingsFocus == "push-registration"
                     )
                         .id("push-registration")
+                    if model.mapModel.isAthlete {
+                        SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
+                            .id("location-heartbeat")
+                    }
                     SettingsStravaSection(model: model.stravaModel)
                         .id("strava")
                     VStack(alignment: .leading, spacing: 4) {
@@ -158,6 +163,44 @@ struct SettingsPushSection: View {
         .accessibilityLabel("Push")
         .task(id: role ?? "") {
             await model.activate(role: role, registerNow: registerOnAppear)
+        }
+    }
+}
+
+/// How often the runner's phone shares a position on race day. Saved on this device.
+struct SettingsTrackingSection: View {
+    var mapModel: MapModel
+    var userId: String?
+    @State private var interval = TrackingSettings.defaultIntervalSeconds
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CrewSectionHeader(title: "Location interval")
+            Text("How often your phone shares your position with your crew during the race. Shorter uses more battery.")
+                .font(CrewFont.body)
+                .foregroundStyle(theme.body)
+            Picker("Location interval", selection: $interval) {
+                ForEach(TrackingSettings.allowedIntervalSeconds, id: \.self) { seconds in
+                    Text(verbatim: "Every \(MapModel.intervalText(seconds))").tag(seconds)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("crewcue.location-interval")
+        }
+        .crewCard()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Location interval")
+        .onAppear {
+            interval = mapModel.trackingIntervalSeconds
+            if let userId, let directory = try? AppDirectories.userDirectory(userId: userId) {
+                interval = TrackingSettings.load(userDirectory: directory).intervalSeconds
+            }
+        }
+        .onChange(of: interval) { _, seconds in
+            guard let userId, let directory = try? AppDirectories.userDirectory(userId: userId) else { return }
+            try? TrackingSettings(intervalSeconds: seconds).save(userDirectory: directory)
+            mapModel.reloadTrackingInterval()
         }
     }
 }

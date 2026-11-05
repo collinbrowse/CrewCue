@@ -50,11 +50,13 @@ class RaceDayBridge(
         runner: JSONObject?,
         selectedIndex: Int,
         follow: Boolean,
-        elevation: JSONArray? = null
+        elevation: JSONArray? = null,
+        live: JSONObject? = null
     ): RuntimeResult = call("projectAidSheet") {
         if (sheet != null) put("sheet", sheet)
         put("checkpoints", checkpoints)
         if (runner != null) put("runner", runner)
+        if (live != null) put("live", live)
         put("selectedIndex", selectedIndex)
         put("follow", follow)
         if (elevation != null && elevation.length() > 0) put("elevation", elevation)
@@ -62,6 +64,27 @@ class RaceDayBridge(
 
     /** The athlete's latest accepted ping: `{ offline, latest?, refreshSeconds }`. */
     fun latestPing(roomId: String): RuntimeResult = call("latestPing") { put("roomId", roomId) }
+
+    /** New path points after [after] (the previous result's `cursor`): `{ offline, points, cursor? }`. */
+    fun pingTrack(roomId: String, after: String?): RuntimeResult = call("pingTrack") {
+        put("roomId", roomId)
+        if (!after.isNullOrBlank()) put("after", after)
+    }
+
+    /** The server's live projection: `{ offline, live?, finishCrossed? }`. Pass `live` back to [projectAidSheet]. */
+    fun liveProjection(roomId: String): RuntimeResult = call("liveProjection") { put("roomId", roomId) }
+
+    fun trackingSettings(): RuntimeResult = call("trackingSettings")
+
+    fun setTrackingSettings(intervalSeconds: Int): RuntimeResult =
+        call("setTrackingSettings") { put("intervalSeconds", intervalSeconds) }
+
+    /** `{ active, roomId?, startedAt? }`, saved so tracking resumes after a restart. */
+    fun trackingSession(): RuntimeResult = call("trackingSession")
+
+    fun startTrackingSession(roomId: String): RuntimeResult = call("startTrackingSession") { put("roomId", roomId) }
+
+    fun stopTrackingSession(): RuntimeResult = call("stopTrackingSession")
 
     fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
 
