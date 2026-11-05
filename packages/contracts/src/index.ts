@@ -247,6 +247,20 @@ export interface RemainingCheckpointEta {
   liveProjectedElapsedSeconds: number;
   frozenPlanElapsedSeconds: number;
   deltaSecondsVsFrozenPlan: number;
+  /** 10th–90th percentile arrival (race elapsed). Absent where the window isn't calibrated. */
+  window?: ArrivalWindowElapsed;
+}
+
+/** A likely-arrival range in race elapsed seconds. */
+export interface ArrivalWindowElapsed {
+  earliestElapsedSeconds: number;
+  latestElapsedSeconds: number;
+}
+
+/** A likely-arrival range as clock times. */
+export interface ArrivalWindowClock {
+  earliestIso: string;
+  latestIso: string;
 }
 
 /** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
@@ -266,6 +280,8 @@ export interface RaceRoomProjectionCore {
    * Compare to frozen plan-of-record moving times for ahead/behind.
    */
   remainingCheckpointEtas?: RemainingCheckpointEta[];
+  /** 10th–90th percentile finish. Absent where the window isn't calibrated. */
+  etaFinishWindow?: ArrivalWindowClock;
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";

@@ -162,3 +162,28 @@ Live formula: `ETA_j = elapsedNow + r_rem · (plan_j − plan_now) + stopHabit �
 Tested and left out:
 - A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
 - Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.
+
+## Arrival windows (PR 5) — behind `PROJECTION_TUNED_CONSTANTS`, table fitted on OpenSplitTime data
+
+**Source of truth:** `[../../arrivalWindows.ts](../../arrivalWindows.ts)`, with the table in `[../../arrivalWindowTable.ts](../../arrivalWindowTable.ts)`.
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| Window | 10th–90th percentile (80% nominal) | `elapsedNow + remaining × [exp(q10), exp(q90)]` around each live ETA |
+| Progress bands | 0–25%, 25–50%, 50–75%, 75–100% of course covered | Table rows, together with σ tier (cold / coarse / similar history) and linked course history |
+| `WINDOW_MIN_COVERAGE` | **70%** held-out | A band below this gets no window, so clients show the ETA alone |
+| Target coverage | **75–85%** held-out | What the backtest reports each band against |
+| Between checkpoints | linear in remaining plan time | Quantiles go from the next-checkpoint band to the finish band |
+
+**Table: fitted Nov 5 2026** on OpenSplitTime public results, used with OpenSplitTime's permission: 5 courses (Hardrock 100 counter-clockwise, Bear 100, Never Summer 100K and 60K, Quad Rock 50), 3,817 finishers. Coverage is held out one course at a time. UTMB (LiveTrail) is left out because LiveTrail hasn't given permission.
+
+| Band | Next checkpoint: held-out coverage | Finish: held-out coverage |
+| --- | --- | --- |
+| 0–25% | 72–74% (below target, above the 70% gate) | 80% |
+| 25–50% | 79% | 77–78% |
+| 50–75% | 74–75% (below target, above the gate) | 76% |
+| 75–100% | 77% | 80% |
+
+Ranges span the three σ tiers, which come out nearly the same because the backtest's plan error is synthetic. Every band clears the 70% gate, so every band gets a window. Typical widths: next checkpoint ×0.83–×1.25 of the remaining time; finish ×0.85–×1.18. Bands with linked course history (`hasHistory: true`) aren't fitted yet, so they fall back to no window until a refit with history wired in (follow-up once PR 4 merges).
+
+To refit the table, run `npm run projection:backtest -- --data <permitted data> --analysis windows --write-windows --windows-source "<dataset, permission, date>"` and commit the generated table. The tool refuses to write a table from the synthetic fixture.
