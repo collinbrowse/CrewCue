@@ -82,6 +82,33 @@ test("a proof must record every checklist state and match the row", () => {
   assert.equal(ok.status, 0, ok.stderr);
 });
 
+test("a physical-tier row needs a real-phone proof that covers its Action", () => {
+  const { dir, row, write } = behaviorCopy();
+  row.ios = "pass";
+  row.proof = "physical";
+  write();
+  fs.mkdirSync(path.join(dir, "proofs"), { recursive: true });
+  const proofPath = path.join(dir, "proofs", `${row.id}.ios.json`);
+
+  fs.writeFileSync(proofPath, JSON.stringify(fullProof(row)));
+  assert.match(verify(dir).stderr, /needs a real phone: deviceClass must be "physical"/);
+
+  fs.writeFileSync(proofPath, JSON.stringify({ ...fullProof(row), deviceClass: "physical" }));
+  assert.match(verify(dir).stderr, /checked\.Action is empty/);
+
+  const physical = fullProof(row);
+  physical.deviceClass = "physical";
+  physical.device = "iPhone 15, iOS 27.0";
+  physical.checked.Action = "Screen locked 2 h, one sample per interval; app ended by the debugger, samples resumed.";
+  fs.writeFileSync(proofPath, JSON.stringify(physical));
+  const ok = verify(dir);
+  assert.equal(ok.status, 0, ok.stderr);
+
+  row.proof = "lab";
+  write();
+  assert.match(verify(dir).stderr, /proof tier lab is not allowed/);
+});
+
 test("a proof file must name a feature row", () => {
   const { dir } = behaviorCopy();
   fs.mkdirSync(path.join(dir, "proofs"), { recursive: true });

@@ -19,6 +19,8 @@ const val TRACKING_OFF = "Tracking stopped."
 const val TRACKING_FINISHED = "Finish crossed. Tracking stopped."
 const val TRACKING_CREW = "Location comes from the runner's phone. This phone never shares its own position."
 const val TRACKING_BACKGROUND_DENIED = "Tracking while the app is open. Allow location \"all the time\" so it keeps going with the screen off."
+const val BATTERY_RESTRICTED = "Android may stop tracking to save battery. Set CrewCue's battery use to Unrestricted."
+const val BATTERY_SETTINGS = "Open battery settings"
 /** Shown until client-core's first readout arrives; matches `RaceDayReadouts.noPingLabel`. */
 const val NO_PING_LABEL = "NO PING YET"
 /** Matches client-core `TrackingSettings.defaultIntervalSeconds`, until the saved value loads. */

@@ -513,6 +513,7 @@ private fun LocationSection(model: MapViewModel, tagged: Boolean) {
             return@Column
         }
         Text(model.locationMessage, modifier = Modifier.semantics { contentDescription = model.locationMessage })
+        BatteryUnrestrictedPrompt()
         val minutes = intervalLabel(model.trackingIntervalSeconds)
         Text(
             "Your phone sends your position every $minutes, saving it while you have no service and sending it all when you're back in range. Change the interval in Settings.",
@@ -540,6 +541,52 @@ private fun LocationSection(model: MapViewModel, tagged: Boolean) {
             )
         }
     }
+}
+
+/**
+ * Phone makers' battery managers (Samsung, Xiaomi, OnePlus and others) can stop the tracking
+ * service mid-race even though stock Android leaves a foreground service running. Until the app is
+ * exempt from battery optimization ("Unrestricted"), ask the athlete to change it. Rechecked
+ * every time the app comes back from Settings.
+ */
+@Composable
+private fun BatteryUnrestrictedPrompt() {
+    val context = LocalContext.current
+    var unrestricted by remember { mutableStateOf(isBatteryUnrestricted(context)) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) unrestricted = isBatteryUnrestricted(context)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    if (unrestricted) return
+    Column(
+        Modifier.testTag("crewcue.location-battery"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            BATTERY_RESTRICTED,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.semantics { contentDescription = BATTERY_RESTRICTED }
+        )
+        SecondaryButton(BATTERY_SETTINGS, onClick = { openAppSettings(context) })
+    }
+}
+
+private fun isBatteryUnrestricted(context: android.content.Context): Boolean {
+    val power = context.getSystemService(android.os.PowerManager::class.java) ?: return true
+    return power.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+/** App info holds the battery setting on stock Android 12+ and on Samsung ("Battery" → "Unrestricted"). */
+private fun openAppSettings(context: android.content.Context) {
+    val intent = android.content.Intent(
+        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        android.net.Uri.fromParts("package", context.packageName, null)
+    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
 }
 
 private fun startService(

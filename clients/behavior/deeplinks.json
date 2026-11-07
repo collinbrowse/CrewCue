@@ -180,8 +180,9 @@
       "label": "crewcue.location-heartbeat",
       "sdk": "location",
       "scope": "v1",
-      "ios": "pass",
-      "android": "pass"
+      "proof": "physical",
+      "ios": "fail",
+      "android": "fail"
     },
     {
       "id": "runner-track",

@@ -32,6 +32,7 @@ struct CompositionRoot {
         model.prepareStores()
         if let restored {
             model.adopt(restored)
+            model.resumeRaceTrackingAtLaunch()
         }
         return model
     }
