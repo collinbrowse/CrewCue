@@ -3,6 +3,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
 import { rateLimitPlugin } from "./plugins/rateLimit.js";
 import { logSafeUrl } from "./lib/logSafeUrl.js";
+import { registerErrorReporting } from "./lib/errorReporting.js";
 import { healthRoutes } from "./routes/health.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
 import { chatRoutes } from "./routes/chatRoutes.js";
@@ -18,6 +19,7 @@ import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 import { ws7PlatformRoutes } from "./routes/ws7PlatformRoutes.js";
+import { accountRoutes } from "./routes/accountRoutes.js";
 
 /** GPX activity XML as JSON can exceed Fastify’s 1MB default; mobile may still prefer metrics-only ingest. */
 const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
@@ -42,6 +44,7 @@ export function buildApp() {
     bodyLimit: BODY_LIMIT_BYTES
   });
 
+  registerErrorReporting(app);
   app.register(authPlugin);
   app.register(auditPlugin);
   app.register(rateLimitPlugin);
@@ -60,6 +63,7 @@ export function buildApp() {
   app.register(ws5SyncRoutes);
   app.register(ws6CommandCenterRoutes);
   app.register(ws7PlatformRoutes);
+  app.register(accountRoutes);
 
   return app;
 }
