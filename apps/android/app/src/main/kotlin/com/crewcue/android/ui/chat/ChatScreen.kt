@@ -1,7 +1,17 @@
 package com.crewcue.android.ui.chat
 
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -96,6 +106,13 @@ fun ChatScreen(
     val context = LocalContext.current
     LaunchedEffect(roomId) { model.load(context.applicationContext) }
     LaunchedEffect(model.unread) { shell.noteChatUnread(model.unread) }
+    DisposableEffect(model) {
+        model.setVisible(true)
+        onDispose { model.setVisible(false) }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) model.sendPhoto(context.applicationContext, uri)
+    }
     val listState = rememberLazyListState()
     LaunchedEffect(model.messages.size) {
         if (model.messages.isNotEmpty()) listState.animateScrollToItem(model.messages.lastIndex)
@@ -115,7 +132,15 @@ fun ChatScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                items(model.messages) { line -> ChatBubble(line) }
+                if (model.hasOlder) {
+                    item {
+                        TextButton(
+                            onClick = model::loadOlder,
+                            modifier = Modifier.fillMaxWidth().testTag("crewcue.chat-older")
+                        ) { Text("Earlier messages") }
+                    }
+                }
+                items(model.messages, key = { it.id }) { line -> ChatBubble(line, onDiscard = { model.discard(line) }) }
             }
             if (model.opening && model.messages.isEmpty()) {
                 CairnLoader(
@@ -144,6 +169,8 @@ fun ChatScreen(
             draft = model.draft,
             onDraft = model::updateDraft,
             sending = model.sending,
+            uploadingPhoto = model.uploadingPhoto,
+            onPhoto = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onSend = { model.send(context.applicationContext) }
         )
     }
@@ -191,7 +218,7 @@ private fun ChatStatusHeader(race: MapViewModel?, raceName: String) {
                 )
             }
         }
-        // Name the race, never the Stream channel id.
+        // Name the race, never the room id.
         if (raceName.isNotBlank()) {
             Text(
                 raceName,
@@ -205,8 +232,9 @@ private fun ChatStatusHeader(race: MapViewModel?, raceName: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatBubble(line: CrewChatMessage) {
+private fun ChatBubble(line: CrewChatMessage, onDiscard: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth()) {
         if (line.mine) Spacer(Modifier.weight(1f))
@@ -215,6 +243,14 @@ private fun ChatBubble(line: CrewChatMessage) {
             horizontalAlignment = if (line.mine) Alignment.End else Alignment.Start
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (line.deliveryLabel.isNotBlank()) {
+                    Text(
+                        line.deliveryLabel,
+                        modifier = Modifier.testTag("crewcue.chat-delivery"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (line.delivery == "failed") colors.error else colors.onSurfaceVariant
+                    )
+                }
                 if (line.mine && line.time.isNotBlank()) {
                     Text(line.time, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                 }
@@ -226,7 +262,9 @@ private fun ChatBubble(line: CrewChatMessage) {
                 }
             }
             Surface(
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .combinedClickable(onClick = {}, onLongClick = { if (line.delivery == "failed") onDiscard() }),
                 shape = RoundedCornerShape(
                     topStart = if (line.mine) 24.dp else 6.dp,
                     topEnd = if (line.mine) 6.dp else 24.dp,
@@ -246,10 +284,7 @@ private fun ChatBubble(line: CrewChatMessage) {
                         Text(line.text, style = MaterialTheme.typography.bodyLarge, color = if (line.mine) colors.onPrimary else colors.onSurface)
                     }
                     line.imageUrl?.let { url ->
-                        ChatImage(url, Modifier.padding(top = 6.dp).heightIn(max = 180.dp))
-                    }
-                    if (line.reactions.isNotBlank()) {
-                        Text(line.reactions, modifier = Modifier.padding(top = 4.dp))
+                        ChatImage(url, Modifier.padding(top = 6.dp).heightIn(max = 180.dp).testTag("crewcue.chat-photo"))
                     }
                 }
             }
@@ -259,7 +294,14 @@ private fun ChatBubble(line: CrewChatMessage) {
 }
 
 @Composable
-private fun ChatComposer(draft: String, onDraft: (String) -> Unit, sending: Boolean, onSend: () -> Unit) {
+private fun ChatComposer(
+    draft: String,
+    onDraft: (String) -> Unit,
+    sending: Boolean,
+    uploadingPhoto: Boolean,
+    onPhoto: () -> Unit,
+    onSend: () -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     val disabled = sending || draft.isBlank()
     Surface(
@@ -272,6 +314,17 @@ private fun ChatComposer(draft: String, onDraft: (String) -> Unit, sending: Bool
         shadowElevation = 3.dp
     ) {
         Row(Modifier.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onPhoto,
+                enabled = !uploadingPhoto,
+                modifier = Modifier.testTag("crewcue.chat-attach").semantics { contentDescription = "Attach photo" }
+            ) {
+                if (uploadingPhoto) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.Image, contentDescription = null, tint = colors.primary)
+                }
+            }
             TextField(
                 value = draft,
                 onValueChange = onDraft,

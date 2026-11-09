@@ -21,23 +21,12 @@ for (version in mapLibreCandidates) {
 }
 val mapLibreFailure = if (mapLibreVersionResolved == null) mapLibreFailures.joinToString(" | ") else ""
 
-// Stream stays off the compile classpath when it does not resolve for this AGP and SDK.
-val streamCandidates = listOf(
-    "io.getstream:stream-chat-android-client:7.13.0"
-)
-var streamCoordinate: String? = null
-val streamFailures = mutableListOf<String>()
-for (coordinate in streamCandidates) {
-    try {
-        configurations.detachedConfiguration(dependencies.create(coordinate)).resolve()
-        streamCoordinate = coordinate
-        break
-    } catch (error: Throwable) {
-        val line = (error.message ?: error.toString()).lineSequence().first().take(300)
-        streamFailures += "$coordinate: $line"
-    }
+// Push needs the owner's google-services.json (docs/runbooks/chat-push.md). Without it the app
+// builds and runs; FirebaseMessaging has no app to attach to and push registration says so.
+val firebaseConfigured = file("google-services.json").exists()
+if (firebaseConfigured) {
+    apply(plugin = "com.google.gms.google-services")
 }
-val streamFailure = if (streamCoordinate == null) streamFailures.joinToString(" | ") else ""
 
 val repoRoot = rootProject.projectDir.parentFile.parentFile
 val releaseKeystore = System.getenv("CREWCUE_ANDROID_KEYSTORE")
@@ -76,9 +65,7 @@ android {
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
-        buildConfigField("boolean", "STREAM_CHAT", (streamCoordinate != null).toString())
-        buildConfigField("String", "STREAM_CHAT_COORDINATE", crewcueQuoted(streamCoordinate ?: ""))
-        buildConfigField("String", "STREAM_CHAT_ERROR", crewcueQuoted(streamFailure))
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
         manifestPlaceholders["auth0Domain"] = auth0Domain.ifBlank { "auth0.invalid" }
         manifestPlaceholders["auth0Scheme"] = "crewcue"
     }
@@ -130,9 +117,6 @@ android {
             jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs").get().asFile)
             if (mapLibreVersionResolved != null) {
                 kotlin.srcDir("src/maplibre/kotlin")
-            }
-            if (streamCoordinate != null) {
-                kotlin.srcDir("src/stream/kotlin")
             }
         }
         getByName("androidTest") {
@@ -190,9 +174,8 @@ dependencies {
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
-    streamCoordinate?.let { coordinate ->
-        implementation(coordinate)
-    }
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation(composeBom)

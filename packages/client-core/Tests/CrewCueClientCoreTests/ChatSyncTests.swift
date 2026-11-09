@@ -7,7 +7,7 @@ import FoundationNetworking
 
 /// A tiny in-memory chat API: dedupes on (sender, clientMessageId) like the real one, and can be
 /// taken down (no network), restarted, or told to lose the next response after storing it.
-private actor FakeChatAPI: HTTPTransport {
+actor FakeChatAPI: HTTPTransport {
     struct Stored {
         var id: Int
         var sender: String
@@ -266,4 +266,62 @@ private struct NoopLogger: Logger {
     ))
     #expect(thread.contains(clientMessageId: "c1"))
     #expect(thread.rows(pending: [sent], baseURL: nil).map(\.id) == ["5"])
+}
+
+private func bridge(_ fields: [String: Any]) async throws -> [String: Any] {
+    let data = try JSONSerialization.data(withJSONObject: fields)
+    let raw = await RuntimeCall.perform(String(decoding: data, as: UTF8.self))
+    let root = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    return try #require(root["result"] as? [String: Any], "\(root)")
+}
+
+@Test func bridgeChatPollSendAndOfflineQueueForAndroid() async throws {
+    let api = FakeChatAPI()
+    RuntimeCall.setTransportForTests(api, baseURL: "https://chat-bridge.test")
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: "https://chat-bridge.test") }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let base: [String: Any] = [
+        "storageDir": directory.path,
+        "userId": "crew-me",
+        "role": "crew_member",
+        "baseURL": "https://chat-bridge.test",
+        "token": "t",
+        "roomId": "room-1"
+    ]
+    await api.post(from: "ada", text: "leaving aid 2")
+    var first = base
+    first["op"] = "chatPoll"
+    first["fresh"] = true
+    let opened = try await bridge(first)
+    let rows = try #require(opened["rows"] as? [[String: Any]])
+    #expect(rows.map { $0["author"] as? String } == ["Ada"])
+    #expect((opened["status"] as? String) == "")
+
+    await api.setDown(true)
+    var send = base
+    send["op"] = "chatSend"
+    send["text"] = "queued from android"
+    let queued = try await bridge(send)
+    #expect((queued["delivery"] as? String) == "queued")
+    #expect((queued["status"] as? String) == ChatCopy.offline)
+    let queuedRows = try #require(queued["rows"] as? [[String: Any]])
+    #expect((queuedRows.last?["delivery"] as? String) == "queued")
+
+    var poll = base
+    poll["op"] = "chatPoll"
+    poll["failures"] = 0
+    poll["wait"] = 0
+    let failed = try await bridge(poll)
+    #expect((failed["retryAfterSeconds"] as? Int) == 1)
+
+    await api.setDown(false)
+    poll["failures"] = 1
+    let back = try await bridge(poll)
+    #expect((back["failures"] as? Int) == 0)
+    _ = try await bridge(poll)
+    let after = try await bridge(poll)
+    let final = try #require(after["rows"] as? [[String: Any]])
+    #expect(final.map { $0["text"] as? String } == ["leaving aid 2", "queued from android"])
+    #expect(final.allSatisfy { ($0["delivery"] as? String) == "sent" })
+    #expect(await api.messages.filter { $0.text == "queued from android" }.count == 1)
 }
