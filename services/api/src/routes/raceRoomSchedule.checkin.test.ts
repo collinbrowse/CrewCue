@@ -9,6 +9,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   parseCrewScheduleSheet,
   type CrewScheduleSheet,
@@ -16,6 +18,7 @@ import {
   type RaceRoom
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 import { getRaceRoom } from "./raceRooms.js";
 import {
@@ -726,3 +729,54 @@ test("closed check-in without GPS pings survives adding a waypoint and re-saving
 
   await app.close();
 });
+
+test(
+  "a crew check-in still shifts the schedule after an API restart",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const ownerToken = app.jwt.sign(buildClaims("owner-w21-restart"));
+    const roomId = await createPaidRoom(app, ownerToken, "W2-1 check-in survives restart");
+    await put50kCourse(app, roomId, ownerToken);
+
+    const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const deltaSeconds = 300;
+    const arrivalAt = "2026-08-15T14:00:00.000Z";
+    const departureAt = new Date(
+      Date.parse(arrivalAt) + (AID1_PLANNED_STOPPAGE + deltaSeconds) * 1000
+    ).toISOString();
+    const posted = await postManualStop(app, roomId, "aid-1", ownerToken, { arrivalAt, departureAt });
+    assert.equal(posted.statusCode, 200);
+    const before = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    assertLaterStopsShiftedBy(baseline, before, deltaSeconds);
+    await app.close();
+
+    // A fresh process has no room in memory; the check-in must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const res = await app.inject({
+        method: "GET",
+        url: "/race-rooms/" + process.argv[2] + "/schedule",
+        headers: { authorization: "Bearer " + process.argv[3] }
+      });
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ status: res.statusCode, body: res.json() }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(
+      out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)
+    ) as { status: number; body: unknown };
+    assert.equal(result.status, 200);
+    const after = parseCrewScheduleSheet(result.body);
+    assertLaterStopsShiftedBy(baseline, after, deltaSeconds);
+  }
+);
