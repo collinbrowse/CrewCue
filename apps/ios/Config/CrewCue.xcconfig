@@ -16,4 +16,8 @@ CREWCUE_AUTH0_DOMAIN[config=Release] =
 CREWCUE_AUTH0_CLIENT_ID[config=Release] =
 CREWCUE_AUTH0_AUDIENCE[config=Release] =
 
+// Sentry crash reporting (ADR 0010). Empty means off. release.yml passes the iOS project DSN
+// to Release only; CrashReporting.swift never starts Sentry in Debug.
+CREWCUE_SENTRY_DSN =
+
 #include? "Secrets.xcconfig"
