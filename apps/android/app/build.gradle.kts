@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("io.sentry.android.gradle")
 }
 
 // Newest OpenGL MapLibre that this AGP can consume. A failed resolve must not fail the build.
@@ -51,6 +52,8 @@ val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
 // RevenueCat public Android SDK key (release.yml passes vars.CREWCUE_REVENUECAT_ANDROID_KEY). Empty in a
 // release build means purchases fail with "Purchases aren't set up in this build."
 val releaseRevenueCatApiKey = crewcueProp("crewcue.release.revenuecatApiKey")
+// Sentry crash reporting (ADR 0010). Release only; empty means off.
+val releaseSentryDsn = crewcueProp("crewcue.release.sentryDsn")
 
 android {
     namespace = "com.crewcue.android"
@@ -83,6 +86,7 @@ android {
         buildConfigField("boolean", "STREAM_CHAT", (streamCoordinate != null).toString())
         buildConfigField("String", "STREAM_CHAT_COORDINATE", crewcueQuoted(streamCoordinate ?: ""))
         buildConfigField("String", "STREAM_CHAT_ERROR", crewcueQuoted(streamFailure))
+        buildConfigField("String", "SENTRY_DSN", crewcueQuoted(""))
         manifestPlaceholders["auth0Domain"] = auth0Domain.ifBlank { "auth0.invalid" }
         manifestPlaceholders["auth0Scheme"] = "crewcue"
     }
@@ -105,6 +109,7 @@ android {
             buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(releaseAuth0Audience))
             buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(releaseApiBaseUrl))
             buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(releaseRevenueCatApiKey))
+            buildConfigField("String", "SENTRY_DSN", crewcueQuoted(releaseSentryDsn))
             manifestPlaceholders["auth0Domain"] = releaseAuth0Domain.ifBlank { "auth0.invalid" }
             isMinifyEnabled = true
             isShrinkResources = true
@@ -194,6 +199,7 @@ dependencies {
     implementation("com.auth0.android:auth0:4.2.0")
     // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
     implementation("com.revenuecat.purchases:purchases:9.29.1")
+    implementation("io.sentry:sentry-android:8.63.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
@@ -250,6 +256,27 @@ fun crewcueQuoted(value: String): String =
         .replace("\"", "\\\"")
         .replace("\r", "")
         .replace("\n", "\\n") + "\""
+
+// R8 mapping for Sentry: the plugin stamps a mapping UUID into release builds and, when
+// release.yml provides SENTRY_AUTH_TOKEN/ORG/PROJECT, uploads mapping.txt. No tracing bytecode.
+sentry {
+    val token = System.getenv("SENTRY_AUTH_TOKEN").orEmpty()
+    val sentryOrg = System.getenv("SENTRY_ORG").orEmpty()
+    val sentryProject = System.getenv("SENTRY_PROJECT").orEmpty()
+    org.set(sentryOrg)
+    projectName.set(sentryProject)
+    authToken.set(token)
+    ignoredBuildTypes.set(setOf("debug"))
+    includeProguardMapping.set(true)
+    autoUploadProguardMapping.set(token.isNotBlank() && sentryOrg.isNotBlank() && sentryProject.isNotBlank())
+    uploadNativeSymbols.set(false)
+    includeNativeSources.set(false)
+    includeSourceContext.set(false)
+    includeDependenciesReport.set(false)
+    telemetry.set(false)
+    tracingInstrumentation { enabled.set(false) }
+    autoInstallation { enabled.set(false) }
+}
 
 val buildSwiftAndroid = tasks.register<Exec>("buildSwiftAndroid") {
     group = "build"
