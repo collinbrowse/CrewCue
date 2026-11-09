@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { ChatMessagePage, ChatPhotoUploadResponse, ChatSendMessageResponse } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { _resetChatPersistenceForTests, listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
+import { _resetChatPersistenceForTests, deleteChatDataForUser, listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
 import { _resetChatMessageStoreForTests } from "../lib/chatMessageStore.js";
 import { chatRoomWaiterCount } from "../lib/chatLive.js";
 import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInput } from "../lib/chatPushDispatch.js";
@@ -396,7 +396,8 @@ test("chat messages: photos upload, attach, and load from a signed URL; others' 
     const fetched = await app.inject({ method: "GET", url: photo.url });
     assert.equal(fetched.statusCode, 200);
     assert.deepEqual(fetched.rawPayload, bytes);
-    const tampered = await app.inject({ method: "GET", url: photo.url.replace(/sig=[0-9a-f]/, "sig=0") });
+    const tamperedUrl = photo.url.replace(/sig=([0-9a-f])/, (_m, c: string) => `sig=${c === "0" ? "1" : "0"}`);
+    const tampered = await app.inject({ method: "GET", url: tamperedUrl });
     assert.equal(tampered.statusCode, 404);
   });
 });
@@ -422,5 +423,27 @@ test("chat retention deletes a finished room's messages and photos", async () =>
     assert.equal(results[0]?.photosPurged, 1);
     const page = (await list(app, owner, roomId)).json() as ChatMessagePage;
     assert.deepEqual(page.messages, []);
+  });
+});
+
+test("account deletion removes the messages and photos a user sent, and nobody else's", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-gone"));
+    const crew = app.jwt.sign(claims("crew-gone"));
+    const roomId = await createRoom(app, owner, "owner-gone");
+    await addMember(app, roomId, owner, crew, "Ada");
+    const upload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/photos`,
+      payload: Buffer.from([9, 9, 9]),
+      headers: { authorization: `Bearer ${crew}`, "content-type": "image/jpeg" }
+    });
+    const { photoKey } = upload.json() as ChatPhotoUploadResponse;
+    await send(app, crew, roomId, { clientMessageId: "c1", text: "mine", photoKey });
+    await send(app, owner, roomId, { clientMessageId: "o1", text: "theirs" });
+    const result = await deleteChatDataForUser("crew-gone");
+    assert.equal(result.messagesPurged, 1);
+    const page = (await list(app, owner, roomId)).json() as ChatMessagePage;
+    assert.deepEqual(page.messages.map((m) => m.text), ["theirs"]);
   });
 });

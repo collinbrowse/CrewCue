@@ -1,5 +1,5 @@
 /**
- * Chat push dispatch (ADR 0010).
+ * Chat push dispatch (ADR 0011).
  *
  * The send goes through a pluggable transport:
  *   - production: APNs (token .p8) for iOS and FCM HTTP v1 for Android, from env

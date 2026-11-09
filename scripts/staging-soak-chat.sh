@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Crew chat staging soak (messages, devices, notification prefs). ADR 0010.
+# Crew chat staging soak (messages, devices, notification prefs). ADR 0011.
 # Requires staging API deployed with migration 0014+ (crypto tables dropped).
 set -euo pipefail
 

@@ -1,6 +1,6 @@
 # Crew chat: manual smoke
 
-Proves first-party crew chat ([ADR 0010](../adr/0010-first-party-crew-chat.md)) on staging or a local API. A failure here blocks promotion.
+Proves first-party crew chat ([ADR 0011](../adr/0011-first-party-crew-chat.md)) on staging or a local API. A failure here blocks promotion.
 
 ## Preconditions
 

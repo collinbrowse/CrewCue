@@ -11,11 +11,12 @@ const MINUTE = 60_000;
 
 /** Routes that spend provider quota or CPU. Keyed by route pattern, not URL. */
 export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
-  "/race-rooms/:roomId/geocode/search": { max: 30, windowMs: MINUTE },
   "/race-rooms/:roomId/routing/route": { max: 30, windowMs: MINUTE },
   "/race-rooms/:roomId/course/gpx-preview": { max: 10, windowMs: MINUTE },
   "/activity-history/gpx": { max: 10, windowMs: MINUTE },
-  "/race-rooms/join-by-code": { max: 10, windowMs: MINUTE, perIpMax: 30 }
+  "/race-rooms/join-by-code": { max: 10, windowMs: MINUTE, perIpMax: 30 },
+  "/me": { max: 5, windowMs: MINUTE },
+  "/me/export": { max: 5, windowMs: MINUTE }
 };
 
 /** Fixed-window, in-process limiter per signed-in user (client IP when unauthenticated). */
