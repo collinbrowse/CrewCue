@@ -17,14 +17,14 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 4. **Play target API extension:** not needed once #571 is merged (the app targets API 36).
 5. **Privacy policy URL.** Both stores need it: App Store Connect before external TestFlight, and Play before any track goes out (Data safety form). In-app links are tracked in #569.
 6. **App privacy answers (App Store) and Data safety form (Play).** Use [Privacy inputs](#privacy-inputs) below. Confirm the export-compliance answer: the app uses only HTTPS/TLS from the OS, and `ITSAppUsesNonExemptEncryption = NO` is already set for Release.
-7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing.
+7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing. Also set `AUTH0_MGMT_DOMAIN`, `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET` on the Railway API (M2M app with `delete:users`) so deletion removes the Auth0 login: [account-deletion.md](account-deletion.md).
 8. **Railway production service** (when you leave staging).
    - Set `NODE_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE`, `PERSISTENCE_MODE=postgres` and `DATABASE_URL`.
    - New in this PR: with `NODE_ENV=production`, the API refuses to start without Auth0 unless a private `JWT_SECRET` is set. This stops it from accepting tokens signed with the public dev secret.
 9. **Push credentials** (#563).
    - Turn on the Push capability on the App ID, then create an APNs auth key (.p8).
    - Create a Firebase project and add `google-services.json` for `com.crewcue.android`.
-10. **Production third-party keys:** MapTiler (the map falls back to the MapLibre demo style without one), Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
+10. **Production third-party keys:** Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
 11. **Store listings:** name, subtitle, description, keywords, category (Health & Fitness or Sports), screenshots (6.9" iPhone; Play phone), feature graphic, support URL, age rating questionnaire (App Store) and content rating questionnaire (Play), and the target audience form (Play).
 12. **Background location justification** once #562 lands: an App Review note and a Play location-permission and foreground-service declaration, with a short video showing runner tracking.
 
@@ -42,7 +42,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | iOS Dynamic Type: the 32pt invite-code field scales with `@ScaledMetric`. The fixed-size pill tab bar supports the Large Content Viewer, which is Apple's pattern for bars that cannot grow. | `Screens/Join/JoinCrewView.swift`, `Screens/Shell/ProductShellView.swift` |
 | Android TalkBack: shared chat photos read "Shared photo" instead of "Image, image". | `ui/chat/ChatScreen.kt` |
 | API refuses to start in production when it would verify tokens with the public `dev-only-secret`. | `services/api/src/lib/authEnv.ts` (+ test), `server.ts` |
-| API logs drop query strings (Strava OAuth `code`/`state`, geocode search text) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
+| API logs drop query strings (Strava OAuth `code`/`state`) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
 
 ## iOS (App Store)
 
@@ -96,7 +96,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Health checks | gap | `/health/ready` is static (`routes/health.ts`). Railway checks `/health/live`. | #566 |
 | Migrations | gap | `services/api/scripts/apply-sql-migrations.mjs` re-runs every file per deploy (`railway.toml` `preDeployCommand`), with no ledger | #566 |
 | Logging of PII | done (this PR), partial | Query strings stripped and auth headers redacted. User `sub` still appears in `ping_decision` and analytics logs. There are no lat/lng log calls. | Decide whether `sub` is acceptable in logs. Retention: #568 |
-| Account deletion and data export | gap, **release blocker** | no `/me` route | #560 |
+| Account deletion and data export | done in API (#560) | `DELETE /me` and `GET /me/export` (`routes/accountRoutes.ts`). Auth0 user deletion needs `AUTH0_MGMT_*` on Railway: see [account-deletion.md](account-deletion.md) | #560 apps; web page #569 |
 | Data retention | gap | Pings and activity history kept indefinitely (`room_ws2_runtime_json`) | #568 |
 | Crash and error tracking | gap | OTel traces only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`src/telemetry.ts`). No process-level handlers. | #564 |
 | Push delivery | gap | `lib/chatPushDispatch.ts` logs only | #563 |
@@ -126,7 +126,7 @@ For the App Store privacy nutrition label and the Play Data safety form. The app
 | Device ID | yes | yes | App functionality | Push token |
 | Crash data | not yet | - | - | Add when #564 lands |
 
-Processors: Auth0 (identity), Stream (chat), MapTiler (tiles, geocoding), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
+Processors: Auth0 (identity), Stream (chat), OpenFreeMap (map tiles, keyless; sees the device IP and which map area is viewed, no account data; OpenStreetMap attribution shown on the map), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
 
 ## Issues filed from this audit
 

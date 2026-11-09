@@ -240,3 +240,19 @@ export async function getStravaConnectionPublic(
   }
   return { connected: true, athleteId: tokens.athleteId };
 }
+
+/** Account deletion: drop pending OAuth states for this athlete. Returns rows removed. */
+export async function deleteOAuthPendingStatesForAthlete(athleteUserId: string): Promise<number> {
+  await ensureReady();
+  if (!pool) {
+    let removed = 0;
+    for (const [state, pending] of [...memoryPending.entries()]) {
+      if (pending.athleteUserId !== athleteUserId) continue;
+      memoryPending.delete(state);
+      removed += 1;
+    }
+    return removed;
+  }
+  const result = await pool.query(`DELETE FROM strava_oauth_pending WHERE athlete_user_id = $1`, [athleteUserId]);
+  return result.rowCount ?? 0;
+}
