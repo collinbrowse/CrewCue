@@ -11,5 +11,6 @@
 | [0007 MVP plaintext crew chat](./0007-mvp-plaintext-crew-chat.md) | Approved |
 | [0008 Native clients with Swift client core](./0008-native-clients-with-swift-client-core.md) | Approved |
 | [0009 Railway hosting](./0009-railway-hosting.md) | Approved |
+| [0010 Crash reporting with Sentry](./0010-crash-reporting-sentry.md) | Approved |
 
 Add a new ADR when a decision is expensive to reverse. Mark the old one superseded instead of deleting it.
