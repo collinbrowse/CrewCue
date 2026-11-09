@@ -16,12 +16,15 @@ import { scrubBreadcrumb, scrubEvent, scrubString } from "./errorScrub.js";
 
 const FAKE_DSN = "https://public@o0.ingest.sentry.io/0";
 
-/** Collects the raw envelopes Sentry would send, instead of sending them. */
+/** Collects the error-event envelopes Sentry would send (not sessions or client reports). */
 function captureTransport() {
   const bodies: string[] = [];
+  const keep = (body: string) => {
+    if (body.split("\n").some((line) => /"type"\s*:\s*"event"/.test(line))) bodies.push(body);
+  };
   const transport = (options: Parameters<typeof Sentry.createTransport>[0]) =>
     Sentry.createTransport(options, async (request) => {
-      bodies.push(typeof request.body === "string" ? request.body : new TextDecoder().decode(request.body));
+      keep(typeof request.body === "string" ? request.body : new TextDecoder().decode(request.body));
       return { statusCode: 200 };
     });
   return { bodies, transport };
