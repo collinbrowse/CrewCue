@@ -73,6 +73,8 @@ android {
         buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(auth0Audience))
         buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(apiBaseUrl))
         buildConfigField("String", "MAPTILER_KEY", crewcueQuoted(crewcueLocal("crewcue_maptiler_key")))
+        // Strava connect is off in v1 (#652). `-Pcrewcue.strava=true` turns it on for a build.
+        buildConfigField("boolean", "STRAVA_ENABLED", (findProperty("crewcue.strava")?.toString() == "true").toString())
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
