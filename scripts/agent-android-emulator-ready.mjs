@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { androidSdkEnv } from "./lib/androidSdkEnv.mjs";
-import { androidPort, sharedDevice } from "./lib/agentDevice.mjs";
+import { acquireAndroid, androidPort, sharedDevice } from "./lib/agentDevice.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -123,7 +123,8 @@ async function main() {
       serial = await bootAvd(name);
     }
   } else {
-    // This checkout's own emulator. Never fall back to another worktree's device.
+    // One worktree at a time, on its own emulator. Never fall back to another worktree's device.
+    await acquireAndroid(repoRoot, { log: (line) => process.stdout.write(`agent-android-ready: ${line}\n`) });
     const port = androidPort(repoRoot);
     serial = `emulator-${port}`;
     if (!(await isOnline(serial))) {

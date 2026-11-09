@@ -12,6 +12,8 @@ Applies when changing `apps/android/**`.
 
 Parallel agents each run their own read-only instance of the AVD on a port derived from the worktree (`npm run agent:device` prints the serial, for example `emulator-5558`). `npm run agent:android:ready` boots it and `npm run test:android` targets it. Pass `-s <serial>` to every `adb` call. Never use or kill another serial. Every instance must be read-only: one started without `-read-only` blocks all the others.
 
+**One worktree at a time.** A machine-wide lock (`~/.crewcue/android-device.lock`) gives Android to one worktree. `agent:android:ready` takes it, waiting up to 5 minutes, and fails with the holder's name if it never frees; do non-Android work and retry later. When your Android proof is done, run `npm run agent:android:done`: it stops your emulator and frees the turn. A turn left idle for 45 minutes is taken over.
+
 ## Done means
 
 1. `npm run verify:client-behavior` when the checklist changed, and

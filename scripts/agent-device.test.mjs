@@ -29,3 +29,32 @@ test("CI and the opt-out share devices", () => {
   assert.equal(sharedDevice({ CI: "true" }), true);
   assert.equal(sharedDevice({ CREWCUE_SHARED_DEVICE: "1" }), true);
 });
+
+test("Android goes to one worktree at a time", async () => {
+  const { mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { tryAcquireAndroid, releaseAndroid, readAndroidLock, LOCK_STALE_MS } = await import("./lib/agentDevice.mjs");
+  const base = mkdtempSync(join(tmpdir(), "crewcue-lock-"));
+  const env = { CREWCUE_ANDROID_LOCK_DIR: join(base, "lock") };
+  const a = join(base, "wt-a");
+  const b = join(base, "wt-b");
+  mkdirSync(a);
+  mkdirSync(b);
+  try {
+    assert.equal(tryAcquireAndroid(a, env).acquired, true);
+    assert.equal(tryAcquireAndroid(a, env).acquired, true, "re-entrant for the holder");
+    const blocked = tryAcquireAndroid(b, env);
+    assert.equal(blocked.acquired, false);
+    assert.equal(blocked.owner.checkout, "wt-a");
+    assert.equal(releaseAndroid(b, env), false, "only the holder frees it");
+    assert.equal(releaseAndroid(a, env), true);
+    assert.equal(tryAcquireAndroid(b, env).acquired, true, "next worktree gets it");
+    assert.equal(tryAcquireAndroid(a, env, Date.now() + LOCK_STALE_MS + 1000).acquired, true, "idle lock is taken over");
+    assert.equal(readAndroidLock(env).checkout, "wt-a");
+    rmSync(a, { recursive: true });
+    assert.equal(tryAcquireAndroid(b, env).acquired, true, "lock of a deleted worktree is taken over");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});

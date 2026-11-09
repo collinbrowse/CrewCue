@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { androidSdkEnv, androidSdkRoot } from "./lib/androidSdkEnv.mjs";
-import { androidSerial, sharedDevice } from "./lib/agentDevice.mjs";
+import { androidSerial, sharedDevice, tryAcquireAndroid } from "./lib/agentDevice.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (!fs.existsSync(path.join(androidSdkRoot(), "platforms"))) {
@@ -18,6 +18,11 @@ if (!fs.existsSync(path.join(androidSdkRoot(), "platforms"))) {
 }
 const env = androidSdkEnv();
 if (!env.ANDROID_SERIAL && !sharedDevice()) {
+  const turn = tryAcquireAndroid(repoRoot);
+  if (!turn.acquired) {
+    console.error(`test:android: Android is in use by ${turn.owner?.checkout}. Retry later; never use its emulator.`);
+    process.exit(1);
+  }
   env.ANDROID_SERIAL = androidSerial(repoRoot);
   const devices = spawnSync("adb", ["devices"], { encoding: "utf8", env }).stdout ?? "";
   if (!devices.split("\n").some((line) => line.trim().startsWith(`${env.ANDROID_SERIAL}\t`) && line.trim().endsWith("device"))) {

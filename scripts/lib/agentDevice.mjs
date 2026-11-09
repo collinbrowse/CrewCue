@@ -10,6 +10,8 @@
  * CREWCUE_ANDROID_PORT overrides the derived port.
  */
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 export const FIRST_PORT = 5556; // 5554 stays free for the emulator a person starts by hand.
@@ -65,4 +67,84 @@ export function ensureIosSimulator(repoRoot, deviceType) {
     throw new Error(`Could not create simulator "${name}" (${deviceType}): ${created.stderr.trim()}`);
   }
   return { udid: created.stdout.trim(), name, state: "Shutdown", created: true };
+}
+
+/*
+ * Android goes one worktree at a time. A machine-wide lock (a directory, so creating it is atomic)
+ * names the worktree that may run an emulator. agent:android:ready and test:android take it and
+ * refresh it; agent:android:done stops that worktree's emulator and frees it. A lock nobody has
+ * touched for LOCK_STALE_MS, or whose worktree no longer exists, is taken over.
+ */
+
+export const LOCK_STALE_MS = 45 * 60 * 1000;
+
+export function androidLockDir(env = process.env) {
+  return env.CREWCUE_ANDROID_LOCK_DIR || path.join(os.homedir(), ".crewcue", "android-device.lock");
+}
+
+export function readAndroidLock(env = process.env) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(androidLockDir(env), "owner.json"), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function writeOwner(lockDir, repoRoot, env) {
+  const owner = { checkout: checkoutKey(repoRoot), repoRoot: path.resolve(repoRoot), serial: androidSerial(repoRoot, env), touchedAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify(owner, null, 2));
+  return owner;
+}
+
+export function lockIsStale(owner, now = Date.now()) {
+  if (!owner) return true;
+  if (!owner.repoRoot || !fs.existsSync(owner.repoRoot)) return true;
+  return now - Date.parse(owner.touchedAt ?? 0) > LOCK_STALE_MS;
+}
+
+/** One attempt. Returns { acquired: true, owner } or { acquired: false, owner } for the current holder. */
+export function tryAcquireAndroid(repoRoot, env = process.env, now = Date.now()) {
+  const lockDir = androidLockDir(env);
+  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+  try {
+    fs.mkdirSync(lockDir);
+    return { acquired: true, owner: writeOwner(lockDir, repoRoot, env) };
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const owner = readAndroidLock(env);
+  // A holder writes owner.json just after creating the directory; don't steal in that gap.
+  if (!owner && now - fs.statSync(lockDir).mtimeMs < 10000) return { acquired: false, owner: { checkout: "another worktree" } };
+  if (owner?.repoRoot === path.resolve(repoRoot)) return { acquired: true, owner: writeOwner(lockDir, repoRoot, env) };
+  if (lockIsStale(owner, now)) {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    return tryAcquireAndroid(repoRoot, env, now);
+  }
+  return { acquired: false, owner };
+}
+
+/** Waits up to waitMs for the Android turn. Throws with the holder's name when it never comes. */
+export async function acquireAndroid(repoRoot, { waitMs = 5 * 60 * 1000, pollMs = 15000, log = console.log, env = process.env } = {}) {
+  const deadline = Date.now() + waitMs;
+  let announced = "";
+  for (;;) {
+    const result = tryAcquireAndroid(repoRoot, env);
+    if (result.acquired) return result.owner;
+    if (announced !== result.owner?.checkout) {
+      announced = result.owner?.checkout;
+      log(`android: waiting for ${announced} to finish (it runs npm run agent:android:done when done; stale after ${LOCK_STALE_MS / 60000} min idle)`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Android is in use by ${announced}. Do non-Android work and retry later; never use its emulator.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+/** Frees the lock if this worktree holds it. Returns whether it did. */
+export function releaseAndroid(repoRoot, env = process.env) {
+  const owner = readAndroidLock(env);
+  if (!owner || owner.repoRoot !== path.resolve(repoRoot)) return false;
+  fs.rmSync(androidLockDir(env), { recursive: true, force: true });
+  return true;
 }
