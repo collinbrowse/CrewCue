@@ -94,6 +94,8 @@ import {
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
+import { crewLimitError, isCrewMembership } from "../lib/billingEntitlement.js";
+import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
   void syncRaceRoomStreamChannelMembers(room, log).catch((err) =>
@@ -276,7 +278,9 @@ const putRaceMapWorkspaceInput = z.object({
 });
 
 const updateEntitlementInput = z.object({
-  status: z.enum(["unpaid", "paid", "expired"])
+  status: z.enum(["unpaid", "paid", "expired"]),
+  /** Defaults to unlimited so a hand-paid dev or staging room keeps today's behavior. */
+  crewTier: z.enum(["one", "unlimited"]).optional()
 });
 
 const issueInviteInput = z.object({
@@ -554,6 +558,11 @@ export function evictRaceRoomInvitesFromMemoryForTests(): void {
   raceRoomInvites.clear();
 }
 
+/** Test-only: drop one cached room, as a fresh API process starts without it. */
+export function evictRaceRoomFromMemoryForTests(roomId: string): void {
+  raceRooms.delete(roomId);
+}
+
 /** Test helper: simulate a late invite SELECT completing against the live cache. */
 export function ingestPersistedRaceRoomInviteWithoutClobberForTests(invite: RaceRoomInvite): RaceRoomInvite {
   return rememberRaceRoomInviteIfAbsent(invite);
@@ -815,12 +824,20 @@ export async function commitRaceRoomUpdate(
   roomId: string,
   edit: (latest: RaceRoom) => RaceRoom
 ): Promise<RaceRoom | undefined> {
+  return commitRaceRoomUpdateAsync(roomId, async (latest) => edit(latest));
+}
+
+/** {@link commitRaceRoomUpdate} for an edit that has to read storage under the room lock (billing grants). */
+export async function commitRaceRoomUpdateAsync(
+  roomId: string,
+  edit: (latest: RaceRoom) => Promise<RaceRoom>
+): Promise<RaceRoom | undefined> {
   return withRoomRuntimeLock(roomId, async () => {
     const latest = await getRaceRoom(roomId);
     if (!latest) {
       return undefined;
     }
-    const next = edit(latest);
+    const next = await edit(latest);
     await saveRaceRoom(next);
     return next;
   });
@@ -2510,10 +2527,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       name: parsed.data.name,
       status: "active",
       createdAt: now,
+      createdByUserId: request.identity.sub,
       entitlement: {
         status: "unpaid",
         lastUpdatedAt: now,
-        source: "manual"
+        source: "manual",
+        crewTier: "one"
       },
       memberships: [
         {
@@ -3062,6 +3081,15 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite payload" });
     }
 
+    // Inviting crew past the room's tier is refused up front, so the runner sees the
+    // upgrade prompt instead of the invitee hitting it on accept.
+    if (parsed.data.role !== "athlete") {
+      const limit = crewLimitError(room);
+      if (limit) {
+        return reply.code(409).send(limit);
+      }
+    }
+
     const invite: RaceRoomInvite = {
       token: randomUUID(),
       roomId,
@@ -3175,6 +3203,16 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ) {
         return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
       }
+      const becomesCrew =
+        isCrewMembership(room, { userId, role: invite.role }) &&
+        !(existing && isCrewMembership(room, existing));
+      if (becomesCrew) {
+        // Checked under the room lock, so two accepts at once cannot both take the last seat.
+        const limit = crewLimitError(room);
+        if (limit) {
+          return reply.code(409).send(limit);
+        }
+      }
       const nextMemberships = existing
         ? room.memberships.map((member) =>
             member.userId === userId ? { ...member, role: invite.role } : member
@@ -3240,6 +3278,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await writeDelay();
       }
       const existingMembership = room.memberships.find((member) => member.userId === userId);
+      if (!existingMembership && isCrewMembership(room, { userId, role: "crew_member" })) {
+        // Under the room lock: of two crew joining at once, only one can take the last seat.
+        const limit = crewLimitError(room);
+        if (limit) {
+          return reply.code(409).send(limit);
+        }
+      }
       const nextMemberships = existingMembership
         ? room.memberships
         : [
@@ -3468,6 +3513,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
+    // Rooms are paid through store purchases (POST /billing/revenuecat) or the admin comp.
+    // Setting it by hand stays for local dev, tests, and a staging opt-in only.
+    if (!isManualBillingAllowed()) {
+      return reply.code(403).send({ error: "Manual entitlement is disabled" });
+    }
+
     const parsed = updateEntitlementInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid entitlement payload" });
@@ -3478,7 +3529,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       entitlement: {
         status: parsed.data.status,
         lastUpdatedAt: new Date().toISOString(),
-        source: "manual"
+        source: "manual",
+        crewTier: parsed.data.crewTier ?? "unlimited"
       }
     }));
     if (!updated) {

@@ -328,6 +328,11 @@ export interface RaceRoom {
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
   entitlement: RaceRoomEntitlement;
+  /**
+   * User who created the room (the purchaser). With the athlete, holds a seat that
+   * does not count against the crew cap. Absent on rooms created before #649.
+   */
+  createdByUserId?: string;
   /** Set when a course is saved; drives WS2 split / ETA projection. */
   course?: RaceCourse;
   /** Persisted at upload time for fast UI reads without recomputation. */
@@ -389,10 +394,47 @@ export interface RaceRoomJoinPreview {
 
 export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";
 
+/**
+ * How many crew a paid room allows besides the runner.
+ * `one`: Race Pass (runner + 1 crew). `unlimited`: Full Crew upgrade or the combined product.
+ */
+export type RaceRoomCrewTier = "one" | "unlimited";
+
 export interface RaceRoomEntitlement {
   status: RaceRoomEntitlementStatus;
   lastUpdatedAt: string;
-  source: "manual" | "provider_webhook";
+  source: "manual" | "provider_webhook" | "admin_comp";
+  /** Absent on rooms stored before billing (#649); the API reads absent as `unlimited`. */
+  crewTier?: RaceRoomCrewTier;
+}
+
+/** Store product ids (consumables). Purchases attach to one race room. */
+export type BillingProductId = "race_pass" | "crew_upgrade" | "race_pass_full_crew";
+
+/**
+ * `GET /race-rooms/:roomId/billing`. Members only, and not entitlement-gated,
+ * so an unpaid room can show its paywall and a client can poll after a purchase.
+ */
+export interface RaceRoomBilling {
+  roomId: string;
+  entitlement: RaceRoomEntitlement;
+  /** Members other than the runner. */
+  crewCount: number;
+  /** Crew allowed besides the runner; absent means unlimited. */
+  crewLimit?: number;
+  /** Products that would change this room's entitlement, cheapest path first. */
+  offers: BillingProductId[];
+}
+
+/** 409 body when a join, invite, or invite accept would exceed the room's crew tier. */
+export interface CrewLimitReachedError {
+  error: "Crew limit reached";
+  code: "crew_limit_reached";
+  roomId: string;
+  crewLimit: number;
+  crewCount: number;
+  /** Product that lifts the cap. */
+  upgradeProductId: "crew_upgrade";
 }
 
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";

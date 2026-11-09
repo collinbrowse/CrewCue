@@ -14,6 +14,7 @@
     "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
     "agent:issue:ready": "node scripts/agent-issue-ready.mjs",
     "agent:pr:done": "node scripts/agent-pr-done.mjs",
+    "billing:comp": "node scripts/billing-comp.mjs",
     "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @crewcue/api",

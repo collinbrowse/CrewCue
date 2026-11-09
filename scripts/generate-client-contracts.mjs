@@ -16,6 +16,8 @@ const roots = [
   "HealthStatus",
   "RaceRoomMembership",
   "RaceRoomEntitlement",
+  "RaceRoomBilling",
+  "CrewLimitReachedError",
   "RaceCourseCheckpoint",
   "RaceCourseBaselinePoint",
   "RaceCourseBaselineTrack",
