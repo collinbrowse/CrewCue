@@ -80,6 +80,7 @@ import {
   loadRoomIdByJoinCode,
   loadRaceRoom,
   loadRaceRoomInvite,
+  loadRaceRoomInvitesForRoom,
   loadTaskBoardPayload,
   loadTaskBoardPayloadVersion,
   loadTaskBoardSnapshot,
@@ -3086,6 +3087,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const membership = room.memberships.find((member) => member.userId === request.identity?.sub);
     if (!membership) {
       return reply.code(403).send({ error: "Forbidden" });
+    }
+
+    // A fresh API process has no cached invites; pull this room's from storage.
+    // Cached entries win, so a newer in-flight write is never overwritten.
+    for (const persisted of await loadRaceRoomInvitesForRoom(roomId)) {
+      rememberRaceRoomInviteIfAbsent(persisted);
     }
 
     const now = Date.now();

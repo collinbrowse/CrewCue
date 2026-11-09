@@ -426,6 +426,17 @@ export async function loadRaceRoomInvite(token: string): Promise<RaceRoomInvite 
   return result.rows[0]?.payload;
 }
 
+export async function loadRaceRoomInvitesForRoom(roomId: string): Promise<RaceRoomInvite[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ payload: RaceRoomInvite }>(
+    "SELECT payload FROM race_room_invites_json WHERE room_id = $1",
+    [roomId]
+  );
+  return result.rows.map((row) => row.payload);
+}
+
 export type PersistedRaceRoomSnapshot = {
   aggregateId: string;
   lastSequence: number;
