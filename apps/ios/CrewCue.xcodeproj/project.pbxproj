@@ -11,6 +11,7 @@
 		A10000000000000000000015 /* Auth0 in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000014 /* Auth0 */; };
 		A10000000000000000000018 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000017 /* MapLibre */; };
 		A10000000000000000000019 /* StreamChat in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001A /* StreamChat */; };
+		A100000000000000000000C0 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C1 /* Sentry */; };
 		A10000000000000000000063 /* deeplinks.json in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* deeplinks.json */; };
 /* End PBXBuildFile section */
 
@@ -66,6 +67,7 @@
 				A10000000000000000000015 /* Auth0 in Frameworks */,
 				A10000000000000000000018 /* MapLibre in Frameworks */,
 				A10000000000000000000019 /* StreamChat in Frameworks */,
+				A100000000000000000000C0 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +133,7 @@
 				A10000000000000000000014 /* Auth0 */,
 				A10000000000000000000017 /* MapLibre */,
 				A1000000000000000000001A /* StreamChat */,
+				A100000000000000000000C1 /* Sentry */,
 			);
 			productName = CrewCue;
 			productReference = A10000000000000000000006 /* CrewCue.app */;
@@ -186,6 +189,7 @@
 				A10000000000000000000013 /* XCRemoteSwiftPackageReference "Auth0.swift" */,
 				A10000000000000000000016 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
 				A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */,
+				A100000000000000000000C2 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000009 /* Products */;
@@ -431,6 +435,14 @@
 				minimumVersion = 5.13.0;
 			};
 		};
+		A100000000000000000000C2 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.33.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -453,6 +465,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */;
 			productName = StreamChat;
+		};
+		A100000000000000000000C1 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000000000000000000C2 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

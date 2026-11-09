@@ -10,6 +10,7 @@ import {
   stopChatRetentionScheduler
 } from "./lib/chatRetentionScheduler.js";
 import { listRaceRoomsForRetention } from "./routes/raceRooms.js";
+import { captureError, flushErrorReporting, initErrorReporting, installProcessHandlers } from "./lib/errorReporting.js";
 
 /** Load monorepo-root `.env` when present (Node 20.12+). Does not override existing process.env keys. */
 const repoRootEnv = resolve(fileURLToPath(new URL("../../../.env", import.meta.url)));
@@ -19,6 +20,9 @@ if (existsSync(repoRootEnv) && typeof process.loadEnvFile === "function") {
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
+
+initErrorReporting();
+installProcessHandlers();
 
 async function start() {
   validateRoomPersistenceEnv();
@@ -33,6 +37,7 @@ async function start() {
     stopChatRetentionScheduler();
     await app.close();
     await stopTelemetry();
+    await flushErrorReporting();
     process.exit(0);
   };
 
@@ -40,7 +45,9 @@ async function start() {
   process.on("SIGTERM", shutdown);
 }
 
-start().catch((error) => {
+start().catch(async (error) => {
   console.error(error);
+  captureError(error);
+  await flushErrorReporting();
   process.exit(1);
 });

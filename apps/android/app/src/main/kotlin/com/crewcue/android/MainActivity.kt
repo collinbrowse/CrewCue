@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.auth0.android.provider.WebAuthProvider
+import com.crewcue.android.crash.CrashReporting
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.nav.AppRouter
 import com.crewcue.android.ui.ConfigurationErrorScreen
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReporting.start(applicationContext)
         container.authConfig.problem?.let { problem ->
             setContent { CrewCueTheme { ConfigurationErrorScreen(problem) } }
             return

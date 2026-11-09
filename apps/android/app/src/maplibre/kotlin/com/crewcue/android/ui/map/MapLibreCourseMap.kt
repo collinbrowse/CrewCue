@@ -15,7 +15,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.crewcue.android.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
@@ -34,14 +33,20 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.tile.TileOperation
 
-private const val FALLBACK_STYLE_URL = "https://demotiles.maplibre.org/style.json"
+/**
+ * OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
+ * OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
+ */
+private fun styleUrl(dark: Boolean): String =
+    "https://tiles.openfreemap.org/styles/" + if (dark) "dark" else "liberty"
 
-/** MapTiler topo when `crewcue_maptiler_key` is set in local.properties, else the demo style. */
-private fun styleUrl(dark: Boolean): String {
-    val key = BuildConfig.MAPTILER_KEY.trim()
-    if (key.isEmpty()) return FALLBACK_STYLE_URL
-    val style = if (dark) "topo-v2-dark" else "topo-v2"
-    return "https://api.maptiler.com/maps/$style/style.json?key=$key"
+/**
+ * A local style with only a background layer. Loaded when the tile server is unreachable so the
+ * course line and checkpoints still draw on a blank background.
+ */
+private fun blankStyleJson(dark: Boolean): String {
+    val color = if (dark) "#1c1c1e" else "#f2efe9"
+    return """{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"$color"}}]}"""
 }
 
 private fun Context.isDarkMode(): Boolean =
@@ -93,6 +98,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
         val framed = remember { booleanArrayOf(false) }
+        val usingBlankStyle = remember { booleanArrayOf(false) }
         val mapView = remember(context) {
             if (!MapLibre.hasInstance()) {
                 MapLibre.getInstance(context.applicationContext, "", WellKnownTileServer.MapLibre)
@@ -104,6 +110,16 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                         tilesUnavailable.value()
                     } else {
                         failed.value()
+                    }
+                    if (!usingBlankStyle[0]) {
+                        usingBlankStyle[0] = true
+                        view.getMapAsync { map ->
+                            // No ready.value(): the failure message stays up over the blank map.
+                            map.setStyle(Style.Builder().fromJson(blankStyleJson(dark))) { style ->
+                                runCatching { draw(style, map, lineState.value, pointState.value, framed, paletteState.value) }
+                                runCatching { drawTrack(style, trackState.value, paletteState.value) }
+                            }
+                        }
                     }
                 }
                 view.addOnTileActionListener { operation, _, _, _, _, _, _ ->
