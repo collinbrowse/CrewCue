@@ -69,9 +69,11 @@ jobs:
           CREWCUE_AUTH0_DOMAIN: ${{ vars.CREWCUE_AUTH0_DOMAIN }}
           CREWCUE_AUTH0_CLIENT_ID: ${{ vars.CREWCUE_AUTH0_CLIENT_ID }}
           CREWCUE_AUTH0_AUDIENCE: ${{ vars.CREWCUE_AUTH0_AUDIENCE }}
+          CREWCUE_REVENUECAT_IOS_KEY: ${{ vars.CREWCUE_REVENUECAT_IOS_KEY }}
+          CREWCUE_REVENUECAT_ANDROID_KEY: ${{ vars.CREWCUE_REVENUECAT_ANDROID_KEY }}
         run: |
           missing=()
-          for key in CREWCUE_API_BASE_URL CREWCUE_AUTH0_DOMAIN CREWCUE_AUTH0_CLIENT_ID CREWCUE_AUTH0_AUDIENCE; do
+          for key in CREWCUE_API_BASE_URL CREWCUE_AUTH0_DOMAIN CREWCUE_AUTH0_CLIENT_ID CREWCUE_AUTH0_AUDIENCE CREWCUE_REVENUECAT_IOS_KEY CREWCUE_REVENUECAT_ANDROID_KEY; do
             [ -z "${!key}" ] && missing+=("$key")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -116,6 +118,7 @@ jobs:
             CREWCUE_AUTH0_DOMAIN="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
             CREWCUE_AUTH0_CLIENT_ID="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
             CREWCUE_AUTH0_AUDIENCE="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
+            CREWCUE_REVENUECAT_API_KEY="${{ vars.CREWCUE_REVENUECAT_IOS_KEY }}" \
             MARKETING_VERSION="${{ needs.preflight.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ needs.preflight.outputs.build }}"
       - name: Upload to TestFlight
@@ -172,6 +175,7 @@ jobs:
             -Pcrewcue.release.auth0Domain="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
             -Pcrewcue.release.auth0ClientId="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
             -Pcrewcue.release.auth0Audience="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
+            -Pcrewcue.release.revenuecatApiKey="${{ vars.CREWCUE_REVENUECAT_ANDROID_KEY }}" \
             -Pcrewcue.versionName="${{ needs.preflight.outputs.version }}" \
             -Pcrewcue.versionCode="${{ needs.preflight.outputs.build }}"
       - name: Upload to Google Play internal testing
