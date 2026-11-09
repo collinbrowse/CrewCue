@@ -396,7 +396,8 @@ test("chat messages: photos upload, attach, and load from a signed URL; others' 
     const fetched = await app.inject({ method: "GET", url: photo.url });
     assert.equal(fetched.statusCode, 200);
     assert.deepEqual(fetched.rawPayload, bytes);
-    const tampered = await app.inject({ method: "GET", url: photo.url.replace(/sig=[0-9a-f]/, "sig=0") });
+    const tamperedUrl = photo.url.replace(/sig=([0-9a-f])/, (_m, c: string) => `sig=${c === "0" ? "1" : "0"}`);
+    const tampered = await app.inject({ method: "GET", url: tamperedUrl });
     assert.equal(tampered.statusCode, 404);
   });
 });
