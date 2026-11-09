@@ -72,7 +72,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | --- | --- | --- | --- |
 | Permissions | done for foreground use | `AndroidManifest.xml`: `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`. There is no background location and no foreground service, so Play needs no background-location declaration today. | Background tracking: #562 adds a `location`-type foreground service (`FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION`) and the Play declaration |
 | Target API level | done (#571) | `compileSdk`/`targetSdk` 36, `minSdk` 28 (`app/build.gradle.kts`), on AGP 8.13 and Gradle 8.14. Play accepts new apps and updates only at API 36 since 2026-08-31 ([Play policy](https://support.google.com/googleplay/android-developer/answer/11926878)). | AGP 9 / Gradle 9 is a separate migration (Dependabot #551 was closed for it). |
-| Release minify / R8 | done (this PR) | `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-rules.pro` | Upload `mapping.txt` with the AAB once crash reporting lands (#564) |
+| Release minify / R8 | done (this PR) | `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-rules.pro` | Done (#564): the Sentry Gradle plugin stamps a mapping UUID and uploads `mapping.txt` from `release.yml` when the Sentry secret and vars are set; the mapping is also kept as the `android-mapping` artifact |
 | Signing | needs-user | Release `signingConfig` is created only when `CREWCUE_ANDROID_KEYSTORE` is set (`build.gradle.kts`). `release.yml` decodes the keystore from secrets. | Needs-you item 3 |
 | Version numbers | done | `-Pcrewcue.versionCode/versionName` from `release.yml`. The default `1` / `0.0.0-dev` applies to local builds only. | none |
 | Dev routes and dev session in release | done (this PR) | `DevSession.parse` and `DevRoutes.inboundFeatureId` gated on `BuildConfig.DEBUG` | none |
@@ -84,7 +84,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | App icon | done | adaptive plus monochrome `mipmap-anydpi-v26/ic_launcher*.xml` | Play listing needs a 512px icon (needs-user, store listing) |
 | Splash | done | `values-v31/themes.xml` (system splash) plus Compose `LaunchSplash` | none |
 | Token storage | gap | `session/SessionStore.kt` (plain SharedPreferences) | #567 |
-| Crash reporting | gap | none present | #564 |
+| Crash reporting | done (#564), needs-user Sentry config | Sentry Android SDK (`io.sentry:sentry-android`, ADR 0010), started by `crash/CrashReporting.kt` only in release builds with `-Pcrewcue.release.sentryDsn` from `release.yml`; debug never starts it and manifest auto-init is off. No user, screenshots, view hierarchy, tracing or tap breadcrumbs; tokens, emails, lat/lng and query strings scrubbed (`crash/CrashScrub.kt`). Play Data safety: Crash logs and Diagnostics, collected, not shared, not linked, not optional. | Sentry config in the release runbook |
 | Accessibility | mostly done | Icons with `contentDescription = null` are inside labelled parents (`ShellScreen.kt`, `CrewComponents.kt`, `ChatScreen.kt`). The race switcher row is `selectable` (announces selected). | Map and Pace: #570 |
 
 ## API (production)
