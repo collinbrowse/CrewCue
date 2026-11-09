@@ -187,12 +187,13 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-89 files under `apps/android/app/src/main/`.
+91 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 110 |
+| `kotlin/com/crewcue/android` | 2 | 112 |
 | `kotlin/com/crewcue/android/auth` | 3 | 192 |
+| `kotlin/com/crewcue/android/crash` | 2 | 108 |
 | `kotlin/com/crewcue/android/data` | 3 | 441 |
 | `kotlin/com/crewcue/android/di` | 1 | 53 |
 | `kotlin/com/crewcue/android/generated` | 43 | 445 |
