@@ -45,6 +45,12 @@ const roots = [
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
+  "ChatRoomMember",
+  "ChatMessagePhoto",
+  "ChatMessage",
+  "ChatMessagePage",
+  "ChatSendMessageResponse",
+  "ChatPhotoUploadResponse",
   "RaceRoomInvite"
 ];
 const skipProperties = new Set([

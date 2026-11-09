@@ -8,8 +8,9 @@
 | [0004 Cloud, IaC, and auth baseline](./0004-cloud-iac-auth-baseline.md) | Cloud/IaC superseded by 0009; auth stands |
 | [0005 Delivery, observability, security, SLOs](./0005-delivery-observability-security-slos.md) | Approved |
 | [0006 Practical E2E crew chat](./0006-practical-e2e-crew-chat.md) | Superseded by 0007 |
-| [0007 MVP plaintext crew chat](./0007-mvp-plaintext-crew-chat.md) | Approved |
+| [0007 MVP plaintext crew chat](./0007-mvp-plaintext-crew-chat.md) | Superseded by 0010 |
 | [0008 Native clients with Swift client core](./0008-native-clients-with-swift-client-core.md) | Approved |
 | [0009 Railway hosting](./0009-railway-hosting.md) | Approved |
+| [0010 First-party crew chat and direct push](./0010-first-party-crew-chat.md) | Approved |
 
 Add a new ADR when a decision is expensive to reverse. Mark the old one superseded instead of deleting it.
