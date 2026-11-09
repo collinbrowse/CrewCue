@@ -759,6 +759,16 @@ export function setPingProjectionCommitDelayForTests(
     delay === undefined ? undefined : { roomId, delay };
 }
 
+let pingBeforeLockDelayForTests: { roomId: string; delay: () => Promise<void> } | undefined;
+
+/** Test-only one-shot pause after a ping or batch upload has read the room and before it takes the room runtime lock. */
+export function setPingBeforeLockDelayForTests(
+  roomId: string,
+  delay: (() => Promise<void>) | undefined
+): void {
+  pingBeforeLockDelayForTests = delay === undefined ? undefined : { roomId, delay };
+}
+
 let membershipWriteDelayForTests: (() => Promise<void>) | undefined;
 
 /** Test-only one-shot pause after join-by-code reads the member list and before it saves. */
@@ -3685,7 +3695,24 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const actorUserId = request.identity.sub;
+    const beforeLock = pingBeforeLockDelayForTests;
+    if (beforeLock?.roomId === roomId) {
+      pingBeforeLockDelayForTests = undefined;
+      await beforeLock.delay();
+    }
     return await withRoomRuntimeLock(roomId, async () => {
+    // `room` was read before this ping queued. A course or status write that committed meanwhile
+    // must decide the projection, so re-read under the lock.
+    const latestRoom = await getRaceRoom(roomId);
+    if (!latestRoom) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (latestRoom.athleteId !== actorUserId) {
+      return reply.code(403).send({ error: "Only the race athlete can ingest location pings" });
+    }
+    if (latestRoom.status !== "active") {
+      return await reject("room_not_active", "Race room must be active to ingest pings");
+    }
     const pingState = getOrInitPingState(roomId);
     if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
       // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
@@ -3746,7 +3773,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     ]);
 
     const projection = await recomputeProjectionForSamples(
-      room,
+      latestRoom,
       [{ pingId, latitude: body.latitude, longitude: body.longitude, recordedAtMs }],
       previousAccepted,
       pingState.lastUploadIntervalSeconds
@@ -3829,7 +3856,27 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const points = body.points.map((point, index) => ({ ...point, index, recordedAtMs: Date.parse(point.recordedAt) }));
     const ordered = [...points].sort((a, b) => a.recordedAtMs - b.recordedAtMs || a.index - b.index);
 
+    const beforeLock = pingBeforeLockDelayForTests;
+    if (beforeLock?.roomId === roomId) {
+      pingBeforeLockDelayForTests = undefined;
+      await beforeLock.delay();
+    }
     return await withRoomRuntimeLock(roomId, async () => {
+      // As in the single ping: `room` was read before this upload queued, so re-read under the lock.
+      const latestRoom = await getRaceRoom(roomId);
+      if (!latestRoom) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
+      if (latestRoom.athleteId !== actorUserId) {
+        return reply.code(403).send({ error: "Only the race athlete can ingest location pings" });
+      }
+      if (latestRoom.status !== "active") {
+        return reply.code(422).send({
+          decision: "rejected" as const,
+          reason: "room_not_active" as const,
+          message: "Race room must be active to ingest pings"
+        });
+      }
       const pingState = getOrInitPingState(roomId);
       const previousAccepted = pingState.lastAccepted;
       const stored = previousAccepted
@@ -3923,7 +3970,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         accepted.map((sample) => ({ ...sample, receivedAtMs }))
       );
       const projection = await recomputeProjectionForSamples(
-        room,
+        latestRoom,
         accepted,
         previousAccepted,
         pingState.lastUploadIntervalSeconds

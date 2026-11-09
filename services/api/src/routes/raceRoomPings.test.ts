@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import {
+  setPingBeforeLockDelayForTests,
   setPingProjectionCommitDelayForTests,
   setRaceRoomStatusForTests,
   setRoomRuntimeLockWaitForTests
@@ -550,4 +551,69 @@ test("rejects a ping that is not after the last accepted recordedAt as stale_rec
   assert.equal(fresh.statusCode, 201, fresh.body);
 
   await app.close();
+});
+
+test("a ping that waited for the room lock is projected on the course saved meanwhile", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let markPaused: (() => void) | undefined;
+  const paused = new Promise<void>((resolve) => {
+    markPaused = resolve;
+  });
+  setPingBeforeLockDelayForTests(roomId, async () => {
+    markPaused?.();
+    await gate;
+  });
+  try {
+    const pingPromise = app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: { latitude: 42.005, longitude: -70.0, recordedAt: isoNow(), horizontalAccuracyMeters: 8 },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    await withinMs(paused, 5_000, "ping to pause before the room lock");
+
+    const longer = [
+      { latitude: 42.0, longitude: -70.0 },
+      { latitude: 42.02, longitude: -70.0 }
+    ];
+    const replace = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", ...longer[0] },
+            { id: "cp1", ...longer[1] }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints(longer),
+        plannedPaceSecondsPerKm: 720,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(replace.statusCode, 200, replace.body);
+    release?.();
+
+    const ping = await pingPromise;
+    assert.equal(ping.statusCode, 201, ping.body);
+    const projection = (ping.json() as { projection?: { courseLengthMeters: number } }).projection;
+    assert.ok(projection, "ping response carries a projection");
+    assert.ok(
+      projection.courseLengthMeters > 2_000,
+      `projection must use the replaced ~2.2 km course, got ${projection.courseLengthMeters} m`
+    );
+  } finally {
+    release?.();
+    setPingBeforeLockDelayForTests(roomId, undefined);
+    await app.close();
+  }
 });
