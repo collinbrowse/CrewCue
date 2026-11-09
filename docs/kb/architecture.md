@@ -37,7 +37,7 @@ flowchart LR
 
 ## API internals
 
-- **Startup** ([server.ts](../../services/api/src/server.ts)): validates persistence and auth env, starts OTel tracing if `OTEL_EXPORTER_OTLP_ENDPOINT` is set, builds the app, starts the chat retention scheduler.
+- **Startup** ([server.ts](../../services/api/src/server.ts)): validates persistence and auth env, starts OTel tracing if `OTEL_EXPORTER_OTLP_ENDPOINT` is set, starts Sentry error reporting and crash handlers if `SENTRY_DSN` is set ([errorReporting.ts](../../services/api/src/lib/errorReporting.ts)), builds the app, starts the chat retention scheduler.
 - **Plugins** ([app.ts](../../services/api/src/app.ts)): `auth` → `audit` → `rateLimit`, then 14 route modules. Body limit 32 MB.
 - **Auth** ([plugins/auth.ts](../../services/api/src/plugins/auth.ts)): a global `preHandler` verifies the Bearer token (Auth0 RS256 via JWKS, or HS256 `JWT_SECRET` outside production) and sets `request.identity`. It never rejects; each handler returns 401 when `identity` is missing. This is opt-in auth: a new route is open unless its handler checks.
 - **Authorization**: roles come from the room document (`room.memberships[].role`), not the JWT. Helpers `requireRoomMember` and `requireCourseEditor` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts); most handlers check membership inline. Paid features also go through `evaluateEntitlement`.
@@ -73,3 +73,4 @@ flowchart LR
 | [0007](../adr/0007-mvp-plaintext-crew-chat.md) | Plaintext chat on Stream. E2E chat ([0006](../adr/0006-practical-e2e-crew-chat.md)) retired. |
 | [0008](../adr/0008-native-clients-with-swift-client-core.md) | Native SwiftUI + Compose over a shared Swift core. Expo removed. |
 | [0009](../adr/0009-railway-hosting.md) | Railway for API and Postgres. AWS Terraform removed. |
+| [0010](../adr/0010-crash-reporting-sentry.md) | Sentry for crash and error reporting, errors only, scrubbed. |

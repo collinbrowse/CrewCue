@@ -862,7 +862,8 @@
     ],
     "NODE_ENV": [
       "services/api/src/lib/authEnv.ts",
-      "services/api/src/lib/automationAuthGuard.ts"
+      "services/api/src/lib/automationAuthGuard.ts",
+      "services/api/src/lib/errorReporting.ts"
     ],
     "OSRM_ROUTER_BASE_URL": [
       "services/api/src/routes/routingRoutes.ts"
@@ -887,6 +888,18 @@
     "PROJECTION_TUNED_CONSTANTS": [
       "services/api/scripts/projection-backtest/parity.ts",
       "services/api/src/lib/projectionTuning.ts"
+    ],
+    "RAILWAY_ENVIRONMENT_NAME": [
+      "services/api/src/lib/errorReporting.ts"
+    ],
+    "RAILWAY_GIT_COMMIT_SHA": [
+      "services/api/src/lib/errorReporting.ts"
+    ],
+    "SENTRY_DSN": [
+      "services/api/src/lib/errorReporting.ts"
+    ],
+    "SENTRY_ENVIRONMENT": [
+      "services/api/src/lib/errorReporting.ts"
     ],
     "STRAVA_CLIENT_ID": [
       "services/api/src/lib/strava/stravaClient.ts"
@@ -916,7 +929,7 @@
     "roomScopedIdentityOnly": 0,
     "large": 7,
     "timers": 1,
-    "untestedLib": 34,
+    "untestedLib": 35,
     "parityGaps": 13
   }
 }

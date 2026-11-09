@@ -9,7 +9,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
-| API lib modules with no same-named test | 34 |
+| API lib modules with no same-named test | 35 |
 | Native features not passing on both platforms | 13 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -69,6 +69,7 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/courseHistory/resolve.ts](../../../services/api/src/lib/courseHistory/resolve.ts)
 - [services/api/src/lib/courseHistory/sources/fileImport.ts](../../../services/api/src/lib/courseHistory/sources/fileImport.ts)
 - [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts)
+- [services/api/src/lib/errorScrub.ts](../../../services/api/src/lib/errorScrub.ts)
 - [services/api/src/lib/finishedEffort.ts](../../../services/api/src/lib/finishedEffort.ts)
 - [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts)
 - [services/api/src/lib/gpxLimits.ts](../../../services/api/src/lib/gpxLimits.ts)

@@ -10,7 +10,7 @@ Workspaces, the API's internal import graph, and the native client trees. Narrat
 | `@crewcue/contracts` | `packages/contracts` | — | — |
 | `@crewcue/map-core` | `packages/map-core` | `@crewcue/contracts` | `@turf/distance`, `@turf/helpers`, `@turf/length`, `@turf/nearest-point-on-line` |
 | `@crewcue/platform-client` | `packages/platform-client` | — | — |
-| `@crewcue/api` | `services/api` | `@crewcue/contracts`, `@crewcue/map-core`, `@crewcue/platform-client` | `@fastify/jwt`, `@opentelemetry/api`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-node`, `fastify`, `fastify-plugin`, `jose`, `pg`, `stream-chat`, `zod` |
+| `@crewcue/api` | `services/api` | `@crewcue/contracts`, `@crewcue/map-core`, `@crewcue/platform-client` | `@fastify/jwt`, `@opentelemetry/api`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-node`, `@sentry/node`, `fastify`, `fastify-plugin`, `jose`, `pg`, `stream-chat`, `zod` |
 
 Non-npm trees: `packages/client-core` (SwiftPM), `apps/ios` (Xcode), `apps/android` (Gradle).
 
@@ -61,6 +61,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 765 |
+| [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |
@@ -160,12 +161,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### iOS app (SwiftUI)
 
-51 files under `apps/ios/CrewCue/`.
+52 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `.` | 3 | 105 |
-| `App` | 10 | 907 |
+| `.` | 3 | 106 |
+| `App` | 11 | 1000 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
