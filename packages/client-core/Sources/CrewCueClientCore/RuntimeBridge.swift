@@ -18,7 +18,9 @@ import Dispatch
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, pingTrack,
+/// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
+/// stopTrackingSession.
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -119,7 +121,8 @@ enum RuntimeCall {
             }
         case "flushOutbox":
             let graph = try graph(object)
-            let report = try await RaceDayAPI.flushOutbox(graph: graph)
+            let interval = userDirectory(object).map { TrackingSettings.load(userDirectory: $0).intervalSeconds }
+            let report = try await RaceDayAPI.flushOutbox(graph: graph, uploadIntervalSeconds: interval)
             return [
                 "accepted": report.accepted,
                 "dropped": report.dropped,
@@ -198,6 +201,37 @@ enum RuntimeCall {
             return try await stravaConnection(object)
         case "stravaDisconnect":
             return try await stravaDisconnect(object)
+        case "pingTrack":
+            return try await pingTrack(object)
+        case "liveProjection":
+            return try await liveProjection(object)
+        case "trackingSettings":
+            let directory = try requiredUserDirectory(object)
+            return ["intervalSeconds": TrackingSettings.load(userDirectory: directory).intervalSeconds,
+                    "allowedIntervalSeconds": TrackingSettings.allowedIntervalSeconds]
+        case "setTrackingSettings":
+            let directory = try requiredUserDirectory(object)
+            let settings = TrackingSettings(intervalSeconds: Int(doubleValue(object["intervalSeconds"]) ?? 0))
+            try settings.save(userDirectory: directory)
+            return ["intervalSeconds": settings.intervalSeconds]
+        case "trackingSession":
+            let directory = try requiredUserDirectory(object)
+            guard let session = TrackingSession.load(userDirectory: directory) else { return ["active": false] }
+            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+        case "startTrackingSession":
+            let directory = try requiredUserDirectory(object)
+            guard PingPolicy.mayUpload(role: object["role"] as? String ?? "") else {
+                throw ClientHTTPError(status: 400, message: "Only the athlete shares location.")
+            }
+            let session = TrackingSession(
+                roomId: object["roomId"] as? String ?? "",
+                startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(Date())
+            )
+            try session.save(userDirectory: directory)
+            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+        case "stopTrackingSession":
+            try TrackingSession.clear(userDirectory: try requiredUserDirectory(object))
+            return ["active": false]
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -326,11 +360,14 @@ enum RuntimeCall {
 
     private static func readoutPayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [String: Any] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
-        let readout = RaceDayReadouts.make(
-            sheet: sheet,
-            checkpoints: checkpoints,
-            runner: requestRunner(request),
-            now: requestNow(request)
+        let readout = RaceDayReadouts.withLive(
+            RaceDayReadouts.make(
+                sheet: sheet,
+                checkpoints: checkpoints,
+                runner: requestRunner(request),
+                now: requestNow(request)
+            ),
+            live: requestLive(request)
         )
         var row: [String: Any] = [
             "status": readout.status.rawValue,
@@ -348,6 +385,10 @@ enum RuntimeCall {
         if let ping = readout.lastPingLabel {
             row["lastPingLabel"] = ping
         }
+        if let eta = readout.finishEtaAt { row["finishEtaAt"] = eta }
+        if let start = readout.finishWindowStartAt { row["finishWindowStartAt"] = start }
+        if let end = readout.finishWindowEndAt { row["finishWindowEndAt"] = end }
+        row["liveEtaStale"] = readout.liveEtaStale
         return row
     }
 
@@ -357,7 +398,8 @@ enum RuntimeCall {
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: progressMeters ?? requestProgress(request, checkpoints)
+            progressMeters: progressMeters ?? requestProgress(request, checkpoints),
+            live: requestLive(request)
         ).map { item in
             var row: [String: Any] = [
                 "checkpointId": item.checkpointId,
@@ -370,6 +412,9 @@ enum RuntimeCall {
             if let arrival = item.clockArrivalAt { row["clockArrivalAt"] = arrival }
             if let cutoff = item.cutoffAt { row["cutoffAt"] = cutoff }
             if let status = item.cutoffStatus { row["cutoffStatus"] = status }
+            if let live = item.liveArrivalAt { row["liveArrivalAt"] = live }
+            if let start = item.arrivalWindowStartAt { row["arrivalWindowStartAt"] = start }
+            if let end = item.arrivalWindowEndAt { row["arrivalWindowEndAt"] = end }
             return row
         }
     }
@@ -900,6 +945,74 @@ enum RuntimeCall {
             }
             throw error
         }
+    }
+
+    /// New path points after `after` (the previous call's `cursor`). Offline returns no points.
+    private static func pingTrack(_ object: [String: Any]) async throws -> Any {
+        let after = text(object, "after")
+        do {
+            let track = try await RaceDayAPI.refreshTrack(
+                graph: try graph(object),
+                roomId: object["roomId"] as? String ?? "",
+                track: RunnerTrack(points: [], cursor: after)
+            )
+            let points: [[String: Any]] = track.points.map {
+                ["recordedAt": RaceDayReadouts.iso8601($0.recordedAt), "latitude": $0.latitude, "longitude": $0.longitude]
+            }
+            var payload: [String: Any] = ["offline": false, "points": points]
+            if let cursor = track.cursor { payload["cursor"] = cursor }
+            return payload
+        } catch {
+            if TransportFailure.isOffline(error) {
+                var payload: [String: Any] = ["offline": true, "points": [Any]()]
+                if let after { payload["cursor"] = after }
+                return payload
+            }
+            throw error
+        }
+    }
+
+    /// `live` is the wire projection; pass it back as `live` to `projectAidSheet` and the readouts.
+    private static func liveProjection(_ object: [String: Any]) async throws -> Any {
+        let base = try graph(object)
+        let capture = CapturingTransport(base.transport)
+        let reading = ClientGraph(
+            transport: capture,
+            clock: base.clock,
+            logger: base.logger,
+            baseURL: base.baseURL,
+            tokenProvider: base.tokenProvider,
+            outbox: base.outbox
+        )
+        do {
+            let live = try await RaceDayAPI.liveProjection(graph: reading, roomId: object["roomId"] as? String ?? "")
+            guard live != nil, let data = capture.lastBody, let wire = try? JSONSerialization.jsonObject(with: data) else {
+                return ["offline": false]
+            }
+            return ["offline": false, "live": wire, "finishCrossed": TrackingSession.shouldAutoStop(live)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true]
+            }
+            throw error
+        }
+    }
+
+    private static func requestLive(_ request: [String: Any]) -> LiveProjection? {
+        guard let value = request["live"], !(value is NSNull),
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let core = try? JSONDecoder().decode(RaceRoomProjectionCore.self, from: data) else {
+            return nil
+        }
+        return LiveProjection(core: core, timeliness: try? JSONDecoder().decode(ProjectionTimeliness.self, from: data))
+    }
+
+    private static func requiredUserDirectory(_ object: [String: Any]) throws -> URL {
+        guard let directory = userDirectory(object) else {
+            throw ClientHTTPError(status: 0, message: "storageDir is required.")
+        }
+        return directory
     }
 
     private static func placeCheckpoint(_ object: [String: Any]) async throws -> Any {

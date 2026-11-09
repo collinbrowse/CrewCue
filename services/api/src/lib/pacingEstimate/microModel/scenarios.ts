@@ -101,7 +101,8 @@ export function elapsedAtCheckpoints(
 
 export function baselineTrackFromSimulation(
   sim: SimulationResult,
-  planLogSigma?: number
+  planLogSigma?: number,
+  planProfileBranch?: RaceCourseBaselineTrack["planProfileBranch"]
 ): RaceCourseBaselineTrack {
   const points = sim.distanceElapsedCurve.map((row) => ({
     distanceMetersFromStart: row.distanceMetersFromStart,
@@ -119,7 +120,11 @@ export function baselineTrackFromSimulation(
       cleaned.push(p);
     }
   }
-  return { points: cleaned, ...(planLogSigma !== undefined ? { planLogSigma } : {}) };
+  return {
+    points: cleaned,
+    ...(planLogSigma !== undefined ? { planLogSigma } : {}),
+    ...(planProfileBranch !== undefined ? { planProfileBranch } : {})
+  };
 }
 
 /** Accumulate expected-scenario fatigue from course start to progressMeters. */

@@ -1,0 +1,18 @@
+{
+  "id": "live-eta",
+  "platform": "ios",
+  "entry": "crewcue://dev/live-eta",
+  "device": "iPhone 18 Pro simulator, iOS 27.0, Debug build",
+  "date": "2026-11-04",
+  "commit": "claude/apps-runner-tracking on 50daaac (PR 8 branch, built from the working tree before commit)",
+  "session": "Dev session against the local memory API (port 3001) behind a switchable proxy on 3000 that drops every connection to simulate a dead zone. Race seeded with the 50K fixture course started 2 h earlier and a 2 h backlog of 40 samples uploaded in one batch; a second race with no pings for the empty states.",
+  "action": "Crew opened the Pace tab (crewcue://dev/live-eta) on the seeded race and on the race with no pings.",
+  "checked": {
+    "Success": "Header 'Finish ETA'; Aid 2 'Live ETA 9:19 AM' with 'PLAN 9:27 AM'; Aid 3 'ETA 10:53 AM · PLAN 11:16 AM'; Finish row ETA matches the header (fixed in this PR).",
+    "Empty": "No pings: no Finish ETA row, planned times only (the server's pre-race placeholder projection is ignored, fixed in this PR).",
+    "Error": "Not separately forced; failed reads keep the last ETAs.",
+    "Offline": "Dead zone: ETAs stay visible.",
+    "Accessibility labels": "crewcue.live-eta, crewcue.schedule-sheet"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

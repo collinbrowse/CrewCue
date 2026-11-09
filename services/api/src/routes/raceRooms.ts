@@ -59,6 +59,11 @@ import {
   recomputeRaceProjection
 } from "../lib/raceProjection.js";
 import { isProjectionTunedConstantsEnabled } from "../lib/projectionTuning.js";
+import { buildFinishedEffort, justFinished } from "../lib/finishedEffort.js";
+import { recordFinishedEffort } from "../lib/finishedEffortStore.js";
+import { blendWithCohort, cohortForCourse } from "../lib/courseHistory/resolve.js";
+import { crewCueRoomToCourseHistoryEvent } from "../lib/courseHistory/sources/crewcueRoom.js";
+import { importCourseHistoryEvents } from "../lib/courseHistory/store.js";
 import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } from "../lib/athletePingTrack.js";
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
@@ -75,6 +80,7 @@ import {
   loadRoomIdByJoinCode,
   loadRaceRoom,
   loadRaceRoomInvite,
+  loadRaceRoomInvitesForRoom,
   loadTaskBoardPayload,
   loadTaskBoardPayloadVersion,
   loadTaskBoardSnapshot,
@@ -201,7 +207,8 @@ const raceCourseBaselinePointInput = z.object({
 
 const raceCourseBaselineTrackInput = z.object({
   points: z.array(raceCourseBaselinePointInput).min(2),
-  planLogSigma: z.number().finite().positive().max(2).optional()
+  planLogSigma: z.number().finite().positive().max(2).optional(),
+  planProfileBranch: z.enum(["coldStart", "coarseHistory", "similarHistory"]).optional()
 });
 
 const raceCourseDerivedMetricsInput = z.object({
@@ -540,6 +547,11 @@ function rememberRaceRoomInviteIfAbsent(invite: RaceRoomInvite): RaceRoomInvite 
   }
   raceRoomInvites.set(invite.token, invite);
   return invite;
+}
+
+/** Test-only: drop cached invites, as a fresh API process starts with none. */
+export function evictRaceRoomInvitesFromMemoryForTests(): void {
+  raceRoomInvites.clear();
 }
 
 /** Test helper: simulate a late invite SELECT completing against the live cache. */
@@ -2047,6 +2059,34 @@ function enrichProjectionWithLiveRemaining(
   }
 }
 
+/**
+ * A finished CrewCue race becomes a course-history event (source `crewcue`, one effort), built
+ * from the runner's stored track. Later rooms on the same course auto-link to it.
+ */
+async function recordCrewCueCourseHistory(
+  room: RaceRoom,
+  routeMetricPoints: CourseMetricPoint[],
+  raceAnchorIso: string
+): Promise<void> {
+  if (!room.course) return;
+  const rows = await listTrackPoints(room.id, undefined, 100_000);
+  const event = crewCueRoomToCourseHistoryEvent({
+    roomId: room.id,
+    name: room.name,
+    raceStartAt: raceAnchorIso,
+    course: room.course,
+    routeMetricPoints,
+    track: rows.map((row) => ({
+      recordedAt: new Date(row.recordedAtMs).toISOString(),
+      latitude: row.latitude,
+      longitude: row.longitude
+    }))
+  });
+  if (event) {
+    await importCourseHistoryEvents([event]);
+  }
+}
+
 /** Full route polyline for projection / course metrics; null if missing or degenerate. */
 function resolveRouteMetricPointsFromRaceRoom(room: RaceRoom): CourseMetricPoint[] | null {
   const ws = resolveMapWorkspace(room);
@@ -3049,6 +3089,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    // A fresh API process has no cached invites; pull this room's from storage.
+    // Cached entries win, so a newer in-flight write is never overwritten.
+    for (const persisted of await loadRaceRoomInvitesForRoom(roomId)) {
+      rememberRaceRoomInviteIfAbsent(persisted);
+    }
+
     const now = Date.now();
     const invites = [...raceRoomInvites.values()]
       .filter((invite) => invite.roomId === roomId)
@@ -3506,8 +3552,34 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       if (!core || !snapshot) {
         return undefined;
       }
-      const enrichedCore = enrichProjectionWithLiveRemaining(core, room, routeMetricPoints, raceAnchor);
+      let enrichedCore = enrichProjectionWithLiveRemaining(core, room, routeMetricPoints, raceAnchor);
+      if (isProjectionTunedConstantsEnabled()) {
+        // Course history: average the live ETAs with what similar past finishers did from here.
+        const cohort = await cohortForCourse(room.course, room.courseHistoryEventIds).catch(() => null);
+        if (cohort) enrichedCore = blendWithCohort(enrichedCore, cohort, Date.parse(raceAnchor));
+      }
       const newest = samples[samples.length - 1]!;
+      if (justFinished(prev?.splitCrossedAt, enrichedCore, room.course)) {
+        // First crossing of the finish: keep what this race says about the plan, stops and slowdown.
+        try {
+          const effort = buildFinishedEffort({
+            roomId,
+            athleteUserId: room.athleteId,
+            course: room.course,
+            core: enrichedCore,
+            routeMetricPoints,
+            raceAnchorIso: raceAnchor,
+            plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm
+          });
+          if (effort) {
+            await recordFinishedEffort(effort);
+            await recordCrewCueCourseHistory(room, routeMetricPoints, raceAnchor);
+            app.log.info({ finished_effort: { roomId, planLogError: effort.planLogError, slowdownSlope: effort.slowdownSlope } }, "finished_effort_recorded");
+          }
+        } catch (err) {
+          app.log.warn({ err, roomId }, "finished_effort_failed");
+        }
+      }
       const projection = attachProjectionTimeliness(
         enrichedCore,
         newest.recordedAtMs,

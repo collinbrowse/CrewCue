@@ -1,6 +1,7 @@
 /**
  * Physiology micro-model pacing estimator (plan-of-record moving times + scenario bands).
  */
+import { courseHistoryAttribution } from "../../courseHistory/attribution.js";
 import { createHash } from "node:crypto";
 import {
   parseIso8601Utc,
@@ -21,6 +22,7 @@ import { buildCourseMicroSegments, type CourseMicroSegment } from "./courseMesh.
 import { buildRunnerProfile, type RunnerProfile } from "./runnerProfile.js";
 import { interpolateElapsedAtDistance, type NightContext } from "./simulate.js";
 import { isProjectionTunedConstantsEnabled } from "../../projectionTuning.js";
+import { cohortIsUsable, cohortPlanElapsed, reshapeCurve, type Cohort } from "../../courseHistory/cohort.js";
 import {
   baselineTrackFromSimulation,
   elapsedAtCheckpoints,
@@ -29,6 +31,12 @@ import {
 } from "./scenarios.js";
 
 export type MicroModelEstimateInput = PacingEstimateInput & {
+  /** Past finishers of the linked course (25+); reshapes the plan between checkpoints. */
+  courseHistoryCohort?: Cohort;
+  /** The runner's slowdown from CrewCue races they finished. */
+  slowdownObservations?: Array<{ slope: number; distanceMeters: number }>;
+  /** Measured plan σ per profile branch (only branches with enough finished rooms). */
+  planLogSigmaByBranch?: Partial<Record<"coldStart" | "coarseHistory" | "similarHistory", number>>;
   /** Dense course route (required for micro-segments). */
   routeMetricPoints: CourseMetricPoint[];
   /** Optional canonical length override. */
@@ -195,7 +203,9 @@ export function estimatePacingMicroModelWithArtifacts(
 
   const profile = buildRunnerProfile({
     history: Array.isArray(input.history) ? input.history : [],
-    courseDistanceMeters: courseDistance
+    courseDistanceMeters: courseDistance,
+    ...(input.slowdownObservations ? { slowdownObservations: input.slowdownObservations } : {}),
+    ...(input.planLogSigmaByBranch ? { planLogSigmaByBranch: input.planLogSigmaByBranch } : {})
   });
 
   const tuned = isProjectionTunedConstantsEnabled();
@@ -203,12 +213,23 @@ export function estimatePacingMicroModelWithArtifacts(
   const night: NightContext | undefined = tuned
     ? { raceStartMs: Date.parse(raceStartAt), latitude: start.latitude, longitude: start.longitude }
     : undefined;
-  const sims = runScenarioSims({
+  let sims = runScenarioSims({
     segments,
     profile,
     courseLengthMeters: courseDistance,
     ...(night ? { night } : {})
   });
+  // Course history: checkpoint times follow past finishers of similar planned finish; the GPX curve
+  // keeps its shape between checkpoints. Tuned constants only (the 25-finisher threshold and the
+  // ±10% band come from the Nov 2026 backtest).
+  const cohort = tuned && input.courseHistoryCohort && cohortIsUsable(input.courseHistoryCohort) ? input.courseHistoryCohort : undefined;
+  if (cohort) {
+    const plannedFinish = interpolateFinish(sims.expected, courseDistance, checkpoints);
+    const distanceOf = new Map(checkpoints.map((cp) => [cp.id, cp.distanceMetersFromStart as number]));
+    const elapsed = cohortPlanElapsed(cohort, plannedFinish);
+    const anchors = cohort.checkpointIds.map((id, i) => ({ distanceMeters: distanceOf.get(id) ?? 0, elapsedSeconds: elapsed[i]! }));
+    sims.expected = { ...sims.expected, distanceElapsedCurve: reshapeCurve(sims.expected.distanceElapsedCurve, anchors) };
+  }
   const expectedElapsedByCp = elapsedAtCheckpoints(sims.expected, checkpoints);
   const finishElapsed = roundElapsed(
     interpolateFinish(sims.expected, courseDistance, checkpoints)
@@ -264,13 +285,21 @@ export function estimatePacingMicroModelWithArtifacts(
         finishElapsedSeconds: aggressiveOrdered
       }
     },
-    explanation: `${profile.explanation} Bands from three micro-model scenario re-sims (not fixed finish ratios).`,
+    explanation: `${profile.explanation} Bands from three micro-model scenario re-sims (not fixed finish ratios).${
+      cohort
+        ? ` Checkpoint times follow ${cohort.arrivals.length} past finishers of this course${courseHistoryAttribution(cohort.eventIds)}.`
+        : ""
+    }`,
     ...(profile.historyRefIds !== undefined ? { historyRefIds: profile.historyRefIds } : {})
   };
 
   return {
     estimate: parsePacingEstimate(candidate),
-    baselineTrack: baselineTrackFromSimulation(sims.expected, tuned ? profile.planLogSigma : undefined),
+    baselineTrack: baselineTrackFromSimulation(
+      sims.expected,
+      tuned ? profile.planLogSigma : undefined,
+      tuned ? profile.planBranch : undefined
+    ),
     segments,
     profile,
     courseLengthMeters: courseDistance
