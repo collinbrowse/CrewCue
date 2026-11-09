@@ -278,7 +278,7 @@
       "label": "crewcue.billing-purchase",
       "sdk": "revenuecat",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {
@@ -287,7 +287,7 @@
       "label": "crewcue.billing-upgrade",
       "sdk": "revenuecat",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {
@@ -296,7 +296,7 @@
       "label": "crewcue.billing-redeem",
       "sdk": "revenuecat",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     }
   ]

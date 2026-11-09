@@ -15,6 +15,12 @@ struct FixtureRouteView: View {
             FixtureShellView()
         case "brand-loader":
             BrandLoaderView(screen: screen)
+        case "billing-purchase":
+            BillingPurchaseView(fixture: screen)
+        case "billing-redeem":
+            BillingRedeemView(fixture: screen)
+        case "billing-upgrade":
+            CrewUpgradeView(fixture: screen)
         default:
             FeatureScreenView(screen: screen)
         }
@@ -60,6 +66,8 @@ struct ProductRouteView: View {
             NotificationPermissionScreen()
         case "auth-sign-in":
             AuthOrShell(model: model)
+        case "billing-purchase", "billing-redeem", "billing-upgrade":
+            BillingRouteView(model: model)
         case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "room-members", "readouts-incidents":
             ShellOrSignedOut(model: model)
         default:
@@ -99,5 +107,44 @@ struct ShellOrSignedOut: View {
         } else {
             FixtureRouteView(route: model.route, screen: model.screen)
         }
+    }
+}
+
+/// Billing routes are full-screen, like join. Signed out, the dev link shows its fixture copy.
+struct BillingRouteView: View {
+    @Bindable var model: ShellModel
+
+    var body: some View {
+        if !model.isSignedIn {
+            FixtureRouteView(route: model.route, screen: model.screen)
+        } else {
+            switch model.route.featureId {
+            case "billing-redeem":
+                BillingRedeemView(
+                    model: model.billingModel,
+                    roomId: model.signedInRoomId,
+                    onContinue: openRace
+                )
+            case "billing-upgrade":
+                CrewUpgradeView(
+                    model: model.upgradeModel,
+                    roomId: model.signedInRoomId,
+                    role: model.signedInRole,
+                    onBack: { model.showProfile() }
+                )
+            default:
+                BillingPurchaseView(
+                    model: model.billingModel,
+                    roomId: model.signedInRoomId,
+                    onContinue: openRace,
+                    onLeave: { model.showProfile() }
+                )
+            }
+        }
+    }
+
+    private func openRace() {
+        model.show(Route(featureId: "map-track", state: .success))
+        model.enterShellIfNeeded()
     }
 }

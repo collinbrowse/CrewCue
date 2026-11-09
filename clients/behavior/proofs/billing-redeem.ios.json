@@ -1,0 +1,18 @@
+{
+  "id": "billing-redeem",
+  "platform": "ios",
+  "entry": "crewcue://dev/billing-redeem",
+  "device": "iPhone 18 Pro simulator (CrewCue billing-649, C1190B96), iOS 27.2, Debug build",
+  "date": "2026-11-09",
+  "commit": "e64c9eb (iOS tree same as 5e2800a) plus uncommitted #649 iOS wiring (CompositionRoot, ShellModel, FixtureRouteView, Profile, Room members, Join)",
+  "session": "Dev session (HS256 dev JWT) against the local memory API on 127.0.0.1:3000. Debug fake store (no RevenueCat key) posting to POST /race-rooms/:roomId/billing/dev-purchase. Error via ?storeResult=fail; Offline via --api-base-url pointed at a closed port.",
+  "action": "Runner on an unpaid room opened crewcue://dev/billing-redeem?webhookDelay=3 and tapped Redeem code (Debug fake redemption); the screen polled GET /billing until the room unlocked.",
+  "checked": {
+    "Success": "'Code redeemed. Unlocking your race.', then 'Unlocked: you plus 1 crew member.' with Open race.",
+    "Empty": "'Have a code? Redeem it with the App Store or Google Play.'",
+    "Error": "?storeResult=fail on the paywall, tapped Redeem code: 'Couldn't open code redemption.'",
+    "Offline": "API unreachable (--api-base-url http://127.0.0.1:9) with a dev session on an unpaid room: the redeem card shows 'Offline. Redeeming a code needs the network.' and Redeem code is disabled (after the redeem-offline fix in BillingModel.activate).",
+    "Accessibility labels": "crewcue.billing-redeem, crewcue.billing-redeem.open"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

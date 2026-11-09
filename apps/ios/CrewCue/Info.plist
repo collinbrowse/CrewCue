@@ -14,6 +14,8 @@
   <string>$(CREWCUE_AUTH0_CLIENT_ID)</string>
   <key>CrewCueAuth0Audience</key>
   <string>$(CREWCUE_AUTH0_AUDIENCE)</string>
+  <key>CrewCueRevenueCatAPIKey</key>
+  <string>$(CREWCUE_REVENUECAT_API_KEY)</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
