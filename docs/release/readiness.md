@@ -24,7 +24,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 9. **Push credentials** (#563).
    - Turn on the Push capability on the App ID, then create an APNs auth key (.p8).
    - Create a Firebase project and add `google-services.json` for `com.crewcue.android`.
-10. **Production third-party keys:** MapTiler (the map falls back to the MapLibre demo style without one), Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
+10. **Production third-party keys:** MapTiler (the map falls back to the MapLibre demo style without one), and Strava API app (rate-limit tier and athlete-count approval).
 11. **Store listings:** name, subtitle, description, keywords, category (Health & Fitness or Sports), screenshots (6.9" iPhone; Play phone), feature graphic, support URL, age rating questionnaire (App Store) and content rating questionnaire (Play), and the target audience form (Play).
 12. **Background location justification** once #562 lands: an App Review note and a Play location-permission and foreground-service declaration, with a short video showing runner tracking.
 
@@ -35,7 +35,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Android release builds no longer accept a session from a link or intent extras. Before, any web page could open `crewcue://…?devSession=1&token=…&roomId=…` and the app saved that session. | `apps/android/.../session/DevSession.kt` (`enabled = BuildConfig.DEBUG`) |
 | Android release builds open no `crewcue://dev/*` fixture route from outside the app. Internal fixture loads (sign-in, join copy) are unchanged. | `apps/android/.../nav/DevRoutes.kt` `inboundFeatureId`, `ui/ShellViewModel.kt` `open()` |
 | Android release builds stop logging every screen URL to logcat. Dev links could carry a token. | `apps/android/.../di/AppContainer.kt` |
-| Android release build turns on R8 (minify plus resource shrinking), with keep rules for the JNI facade and the reflection-loaded MapLibre and Stream bootstraps. | `apps/android/app/build.gradle.kts`, `apps/android/app/proguard-rules.pro` |
+| Android release build turns on R8 (minify plus resource shrinking), with keep rules for the JNI facade and the reflection-loaded MapLibre bootstrap. | `apps/android/app/build.gradle.kts`, `apps/android/app/proguard-rules.pro` |
 | Android ships only the ABIs that client-core is built for (`arm64-v8a`, `x86_64`). Before, MapLibre's 32-bit libs made Play offer the app to armeabi-v7a and x86 devices, where loading the Swift core crashes at startup. This also cuts the universal release APK (265 MB before). | `apps/android/app/build.gradle.kts` `ndk.abiFilters` |
 | iOS Release builds ignore `crewcue://dev/*` links, `?state=` fixture overlays, and the `--deeplink` and `--dev-session` launch arguments. The Strava OAuth return still works. | `apps/ios/CrewCue/App/DevLinks.swift`, `App/ShellModel.swift` `open(_:)`, `App/LaunchConfiguration.swift` `resolve` |
 | iOS privacy manifest, with collected data types and required-reason APIs: UserDefaults `CA92.1` (`PushRegistrationModel.swift`) and file timestamp `C617.1` (`PaceModel.swift` schedule cache inside the app container). | `apps/ios/CrewCue/PrivacyInfo.xcprivacy` (picked up by the synchronized `CrewCue` group) |
@@ -48,7 +48,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 
 | Item | Status | Evidence | Fix |
 | --- | --- | --- | --- |
-| Privacy manifest | done (this PR) | `apps/ios/CrewCue/PrivacyInfo.xcprivacy`. SDK manifests ship with Auth0, StreamChat and MapLibre. | Before submitting, check that the transitive SPM packages (SimpleKeychain, JWTDecode, swift-markdown-ui, NetworkImage, Splash) are not on Apple's [list of SDKs that need a privacy manifest](https://developer.apple.com/support/third-party-SDK-requirements/). Xcode's "Generate Privacy Report" on the archive confirms it. |
+| Privacy manifest | done (this PR) | `apps/ios/CrewCue/PrivacyInfo.xcprivacy`. SDK manifests ship with Auth0 and MapLibre. | Before submitting, check that the transitive SPM packages (SimpleKeychain, JWTDecode, swift-markdown-ui, NetworkImage, Splash) are not on Apple's [list of SDKs that need a privacy manifest](https://developer.apple.com/support/third-party-SDK-requirements/). Xcode's "Generate Privacy Report" on the archive confirms it. |
 | Location usage strings | done for foreground use | `Info.plist` `NSLocationWhenInUseUsageDescription`. `MapModel.swift` `WhenInUseLocator` requests When In Use only. | Add the Always string and the `location` background mode together with the background heartbeat (#562). Adding them before the code uses them would draw a rejection. |
 | Notifications | gap | `RemoteNotifications.swift` calls `registerForRemoteNotifications()`. There is no `.entitlements` file and no `aps-environment`. | #563 (entitlement plus App ID capability: needs-user) |
 | Export compliance | done | `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO` (Release, `project.pbxproj`) | Confirm in App Store Connect (needs-user) |
@@ -121,12 +121,12 @@ For the App Store privacy nutrition label and the Play Data safety form. The app
 | Name (display name) | yes | yes | App functionality | Profile and crew list |
 | Email address | yes | yes | App functionality, account | Through Auth0 sign-in |
 | User ID | yes | yes | App functionality | Auth0 `sub` |
-| Other user content | yes | yes | App functionality | Chat messages (Stream), crew notes, check-ins |
+| Other user content | yes | yes | App functionality | Chat messages (CrewCue API), crew notes, check-ins |
 | Fitness | yes | yes | App functionality | Activity history and pacing from Strava or GPX import |
 | Device ID | yes | yes | App functionality | Push token |
 | Crash data | not yet | - | - | Add when #564 lands |
 
-Processors: Auth0 (identity), Stream (chat), MapTiler (tiles, geocoding), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
+Processors: Auth0 (identity), MapTiler (tiles, geocoding), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
 
 ## Issues filed from this audit
 

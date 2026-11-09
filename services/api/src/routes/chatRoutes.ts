@@ -15,7 +15,6 @@ import {
   type ChatPhotoUploadResponse,
   type ChatPushDeviceRecord,
   type ChatSendMessageResponse,
-  type ChatStreamTokenResponse,
   type RaceRoom
 } from "@crewcue/contracts";
 import { getRaceRoom } from "./raceRooms.js";
@@ -45,19 +44,10 @@ import {
 } from "../lib/chatPhotoStore.js";
 import { publishChatRoom, subscribeChatRoom } from "../lib/chatLive.js";
 import { chatPushBody, devicesToTargets, dispatchChatPush } from "../lib/chatPushDispatch.js";
-import { deriveStreamUserId, mintStreamUserToken, readStreamCredentials } from "../lib/streamChat.js";
-import {
-  streamChatMembersForRoom,
-  syncRaceRoomStreamChannelMembers
-} from "../lib/streamChannelMembers.js";
 
 const UNKNOWN_SENDER = "Crew member";
 const DEFAULT_PAGE = 50;
 const MAX_PAGE = 100;
-
-const streamTokenBodySchema = z.object({
-  roomId: z.string().trim().min(1).optional()
-});
 
 const notificationPrefSchema = z.object({
   preference: z.enum(["all", "mentions", "none"])
@@ -389,71 +379,6 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     const photo = store.read(key, exp, sig);
     if (!photo) return reply.code(404).send({ error: "Not found" });
     return reply.header("content-type", photo.contentType).header("cache-control", "private, max-age=3600").send(photo.bytes);
-  });
-
-  app.post("/chat/stream-token", async (request, reply) => {
-    const identity = request.identity;
-    if (!identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    const creds = readStreamCredentials();
-    if (!creds) {
-      return reply.code(503).send({ error: "Stream Chat is not configured on this deployment" });
-    }
-
-    let members: ChatStreamTokenResponse["members"];
-    const bodyParse = streamTokenBodySchema.safeParse(request.body ?? {});
-    if (bodyParse.success && bodyParse.data.roomId) {
-      const room = await getRaceRoom(bodyParse.data.roomId);
-      if (room?.memberships.some((m) => m.userId === identity.sub)) {
-        members = streamChatMembersForRoom(room);
-        try {
-          await syncRaceRoomStreamChannelMembers(room, app.log);
-        } catch (err) {
-          app.log.error({ err, roomId: bodyParse.data.roomId }, "stream-token room sync failed");
-          return reply
-            .code(502)
-            .send({ error: "Failed to prepare Stream Chat channel for this room" });
-        }
-      }
-    }
-
-    const streamUserId = deriveStreamUserId(identity.sub);
-    const token = mintStreamUserToken(streamUserId, creds.apiSecret, {
-      expiresInSeconds: 60 * 60
-    });
-    const response: ChatStreamTokenResponse = {
-      token,
-      streamUserId,
-      streamApiKey: creds.apiKey,
-      ...(members ? { members } : {})
-    };
-    return reply.send(response);
-  });
-
-  app.post("/chat/rooms/:roomId/sync-stream-channel", async (request, reply) => {
-    const identity = request.identity;
-    if (!identity) {
-      return reply.code(401).send({ error: "Unauthorized" });
-    }
-    if (!readStreamCredentials()) {
-      return reply.code(503).send({ error: "Stream Chat is not configured on this deployment" });
-    }
-    const { roomId } = request.params as { roomId: string };
-    const room = await getRaceRoom(roomId);
-    if (!room) {
-      return reply.code(404).send({ error: "Race room not found" });
-    }
-    if (!room.memberships.some((m) => m.userId === identity.sub)) {
-      return reply.code(403).send({ error: "Not a member of this room" });
-    }
-    try {
-      await syncRaceRoomStreamChannelMembers(room, app.log);
-    } catch (err) {
-      app.log.error({ err, roomId }, "sync-stream-channel failed");
-      return reply.code(502).send({ error: "Failed to sync Stream Chat channel members" });
-    }
-    return reply.send({ ok: true as const });
   });
 
   const registerDevice = async (request: FastifyRequest, reply: FastifyReply) => {

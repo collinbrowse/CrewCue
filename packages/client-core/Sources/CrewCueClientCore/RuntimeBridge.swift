@@ -15,10 +15,10 @@ import Dispatch
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
 /// projectAidSheet, stopPlanDraft, updatePlannedStops,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
-/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
+/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
-/// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
+/// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession.
@@ -169,8 +169,6 @@ enum RuntimeCall {
             return try await route(object)
         case "enqueuePing":
             return try await enqueuePing(object)
-        case "streamToken":
-            return try await streamToken(object)
         case "parseMentions":
             return try await parseMentions(object)
         case "notificationPreference":
@@ -193,13 +191,6 @@ enum RuntimeCall {
             return try await chatDiscard(object)
         case "completeOutbox":
             return try await completeOutbox(object)
-        case "claimChat":
-            let claimed = try await store(object).claimChat(id: object["id"] as? String ?? "")
-            return ["claimed": claimed]
-        case "claimPendingChat":
-            return try await claimPendingChat(object)
-        case "settleChat":
-            return try await settleChat(object)
         case "wipeUserData":
             return try wipeUserData(object)
         case "adoptUser":
@@ -1104,43 +1095,6 @@ enum RuntimeCall {
         }
     }
 
-    private static func streamToken(_ object: [String: Any]) async throws -> Any {
-        let roomId = object["roomId"] as? String ?? ""
-        let channelId = RaceDayAPI.channelId(roomId: roomId)
-        do {
-            let graph = try graph(object)
-            let minted = try await RaceDayAPI.streamToken(graph: graph, roomId: roomId)
-            let authors = ChatAuthors(
-                selfUserId: minted.streamUserId,
-                members: (minted.members ?? []).map { ChatRoomMember(userId: $0.streamUserId, displayName: $0.displayName) }
-            )
-            return [
-                "token": minted.token,
-                "streamUserId": minted.streamUserId,
-                "streamApiKey": minted.streamApiKey,
-                "channelId": channelId,
-                "authorNames": authors.names,
-                "selfAuthor": authors.selfLabel,
-                "unknownAuthor": ChatAuthors.unknown,
-                "offline": false
-            ]
-        } catch {
-            if TransportFailure.isOffline(error) {
-                return [
-                    "token": "",
-                    "streamUserId": "",
-                    "streamApiKey": "",
-                    "channelId": channelId,
-                    "authorNames": [String: String](),
-                    "selfAuthor": ChatAuthors.you,
-                    "unknownAuthor": ChatAuthors.unknown,
-                    "offline": true
-                ]
-            }
-            throw error
-        }
-    }
-
     private static func parseMentions(_ object: [String: Any]) async throws -> Any {
         let body = object["body"] as? String ?? object["text"] as? String ?? ""
         do {
@@ -1244,30 +1198,6 @@ enum RuntimeCall {
         return ["status": "pending", "id": operation.id, "clientMessageId": clientMessageId]
     }
 
-    /// Pending chat for the room that no other caller is already sending.
-    private static func claimPendingChat(_ object: [String: Any]) async throws -> Any {
-        let store = try store(object)
-        let claimed = try await store.claimPendingChat(roomId: object["roomId"] as? String ?? "")
-        let messages: [[String: Any]] = claimed.map { operation in
-            [
-                "id": operation.id,
-                "clientMessageId": operation.clientMessageId,
-                "text": chatText(operation.payloadJSON)
-            ]
-        }
-        return ["messages": messages]
-    }
-
-    /// Ends a claim. No `error` means delivered; an "already exists" error also counts as delivered.
-    private static func settleChat(_ object: [String: Any]) async throws -> Any {
-        let store = try store(object)
-        let id = object["id"] as? String ?? ""
-        let failure = text(object, "error").map { RuntimeSendFailure(description: $0) }
-        try await store.settleChat(id: id, error: failure)
-        let delivered = failure.map(OutboxPolicy.isAlreadyDelivered) ?? true
-        return ["status": delivered ? "delivered" : "pending", "id": id]
-    }
-
     /// Sign-out and session expiry: every user's files under the storage root. Open outboxes are
     /// closed even when the app already deleted their directory, so a late write can't recreate them.
     private static func wipeUserData(_ object: [String: Any]) throws -> Any {
@@ -1295,14 +1225,6 @@ enum RuntimeCall {
         }
         _ = try storage.directory(userId: userId)
         return ["status": "adopted"]
-    }
-
-    private static func chatText(_ payloadJSON: String) -> String {
-        guard let data = payloadJSON.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ""
-        }
-        return object["text"] as? String ?? ""
     }
 
     private static func completeOutbox(_ object: [String: Any]) async throws -> Any {
@@ -1784,6 +1706,3 @@ public func crewcue_runtime_json(_ request: UnsafePointer<CChar>?) -> UnsafeMuta
     return strdup(box.value ?? #"{"ok":false,"message":"bridge failed"}"#)
 }
 
-private struct RuntimeSendFailure: Error, CustomStringConvertible {
-    var description: String
-}

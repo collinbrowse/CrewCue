@@ -21,7 +21,7 @@ Parity is the behavior checklist in `clients/behavior/`, plus each platform's de
 1. Server authority stays in `services/api`. Clients do not reimplement pacing or GPX parsing.
 2. Wire types are generated from `packages/contracts` into Swift and Kotlin. Do not hand-port those structs.
 3. Outbox policy, schedule formatting, and other shared client decisions live in `packages/client-core`.
-4. MapLibre, Stream, and Auth0 stay native SDK calls in each app. Do not wrap them in a shared UI layer.
+4. MapLibre, Auth0, and push registration stay native SDK calls in each app. Do not wrap them in a shared UI layer.
 5. One issue changes `apps/ios` or `apps/android` or `packages/client-core`, not both UI trees. The checklist issue may touch only `clients/behavior/`.
 
 ## 3) Presentation and client architecture

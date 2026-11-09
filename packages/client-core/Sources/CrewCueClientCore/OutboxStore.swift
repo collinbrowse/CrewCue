@@ -174,34 +174,6 @@ public actor OutboxStore: UserDataStore {
         return operation
     }
 
-    /// Pending chat for one room that no one is sending yet. The claim lives in memory only.
-    public func claimPendingChat(roomId: String) throws -> [StoredOperation] {
-        let claimed = try load().filter {
-            $0.roomId == roomId && $0.type == "chat" && $0.status == "pending" && !inFlight.contains($0.id)
-        }
-        inFlight.formUnion(claimed.map(\.id))
-        return claimed
-    }
-
-    /// Claims one pending chat message (the send that just queued it). False when it is gone or already claimed.
-    public func claimChat(id: String) throws -> Bool {
-        guard !inFlight.contains(id),
-              try load().contains(where: { $0.id == id && $0.type == "chat" && $0.status == "pending" }) else {
-            return false
-        }
-        inFlight.insert(id)
-        return true
-    }
-
-    /// Ends a claim. Delivered, or already on the server, removes the message; anything else keeps it pending.
-    public func settleChat(id: String, error: (any Error)?) throws {
-        inFlight.remove(id)
-        if let error, !OutboxPolicy.isAlreadyDelivered(error) {
-            return
-        }
-        try complete(id: id)
-    }
-
     /// Most location samples one room keeps while offline (a 3-minute interval covers 100 hours).
     /// Past this, the oldest pending samples go first: the newest position matters most to crew.
     public static let maxPendingPingsPerRoom = 2000

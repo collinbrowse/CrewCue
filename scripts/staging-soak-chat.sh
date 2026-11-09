@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Crew chat MVP staging soak (stream token, devices, notification prefs).
+# Crew chat staging soak (messages, devices, notification prefs). ADR 0010.
 # Requires staging API deployed with migration 0014+ (crypto tables dropped).
 set -euo pipefail
 
@@ -112,15 +112,18 @@ env_code="$(cat "$tmp_dir/last_code.txt")"
 [[ "$env_code" == "404" ]] || fail "GET key-envelopes expected 404, got $env_code ($(cat "$env_file"))"
 log "Crypto routes absent"
 
-log "Stream token (optional)"
-stream_file="$(api_request POST /chat/stream-token "$(jq -n --arg roomId "$room_id" '{roomId: $roomId}')")"
-stream_code="$(cat "$tmp_dir/last_code.txt")"
-if [[ "$stream_code" == "200" ]]; then
-  log "Stream token minted"
-elif [[ "$stream_code" == "503" ]]; then
-  log "Stream not configured on staging (503) — OK for MVP soak"
-else
-  fail "POST /chat/stream-token HTTP $stream_code"
-fi
+log "Send a message twice under one client id"
+client_id="soak-$(date +%s)"
+send_body="$(jq -n --arg id "$client_id" '{clientMessageId: $id, text: "staging soak"}')"
+first_file="$(api_request POST "/chat/rooms/${room_id}/messages" "$send_body")"
+expect_code "201" "$(cat "$tmp_dir/last_code.txt")" "POST messages" "$first_file"
+retry_file="$(api_request POST "/chat/rooms/${room_id}/messages" "$send_body")"
+expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "POST messages retry" "$retry_file"
+[[ "$(jq -r '.duplicate' "$retry_file")" == "true" ]] || fail "Retry was not reported as duplicate"
+list_file="$(api_request GET "/chat/rooms/${room_id}/messages")"
+expect_code "200" "$(cat "$tmp_dir/last_code.txt")" "GET messages" "$list_file"
+count="$(jq --arg id "$client_id" '[.messages[] | select(.clientMessageId == $id)] | length' "$list_file")"
+[[ "$count" == "1" ]] || fail "Expected the message once, found $count"
+log "Messages OK (stored once)"
 
 log "Staging chat soak PASSED"
