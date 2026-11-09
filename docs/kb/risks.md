@@ -1,0 +1,45 @@
+# Risk register
+
+Triaged risks, each tied to code or a doc. Mechanical signals (unguarded routes, large files, timers, parity gaps) are in [generated/risk-signals.md](generated/risk-signals.md); this page decides which of them matter. Severity is impact on a runner or crew on race day, or on user data.
+
+IDs are stable. Closed risks move to the bottom with the change that closed them.
+
+## Open
+
+| ID | Sev | Risk | Where | Closes when |
+| --- | --- | --- | --- | --- |
+| R1 | high | **API state is only safe on one instance.** Rooms, invites, ping state, and WS4/5/6 snapshots are cached in process and never re-read once hydrated; locks are in-process; room saves are unversioned whole-document upserts. A second replica, or the overlap of an old and new instance during a deploy, can serve a stale `/pings/latest` and overwrite newer room data. | [raceRooms.ts](../../services/api/src/routes/raceRooms.ts) caches and `withRoomRuntimeLock`/`commitRaceRoomUpdate`; [roomPersistence.ts](../../services/api/src/lib/roomPersistence.ts) `persistRaceRoom` | Version-checked writes (or row locks) and cache invalidation, or a documented hard single-instance limit in Railway. |
+| R2 | high | **Session expiry mid-race wipes the outbox.** Clients hold a static access token with no refresh. A 401 expires the session and wipes every per-user store, queued pings included. A race longer than the token lifetime loses the runner's backlog. | [Session.swift](../../packages/client-core/Sources/CrewCueClientCore/Session.swift) `expire()`; [Outbox.swift](../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) 401 → expired | Token refresh on both clients, or keep the ping queue across expiry and re-auth. |
+| R3 | high | **Privacy release blockers.** No account deletion or export route; pings kept forever; Strava tokens and client session tokens stored in plaintext. | [readiness.md](../release/readiness.md) (#560, #567, #568); [stravaConnectionStore.ts](../../services/api/src/lib/stravaConnectionStore.ts) | The readiness rows turn green. |
+| R4 | high | **Production may still deploy from `main`.** The runbook says the production service auto-deploys `main` until the owner disconnects its GitHub source. Not verifiable from the repo. | [launch-owner-setup.md](../runbooks/launch-owner-setup.md) §3 | Owner confirms production deploys only from [release.yml](../../.github/workflows/release.yml). |
+| R5 | high | **No database backups or restore runbook.** Backups are an owner to-do; no restore drill. | [launch-owner-setup.md](../runbooks/launch-owner-setup.md) §3 | Railway backups on for production Postgres and a tested restore runbook. |
+| R6 | medium | **Paid status is self-service.** Any athlete, crew chief, or team manager can set the room's entitlement to `paid`. | `POST /race-rooms/:roomId/entitlement` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts) | Entitlement set only by the billing provider or an operator. Billing is deferred, so this is latent. |
+| R7 | medium | **Auth is opt-in per handler.** The auth plugin never rejects; every handler must check `request.identity` and membership itself. A new route is open by default. | [plugins/auth.ts](../../services/api/src/plugins/auth.ts); [readiness.md](../release/readiness.md) | Default-deny with an explicit public allowlist. Until then, `kb:check` lists every route without a detected guard and every room route without a membership check. |
+| R8 | medium | **A 6-digit code exposes a room.** `join-preview` is public and returns member names, roles, the course track, and checkpoints. `join-by-code` makes any signed-in caller a crew member. Codes come from `Math.random`; rate limits are per process and per IP. | `GET /race-rooms/join-preview/:roomCode`, `POST /race-rooms/join-by-code` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts) | Preview trimmed to what a joiner needs, crypto-random codes, owner approval or code rotation. |
+| R9 | medium | **Push notifications only log.** The default push transport writes a log line; APNs/FCM are not wired. Chat pushes and check-in ETA alerts never reach a phone. | [chatPushDispatch.ts](../../services/api/src/lib/chatPushDispatch.ts); [readiness.md](../release/readiness.md) (#563) | A real transport in production. |
+| R10 | medium | **No error tracking or alerting.** Traces only, and only if an OTLP endpoint is set; no collector deployed; Sentry planned; no process-level error handlers; ADR 0005 SLO alerts not built. | [telemetry.ts](../../services/api/src/telemetry.ts); [readiness.md](../release/readiness.md) (#564) | Sentry (API + apps) and an availability alert. |
+| R11 | medium | **Event-loop blocking.** GPX up to 10 MB is parsed synchronously; `/pacing-estimates` runs the micro-model synchronously and loads all finished efforts on every call, with no rate limit. One heavy request stalls ping ingest for everyone. | [courseParse.ts](../../packages/map-core/src/courseParse.ts); [pacingEstimates.ts](../../services/api/src/routes/pacingEstimates.ts) | Worker thread or queue for heavy work; rate limit on estimates. |
+| R12 | medium | **Migrations have no ledger and no rollback.** Every `.sql` re-runs on each deploy and must stay idempotent; rollback means old code on the new schema. `/health/ready` is static. | [railway.toml](../../railway.toml); [staging-deploy.md](../runbooks/staging-deploy.md); #566 | Migration ledger and a readiness check that touches the database. |
+| R13 | medium | **Android build can fail softly.** The APK can ship a stale client-core `.so`; MapLibre and Stream source sets compile only when their dependencies resolve, so a build can silently drop maps or chat; bridge errors surface as "Rebuild the Swift Android library" at runtime. | [apps/android/app/build.gradle.kts](../../apps/android/app/build.gradle.kts); [build-swift-android.mjs](../../scripts/build-swift-android.mjs) | Build fails when a source set or `.so` is missing or stale. |
+| R14 | medium | **Native parity is incomplete.** Several v1 features (sign-in, athlete setup, GPX import, map track, chat, push, Strava) do not pass on both platforms. | [generated/risk-signals.md](generated/risk-signals.md) "Native parity gaps"; [deeplinks.json](../../clients/behavior/deeplinks.json) | Every v1 row `pass` with a device proof. |
+| R15 | medium | **Background location depends on OS permissions.** iOS needs Always authorization plus the background mode; Android needs the foreground service and background permission. The heartbeat proof ran on an emulator against a local API. | `RaceTrackingLocator.swift`, `RaceTrackingService.kt`; [location-heartbeat proofs](../../clients/behavior/proofs) | A real-device proof of a multi-hour background run on each platform. |
+| R16 | low | **Outbox drops the oldest pings past 2000 per room**, silently. | [OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) `maxPendingPingsPerRoom` | Surfaced to the runner, or thinned instead of truncated. |
+| R17 | low | **Room create trusts client `athleteId` and `teamId`.** `athleteId` alone gates ping ingest and chat deletion. `/teams/:teamId/race-rooms` falls back to a hard-coded `mobile-ops-team`. | `createRaceRoomInput` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts) | Server sets `athleteId` from the caller or verifies it. |
+| R18 | low | **Idempotency keys are not scoped per user** (key + method + path). | [0011 migration](../../services/api/db/migrations/0011_http_idempotency_composite_pk.sql); [httpIdempotency.ts](../../services/api/src/lib/httpIdempotency.ts) | Include the caller's `sub` in the key. |
+| R19 | low | **Routing defaults to the public OSRM demo server** with no timeout. | [routingRoutes.ts](../../services/api/src/routes/routingRoutes.ts) | Own router or a timeout and a fallback. |
+| R20 | low | **In-process timers multiply with replicas.** The chat retention interval runs on every instance (see R1). | [generated/risk-signals.md](generated/risk-signals.md) "In-process timers" | Single scheduler or a database lock. |
+| R21 | low | **Node is unpinned and CI uses Node 20 (end of life).** Railway picks its own version. | [pre-launch-hygiene.md](../sdlc/pre-launch-hygiene.md) | `engines` + `.nvmrc` pinned and CI on the same version. |
+| R22 | low | **`raceRooms.ts` is ~4.8k lines** mixing caches, locks, projection, and ~35 routes; most review misses and conflicts land here. | [generated/risk-signals.md](generated/risk-signals.md) "Large files" | Split by concern. |
+| R23 | low | **Release guard hardcodes the production environment ID**; it goes stale if the environment is recreated. | `.claude/hooks/release-guard.mjs` | Look the ID up by name. |
+
+## Public on purpose
+
+Routes the generator flags as unguarded that are meant to be public. Re-check if one changes.
+
+- `GET /health/live`, `GET /health/ready`: Railway health checks.
+- `GET /race-rooms/join-preview/:roomCode`: pre-join preview, see R8.
+- `GET /strava/oauth/redirect`: Strava's browser redirect; it only bounces to the app deep link. The state is checked at the authenticated callback.
+
+## Closed
+
+_None yet._
