@@ -4,6 +4,8 @@ CREWCUE_API_BASE_URL = http:/$()/127.0.0.1:3000
 CREWCUE_AUTH0_DOMAIN = dev-ozh1r6603ymvszq6.us.auth0.com
 CREWCUE_AUTH0_CLIENT_ID = oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia
 CREWCUE_AUTH0_AUDIENCE = https:/$()/api.crewcue.staging
+// Web page where people can ask for account deletion without the app (#560; page is #569).
+CREWCUE_ACCOUNT_DELETION_URL = https:/$()/crewcue.app/delete-account
 
 // Release has no defaults. release.yml passes these as build settings; a Release build without
 // them shows "CrewCue can't start" instead of calling localhost (LaunchConfiguration.swift).

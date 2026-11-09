@@ -28,6 +28,7 @@ final class ShellModel {
     let athleteModel: AthleteSetupModel
     let profileModel: ProfileModel
     let stravaModel: StravaModel
+    let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
@@ -62,6 +63,7 @@ final class ShellModel {
         self.athleteModel = AthleteSetupModel(client: client)
         self.profileModel = ProfileModel(client: client)
         self.stravaModel = StravaModel(client: client)
+        self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
@@ -297,6 +299,7 @@ final class ShellModel {
         racesLoading = false
         profileModel.clear()
         stravaModel.clear()
+        accountDeletionModel.clear()
         membersModel.clear()
         incidentsModel.clear()
         paceModel.clear()

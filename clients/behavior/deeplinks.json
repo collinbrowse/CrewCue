@@ -256,6 +256,15 @@
       "android": "fail"
     },
     {
+      "id": "account-deletion",
+      "entry": "crewcue://dev/account-deletion",
+      "label": "crewcue.account-deletion",
+      "sdk": "auth0",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
       "id": "app-shell",
       "entry": "crewcue://dev/app-shell",
       "label": "crewcue.app-shell",

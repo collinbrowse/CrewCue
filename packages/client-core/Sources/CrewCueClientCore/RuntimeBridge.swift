@@ -18,7 +18,7 @@ import Dispatch
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, pingTrack,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession.
 ///
@@ -201,6 +201,8 @@ enum RuntimeCall {
             return try await stravaConnection(object)
         case "stravaDisconnect":
             return try await stravaDisconnect(object)
+        case "deleteAccount":
+            return try await deleteAccount(object)
         case "pingTrack":
             return try await pingTrack(object)
         case "liveProjection":
@@ -1413,6 +1415,24 @@ enum RuntimeCall {
                 return ["offline": true, "connected": false]
             }
             throw error
+        }
+    }
+
+    /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
+    /// the app's session-expired path runs.
+    private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
+        try await deleteAccount(graph: try graph(object))
+    }
+
+    static func deleteAccount(graph: ClientGraph) async throws -> [String: Any] {
+        switch await AccountDeletion.run(graph: graph) {
+        case let .deleted(identityProvider):
+            return ["deleted": true, "identityProvider": identityProvider]
+        case let .failed(message, retryable):
+            if message == AccountDeletion.expiredMessage {
+                throw ClientHTTPError(status: 401, message: message)
+            }
+            return ["deleted": false, "message": message, "retryable": retryable]
         }
     }
 

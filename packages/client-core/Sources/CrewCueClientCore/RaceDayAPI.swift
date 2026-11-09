@@ -437,6 +437,11 @@ public enum RaceDayAPI {
         _ = try await sendData(graph, "/strava/connection", method: .delete, body: nil)
     }
 
+    /// `DELETE /me` (#560). Deletes the signed-in account server-side; see `AccountDeletion`.
+    public static func deleteAccount(graph: ClientGraph) async throws -> AccountDeletionResult {
+        try await send(graph, "/me", method: .delete, body: nil)
+    }
+
     /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
     /// with `uploadIntervalSeconds` so the server can judge staleness from the runner's setting.
     public static func flushOutbox(graph: ClientGraph, uploadIntervalSeconds: Int? = nil) async throws -> FlushReport {

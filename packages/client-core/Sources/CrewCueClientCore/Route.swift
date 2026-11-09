@@ -56,6 +56,7 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/profile": "profile"
         case "dev/room-members": "room-members"
         case "dev/strava": "strava"
+        case "dev/account-deletion": "account-deletion"
         case "dev/app-shell": "app-shell"
         case "dev/loader": "brand-loader"
         default: nil
