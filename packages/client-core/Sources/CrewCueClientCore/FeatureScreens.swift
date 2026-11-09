@@ -154,6 +154,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.profile", title: "Profile", body: profileBody(state))
         case "room-members":
             return FeatureCopy(accessibilityIdentifier: "crewcue.room-members", title: "Room members", body: membersBody(state))
+        case "activity-import":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.activity-import", title: "Past runs", body: activityImportBody(state))
         case "strava":
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
         case "app-shell":
@@ -415,6 +417,15 @@ private func membersBody(_ state: FeatureState) -> String {
     case .empty: "No members yet."
     case .error: "Couldn't update members."
     case .offline: "Offline. Roster not updated."
+    }
+}
+
+private func activityImportBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: ActivityImport.successMessage
+    case .empty: ActivityImport.emptyMessage
+    case .error: ActivityImport.errorMessage
+    case .offline: ActivityImport.offlineMessage
     }
 }
 
