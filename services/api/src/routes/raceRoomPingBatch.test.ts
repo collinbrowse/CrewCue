@@ -6,7 +6,7 @@ import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLaye
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { backlogFloorMs, setRaceRoomStatusForTests } from "./raceRooms.js";
+import { backlogFloorMs, setPingBeforeLockDelayForTests, setRaceRoomStatusForTests } from "./raceRooms.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -355,4 +355,71 @@ test("crossing the finish records one finished effort with its stops", async () 
   assert.equal(history?.usage, "product");
   assert.equal(history?.event.efforts.length, 1);
   await app.close();
+});
+
+test("a backlog upload that waited for the room lock is projected on the course saved meanwhile", async () => {
+  const app = buildApp();
+  await app.ready();
+  const token = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, token);
+
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let markPaused: (() => void) | undefined;
+  const paused = new Promise<void>((resolve) => {
+    markPaused = resolve;
+  });
+  setPingBeforeLockDelayForTests(roomId, async () => {
+    markPaused?.();
+    await gate;
+  });
+  try {
+    const upload = postBatch(app, roomId, token, { points: backlog(4, 60_000) });
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      paused,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timed out waiting for the upload to pause before the room lock")), 5_000);
+      })
+    ]).finally(() => clearTimeout(timer));
+
+    const longer = [
+      { latitude: 42.0, longitude: -70.0 },
+      { latitude: 42.02, longitude: -70.0 }
+    ];
+    const replace = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", ...longer[0] },
+            { id: "cp1", ...longer[1] }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints(longer),
+        plannedPaceSecondsPerKm: 720,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(replace.statusCode, 200, replace.body);
+    release?.();
+
+    const response = await upload;
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json() as AthletePingBatchResponse;
+    assert.equal(body.acceptedCount, 4);
+    assert.ok(body.projection, "batch response carries a projection");
+    assert.ok(
+      body.projection.courseLengthMeters > 2_000,
+      `projection must use the replaced ~2.2 km course, got ${body.projection.courseLengthMeters} m`
+    );
+  } finally {
+    release?.();
+    setPingBeforeLockDelayForTests(roomId, undefined);
+    await app.close();
+  }
 });
