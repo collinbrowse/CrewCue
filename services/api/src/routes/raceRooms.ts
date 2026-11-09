@@ -761,7 +761,7 @@ export function setPingProjectionCommitDelayForTests(
 
 let pingBeforeLockDelayForTests: { roomId: string; delay: () => Promise<void> } | undefined;
 
-/** Test-only one-shot pause after a ping has read the room and before it takes the room runtime lock. */
+/** Test-only one-shot pause after a ping or batch upload has read the room and before it takes the room runtime lock. */
 export function setPingBeforeLockDelayForTests(
   roomId: string,
   delay: (() => Promise<void>) | undefined
@@ -3856,7 +3856,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const points = body.points.map((point, index) => ({ ...point, index, recordedAtMs: Date.parse(point.recordedAt) }));
     const ordered = [...points].sort((a, b) => a.recordedAtMs - b.recordedAtMs || a.index - b.index);
 
+    const beforeLock = pingBeforeLockDelayForTests;
+    if (beforeLock?.roomId === roomId) {
+      pingBeforeLockDelayForTests = undefined;
+      await beforeLock.delay();
+    }
     return await withRoomRuntimeLock(roomId, async () => {
+      // As in the single ping: `room` was read before this upload queued, so re-read under the lock.
       const latestRoom = await getRaceRoom(roomId);
       if (!latestRoom) {
         return reply.code(404).send({ error: "Race room not found" });
