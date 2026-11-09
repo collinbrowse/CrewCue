@@ -548,6 +548,11 @@ function rememberRaceRoomInviteIfAbsent(invite: RaceRoomInvite): RaceRoomInvite 
   return invite;
 }
 
+/** Test-only: drop cached invites, as a fresh API process starts with none. */
+export function evictRaceRoomInvitesFromMemoryForTests(): void {
+  raceRoomInvites.clear();
+}
+
 /** Test helper: simulate a late invite SELECT completing against the live cache. */
 export function ingestPersistedRaceRoomInviteWithoutClobberForTests(invite: RaceRoomInvite): RaceRoomInvite {
   return rememberRaceRoomInviteIfAbsent(invite);
