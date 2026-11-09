@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
+import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 import { clearHttpIdempotencyStoreForTests } from "../lib/httpIdempotency.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import {
@@ -12,6 +13,7 @@ import {
 } from "../lib/roomPersistence.js";
 import {
   getRaceRoom,
+  evictRaceRoomInvitesFromMemoryForTests,
   ingestPersistedRaceRoomInviteWithoutClobberForTests,
   saveRaceRoom,
   setMembershipWriteDelayForTests,
@@ -663,6 +665,40 @@ test("lists room invites with current statuses", async () => {
   assert.equal(listed.invites[0]?.email, "crew@example.com");
   assert.equal(listed.invites[0]?.status, "pending");
 
+  await app.close();
+});
+
+test("lists pending invites after an API restart", async (t) => {
+  if (!isRoomPersistenceEnabled()) {
+    t.skip("requires PERSISTENCE_MODE=postgres");
+    return;
+  }
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-restart-invites"));
+  const headers = { authorization: `Bearer ${ownerToken}` };
+  const created = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: { teamId: "team-1", athleteId: "athlete-1", name: "Race Room", creatorName: "Owner", creatorRole: "team_manager" },
+    headers
+  });
+  const room = created.json() as { id: string };
+  const issued = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/invites`,
+    payload: { email: "restart@example.com", role: "crew_member" },
+    headers
+  });
+  assert.equal(issued.statusCode, 201);
+  const { token } = issued.json() as { token: string };
+
+  evictRaceRoomInvitesFromMemoryForTests();
+
+  const listed = await app.inject({ method: "GET", url: `/race-rooms/${room.id}/invites`, headers });
+  assert.equal(listed.statusCode, 200);
+  const invites = (listed.json() as { invites: Array<{ token: string }> }).invites;
+  assert.deepEqual(invites.map((i) => i.token), [token]);
   await app.close();
 });
 

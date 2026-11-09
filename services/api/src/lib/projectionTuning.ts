@@ -2,10 +2,10 @@
  * Provisional pace-model and live-projection constants from the Nov 3–4 2026 backtest, and the flag
  * that gates them.
  *
- * The backtest fit these on scraped race results, 5 of 6 courses from OpenSplitTime. Using that
- * data to tune CrewCue needs OpenSplitTime's permission, which hasn't been granted. So everything
- * here stays OFF in production (`PROJECTION_TUNED_CONSTANTS` unset) until permission covers it or the
- * constants are refit on permitted data. Off keeps today's estimate and ETA path exactly.
+ * The backtest fit these on race results, 5 of 6 courses from OpenSplitTime, which granted
+ * permission on Nov 5 2026; a re-check on OpenSplitTime data alone confirmed them. Everything here
+ * still runs only with `PROJECTION_TUNED_CONSTANTS` on, so production changes only when an operator
+ * turns it on. Off keeps today's estimate and ETA path exactly.
  * Numbers and the data behind them: microModel/CONSTANTS_FOR_APPROVAL.md.
  */
 

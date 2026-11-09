@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import Network
 import Observation
 import CrewCueClientCore
 
@@ -14,7 +15,9 @@ struct MapCoursePoint: Codable, Equatable, Identifiable, Sendable {
 @Observable
 final class MapModel {
     private let client: AppClient
-    private let locator = WhenInUseLocator()
+    private let locator = RaceTrackingLocator()
+    /// Flushes the backlog the moment the phone gets service back.
+    private var pathMonitor: NWPathMonitor?
     private var generation = 0
     private var userId: String?
     private var roomId: String?
@@ -28,6 +31,13 @@ final class MapModel {
     private var courseCheckpoints: [AidStationCheckpoint] = []
     /// The athlete's latest ping from the API. The only source of race progress on this phone.
     private(set) var runner: RunnerProgress = .none
+    /// The server's live ETAs, built from the athlete's pings. Nil until the room has a projection.
+    private(set) var live: LiveProjection?
+    /// The runner's path from the API (every crew phone draws the same one).
+    private(set) var track: RunnerTrack = .empty
+    /// The athlete tapped Start tracking for this race.
+    private(set) var trackingActive = false
+    private(set) var trackingIntervalSeconds = TrackingSettings.defaultIntervalSeconds
     private var elevation: ElevationProfile?
     private var styleOffline = false
     private var styleFailed = false
@@ -55,11 +65,14 @@ final class MapModel {
 
     init(client: AppClient) {
         self.client = client
-        locator.onSample = { [weak self] latitude, longitude, accuracy in
-            self?.receive(latitude: latitude, longitude: longitude, accuracy: accuracy)
+        locator.onSample = { [weak self] latitude, longitude, accuracy, time in
+            self?.receive(latitude: latitude, longitude: longitude, accuracy: accuracy, at: time)
         }
         locator.onDenied = { [weak self] in
-            self?.locationMessage = "Location permission was denied."
+            self?.locationMessage = "Location permission was denied. Turn it on in Settings to share your position."
+        }
+        locator.onWhenInUseOnly = { [weak self] in
+            self?.locationMessage = "Tracking. Choose \"Always\" so it keeps going while the phone is locked."
         }
     }
 
@@ -90,9 +103,103 @@ final class MapModel {
         if contextChanged {
             resetActions()
             runner = .none
+            live = nil
+            track = .empty
+            stopLocator()
         }
         await loadCourse(ticket: ticket)
         await refreshRunner(ticket: ticket)
+        resumeTrackingIfSaved()
+    }
+
+    /// The athlete on this phone, the only role that shares location.
+    var isAthlete: Bool { PingPolicy.mayUpload(role: role) }
+
+    /// Starts race-day sampling for this race on the athlete's phone. Persisted, so a relaunch resumes.
+    func startTracking() {
+        guard isAthlete, let roomId, let directory = userDirectory() else {
+            locationMessage = "Only the runner's phone shares location."
+            return
+        }
+        try? TrackingSession(roomId: roomId, startedAt: RaceDayReadouts.iso8601(client.graph.clock.now()))
+            .save(userDirectory: directory)
+        reloadTrackingInterval()
+        locationMessage = "Tracking. A sample every \(Self.intervalText(trackingIntervalSeconds))."
+        beginSampling()
+    }
+
+    func stopTracking() {
+        if let directory = userDirectory() {
+            try? TrackingSession.clear(userDirectory: directory)
+        }
+        stopLocator()
+        locationMessage = "Tracking stopped."
+    }
+
+    /// The settings sheet saved a new interval.
+    func reloadTrackingInterval() {
+        guard let directory = userDirectory() else { return }
+        trackingIntervalSeconds = TrackingSettings.load(userDirectory: directory).intervalSeconds
+        locator.updateInterval(trackingIntervalSeconds)
+    }
+
+    /// App came to the foreground: read the runner now instead of waiting for the next tick.
+    func refreshNow() async {
+        await refreshRunner(ticket: generation)
+        if trackingActive {
+            await flushBacklog(ticket: generation)
+        }
+    }
+
+    private func resumeTrackingIfSaved() {
+        guard isAthlete, let roomId, let directory = userDirectory(),
+              let session = TrackingSession.load(userDirectory: directory), session.roomId == roomId else {
+            return
+        }
+        if !trackingActive {
+            // Set before sampling starts, so a permission denial reported during start wins.
+            locationMessage = "Tracking resumed."
+            beginSampling()
+        }
+    }
+
+    private func beginSampling() {
+        reloadTrackingInterval()
+        wantsLocation = true
+        trackingActive = true
+        locator.start(intervalSeconds: trackingIntervalSeconds)
+        startPathMonitor()
+    }
+
+    private func stopLocator() {
+        wantsLocation = false
+        trackingActive = false
+        locator.stop()
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func startPathMonitor() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in
+                guard let self, self.trackingActive else { return }
+                await self.flushBacklog(ticket: self.generation)
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "crewcue.tracking.path"))
+        pathMonitor = monitor
+    }
+
+    private func userDirectory() -> URL? {
+        guard let userId else { return nil }
+        return try? AppDirectories.userDirectory(userId: userId)
+    }
+
+    static func intervalText(_ seconds: Int) -> String {
+        seconds % 60 == 0 ? "\(seconds / 60) min" : "\(seconds) s"
     }
 
     /// Reads the athlete's latest ping until the calling task is cancelled.
@@ -109,8 +216,7 @@ final class MapModel {
 
     func clear() {
         invalidateInFlight()
-        wantsLocation = false
-        locator.stop()
+        stopLocator()
         userId = nil
         roomId = nil
         role = ""
@@ -118,6 +224,8 @@ final class MapModel {
         schedule = nil
         courseCheckpoints = []
         runner = .none
+        live = nil
+        track = .empty
         elevation = nil
         aidPages = []
         aidIndex = 0
@@ -138,11 +246,6 @@ final class MapModel {
         navigateMessage = "No destination."
         locationMessage = "No location sample yet."
         refreshMapMessage()
-    }
-
-    func beginLocation() {
-        wantsLocation = true
-        locator.request()
     }
 
     func selectCoordinate(latitude: Double, longitude: Double) {
@@ -265,8 +368,8 @@ final class MapModel {
 
     /// This phone's GPS only uploads (athlete role). It never feeds readouts; those come from
     /// `runner`, so every crew member sees the same progress.
-    private func receive(latitude: Double, longitude: Double, accuracy: Double) {
-        guard wantsLocation, let sampledRoom = roomId else { return }
+    private func receive(latitude: Double, longitude: Double, accuracy: Double, at time: Date) {
+        guard wantsLocation, trackingActive, let sampledRoom = roomId else { return }
         guard let cooldown = locationGate.acquire() else { return }
         let sampledRole = role
         let ticket = generation
@@ -277,6 +380,7 @@ final class MapModel {
                 latitude: latitude,
                 longitude: longitude,
                 accuracy: accuracy,
+                at: time,
                 ticket: ticket
             )
             try? await Task.sleep(for: .seconds(5))
@@ -297,6 +401,7 @@ final class MapModel {
         latitude: Double,
         longitude: Double,
         accuracy: Double,
+        at time: Date,
         ticket: Int
     ) async {
         guard let outbox = client.graph.outbox else {
@@ -310,7 +415,8 @@ final class MapModel {
                 role: role,
                 latitude: latitude,
                 longitude: longitude,
-                accuracy: accuracy
+                accuracy: accuracy,
+                at: time
             )
             guard ticket == generation else { return }
             switch outcome {
@@ -331,10 +437,12 @@ final class MapModel {
         role: String,
         latitude: Double,
         longitude: Double,
-        accuracy: Double
+        accuracy: Double,
+        at time: Date
     ) async throws -> PingEnqueue {
         let existing = try await outbox.operations()
-        var date = client.graph.clock.now()
+        // The fix's own time, so a sample from a dead zone keeps the moment the runner was there.
+        var date = time
         let pending = existing.compactMap { operation -> Date? in
             guard operation.roomId == roomId, operation.type == "ping", operation.status == "pending",
                   let recorded = operation.recordedAt else {
@@ -372,12 +480,26 @@ final class MapModel {
         return outcome
     }
 
+    /// Sends every queued sample (one batch request per 500) when the phone has service.
+    private func flushBacklog(ticket: Int) async {
+        guard let report = try? await RaceDayAPI.flushOutbox(graph: client.graph, uploadIntervalSeconds: trackingIntervalSeconds),
+              ticket == generation else { return }
+        if report.accepted.isEmpty == false {
+            locationMessage = "Location sent."
+            await refreshRunner(ticket: ticket)
+        }
+    }
+
     private func flushQueuedPing(_ operation: StoredOperation, ticket: Int) async {
         do {
-            let report = try await RaceDayAPI.flushOutbox(graph: client.graph)
+            let report = try await RaceDayAPI.flushOutbox(graph: client.graph, uploadIntervalSeconds: trackingIntervalSeconds)
             guard ticket == generation else { return }
+            if report.rejected.contains(operation.id) {
+                locationMessage = "The server didn't accept that sample. Tracking continues."
+                return
+            }
             let sent = !report.pending.contains(operation.id)
-            locationMessage = sent ? "Location sample queued." : "Offline. Sample queued in the outbox."
+            locationMessage = sent ? "Location sample sent." : "Offline. Sample queued in the outbox."
             if sent {
                 await refreshRunner(ticket: ticket)
             }
@@ -436,15 +558,32 @@ final class MapModel {
         }
     }
 
-    /// Offline or failed reads keep the last ping, which then ages into the stale state.
+    /// Offline or failed reads keep the last ping, path, and ETAs, which then age into the stale state.
     private func refreshRunner(ticket: Int) async {
         guard let roomId else { return }
         if let next = try? await RaceDayAPI.latestPing(graph: client.graph, roomId: roomId) {
             guard ticket == generation else { return }
             runner = next
         }
+        if let next = try? await RaceDayAPI.refreshTrack(graph: client.graph, roomId: roomId, track: track) {
+            guard ticket == generation else { return }
+            track = next
+        }
+        if let next = try? await RaceDayAPI.liveProjection(graph: client.graph, roomId: roomId) {
+            guard ticket == generation else { return }
+            live = next
+        }
         guard ticket == generation else { return }
+        if trackingActive, TrackingSession.shouldAutoStop(live) {
+            stopTracking()
+            locationMessage = "Finish crossed. Tracking stopped."
+        }
         reproject(follow: aidFollow, selected: aidIndex)
+    }
+
+    /// The runner's path for the map, oldest first.
+    var trackCoordinates: [CLLocationCoordinate2D] {
+        track.points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
     }
 
     private func refreshMapMessage() {
@@ -516,11 +655,9 @@ final class MapModel {
             follow: follow,
             elevation: elevation
         )
-        readout = RaceDayReadouts.make(
-            sheet: schedule,
-            checkpoints: courseCheckpoints,
-            runner: runner,
-            now: now
+        readout = RaceDayReadouts.withLive(
+            RaceDayReadouts.make(sheet: schedule, checkpoints: courseCheckpoints, runner: runner, now: now),
+            live: live
         )
         aidPages = projection.pages
         aidLiveNextIndex = projection.liveNextIndex
@@ -590,62 +727,5 @@ private enum LocationTimestamp {
         plain.formatOptions = [.withInternetDateTime]
         plain.timeZone = TimeZone(secondsFromGMT: 0)
         return plain.date(from: value)
-    }
-}
-
-@MainActor
-final class WhenInUseLocator: NSObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    private var armed = false
-    var onSample: (@MainActor (Double, Double, Double) -> Void)?
-    var onDenied: (@MainActor () -> Void)?
-
-    override init() {
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 25
-    }
-
-    func request() {
-        armed = true
-        apply(manager.authorizationStatus)
-    }
-
-    func stop() {
-        armed = false
-        manager.stopUpdatingLocation()
-    }
-
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        Task { @MainActor in
-            self.apply(status)
-        }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        let latitude = location.coordinate.latitude
-        let longitude = location.coordinate.longitude
-        let accuracy = location.horizontalAccuracy
-        Task { @MainActor in
-            self.onSample?(latitude, longitude, accuracy)
-        }
-    }
-
-    private func apply(_ status: CLAuthorizationStatus) {
-        guard armed else { return }
-        switch status {
-        case .authorizedAlways, .authorizedWhenInUse:
-            manager.startUpdatingLocation()
-        case .denied, .restricted:
-            manager.stopUpdatingLocation()
-            onDenied?()
-        case .notDetermined:
-            manager.requestWhenInUseAuthorization()
-        @unknown default:
-            manager.requestWhenInUseAuthorization()
-        }
     }
 }

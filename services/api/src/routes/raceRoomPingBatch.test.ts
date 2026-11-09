@@ -266,3 +266,34 @@ test("the track pages with after and nextCursor, and includes single pings", asy
   assert.equal((await readTrack(app, roomId, token, "?after=yesterday")).statusCode, 400);
   await app.close();
 });
+
+test("crossing the finish records one finished effort with its stops", async () => {
+  const { listFinishedEfforts, resetFinishedEffortsForTests } = await import("../lib/finishedEffortStore.js");
+  resetFinishedEffortsForTests();
+  const app = buildApp();
+  await app.ready();
+  const token = app.jwt.sign(buildClaims("owner-user"));
+  const roomId = await createPaidActiveRoom(app, token);
+  // Walk the ~1.1 km course start → finish, then past it again (no second record).
+  const end = Date.now() - 60_000;
+  const points = Array.from({ length: 12 }, (_, i) => ({
+    latitude: 42.0 + i * 0.001,
+    longitude: -70.0,
+    recordedAt: new Date(end - (11 - i) * 60_000).toISOString()
+  }));
+  const body = (await postBatch(app, roomId, token, { points })).json() as AthletePingBatchResponse;
+  assert.equal(body.acceptedCount, 12);
+  const efforts = (await listFinishedEfforts()).filter((e) => e.roomId === roomId);
+  assert.equal(efforts.length, 1);
+  assert.equal(efforts[0]!.athleteUserId, "owner-user");
+  assert.ok(efforts[0]!.actualFinishSeconds > 0);
+  assert.equal(efforts[0]!.slowdownSlope, undefined, "a 1 km course is too short to measure slowdown");
+  await postBatch(app, roomId, token, { points: [{ latitude: 42.0115, longitude: -70.0, recordedAt: new Date().toISOString() }] });
+  assert.equal((await listFinishedEfforts()).filter((e) => e.roomId === roomId).length, 1);
+  // The finished race also becomes CrewCue course history (one effort) for later rooms.
+  const { getCourseHistoryEvents } = await import("../lib/courseHistory/store.js");
+  const [history] = await getCourseHistoryEvents([`crewcue:${roomId}`]);
+  assert.equal(history?.usage, "product");
+  assert.equal(history?.event.efforts.length, 1);
+  await app.close();
+});

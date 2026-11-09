@@ -71,6 +71,33 @@ const ROOM_ATHLETE_PINGS_DDL = `
   );
 `;
 
+/** Mirrors db/migrations/0016_finished_efforts.sql (see finishedEffortStore.ts). */
+const FINISHED_EFFORTS_DDL = `
+  CREATE TABLE IF NOT EXISTS finished_efforts (
+    room_id TEXT PRIMARY KEY,
+    athlete_user_id TEXT NOT NULL,
+    finished_at TIMESTAMPTZ NOT NULL,
+    payload JSONB NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS finished_efforts_by_athlete ON finished_efforts (athlete_user_id);
+`;
+
+/** Mirrors db/migrations/0017_course_history.sql (see courseHistory/store.ts). */
+const COURSE_HISTORY_DDL = `
+  CREATE TABLE IF NOT EXISTS course_history_events (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    usage TEXT NOT NULL CHECK (usage IN ('product', 'backtest_only')),
+    name TEXT NOT NULL,
+    start_at TIMESTAMPTZ NOT NULL,
+    imported_at TIMESTAMPTZ NOT NULL,
+    payload JSONB NOT NULL,
+    UNIQUE (source, source_event_id)
+  );
+  CREATE INDEX IF NOT EXISTS course_history_events_by_usage ON course_history_events (usage);
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -204,6 +231,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
       CREATE INDEX IF NOT EXISTS http_idempotency_expires_at_idx ON http_idempotency (expires_at);
     `);
     await client.query(ROOM_ATHLETE_PINGS_DDL);
+    await client.query(FINISHED_EFFORTS_DDL);
+    await client.query(COURSE_HISTORY_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -225,7 +254,9 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "platform_domain_events",
           "race_room_snapshots",
           "task_board_snapshots",
-          "room_athlete_pings"
+          "room_athlete_pings",
+          "finished_efforts",
+          "course_history_events"
         ]
       }
     },
@@ -393,6 +424,17 @@ export async function loadRaceRoomInvite(token: string): Promise<RaceRoomInvite 
     [token]
   );
   return result.rows[0]?.payload;
+}
+
+export async function loadRaceRoomInvitesForRoom(roomId: string): Promise<RaceRoomInvite[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ payload: RaceRoomInvite }>(
+    "SELECT payload FROM race_room_invites_json WHERE room_id = $1",
+    [roomId]
+  );
+  return result.rows.map((row) => row.payload);
 }
 
 export type PersistedRaceRoomSnapshot = {

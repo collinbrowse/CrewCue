@@ -1,0 +1,18 @@
+{
+  "id": "live-eta",
+  "platform": "android",
+  "entry": "crewcue://dev/live-eta",
+  "device": "crewcue_api_35 emulator (API 35), debug APK",
+  "date": "2026-11-04",
+  "commit": "claude/apps-runner-tracking on 50daaac (PR 8 branch, built from the working tree before commit)",
+  "session": "Dev session against the local memory API (port 3001) behind a switchable proxy on 3000 that drops every connection to simulate a dead zone. Race seeded with the 50K fixture course started 2 h earlier and a 2 h backlog of 40 samples uploaded in one batch; a second race with no pings for the empty states.",
+  "action": "Crew opened crewcue://dev/live-eta on the seeded race (last ping 15 min old) and on the race with no pings.",
+  "checked": {
+    "Success": "'Finish ETA 12:31 PM · old ping'; Aid 2 'Live ETA (old ping) 9:27 AM', 'PLAN 9:33 AM · OLD PING'.",
+    "Empty": "No pings: no crewcue.live-eta row, planned times only.",
+    "Error": "Not separately forced; failed reads keep the last ETAs.",
+    "Offline": "Projection degraded (stale ping): ETAs shown and marked 'old ping'.",
+    "Accessibility labels": "crewcue.live-eta, crewcue.live-eta.current, crewcue.schedule-sheet"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

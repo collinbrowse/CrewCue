@@ -22,6 +22,9 @@ import {
   PLAN_LOG_SIGMA,
   SLOWDOWN_SLOPE_DEFAULT
 } from "../../projectionTuning.js";
+import { personalSlowdownSlope, type SlowdownObservation } from "../../slowdownShrinkage.js";
+
+export type PlanBranch = keyof typeof PLAN_LOG_SIGMA;
 
 export type RunnerProfile = {
   /**
@@ -55,6 +58,8 @@ export type RunnerProfile = {
   slowdownSlope: number;
   /** Expected log-error of a plan built from this profile (live trust uses it). */
   planLogSigma: number;
+  /** Which branch built the profile; finished races are scored against it. */
+  planBranch: PlanBranch;
 };
 
 function usableHistory(history: ActivityHistoryRef[]): ActivityHistoryRef[] {
@@ -140,6 +145,10 @@ export function coldStartGapSecondsPerMeter(): number {
 export function buildRunnerProfile(input: {
   history: ActivityHistoryRef[];
   courseDistanceMeters: number;
+  /** The runner's slowdown measured in CrewCue races they finished (history rows add their own). */
+  slowdownObservations?: SlowdownObservation[];
+  /** Measured σ for branches with enough finished rooms; replaces PLAN_LOG_SIGMA for them. */
+  planLogSigmaByBranch?: Partial<Record<PlanBranch, number>>;
 }): RunnerProfile {
   const usable = usableHistory(input.history);
   const similar = similarHistory(usable, input.courseDistanceMeters);
@@ -150,10 +159,10 @@ export function buildRunnerProfile(input: {
   let explanation: string;
   let gradeCostBlend: number;
   let enduranceFactor: number;
-  let planLogSigma: number;
+  let planBranch: PlanBranch;
 
   if (usable.length === 0) {
-    planLogSigma = PLAN_LOG_SIGMA.coldStart;
+    planBranch = "coldStart";
     coldStart = true;
     gradeCostBlend = GRADE_COST_BLEND_COLD_START;
     gapSecondsPerMeter = coldStartGapSecondsPerMeter();
@@ -161,7 +170,7 @@ export function buildRunnerProfile(input: {
     explanation =
       "Cold start: grade-adjusted baseline 10:00/mi with default terrain/fatigue coefficients. Upload similar history for a tighter plan.";
   } else if (similar.length > 0) {
-    planLogSigma = PLAN_LOG_SIGMA.similarHistory;
+    planBranch = "similarHistory";
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = flatEquivalentSecondsPerMeter(similar);
@@ -173,7 +182,7 @@ export function buildRunnerProfile(input: {
         ? `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} in the similarity window (flat-equivalent GAP with full grade model); ${excluded} outside the window excluded. Default fatigue coefficients.`
         : `History-backed pace from ${similar.length} activit${similar.length === 1 ? "y" : "ies"} (flat-equivalent GAP with full grade model). Default fatigue coefficients.`;
   } else {
-    planLogSigma = PLAN_LOG_SIGMA.coarseHistory;
+    planBranch = "coarseHistory";
     coldStart = false;
     gradeCostBlend = GRADE_COST_BLEND_HISTORY;
     gapSecondsPerMeter = flatEquivalentSecondsPerMeter(usable);
@@ -183,6 +192,22 @@ export function buildRunnerProfile(input: {
       "History present but outside the similarity window; flat-equivalent GAP from available summaries (coarse). Default fatigue coefficients.";
   }
 
+  const planLogSigma = input.planLogSigmaByBranch?.[planBranch] ?? PLAN_LOG_SIGMA[planBranch];
+  const tuned = isProjectionTunedConstantsEnabled();
+  // The runner's own slowdown: their finished CrewCue races plus timed uploads of 30 km or more,
+  // shrunk toward the population default. Off (0) unless the tuned constants are on.
+  const observations: SlowdownObservation[] = [
+    ...(input.slowdownObservations ?? []),
+    ...input.history.flatMap((row) =>
+      typeof row.slowdownSlope === "number" && typeof row.distanceMeters === "number"
+        ? [{ slope: row.slowdownSlope, distanceMeters: row.distanceMeters }]
+        : []
+    )
+  ];
+  const personal = personalSlowdownSlope(observations);
+  if (tuned && personal.basedOn > 0) {
+    explanation += ` Late-race slowdown learned from ${personal.basedOn} race${personal.basedOn === 1 ? "" : "s"} you finished or uploaded.`;
+  }
   const vBaseMps = 1 / gapSecondsPerMeter;
   return {
     gapSecondsPerMeter,
@@ -195,7 +220,8 @@ export function buildRunnerProfile(input: {
     coldStart,
     ...(historyRefIds !== undefined ? { historyRefIds } : {}),
     explanation,
-    slowdownSlope: isProjectionTunedConstantsEnabled() ? SLOWDOWN_SLOPE_DEFAULT : 0,
-    planLogSigma
+    slowdownSlope: tuned ? (personal.basedOn > 0 ? personal.slope : SLOWDOWN_SLOPE_DEFAULT) : 0,
+    planLogSigma,
+    planBranch
   };
 }

@@ -3,6 +3,8 @@
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
  * bodies still work with a sparse polyline from checkpoint centers.
  */
+import { cohortForCourse } from "../lib/courseHistory/resolve.js";
+import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -28,6 +30,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
+import type { RaceRoom } from "@crewcue/contracts";
 import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -127,12 +130,14 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
     let routeMetricPoints: CourseMetricPoint[] | null = null;
     let courseLengthMeters: number | undefined;
+    let linkedRoom: RaceRoom | undefined;
 
     if (parsedBody.data.roomId) {
       const room = await getRaceRoom(parsedBody.data.roomId);
       if (!room) {
         return reply.code(404).send({ error: "Race room not found", code: "room_not_found" });
       }
+      linkedRoom = room;
       const membership = room.memberships.find((m) => m.userId === callerUserId);
       if (!membership) {
         return reply.code(403).send({ error: "Forbidden" });
@@ -195,10 +200,24 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     }
 
     try {
+      // The runner's own finished CrewCue races, and plan σ measured across everyone's.
+      const finished = await listFinishedEfforts();
+      const slowdownObservations = finished
+        .filter((e) => e.athleteUserId === athleteUserId && typeof e.slowdownSlope === "number")
+        .map((e) => ({ slope: e.slowdownSlope!, distanceMeters: e.courseLengthMeters }));
+      const planLogSigmaByBranch = Object.fromEntries(
+        Object.entries(measuredPlanLogSigma(finished)).map(([branch, m]) => [branch, m!.sigma])
+      );
+      const courseHistoryCohort = linkedRoom?.course
+        ? await cohortForCourse(linkedRoom.course, linkedRoom.courseHistoryEventIds).catch(() => null)
+        : null;
       const artifacts = estimatePacingMicroModelWithArtifacts({
+        ...(courseHistoryCohort ? { courseHistoryCohort } : {}),
         raceStartAt,
         checkpoints,
         history: historyResult.history,
+        slowdownObservations,
+        planLogSigmaByBranch,
         seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED,
         routeMetricPoints,
         courseLengthMeters

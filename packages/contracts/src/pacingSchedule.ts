@@ -201,6 +201,11 @@ export interface ActivityHistoryRef {
   distanceMeters?: number;
   elapsedSeconds?: number;
   elevationGainMeters?: number;
+  /**
+   * The runner's late-race slowdown measured from this activity's timed track (uploads of 30 km
+   * or more). Feeds the runner's own slowdown in the pace model.
+   */
+  slowdownSlope?: number;
 }
 
 /** Finish (or equivalent) instant for one confidence band. */
@@ -330,6 +335,12 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
       value.elevationGainMeters,
       `${field}.elevationGainMeters`
     );
+  }
+  if (value.slowdownSlope !== undefined) {
+    if (typeof value.slowdownSlope !== "number" || !Number.isFinite(value.slowdownSlope)) {
+      throw new TypeError(`${field}.slowdownSlope must be a finite number`);
+    }
+    ref.slowdownSlope = value.slowdownSlope;
   }
   return ref;
 }

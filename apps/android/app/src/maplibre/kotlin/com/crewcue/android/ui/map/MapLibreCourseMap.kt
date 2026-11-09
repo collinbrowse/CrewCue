@@ -52,6 +52,10 @@ private const val LINE_LAYER = "crewcue-course-line"
 private const val POINT_SOURCE = "crewcue-checkpoints"
 private const val CIRCLE_LAYER = "crewcue-checkpoint-circles"
 private const val TITLE_LAYER = "crewcue-checkpoint-titles"
+private const val TRACK_SOURCE = "crewcue-runner-track"
+private const val TRACK_LAYER = "crewcue-runner-track-line"
+private const val RUNNER_SOURCE = "crewcue-runner-position"
+private const val RUNNER_LAYER = "crewcue-runner-position-dot"
 
 object MapLibreBootstrap {
     @JvmStatic
@@ -68,6 +72,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
     override fun Render(
         points: List<MapCheckpoint>,
         line: List<CoursePoint>,
+        track: List<CoursePoint>,
         modifier: Modifier,
         onMapTap: (Double, Double) -> Unit,
         onStyleReady: () -> Unit,
@@ -86,6 +91,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val tilesUnavailable = rememberUpdatedState(onTilesUnavailable)
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
+        val trackState = rememberUpdatedState(track)
         val framed = remember { booleanArrayOf(false) }
         val mapView = remember(context) {
             if (!MapLibre.hasInstance()) {
@@ -117,6 +123,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                     map.setStyle(Style.Builder().fromUri(styleUrl(dark))) { style ->
                         ready.value()
                         runCatching { draw(style, map, lineState.value, pointState.value, framed, paletteState.value) }
+                        runCatching { drawTrack(style, trackState.value, paletteState.value) }
                     }
                 }
             }
@@ -147,6 +154,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                 view.getMapAsync { map ->
                     val style = map.style ?: return@getMapAsync
                     runCatching { draw(style, map, line, points, framed, palette) }
+                    runCatching { drawTrack(style, track, palette) }
                 }
             }
         )
@@ -223,8 +231,58 @@ private fun draw(
     }
 }
 
+/**
+ * The runner's path and current position, over the course. Never moves the camera: a 30-second
+ * refresh must not pull the map away from where the crew member panned it.
+ */
+private fun drawTrack(style: Style, track: List<CoursePoint>, palette: CoursePalette) {
+    val lineJson = if (track.size >= 2) lineGeoJson(track) else EMPTY_COLLECTION
+    val pathSource = style.getSource(TRACK_SOURCE) as? GeoJsonSource
+    if (pathSource == null) {
+        style.addSource(GeoJsonSource(TRACK_SOURCE, lineJson))
+        style.addLayer(
+            LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(
+                PropertyFactory.lineColor(palette.track),
+                PropertyFactory.lineWidth(4f),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round")
+            )
+        )
+    } else {
+        pathSource.setGeoJson(lineJson)
+    }
+    val last = track.lastOrNull()
+    val dotJson = if (last == null) {
+        EMPTY_COLLECTION
+    } else {
+        JSONObject()
+            .put("type", "Feature")
+            .put("properties", JSONObject().put("title", "Runner"))
+            .put("geometry", JSONObject().put("type", "Point").put("coordinates", JSONArray().put(last.longitude).put(last.latitude)))
+            .toString()
+    }
+    val dotSource = style.getSource(RUNNER_SOURCE) as? GeoJsonSource
+    if (dotSource == null) {
+        style.addSource(GeoJsonSource(RUNNER_SOURCE, dotJson))
+        style.addLayer(
+            CircleLayer(RUNNER_LAYER, RUNNER_SOURCE).withProperties(
+                PropertyFactory.circleRadius(9f),
+                PropertyFactory.circleColor(palette.track),
+                PropertyFactory.circleStrokeColor(Color.WHITE),
+                PropertyFactory.circleStrokeWidth(3f)
+            )
+        )
+    } else {
+        dotSource.setGeoJson(dotJson)
+    }
+}
+
+private const val EMPTY_COLLECTION = """{"type":"FeatureCollection","features":[]}"""
+
 /** Course colors on the map: Night Trail primary line, white markers with dark labels. */
 private class CoursePalette(dark: Boolean) {
+    /** The runner's path: the theme's secondary, so it reads apart from the course line. */
+    val track = Color.parseColor(if (dark) "#ADC6FF" else "#0058BE")
     val line = Color.parseColor(if (dark) "#C9BFFF" else "#5440B9")
     val marker = Color.parseColor(if (dark) "#20201B" else "#FFFFFF")
     val label = Color.parseColor(if (dark) "#E5E2DA" else "#1C1C17")
