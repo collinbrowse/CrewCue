@@ -230,7 +230,12 @@ private actor TrackServer: HTTPTransport {
 
 // MARK: Live ETAs
 
-private func core(etas: [(String, Double)], finishCrossed: Bool = false) -> RaceRoomProjectionCore {
+private func core(
+    etas: [(String, Double)],
+    windows: [String: (Double, Double)] = [:],
+    finishWindow: ArrivalWindowClock? = nil,
+    finishCrossed: Bool = false
+) -> RaceRoomProjectionCore {
     func split(_ id: String, _ meters: Double, crossed: String?) -> RaceCheckpointSplitRow {
         RaceCheckpointSplitRow(checkpointId: id, distanceMetersFromStart: meters, crossedAtRecordedAt: crossed,
                                plannedElapsedSecondsAtCross: meters, plannedStopSeconds: 0, visits: [])
@@ -250,8 +255,12 @@ private func core(etas: [(String, Double)], finishCrossed: Bool = false) -> Race
         ],
         stoppageSummary: CheckpointStoppageSummary(totalPlannedStopSeconds: 0, totalActualStopSeconds: 0, remainingPlannedStopSeconds: 0),
         remainingCheckpointEtas: etas.map {
-            RemainingCheckpointEta(checkpointId: $0.0, liveProjectedElapsedSeconds: $0.1, frozenPlanElapsedSeconds: $0.1, deltaSecondsVsFrozenPlan: 0)
-        }
+            RemainingCheckpointEta(
+                checkpointId: $0.0, liveProjectedElapsedSeconds: $0.1, frozenPlanElapsedSeconds: $0.1, deltaSecondsVsFrozenPlan: 0,
+                window: windows[$0.0].map { ArrivalWindowElapsed(earliestElapsedSeconds: $0.0, latestElapsedSeconds: $0.1) }
+            )
+        },
+        etaFinishWindow: finishWindow
     )
 }
 
@@ -290,6 +299,36 @@ private func core(etas: [(String, Double)], finishCrossed: Bool = false) -> Race
     let expected: [String?] = [nil, iso(5400), iso(11_000)]
     #expect(arrivals == expected)
     #expect(rows.allSatisfy { $0.arrivalWindowStartAt == nil && $0.arrivalWindowEndAt == nil })
+}
+
+@Test func serverWindowsMapOntoTimelineRowsAndTheFinishReadout() throws {
+    let live = try #require(LiveProjection(
+        core: core(etas: [("aid", 5400), ("finish", 11_000)], windows: ["aid": (4800, 6300), "finish": (9900, 12_600)]),
+        timeliness: nil
+    ))
+    #expect(live.arrivalWindows["aid"] == base.addingTimeInterval(4800)...base.addingTimeInterval(6300))
+    #expect(live.finishWindow == base.addingTimeInterval(9900)...base.addingTimeInterval(12_600))
+    let checkpoints: [AidStationCheckpoint] = [
+        AidStationCheckpoint(id: "start", title: "Start", latitude: 40, longitude: -105, distanceMetersFromStart: 0),
+        AidStationCheckpoint(id: "aid", title: "Aid", latitude: 40.09, longitude: -105, distanceMetersFromStart: 10_000),
+        AidStationCheckpoint(id: "finish", title: "Finish", latitude: 40.18, longitude: -105, distanceMetersFromStart: 20_000)
+    ]
+    let rows = RaceDayReadouts.timeline(sheet: nil, checkpoints: checkpoints, progressMeters: 6000, live: live)
+    #expect(rows[1].arrivalWindowStartAt == iso(4800) && rows[1].arrivalWindowEndAt == iso(6300))
+    let readout = RaceDayReadouts.withLive(
+        RaceDayReadouts.make(sheet: nil, checkpoints: [], progressMeters: 6000, now: base, lastPingAt: nil),
+        live: live
+    )
+    #expect(readout.finishWindowStartAt == iso(9900) && readout.finishWindowEndAt == iso(12_600))
+
+    // A window only where the server sent one; an inverted one is ignored.
+    let partial = try #require(LiveProjection(core: core(etas: [("aid", 5400), ("finish", 11_000)], windows: ["aid": (7000, 6000)]), timeliness: nil))
+    #expect(partial.arrivalWindows.isEmpty && partial.finishWindow == nil)
+
+    // No finish row: the finish readout uses the server's clock window with its plan finish.
+    let clock = ArrivalWindowClock(earliestIso: iso(10_000), latestIso: iso(12_000))
+    let noRow = try #require(LiveProjection(core: core(etas: [("aid", 5400)], finishWindow: clock), timeliness: nil))
+    #expect(noRow.finishWindow == base.addingTimeInterval(10_000)...base.addingTimeInterval(12_000))
 }
 
 @Test func readoutCarriesTheLiveFinishAndMarksADegradedProjectionStale() throws {
