@@ -138,7 +138,7 @@ public struct LiveProjection: Equatable, Sendable {
     public var finishEtaAt: Date?
     /// Live arrival per checkpoint still ahead.
     public var arrivals: [String: Date]
-    /// Arrival windows per checkpoint (filled once the server sends them; PR 5).
+    /// Arrival windows per checkpoint, where the server sends one (10th–90th percentile).
     public var arrivalWindows: [String: ClosedRange<Date>]
     public var finishWindow: ClosedRange<Date>?
     /// The server marked the projection `degraded` (its last ping is older than the stale threshold).
@@ -174,9 +174,15 @@ public struct LiveProjection: Equatable, Sendable {
               let asOf = ScheduleFormat.parseISO8601(core.asOfRecordedAt) else { return nil }
         let start = core.checkpointSplits.first?.crossedAtRecordedAt.flatMap(ScheduleFormat.parseISO8601)
         var arrivals: [String: Date] = [:]
+        var windows: [String: ClosedRange<Date>] = [:]
         if let start {
             for eta in core.remainingCheckpointEtas ?? [] where eta.liveProjectedElapsedSeconds.isFinite {
                 arrivals[eta.checkpointId] = start.addingTimeInterval(eta.liveProjectedElapsedSeconds)
+                // The server omits a window where its band isn't calibrated; skip malformed ones too.
+                if let w = eta.window, w.earliestElapsedSeconds.isFinite, w.latestElapsedSeconds.isFinite,
+                   w.earliestElapsedSeconds <= w.latestElapsedSeconds {
+                    windows[eta.checkpointId] = start.addingTimeInterval(w.earliestElapsedSeconds)...start.addingTimeInterval(w.latestElapsedSeconds)
+                }
             }
         }
         let finish = core.checkpointSplits.last
@@ -184,10 +190,19 @@ public struct LiveProjection: Equatable, Sendable {
         // server's `etaFinishPlanIso` is the older plan-anchored finish while the live remaining
         // ETAs come from a re-simulation, so prefer the finish checkpoint's live arrival.
         let liveFinish = finish.flatMap { arrivals[$0.checkpointId] }
+        // Same rule for the window: the finish row's window goes with the finish row's arrival.
+        let finishWindow: ClosedRange<Date>? = liveFinish != nil
+            ? finish.flatMap { windows[$0.checkpointId] }
+            : core.etaFinishWindow.flatMap { w in
+                guard let lo = ScheduleFormat.parseISO8601(w.earliestIso), let hi = ScheduleFormat.parseISO8601(w.latestIso), lo <= hi else { return nil }
+                return lo...hi
+            }
         self.init(
             asOfRecordedAt: asOf,
             finishEtaAt: liveFinish ?? ScheduleFormat.parseISO8601(core.etaFinishPlanIso),
             arrivals: arrivals,
+            arrivalWindows: windows,
+            finishWindow: finishWindow,
             degraded: timeliness?.projectionConfidence == "degraded",
             finishCrossed: core.checkpointSplits.count > 1 && finish?.crossedAtRecordedAt != nil
         )
