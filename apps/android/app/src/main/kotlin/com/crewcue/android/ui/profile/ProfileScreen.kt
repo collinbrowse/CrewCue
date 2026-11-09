@@ -178,7 +178,7 @@ fun ProfileScreen(shell: ShellViewModel, modifier: Modifier = Modifier, race: Ma
                     "Create new race",
                     onClick = {
                         val userId = session?.userId.orEmpty()
-                        model.createRace(userId, session?.displayName) { created -> shell.adoptRoom(created) }
+                        model.createRace(userId, session?.displayName) { created -> shell.adoptCreatedRoom(created) }
                     },
                     busy = model.creatingRace
                 )

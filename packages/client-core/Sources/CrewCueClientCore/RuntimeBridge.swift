@@ -1520,13 +1520,13 @@ enum RuntimeCall {
         return nil
     }
 
-    private static func intValue(_ value: Any?) -> Int? {
+    static func intValue(_ value: Any?) -> Int? {
         if let number = value as? NSNumber { return number.intValue }
         if let number = value as? Int { return number }
         return nil
     }
 
-    private static func doubleValue(_ value: Any?) -> Double? {
+    static func doubleValue(_ value: Any?) -> Double? {
         if let number = value as? NSNumber { return number.doubleValue }
         if let number = value as? Double { return number }
         if let number = value as? Int { return Double(number) }

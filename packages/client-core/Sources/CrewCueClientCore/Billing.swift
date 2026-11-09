@@ -317,8 +317,8 @@ enum BillingBridge {
 
     private static func poll(_ object: [String: Any]) -> EntitlementPollPolicy {
         var policy = EntitlementPollPolicy()
-        if let attempts = object["pollAttempts"] as? Int { policy.attempts = attempts }
-        if let interval = object["pollIntervalSeconds"] as? Double { policy.intervalSeconds = interval }
+        if let attempts = RuntimeCall.intValue(object["pollAttempts"]) { policy.attempts = attempts }
+        if let interval = RuntimeCall.doubleValue(object["pollIntervalSeconds"]) { policy.intervalSeconds = interval }
         return policy
     }
 
@@ -331,7 +331,7 @@ enum BillingBridge {
         case "purchased": store = .purchased
         case "cancelled": store = .cancelled
         default:
-            store = .failed(message: object["message"] as? String ?? "Couldn't complete the purchase.", offline: object["offline"] as? Bool ?? false)
+            store = .failed(message: object["message"] as? String ?? "Couldn't complete the purchase.", offline: (object["offline"] as? NSNumber)?.boolValue ?? (object["offline"] as? Bool ?? false))
         }
         let phase = await BillingFlow.complete(graph: graph, roomId: roomId, product: product, store: store, poll: poll(object))
         return json(phase)
@@ -340,7 +340,7 @@ enum BillingBridge {
     static func fakePurchase(graph: ClientGraph, _ object: [String: Any]) async throws -> Any {
         let product = try product(object)
         let roomId = object["roomId"] as? String ?? ""
-        let delay = object["webhookDelaySeconds"] as? Double ?? 0
+        let delay = RuntimeCall.doubleValue(object["webhookDelaySeconds"]) ?? 0
         let store = await FakeStorePurchaser.purchase(graph: graph, roomId: roomId, product: product, webhookDelaySeconds: delay)
         let phase = await BillingFlow.complete(graph: graph, roomId: roomId, product: product, store: store, poll: poll(object))
         return json(phase)

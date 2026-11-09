@@ -35,7 +35,10 @@ object DevRoutes {
         "dev/room-members" to "room-members",
         "dev/strava" to "strava",
         "dev/app-shell" to "app-shell",
-        "dev/loader" to "brand-loader"
+        "dev/loader" to "brand-loader",
+        "dev/billing-purchase" to "billing-purchase",
+        "dev/billing-upgrade" to "billing-upgrade",
+        "dev/billing-redeem" to "billing-redeem"
     )
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */

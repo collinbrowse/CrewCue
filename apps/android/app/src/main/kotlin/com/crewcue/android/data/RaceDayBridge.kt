@@ -8,7 +8,8 @@ import org.json.JSONObject
 
 sealed interface RuntimeResult {
     data class Success(val result: JSONObject) : RuntimeResult
-    data class Failure(val message: String, val offline: Boolean) : RuntimeResult
+    /** [crewLimit]: a join or invite refused because the room's crew tier is full (409 `crew_limit_reached`). */
+    data class Failure(val message: String, val offline: Boolean, val crewLimit: Boolean = false) : RuntimeResult
 }
 
 /**
@@ -298,6 +299,38 @@ class RaceDayBridge(
         put("stoppageSeconds", stoppageSeconds)
     }
 
+    /** `{roomId,isPaid,isUnlimited,crewCount,crewLimit?,hasCrewSeat,offers[],summary}`. Not entitlement-gated. */
+    fun billing(roomId: String): RuntimeResult = call("billing") { put("roomId", roomId) }
+
+    /**
+     * After a store purchase: maps [store] ("purchased" | "cancelled" | "failed") and polls the room's
+     * billing until the server unlocks it. Result `{phase, message, code?, billing?}`.
+     */
+    fun completePurchase(
+        roomId: String,
+        product: String,
+        store: String,
+        message: String? = null,
+        offline: Boolean = false,
+        pollAttempts: Int? = null
+    ): RuntimeResult = call("completePurchase") {
+        put("roomId", roomId)
+        put("product", product)
+        put("store", store)
+        if (message != null) put("message", message)
+        if (offline) put("offline", true)
+        if (pollAttempts != null) put("pollAttempts", pollAttempts)
+    }
+
+    /** Debug builds: the fake store (POST /billing/dev-purchase) plus the same poll as [completePurchase]. */
+    fun fakePurchase(roomId: String, product: String, webhookDelaySeconds: Double, pollAttempts: Int? = null): RuntimeResult =
+        call("fakePurchase") {
+            put("roomId", roomId)
+            put("product", product)
+            if (webhookDelaySeconds > 0) put("webhookDelaySeconds", webhookDelaySeconds)
+            if (pollAttempts != null) put("pollAttempts", pollAttempts)
+        }
+
     private fun call(op: String, fill: JSONObject.() -> Unit = {}): RuntimeResult {
         val session = sessionStore.current()
         val request = JSONObject()
@@ -324,7 +357,11 @@ class RaceDayBridge(
             }
             val message = obj.optString("message").ifBlank { "Request failed" }
             logger.log("$op failed: $message")
-            return RuntimeResult.Failure(message, offline = isOffline(message))
+            return RuntimeResult.Failure(
+                message,
+                offline = obj.optBoolean("offline") || isOffline(message),
+                crewLimit = obj.optBoolean("crewLimit")
+            )
         }
         val result = obj.opt("result")
         val json = when (result) {

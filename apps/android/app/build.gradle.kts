@@ -48,6 +48,9 @@ val releaseApiBaseUrl = crewcueProp("crewcue.release.apiBaseUrl").trimEnd('/')
 val releaseAuth0Domain = crewcueProp("crewcue.release.auth0Domain").removePrefix("https://").trimEnd('/')
 val releaseAuth0ClientId = crewcueProp("crewcue.release.auth0ClientId")
 val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
+// RevenueCat public Android SDK key (release.yml passes vars.CREWCUE_REVENUECAT_ANDROID_KEY). Empty in a
+// release build means purchases fail with "Purchases aren't set up in this build."
+val releaseRevenueCatApiKey = crewcueProp("crewcue.release.revenuecatApiKey")
 
 android {
     namespace = "com.crewcue.android"
@@ -73,6 +76,8 @@ android {
         buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(auth0Audience))
         buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(apiBaseUrl))
         buildConfigField("String", "MAPTILER_KEY", crewcueQuoted(crewcueLocal("crewcue_maptiler_key")))
+        // Debug builds with no key buy through the fake purchaser (POST /billing/dev-purchase).
+        buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(crewcueLocal("crewcue_revenuecat_api_key")))
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
@@ -100,6 +105,7 @@ android {
             buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(releaseAuth0ClientId))
             buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(releaseAuth0Audience))
             buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(releaseApiBaseUrl))
+            buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(releaseRevenueCatApiKey))
             manifestPlaceholders["auth0Domain"] = releaseAuth0Domain.ifBlank { "auth0.invalid" }
             isMinifyEnabled = true
             isShrinkResources = true
@@ -187,6 +193,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("com.auth0.android:auth0:4.2.0")
+    // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
+    implementation("com.revenuecat.purchases:purchases:9.29.1")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
@@ -195,6 +203,8 @@ dependencies {
     }
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM tests that parse client-core bridge JSON (android.jar only has stubs).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
