@@ -98,7 +98,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Logging of PII | done (this PR), partial | Query strings stripped and auth headers redacted. User `sub` still appears in `ping_decision` and analytics logs. There are no lat/lng log calls. | Decide whether `sub` is acceptable in logs. Retention: #568 |
 | Account deletion and data export | gap, **release blocker** | no `/me` route | #560 |
 | Data retention | gap | Pings and activity history kept indefinitely (`room_ws2_runtime_json`) | #568 |
-| Crash and error tracking | gap | OTel traces only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`src/telemetry.ts`). No process-level handlers. | #564 |
+| Crash and error tracking | done (#564), needs-user DSN | Sentry (ADR 0010), on only when `SENTRY_DSN` is set (`src/lib/errorReporting.ts`). Reports 5xx and process crashes; `uncaughtException` / `unhandledRejection` log, flush and exit 1. Events are scrubbed (`src/lib/errorScrub.ts`): no query strings, auth headers, bodies, tokens, emails, lat/lng or user. OTel traces unchanged. | Set `SENTRY_DSN` (and optionally `SENTRY_ENVIRONMENT`) on the Railway API service |
 | Push delivery | gap | `lib/chatPushDispatch.ts` logs only | #563 |
 | Secrets in repo | done | Only `.env*.example` tracked. Strava tokens are stored in plaintext at rest. | #567 |
 | Persistence mode | gap | `PERSISTENCE_MODE` defaults to `memory` (`lib/roomPersistence.ts`) | #566 (guard, after confirming the staging env) |

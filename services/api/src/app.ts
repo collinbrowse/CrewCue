@@ -3,6 +3,7 @@ import { authPlugin } from "./plugins/auth.js";
 import { auditPlugin } from "./plugins/audit.js";
 import { rateLimitPlugin } from "./plugins/rateLimit.js";
 import { logSafeUrl } from "./lib/logSafeUrl.js";
+import { registerErrorReporting } from "./lib/errorReporting.js";
 import { healthRoutes } from "./routes/health.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
 import { chatRoutes } from "./routes/chatRoutes.js";
@@ -43,6 +44,7 @@ export function buildApp() {
     bodyLimit: BODY_LIMIT_BYTES
   });
 
+  registerErrorReporting(app);
   app.register(authPlugin);
   app.register(auditPlugin);
   app.register(rateLimitPlugin);
