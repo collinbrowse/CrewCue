@@ -1,5 +1,5 @@
 /**
- * Chat photo storage (ADR 0010).
+ * Chat photo storage (ADR 0011).
  *
  * Production: a Railway (S3-compatible) bucket. Clients read photos through short-lived
  * presigned GET URLs; the API uploads and deletes with presigned PUT/DELETE.

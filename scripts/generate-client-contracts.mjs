@@ -51,7 +51,8 @@ const roots = [
   "ChatMessagePage",
   "ChatSendMessageResponse",
   "ChatPhotoUploadResponse",
-  "RaceRoomInvite"
+  "RaceRoomInvite",
+  "AccountDeletionResult"
 ];
 const skipProperties = new Set([
   "courseGpxXml",
