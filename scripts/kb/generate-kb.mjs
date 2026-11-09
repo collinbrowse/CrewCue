@@ -329,14 +329,28 @@ pages["kb.json"] =
     2
   ) + "\n";
 
+/**
+ * The drift check ignores line numbers and trailing size/count cells, so editing inside a big
+ * file does not fail CI. Structural changes (a route, guard, table, column, env var, module,
+ * signal row) still do. The post-merge refresh rewrites the exact numbers.
+ */
+export function normalizeForCheck(text) {
+  return text
+    .replace(/(:|#L)\d+\b/g, "")
+    .replace(/"line": \d+/g, '"line": 0')
+    .replace(/"(unguarded|roomScopedIdentityOnly|large|timers|untestedLib|parityGaps)": \d+/g, '"$1": 0')
+    .replace(/\| \d+ \|$/gm, "| n |");
+}
+
 const stale = [];
 if (!checkMode) fs.mkdirSync(outDir, { recursive: true });
 for (const [name, content] of Object.entries(pages)) {
   const target = path.join(outDir, name);
   const current = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : null;
   if (current === content) continue;
-  if (checkMode) stale.push(name);
-  else fs.writeFileSync(target, content);
+  if (checkMode) {
+    if (current === null || normalizeForCheck(current) !== normalizeForCheck(content)) stale.push(name);
+  } else fs.writeFileSync(target, content);
 }
 if (!checkMode) {
   const known = new Set(Object.keys(pages));

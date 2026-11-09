@@ -84,6 +84,8 @@ test("imports, env reads, swift types, markers, timers", () => {
     "PORT",
     "X"
   ]);
+  assert.deepEqual(parseEnvReads("function f(env: NodeJS.ProcessEnv = process.env) { return env.AUTH0_MGMT_DOMAIN; }"), ["AUTH0_MGMT_DOMAIN"]);
+  assert.deepEqual(parseEnvReads("const env = loadConfig(); env.NOT_PROCESS"), []);
   assert.deepEqual(parseSwiftTypes("public struct A {}\n@MainActor final class B {}\n  struct Nested {}\nenum C {}"), ["A", "B", "C"]);
   assert.deepEqual(countMarkers("// TODO: a\n// FIXME(x)\n// todo lower"), { TODO: 1, FIXME: 1, HACK: 0, total: 2 });
   assert.deepEqual(findTimers("x\nsetInterval(fn, 1000)"), [{ kind: "setInterval", line: 2 }]);

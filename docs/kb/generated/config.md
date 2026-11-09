@@ -3,13 +3,16 @@
 
 Environment variables read by the API and shared packages, and where. Values live in Railway; templates in `*.env.example`. Secret-shaped names are marked so a reviewer notices a new one.
 
-**27 variables.**
+**30 variables.**
 
 | Variable | Secret-shaped | Read in |
 | --- | --- | --- |
-| `AUTH0_AUDIENCE` |  | [services/api/src/lib/auth0Jwt.ts](../../../services/api/src/lib/auth0Jwt.ts), [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
+| `AUTH0_AUDIENCE` |  | [services/api/src/lib/auth0Jwt.ts](../../../services/api/src/lib/auth0Jwt.ts), [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `AUTH0_CLAIM_NAMESPACE` |  | [services/api/src/plugins/auth.ts](../../../services/api/src/plugins/auth.ts) |
-| `AUTH0_ISSUER` |  | [services/api/src/lib/auth0Jwt.ts](../../../services/api/src/lib/auth0Jwt.ts) |
+| `AUTH0_ISSUER` |  | [services/api/src/lib/auth0Jwt.ts](../../../services/api/src/lib/auth0Jwt.ts), [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts) |
+| `AUTH0_MGMT_CLIENT_ID` |  | [services/api/src/lib/auth0Management.ts](../../../services/api/src/lib/auth0Management.ts) |
+| `AUTH0_MGMT_CLIENT_SECRET` | yes | [services/api/src/lib/auth0Management.ts](../../../services/api/src/lib/auth0Management.ts) |
+| `AUTH0_MGMT_DOMAIN` |  | [services/api/src/lib/auth0Management.ts](../../../services/api/src/lib/auth0Management.ts) |
 | `AUTOMATION_ALLOWED_AZP` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `AUTOMATION_ALLOWED_SUB` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `AUTOMATION_AUTH_ENABLED` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
@@ -19,8 +22,8 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `DATABASE_URL` | yes | [services/api/scripts/apply-sql-migrations.mjs](../../../services/api/scripts/apply-sql-migrations.mjs), [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) |
 | `HOST` |  | [services/api/src/server.ts](../../../services/api/src/server.ts) |
 | `INIT_CWD` |  | [services/api/scripts/pacing-eval-import.ts](../../../services/api/scripts/pacing-eval-import.ts) |
-| `JWT_SECRET` | yes | [services/api/src/plugins/auth.ts](../../../services/api/src/plugins/auth.ts) |
-| `NODE_ENV` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
+| `JWT_SECRET` | yes | [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/plugins/auth.ts](../../../services/api/src/plugins/auth.ts) |
+| `NODE_ENV` |  | [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `OSRM_ROUTER_BASE_URL` |  | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |  | [services/api/src/telemetry.ts](../../../services/api/src/telemetry.ts) |
 | `PERSISTENCE_MODE` |  | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) |
@@ -39,6 +42,9 @@ Environment variables read by the API and shared packages, and where. Values liv
 
 Templates: [.env.example](../../../.env.example), [.env.local.example](../../../.env.local.example), [.env.staging.example](../../../.env.staging.example).
 
+- `AUTH0_MGMT_CLIENT_ID`
+- `AUTH0_MGMT_CLIENT_SECRET`
+- `AUTH0_MGMT_DOMAIN`
 - `AUTOMATION_ALLOWED_AZP`
 - `AUTOMATION_ALLOWED_SUB`
 - `AUTOMATION_AUTH_ENABLED`

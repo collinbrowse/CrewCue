@@ -145,9 +145,12 @@ export function parseImports(text) {
   return specs;
 }
 
-/** `process.env.X`, `process.env["X"]`, and `const { X } = process.env`. */
+/** `process.env.X`, `process.env["X"]`, `const { X } = process.env`, and `env.X` in files that pass process.env around. */
 export function parseEnvReads(text) {
   const names = new Set();
+  if (/process\.env\b|NodeJS\.ProcessEnv/.test(text)) {
+    for (const m of text.matchAll(/\benv\.([A-Z][A-Z0-9_]*)\b/g)) names.add(m[1]);
+  }
   for (const m of text.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) names.add(m[1]);
   for (const m of text.matchAll(/process\.env\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g)) names.add(m[1]);
   for (const m of text.matchAll(/\{([^}]*)\}\s*=\s*process\.env\b/g)) {
