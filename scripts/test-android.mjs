@@ -23,14 +23,16 @@ if (!env.ANDROID_SERIAL && !sharedDevice()) {
     console.error(`test:android: Android is in use by ${turn.owner?.checkout}. Retry later; never use its emulator.`);
     process.exit(1);
   }
-  env.ANDROID_SERIAL = androidSerial(repoRoot);
+  // Derived from the worktree name, not read from the environment, so it is safe to print.
+  const serial = androidSerial(repoRoot);
+  env.ANDROID_SERIAL = serial;
   const devices = spawnSync("adb", ["devices"], { encoding: "utf8", env }).stdout ?? "";
-  if (!devices.split("\n").some((line) => line.trim().startsWith(`${env.ANDROID_SERIAL}\t`) && line.trim().endsWith("device"))) {
-    console.error(`test:android: this checkout's emulator ${env.ANDROID_SERIAL} is not running. Start it with npm run agent:android:ready.`);
+  if (!devices.split("\n").some((line) => line.trim().startsWith(`${serial}\t`) && line.trim().endsWith("device"))) {
+    console.error(`test:android: this checkout's emulator ${serial} is not running. Start it with npm run agent:android:ready.`);
     process.exit(1);
   }
+  console.log(`test:android: ${serial}`);
 }
-if (env.ANDROID_SERIAL) console.log(`test:android: ${env.ANDROID_SERIAL}`);
 const result = spawnSync(
   path.join(repoRoot, "apps/android/gradlew"),
   ["-p", path.join(repoRoot, "apps/android"), ":app:connectedDebugAndroidTest"],
