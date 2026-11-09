@@ -3,7 +3,7 @@
 
 Every Fastify route in `services/api/src/routes`, with the auth guard the generator found in the handler. Guards are detected by pattern, so `none detected` means *look*, not *open*: health checks and join previews are public on purpose.
 
-**89 routes** in 16 files. Guards: course-editor (via upsertStopPlan) 2, course-editor 5, identity + membership 51, identity + owner 1, identity or shared-secret 1, identity 21, none detected 4, room-member 4.
+**90 routes** in 16 files. Guards: course-editor (via upsertStopPlan) 2, course-editor 5, identity + membership 51, identity + owner 1, identity or shared-secret 1, identity 22, none detected 4, room-member 4.
 
 Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth.ts`); `room-member` / `course-editor` call `requireRoomMember` / `requireCourseEditor`; `+ membership` / `+ owner` means the handler also checks the room's memberships or athlete inline; `shared-secret` compares a header against an env secret; `automation` uses the automation guard.
 
@@ -18,9 +18,10 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:55](../../../services/api/src/routes/activityHistory.ts#L55) |
-| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:92](../../../services/api/src/routes/activityHistory.ts#L92) |
-| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:140](../../../services/api/src/routes/activityHistory.ts#L140) |
+| POST | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:75](../../../services/api/src/routes/activityHistory.ts#L75) |
+| POST | `/activity-history/gpx` | identity | [services/api/src/routes/activityHistory.ts:112](../../../services/api/src/routes/activityHistory.ts#L112) |
+| POST | `/activity-history/file` | identity | [services/api/src/routes/activityHistory.ts:160](../../../services/api/src/routes/activityHistory.ts#L160) |
+| GET | `/activity-history` | identity | [services/api/src/routes/activityHistory.ts:211](../../../services/api/src/routes/activityHistory.ts#L211) |
 
 ## analyticsRoutes
 

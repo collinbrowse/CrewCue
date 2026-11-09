@@ -19,21 +19,28 @@
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 55
+      "line": 75
     },
     {
       "method": "POST",
       "path": "/activity-history/gpx",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 92
+      "line": 112
+    },
+    {
+      "method": "POST",
+      "path": "/activity-history/file",
+      "guard": "identity",
+      "file": "services/api/src/routes/activityHistory.ts",
+      "line": 160
     },
     {
       "method": "GET",
       "path": "/activity-history",
       "guard": "identity",
       "file": "services/api/src/routes/activityHistory.ts",
-      "line": 140
+      "line": 211
     },
     {
       "method": "POST",
@@ -929,7 +936,7 @@
     "roomScopedIdentityOnly": 0,
     "large": 7,
     "timers": 1,
-    "untestedLib": 35,
+    "untestedLib": 36,
     "parityGaps": 13
   }
 }

@@ -20,7 +20,7 @@ import Dispatch
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
-/// stopTrackingSession.
+/// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile.
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -195,6 +195,12 @@ enum RuntimeCall {
             return try await incidents(object)
         case "createIncident":
             return try await createIncident(object)
+        case "featureFlags":
+            return ["strava": ClientFeatureFlags.stravaEnabled]
+        case "activityHistoryItems":
+            return try await activityHistoryItems(object)
+        case "importActivityFile":
+            return try await importActivityFile(object)
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
@@ -1360,6 +1366,48 @@ enum RuntimeCall {
         } catch {
             if TransportFailure.isOffline(error) {
                 return ["offline": true]
+            }
+            throw error
+        }
+    }
+
+    private static func activityItemJSON(_ item: ActivityHistoryItem) -> [String: Any] {
+        var json: [String: Any] = ["id": item.id, "source": item.source, "recordedAt": item.recordedAt, "summary": item.summary]
+        if let distance = item.distanceMeters { json["distanceMeters"] = distance }
+        if let elapsed = item.elapsedSeconds { json["elapsedSeconds"] = elapsed }
+        return json
+    }
+
+    private static func activityHistoryItems(_ object: [String: Any]) async throws -> Any {
+        do {
+            let items = try await RaceDayAPI.activityHistoryItems(graph: try graph(object))
+            return ["offline": false, "items": items.map(activityItemJSON)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true, "items": [[String: Any]]()]
+            }
+            throw error
+        }
+    }
+
+    /// `contentBase64` is the file. Returns status saved, duplicate, empty, invalid or offline with
+    /// a user-facing `message`; a server 400/413 comes back as `invalid` with the server's message.
+    private static func importActivityFile(_ object: [String: Any]) async throws -> Any {
+        let fileName = text(object, "fileName") ?? "activity"
+        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        if let problem = ActivityImport.localProblem(fileName: fileName, byteCount: data.count) {
+            return ["status": data.isEmpty ? "empty" : "invalid", "message": problem]
+        }
+        do {
+            let result = try await RaceDayAPI.importActivityFile(graph: try graph(object), fileName: fileName, data: data)
+            let message = result.status == .saved ? ActivityImport.successMessage : ActivityImport.duplicateMessage
+            return ["status": result.status.rawValue, "message": message, "item": activityItemJSON(result.item)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["status": "offline", "message": ActivityImport.offlineMessage]
+            }
+            if let http = error as? ClientHTTPError, http.status == 400 || http.status == 413 {
+                return ["status": "invalid", "message": ActivityImport.message(for: error)]
             }
             throw error
         }

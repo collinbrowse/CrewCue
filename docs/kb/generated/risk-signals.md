@@ -9,7 +9,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
-| API lib modules with no same-named test | 35 |
+| API lib modules with no same-named test | 36 |
 | Native features not passing on both platforms | 13 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -37,8 +37,8 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4849 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1770 |
-| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1405 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1818 |
+| [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1123 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
@@ -57,6 +57,7 @@ Timers run per instance. With more than one API replica each one fires.
 May still be covered through route tests; check before relying on it.
 
 - [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
+- [services/api/src/lib/activityFileHistory.ts](../../../services/api/src/lib/activityFileHistory.ts)
 - [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts)
 - [services/api/src/lib/arrivalWindowTable.ts](../../../services/api/src/lib/arrivalWindowTable.ts)
 - [services/api/src/lib/athletePingTrack.ts](../../../services/api/src/lib/athletePingTrack.ts)
@@ -110,9 +111,9 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-navigate` | v1 | fail | pass |
 | `chat-thread` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
-| `strava` | v1 | fail | fail |
+| `activity-import` | v1 | fail | fail |
 
-Deferred: `command-center`, `billing`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`.
+Deferred: `command-center`, `billing`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 
 ## TODO / FIXME / HACK
 

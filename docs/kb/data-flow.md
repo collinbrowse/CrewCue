@@ -46,9 +46,10 @@ sequenceDiagram
 - Clients queue device tokens through the outbox (`enqueuePush`).
 - Retention: a 6 h in-process interval deletes notification prefs ([chatRetentionScheduler.ts](../../services/api/src/lib/chatRetentionScheduler.ts)). Stream messages are deleted by an operator ([chat-retention.md](../runbooks/chat-retention.md)).
 
-## 4. Strava, GPX, course history
+## 4. Activity import, Strava, GPX, course history
 
-- **Strava** ([stravaRoutes.ts](../../services/api/src/routes/stravaRoutes.ts)): OAuth with a per-user state; `/strava/oauth/redirect` bounces to the `crewcue://strava` deep link; the callback stores tokens; `/strava/sync` refreshes and upserts activities into activity history.
+- **Activity files**: `POST /activity-history/file` takes a base64 GPX, FIT, or TCX file (10 MB cap, content-hash dedupe), parsed by map-core into one activity summary ([activityHistory.ts](../../services/api/src/routes/activityHistory.ts)). This is v1's way to bring in history.
+- **Strava** (off in v1 clients behind `ClientFeatureFlags.stravaEnabled`; API routes still live) ([stravaRoutes.ts](../../services/api/src/routes/stravaRoutes.ts)): OAuth with a per-user state; `/strava/oauth/redirect` bounces to the `crewcue://strava` deep link; the callback stores tokens; `/strava/sync` refreshes and upserts activities into activity history.
 - **GPX**: `/activity-history/gpx` and `/course/gpx-preview` take up to 10 MB ([gpxLimits.ts](../../services/api/src/lib/gpxLimits.ts)); parsed synchronously in [map-core courseParse.ts](../../packages/map-core/src/courseParse.ts). Clients queue imports in the outbox.
 - **Course history**: OpenSplitTime results come in through operator scripts ([sources/openSplitTime.ts](../../services/api/src/lib/courseHistory/sources/openSplitTime.ts)); `COURSE_HISTORY_PRODUCT_SOURCES` picks which sources the product uses.
 

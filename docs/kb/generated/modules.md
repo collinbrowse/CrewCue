@@ -21,7 +21,7 @@ Which `lib/` modules each route file imports directly.
 | Route file | Imports |
 | --- | --- |
 | [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `stravaConnectionStore.ts` |
-| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts` |
+| [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
 | [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `chatPersistence.ts`, `chatPushDispatch.ts`, `streamChannelMembers.ts`, `streamChat.ts` |
 | [services/api/src/routes/courseGpxRoutes.ts](../../../services/api/src/routes/courseGpxRoutes.ts) | `gpxLimits.ts` |
@@ -61,8 +61,10 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 765 |
+| [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
+| [services/api/src/lib/runnerSlowdown.ts](../../../services/api/src/lib/runnerSlowdown.ts) | 3 | 117 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |
 | [services/api/src/lib/streamChat.ts](../../../services/api/src/lib/streamChat.ts) | 3 | 78 |
@@ -76,6 +78,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | --- | --- |
 | [packages/client-core/Sources/CrewCueClientCore/APIClient.swift](../../../packages/client-core/Sources/CrewCueClientCore/APIClient.swift) | `HTTPMethod`, `HTTPRequest`, `HTTPResponse`, `HTTPTransport`, `URLSessionTransport`, `AccessTokenProvider`, `StaticTokenProvider`, `APIClient`, `EmptyBody` |
 | [packages/client-core/Sources/CrewCueClientCore/ActionGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActionGate.swift) | `ActionPolicy`, `ActionTicket`, `CancelFlag`, `ActionGate`, `ErrorCatalog` |
+| [packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/ActivityImport.swift) | `ClientFeatureFlags`, `ActivityHistoryItem`, `ActivityImportStatus`, `ActivityImportResult`, `ActivityImport` |
 | [packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift](../../../packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift) | `AidStationPhase`, `AidStationCheckpoint`, `AidStationPage`, `AidStationProjection`, `AidStationSheet` |
 | [packages/client-core/Sources/CrewCueClientCore/CFacade.swift](../../../packages/client-core/Sources/CrewCueClientCore/CFacade.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift) | `ChatAuthors` |
@@ -152,11 +155,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-73 files under `packages/client-core/Sources/`.
+74 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 30 | 6786 |
+| `CrewCueClientCore` | 31 | 6972 |
 | `CrewCueClientCore/Generated` | 43 | 847 |
 
 ### iOS app (SwiftUI)
@@ -198,7 +201,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/di` | 1 | 53 |
 | `kotlin/com/crewcue/android/generated` | 43 | 445 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
-| `kotlin/com/crewcue/android/nav` | 2 | 97 |
+| `kotlin/com/crewcue/android/nav` | 2 | 98 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
 | `kotlin/com/crewcue/android/ui` | 5 | 1166 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
