@@ -8,6 +8,10 @@ paths:
 
 Applies when changing `apps/android/**`.
 
+## Your own emulator
+
+Parallel agents each run their own read-only instance of the AVD on a port derived from the worktree (`npm run agent:device` prints the serial, for example `emulator-5558`). `npm run agent:android:ready` boots it and `npm run test:android` targets it. Pass `-s <serial>` to every `adb` call. Never use or kill another serial. Every instance must be read-only: one started without `-read-only` blocks all the others.
+
 ## Done means
 
 1. `npm run verify:client-behavior` when the checklist changed, and
