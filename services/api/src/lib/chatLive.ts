@@ -1,5 +1,5 @@
 /**
- * In-process wake-ups for chat long-polls (ADR 0010).
+ * In-process wake-ups for chat long-polls (ADR 0011).
  *
  * A waiting `GET /chat/rooms/:roomId/messages?after=…&wait=…` subscribes here and wakes when a
  * message lands in the room or the room's membership changes. Waiters re-query the store, so a

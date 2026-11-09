@@ -1,4 +1,4 @@
--- First-party crew chat (ADR 0010): messages in our Postgres, replacing Stream.
+-- First-party crew chat (ADR 0011): messages in our Postgres, replacing Stream.
 CREATE TABLE IF NOT EXISTS chat_messages (
   seq BIGSERIAL PRIMARY KEY,
   room_id TEXT NOT NULL,

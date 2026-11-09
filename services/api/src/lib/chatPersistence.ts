@@ -1,6 +1,6 @@
 /**
  * Chat persistence: notification preferences and push devices.
- * Messages live in chatMessageStore.ts; photos in chatPhotoStore.ts (ADR 0010).
+ * Messages live in chatMessageStore.ts; photos in chatPhotoStore.ts (ADR 0011).
  */
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
@@ -11,7 +11,7 @@ import type {
   ChatPushPlatform,
   ChatRetentionResult
 } from "@crewcue/contracts";
-import { deleteChatMessagesForRoom } from "./chatMessageStore.js";
+import { deleteChatMessagesBySender, deleteChatMessagesForRoom } from "./chatMessageStore.js";
 import { chatPhotoStore } from "./chatPhotoStore.js";
 
 type Mode = "memory" | "postgres";
@@ -284,4 +284,32 @@ export function _resetChatPersistenceForTests(): void {
   if (pool) return;
   memoryPrefs.clear();
   memoryPushDevices.clear();
+}
+
+/** Account deletion: this user's messages (and their photos), push devices, and per-room prefs. */
+export async function deleteChatDataForUser(
+  userId: string
+): Promise<{ pushDevicesPurged: number; prefsPurged: number; messagesPurged: number }> {
+  const { messagesPurged, photoKeys } = await deleteChatMessagesBySender(userId);
+  const store = chatPhotoStore();
+  if (store && photoKeys.length) await store.delete(photoKeys);
+  if (!pool) {
+    let pushDevicesPurged = 0;
+    for (const [deviceId, device] of [...memoryPushDevices.entries()]) {
+      if (device.userId !== userId) continue;
+      memoryPushDevices.delete(deviceId);
+      pushDevicesPurged += 1;
+    }
+    let prefsPurged = 0;
+    for (const [key, pref] of [...memoryPrefs.entries()]) {
+      if (pref.userId !== userId) continue;
+      memoryPrefs.delete(key);
+      prefsPurged += 1;
+    }
+    return { pushDevicesPurged, prefsPurged, messagesPurged };
+  }
+  await ensureChatPersistenceReady();
+  const devices = await pool.query("DELETE FROM chat_push_devices WHERE user_id = $1", [userId]);
+  const prefs = await pool.query("DELETE FROM chat_notification_prefs WHERE user_id = $1", [userId]);
+  return { pushDevicesPurged: devices.rowCount ?? 0, prefsPurged: prefs.rowCount ?? 0, messagesPurged };
 }

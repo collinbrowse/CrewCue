@@ -1,6 +1,6 @@
 # Crew chat: retention
 
-Chat for a race is deleted 30 days after the race ends, as the chat banner promises ([ADR 0010](../adr/0010-first-party-crew-chat.md)).
+Chat for a race is deleted 30 days after the race ends, as the chat banner promises ([ADR 0011](../adr/0011-first-party-crew-chat.md)).
 
 ## Policy
 

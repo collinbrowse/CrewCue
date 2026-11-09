@@ -148,6 +148,7 @@ jobs:
             CREWCUE_AUTH0_DOMAIN="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
             CREWCUE_AUTH0_CLIENT_ID="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
             CREWCUE_AUTH0_AUDIENCE="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
+            CREWCUE_SENTRY_DSN="${{ vars.SENTRY_DSN_IOS || secrets.SENTRY_DSN }}" \
             MARKETING_VERSION="${{ needs.preflight.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ needs.preflight.outputs.build }}"
       - name: Upload to TestFlight
@@ -166,6 +167,20 @@ jobs:
         with:
           name: ios-dsyms
           path: ${{ runner.temp }}/CrewCue.xcarchive/dSYMs
+      # Symbolicates Sentry crash reports (ADR 0010). Skips when the owner has not added the
+      # Sentry secret/vars to the release environment; a failed upload never fails the release.
+      - name: Upload dSYMs to Sentry
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_IOS }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "::warning title=Sentry dSYMs skipped::Add secret SENTRY_AUTH_TOKEN and vars SENTRY_ORG, SENTRY_PROJECT_IOS to the release environment"
+            exit 0
+          fi
+          npx --yes @sentry/cli@3.8.2 debug-files upload --include-sources "$RUNNER_TEMP/CrewCue.xcarchive/dSYMs"
 
   android:
     needs: [preflight, api-production]
@@ -196,7 +211,14 @@ jobs:
           CREWCUE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           CREWCUE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SWIFT_BUILD_CONFIGURATION: release
+          # Sentry Gradle plugin uploads the R8 mapping.txt when all three are set (ADR 0010).
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_ANDROID }}
         run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "::warning title=Sentry mapping skipped::Add secret SENTRY_AUTH_TOKEN and vars SENTRY_ORG, SENTRY_PROJECT_ANDROID to the release environment"
+          fi
           export CREWCUE_ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$CREWCUE_ANDROID_KEYSTORE"
           ./apps/android/gradlew -p apps/android :app:bundleRelease \
@@ -204,6 +226,7 @@ jobs:
             -Pcrewcue.release.auth0Domain="${{ vars.CREWCUE_AUTH0_DOMAIN }}" \
             -Pcrewcue.release.auth0ClientId="${{ vars.CREWCUE_AUTH0_CLIENT_ID }}" \
             -Pcrewcue.release.auth0Audience="${{ vars.CREWCUE_AUTH0_AUDIENCE }}" \
+            -Pcrewcue.release.sentryDsn="${{ vars.SENTRY_DSN_ANDROID || secrets.SENTRY_DSN }}" \
             -Pcrewcue.versionName="${{ needs.preflight.outputs.version }}" \
             -Pcrewcue.versionCode="${{ needs.preflight.outputs.build }}"
       - name: Upload to Google Play internal testing
@@ -214,6 +237,11 @@ jobs:
           releaseFiles: apps/android/app/build/outputs/bundle/release/app-release.aab
           track: internal
           status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-mapping
+          path: apps/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         with:
           name: android-aab

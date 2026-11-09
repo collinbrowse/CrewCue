@@ -1,5 +1,5 @@
 /**
- * Direct push transports for crew chat (ADR 0010, issue #563).
+ * Direct push transports for crew chat (ADR 0011, issue #563).
  *
  * - APNs: HTTP/2 with a token-based (.p8) provider JWT, ES256, refreshed every 50 minutes.
  * - FCM HTTP v1: OAuth access token from a service account (JWT bearer grant), RS256.

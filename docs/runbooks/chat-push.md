@@ -1,6 +1,6 @@
 # Crew chat: push notifications
 
-Chat push goes straight from the API to APNs (iOS) and FCM (Android). See [ADR 0010](../adr/0010-first-party-crew-chat.md).
+Chat push goes straight from the API to APNs (iOS) and FCM (Android). See [ADR 0011](../adr/0011-first-party-crew-chat.md).
 
 ## How it works
 

@@ -16,15 +16,25 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
     var trackColor = UIColor.systemOrange
 
-    static let fallbackStyleURL = URL(string: "https://demotiles.maplibre.org/style.json")
+    /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
+    /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
+    static func styleURL(dark: Bool) -> URL? {
+        URL(string: "https://tiles.openfreemap.org/styles/\(dark ? "dark" : "liberty")")
+    }
 
-    /// MapTiler topo when a key is configured (see apps/ios/Config/CrewCue.xcconfig), else the demo style.
-    static func styleURL(dark: Bool, bundle: Bundle = .main) -> URL? {
-        let key = (bundle.object(forInfoDictionaryKey: "CrewCueMapTilerKey") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard key.isEmpty == false, key.hasPrefix("$(") == false else { return fallbackStyleURL }
-        let style = dark ? "topo-v2-dark" : "topo-v2"
-        return URL(string: "https://api.maptiler.com/maps/\(style)/style.json?key=\(key)")
+    /// A local style with only a background layer. Loaded when the tile server is unreachable so the
+    /// course line and checkpoints still draw on a blank background.
+    static func blankStyleURL(dark: Bool) -> URL? {
+        let color = dark ? "#1c1c1e" : "#f2efe9"
+        let json = #"{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"\#(color)"}}]}"#
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("crewcue-blank-style-\(dark ? "dark" : "light").json")
+        do {
+            try Data(json.utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -38,7 +48,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         mapView.delegate = context.coordinator
         mapView.tintColor = lineColor
         mapView.logoView.isHidden = true
-        // Keep MapTiler/OSM attribution reachable: below the top bar and status chips.
+        // Keep OpenFreeMap/OSM attribution reachable: below the top bar and status chips.
         mapView.attributionButtonPosition = .topLeft
         mapView.attributionButtonMargins = CGPoint(x: 16, y: 150)
         mapView.compassViewPosition = .topLeft
@@ -62,6 +72,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         let dark = context.environment.colorScheme == .dark
         if context.coordinator.dark != dark {
             context.coordinator.dark = dark
+            context.coordinator.usingBlankStyle = false
             mapView.styleURL = Self.styleURL(dark: dark)
         }
         context.coordinator.redraw(force: false)
@@ -92,6 +103,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
         weak var mapView: MLNMapView?
         var recenterRequest = 0
         var dark = false
+        /// True after the remote style failed and the blank local style replaced it.
+        var usingBlankStyle = false
         var lineColor = UIColor.systemPurple
         var trackColor = UIColor.systemOrange
         var track: [CLLocationCoordinate2D] = []
@@ -184,7 +197,10 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
         nonisolated func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             MainActor.assumeIsolated {
-                self.onStyleLoaded()
+                // The blank fallback keeps the failure message up; only the real style counts as loaded.
+                if !self.usingBlankStyle {
+                    self.onStyleLoaded()
+                }
                 self.drawnPoints = []
                 self.redraw(force: true)
                 self.redrawTrack(force: true)
@@ -195,6 +211,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
             let offline = MapLibreCourseMap.isOffline(error)
             MainActor.assumeIsolated {
                 self.onStyleFailure(offline)
+                guard !self.usingBlankStyle, let blank = MapLibreCourseMap.blankStyleURL(dark: self.dark) else { return }
+                self.usingBlankStyle = true
+                mapView.styleURL = blank
             }
         }
 

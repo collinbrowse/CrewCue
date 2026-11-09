@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Crew chat is first-party (ADR 0010). Fails if the Stream Chat vendor comes back into app,
+ * Crew chat is first-party (ADR 0011). Fails if the Stream Chat vendor comes back into app,
  * client-core, contracts or API source, or into their package manifests.
  * Usage: node scripts/verify-no-vendor-chat.mjs
  */
@@ -36,6 +36,6 @@ try {
   }
   throw error;
 }
-console.error("Stream Chat references found (crew chat is first-party, ADR 0010):");
+console.error("Stream Chat references found (crew chat is first-party, ADR 0011):");
 console.error(output.trim());
 process.exit(1);

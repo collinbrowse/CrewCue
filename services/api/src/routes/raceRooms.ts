@@ -68,12 +68,15 @@ import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } f
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
+  deletePersistedRaceRoomInvite,
+  deletePersistedRaceRoomRows,
   deleteTaskBoardPayload,
   deleteTaskBoardSnapshot,
   deleteWs2RuntimePayload,
   initRoomPersistence,
   isRoomPersistenceEnabled,
   listPersistedRaceRoomsByTeamId,
+  listPersistedRaceRoomsForAthlete,
   listPersistedRaceRoomsForMember,
   isJoinCodeTakenInDb,
   listPersistedRoomsForRetention,
@@ -1702,6 +1705,73 @@ export async function listRaceRoomsForRetention(): Promise<
       .map((r) => ({ id: r.id, eventEndsAt: r.eventEndsAt, status: r.status }));
   }
   return listPersistedRoomsForRetention();
+}
+
+/** Account deletion: every room the user is on, plus rooms where they are the runner. */
+export async function listRaceRoomsForAccount(userId: string): Promise<RaceRoom[]> {
+  const byId = new Map<string, RaceRoom>();
+  for (const room of await listRaceRoomsForMember(userId)) byId.set(room.id, room);
+  const owned = isRoomPersistenceEnabled()
+    ? await listPersistedRaceRoomsForAthlete(userId)
+    : [...raceRooms.values()].filter((room) => room.athleteId === userId);
+  for (const room of owned) if (!byId.has(room.id)) byId.set(room.id, room);
+  return [...byId.values()];
+}
+
+/**
+ * Account deletion (#560): close a runner-owned room for everyone. Takes the runtime lock so an
+ * in-flight ping or membership write finishes first; after the room row is gone every room URL
+ * returns 404, then the dependents (task board, WS2/4/5 runtime, track, invites) are dropped.
+ */
+export async function deleteRaceRoomForAccountDeletion(roomId: string): Promise<void> {
+  await withRoomRuntimeLock(roomId, async () => {
+    await deletePersistedRaceRoomRows(roomId);
+    await withExclusiveTail(roomSaveTail, roomId, async () => {
+      unindexJoinCodeForRoomId(roomId);
+      raceRooms.delete(roomId);
+    });
+  });
+  for (const [token, invite] of [...raceRoomInvites.entries()]) {
+    if (invite.roomId === roomId) raceRoomInvites.delete(token);
+  }
+  await discardTaskBoardState(roomId);
+  await discardWs2Runtime(roomId);
+  const { discardWs4RoomState } = await import("./ws4AdaptivePlanRoutes.js");
+  await discardWs4RoomState(roomId);
+  const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
+  await discardWs5RoomState(roomId);
+  roomPingState.delete(roomId);
+  roomProjectionState.delete(roomId);
+}
+
+/**
+ * Account deletion (#560): drop the user's membership from a room someone else owns, plus any
+ * invite they sent, accepted or were addressed to. Returns false if they were not a member.
+ */
+export async function removeMemberForAccountDeletion(
+  roomId: string,
+  userId: string,
+  email: string | undefined,
+  log: FastifyBaseLogger
+): Promise<boolean> {
+  let removed = false;
+  const updated = await commitRaceRoomUpdate(roomId, (latest) => {
+    if (!latest.memberships.some((m) => m.userId === userId)) return latest;
+    removed = true;
+    return { ...latest, memberships: latest.memberships.filter((m) => m.userId !== userId) };
+  });
+  const invites = isRoomPersistenceEnabled()
+    ? await loadRaceRoomInvitesForRoom(roomId)
+    : [...raceRoomInvites.values()].filter((invite) => invite.roomId === roomId);
+  const normalizedEmail = email?.trim().toLowerCase();
+  for (const invite of invites) {
+    const addressedToUser = normalizedEmail !== undefined && invite.email.trim().toLowerCase() === normalizedEmail;
+    if (invite.invitedBy !== userId && invite.acceptedBy !== userId && !addressedToUser) continue;
+    await deletePersistedRaceRoomInvite(invite.token);
+    raceRoomInvites.delete(invite.token);
+  }
+  if (updated && removed) publishChatRoom(roomId, "membership");
+  return removed;
 }
 
 /** Latest projection view with timeliness, when ping history produced a stored core projection or bootstrap filled state. */

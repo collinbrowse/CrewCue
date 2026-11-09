@@ -1,5 +1,5 @@
 /**
- * Crew chat message storage (ADR 0010). Postgres in production, a Map in memory mode.
+ * Crew chat message storage (ADR 0011). Postgres in production, a Map in memory mode.
  *
  * Message ids are the table's bigserial `seq` as a decimal string, so they double as the
  * paging cursor. A retry with the same (room, sender, clientMessageId) returns the stored
@@ -240,6 +240,30 @@ export async function deleteChatMessagesForRoom(
   const result = await pool.query<{ photo_key: string | null }>(
     "DELETE FROM chat_messages WHERE room_id = $1 RETURNING photo_key",
     [roomId]
+  );
+  return {
+    messagesPurged: result.rowCount ?? 0,
+    photoKeys: result.rows.flatMap((r) => (r.photo_key ? [r.photo_key] : []))
+  };
+}
+
+/** Account deletion: every message this user sent, in any room. Returns their photo keys. */
+export async function deleteChatMessagesBySender(
+  senderUserId: string
+): Promise<{ messagesPurged: number; photoKeys: string[] }> {
+  if (!pool) {
+    const removed = memoryMessages.filter((m) => m.senderUserId === senderUserId);
+    const keep = memoryMessages.filter((m) => m.senderUserId !== senderUserId);
+    memoryMessages.splice(0, memoryMessages.length, ...keep);
+    return {
+      messagesPurged: removed.length,
+      photoKeys: removed.flatMap((m) => (m.photoKey ? [m.photoKey] : []))
+    };
+  }
+  await initChatMessageStore();
+  const result = await pool.query<{ photo_key: string | null }>(
+    "DELETE FROM chat_messages WHERE sender_user_id = $1 RETURNING photo_key",
+    [senderUserId]
   );
   return {
     messagesPurged: result.rowCount ?? 0,

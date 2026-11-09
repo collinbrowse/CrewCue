@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by [ADR 0010](./0010-first-party-crew-chat.md) (2026-11-09). Accepted 2026-07-15.
+Superseded by [ADR 0011](./0011-first-party-crew-chat.md) (2026-11-09). Accepted 2026-07-15.
 
 ## Context
 
