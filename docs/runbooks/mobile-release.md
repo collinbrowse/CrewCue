@@ -44,6 +44,19 @@ In that Auth0 application, allow these callback and logout URLs: `crewcue://auth
 
 To build Release locally, pass the same values: iOS as build settings (`xcodebuild … CREWCUE_API_BASE_URL=https://… CREWCUE_AUTH0_DOMAIN=…`); Android as Gradle properties (`-Pcrewcue.release.apiBaseUrl=https://… -Pcrewcue.release.auth0Domain=… -Pcrewcue.release.auth0ClientId=… -Pcrewcue.release.auth0Audience=… -Pcrewcue.release.revenuecatApiKey=goog_…`). The iOS RevenueCat key is the build setting `CREWCUE_REVENUECAT_API_KEY=appl_…`. Debug builds use a fake purchaser against the local API and need no RevenueCat key. Debug builds keep using the local API and the dev tenant (`apps/ios/Config/CrewCue.xcconfig`, `apps/android/app/src/main/res/values/strings.xml`).
 
+Optional: Sentry crash reporting (ADR 0010, free Developer plan). Create one Sentry project per app (iOS, Android) and add to the `release` environment. Without them the apps ship with crash reporting off and the symbol upload steps skip with a warning.
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `SENTRY_AUTH_TOKEN` | secret | Sentry → Settings → Auth Tokens (organization token, `project:releases` + `project:write`). Used only to upload dSYMs and R8 mappings. |
+| `SENTRY_ORG` | variable | Sentry organization slug |
+| `SENTRY_PROJECT_IOS` | variable | iOS project slug |
+| `SENTRY_PROJECT_ANDROID` | variable | Android project slug |
+| `SENTRY_DSN_IOS` | variable | iOS project DSN (Settings → Client Keys). Falls back to the repo secret `SENTRY_DSN` when unset. |
+| `SENTRY_DSN_ANDROID` | variable | Android project DSN. Falls back to the repo secret `SENTRY_DSN` when unset. |
+
+A DSN is a public client key, so a variable is fine. Debug builds never get one.
+
 Optional variable `PLAY_RELEASE_STATUS`: set it to `draft` until the Play app has finished its first review. Play rejects `completed` releases on apps still in draft.
 
 ### Apple
