@@ -160,6 +160,12 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
             return FeatureCopy(accessibilityIdentifier: "crewcue.loader", title: "Loading", body: loaderBody(state))
+        case "billing-purchase":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-purchase", title: "Race Pass", body: billingPurchaseBody(state))
+        case "billing-upgrade":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-upgrade", title: "Full Crew", body: billingUpgradeBody(state))
+        case "billing-redeem":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-redeem", title: "Redeem code", body: billingRedeemBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -442,5 +448,35 @@ private func loaderBody(_ state: FeatureState) -> String {
     case .empty: "Loading."
     case .error: "Couldn't load."
     case .offline: "Offline. Waiting for a connection."
+    }
+}
+
+/// Copy for clients/behavior/billing-purchase.md.
+private func billingPurchaseBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Unlocked: you plus 1 crew member."
+    case .empty: "No Race Pass yet. Buy one to open this race."
+    case .error: "Couldn't complete the purchase."
+    case .offline: "Offline. Purchases need the network."
+    }
+}
+
+/// Copy for clients/behavior/billing-upgrade.md.
+private func billingUpgradeBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Unlocked: unlimited crew."
+    case .empty: "Race Pass: you plus 1 crew member (1 of 1 joined)."
+    case .error: "This race is full. Ask the runner to add Full Crew so more crew can join."
+    case .offline: "Offline. Purchases need the network."
+    }
+}
+
+/// Copy for clients/behavior/billing-redeem.md.
+private func billingRedeemBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Code redeemed. Unlocking your race."
+    case .empty: "Have a code? Redeem it with the App Store or Google Play."
+    case .error: "Couldn't open code redemption."
+    case .offline: "Offline. Redeeming a code needs the network."
     }
 }

@@ -58,6 +58,9 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/strava": "strava"
         case "dev/app-shell": "app-shell"
         case "dev/loader": "brand-loader"
+        case "dev/billing-purchase": "billing-purchase"
+        case "dev/billing-upgrade": "billing-upgrade"
+        case "dev/billing-redeem": "billing-redeem"
         default: nil
         }
     }
