@@ -10,10 +10,12 @@
   ],
   "scripts": {
     "agent:android:ready": "node scripts/agent-android-emulator-ready.mjs",
-    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs scripts/pr-decision-doc-guard.test.mjs scripts/client-harness.test.mjs scripts/release-guard.test.mjs",
+    "agent:harness:test": "node --test scripts/agent-ready-parse.test.mjs scripts/pr-decision-doc-guard.test.mjs scripts/client-harness.test.mjs scripts/release-guard.test.mjs scripts/agent-device.test.mjs",
     "agent:ios:ready": "node scripts/agent-ios-simulator-ready.mjs",
     "agent:issue:ready": "node scripts/agent-issue-ready.mjs",
     "agent:pr:done": "node scripts/agent-pr-done.mjs",
+    "agent:device": "node scripts/agent-device.mjs",
+    "agent:android:done": "node scripts/agent-android-done.mjs",
     "billing:comp": "node scripts/billing-comp.mjs",
     "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
     "build": "npm run build --workspaces --if-present",

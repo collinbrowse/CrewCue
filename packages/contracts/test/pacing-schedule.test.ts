@@ -108,7 +108,7 @@ test("EC5: history ref keeps stable source + externalId for idempotent replay", 
   });
   assert.equal(replay.source, "strava");
   assert.equal(replay.externalId, "strava:12345");
-  assert.deepEqual([...ACTIVITY_HISTORY_SOURCES], ["gpx_upload", "strava"]);
+  assert.deepEqual([...ACTIVITY_HISTORY_SOURCES], ["gpx_upload", "fit_upload", "tcx_upload", "strava"]);
   assert.throws(() => parseActivityHistoryRef({ ...first, source: "garmin" }), /source must be/);
 });
 
