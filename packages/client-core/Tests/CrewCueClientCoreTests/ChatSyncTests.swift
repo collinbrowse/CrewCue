@@ -249,3 +249,21 @@ private struct NoopLogger: Logger {
 @Test func chatReconnectDelaysCapAtThirtySeconds() {
     #expect((0...8).map(ChatReconnectPolicy.delaySeconds) == [0, 1, 2, 4, 8, 16, 30, 30, 30])
 }
+
+@Test func chatRowsKeepAJustSentMessageUntilThePollReturnsIt() throws {
+    var thread = ChatThread(roomId: "room-1")
+    let empty = ChatMessagePage(messages: [], members: [], selfUserId: "me", latestCursor: "")
+    thread.apply(empty)
+    var sent = StoredOperation(
+        id: "c1", type: "chat", conflictKey: "chat:c1", roomId: "room-1",
+        payloadJSON: #"{"clientMessageId":"c1","text":"hi"}"#, idempotencyKey: "k", clientMessageId: "c1", role: "crew_member"
+    )
+    sent.status = "accepted"
+    #expect(thread.rows(pending: [sent], baseURL: nil).map(\.delivery) == [.sent])
+    thread.apply(ChatMessagePage(
+        messages: [ChatMessage(id: "5", roomId: "room-1", senderUserId: "me", clientMessageId: "c1", text: "hi", createdAt: "")],
+        members: [], selfUserId: "me", latestCursor: "5"
+    ))
+    #expect(thread.contains(clientMessageId: "c1"))
+    #expect(thread.rows(pending: [sent], baseURL: nil).map(\.id) == ["5"])
+}

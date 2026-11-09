@@ -43,7 +43,9 @@ struct LaunchConfiguration: Equatable {
         localFallback: Bool = DevLinks.enabled
     ) -> LaunchConfiguration {
         let deeplink = devLinks ? parsedDeeplink(arguments: arguments) : nil
-        let raw = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String) ?? ""
+        let plistBase = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String) ?? ""
+        // `--api-base-url` points a Debug build at another local server (an offline proxy for proofs).
+        let raw = devLinks ? (argument(arguments, flag: "--api-base-url", offset: 1) ?? plistBase) : plistBase
         let baseURL = baseURL(raw: raw, localFallback: localFallback)
         let auth = Auth0Configuration.load(bundle: bundle)
         return LaunchConfiguration(

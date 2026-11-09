@@ -9,8 +9,6 @@ struct FixtureRouteView: View {
         switch route.featureId {
         case "map-track", "map-checkpoint-pick", "map-navigate":
             MapLibrePocket(screen: screen)
-        case "chat-thread", "chat-notification-prefs":
-            StreamPocket(screen: screen)
         case "app-shell":
             FixtureShellView()
         case "brand-loader":

@@ -110,11 +110,25 @@ public struct ChatThread: Equatable, Sendable {
                     text: draft.text,
                     photoURL: nil,
                     isOwn: true,
-                    delivery: operation.status == "pending" ? .queued : .failed
+                    delivery: Self.delivery(operation.status)
                 )
             )
         }
         return rows
+    }
+
+    /// "accepted" is a send the server took that has not come back on a poll yet.
+    static func delivery(_ status: String) -> ChatDelivery {
+        switch status {
+        case "pending": .queued
+        case "accepted": .sent
+        default: .failed
+        }
+    }
+
+    /// True once the server has returned this client message id from the signed-in user.
+    public func contains(clientMessageId: String) -> Bool {
+        messages.contains { $0.senderUserId == authors.selfUserId && $0.clientMessageId == clientMessageId }
     }
 
     /// Photo URLs are absolute for bucket storage and an API path in local dev.
@@ -159,4 +173,17 @@ public enum ChatReconnectPolicy {
         guard failures > 0 else { return 0 }
         return min(30, 1 << min(failures - 1, 5))
     }
+}
+
+/// Chat status copy both apps show (checklist `clients/behavior/chat-thread.md`).
+public enum ChatCopy {
+    public static let empty = "No messages."
+    public static let error = "Couldn't load chat."
+    public static let offline = "Offline. Message queued on this device."
+    public static let removed = "You're no longer on this race's crew."
+    public static let expired = "Session expired. Sign in again."
+    public static let photoNeedsConnection = "Photos need a connection."
+    public static let photoTooLarge = "That photo is too large."
+    public static let notSent = "Not sent"
+    public static let queued = "Queued"
 }
