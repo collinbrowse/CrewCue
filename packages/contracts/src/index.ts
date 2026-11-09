@@ -1,4 +1,4 @@
-import type { PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+import type { ActivityHistoryRef, PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -173,13 +173,6 @@ export interface NavigationRouteMeta {
 export interface PostNavigationRouteResponse {
   route: NavigationRouteResult;
   meta?: NavigationRouteMeta;
-}
-
-/** MapTiler geocode proxy result item (normalized for clients). */
-export interface GeocodeSearchResultItem {
-  label: string;
-  longitude: number;
-  latitude: number;
 }
 
 export interface RaceCheckpointSplitRow {
@@ -1131,4 +1124,41 @@ export interface ChatRetentionResult {
   deletedAt: string;
   prefsPurged: number;
   pushTokensPurged: number;
+}
+
+/**
+ * `DELETE /me` response (#560). Counts describe what this call removed; a replay returns zeros.
+ * `identityProvider`: `deleted` / `already_deleted` (Auth0 user), `not_configured` (no Management
+ * API credentials on the server), `not_applicable` (dev JWT subject, no Auth0 user exists).
+ */
+export interface AccountDeletionResult {
+  deleted: true;
+  /** Runner-owned rooms closed for everyone (crew included). */
+  roomsClosed: number;
+  /** Rooms owned by someone else that the user was removed from. */
+  membershipsRemoved: number;
+  activityHistoryDeleted: number;
+  pacingEstimatesDeleted: number;
+  finishedEffortsDeleted: number;
+  pushDevicesDeleted: number;
+  chatPrefsDeleted: number;
+  stravaDisconnected: boolean;
+  identityProvider: "deleted" | "already_deleted" | "not_configured" | "not_applicable";
+}
+
+/** `GET /me/export` response (#560): the user's own data as JSON. */
+export interface AccountDataExport {
+  exportedAt: string;
+  userId: string;
+  rooms: Array<{
+    id: string;
+    name: string;
+    role: Role | "runner";
+    ownedAsRunner: boolean;
+    joinedAt?: string;
+    displayName?: string;
+  }>;
+  activityHistory: ActivityHistoryRef[];
+  pacingEstimates: PacingEstimate[];
+  strava: { connected: boolean };
 }

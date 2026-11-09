@@ -6,7 +6,6 @@ import { logSafeUrl } from "./lib/logSafeUrl.js";
 import { healthRoutes } from "./routes/health.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
 import { chatRoutes } from "./routes/chatRoutes.js";
-import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { courseGpxRoutes } from "./routes/courseGpxRoutes.js";
@@ -19,6 +18,7 @@ import { ws4AdaptivePlanRoutes } from "./routes/ws4AdaptivePlanRoutes.js";
 import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 import { ws7PlatformRoutes } from "./routes/ws7PlatformRoutes.js";
+import { accountRoutes } from "./routes/accountRoutes.js";
 import { billingRoutes } from "./routes/billingRoutes.js";
 
 /** GPX activity XML as JSON can exceed Fastify’s 1MB default; mobile may still prefer metrics-only ingest. */
@@ -56,13 +56,13 @@ export function buildApp() {
   app.register(stravaRoutes);
   app.register(pacingEstimateRoutes);
   app.register(routingRoutes);
-  app.register(geocodeRoutes);
   app.register(analyticsRoutes);
   app.register(chatRoutes);
   app.register(ws4AdaptivePlanRoutes);
   app.register(ws5SyncRoutes);
   app.register(ws6CommandCenterRoutes);
   app.register(ws7PlatformRoutes);
+  app.register(accountRoutes);
   app.register(billingRoutes);
 
   return app;

@@ -4,6 +4,8 @@
 
 Implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. Skip issue creation, handoff edits, and SDLC doc packs unless multi-session, cloud/staging, `agent-ready`, or the user asks for continuity.
 
+**Merge, never release.** Once required CI is green, merge your own PR (`gh pr merge --squash --auto`). Merging deploys staging only. Never create `v*` tags, run or approve the Release workflow, edit rulesets, environments or secrets, or write to Railway production: `.claude/hooks/release-guard.mjs` refuses them, and you should stop and ask the user instead. See `docs/runbooks/launch-owner-setup.md`.
+
 **PRs:** `--body` must be a filled `.github/pull_request_template.md`. Do not use a Summary-only PR recipe — CI `pr-decision-doc-guard` will fail. See `.claude/rules/pr-decision-doc-guard.md`.
 
 ## Machine gates

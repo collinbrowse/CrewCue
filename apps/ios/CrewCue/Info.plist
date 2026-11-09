@@ -6,8 +6,6 @@
   <string>CrewCue</string>
   <key>CrewCueAPIBaseURL</key>
   <string>$(CREWCUE_API_BASE_URL)</string>
-  <key>CrewCueMapTilerKey</key>
-  <string>$(CREWCUE_MAPTILER_KEY)</string>
   <key>CrewCueAuth0Domain</key>
   <string>$(CREWCUE_AUTH0_DOMAIN)</string>
   <key>CrewCueAuth0ClientId</key>

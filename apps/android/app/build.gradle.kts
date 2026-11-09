@@ -75,7 +75,6 @@ android {
         buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(auth0ClientId))
         buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(auth0Audience))
         buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(apiBaseUrl))
-        buildConfigField("String", "MAPTILER_KEY", crewcueQuoted(crewcueLocal("crewcue_maptiler_key")))
         // Debug builds with no key buy through the fake purchaser (POST /billing/dev-purchase).
         buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(crewcueLocal("crewcue_revenuecat_api_key")))
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())

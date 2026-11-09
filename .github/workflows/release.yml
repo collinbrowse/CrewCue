@@ -1,7 +1,12 @@
 name: Release
 
-# Push a vX.Y.Z tag (npm run release -- X.Y.Z) to build both apps, upload to TestFlight and
-# Google Play internal testing, and publish a GitHub release. Secrets: docs/runbooks/mobile-release.md.
+# Push a vX.Y.Z tag (npm run release -- X.Y.Z) to deploy the production API, build both apps,
+# upload to TestFlight and Google Play internal testing, and publish a GitHub release.
+# Secrets: docs/runbooks/mobile-release.md.
+#
+# Human gate: only a repo admin can create v* tags (tag ruleset), and every job here uses the
+# `release` environment, which needs the owner's approval and only accepts v* tags. Agents can
+# merge to main (staging) but never reach this workflow. See docs/runbooks/launch-owner-setup.md.
 on:
   push:
     tags: ["v*.*.*"]
@@ -54,9 +59,10 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           missing=()
-          for key in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_SERVICE_ACCOUNT_JSON; do
+          for key in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD PLAY_SERVICE_ACCOUNT_JSON RAILWAY_TOKEN; do
             [ -z "${!key}" ] && missing+=("$key")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -86,8 +92,34 @@ jobs:
             exit 1
           fi
 
-  ios:
+  # The production API ships first so the new app builds never talk to an older server.
+  # Railway production does not deploy from main; it deploys only from here.
+  api-production:
     needs: preflight
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
+      - name: Deploy to Railway production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npm install -g @railway/cli@5.71.0 --foreground-scripts
+          railway up --ci --service "${{ vars.RAILWAY_PRODUCTION_SERVICE || 'CrewCue' }}" --environment production --message "${{ needs.preflight.outputs.tag }}"
+      - name: Check production health
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            curl -fsS "${{ vars.CREWCUE_API_BASE_URL }}/health/live" && exit 0
+            sleep 10
+          done
+          echo "::error::Production API is not healthy after deploy. Roll back in Railway (docs/runbooks/staging-deploy.md)."
+          exit 1
+
+  ios:
+    needs: [preflight, api-production]
     runs-on: macos-latest
     environment: release
     timeout-minutes: 45
@@ -139,7 +171,7 @@ jobs:
           path: ${{ runner.temp }}/CrewCue.xcarchive/dSYMs
 
   android:
-    needs: preflight
+    needs: [preflight, api-production]
     runs-on: ubuntu-24.04  # Swift 6.3 Linux toolchain needs libxml2.so.2, gone on 26.04
     environment: release
     timeout-minutes: 45
@@ -192,7 +224,7 @@ jobs:
           path: apps/android/app/build/outputs/bundle/release/app-release.aab
 
   github-release:
-    needs: [preflight, ios, android]
+    needs: [preflight, api-production, ios, android]
     runs-on: ubuntu-latest
     permissions:
       actions: read

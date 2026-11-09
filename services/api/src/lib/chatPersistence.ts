@@ -256,3 +256,28 @@ export function _resetChatPersistenceForTests(): void {
   memoryPrefs.clear();
   memoryPushDevices.clear();
 }
+
+/** Account deletion: drop this user's push devices and per-room notification prefs. */
+export async function deleteChatDataForUser(
+  userId: string
+): Promise<{ pushDevicesPurged: number; prefsPurged: number }> {
+  if (!pool) {
+    let pushDevicesPurged = 0;
+    for (const [deviceId, device] of [...memoryPushDevices.entries()]) {
+      if (device.userId !== userId) continue;
+      memoryPushDevices.delete(deviceId);
+      pushDevicesPurged += 1;
+    }
+    let prefsPurged = 0;
+    for (const [key, pref] of [...memoryPrefs.entries()]) {
+      if (pref.userId !== userId) continue;
+      memoryPrefs.delete(key);
+      prefsPurged += 1;
+    }
+    return { pushDevicesPurged, prefsPurged };
+  }
+  await ensureChatPersistenceReady();
+  const devices = await pool.query("DELETE FROM chat_push_devices WHERE user_id = $1", [userId]);
+  const prefs = await pool.query("DELETE FROM chat_notification_prefs WHERE user_id = $1", [userId]);
+  return { pushDevicesPurged: devices.rowCount ?? 0, prefsPurged: prefs.rowCount ?? 0 };
+}

@@ -6,7 +6,7 @@ import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { evictRaceRoomFromMemoryForTests, setMembershipWriteDelayForTests } from "./raceRooms.js";
-import { getBillingGrant, resetBillingStoreForTests } from "../lib/billingStore.js";
+import { anonymizeBillingForUser, getBillingGrant, resetBillingStoreForTests } from "../lib/billingStore.js";
 import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 
 const WEBHOOK_AUTH = "rc-test-webhook-secret";
@@ -471,4 +471,17 @@ test("paid entitlement and webhook idempotency survive an API restart (Postgres)
   assert.equal((redelivered.json() as { duplicate: boolean }).duplicate, true);
   assert.equal((await getBillingGrant("tx-restart"))?.status, "active");
   await second.close();
+});
+
+test("account deletion unlinks the user from their purchases but keeps the room paid", async () => {
+  const app = buildApp();
+  await app.ready();
+  const room = await createRunnerRoom(app, "runner-delete");
+  await webhook(app, rcEvent({ productId: "race_pass", transactionId: "tx-delete", roomId: room.id, appUserId: "runner-delete" }));
+  assert.equal((await getBillingGrant("tx-delete"))?.appUserId, "runner-delete");
+  assert.equal(await anonymizeBillingForUser("runner-delete"), 1);
+  const grant = await getBillingGrant("tx-delete");
+  assert.equal(grant?.appUserId, null);
+  assert.equal(grant?.status, "active");
+  await app.close();
 });

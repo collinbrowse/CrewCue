@@ -47,7 +47,8 @@ const roots = [
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
-  "RaceRoomInvite"
+  "RaceRoomInvite",
+  "AccountDeletionResult"
 ];
 const skipProperties = new Set([
   "courseGpxXml",

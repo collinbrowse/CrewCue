@@ -219,6 +219,33 @@ export async function getBillingGrant(transactionId: string): Promise<BillingGra
   return result.rows[0] ? fromRow(result.rows[0]) : undefined;
 }
 
+/**
+ * Account deletion (#560): keep purchase records (refunds, store reconciliation) but drop
+ * the link to the deleted user, including the raw webhook bodies that carry their id.
+ * Returns how many grants were unlinked.
+ */
+export async function anonymizeBillingForUser(appUserId: string): Promise<number> {
+  await ensureReady();
+  const pool = getPersistencePool();
+  if (!pool) {
+    let count = 0;
+    for (const [id, grant] of memoryGrants) {
+      if (grant.appUserId === appUserId) {
+        memoryGrants.set(id, { ...grant, appUserId: null });
+        count += 1;
+      }
+    }
+    return count;
+  }
+  const grants = await pool.query(`UPDATE billing_grants SET app_user_id = NULL WHERE app_user_id = $1`, [appUserId]);
+  await pool.query(
+    `UPDATE billing_webhook_events SET payload = '{}'::jsonb
+      WHERE payload->'event'->>'app_user_id' = $1 OR payload->'event'->>'original_app_user_id' = $1`,
+    [appUserId]
+  );
+  return grants.rowCount ?? 0;
+}
+
 export async function resetBillingStoreForTests(): Promise<void> {
   memoryGrants.clear();
   memoryEvents.clear();
