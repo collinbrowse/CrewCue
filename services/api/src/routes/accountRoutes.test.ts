@@ -54,7 +54,16 @@ async function createRoom(app: FastifyInstance, headers: { authorization: string
     payload: { teamId: "team-1", athleteId, name: "Deletion Test 100", creatorRole: "athlete" }
   });
   assert.equal(res.statusCode, 201, res.body);
-  return res.json() as Room;
+  const room = res.json() as Room;
+  // Rooms here hold several crew, which needs the Full Crew tier (#649).
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    headers,
+    payload: { status: "paid", crewTier: "unlimited" }
+  });
+  assert.equal(paid.statusCode, 200, paid.body);
+  return room;
 }
 
 async function joinRoom(app: FastifyInstance, headers: { authorization: string }, room: Room): Promise<void> {
