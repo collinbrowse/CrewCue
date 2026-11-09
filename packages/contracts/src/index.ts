@@ -76,6 +76,13 @@ export interface RaceCourseBaselinePoint {
 
 export interface RaceCourseBaselineTrack {
   points: RaceCourseBaselinePoint[];
+  /**
+   * Expected log-error of this plan's finish (from the runner profile that built it). The live
+   * projection trusts a tighter plan longer. Absent means 0.12.
+   */
+  planLogSigma?: number;
+  /** Which runner-profile branch built the plan; finished races are scored against it. */
+  planProfileBranch?: "coldStart" | "coarseHistory" | "similarHistory";
 }
 
 /** Source for `elevationGainMeters` / `elevationLossMeters` on the canonical polyline. */
@@ -242,6 +249,20 @@ export interface RemainingCheckpointEta {
   liveProjectedElapsedSeconds: number;
   frozenPlanElapsedSeconds: number;
   deltaSecondsVsFrozenPlan: number;
+  /** 10th–90th percentile arrival (race elapsed). Absent where the window isn't calibrated. */
+  window?: ArrivalWindowElapsed;
+}
+
+/** A likely-arrival range in race elapsed seconds. */
+export interface ArrivalWindowElapsed {
+  earliestElapsedSeconds: number;
+  latestElapsedSeconds: number;
+}
+
+/** A likely-arrival range as clock times. */
+export interface ArrivalWindowClock {
+  earliestIso: string;
+  latestIso: string;
 }
 
 /** Deterministic split/ETA math from the last accepted ping (no wall-clock freshness in core). */
@@ -261,6 +282,8 @@ export interface RaceRoomProjectionCore {
    * Compare to frozen plan-of-record moving times for ahead/behind.
    */
   remainingCheckpointEtas?: RemainingCheckpointEta[];
+  /** 10th–90th percentile finish. Absent where the window isn't calibrated. */
+  etaFinishWindow?: ArrivalWindowClock;
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
@@ -295,6 +318,11 @@ export interface RaceRoom {
   createdAt: string;
   /** Official race clock anchor (ISO). Preferred over legacy `activatedAt` for new clients. */
   raceStartAt?: string;
+  /**
+   * Past events this room's course is linked to by an operator (`npm run course-history:link`).
+   * Absent means auto-link. Kept on the room, not the course, so a course save doesn't drop it.
+   */
+  courseHistoryEventIds?: string[];
   /** Legacy anchor for projection elapsed math; mirrors `raceStartAt` when set via course save. */
   activatedAt?: string;
   eventEndsAt?: string;
@@ -440,6 +468,60 @@ export interface AthletePingAcceptedResponse {
   latitude: number;
   longitude: number;
   horizontalAccuracyMeters?: number;
+  /** Recomputed room projection; absent when the room has no plan, start time, or route line. */
+  projection?: RaceRoomProjection;
+}
+
+/** One buffered sample in a backlog upload. */
+export interface AthletePingBatchPoint {
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+  horizontalAccuracyMeters?: number;
+}
+
+/**
+ * `POST /race-rooms/:roomId/pings/batch` — every sample the athlete phone buffered while offline,
+ * sent in one request (1–500 points). Unlike the single ping, points may be backdated.
+ */
+export interface AthletePingBatchPayload {
+  points: AthletePingBatchPoint[];
+  uploadIntervalSeconds?: number;
+}
+
+/**
+ * Per-point outcome. `duplicate` means the server already stored this exact `recordedAt`
+ * (a replayed upload); clients treat it like `accepted` and never resend.
+ */
+export interface AthletePingBatchPointResult {
+  recordedAt: string;
+  decision: "accepted" | "duplicate" | "rejected";
+  reason?: AthletePingRejectReason;
+  pingId?: string;
+}
+
+export interface AthletePingBatchResponse {
+  roomId: string;
+  receivedAt: string;
+  /** Same order as the request's `points`. */
+  results: AthletePingBatchPointResult[];
+  acceptedCount: number;
+  projection?: RaceRoomProjection;
+}
+
+/** One stored point of the athlete's path. */
+export interface AthleteTrackPoint {
+  recordedAt: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** `GET /race-rooms/:roomId/pings/track?after=<iso>&limit=<n>` — accepted points, oldest first. */
+export interface RaceRoomPingTrackResponse {
+  roomId: string;
+  points: AthleteTrackPoint[];
+  /** Pass as `after` to read the next page; absent on the last page. */
+  nextCursor?: string;
 }
 
 export interface AthletePingRejectedResponse {

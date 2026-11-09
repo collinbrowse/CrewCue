@@ -184,6 +184,24 @@
       "android": "pass"
     },
     {
+      "id": "runner-track",
+      "entry": "crewcue://dev/runner-track",
+      "label": "crewcue.runner-track",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "live-eta",
+      "entry": "crewcue://dev/live-eta",
+      "label": "crewcue.live-eta",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
       "id": "chat-thread",
       "entry": "crewcue://dev/chat",
       "label": "crewcue.chat",

@@ -3,6 +3,7 @@ import CrewCueClientCore
 
 struct ProductShellView: View {
     @Bindable var model: ShellModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView(selection: $model.selectedTab) {
@@ -31,8 +32,13 @@ struct ProductShellView: View {
         .onAppear { model.enterShellIfNeeded() }
         .task(id: raceDayID) {
             await model.mapModel.activate(userId: model.signedInUserId, roomId: model.signedInRoomId, role: model.signedInRole)
-            model.mapModel.beginLocation()
             await model.mapModel.followRunner()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from the lock screen or another app: read the runner now, not at the next tick.
+            if phase == .active {
+                Task { await model.mapModel.refreshNow() }
+            }
         }
     }
 
@@ -77,7 +83,8 @@ struct ProductTabPage: View {
                     roomId: model.signedInRoomId,
                     role: model.signedInRole,
                     focus: model.route.featureId,
-                    runner: model.mapModel.runner
+                    runner: model.mapModel.runner,
+                    live: model.mapModel.live
                 )
             }
         case .chat:

@@ -51,3 +51,6 @@ apps/ios/Config/Secrets.xcconfig
 # Xcode and SwiftPM per-user state
 xcuserdata/
 .swiftpm/
+
+# Projection backtest race data (scripts/projection-backtest/README.md). Never commit race results.
+services/api/projection-backtest-data/

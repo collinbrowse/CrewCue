@@ -129,3 +129,111 @@ single field validation** (per `pacing-accuracy-program.md`, after PR D).
 - [x] C3 fatigue renormalization (shape-only)
 - [x] Fatigue \gamma_1, \gamma_2 (shape)
 - [x] Scenario knob table
+
+---
+
+## Course-aware plan and live projection (PR 3) — behind `PROJECTION_TUNED_CONSTANTS`
+
+**Status: confirmed on permitted data; still OFF in production until the flag is turned on.** First
+fit on the Nov 3–4 2026 backtest of scraped finisher splits (about 5,500 finishers on 6 courses,
+held out one course at a time): five OpenSplitTime courses (Hardrock 100, Bear 100, Never Summer
+100K and 60K, Quad Rock 50) and UTMB 2022 from LiveTrail. OpenSplitTime granted permission on
+Nov 5 2026 (it asked for an attribution line). LiveTrail hasn't, so UTMB is out.
+
+**Nov 5 re-check on OpenSplitTime only** (5 courses, 3,817 finishers, leave-one-course-out):
+- Slowdown fits 0.20–0.25 per held-out course. Night pooled +7.3%.
+- Bias terms refit per held-out course: A +0.085…+0.111, B −0.195…−0.218, C +0.303…+0.350. The
+  shipped values are inside or next to those ranges and score slightly better than the refit
+  (all-runner finish 49.2 vs 50.2 min).
+- Finish / next-aid error, all runners: server today 69.5 / 18.1 → PR 3 with the shipped
+  constants 49.2 / 15.2. Mixed plan-quality field: 63.4 → 50.9 min.
+
+The constants run only when `PROJECTION_TUNED_CONSTANTS=1`. With it unset, the estimate and the
+ETAs match the pre-PR model exactly.
+
+**Source of truth:** `[../../projectionTuning.ts](../../projectionTuning.ts)`
+
+| Constant | Value | Role | Backtest basis |
+| --- | --- | --- | --- |
+| `SLOWDOWN_SLOPE_DEFAULT` | **0.24** | Section time × (1 + s·(progress − 0.5)), renormalized to keep the total. The GPX model under-predicts late-race slowdown on every course. | Held-out slope 0.22–0.26 on all 6 courses |
+| `NIGHT_PACE_FACTOR` | **1.06** while the sun is below **−6°** | Moving time in the dark, at the course start's location and the simulated clock time. Adds time. | Speed-adjusted: Bear +16%, Hardrock +9%, UTMB +6%, Never Summer +3%; pooled +6% |
+| `PLAN_LOG_SIGMA` | cold **0.30** · coarse history **0.20** · similar history **0.12** | The plan's expected finish log-error, stored as `baselineTrack.planLogSigma`. A missing value means 0.12. | Reasoned tiers; the backtest plan error was synthetic. PR 6 measures them from finished rooms. |
+| `LIVE_RATIO_HALF_LIFE_METERS` | **40,000** | Recency weight on actual ÷ planned time covered so far | Best of 2–80 km |
+| `LIVE_TRUST_VARIANCE` | **0.0043** | trust = 0.0043 / σ²; w = seen / (seen + trust) | Matched the best fixed trust at plan errors of 6/12/20/30%. Mixed field: 90 min vs 102 for the best constant. |
+| `LIVE_BIAS_A, B, C` | **+0.09, −0.21, +0.36** | r_rem = r·exp(A + B·seen + C·clamp(ln ratio, ±1)·(1 − w)). Corrects the shape the slowdown fix leaves behind (fast first and last 10%, slow middle), and returns part of the ratio that trust held back. | All-runner finish error 87 → 78 min; UTMB 109 → 96; every course improved |
+| `K_STOP` | **2** | Stop habit = (2 + Σ actual/planned) / (2 + n) over the planned stops passed, applied to the planned stops ahead | Reasoned shrinkage; not yet backtested (needs in/out times) |
+
+Live formula: `ETA_j = elapsedNow + r_rem · (plan_j − plan_now) + stopHabit · Σ planned stops before j`.
+- Time stopped at a checkpoint with a crew-planned stop is left out of the ratio, so it is counted once.
+- Other stops stay in the ratio and are spread over the rest of the course, as the backtest measured.
+
+Tested and left out:
+- A non-linear progress curve in the plan. Stacked with the bias layer, it erased the gain.
+- Projecting a runner's recent fade forward. No gain: slow stretches tend to bounce back.
+
+## Learning from CrewCue's own finished races (PR 6)
+
+This is first-party data, so it needs no outside permission. The values below run only when `PROJECTION_TUNED_CONSTANTS` is on, like the rest of the tuned pace model. Measurements are recorded whatever the flag.
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `PLAN_SIGMA_MIN_ROOMS` | **20** finished rooms per branch | Then that branch's σ = RMS of ln(actual ÷ planned finish), replacing the provisional tier |
+| `SLOWDOWN_SHRINK_K` | **2** race-equivalents | personal = (2·0.24 + Σ wᵢ·sᵢ) / (2 + Σ wᵢ) |
+| `SLOWDOWN_FULL_WEIGHT_METERS` | **80 km** | wᵢ = min(1, distanceᵢ / 80 km) |
+| `SLOWDOWN_MIN_EFFORT_METERS` | **30 km** | Shorter efforts are not measured |
+| `SLOWDOWN_MIN_COVERAGE` | **80%** of the course in timed sections, at least 3 sections | Otherwise no slope |
+| `SLOWDOWN_SLOPE_RANGE` | **[0, 0.6]** | Clamp on the personal slope |
+
+How slowdown is measured:
+- For each section, take (actual ÷ planned moving time), normalized by the effort's overall ratio, and regress it on the section's progress.
+- The plan is the micro-model's cold-start shape over the same route without any slowdown, so the measured slope is the whole slowdown.
+- Sources: CrewCue races (sections between checkpoint crossings, stops taken out) and timed GPX uploads (about 5 km sections).
+
+`K = 2` is a reasoned default. Validate it on repeat runners once permitted data with linked runners exists.
+
+`npm run finished-efforts:report` prints rooms per branch, measured σ, slowdowns, and stop medians by tag, race quarter and darkness.
+
+## Course history (PR 4) — data-gated, and behind `PROJECTION_TUNED_CONSTANTS`
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `COURSE_HISTORY_PRODUCT_SOURCES` | env, default **`crewcue,opensplittime`** | Sources whose events may feed the product. Every other source is stored `backtest_only` |
+| `COURSE_HISTORY_MIN_FINISHERS` | **25** | Past finishers needed on the mapped layout before history changes a plan or an ETA. Nov 4 analysis: the gain levels off at 10–25 |
+| Plan band | ±**10%** of planned finish (at least 5, else the nearest 10) | Plan shape = median share of finish at each checkpoint among these finishers |
+| Live band | ±**30%** of the runner's elapsed at the last checkpoint (nearest 100, at least **4**), outliers beyond 1.5×IQR dropped | Past-runners estimate. The live ETA is the average of it and the projection |
+| `LINK_POSITION_METERS` | **300 m** | Checkpoint mapping by position. Fallbacks: name, then share of the course within **2%** |
+| `LINK_MIN_AID_COVERAGE` | **80%** of the room's aid checkpoints | Needed to link an event |
+| Auto-link | start and finish within **500 m**, length within **5%**, one checkpoint layout | Otherwise an operator links with `npm run course-history:link` |
+
+**Data-gated:**
+- With the default source list, CrewCue's own finished races and OpenSplitTime events feed the product. OpenSplitTime events are imported with `npm run course-history:import -- --opensplittime <event-slug…>`.
+- OpenSplitTime gives no checkpoint coordinates, so its events don't auto-link (auto-link matches start and finish positions). Link a room by hand: `npm run course-history:link -- <roomId> opensplittime:<slug>…`. Checkpoints then map by name, then by share of the course.
+- An estimate shaped by OpenSplitTime results says so in its explanation: "(results from OpenSplitTime.org)", the attribution OpenSplitTime asked for.
+- The plan shape and the live blend also need the tuned flag.
+
+**Gate: passed on OpenSplitTime data (Nov 5 2026).** On runners whose course has prior years (2,985 runners, 4 courses), the 50/50 blend of the live projection and the past-runners estimate scores a finish error of **40.0 min** and a next-aid error of **10.1 min**, against the gate of 41 / 11. At 25 past finishers per runner it's 40.7 / 10.2. The past-runner plan shape plus the blend together weren't scored yet.
+
+## Arrival windows (PR 5) — behind `PROJECTION_TUNED_CONSTANTS`, table fitted on OpenSplitTime data
+
+**Source of truth:** `[../../arrivalWindows.ts](../../arrivalWindows.ts)`, with the table in `[../../arrivalWindowTable.ts](../../arrivalWindowTable.ts)`.
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| Window | 10th–90th percentile (80% nominal) | `elapsedNow + remaining × [exp(q10), exp(q90)]` around each live ETA |
+| Progress bands | 0–25%, 25–50%, 50–75%, 75–100% of course covered | Table rows, together with σ tier (cold / coarse / similar history) and linked course history |
+| `WINDOW_MIN_COVERAGE` | **70%** held-out | A band below this gets no window, so clients show the ETA alone |
+| Target coverage | **75–85%** held-out | What the backtest reports each band against |
+| Between checkpoints | linear in remaining plan time | Quantiles go from the next-checkpoint band to the finish band |
+
+**Table: fitted Nov 5 2026** on OpenSplitTime public results, used with OpenSplitTime's permission: 5 courses (Hardrock 100 counter-clockwise, Bear 100, Never Summer 100K and 60K, Quad Rock 50), 3,817 finishers. Coverage is held out one course at a time. UTMB (LiveTrail) is left out because LiveTrail hasn't given permission.
+
+| Band | Next checkpoint: held-out coverage | Finish: held-out coverage |
+| --- | --- | --- |
+| 0–25% | 72–74% (below target, above the 70% gate) | 80% |
+| 25–50% | 79% | 77–78% |
+| 50–75% | 74–75% (below target, above the gate) | 76% |
+| 75–100% | 77% | 80% |
+
+Ranges span the three σ tiers, which come out nearly the same because the backtest's plan error is synthetic. Every band clears the 70% gate, so every band gets a window. Typical widths: next checkpoint ×0.83–×1.25 of the remaining time; finish ×0.85–×1.18. Bands with linked course history (`hasHistory: true`) aren't fitted yet, so they fall back to no window until a refit with history wired in (follow-up once PR 4 merges).
+
+To refit the table, run `npm run projection:backtest -- --data <permitted data> --analysis windows --write-windows --windows-source "<dataset, permission, date>"` and commit the generated table. The tool refuses to write a table from the synthetic fixture.

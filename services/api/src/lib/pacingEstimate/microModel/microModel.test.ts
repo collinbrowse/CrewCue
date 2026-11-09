@@ -393,3 +393,73 @@ test("estimatePacingMicroModelWithArtifacts returns parseable estimate + baselin
   assert.ok(baselineTrack.points.length >= 2);
   assert.match(estimate.explanation, /scenario/i);
 });
+
+// --- PR 3: late-race slowdown, night, plan σ (behind PROJECTION_TUNED_CONSTANTS) ---
+
+function flatCourse(km: number) {
+  const points = [];
+  for (let i = 0; i <= km * 10; i++) {
+    points.push({ latitude: 40 + i * 0.0009, longitude: -105, elevationMeters: 1600 });
+  }
+  return buildCourseMicroSegments(points);
+}
+
+test("slowdown keeps the total and moves time from the first half to the second", () => {
+  const segments = flatCourse(20);
+  const profile = buildRunnerProfile({ history: [], courseDistanceMeters: 20_000 });
+  const off = runScenarioSims({ segments, profile: { ...profile, slowdownSlope: 0 } }).expected;
+  const on = runScenarioSims({ segments, profile: { ...profile, slowdownSlope: 0.24 } }).expected;
+  const total = (sim: typeof off) => sim.distanceElapsedCurve[sim.distanceElapsedCurve.length - 1]!.referenceElapsedSeconds;
+  assert.ok(Math.abs(total(on) - total(off)) < 1e-6 * total(off));
+  const half = (sim: typeof off) => interpolateElapsedAtDistance(sim.distanceElapsedCurve, 10_000);
+  assert.ok(half(on) < half(off), "first half faster");
+  // Second-half / first-half time ratio ≈ (1 + 0.24·0.25) / (1 − 0.24·0.25)
+  const ratio = (total(on) - half(on)) / half(on);
+  assert.ok(Math.abs(ratio - 1.06 / 0.94) < 0.02, `ratio ${ratio}`);
+});
+
+test("a night start adds time; a midday start on a short course does not", () => {
+  const segments = flatCourse(10);
+  const profile = buildRunnerProfile({ history: [], courseDistanceMeters: 10_000 });
+  const total = (night?: { raceStartMs: number; latitude: number; longitude: number }) => {
+    const sim = runScenarioSims({ segments, profile, ...(night ? { night } : {}) }).expected;
+    return sim.distanceElapsedCurve[sim.distanceElapsedCurve.length - 1]!.referenceElapsedSeconds;
+  };
+  const base = total();
+  // 22:00 MDT (04:00 UTC next day) in Colorado in August: dark for the whole ~1.7 h run.
+  const nightRun = total({ raceStartMs: Date.parse("2026-08-02T04:00:00.000Z"), latitude: 40, longitude: -105 });
+  const noonRun = total({ raceStartMs: Date.parse("2026-08-01T18:00:00.000Z"), latitude: 40, longitude: -105 });
+  assert.ok(Math.abs(nightRun / base - 1.06) < 0.005, `night ${nightRun / base}`);
+  assert.ok(Math.abs(noonRun - base) < 1e-6);
+});
+
+test("plan σ follows the profile branch; slowdown is 0 unless the tuned flag is on", () => {
+  const history = (distanceMeters: number) => [
+    {
+      id: "h1",
+      source: "gpx_upload" as const,
+      externalId: "x1",
+      recordedAt: "2026-01-01T00:00:00.000Z",
+      ingestedAt: "2026-01-02T00:00:00.000Z",
+      distanceMeters,
+      elapsedSeconds: distanceMeters * coldStartGapSecondsPerMeter()
+    }
+  ];
+  const before = process.env.PROJECTION_TUNED_CONSTANTS;
+  delete process.env.PROJECTION_TUNED_CONSTANTS;
+  try {
+    assert.equal(buildRunnerProfile({ history: [], courseDistanceMeters: 50_000 }).planLogSigma, 0.3);
+    assert.equal(buildRunnerProfile({ history: history(45_000), courseDistanceMeters: 50_000 }).planLogSigma, 0.12);
+    // A 3 km run is outside the similarity window for a 50 km course.
+    assert.equal(buildRunnerProfile({ history: history(3000), courseDistanceMeters: 50_000 }).planLogSigma, 0.2);
+    assert.equal(buildRunnerProfile({ history: [], courseDistanceMeters: 50_000 }).slowdownSlope, 0);
+    process.env.PROJECTION_TUNED_CONSTANTS = "1";
+    assert.equal(buildRunnerProfile({ history: [], courseDistanceMeters: 50_000 }).slowdownSlope, 0.24);
+  } finally {
+    if (before === undefined) {
+      delete process.env.PROJECTION_TUNED_CONSTANTS;
+    } else {
+      process.env.PROJECTION_TUNED_CONSTANTS = before;
+    }
+  }
+});

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -206,3 +209,84 @@ test("returns 403 when non-member attempts task mutation", async () => {
 
   await app.close();
 });
+
+test(
+  "a task the crew assigned, started and finished is still done after an API restart",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const { roomId, crewMemberToken, crewChiefToken } = await setupPaidActiveRoomWithCrew(app);
+
+    const board = (
+      await app.inject({
+        method: "GET",
+        url: `/race-rooms/${roomId}/tasks`,
+        headers: { authorization: `Bearer ${crewChiefToken}` }
+      })
+    ).json() as { tasks: Array<{ id: string }> };
+    assert.ok(board.tasks.length >= 2, "the generated board has at least two tasks");
+    const [doneId, startedId] = [board.tasks[0]!.id, board.tasks[1]!.id];
+
+    for (const taskId of [doneId, startedId]) {
+      const assigned = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/tasks/${taskId}/assign`,
+        payload: { assigneeUserId: "crew-member-user", assigneeRole: "crew_member" },
+        headers: { authorization: `Bearer ${crewChiefToken}` }
+      });
+      assert.equal(assigned.statusCode, 200);
+      const started = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/tasks/${taskId}/start`,
+        headers: { authorization: `Bearer ${crewMemberToken}` }
+      });
+      assert.equal(started.statusCode, 200);
+    }
+    const completed = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/tasks/${doneId}/complete`,
+      headers: { authorization: `Bearer ${crewMemberToken}` }
+    });
+    assert.equal(completed.statusCode, 200);
+    await app.close();
+
+    // A fresh process has no task board in memory; it must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const res = await app.inject({
+        method: "GET",
+        url: "/race-rooms/" + process.argv[2] + "/tasks",
+        headers: { authorization: "Bearer " + process.argv[3] }
+      });
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ status: res.statusCode, body: res.json() }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crewChiefToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      status: number;
+      body: {
+        tasks: Array<{ id: string; status: string }>;
+        assignments: Array<{ taskId: string; assigneeUserId: string }>;
+      };
+    };
+    assert.equal(result.status, 200);
+    const statusOf = (id: string) => result.body.tasks.find((task) => task.id === id)?.status;
+    assert.equal(statusOf(doneId), "completed", "the finished task stays finished");
+    assert.equal(statusOf(startedId), "in_progress", "the started task stays in progress");
+    for (const taskId of [doneId, startedId]) {
+      assert.ok(
+        result.body.assignments.some((a) => a.taskId === taskId && a.assigneeUserId === "crew-member-user"),
+        "the assignee survives the restart"
+      );
+    }
+  }
+);
