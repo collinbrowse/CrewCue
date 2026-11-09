@@ -17,7 +17,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 4. **Play target API extension:** not needed once #571 is merged (the app targets API 36).
 5. **Privacy policy URL.** Both stores need it: App Store Connect before external TestFlight, and Play before any track goes out (Data safety form). In-app links are tracked in #569.
 6. **App privacy answers (App Store) and Data safety form (Play).** Use [Privacy inputs](#privacy-inputs) below. Confirm the export-compliance answer: the app uses only HTTPS/TLS from the OS, and `ITSAppUsesNonExemptEncryption = NO` is already set for Release.
-7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing.
+7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing. Also set `AUTH0_MGMT_DOMAIN`, `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET` on the Railway API (M2M app with `delete:users`) so deletion removes the Auth0 login: [account-deletion.md](account-deletion.md).
 8. **Railway production service** (when you leave staging).
    - Set `NODE_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE`, `PERSISTENCE_MODE=postgres` and `DATABASE_URL`.
    - New in this PR: with `NODE_ENV=production`, the API refuses to start without Auth0 unless a private `JWT_SECRET` is set. This stops it from accepting tokens signed with the public dev secret.
@@ -96,7 +96,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Health checks | gap | `/health/ready` is static (`routes/health.ts`). Railway checks `/health/live`. | #566 |
 | Migrations | gap | `services/api/scripts/apply-sql-migrations.mjs` re-runs every file per deploy (`railway.toml` `preDeployCommand`), with no ledger | #566 |
 | Logging of PII | done (this PR), partial | Query strings stripped and auth headers redacted. User `sub` still appears in `ping_decision` and analytics logs. There are no lat/lng log calls. | Decide whether `sub` is acceptable in logs. Retention: #568 |
-| Account deletion and data export | gap, **release blocker** | no `/me` route | #560 |
+| Account deletion and data export | done in API (#560) | `DELETE /me` and `GET /me/export` (`routes/accountRoutes.ts`). Auth0 user deletion needs `AUTH0_MGMT_*` on Railway: see [account-deletion.md](account-deletion.md) | #560 apps; web page #569 |
 | Data retention | gap | Pings and activity history kept indefinitely (`room_ws2_runtime_json`) | #568 |
 | Crash and error tracking | done (#564), needs-user DSN | Sentry (ADR 0010), on only when `SENTRY_DSN` is set (`src/lib/errorReporting.ts`). Reports 5xx and process crashes; `uncaughtException` / `unhandledRejection` log, flush and exit 1. Events are scrubbed (`src/lib/errorScrub.ts`): no query strings, auth headers, bodies, tokens, emails, lat/lng or user. OTel traces unchanged. | Set `SENTRY_DSN` (and optionally `SENTRY_ENVIRONMENT`) on the Railway API service |
 | Push delivery | gap | `lib/chatPushDispatch.ts` logs only | #563 |

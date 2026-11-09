@@ -129,3 +129,31 @@ export function stopStats(efforts: readonly FinishedEffort[]): StopStat[] {
     }))
     .sort((a, b) => a.tag.localeCompare(b.tag) || a.progressBand.localeCompare(b.progressBand) || Number(a.dark) - Number(b.dark));
 }
+
+/**
+ * Account deletion: drop finished efforts for this athlete, plus any row for a room being
+ * deleted (a room's effort is the runner's data even if the athlete id was re-pointed).
+ */
+export async function deleteFinishedEffortsForAthlete(athleteUserId: string): Promise<number> {
+  const pool = getPersistencePool();
+  if (!pool) {
+    let removed = 0;
+    for (const [roomId, effort] of [...memory.entries()]) {
+      if (effort.athleteUserId !== athleteUserId) continue;
+      memory.delete(roomId);
+      removed += 1;
+    }
+    return removed;
+  }
+  const result = await pool.query("DELETE FROM finished_efforts WHERE athlete_user_id = $1", [athleteUserId]);
+  return result.rowCount ?? 0;
+}
+
+export async function deleteFinishedEffortForRoom(roomId: string): Promise<void> {
+  const pool = getPersistencePool();
+  if (!pool) {
+    memory.delete(roomId);
+    return;
+  }
+  await pool.query("DELETE FROM finished_efforts WHERE room_id = $1", [roomId]);
+}
