@@ -24,7 +24,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 9. **Push credentials** (#563).
    - Turn on the Push capability on the App ID, then create an APNs auth key (.p8).
    - Create a Firebase project and add `google-services.json` for `com.crewcue.android`.
-10. **Production third-party keys:** MapTiler (the map falls back to the MapLibre demo style without one), Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
+10. **Production third-party keys:** Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
 11. **Store listings:** name, subtitle, description, keywords, category (Health & Fitness or Sports), screenshots (6.9" iPhone; Play phone), feature graphic, support URL, age rating questionnaire (App Store) and content rating questionnaire (Play), and the target audience form (Play).
 12. **Background location justification** once #562 lands: an App Review note and a Play location-permission and foreground-service declaration, with a short video showing runner tracking.
 13. **Sentry crash reporting** (#564, ADR 0010): create Sentry projects for the API, iOS and Android on the free Developer plan. Set `SENTRY_DSN` on the Railway API service, and add `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT_IOS`, `SENTRY_PROJECT_ANDROID`, `SENTRY_DSN_IOS`, `SENTRY_DSN_ANDROID` to the `release` environment (`docs/runbooks/mobile-release.md`). Until then reporting stays off and symbol uploads skip.
@@ -43,7 +43,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | iOS Dynamic Type: the 32pt invite-code field scales with `@ScaledMetric`. The fixed-size pill tab bar supports the Large Content Viewer, which is Apple's pattern for bars that cannot grow. | `Screens/Join/JoinCrewView.swift`, `Screens/Shell/ProductShellView.swift` |
 | Android TalkBack: shared chat photos read "Shared photo" instead of "Image, image". | `ui/chat/ChatScreen.kt` |
 | API refuses to start in production when it would verify tokens with the public `dev-only-secret`. | `services/api/src/lib/authEnv.ts` (+ test), `server.ts` |
-| API logs drop query strings (Strava OAuth `code`/`state`, geocode search text) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
+| API logs drop query strings (Strava OAuth `code`/`state`) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
 
 ## iOS (App Store)
 
@@ -128,7 +128,7 @@ For the App Store privacy nutrition label and the Play Data safety form. The app
 | Crash data | yes | no | App functionality | Sentry crash and error reports (stack traces, device model, OS, app version). No user ID, email or location. App Store: Crash Data. Play: Crash logs. |
 | Performance data | yes | no | App functionality | Sentry app-hang and launch diagnostics, session counts. App Store: Performance Data. Play: Diagnostics. |
 
-Processors: Sentry (crash and error reports, not linked to identity), Auth0 (identity), Stream (chat), MapTiler (tiles, geocoding), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
+Processors: Sentry (crash and error reports, not linked to identity), Auth0 (identity), Stream (chat), OpenFreeMap (map tiles, keyless; sees the device IP and which map area is viewed, no account data; OpenStreetMap attribution shown on the map), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
 
 ## Issues filed from this audit
 
