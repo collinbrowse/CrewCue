@@ -207,7 +207,7 @@
       "label": "crewcue.chat",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {
