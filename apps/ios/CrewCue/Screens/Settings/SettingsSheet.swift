@@ -29,8 +29,12 @@ struct ShellSettingsSheet: View {
                         SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
                             .id("location-heartbeat")
                     }
-                    SettingsStravaSection(model: model.stravaModel)
-                        .id("strava")
+                    SettingsActivityImportSection(model: model.activityImportModel, userId: model.signedInUserId)
+                        .id("activity-import")
+                    if ClientFeatureFlags.stravaEnabled {
+                        SettingsStravaSection(model: model.stravaModel)
+                            .id("strava")
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         CrewSectionHeader(title: "Account")
                         CrewListRow(systemImage: "rectangle.portrait.and.arrow.right", title: "Sign out", tint: theme.danger) {
