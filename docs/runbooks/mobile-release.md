@@ -15,7 +15,7 @@ Version: `X.Y.Z` becomes the iOS marketing version and the Android `versionName`
 
 ### GitHub
 
-Create an environment named `release` (Settings → Environments). Optionally add required reviewers so a tag waits for approval. Add these environment secrets:
+`scripts/github-guardrails.sh` creates the `release` environment with the owner as required reviewer and `v*` tags as the only allowed refs ([launch-owner-setup.md](launch-owner-setup.md)). Add these environment secrets, plus `RAILWAY_TOKEN` (a Railway project token for the production environment; the workflow deploys the production API before the apps):
 
 | Secret | How to get it |
 | --- | --- |

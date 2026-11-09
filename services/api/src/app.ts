@@ -6,7 +6,6 @@ import { logSafeUrl } from "./lib/logSafeUrl.js";
 import { healthRoutes } from "./routes/health.js";
 import { analyticsRoutes } from "./routes/analyticsRoutes.js";
 import { chatRoutes } from "./routes/chatRoutes.js";
-import { geocodeRoutes } from "./routes/geocodeRoutes.js";
 import { routingRoutes } from "./routes/routingRoutes.js";
 import { raceRoomRoutes } from "./routes/raceRooms.js";
 import { courseGpxRoutes } from "./routes/courseGpxRoutes.js";
@@ -56,7 +55,6 @@ export function buildApp() {
   app.register(stravaRoutes);
   app.register(pacingEstimateRoutes);
   app.register(routingRoutes);
-  app.register(geocodeRoutes);
   app.register(analyticsRoutes);
   app.register(chatRoutes);
   app.register(ws4AdaptivePlanRoutes);

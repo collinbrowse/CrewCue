@@ -175,13 +175,6 @@ export interface PostNavigationRouteResponse {
   meta?: NavigationRouteMeta;
 }
 
-/** MapTiler geocode proxy result item (normalized for clients). */
-export interface GeocodeSearchResultItem {
-  label: string;
-  longitude: number;
-  latitude: number;
-}
-
 export interface RaceCheckpointSplitRow {
   checkpointId: string;
   distanceMetersFromStart: number;
