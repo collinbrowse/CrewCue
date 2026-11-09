@@ -1,5 +1,5 @@
 /**
- * Crew chat HTTP routes (ADR 0010): first-party messages with long-poll live updates,
+ * Crew chat HTTP routes (ADR 0011): first-party messages with long-poll live updates,
  * photos in object storage, push devices, notification prefs, and direct APNs/FCM push.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
