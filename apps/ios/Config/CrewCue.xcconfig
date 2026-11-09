@@ -1,7 +1,3 @@
-// MapTiler key for the topo basemap. Put `CREWCUE_MAPTILER_KEY = <key>` in the gitignored
-// Config/Secrets.xcconfig. Without a key the map falls back to the MapLibre demo style.
-CREWCUE_MAPTILER_KEY =
-
 // Server and Auth0 tenant, read by Info.plist. `/$()/` keeps xcconfig from reading `//` as a comment.
 // Debug talks to the local API and the dev tenant.
 CREWCUE_API_BASE_URL = http:/$()/127.0.0.1:3000
@@ -15,5 +11,9 @@ CREWCUE_API_BASE_URL[config=Release] =
 CREWCUE_AUTH0_DOMAIN[config=Release] =
 CREWCUE_AUTH0_CLIENT_ID[config=Release] =
 CREWCUE_AUTH0_AUDIENCE[config=Release] =
+
+// Sentry crash reporting (ADR 0010). Empty means off. release.yml passes the iOS project DSN
+// to Release only; CrashReporting.swift never starts Sentry in Debug.
+CREWCUE_SENTRY_DSN =
 
 #include? "Secrets.xcconfig"

@@ -206,3 +206,20 @@ export async function countActivityHistoryRows(): Promise<number> {
   const result = await pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM activity_history_json`);
   return Number.parseInt(result.rows[0]?.count ?? "0", 10);
 }
+
+/** Account deletion: drop every activity-history row for this athlete. Returns rows removed. */
+export async function deleteActivityHistoryForAthlete(athleteUserId: string): Promise<number> {
+  await ensureReady();
+  if (!pool) {
+    let removed = 0;
+    for (const [key, row] of [...memoryByKey.entries()]) {
+      if (row.athleteUserId !== athleteUserId) continue;
+      memoryByKey.delete(key);
+      memoryIdIndex.delete(row.ref.id);
+      removed += 1;
+    }
+    return removed;
+  }
+  const result = await pool.query(`DELETE FROM activity_history_json WHERE athlete_user_id = $1`, [athleteUserId]);
+  return result.rowCount ?? 0;
+}

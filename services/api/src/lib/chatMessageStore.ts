@@ -1,5 +1,5 @@
 /**
- * Crew chat message storage (ADR 0010). Postgres in production, a Map in memory mode.
+ * Crew chat message storage (ADR 0011). Postgres in production, a Map in memory mode.
  *
  * Message ids are the table's bigserial `seq` as a decimal string, so they double as the
  * paging cursor. A retry with the same (room, sender, clientMessageId) returns the stored
