@@ -204,9 +204,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("com.auth0.android:auth0:4.2.0")
+    implementation("com.auth0.android:auth0:4.3.0")
     // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
-    implementation("com.revenuecat.purchases:purchases:9.29.1")
+    implementation("com.revenuecat.purchases:purchases:11.2.0")
     implementation("io.sentry:sentry-android:8.63.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
@@ -217,7 +217,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM tests that parse client-core bridge JSON (android.jar only has stubs).
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
