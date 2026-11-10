@@ -1,0 +1,18 @@
+{
+  "id": "account-deletion",
+  "platform": "android",
+  "entry": "crewcue://dev/account-deletion",
+  "device": "AVD crewcue_api_35 (emulator-5604, read-only), Android 15, debug APK",
+  "date": "2026-11-09",
+  "commit": "claude/deletion-560-android (f8af6a5)",
+  "session": "Dev session intent extras as the runner (proof-runner) against the local memory API on :3560 (debug build with -Pcrewcue_api_base_url=http://10.0.2.2:3560), with a seeded paid race and one crew member who joined by code.",
+  "action": "Opened crewcue://dev/account-deletion; Settings scrolled to Account. Tapped Delete account → Cancel; then Delete account → Delete account with the API stopped, with a stub returning 502, and finally against the real API.",
+  "checked": {
+    "Success": "Signed out to the sign-in screen (crewcue.auth-signed-out). Crew GET /race-rooms/<id> → 404 and /race-rooms/mine → []. Server log account_deleted roomsClosed 1 with a hashed subject. App files/crewcue-user/users/proof-runner removed and crewcue.session prefs empty.",
+    "Empty": "AlertDialog 'Delete your account?' with the full client-core copy (via accountDeletionCopy), Cancel and Delete account. Cancel left the room in place (crew GET 200).",
+    "Error": "Stub 502: 'Your data was deleted, but we couldn't finish removing your login. Try again.' User stays signed in on Settings.",
+    "Offline": "API stopped: 'You're offline. Your account was not deleted.' User stays signed in.",
+    "Accessibility labels": "crewcue.account-deletion row with content description 'Delete account'; 'Delete on the web instead' link from BuildConfig.ACCOUNT_DELETION_URL."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
