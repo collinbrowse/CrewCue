@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { androidSdkEnv } from "./lib/androidSdkEnv.mjs";
+import { acquireAndroid, androidPort, sharedDevice } from "./lib/agentDevice.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,21 +56,43 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function bootAvd(name) {
+async function bootAvd(name, port) {
   const emulator = path.join(env.ANDROID_HOME, "emulator/emulator");
   if (!fs.existsSync(emulator)) throw new Error(`emulator binary missing at ${emulator}`);
-  const child = spawn(emulator, ["-avd", name, "-netdelay", "none", "-netspeed", "full"], {
+  // Always read-only, so every worktree can run its own instance of the same AVD at once.
+  // The emulator refuses a read-only instance while any instance of that AVD runs without -read-only.
+  const portArgs = port ? ["-port", String(port)] : [];
+  const logPath = path.join(repoRoot, `.agent-pr-evidence/emulator-${port ?? "default"}.log`);
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const log = fs.openSync(logPath, "w");
+  const child = spawn(emulator, ["-avd", name, "-read-only", "-no-snapshot-save", ...portArgs, "-netdelay", "none", "-netspeed", "full"], {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", log, log],
     env
   });
   child.unref();
+  const wanted = port ? `emulator-${port}` : undefined;
   for (let attempt = 0; attempt < 90; attempt += 1) {
-    const serial = await onlineSerial().catch(() => undefined);
-    if (serial) return serial;
+    if (child.exitCode !== null) break;
+    const serial = wanted ? ((await isOnline(wanted)) ? wanted : undefined) : await onlineSerial().catch(() => undefined);
+    if (serial && (await bootCompleted(serial))) return serial;
     await sleep(2000);
   }
-  throw new Error(`AVD ${name} did not come online.`);
+  const tail = fs.readFileSync(logPath, "utf8").trim().split("\n").slice(-3).join("\n");
+  const hint = /Another emulator instance is running/.test(tail)
+    ? `\nAn instance of ${name} is running without -read-only. Close it (adb -s <serial> emu kill) and boot again; every instance must be read-only.`
+    : "";
+  throw new Error(`AVD ${name}${wanted ? ` (${wanted})` : ""} did not come online. Emulator log ${logPath}:\n${tail}${hint}`);
+}
+
+async function isOnline(serial) {
+  const { stdout } = await run("adb", ["devices"]).catch(() => ({ stdout: "" }));
+  return stdout.split("\n").some((line) => line.trim().startsWith(`${serial}\t`) && line.trim().endsWith("device"));
+}
+
+async function bootCompleted(serial) {
+  const { stdout } = await run("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"]).catch(() => ({ stdout: "" }));
+  return stdout.trim() === "1";
 }
 
 async function onlineSerial() {
@@ -91,17 +114,24 @@ async function main() {
   }
   let serial = args.serial;
   if (serial) {
-    const { stdout } = await run("adb", ["devices"]);
-    if (!stdout.split("\n").some((line) => line.trim().startsWith(`${serial}\t`) && line.trim().endsWith("device"))) {
-      throw new Error(`${serial} is not an online adb device.`);
+    if (!(await isOnline(serial))) throw new Error(`${serial} is not an online adb device.`);
+  } else if (sharedDevice()) {
+    serial = await onlineSerial();
+    if (!serial) {
+      const name = avdName();
+      process.stdout.write(`agent-android-ready: booting AVD ${name}\n`);
+      serial = await bootAvd(name);
     }
   } else {
-    serial = await onlineSerial();
-  }
-  if (!serial) {
-    const name = avdName();
-    process.stdout.write(`agent-android-ready: booting AVD ${name}\n`);
-    serial = await bootAvd(name);
+    // One worktree at a time, on its own emulator. Never fall back to another worktree's device.
+    await acquireAndroid(repoRoot, { log: (line) => process.stdout.write(`agent-android-ready: ${line}\n`) });
+    const port = androidPort(repoRoot);
+    serial = `emulator-${port}`;
+    if (!(await isOnline(serial))) {
+      const name = avdName();
+      process.stdout.write(`agent-android-ready: booting AVD ${name} as ${serial}\n`);
+      await bootAvd(name, port);
+    }
   }
   const gradle = fs.existsSync(path.join(repoRoot, "apps/android/gradlew"))
     ? path.join(repoRoot, "apps/android/gradlew")
