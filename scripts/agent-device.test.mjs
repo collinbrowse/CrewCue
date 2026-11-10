@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { androidPort, androidSerial, checkoutKey, FIRST_PORT, iosSimulatorName, PORT_SLOTS, sharedDevice } from "./lib/agentDevice.mjs";
+import { androidPort, androidSerial, checkoutKey, emulatorGpu, FIRST_PORT, iosSimulatorName, PORT_SLOTS, sharedDevice, SOFTWARE_GPU } from "./lib/agentDevice.mjs";
 
 const worktree = (name) => `/Users/x/CrewCue/.claude/worktrees/${name}`;
 
@@ -22,6 +22,13 @@ test("emulator ports are even, in range, stable, and skip 5554", () => {
   assert.ok(ports.size > 40, "ports spread across the range");
   assert.equal(androidSerial(worktree("x"), { CREWCUE_ANDROID_PORT: "5600" }), "emulator-5600");
   assert.notEqual(androidPort(worktree("x"), { CREWCUE_ANDROID_PORT: "5601" }), 5601, "odd override ignored");
+});
+
+test("emulator GPU mode comes from the environment, unknown values ignored", () => {
+  assert.equal(emulatorGpu({}), undefined);
+  assert.equal(emulatorGpu({ CREWCUE_EMULATOR_GPU: SOFTWARE_GPU }), "swiftshader_indirect");
+  assert.equal(emulatorGpu({ CREWCUE_EMULATOR_GPU: " host " }), "host");
+  assert.equal(emulatorGpu({ CREWCUE_EMULATOR_GPU: "-no-window" }), undefined);
 });
 
 test("CI and the opt-out share devices", () => {

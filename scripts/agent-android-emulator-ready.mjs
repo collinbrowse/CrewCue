@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { androidSdkEnv } from "./lib/androidSdkEnv.mjs";
-import { acquireAndroid, androidPort, sharedDevice } from "./lib/agentDevice.mjs";
+import { acquireAndroid, androidPort, emulatorGpu, SOFTWARE_GPU, sharedDevice } from "./lib/agentDevice.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,6 +25,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--deeplink=")) deeplink = arg.slice("--deeplink=".length);
     else if (arg === "--serial") serial = argv[++i];
     else if (arg.startsWith("--serial=")) serial = arg.slice("--serial=".length);
+    else if (arg === "--gpu") process.env.CREWCUE_EMULATOR_GPU = argv[++i];
+    else if (arg.startsWith("--gpu=")) process.env.CREWCUE_EMULATOR_GPU = arg.slice("--gpu=".length);
     else if (arg === "--list-deeplinks") {
       const index = JSON.parse(fs.readFileSync(path.join(repoRoot, "clients/behavior/deeplinks.json"), "utf8"));
       for (const row of index.features ?? []) process.stdout.write(`${row.entry}\n`);
@@ -56,7 +58,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function bootAvd(name, port) {
+async function bootAvdOnce(name, port, gpu) {
   const emulator = path.join(env.ANDROID_HOME, "emulator/emulator");
   if (!fs.existsSync(emulator)) throw new Error(`emulator binary missing at ${emulator}`);
   // Always read-only, so every worktree can run its own instance of the same AVD at once.
@@ -65,7 +67,8 @@ async function bootAvd(name, port) {
   const logPath = path.join(repoRoot, `.agent-pr-evidence/emulator-${port ?? "default"}.log`);
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const log = fs.openSync(logPath, "w");
-  const child = spawn(emulator, ["-avd", name, "-read-only", "-no-snapshot-save", ...portArgs, "-netdelay", "none", "-netspeed", "full"], {
+  const gpuArgs = gpu ? ["-gpu", gpu] : [];
+  const child = spawn(emulator, ["-avd", name, "-read-only", "-no-snapshot-save", ...portArgs, ...gpuArgs, "-netdelay", "none", "-netspeed", "full"], {
     detached: true,
     stdio: ["ignore", log, log],
     env
@@ -78,11 +81,35 @@ async function bootAvd(name, port) {
     if (serial && (await bootCompleted(serial))) return serial;
     await sleep(2000);
   }
+  // Don't leave a half-booted or hung emulator holding the port.
+  if (child.exitCode === null) {
+    if (wanted) await run("adb", ["-s", wanted, "emu", "kill"]).catch(() => {});
+    try {
+      process.kill(child.pid, "SIGKILL");
+    } catch {}
+  }
   const tail = fs.readFileSync(logPath, "utf8").trim().split("\n").slice(-3).join("\n");
   const hint = /Another emulator instance is running/.test(tail)
     ? `\nAn instance of ${name} is running without -read-only. Close it (adb -s <serial> emu kill) and boot again; every instance must be read-only.`
     : "";
   throw new Error(`AVD ${name}${wanted ? ` (${wanted})` : ""} did not come online. Emulator log ${logPath}:\n${tail}${hint}`);
+}
+
+/**
+ * Boots with the host GPU first (fast). A busy Mac can preempt the host GPU context and crash
+ * the emulator, so one failed boot retries with software rendering: slower, but stable.
+ * CREWCUE_EMULATOR_GPU (or --gpu) picks the mode up front and skips the retry.
+ */
+async function bootAvd(name, port) {
+  const chosen = emulatorGpu();
+  if (chosen) return bootAvdOnce(name, port, chosen);
+  try {
+    return await bootAvdOnce(name, port);
+  } catch (error) {
+    if (/running without -read-only/.test(error.message)) throw error;
+    process.stdout.write(`agent-android-ready: boot failed with the host GPU; retrying with -gpu ${SOFTWARE_GPU}\n`);
+    return bootAvdOnce(name, port, SOFTWARE_GPU);
+  }
 }
 
 async function isOnline(serial) {
@@ -143,12 +170,18 @@ async function main() {
   await run("adb", ["-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deeplink, APP_ID]);
   const dump = path.join(repoRoot, ".agent-pr-evidence/android-ui.xml");
   fs.mkdirSync(path.dirname(dump), { recursive: true });
-  await run("adb", ["-s", serial, "shell", "uiautomator", "dump", "/sdcard/crewcue-ui.xml"]);
-  const { stdout } = await run("adb", ["-s", serial, "exec-out", "cat", "/sdcard/crewcue-ui.xml"]);
-  fs.writeFileSync(dump, stdout);
   const index = JSON.parse(fs.readFileSync(path.join(repoRoot, "clients/behavior/deeplinks.json"), "utf8"));
   const pathOnly = deeplink.split("?")[0];
   const row = (index.features ?? []).find((item) => item.entry === pathOnly);
+  // The first dump can land before the screen renders (slow with software GPU); retry for ~30s.
+  let stdout = "";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (attempt) await sleep(3000);
+    await run("adb", ["-s", serial, "shell", "uiautomator", "dump", "/sdcard/crewcue-ui.xml"]).catch(() => {});
+    ({ stdout } = await run("adb", ["-s", serial, "exec-out", "cat", "/sdcard/crewcue-ui.xml"]).catch(() => ({ stdout: "" })));
+    if (!row || stdout.includes(row.label)) break;
+  }
+  fs.writeFileSync(dump, stdout);
   if (row && !stdout.includes(row.label)) {
     throw new Error(`UI dump missing ${row.label}`);
   }

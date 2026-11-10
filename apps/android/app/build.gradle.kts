@@ -81,6 +81,8 @@ android {
             "ACCOUNT_DELETION_URL",
             crewcueQuoted(crewcueProp("crewcue.accountDeletionUrl").ifBlank { "https://crewcue.app/delete-account" })
         )
+        // Strava connect is off in v1 (#652). `-Pcrewcue.strava=true` turns it on for a build.
+        buildConfigField("boolean", "STRAVA_ENABLED", (findProperty("crewcue.strava")?.toString() == "true").toString())
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
