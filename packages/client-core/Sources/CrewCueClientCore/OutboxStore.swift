@@ -143,8 +143,17 @@ public actor OutboxStore: UserDataStore {
     }
 
     /// Queues a chat message under its stable client message id. Re-queueing the same id replaces it.
-    public func enqueueChat(roomId: String, text: String, clientMessageId: String, role: String) throws -> StoredOperation {
-        let payload = try Self.json(["text": text, "clientMessageId": clientMessageId])
+    /// The flush posts it to `/chat/rooms/:roomId/messages`; the server stores one copy per id.
+    public func enqueueChat(
+        roomId: String,
+        text: String,
+        clientMessageId: String,
+        role: String,
+        photoKey: String? = nil
+    ) throws -> StoredOperation {
+        var fields = ["text": text, "clientMessageId": clientMessageId]
+        if let photoKey, !photoKey.isEmpty { fields["photoKey"] = photoKey }
+        let payload = try Self.json(fields)
         let operation = StoredOperation(
             id: clientMessageId,
             type: "chat",
@@ -289,8 +298,17 @@ public actor OutboxStore: UserDataStore {
         }
     }
 
-    public func enqueuePush(deviceId: String, platform: String, token: String, role: String) throws -> StoredOperation {
-        let payload = #"{"deviceId":"\#(deviceId)","platform":"\#(platform)","token":"\#(token)"}"#
+    /// `apnsEnvironment` is "development" for iOS debug builds, "production" otherwise; nil off iOS.
+    public func enqueuePush(
+        deviceId: String,
+        platform: String,
+        token: String,
+        role: String,
+        apnsEnvironment: String? = nil
+    ) throws -> StoredOperation {
+        var fields = ["deviceId": deviceId, "platform": platform, "token": token]
+        if let apnsEnvironment, !apnsEnvironment.isEmpty { fields["apnsEnvironment"] = apnsEnvironment }
+        let payload = try Self.json(fields)
         let operation = StoredOperation(
             id: "push-\(deviceId)",
             type: "push",
@@ -414,7 +432,7 @@ public actor OutboxStore: UserDataStore {
 
     /// Sends the pending snapshot. Each result is merged into the file as it is now: only the exact
     /// version that was sent (same id and idempotency key) is removed or marked, so anything queued
-    /// or replaced during the send survives. Chat is delivered by the chat screen, not here.
+    /// or replaced during the send survives. Chat goes out in the order it was queued.
     ///
     /// With `pingBatch`, a room's pending pings go out oldest first in batches of up to
     /// `maxPingsPerBatch`, and each sample settles from its own result. The closure returns one
@@ -425,8 +443,7 @@ public actor OutboxStore: UserDataStore {
     ) async throws -> FlushReport {
         var report = FlushReport()
         let pending = try load().filter { $0.status == "pending" && !inFlight.contains($0.id) }
-        report.pending.append(contentsOf: pending.filter { $0.type == "chat" }.map(\.id))
-        let snapshot = pending.filter { $0.type != "chat" }
+        let snapshot = pending
         let ids = Set(snapshot.map(\.id))
         inFlight.formUnion(ids)
         defer { inFlight.subtract(ids) }
@@ -545,6 +562,8 @@ public actor OutboxStore: UserDataStore {
             return "/race-rooms/\(operation.roomId)/checkpoints/\(checkpoint)/manual-stop"
         case "push":
             return "/chat/push/tokens"
+        case "chat":
+            return "/chat/rooms/\(operation.roomId)/messages"
         default:
             return nil
         }

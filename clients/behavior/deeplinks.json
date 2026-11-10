@@ -206,7 +206,7 @@
       "id": "chat-thread",
       "entry": "crewcue://dev/chat",
       "label": "crewcue.chat",
-      "sdk": "stream",
+      "sdk": "none",
       "scope": "v1",
       "ios": "fail",
       "android": "fail"
