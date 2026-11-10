@@ -95,17 +95,10 @@ import {
   persistWs2RuntimePayload
 } from "../lib/roomPersistence.js";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
-import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import { crewLimitError, isCrewMembership } from "../lib/billingEntitlement.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
-
-function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
-  void syncRaceRoomStreamChannelMembers(room, log).catch((err) =>
-    log.warn({ err, roomId: room.id }, "stream channel membership sync failed (non-fatal)")
-  );
-}
 
 const createRaceRoomInput = z.object({
   teamId: z.string().min(1),
@@ -1794,7 +1787,7 @@ export async function removeMemberForAccountDeletion(
     await deletePersistedRaceRoomInvite(invite.token);
     raceRoomInvites.delete(invite.token);
   }
-  if (updated && removed) scheduleStreamChannelMembershipSync(updated, log);
+  if (updated && removed) publishChatRoom(roomId, "membership");
   return removed;
 }
 
@@ -2579,7 +2572,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           await releaseIdempotentMutation(request, parsed.data);
           return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
         }
-        scheduleStreamChannelMembershipSync(existing, request.log);
         await completeIdempotentMutation(request, parsed.data, 201, existing);
         return reply.code(201).send(existing);
       }
@@ -2618,7 +2610,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     try {
       await saveRaceRoom(room);
       roomPersisted = true;
-      scheduleStreamChannelMembershipSync(room, request.log);
       await completeIdempotentMutation(request, parsed.data, 201, room);
       return reply.code(201).send(room);
     } catch (err) {
@@ -3309,7 +3300,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         acceptedBy: userId,
         acceptedAt: new Date().toISOString()
       });
-      scheduleStreamChannelMembershipSync(updatedRoom, request.log);
 
       const membership = updatedRoom.memberships.find((member) => member.userId === userId);
       if (!membership) {
@@ -3374,7 +3364,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
       if (!existingMembership) {
         await saveRaceRoom(updatedRoom);
-        scheduleStreamChannelMembershipSync(updatedRoom, request.log);
       }
 
       const assignedMembership = updatedRoom.memberships.find((member) => member.userId === userId);
@@ -3537,7 +3526,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (memberMissing) {
       return reply.code(404).send({ error: "Member not found" });
     }
-    scheduleStreamChannelMembershipSync(updatedRoom, request.log);
     // Wakes the removed member's open chat long-poll, which then answers 403.
     publishChatRoom(roomId, "membership");
     return reply.send({ room: updatedRoom });

@@ -29,7 +29,7 @@ export function buildApp() {
   const app = Fastify({
     logger: {
       // Never log credentials. Request URLs drop their query (OAuth codes, search text).
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-chat-push-secret']", "req.headers['x-crewcue-billing-admin-secret']"],
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-billing-admin-secret']"],
       serializers: {
         req(request) {
           return {

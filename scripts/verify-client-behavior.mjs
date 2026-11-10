@@ -27,7 +27,7 @@ const required = [
   "Native SDK pocket"
 ];
 const forbidden = ["match the ios screen", "port the compose file", "screenshot diff"];
-const allowedSdk = new Set(["none", "maplibre", "stream", "auth0", "location", "push", "revenuecat"]);
+const allowedSdk = new Set(["none", "maplibre", "auth0", "location", "push", "revenuecat"]);
 const allowedStatus = new Set(["pass", "fail", "deferred"]);
 
 function section(text, name) {

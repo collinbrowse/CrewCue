@@ -3,7 +3,7 @@
 
 Environment variables read by the API and shared packages, and where. Values live in Railway; templates in `*.env.example`. Secret-shaped names are marked so a reviewer notices a new one.
 
-**47 variables.**
+**45 variables.**
 
 | Variable | Secret-shaped | Read in |
 | --- | --- | --- |
@@ -50,8 +50,6 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `STRAVA_CLIENT_ID` |  | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) |
 | `STRAVA_CLIENT_SECRET` | yes | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) |
 | `STRAVA_REDIRECT_URI` |  | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) |
-| `STREAM_API_KEY` | yes | [services/api/src/lib/streamChat.ts](../../../services/api/src/lib/streamChat.ts) |
-| `STREAM_API_SECRET` | yes | [services/api/src/lib/streamChat.ts](../../../services/api/src/lib/streamChat.ts) |
 | `SYNC_STALE_AFTER_SECONDS` |  | [services/api/src/routes/ws5SyncRoutes.ts](../../../services/api/src/routes/ws5SyncRoutes.ts), [services/api/src/routes/ws6CommandCenterRoutes.ts](../../../services/api/src/routes/ws6CommandCenterRoutes.ts) |
 | `WS6_SYNC_STALE_AFTER_SECONDS` |  | [services/api/src/routes/ws6CommandCenterRoutes.ts](../../../services/api/src/routes/ws6CommandCenterRoutes.ts) |
 

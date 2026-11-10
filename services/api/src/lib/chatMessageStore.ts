@@ -247,6 +247,30 @@ export async function deleteChatMessagesForRoom(
   };
 }
 
+/** Account deletion: every message this user sent, in any room. Returns their photo keys. */
+export async function deleteChatMessagesBySender(
+  senderUserId: string
+): Promise<{ messagesPurged: number; photoKeys: string[] }> {
+  if (!pool) {
+    const removed = memoryMessages.filter((m) => m.senderUserId === senderUserId);
+    const keep = memoryMessages.filter((m) => m.senderUserId !== senderUserId);
+    memoryMessages.splice(0, memoryMessages.length, ...keep);
+    return {
+      messagesPurged: removed.length,
+      photoKeys: removed.flatMap((m) => (m.photoKey ? [m.photoKey] : []))
+    };
+  }
+  await initChatMessageStore();
+  const result = await pool.query<{ photo_key: string | null }>(
+    "DELETE FROM chat_messages WHERE sender_user_id = $1 RETURNING photo_key",
+    [senderUserId]
+  );
+  return {
+    messagesPurged: result.rowCount ?? 0,
+    photoKeys: result.rows.flatMap((r) => (r.photo_key ? [r.photo_key] : []))
+  };
+}
+
 /** Test-only: clear memory state. No-op against postgres. */
 export function _resetChatMessageStoreForTests(): void {
   if (pool) return;

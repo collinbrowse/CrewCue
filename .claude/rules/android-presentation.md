@@ -13,7 +13,7 @@ Same responsibilities as iOS, in Compose. Use this when a screen does more than 
 - `nav/AppRouter.kt` is a `NavHost` using the same route ids as client-core `Route`.
 - `logging/AndroidLogger.kt` adapts `android.util.Log`. Coroutines only. No `GlobalScope`. No new policy `object`s. `ClientCoreBridge` stays the JNI edge.
 - `ui/<feature>/` holds the ViewModel and composable. Test tag is `crewcue.<feature>`. `contentDescription` is a human label, separate from the test id.
-- SDK pockets (MapLibre, Stream, Auth0) stay in the app module.
+- SDK pockets (MapLibre, Auth0, Firebase Messaging) stay in the app module.
 - Shared policy, errors, and routes: `.claude/rules/client-core-architecture.md`.
 
 ## Proof

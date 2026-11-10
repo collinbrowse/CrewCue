@@ -1037,40 +1037,6 @@ export interface ReplayedRaceRoomAggregate {
   lastActivatedEventEndsAt?: string;
 }
 
-// --- Crew chat contracts (MVP: plaintext on Stream) ---
-// Message bodies are normal Stream `text`. The API mints Stream tokens, stores
-// push devices and notification prefs, and fans out push with a short preview.
-// End-to-end encryption was removed for MVP reliability; any future crypto must
-// be a blank-slate redesign (do not revive the retired room-key/envelope model).
-
-/** One race-room member as Stream Chat sees them, with the display name for that room. */
-export interface ChatStreamMember {
-  /** Stream user id derived from the member's auth subject. */
-  streamUserId: string;
-  /** Display name on this race-room membership. Names are per race, not global. */
-  displayName?: string;
-}
-
-/** Mints a short-lived Stream Chat user token bound to the authenticated user. */
-export interface ChatStreamTokenResponse {
-  /** Stream Chat user token (JWT signed with the server-side Stream secret). */
-  token: string;
-  /** The Stream user id used for this client session (matches the auth subject). */
-  streamUserId: string;
-  /** Stream Chat API key (public, safe to embed in clients). */
-  streamApiKey: string;
-  /**
-   * Members of the requested room with their per-room display names, so clients label
-   * authors by room instead of by the global Stream user name. Present when `roomId` was sent.
-   */
-  members?: ChatStreamMember[];
-}
-
-/** Returns the deterministic Stream channel id for a CrewCue race room. */
-export function chatChannelIdForRoom(roomId: string): string {
-  return `crew-${roomId}`;
-}
-
 // --- First-party crew chat (ADR 0011) ---
 // Messages live in our Postgres. Clients page with cursors and long-poll for new
 // messages; photos sit in object storage behind short-lived signed URLs.
@@ -1170,24 +1136,6 @@ export type ChatPushTokenRegistration = ChatPushDeviceRegistration;
 
 /** @deprecated Use ChatPushDeviceRecord */
 export type ChatPushTokenRecord = ChatPushDeviceRecord;
-
-/**
- * Stream Chat push webhook payload (subset). The server uses this to fan out
- * APNS/FCM with a short plaintext preview (or generic fallback copy).
- */
-export interface ChatPushWebhookPayload {
-  channelId: string;
-  /** Stream user id of the sender. */
-  senderUserId: string;
-  /** Recipient user ids excluding the sender. */
-  recipientUserIds: string[];
-  /** Crew room id this channel maps to. */
-  roomId: string;
-  /** Mentioned user ids inside the message body. */
-  mentionedUserIds?: string[];
-  /** Optional short plaintext preview for the notification body. */
-  previewText?: string;
-}
 
 /** Result of a retention deletion job run for a single room. */
 export interface ChatRetentionResult {

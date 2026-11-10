@@ -33,7 +33,7 @@ function uid(label: string): string {
 }
 
 async function withApp(fn: (ctx: { app: FastifyInstance; auth: (sub: string) => { authorization: string } }) => Promise<void>) {
-  setAccountDeletionDepsForTests({ auth0Config: null, streamCleanup: null });
+  setAccountDeletionDepsForTests({ auth0Config: null });
   const app = buildApp();
   await app.ready();
   const auth = (sub: string) => ({ authorization: `Bearer ${app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} })}` });
@@ -235,7 +235,6 @@ test("Auth0 user deletion: failure is 502 and retryable, retry deletes, 404 coun
     const calls: string[] = [];
     let deleteStatus = 500;
     setAccountDeletionDepsForTests({
-      streamCleanup: null,
       auth0Config: { domain: "tenant.example.auth0.com", clientId: "cid", clientSecret: "secret" },
       auth0Fetch: async (url, init) => {
         calls.push(`${init?.method ?? "GET"} ${url}`);
@@ -258,29 +257,9 @@ test("Auth0 user deletion: failure is 502 and retryable, retry deletes, 404 coun
     const again = await app.inject({ method: "DELETE", url: "/me", headers: auth(sub) });
     assert.equal((again.json() as AccountDeletionResult).identityProvider, "already_deleted");
 
-    setAccountDeletionDepsForTests({ auth0Config: null, streamCleanup: null });
+    setAccountDeletionDepsForTests({ auth0Config: null });
     const unconfigured = await app.inject({ method: "DELETE", url: "/me", headers: auth(sub) });
     assert.equal((unconfigured.json() as AccountDeletionResult).identityProvider, "not_configured");
-  });
-});
-
-test("Stream cleanup gets the derived Stream id and owned rooms; its failure does not block deletion", async () => {
-  await withApp(async ({ app, auth }) => {
-    const runner = uid("stream-runner");
-    const owned = await createRoom(app, auth(runner), runner);
-    const seen: Array<{ streamUserId: string; ownedRoomIds: string[] }> = [];
-    setAccountDeletionDepsForTests({
-      auth0Config: null,
-      streamCleanup: async (input) => {
-        seen.push(input);
-        throw new Error("stream down");
-      }
-    });
-    const res = await app.inject({ method: "DELETE", url: "/me", headers: auth(runner) });
-    assert.equal(res.statusCode, 200, res.body);
-    assert.equal(seen.length, 1);
-    assert.match(seen[0]!.streamUserId, /^u-[0-9a-f]{32}$/);
-    assert.deepEqual(seen[0]!.ownedRoomIds, [owned.id]);
   });
 });
 
@@ -292,7 +271,7 @@ test("deletion log lines carry a hashed subject, never the raw subject or email"
     lines.push(args);
   };
   const log = { info: capture, warn: capture, error: capture, debug: capture } as unknown as FastifyBaseLogger;
-  await deleteAccountData({ sub, email }, log, { auth0Config: null, streamCleanup: null });
+  await deleteAccountData({ sub, email }, log, { auth0Config: null });
   const serialized = JSON.stringify(lines);
   assert.ok(serialized.includes("account_deleted"));
   assert.equal(serialized.includes(sub), false);
