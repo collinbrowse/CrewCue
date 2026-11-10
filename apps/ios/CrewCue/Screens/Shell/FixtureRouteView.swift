@@ -68,7 +68,7 @@ struct ProductRouteView: View {
             AuthOrShell(model: model)
         case "billing-purchase", "billing-redeem", "billing-upgrade":
             BillingRouteView(model: model)
-        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "account-deletion", "room-members", "readouts-incidents":
+        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "activity-import", "account-deletion", "room-members", "readouts-incidents":
             ShellOrSignedOut(model: model)
         default:
             if ShellTab.isPaceFeature(model.route.featureId) || ShellTab.isMapFeature(model.route.featureId) {

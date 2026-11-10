@@ -3,7 +3,7 @@
 
 Environment variables read by the API and shared packages, and where. Values live in Railway; templates in `*.env.example`. Secret-shaped names are marked so a reviewer notices a new one.
 
-**34 variables.**
+**37 variables.**
 
 | Variable | Secret-shaped | Read in |
 | --- | --- | --- |
@@ -17,13 +17,15 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `AUTOMATION_ALLOWED_SUB` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `AUTOMATION_AUTH_ENABLED` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
 | `AUTOMATION_BLOCK_IN_PRODUCTION` |  | [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts) |
+| `BILLING_ADMIN_SECRET` | yes | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) |
+| `BILLING_MANUAL_ENTITLEMENT` |  | [services/api/src/lib/billingEnv.ts](../../../services/api/src/lib/billingEnv.ts) |
 | `CHAT_PUSH_WEBHOOK_SECRET` | yes | [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) |
 | `COURSE_HISTORY_PRODUCT_SOURCES` |  | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) |
 | `DATABASE_URL` | yes | [services/api/scripts/apply-sql-migrations.mjs](../../../services/api/scripts/apply-sql-migrations.mjs), [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) |
 | `HOST` |  | [services/api/src/server.ts](../../../services/api/src/server.ts) |
 | `INIT_CWD` |  | [services/api/scripts/pacing-eval-import.ts](../../../services/api/scripts/pacing-eval-import.ts) |
 | `JWT_SECRET` | yes | [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/plugins/auth.ts](../../../services/api/src/plugins/auth.ts) |
-| `NODE_ENV` |  | [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts), [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
+| `NODE_ENV` |  | [services/api/src/lib/authEnv.ts](../../../services/api/src/lib/authEnv.ts), [services/api/src/lib/automationAuthGuard.ts](../../../services/api/src/lib/automationAuthGuard.ts), [services/api/src/lib/billingEnv.ts](../../../services/api/src/lib/billingEnv.ts), [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
 | `OSRM_ROUTER_BASE_URL` |  | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |  | [services/api/src/telemetry.ts](../../../services/api/src/telemetry.ts) |
 | `PERSISTENCE_MODE` |  | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts), [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts), [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) |
@@ -32,6 +34,7 @@ Environment variables read by the API and shared packages, and where. Values liv
 | `PROJECTION_TUNED_CONSTANTS` |  | [services/api/scripts/projection-backtest/parity.ts](../../../services/api/scripts/projection-backtest/parity.ts), [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) |
 | `RAILWAY_ENVIRONMENT_NAME` |  | [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
 | `RAILWAY_GIT_COMMIT_SHA` |  | [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
+| `REVENUECAT_WEBHOOK_AUTH` |  | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) |
 | `SENTRY_DSN` |  | [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
 | `SENTRY_ENVIRONMENT` |  | [services/api/src/lib/errorReporting.ts](../../../services/api/src/lib/errorReporting.ts) |
 | `STRAVA_CLIENT_ID` |  | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) |
@@ -53,6 +56,8 @@ Templates: [.env.example](../../../.env.example), [.env.local.example](../../../
 - `AUTOMATION_ALLOWED_SUB`
 - `AUTOMATION_AUTH_ENABLED`
 - `AUTOMATION_BLOCK_IN_PRODUCTION`
+- `BILLING_ADMIN_SECRET`
+- `BILLING_MANUAL_ENTITLEMENT`
 - `CHAT_PUSH_WEBHOOK_SECRET`
 - `COURSE_HISTORY_PRODUCT_SOURCES`
 - `INIT_CWD`
@@ -62,6 +67,7 @@ Templates: [.env.example](../../../.env.example), [.env.local.example](../../../
 - `PROJECTION_TUNED_CONSTANTS`
 - `RAILWAY_ENVIRONMENT_NAME`
 - `RAILWAY_GIT_COMMIT_SHA`
+- `REVENUECAT_WEBHOOK_AUTH`
 - `SENTRY_ENVIRONMENT`
 - `SYNC_STALE_AFTER_SECONDS`
 - `WS6_SYNC_STALE_AFTER_SECONDS`
