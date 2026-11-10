@@ -200,20 +200,21 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-96 files under `apps/android/app/src/main/`.
+97 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `kotlin/com/crewcue/android` | 2 | 115 |
 | `kotlin/com/crewcue/android/auth` | 3 | 192 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 451 |
+| `kotlin/com/crewcue/android/data` | 3 | 460 |
 | `kotlin/com/crewcue/android/di` | 1 | 53 |
 | `kotlin/com/crewcue/android/generated` | 47 | 481 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
-| `kotlin/com/crewcue/android/nav` | 2 | 99 |
+| `kotlin/com/crewcue/android/nav` | 2 | 98 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1187 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1189 |
+| `kotlin/com/crewcue/android/ui/activity` | 1 | 185 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 173 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
@@ -227,6 +228,6 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1366 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
-| `kotlin/com/crewcue/android/ui/settings` | 1 | 174 |
+| `kotlin/com/crewcue/android/ui/settings` | 1 | 180 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 250 |
 | `kotlin/com/crewcue/android/ui/theme` | 2 | 688 |
