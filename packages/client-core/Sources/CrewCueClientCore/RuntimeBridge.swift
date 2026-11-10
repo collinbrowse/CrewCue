@@ -79,7 +79,13 @@ enum RuntimeCall {
             message = (error as? ClientHTTPError)?.message ?? "\(error)"
         }
         let expired = (error as? ClientHTTPError)?.status == 401
-        let object: [String: Any] = ["ok": false, "message": message, "sessionExpired": expired]
+        let object: [String: Any] = [
+            "ok": false,
+            "message": message,
+            "sessionExpired": expired,
+            "crewLimit": BillingErrors.isCrewLimit(error),
+            "offline": TransportFailure.isOffline(error)
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return #"{"ok":false,"message":"Request failed."}"#
         }
@@ -88,6 +94,13 @@ enum RuntimeCall {
 
     private static func dispatch(_ op: String, _ object: [String: Any]) async throws -> Any {
         switch op {
+        case "billing":
+            let state = try await RaceDayAPI.billing(graph: try graph(object), roomId: text(object, "roomId") ?? "")
+            return BillingBridge.json(state)
+        case "completePurchase":
+            return try await BillingBridge.completePurchase(graph: try graph(object), object)
+        case "fakePurchase":
+            return try await BillingBridge.fakePurchase(graph: try graph(object), object)
         case "featureScreen":
             let url = object["url"] as? String ?? ""
             return CrewCueClientCore.featureScreenJSON(forCrewCueURL: url)
@@ -1603,7 +1616,7 @@ enum RuntimeCall {
         return nil
     }
 
-    private static func doubleValue(_ value: Any?) -> Double? {
+    static func doubleValue(_ value: Any?) -> Double? {
         if let number = value as? NSNumber { return number.doubleValue }
         if let number = value as? Double { return number }
         if let number = value as? Int { return Double(number) }

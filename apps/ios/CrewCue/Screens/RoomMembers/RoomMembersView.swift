@@ -4,6 +4,8 @@ struct RoomMembersView: View {
     @Bindable var model: RoomMembersModel
     var userId: String?
     var roomId: String?
+    var role: String?
+    var upgradeModel: CrewUpgradeModel?
     var onProfile: () -> Void
     @Environment(\.crew) private var theme
 
@@ -29,6 +31,9 @@ struct RoomMembersView: View {
                     }
                     .crewCard()
                 }
+                if let upgradeModel {
+                    CrewUpgradeCard(model: upgradeModel)
+                }
                 if model.message.isEmpty == false {
                     Text(verbatim: model.message)
                         .font(CrewFont.bodyLarge)
@@ -42,6 +47,9 @@ struct RoomMembersView: View {
         .crewCueScreen(identifier: "crewcue.room-members", label: "Room members")
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId)
+        }
+        .task(id: "\(activationID)|\(role ?? "")") {
+            await upgradeModel?.activate(roomId: roomId, role: role)
         }
     }
 
