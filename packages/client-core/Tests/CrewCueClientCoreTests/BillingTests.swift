@@ -226,3 +226,17 @@ private final class FakeStoreServer: HTTPTransport, @unchecked Sendable {
     #expect(object["crewLimit"] as? Bool == true)
     #expect(object["offline"] as? Bool == false)
 }
+
+private struct RefusingDevPurchase: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if request.method == .post {
+            return HTTPResponse(status: 403, body: Data(#"{"error":"Fake purchases are disabled"}"#.utf8))
+        }
+        return HTTPResponse(status: 200, body: Data(unpaidBody.utf8))
+    }
+}
+
+@Test func fakePurchaserRefusalShowsChecklistErrorNotServerText() async {
+    let store = await FakeStorePurchaser.purchase(graph: billingGraph(RefusingDevPurchase()), roomId: "room-1", product: .racePass)
+    #expect(store == .failed(message: "Couldn't complete the purchase.", offline: false))
+}

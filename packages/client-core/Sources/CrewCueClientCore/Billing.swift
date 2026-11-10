@@ -159,6 +159,9 @@ public enum BillingErrors {
         retryable: false
     )
 
+    /// clients/behavior/billing-purchase.md Error.
+    public static let purchaseFailedMessage = "Couldn't complete the purchase."
+
     public static let offline = UserFacingError(
         code: "offline",
         message: "Offline. Purchases need the network.",
@@ -266,8 +269,10 @@ public enum FakeStorePurchaser {
             _ = try await RaceDayAPI.devPurchase(graph: graph, roomId: roomId, product: product)
             return .purchased
         } catch {
+            // A real store speaks for itself; the fake's failures are API errors, so show the checklist copy.
             let facing = BillingErrors.userFacing(error)
-            return .failed(message: facing.message, offline: facing == BillingErrors.offline)
+            let offline = facing == BillingErrors.offline
+            return .failed(message: offline ? facing.message : BillingErrors.purchaseFailedMessage, offline: offline)
         }
     }
 }
