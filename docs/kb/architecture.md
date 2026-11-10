@@ -61,7 +61,7 @@ flowchart LR
 
 ## CI gates
 
-[ci.yml](../../.github/workflows/ci.yml): `pr-decision-doc-guard` (PR body template), `dual-client-guard` (`verify:clients`), `checks` (lint, typecheck, build, test, harness tests, `kb:check`, Swift client-core), `api-postgres-integration`, path-filtered `ios` and `android` device smoke. [security.yml](../../.github/workflows/security.yml): dependency review, gitleaks; weekly `npm audit`. [codeql.yml](../../.github/workflows/codeql.yml). Daily [staging-smoke.yml](../../.github/workflows/staging-smoke.yml).
+[ci.yml](../../.github/workflows/ci.yml): `pr-decision-doc-guard` (PR body template), `dual-client-guard` (`verify:clients`), `checks` (lint, typecheck, build, test, harness tests, `kb:check`, Swift client-core), `api-postgres-integration`, path-filtered `ios` and `android` device smoke. [security.yml](../../.github/workflows/security.yml): dependency review, gitleaks; weekly `npm audit`. [codeql.yml](../../.github/workflows/codeql.yml). Daily [staging-smoke.yml](../../.github/workflows/staging-smoke.yml). [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) regenerates `docs/kb` on pushes to `main` and weekly, reconciles these pages with Claude Code, and opens an auto-merging PR that may touch only `docs/kb/**`; it skips when `ANTHROPIC_API_KEY` is unset.
 
 ## Decisions
 
