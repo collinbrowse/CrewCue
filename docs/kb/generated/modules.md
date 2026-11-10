@@ -152,8 +152,6 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
@@ -166,11 +164,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-85 files under `packages/client-core/Sources/`.
+83 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 38 | 11223 |
+| `CrewCueClientCore` | 36 | 7650 |
 | `CrewCueClientCore/Generated` | 47 | 915 |
 
 ### iOS app (SwiftUI)
