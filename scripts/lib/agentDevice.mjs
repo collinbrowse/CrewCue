@@ -8,6 +8,8 @@
  *
  * CI, or CREWCUE_SHARED_DEVICE=1, keeps the old behavior (any booted device).
  * CREWCUE_ANDROID_PORT overrides the derived port.
+ * CREWCUE_EMULATOR_GPU picks the emulator's -gpu mode (e.g. swiftshader_indirect when the
+ * host GPU crashes it); unset, the emulator uses the host GPU and falls back to software once.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -16,6 +18,15 @@ import path from "node:path";
 
 export const FIRST_PORT = 5556; // 5554 stays free for the emulator a person starts by hand.
 export const PORT_SLOTS = 60; // 5556..5674, even ports only (the emulator also takes port + 1).
+
+export const SOFTWARE_GPU = "swiftshader_indirect";
+const GPU_MODES = new Set(["auto", "host", SOFTWARE_GPU, "swiftshader", "angle_indirect", "guest"]);
+
+/** The -gpu mode to boot with, or undefined for the emulator's default. Unknown values are ignored. */
+export function emulatorGpu(env = process.env) {
+  const mode = env.CREWCUE_EMULATOR_GPU?.trim();
+  return mode && GPU_MODES.has(mode) ? mode : undefined;
+}
 
 export function sharedDevice(env = process.env) {
   return Boolean(env.CI) || env.CREWCUE_SHARED_DEVICE === "1";
