@@ -9,7 +9,8 @@
     "activity-history",
     "recommendations",
     "sync-health",
-    "geocode-search"
+    "geocode-search",
+    "strava"
   ],
   "features": [
     {
@@ -247,12 +248,21 @@
       "android": "pass"
     },
     {
-      "id": "strava",
-      "entry": "crewcue://dev/strava",
-      "label": "crewcue.strava",
+      "id": "activity-import",
+      "entry": "crewcue://dev/activity-import",
+      "label": "crewcue.activity-import",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
+    },
+    {
+      "id": "account-deletion",
+      "entry": "crewcue://dev/account-deletion",
+      "label": "crewcue.account-deletion",
       "sdk": "auth0",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {

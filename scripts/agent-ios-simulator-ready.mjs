@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { openIosSimulatorUi } from "./lib/openIosSimulatorUi.mjs";
+import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
 
 const execFile = promisify(execFileCb);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -155,7 +156,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const { deeplink } = args;
   if (!fs.existsSync(PROJECT)) throw new Error(`Missing ${PROJECT}`);
-  const udid = args.udid ? await ensureSimulatorByUdid(args.udid) : await ensureSimulator(readSimulatorName());
+  let udid;
+  if (args.udid) udid = await ensureSimulatorByUdid(args.udid);
+  else if (sharedDevice()) udid = await ensureSimulator(readSimulatorName());
+  else {
+    const own = ensureIosSimulator(repoRoot, readSimulatorName());
+    if (own.created) process.stdout.write(`agent-ios-ready: created simulator ${own.name}\n`);
+    udid = await ensureSimulatorByUdid(own.udid);
+  }
   await installApp(udid);
   await bootSimulator(udid);
   await run("xcrun", ["simctl", "terminate", udid, BUNDLE_ID]).catch(() => {});

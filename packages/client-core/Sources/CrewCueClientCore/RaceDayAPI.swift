@@ -186,6 +186,29 @@ public enum RaceDayAPI {
         }
     }
 
+    /// The athlete's pacing history for display, newest first.
+    public static func activityHistoryItems(graph: ClientGraph) async throws -> [ActivityHistoryItem] {
+        let payload: ActivityHistoryList = try await get(graph, "/activity-history")
+        return payload.items.map(\.displayItem).sorted { $0.recordedAt > $1.recordedAt }
+    }
+
+    /// Upload an exported watch file (.gpx, .fit, .tcx) into pacing history (#652).
+    /// A file already imported returns `.duplicate` with the stored row.
+    public static func importActivityFile(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityImportResult {
+        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, "/activity-history/file") else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "fileName": fileName,
+            "contentBase64": data.base64EncodedString()
+        ])
+        let request = APIClient.authorized(url: url, method: .post, token: token, body: body)
+        let response = try await APIClient.send(request, transport: graph.transport)
+        let item = try JSONDecoder().decode(ActivityHistoryList.Item.self, from: response.body)
+        return ActivityImportResult(status: response.status == 201 ? .saved : .duplicate, item: item.displayItem)
+    }
+
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {
         let body = #"{"displayName":"\#(jsonEscape(displayName))"}"#
         return try await send(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .patch, body: body)
@@ -435,6 +458,11 @@ public enum RaceDayAPI {
 
     public static func stravaDisconnect(graph: ClientGraph) async throws {
         _ = try await sendData(graph, "/strava/connection", method: .delete, body: nil)
+    }
+
+    /// `DELETE /me` (#560). Deletes the signed-in account server-side; see `AccountDeletion`.
+    public static func deleteAccount(graph: ClientGraph) async throws -> AccountDeletionResult {
+        try await send(graph, "/me", method: .delete, body: nil)
     }
 
     /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
@@ -698,8 +726,20 @@ private struct ActivityHistoryList: Decodable {
 
     struct Item: Decodable {
         var id: String
+        var source: String?
+        var recordedAt: String?
         var distanceMeters: Double?
         var elapsedSeconds: Double?
         var elevationGainMeters: Double?
+
+        var displayItem: ActivityHistoryItem {
+            ActivityHistoryItem(
+                id: id,
+                source: source ?? "",
+                recordedAt: recordedAt ?? "",
+                distanceMeters: distanceMeters,
+                elapsedSeconds: elapsedSeconds
+            )
+        }
     }
 }

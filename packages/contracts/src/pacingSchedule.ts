@@ -12,7 +12,8 @@ export const WAYPOINT_TAGS = ["aid", "water", "dropbag", "crew"] as const;
 export type WaypointTag = (typeof WAYPOINT_TAGS)[number];
 
 /** Provenance for an athlete activity used as pacing history. */
-export const ACTIVITY_HISTORY_SOURCES = ["gpx_upload", "strava"] as const;
+/** `strava` is kept for stored rows; v1 imports files only (#652). */
+export const ACTIVITY_HISTORY_SOURCES = ["gpx_upload", "fit_upload", "tcx_upload", "strava"] as const;
 
 export type ActivityHistorySource = (typeof ACTIVITY_HISTORY_SOURCES)[number];
 
@@ -315,7 +316,7 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
     throw new TypeError(`${field} must be an object`);
   }
   if (!isActivityHistorySource(value.source)) {
-    throw new TypeError(`${field}.source must be gpx_upload or strava`);
+    throw new TypeError(`${field}.source must be gpx_upload, fit_upload, tcx_upload, or strava`);
   }
   const ref: ActivityHistoryRef = {
     id: requireNonEmptyString(value.id, `${field}.id`),
