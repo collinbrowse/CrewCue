@@ -379,10 +379,10 @@ private func chatBody(_ state: FeatureState) -> String {
     let tokens = Mentions.parse("See @Ada at aid 1", members: [MentionMember(userId: "u1", displayName: "Ada")])
     let mentioned = tokens.contains { if case .mention(let name, _) = $0 { return name == "Ada" }; return false }
     switch state {
-    case .success: return mentioned ? "Stream pocket. Mentioned Ada." : "Stream pocket."
-    case .empty: return "No messages."
-    case .error: return "Couldn't open the channel."
-    case .offline: return "Offline. Message queued on this device."
+    case .success: return mentioned ? "Crew chat. Mentioned Ada." : "Crew chat."
+    case .empty: return ChatCopy.empty
+    case .error: return ChatCopy.error
+    case .offline: return ChatCopy.offline
     }
 }
 

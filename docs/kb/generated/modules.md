@@ -84,9 +84,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift](../../../packages/client-core/Sources/CrewCueClientCore/AidStationSheet.swift) | `AidStationPhase`, `AidStationCheckpoint`, `AidStationPage`, `AidStationProjection`, `AidStationSheet` |
 | [packages/client-core/Sources/CrewCueClientCore/CFacade.swift](../../../packages/client-core/Sources/CrewCueClientCore/CFacade.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatAuthors.swift) | `ChatAuthors` |
+| [packages/client-core/Sources/CrewCueClientCore/ChatSync.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatSync.swift) | `ChatPollOutcome`, `ChatSendOutcome`, `ChatSync` |
+| [packages/client-core/Sources/CrewCueClientCore/ChatThread.swift](../../../packages/client-core/Sources/CrewCueClientCore/ChatThread.swift) | `ChatDelivery`, `ChatRow`, `ChatThread`, `ChatOutboxPayload`, `ChatReconnectPolicy`, `ChatCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/CheckInAndImport.swift](../../../packages/client-core/Sources/CrewCueClientCore/CheckInAndImport.swift) | `CheckInValidation`, `CheckIn`, `CourseImportStage`, `MentionMember`, `MentionToken`, `Mentions` |
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift) | `CourseUploadSuperseded`, `CourseUploadGate`, `CourseUploadBox` |
+| [packages/client-core/Sources/CrewCueClientCore/Deadline.swift](../../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) | `Deadline`, `ResumeOnce` |
 | [packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift](../../../packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift) | `ActivityHistoryRef`, `EstimateRecomputeReason`, `EstimateHistoryRecord`, `EstimateRecomputeInput`, `EstimateRecomputeDecision`, `PlanAuthority`, `EstimateRecompute` |
 | [packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift](../../../packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift) | `FeatureState`, `FeatureScreen`, `CrewCueClientCore`, `FeatureCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/AccountDeletionResult.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/AccountDeletionResult.swift) | `AccountDeletionResult` |
@@ -163,21 +166,21 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-81 files under `packages/client-core/Sources/`.
+84 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 32 | 7065 |
+| `CrewCueClientCore` | 35 | 7540 |
 | `CrewCueClientCore/Generated` | 49 | 945 |
 
 ### iOS app (SwiftUI)
 
-55 files under `apps/ios/CrewCue/`.
+54 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `.` | 3 | 106 |
-| `App` | 11 | 1007 |
+| `.` | 3 | 93 |
+| `App` | 11 | 1099 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
@@ -185,7 +188,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 175 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 5 | 955 |
+| `Screens/Chat` | 4 | 888 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 4 | 1767 |
@@ -194,7 +197,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Profile` | 2 | 407 |
 | `Screens/RoomMembers` | 2 | 191 |
 | `Screens/Settings` | 2 | 362 |
-| `Screens/Shell` | 4 | 454 |
+| `Screens/Shell` | 4 | 452 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)

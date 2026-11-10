@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 import CrewCueClientCore
 
 struct ChatTabPage: View {
@@ -10,7 +12,6 @@ struct ChatTabPage: View {
             userId: model.signedInUserId,
             roomId: model.signedInRoomId,
             role: model.signedInRole,
-            displayName: model.signedInDisplayName,
             raceName: model.roster.races.first { $0.id == model.signedInRoomId }?.name ?? "",
             status: ChatRaceStatus(map: model.mapModel)
         )
@@ -43,7 +44,6 @@ struct ChatView: View {
     var userId: String?
     var roomId: String?
     var role: String?
-    var displayName: String?
     var raceName: String
     var status: ChatRaceStatus
     @Environment(\.colorScheme) private var scheme
@@ -53,7 +53,15 @@ struct ChatView: View {
             ChatStatusHeader(status: status, raceName: raceName)
             ScrollViewReader { proxy in
                 ScrollView {
-                    ChatTranscript(lines: model.lines)
+                    if model.hasOlder {
+                        Button("Earlier messages") {
+                            Task { await model.loadOlder() }
+                        }
+                        .font(CrewFont.label)
+                        .padding(.top, CrewSpace.gutter)
+                        .accessibilityIdentifier("crewcue.chat-older")
+                    }
+                    ChatTranscript(lines: model.lines, onDiscard: { line in Task { await model.discard(line) } })
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, CrewSpace.gutter)
                         .padding(.vertical, CrewSpace.gutter)
@@ -75,7 +83,14 @@ struct ChatView: View {
             }
             ChatStatusText(message: model.statusMessage)
                 .padding(.horizontal, CrewSpace.margin)
-            ChatComposer(draft: $model.draft, names: model.mentionNames, isSending: model.isSending, onSend: model.send)
+            ChatComposer(
+                draft: $model.draft,
+                names: model.mentionNames,
+                isSending: model.isSending,
+                isUploadingPhoto: model.isUploadingPhoto,
+                onSend: model.send,
+                onPhoto: model.sendPhoto
+            )
                 .padding(.horizontal, CrewSpace.gutter)
                 .padding(.bottom, CrewSpace.base)
         }
@@ -83,12 +98,14 @@ struct ChatView: View {
         .accessibilityIdentifier("crewcue.chat")
         .accessibilityLabel("Chat")
         .task(id: activationID) {
-            await model.activate(userId: userId, roomId: roomId, role: role, displayName: displayName)
+            model.activate(userId: userId, roomId: roomId, role: role)
         }
+        .onAppear { model.setVisible(true) }
+        .onDisappear { model.setVisible(false) }
     }
 
     private var activationID: String {
-        "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")|\(displayName ?? "")"
+        "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
     }
 }
 
@@ -138,7 +155,7 @@ struct ChatStatusHeader: View {
     }
 }
 
-/// Names the race this chat belongs to. The Stream channel id never reaches the screen.
+/// Names the race this chat belongs to. Room ids never reach the screen.
 struct ChatRaceLabel: View {
     let raceName: String
 
@@ -157,12 +174,13 @@ struct ChatRaceLabel: View {
 
 struct ChatTranscript: View {
     let lines: [ChatLine]
+    var onDiscard: (ChatLine) -> Void = { _ in }
     @Environment(\.crew) private var theme
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: CrewSpace.gutter + 4) {
             ForEach(lines) { line in
-                ChatBubble(line: line)
+                ChatBubble(line: line, onDiscard: { onDiscard(line) })
                     .id(line.id)
             }
         }
@@ -171,6 +189,7 @@ struct ChatTranscript: View {
 
 struct ChatBubble: View {
     let line: ChatLine
+    var onDiscard: () -> Void = {}
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -178,6 +197,12 @@ struct ChatBubble: View {
             if line.mine { Spacer(minLength: 56) }
             VStack(alignment: line.mine ? .trailing : .leading, spacing: 6) {
                 HStack(spacing: 8) {
+                    if line.delivery.isEmpty == false {
+                        Text(verbatim: line.delivery)
+                            .font(CrewFont.kicker)
+                            .foregroundStyle(line.failed ? Color.red : theme.body)
+                            .accessibilityIdentifier("crewcue.chat-delivery")
+                    }
                     if line.mine, line.time.isEmpty == false { time }
                     if line.author.isEmpty == false {
                         Text(verbatim: line.author)
@@ -192,7 +217,7 @@ struct ChatBubble: View {
                             .font(CrewFont.bodyLarge)
                             .foregroundStyle(line.mine ? theme.onPrimary : theme.ink)
                     }
-                    if let imageURL = line.imageURL, let url = URL(string: imageURL) {
+                    if let url = line.imageURL {
                         AsyncImage(url: url) { image in
                             image.resizable().scaledToFit()
                         } placeholder: {
@@ -200,10 +225,8 @@ struct ChatBubble: View {
                         }
                         .frame(maxWidth: 220, maxHeight: 180)
                         .clipShape(RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
-                    }
-                    if line.reactions.isEmpty == false {
-                        Text(verbatim: line.reactions)
-                            .font(CrewFont.body)
+                        .accessibilityLabel("Photo")
+                        .accessibilityIdentifier("crewcue.chat-photo")
                     }
                 }
                 .padding(.horizontal, 18)
@@ -227,6 +250,11 @@ struct ChatBubble: View {
             if line.mine == false { Spacer(minLength: 56) }
         }
         .accessibilityElement(children: .combine)
+        .contextMenu {
+            if line.failed {
+                Button("Delete", role: .destructive, action: onDiscard)
+            }
+        }
     }
 
     private var time: some View {
@@ -254,7 +282,10 @@ struct ChatComposer: View {
     @Binding var draft: String
     let names: [String]
     let isSending: Bool
+    let isUploadingPhoto: Bool
     let onSend: () async -> Void
+    let onPhoto: (Data, String) async -> Void
+    @State private var pick: PhotosPickerItem?
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -267,10 +298,25 @@ struct ChatComposer: View {
                     .accessibilityLabel("Mentions")
             }
             HStack(spacing: CrewSpace.base) {
+                PhotosPicker(selection: $pick, matching: .images) {
+                    Group {
+                        if isUploadingPhoto {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 18, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(theme.primary)
+                    .frame(width: 44, height: 44)
+                }
+                .disabled(isUploadingPhoto)
+                .padding(.leading, 6)
+                .accessibilityLabel("Attach photo")
+                .accessibilityIdentifier("crewcue.chat-attach")
                 TextField("Send update to crew…", text: $draft, axis: .vertical)
                     .font(CrewFont.bodyLarge)
                     .lineLimit(1...4)
-                    .padding(.leading, 20)
                     .padding(.vertical, 12)
                     .accessibilityLabel("Message")
                 Button {
@@ -290,9 +336,36 @@ struct ChatComposer: View {
             .padding(6)
             .crewGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
         }
+        .onChange(of: pick) { _, item in
+            guard let item else { return }
+            pick = nil
+            Task {
+                guard let raw = try? await item.loadTransferable(type: Data.self),
+                      let jpeg = ChatPhotoEncoder.jpeg(from: raw) else { return }
+                await onPhoto(jpeg, "image/jpeg")
+            }
+        }
     }
 
     private var cannotSend: Bool {
         isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Re-encodes a picked photo as a JPEG no wider or taller than 2048 px, well under the 10 MB limit.
+enum ChatPhotoEncoder {
+    static let maxDimension: CGFloat = 2048
+
+    static func jpeg(from data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let longest = max(image.size.width, image.size.height)
+        let scale = longest > maxDimension ? maxDimension / longest : 1
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return resized.jpegData(compressionQuality: 0.8)
     }
 }
