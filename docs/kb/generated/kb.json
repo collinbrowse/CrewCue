@@ -50,67 +50,88 @@
       "line": 16
     },
     {
+      "method": "GET",
+      "path": "/chat/rooms/:roomId/messages",
+      "guard": "room-member",
+      "file": "services/api/src/routes/chatRoutes.ts",
+      "line": 249
+    },
+    {
+      "method": "POST",
+      "path": "/chat/rooms/:roomId/messages",
+      "guard": "room-member",
+      "file": "services/api/src/routes/chatRoutes.ts",
+      "line": 312
+    },
+    {
+      "method": "POST",
+      "path": "/chat/rooms/:roomId/photos",
+      "guard": "room-member",
+      "file": "services/api/src/routes/chatRoutes.ts",
+      "line": 356
+    },
+    {
+      "method": "GET",
+      "path": "/chat/photos/*",
+      "guard": "none detected",
+      "file": "services/api/src/routes/chatRoutes.ts",
+      "line": 382
+    },
+    {
       "method": "POST",
       "path": "/chat/stream-token",
       "guard": "identity + membership",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 81
+      "line": 394
     },
     {
       "method": "POST",
       "path": "/chat/rooms/:roomId/sync-stream-channel",
       "guard": "identity + membership",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 121
+      "line": 434
     },
     {
       "method": "POST",
       "path": "/chat/devices",
-      "guard": "identity",
+      "guard": "none detected",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 146
+      "line": 481
     },
     {
       "method": "POST",
       "path": "/chat/push/tokens",
-      "guard": "identity",
+      "guard": "none detected",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 165
+      "line": 482
     },
     {
       "method": "GET",
       "path": "/chat/rooms/:roomId/notification-prefs",
       "guard": "identity + membership",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 184
+      "line": 484
     },
     {
       "method": "POST",
       "path": "/chat/rooms/:roomId/notification-prefs",
       "guard": "identity + membership",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 199
-    },
-    {
-      "method": "POST",
-      "path": "/chat/push/webhook",
-      "guard": "identity or shared-secret",
-      "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 221
+      "line": 499
     },
     {
       "method": "DELETE",
       "path": "/chat/rooms/:roomId/messages",
       "guard": "identity + owner",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 272
+      "line": 521
     },
     {
       "method": "GET",
       "path": "/chat/rooms/:roomId/diagnostics",
-      "guard": "identity + membership",
+      "guard": "room-member",
       "file": "services/api/src/routes/chatRoutes.ts",
-      "line": 288
+      "line": 537
     },
     {
       "method": "POST",
@@ -194,238 +215,238 @@
       "path": "/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2532
+      "line": 2533
     },
     {
       "method": "GET",
       "path": "/race-rooms/mine",
       "guard": "identity",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2622
+      "line": 2623
     },
     {
       "method": "GET",
       "path": "/race-rooms/join-preview/:roomCode",
       "guard": "none detected",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2631
+      "line": 2632
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2647
+      "line": 2648
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/course",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2672
+      "line": 2673
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2838
+      "line": 2839
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2879
+      "line": 2880
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoint-stops",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2934
+      "line": 2935
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2979
+      "line": 2980
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3016
+      "line": 3017
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3040
+      "line": 3041
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3109
+      "line": 3110
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3156
+      "line": 3157
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites/accept",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3203
+      "line": 3204
     },
     {
       "method": "POST",
       "path": "/race-rooms/join-by-code",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3288
+      "line": 3289
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3347
+      "line": 3348
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3447
+      "line": 3448
     },
     {
       "method": "GET",
       "path": "/teams/:teamId/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3498
+      "line": 3501
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/entitlement",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3520
+      "line": 3523
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3697
+      "line": 3700
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings/batch",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3877
+      "line": 3880
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/track",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4068
+      "line": 4071
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/projection",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4103
+      "line": 4106
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/manual-stop",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4151
+      "line": 4154
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4312
+      "line": 4315
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/tasks",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4393
+      "line": 4396
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/assign",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4440
+      "line": 4443
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/start",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4517
+      "line": 4520
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/complete",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4578
+      "line": 4581
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4639
+      "line": 4642
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4670
+      "line": 4673
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/timeline",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4741
+      "line": 4744
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/history",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4767
+      "line": 4770
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/latest",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4803
+      "line": 4806
     },
     {
       "method": "POST",
@@ -633,13 +654,29 @@
   ],
   "tables": [
     {
+      "name": "chat_messages",
+      "columns": [
+        "seq",
+        "room_id",
+        "sender_user_id",
+        "client_message_id",
+        "body",
+        "photo_key",
+        "photo_content_type",
+        "photo_byte_size",
+        "created_at"
+      ],
+      "createdIn": "services/api/db/migrations/0018_first_party_chat.sql"
+    },
+    {
       "name": "chat_push_devices",
       "columns": [
         "device_id",
         "user_id",
         "platform",
         "token",
-        "registered_at"
+        "registered_at",
+        "apns_environment"
       ],
       "createdIn": "services/api/db/migrations/0013_practical_e2e_chat.sql"
     },
@@ -810,6 +847,18 @@
     }
   ],
   "env": {
+    "APNS_KEY_ID": [
+      "services/api/src/lib/chatPushTransports.ts"
+    ],
+    "APNS_KEY_P8": [
+      "services/api/src/lib/chatPushTransports.ts"
+    ],
+    "APNS_TEAM_ID": [
+      "services/api/src/lib/chatPushTransports.ts"
+    ],
+    "APNS_TOPIC": [
+      "services/api/src/lib/chatPushTransports.ts"
+    ],
     "AUTH0_AUDIENCE": [
       "services/api/src/lib/auth0Jwt.ts",
       "services/api/src/lib/authEnv.ts",
@@ -843,8 +892,23 @@
     "AUTOMATION_BLOCK_IN_PRODUCTION": [
       "services/api/src/lib/automationAuthGuard.ts"
     ],
-    "CHAT_PUSH_WEBHOOK_SECRET": [
-      "services/api/src/routes/chatRoutes.ts"
+    "CHAT_PHOTO_ACCESS_KEY_ID": [
+      "services/api/src/lib/chatPhotoStore.ts"
+    ],
+    "CHAT_PHOTO_BUCKET": [
+      "services/api/src/lib/chatPhotoStore.ts"
+    ],
+    "CHAT_PHOTO_ENDPOINT": [
+      "services/api/src/lib/chatPhotoStore.ts"
+    ],
+    "CHAT_PHOTO_REGION": [
+      "services/api/src/lib/chatPhotoStore.ts"
+    ],
+    "CHAT_PHOTO_SECRET_ACCESS_KEY": [
+      "services/api/src/lib/chatPhotoStore.ts"
+    ],
+    "CHAT_PHOTO_URL_STYLE": [
+      "services/api/src/lib/chatPhotoStore.ts"
     ],
     "COURSE_HISTORY_PRODUCT_SOURCES": [
       "services/api/src/lib/courseHistory/store.ts"
@@ -852,10 +916,14 @@
     "DATABASE_URL": [
       "services/api/scripts/apply-sql-migrations.mjs",
       "services/api/src/lib/activityHistoryStore.ts",
+      "services/api/src/lib/chatMessageStore.ts",
       "services/api/src/lib/chatPersistence.ts",
       "services/api/src/lib/pacingEstimateStore.ts",
       "services/api/src/lib/roomPersistence.ts",
       "services/api/src/lib/stravaConnectionStore.ts"
+    ],
+    "FCM_SERVICE_ACCOUNT_JSON": [
+      "services/api/src/lib/chatPushTransports.ts"
     ],
     "HOST": [
       "services/api/src/server.ts"
@@ -870,6 +938,7 @@
     "NODE_ENV": [
       "services/api/src/lib/authEnv.ts",
       "services/api/src/lib/automationAuthGuard.ts",
+      "services/api/src/lib/chatPhotoStore.ts",
       "services/api/src/lib/errorReporting.ts"
     ],
     "OSRM_ROUTER_BASE_URL": [
@@ -880,6 +949,7 @@
     ],
     "PERSISTENCE_MODE": [
       "services/api/src/lib/activityHistoryStore.ts",
+      "services/api/src/lib/chatMessageStore.ts",
       "services/api/src/lib/chatPersistence.ts",
       "services/api/src/lib/pacingEstimateStore.ts",
       "services/api/src/lib/roomPersistence.ts",
@@ -932,11 +1002,11 @@
     ]
   },
   "riskSummary": {
-    "unguarded": 4,
+    "unguarded": 7,
     "roomScopedIdentityOnly": 0,
     "large": 7,
     "timers": 1,
-    "untestedLib": 36,
+    "untestedLib": 39,
     "parityGaps": 14
   }
 }
