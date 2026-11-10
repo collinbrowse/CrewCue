@@ -55,7 +55,9 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/push-registration": "push-registration"
         case "dev/profile": "profile"
         case "dev/room-members": "room-members"
-        case "dev/strava": "strava"
+        case "dev/activity-import": "activity-import"
+        case "dev/strava": ClientFeatureFlags.stravaEnabled ? "strava" : nil
+        case "dev/account-deletion": "account-deletion"
         case "dev/app-shell": "app-shell"
         case "dev/loader": "brand-loader"
         default: nil

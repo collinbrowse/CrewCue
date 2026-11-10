@@ -23,8 +23,11 @@ actor FakeChatAPI: HTTPTransport {
     var nextId = 1
     let me = "crew-me"
     var postCount = 0
+    /// Reads wait this long and ignore cancellation, like a connection that died without a reset.
+    var hangReadsSeconds: Double = 0
 
     func setDown(_ value: Bool) { down = value }
+    func setHangReads(_ seconds: Double) { hangReadsSeconds = seconds }
     func setRemoved(_ value: Bool) { removed = value }
     func loseNextResponse() { loseNextSendResponse = true }
     func post(from sender: String, text: String) {
@@ -34,6 +37,10 @@ actor FakeChatAPI: HTTPTransport {
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         if down { throw URLError(.notConnectedToInternet) }
+        if request.method == .get, hangReadsSeconds > 0 {
+            let hang = hangReadsSeconds
+            await Task.detached { try? await Task.sleep(nanoseconds: UInt64(hang * 1_000_000_000)) }.value
+        }
         if removed { return json(403, ["error": "Not a member of this room"]) }
         let path = request.url.path
         guard path.hasPrefix("/chat/rooms/room-1/") else { return json(404, ["error": "Not found"]) }
@@ -144,6 +151,35 @@ private struct NoopLogger: Logger {
     let rows = thread.rows(pending: [], baseURL: graph.baseURL)
     #expect(rows.map(\.text) == ["queued 1", "queued 2"])
     #expect(rows.allSatisfy { $0.delivery == .sent && $0.author == "Pacer Collin (you)" })
+}
+
+@Test func chatPollGivesUpOnADeadConnectionAndReconnects() async throws {
+    let api = FakeChatAPI()
+    let graph = try makeGraph(api)
+    var thread = ChatThread(roomId: "room-1")
+    let first = await ChatSync.poll(graph: graph, roomId: "room-1", cursor: nil, failures: 0)
+    thread.apply(try #require(first.page))
+
+    await api.setDown(true)
+    let queued = try await ChatSync.send(graph: graph, roomId: "room-1", text: "sent while the read hung", role: "crew_member")
+    #expect(queued.delivery == .queued)
+    await api.setDown(false)
+
+    // The long-poll never answers: the step fails as offline instead of waiting forever.
+    await api.setHangReads(10)
+    let started = Date()
+    let hung = await ChatSync.poll(graph: graph, roomId: "room-1", cursor: thread.pollCursor, failures: 0, waitSeconds: 0, deadlineSeconds: 0.3)
+    #expect(Date().timeIntervalSince(started) < 5)
+    #expect(hung.page == nil)
+    #expect(hung.offline)
+    #expect(hung.failures == 1)
+    #expect(hung.retryAfterSeconds > 0)
+
+    await api.setHangReads(0)
+    let back = await ChatSync.poll(graph: graph, roomId: "room-1", cursor: thread.pollCursor, failures: hung.failures, waitSeconds: 0)
+    #expect(back.failures == 0)
+    #expect(back.flushed?.accepted.count == 1)
+    #expect(await api.messages.map(\.text) == ["sent while the read hung"])
 }
 
 @Test func chatLostResponseIsNotSentTwice() async throws {

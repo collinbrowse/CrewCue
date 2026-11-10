@@ -33,6 +33,8 @@ public struct ChatSendOutcome: Sendable {
 public enum ChatSync {
     public static let waitSeconds = 25
     public static let pageSize = 50
+    /// How long past the long-poll wait a read may take before it counts as a dropped connection.
+    public static let deadlineSlackSeconds = 15
 
     /// One step. With `cursor` nil this loads the newest page at once; otherwise it waits up to
     /// `waitSeconds` for messages newer than `cursor`.
@@ -41,16 +43,22 @@ public enum ChatSync {
         roomId: String,
         cursor: String?,
         failures: Int,
-        waitSeconds: Int = ChatSync.waitSeconds
+        waitSeconds: Int = ChatSync.waitSeconds,
+        deadlineSeconds: Double? = nil
     ) async -> ChatPollOutcome {
         do {
-            let page = try await RaceDayAPI.chatMessages(
-                graph: graph,
-                roomId: roomId,
-                after: cursor,
-                limit: pageSize,
-                waitSeconds: cursor == nil ? nil : waitSeconds
-            )
+            let wait = cursor == nil ? nil : waitSeconds
+            // A dead connection must not hold the loop: give up a little after the server would answer.
+            let deadline = deadlineSeconds ?? Double((wait ?? 0) + deadlineSlackSeconds)
+            let page = try await Deadline.run(seconds: deadline) {
+                try await RaceDayAPI.chatMessages(
+                    graph: graph,
+                    roomId: roomId,
+                    after: cursor,
+                    limit: pageSize,
+                    waitSeconds: wait
+                )
+            }
             var flushed: FlushReport?
             let queued = await hasQueuedChat(graph: graph, roomId: roomId)
             if cursor == nil || failures > 0 || queued {

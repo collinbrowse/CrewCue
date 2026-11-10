@@ -154,8 +154,12 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.profile", title: "Profile", body: profileBody(state))
         case "room-members":
             return FeatureCopy(accessibilityIdentifier: "crewcue.room-members", title: "Room members", body: membersBody(state))
+        case "activity-import":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.activity-import", title: "Past runs", body: activityImportBody(state))
         case "strava":
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
+        case "account-deletion":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.account-deletion", title: AccountDeletion.rowTitle, body: accountDeletionBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
@@ -418,12 +422,30 @@ private func membersBody(_ state: FeatureState) -> String {
     }
 }
 
+private func activityImportBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: ActivityImport.successMessage
+    case .empty: ActivityImport.emptyMessage
+    case .error: ActivityImport.errorMessage
+    case .offline: ActivityImport.offlineMessage
+    }
+}
+
 private func stravaBody(_ state: FeatureState) -> String {
     switch state {
     case .success: "Strava disconnected."
     case .empty: "Strava is not connected."
     case .error: "Strava connection failed."
     case .offline: "Offline. Can't reach Strava."
+    }
+}
+
+private func accountDeletionBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Account deleted. You are signed out."
+    case .empty: AccountDeletion.confirmBody
+    case .error: AccountDeletion.genericFailureMessage
+    case .offline: AccountDeletion.offlineMessage
     }
 }
 
