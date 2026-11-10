@@ -23,13 +23,13 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
-| [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `chatPersistence.ts`, `chatPushDispatch.ts`, `streamChannelMembers.ts`, `streamChat.ts` |
+| [services/api/src/routes/chatRoutes.ts](../../../services/api/src/routes/chatRoutes.ts) | `chatLive.ts`, `chatMessageStore.ts`, `chatPersistence.ts`, `chatPhotoStore.ts`, `chatPushDispatch.ts`, `streamChannelMembers.ts`, `streamChat.ts` |
 | [services/api/src/routes/courseGpxRoutes.ts](../../../services/api/src/routes/courseGpxRoutes.ts) | `gpxLimits.ts` |
 | [services/api/src/routes/health.ts](../../../services/api/src/routes/health.ts) | `roomPersistence.ts` |
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `roomPersistence.ts`, `streamChannelMembers.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `roomPersistence.ts`, `streamChannelMembers.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -43,7 +43,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 14 | 4849 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 14 | 4852 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 12 | 975 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -51,16 +51,17 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 228 |
 | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 226 |
+| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 5 | 313 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
-| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 4 | 284 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 765 |
+| [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
@@ -98,6 +99,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Generated/AthletePingBatchResponse.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/AthletePingBatchResponse.swift) | `AthletePingBatchResponse` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/AthletePingIngestPayload.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/AthletePingIngestPayload.swift) | `AthletePingIngestPayload` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/AthleteTrackPoint.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/AthleteTrackPoint.swift) | `AthleteTrackPoint` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessage.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessage.swift) | `ChatMessage` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessagePage.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessagePage.swift) | `ChatMessagePage` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessagePhoto.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatMessagePhoto.swift) | `ChatMessagePhoto` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatPhotoUploadResponse.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatPhotoUploadResponse.swift) | `ChatPhotoUploadResponse` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatRoomMember.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatRoomMember.swift) | `ChatRoomMember` |
+| [packages/client-core/Sources/CrewCueClientCore/Generated/ChatSendMessageResponse.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatSendMessageResponse.swift) | `ChatSendMessageResponse` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/ChatStreamMember.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatStreamMember.swift) | `ChatStreamMember` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/ChatStreamTokenResponse.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ChatStreamTokenResponse.swift) | `ChatStreamTokenResponse` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/CheckpointStoppageSummary.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/CheckpointStoppageSummary.swift) | `CheckpointStoppageSummary` |
@@ -156,12 +163,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-75 files under `packages/client-core/Sources/`.
+81 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `CrewCueClientCore` | 32 | 7065 |
-| `CrewCueClientCore/Generated` | 43 | 847 |
+| `CrewCueClientCore/Generated` | 49 | 945 |
 
 ### iOS app (SwiftUI)
 
@@ -192,7 +199,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-92 files under `apps/android/app/src/main/`.
+98 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -201,7 +208,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
 | `kotlin/com/crewcue/android/data` | 3 | 450 |
 | `kotlin/com/crewcue/android/di` | 1 | 53 |
-| `kotlin/com/crewcue/android/generated` | 43 | 445 |
+| `kotlin/com/crewcue/android/generated` | 49 | 497 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 98 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
