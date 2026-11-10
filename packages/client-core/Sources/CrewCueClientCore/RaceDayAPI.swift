@@ -420,6 +420,46 @@ public enum RaceDayAPI {
         "crew-\(roomId)"
     }
 
+    /// `GET /chat/rooms/:roomId/messages`. With `after` and `waitSeconds` it long-polls.
+    public static func chatMessages(
+        graph: ClientGraph,
+        roomId: String,
+        after: String? = nil,
+        before: String? = nil,
+        limit: Int? = nil,
+        waitSeconds: Int? = nil
+    ) async throws -> ChatMessagePage {
+        guard let baseURL = graph.baseURL else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        var query: [String: String] = [:]
+        if let after { query["after"] = after }
+        if let before { query["before"] = before }
+        if let limit { query["limit"] = String(limit) }
+        if let waitSeconds, waitSeconds > 0 { query["wait"] = String(waitSeconds) }
+        guard let url = APIClient.endpoint(baseURL, "/chat/rooms/\(roomId)/messages", query: query) else {
+            throw ClientHTTPError(status: 0, message: "Couldn't build the request.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        return try await APIClient.send(APIClient.authorized(url: url, method: .get, token: token), transport: graph.transport)
+    }
+
+    /// `POST /chat/rooms/:roomId/photos` with the raw image bytes.
+    public static func uploadChatPhoto(
+        graph: ClientGraph,
+        roomId: String,
+        data: Data,
+        contentType: String
+    ) async throws -> ChatPhotoUploadResponse {
+        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, "/chat/rooms/\(roomId)/photos") else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        var request = APIClient.authorized(url: url, method: .post, token: token, body: data)
+        request.headers["Content-Type"] = contentType
+        return try await APIClient.send(request, transport: graph.transport)
+    }
+
     public static func notificationPreference(graph: ClientGraph, roomId: String) async throws -> ChatPreference {
         try await get(graph, "/chat/rooms/\(roomId)/notification-prefs")
     }
@@ -496,9 +536,6 @@ public enum RaceDayAPI {
             }
         }
         return try await outbox.flush({ operation in
-            if operation.type == "chat" {
-                return OutboxFailureResolution(status: "pending", retryable: true, feedback: "Waiting for the app to send this.")
-            }
             if operation.type == "gpx" {
                 do {
                     _ = try await importQueuedGpx(graph, operation)

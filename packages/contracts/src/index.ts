@@ -1071,6 +1071,75 @@ export function chatChannelIdForRoom(roomId: string): string {
   return `crew-${roomId}`;
 }
 
+// --- First-party crew chat (ADR 0011) ---
+// Messages live in our Postgres. Clients page with cursors and long-poll for new
+// messages; photos sit in object storage behind short-lived signed URLs.
+
+/** One race-room member as chat shows them, with the display name for that room. */
+export interface ChatRoomMember {
+  userId: string;
+  /** Display name on this race-room membership. Names are per race, not global. */
+  displayName?: string;
+}
+
+/** A photo attached to a chat message. */
+export interface ChatMessagePhoto {
+  /** Short-lived URL. Absolute for object storage, or an API path the client resolves against its base URL. */
+  url: string;
+  contentType: string;
+  byteSize: number;
+}
+
+/** One crew chat message. */
+export interface ChatMessage {
+  /** Server-assigned, increasing within the API. Doubles as the paging cursor. */
+  id: string;
+  roomId: string;
+  senderUserId: string;
+  /** Client-chosen id. A retry with the same id returns the first message instead of a new one. */
+  clientMessageId: string;
+  text: string;
+  photo?: ChatMessagePhoto;
+  createdAt: string;
+}
+
+/** `GET /chat/rooms/:roomId/messages`: oldest first. */
+export interface ChatMessagePage {
+  messages: ChatMessage[];
+  members: ChatRoomMember[];
+  /** The caller's user id, so clients can label their own messages. */
+  selfUserId: string;
+  /** Pass as `before` to load older messages. Absent when there are none. */
+  olderCursor?: string;
+  /** Pass as `after` to wait for newer messages. Empty when the room has no messages yet. */
+  latestCursor: string;
+}
+
+/** `POST /chat/rooms/:roomId/messages` body. Needs text, a photo key, or both. */
+export interface ChatSendMessagePayload {
+  clientMessageId: string;
+  text?: string;
+  /** From `POST /chat/rooms/:roomId/photos`. */
+  photoKey?: string;
+}
+
+export interface ChatSendMessageResponse {
+  message: ChatMessage;
+  /** True when this client message id was already stored; nothing new was sent. */
+  duplicate: boolean;
+}
+
+/** `POST /chat/rooms/:roomId/photos` (raw image body) response. */
+export interface ChatPhotoUploadResponse {
+  photoKey: string;
+  contentType: string;
+  byteSize: number;
+}
+
+export const CHAT_MESSAGE_MAX_CHARS = 4000;
+export const CHAT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const CHAT_LONG_POLL_MAX_SECONDS = 25;
+
 export type ChatPushPlatform = "ios" | "android" | "web";
 
 /** Push device registration (transport only). */
@@ -1078,6 +1147,8 @@ export interface ChatPushDeviceRegistration {
   deviceId: string;
   platform: ChatPushPlatform;
   token: string;
+  /** iOS only: which APNs gateway issued the token. Debug builds use "development". Default "production". */
+  apnsEnvironment?: "development" | "production";
 }
 
 export interface ChatPushDeviceRecord extends ChatPushDeviceRegistration {
@@ -1124,6 +1195,8 @@ export interface ChatRetentionResult {
   deletedAt: string;
   prefsPurged: number;
   pushTokensPurged: number;
+  messagesPurged?: number;
+  photosPurged?: number;
 }
 
 /**

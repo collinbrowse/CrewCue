@@ -42,9 +42,11 @@ final class ShellModel {
     /// Full Crew upgrade on Room members (#649).
     let upgradeModel: CrewUpgradeModel
 
-    private(set) var signedInUserId: String?
-    private(set) var signedInRole: String?
-    private(set) var signedInRoomId: String?
+    private(set) var signedInUserId: String? { didSet { syncChat() } }
+    private(set) var signedInRole: String? { didSet { syncChat() } }
+    private(set) var signedInRoomId: String? { didSet { syncChat() } }
+    /// A tapped chat push for a race the roster has not loaded yet.
+    private var pendingChatRoomId: String?
     private(set) var signedInDisplayName: String?
     /// Every race the user belongs to. `signedInRoomId` is the active one; every tab follows it.
     private(set) var roster = RaceRoster()
@@ -97,6 +99,30 @@ final class ShellModel {
         self.profileModel.bindSignOut { [weak self] in
             self?.signOut()
         }
+        PushRouter.shared.handler = { [weak self] roomId in
+            self?.openChat(roomId: roomId)
+        }
+    }
+
+    /// A tapped chat notification: switch to that race and show its chat.
+    func openChat(roomId: String) {
+        guard isSignedIn else { return }
+        if roomId != signedInRoomId {
+            if roster.races.contains(where: { $0.id == roomId }) {
+                selectRace(roomId)
+            } else {
+                pendingChatRoomId = roomId
+                Task { await loadRaces() }
+                return
+            }
+        }
+        fixtureOverlay = false
+        show(Route(featureId: "chat-thread", state: .success))
+        enterShellIfNeeded()
+    }
+
+    private func syncChat() {
+        chatModel.activate(userId: signedInUserId, roomId: signedInRoomId, role: signedInRole)
     }
 
     func open(_ url: URL) {
@@ -199,6 +225,8 @@ final class ShellModel {
         roster = RaceRoster(activeRoomId: session.roomId)
         enterShellIfNeeded()
         Task { await loadRaces() }
+        // Tokens rotate; re-register silently when notifications are already allowed.
+        Task { await pushModel.refreshIfAuthorized(role: session.role) }
     }
 
     /// Load the user's races. The stored active room stays active while the server still lists it.
@@ -214,6 +242,12 @@ final class ShellModel {
             let next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
             roster = next
             racesMessage = races.isEmpty ? "No races yet." : ""
+            if let pending = pendingChatRoomId {
+                pendingChatRoomId = nil
+                if next.races.contains(where: { $0.id == pending }) {
+                    openChat(roomId: pending)
+                }
+            }
             if let active = next.active {
                 if active.id != signedInRoomId || active.role != signedInRole {
                     apply(active)
@@ -323,6 +357,7 @@ final class ShellModel {
         roster = RaceRoster()
         racesMessage = ""
         racesLoading = false
+        pendingChatRoomId = nil
         profileModel.clear()
         stravaModel.clear()
         activityImportModel.clear()

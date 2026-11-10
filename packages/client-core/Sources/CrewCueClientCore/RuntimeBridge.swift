@@ -1114,7 +1114,10 @@ enum RuntimeCall {
         do {
             let graph = try graph(object)
             let minted = try await RaceDayAPI.streamToken(graph: graph, roomId: roomId)
-            let authors = ChatAuthors(token: minted)
+            let authors = ChatAuthors(
+                selfUserId: minted.streamUserId,
+                members: (minted.members ?? []).map { ChatRoomMember(userId: $0.streamUserId, displayName: $0.displayName) }
+            )
             return [
                 "token": minted.token,
                 "streamUserId": minted.streamUserId,

@@ -47,6 +47,12 @@ const roots = [
   "IncidentEvent",
   "ChatStreamMember",
   "ChatStreamTokenResponse",
+  "ChatRoomMember",
+  "ChatMessagePhoto",
+  "ChatMessage",
+  "ChatMessagePage",
+  "ChatSendMessageResponse",
+  "ChatPhotoUploadResponse",
   "RaceRoomInvite",
   "AccountDeletionResult"
 ];

@@ -1,6 +1,6 @@
 /**
  * Chat persistence: notification preferences and push devices.
- * Crew chat MVP plaintext — no identity/backup/envelope crypto tables.
+ * Messages live in chatMessageStore.ts; photos in chatPhotoStore.ts (ADR 0011).
  */
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
@@ -11,6 +11,8 @@ import type {
   ChatPushPlatform,
   ChatRetentionResult
 } from "@crewcue/contracts";
+import { deleteChatMessagesForRoom } from "./chatMessageStore.js";
+import { chatPhotoStore } from "./chatPhotoStore.js";
 
 type Mode = "memory" | "postgres";
 
@@ -64,6 +66,7 @@ export async function initChatPersistence(log: FastifyBaseLogger): Promise<void>
           registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
       `);
+      await client.query("ALTER TABLE chat_push_devices ADD COLUMN IF NOT EXISTS apns_environment TEXT;");
       await client.query(`
         CREATE INDEX IF NOT EXISTS chat_push_devices_user
         ON chat_push_devices (user_id);
@@ -164,25 +167,54 @@ export async function listChatNotificationPrefsForUsers(
 
 export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promise<void> {
   if (!pool) {
+    for (const [id, existing] of memoryPushDevices) {
+      if (existing.token === record.token && id !== record.deviceId) memoryPushDevices.delete(id);
+    }
     memoryPushDevices.set(record.deviceId, structuredClone(record));
     return;
   }
+  await ensureChatPersistenceReady();
+  // A token belongs to one device: drop any other row (another user signed in on the same phone).
+  await pool.query("DELETE FROM chat_push_devices WHERE token = $1 AND device_id <> $2", [
+    record.token,
+    record.deviceId
+  ]);
   await pool.query(
     `
-      INSERT INTO chat_push_devices (device_id, user_id, platform, token, registered_at)
-      VALUES ($1, $2, $3, $4, $5::timestamptz)
+      INSERT INTO chat_push_devices (device_id, user_id, platform, token, registered_at, apns_environment)
+      VALUES ($1, $2, $3, $4, $5::timestamptz, $6)
       ON CONFLICT (device_id) DO UPDATE
       SET user_id = EXCLUDED.user_id,
           platform = EXCLUDED.platform,
           token = EXCLUDED.token,
-          registered_at = EXCLUDED.registered_at;
+          registered_at = EXCLUDED.registered_at,
+          apns_environment = EXCLUDED.apns_environment;
     `,
-    [record.deviceId, record.userId, record.platform, record.token, record.registeredAt]
+    [
+      record.deviceId,
+      record.userId,
+      record.platform,
+      record.token,
+      record.registeredAt,
+      record.apnsEnvironment ?? null
+    ]
   );
 }
 
-/** @deprecated alias */
-export const upsertChatPushToken = upsertChatPushDevice;
+/** Deletes devices whose push token the provider rejected. */
+export async function deleteChatPushDevices(deviceIds: readonly string[]): Promise<number> {
+  if (deviceIds.length === 0) return 0;
+  if (!pool) {
+    let deleted = 0;
+    for (const id of deviceIds) if (memoryPushDevices.delete(id)) deleted += 1;
+    return deleted;
+  }
+  await ensureChatPersistenceReady();
+  const result = await pool.query("DELETE FROM chat_push_devices WHERE device_id = ANY($1::text[])", [
+    deviceIds
+  ]);
+  return result.rowCount ?? 0;
+}
 
 export async function listChatPushDevicesForUsers(
   userIds: readonly string[]
@@ -197,9 +229,10 @@ export async function listChatPushDevicesForUsers(
     platform: ChatPushPlatform;
     token: string;
     registered_at: Date | string;
+    apns_environment: "development" | "production" | null;
   }>(
     `
-      SELECT device_id, user_id, platform, token, registered_at
+      SELECT device_id, user_id, platform, token, registered_at, apns_environment
       FROM chat_push_devices
       WHERE user_id = ANY($1::text[])
     `,
@@ -213,40 +246,36 @@ export async function listChatPushDevicesForUsers(
     registeredAt:
       row.registered_at instanceof Date
         ? row.registered_at.toISOString()
-        : new Date(row.registered_at).toISOString()
+        : new Date(row.registered_at).toISOString(),
+    ...(row.apns_environment ? { apnsEnvironment: row.apns_environment } : {})
   }));
 }
 
-/** @deprecated alias */
-export const listChatPushTokensForUsers = listChatPushDevicesForUsers;
-
+/** Deletes a room's chat: messages, their photos, and notification prefs. */
 export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionResult> {
+  const { messagesPurged, photoKeys } = await deleteChatMessagesForRoom(roomId);
+  const store = chatPhotoStore();
+  const photosPurged = store && photoKeys.length ? await store.delete(photoKeys) : 0;
+  let prefsPurged = 0;
   if (!pool) {
-    let prefsPurged = 0;
     for (const key of Array.from(memoryPrefs.keys())) {
       if (key.endsWith(`|${roomId}`)) {
         memoryPrefs.delete(key);
         prefsPurged += 1;
       }
     }
-    return {
-      roomId,
-      deletedAt: new Date().toISOString(),
-      prefsPurged,
-      pushTokensPurged: 0
-    };
+  } else {
+    await ensureChatPersistenceReady();
+    const prefs = await pool.query("DELETE FROM chat_notification_prefs WHERE room_id = $1", [roomId]);
+    prefsPurged = prefs.rowCount ?? 0;
   }
-  await ensureChatPersistenceReady();
-  const prefs = await pool.query<{ count: string }>(
-    "SELECT COUNT(*)::text AS count FROM chat_notification_prefs WHERE room_id = $1",
-    [roomId]
-  );
-  await pool.query("DELETE FROM chat_notification_prefs WHERE room_id = $1", [roomId]);
   return {
     roomId,
     deletedAt: new Date().toISOString(),
-    prefsPurged: Number.parseInt(prefs.rows[0]?.count ?? "0", 10),
-    pushTokensPurged: 0
+    prefsPurged,
+    pushTokensPurged: 0,
+    messagesPurged,
+    photosPurged
   };
 }
 
