@@ -57,7 +57,7 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
             TrackingIntervalSection(viewModel, Modifier.focusedOn("location-heartbeat", focus))
         }
         StravaSection(viewModel, Modifier.focusedOn("strava", focus))
-        ProductCard {
+        ProductCard(Modifier.focusedOn("account-deletion", focus)) {
             SectionHeader("Account")
             CrewListRow(
                 Icons.AutoMirrored.Outlined.Logout,
@@ -69,6 +69,10 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
                 tint = MaterialTheme.colorScheme.error,
                 titleColor = MaterialTheme.colorScheme.error
             )
+            DeleteAccountRow(viewModel) {
+                onDismiss()
+                viewModel.signOut(activity)
+            }
         }
         Text(
             text = buildAnnotatedString {

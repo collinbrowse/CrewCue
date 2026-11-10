@@ -17,6 +17,20 @@ public enum AccountDeletion {
     public static let defaultWebURL = "https://crewcue.app/delete-account"
     public static let webLinkLabel = "Delete on the web instead"
 
+    /// The same strings for Android, through runtime op `accountDeletionCopy`.
+    static var copy: [String: String] {
+        [
+            "rowTitle": rowTitle,
+            "confirmTitle": confirmTitle,
+            "confirmBody": confirmBody,
+            "confirmButton": confirmButton,
+            "cancelButton": cancelButton,
+            "workingMessage": workingMessage,
+            "defaultWebURL": defaultWebURL,
+            "webLinkLabel": webLinkLabel
+        ]
+    }
+
     public enum Outcome: Equatable, Sendable {
         /// Server confirmed. The app signs out next.
         case deleted(identityProvider: String)
