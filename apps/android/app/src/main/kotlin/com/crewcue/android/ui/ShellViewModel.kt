@@ -1,5 +1,7 @@
 package com.crewcue.android.ui
 
+import com.crewcue.android.BuildConfig
+
 import android.app.Activity
 import android.content.Intent
 import androidx.compose.runtime.getValue
@@ -252,7 +254,7 @@ class ShellViewModel(
     fun open(intent: Intent?) {
         captureDevSession(intent)
         val url = intent?.dataString
-        if (isStravaReturn(url)) {
+        if (BuildConfig.STRAVA_ENABLED && isStravaReturn(url)) {
             opened = true
             presentStravaReturn(url.orEmpty())
             return
@@ -688,7 +690,7 @@ class ShellViewModel(
 
     private companion object {
         /** Settings live in the settings sheet, not on a tab. */
-        val settingsFeatures = setOf("chat-notification-prefs", "push-registration", "strava", "account-deletion")
+        val settingsFeatures = setOf("chat-notification-prefs", "push-registration", "strava", "activity-import", "account-deletion")
 
         val placeholder = ScreenCopy(
             featureId = "app-shell",

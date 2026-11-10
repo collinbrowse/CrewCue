@@ -114,7 +114,6 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-checkpoint-pick` | v1 | fail | pass |
 | `map-navigate` | v1 | fail | pass |
 | `push-registration` | v1 | fail | fail |
-| `activity-import` | v1 | pass | fail |
 | `account-deletion` | v1 | pass | fail |
 
 Deferred: `command-center`, `billing`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
