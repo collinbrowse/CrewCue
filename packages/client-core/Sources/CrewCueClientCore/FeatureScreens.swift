@@ -158,6 +158,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.activity-import", title: "Past runs", body: activityImportBody(state))
         case "strava":
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
+        case "account-deletion":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.account-deletion", title: AccountDeletion.rowTitle, body: accountDeletionBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
@@ -441,6 +443,15 @@ private func stravaBody(_ state: FeatureState) -> String {
     case .empty: "Strava is not connected."
     case .error: "Strava connection failed."
     case .offline: "Offline. Can't reach Strava."
+    }
+}
+
+private func accountDeletionBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Account deleted. You are signed out."
+    case .empty: AccountDeletion.confirmBody
+    case .error: AccountDeletion.genericFailureMessage
+    case .offline: AccountDeletion.offlineMessage
     }
 }
 

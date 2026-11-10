@@ -35,6 +35,7 @@ object DevRoutes {
         "dev/room-members" to "room-members",
         "dev/activity-import" to "activity-import",
         "dev/strava" to "strava",
+        "dev/account-deletion" to "account-deletion",
         "dev/app-shell" to "app-shell",
         "dev/loader" to "brand-loader",
         "dev/billing-purchase" to "billing-purchase",
