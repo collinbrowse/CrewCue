@@ -29,6 +29,7 @@ final class ShellModel {
     let profileModel: ProfileModel
     let stravaModel: StravaModel
     let activityImportModel: ActivityImportModel
+    let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
@@ -64,6 +65,7 @@ final class ShellModel {
         self.profileModel = ProfileModel(client: client)
         self.stravaModel = StravaModel(client: client)
         self.activityImportModel = ActivityImportModel(client: client)
+        self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
@@ -301,6 +303,7 @@ final class ShellModel {
         profileModel.clear()
         stravaModel.clear()
         activityImportModel.clear()
+        accountDeletionModel.clear()
         membersModel.clear()
         incidentsModel.clear()
         paceModel.clear()

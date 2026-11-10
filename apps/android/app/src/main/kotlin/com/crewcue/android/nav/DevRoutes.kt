@@ -34,6 +34,7 @@ object DevRoutes {
         "dev/profile" to "profile",
         "dev/room-members" to "room-members",
         "dev/activity-import" to "activity-import",
+        "dev/account-deletion" to "account-deletion",
         "dev/app-shell" to "app-shell",
         "dev/loader" to "brand-loader"
     ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())

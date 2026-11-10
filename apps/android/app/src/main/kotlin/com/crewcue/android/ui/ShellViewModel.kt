@@ -669,7 +669,7 @@ class ShellViewModel(
 
     private companion object {
         /** Settings live in the settings sheet, not on a tab. */
-        val settingsFeatures = setOf("chat-notification-prefs", "push-registration", "strava", "activity-import")
+        val settingsFeatures = setOf("chat-notification-prefs", "push-registration", "strava", "activity-import", "account-deletion")
 
         val placeholder = ScreenCopy(
             featureId = "app-shell",
