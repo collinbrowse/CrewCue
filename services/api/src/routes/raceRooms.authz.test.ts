@@ -331,6 +331,14 @@ test("crew member cannot read another invite token from the room list", async ()
   });
   assert.equal(createResponse.statusCode, 201);
   const roomId = (createResponse.json() as { id: string }).id;
+  // Crew plus a crew chief needs the Full Crew tier (#649).
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid", crewTier: "unlimited" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(paid.statusCode, 200);
 
   const crewInvite = await app.inject({
     method: "POST",

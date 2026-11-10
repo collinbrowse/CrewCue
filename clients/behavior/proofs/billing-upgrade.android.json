@@ -1,0 +1,18 @@
+{
+  "id": "billing-upgrade",
+  "platform": "android",
+  "entry": "crewcue://dev/billing-upgrade",
+  "device": "crewcue_api_35 emulator (emulator-5556, Android 15 / API 35, read-only, software GPU swiftshader_indirect), Debug build with the fake purchaser",
+  "date": "2026-11-09",
+  "commit": "5d0c77d + #682 merge + fake-purchaser error copy fix (this PR); first-turn rows on 29e72a7 with the identical billing tree",
+  "session": "Debug dev session (intent extras devSession/userId/role/token/roomId) against the local memory API on 10.0.2.2:3000. Offline via `cmd connectivity airplane-mode enable`. Error via the same API run with NODE_ENV=production, where the server refuses the fake purchase (403), so the store step fails for real.",
+  "action": "Race Pass room with its one crew seat taken: a second crew member joined by code (refused), the runner opened crewcue://dev/billing-upgrade (Room members) and bought Full Crew, then the refused crew member joined again.",
+  "checked": {
+    "Success": "Tapped 'Add Full Crew \u00b7 $9.99': 'Unlocked: unlimited crew.'; GET /billing \u2192 crewTier unlimited; the refused crew member's Join then showed 'Joined Billing Upgrade 50K.' and crewCount went to 2.",
+    "Empty": "'Race Pass: you plus 1 crew member (1 of 1 joined).' + 'Your Race Pass covers 1 crew member. Add Full Crew for unlimited crew.' + 'Add Full Crew \u00b7 $9.99'.",
+    "Error": "Second crew member on Join with the room code: 'This race is full. Ask the runner to add Full Crew so more crew can join.'",
+    "Offline": "Airplane mode on Room members: Race Pass card shows 'Offline. Purchases need the network.'",
+    "Accessibility labels": "crewcue.billing-upgrade, crewcue.billing-upgrade.buy, crewcue.billing-upgrade.status"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

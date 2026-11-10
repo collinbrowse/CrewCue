@@ -35,6 +35,7 @@ import {
 import { deauthorizeStravaAccess } from "./strava/stravaClient.js";
 import { DELETED_ACCOUNT_ACTOR, forgetPlatformEventsForAccountDeletion } from "./platformEventLog.js";
 import { anonymizePersistedPlatformEventActor } from "./roomPersistence.js";
+import { anonymizeBillingForUser } from "./billingStore.js";
 import { deriveStreamUserId, readStreamCredentials } from "./streamChat.js";
 import {
   deleteAuth0User,
@@ -123,6 +124,8 @@ export async function deleteAccountData(
   }
   forgetPlatformEventsForAccountDeletion({ roomIds: ownedRoomIds, actorUserId: sub });
   await anonymizePersistedPlatformEventActor(sub, DELETED_ACCOUNT_ACTOR);
+  // Purchases stay for refunds and store reconciliation; only the link to this user goes.
+  await anonymizeBillingForUser(sub);
 
   // 2. Per-user stores.
   const activityHistoryDeleted = await deleteActivityHistoryForAthlete(sub);

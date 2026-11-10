@@ -3,7 +3,48 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**17 tables** from 18 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**19 tables** from 19 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+
+## `billing_grants`
+
+Created in [services/api/db/migrations/0019_billing_grants.sql](../../../services/api/db/migrations/0019_billing_grants.sql).
+
+| Column | Type |
+| --- | --- |
+| `transaction_id` | TEXT PRIMARY KEY |
+| `room_id` | TEXT |
+| `product_id` | TEXT NOT NULL |
+| `app_user_id` | TEXT |
+| `source` | TEXT NOT NULL CHECK (source IN ('revenuecat', 'admin_comp', 'dev_fake')) |
+| `status` | TEXT NOT NULL CHECK (status IN ('active', 'revoked')) |
+| `store` | TEXT |
+| `environment` | TEXT |
+| `created_at` | TIMESTAMPTZ NOT NULL |
+| `updated_at` | TIMESTAMPTZ NOT NULL |
+
+Primary key: `transaction_id`.
+
+Indexes: `billing_grants_by_room`.
+
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts).
+
+## `billing_webhook_events`
+
+Created in [services/api/db/migrations/0019_billing_grants.sql](../../../services/api/db/migrations/0019_billing_grants.sql).
+
+| Column | Type |
+| --- | --- |
+| `event_id` | TEXT PRIMARY KEY |
+| `event_type` | TEXT NOT NULL |
+| `transaction_id` | TEXT |
+| `room_id` | TEXT |
+| `outcome` | TEXT NOT NULL |
+| `received_at` | TIMESTAMPTZ NOT NULL |
+| `payload` | JSONB NOT NULL |
+
+Primary key: `event_id`.
+
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts).
 
 ## `chat_messages`
 

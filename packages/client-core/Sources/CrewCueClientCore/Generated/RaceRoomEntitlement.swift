@@ -5,10 +5,12 @@ public struct RaceRoomEntitlement: Codable, Equatable, Sendable {
     public var status: String
     public var lastUpdatedAt: String
     public var source: String
+    public var crewTier: String?
 
-    public init(status: String, lastUpdatedAt: String, source: String) {
+    public init(status: String, lastUpdatedAt: String, source: String, crewTier: String? = nil) {
         self.status = status
         self.lastUpdatedAt = lastUpdatedAt
         self.source = source
+        self.crewTier = crewTier
     }
 }

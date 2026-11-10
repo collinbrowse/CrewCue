@@ -16,6 +16,7 @@
     "agent:pr:done": "node scripts/agent-pr-done.mjs",
     "agent:device": "node scripts/agent-device.mjs",
     "agent:android:done": "node scripts/agent-android-done.mjs",
+    "billing:comp": "node scripts/billing-comp.mjs",
     "auth0:bootstrap-mobile-client": "node scripts/auth0/bootstrap-connection-config.mjs",
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @crewcue/api",
