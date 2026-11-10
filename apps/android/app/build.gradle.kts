@@ -198,7 +198,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("com.auth0.android:auth0:4.2.0")
+    implementation("com.auth0.android:auth0:4.3.0")
     implementation("io.sentry:sentry-android:8.63.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
