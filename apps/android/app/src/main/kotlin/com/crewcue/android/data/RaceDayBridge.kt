@@ -257,6 +257,15 @@ class RaceDayBridge(
         if (!checkpointId.isNullOrBlank()) put("checkpointId", checkpointId)
     }
 
+    /** #652: an exported .gpx/.fit/.tcx, base64. Result carries status and a user-facing message. */
+    fun importActivityFile(fileName: String, contentBase64: String): RuntimeResult = call("importActivityFile") {
+        put("fileName", fileName)
+        put("contentBase64", contentBase64)
+    }
+
+    /** Pacing history for display: items[].summary, newest first. */
+    fun activityHistoryItems(): RuntimeResult = call("activityHistoryItems")
+
     fun stravaStart(): RuntimeResult = call("stravaStart")
 
     fun stravaConnection(): RuntimeResult = call("stravaConnection")

@@ -253,7 +253,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "account-deletion",
