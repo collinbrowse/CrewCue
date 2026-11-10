@@ -13,11 +13,16 @@ The golden JSON is a pack `{ sheet, estimate, historyRefs }` — parse those nes
 | `activity-short-road.gpx` | Dissimilar history (model should not overfit) |
 | `corrupt.gpx` | Parse failure |
 | `empty.gpx` | Empty track |
+| `activity-short-road.fit` | Same 8 km run as the GPX, as a FIT export (#652) |
+| `activity-short-road.tcx` | Same 8 km run as a TCX export (#652) |
+| `activity-treadmill.fit` | Treadmill FIT: distance and time, no GPS |
+| `corrupt.fit` | Truncated FIT (read error) |
+| `make-activity-files.ts` | Regenerates the four files above from the short-road GPX |
 | `schedule-expected.json` | Golden schedule for course+plan |
 | `estimate-cold-start.json` | Cold-start (`coldStart: true`) estimate + coarse sheet for mobile DEV UX |
 | `estimate-bands.json` | W4-2 three-band golden (history-backed + cold-start) + spread policy |
 | `cutoff-compare.json` | W4-1 cutoff modes + UTC race-day wall-clock policy notes for schedule warnings |
-| `strava-activity-summary.json` | Mock Strava payload (no live API) |
+| `strava-activity-summary.json` | Mock Strava payload (no live API; Strava is off in v1) |
 | `eval/` | Pacing evaluation corpus (efforts, courses, `metrics-baseline.json`). Currently all SYNTHETIC; see `docs/sdlc/pacing-evaluation.md` |
 | `load.ts` | Fixture path list + GPX inspect / JSON load helpers (`package.json` marks this folder ESM) |
 
