@@ -253,7 +253,7 @@
       "label": "crewcue.activity-import",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {
