@@ -1053,7 +1053,7 @@
     "roomScopedIdentityOnly": 0,
     "large": 7,
     "timers": 1,
-    "untestedLib": 43,
-    "parityGaps": 12
+    "untestedLib": 41,
+    "parityGaps": 11
   }
 }

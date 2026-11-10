@@ -9,8 +9,8 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
-| API lib modules with no same-named test | 43 |
-| Native features not passing on both platforms | 12 |
+| API lib modules with no same-named test | 41 |
+| Native features not passing on both platforms | 11 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -60,8 +60,6 @@ Timers run per instance. With more than one API replica each one fires.
 
 May still be covered through route tests; check before relying on it.
 
-- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
-- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
 - [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
 - [services/api/src/lib/activityFileHistory.ts](../../../services/api/src/lib/activityFileHistory.ts)
 - [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts)
