@@ -19,9 +19,9 @@ import Dispatch
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
 /// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, pingTrack,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
-/// stopTrackingSession.
+/// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile.
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -203,12 +203,20 @@ enum RuntimeCall {
             return try await incidents(object)
         case "createIncident":
             return try await createIncident(object)
+        case "featureFlags":
+            return ["strava": ClientFeatureFlags.stravaEnabled]
+        case "activityHistoryItems":
+            return try await activityHistoryItems(object)
+        case "importActivityFile":
+            return try await importActivityFile(object)
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
             return try await stravaConnection(object)
         case "stravaDisconnect":
             return try await stravaDisconnect(object)
+        case "deleteAccount":
+            return try await deleteAccount(object)
         case "pingTrack":
             return try await pingTrack(object)
         case "liveProjection":
@@ -1307,6 +1315,48 @@ enum RuntimeCall {
         }
     }
 
+    private static func activityItemJSON(_ item: ActivityHistoryItem) -> [String: Any] {
+        var json: [String: Any] = ["id": item.id, "source": item.source, "recordedAt": item.recordedAt, "summary": item.summary]
+        if let distance = item.distanceMeters { json["distanceMeters"] = distance }
+        if let elapsed = item.elapsedSeconds { json["elapsedSeconds"] = elapsed }
+        return json
+    }
+
+    private static func activityHistoryItems(_ object: [String: Any]) async throws -> Any {
+        do {
+            let items = try await RaceDayAPI.activityHistoryItems(graph: try graph(object))
+            return ["offline": false, "items": items.map(activityItemJSON)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true, "items": [[String: Any]]()]
+            }
+            throw error
+        }
+    }
+
+    /// `contentBase64` is the file. Returns status saved, duplicate, empty, invalid or offline with
+    /// a user-facing `message`; a server 400/413 comes back as `invalid` with the server's message.
+    private static func importActivityFile(_ object: [String: Any]) async throws -> Any {
+        let fileName = text(object, "fileName") ?? "activity"
+        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        if let problem = ActivityImport.localProblem(fileName: fileName, byteCount: data.count) {
+            return ["status": data.isEmpty ? "empty" : "invalid", "message": problem]
+        }
+        do {
+            let result = try await RaceDayAPI.importActivityFile(graph: try graph(object), fileName: fileName, data: data)
+            let message = result.status == .saved ? ActivityImport.successMessage : ActivityImport.duplicateMessage
+            return ["status": result.status.rawValue, "message": message, "item": activityItemJSON(result.item)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["status": "offline", "message": ActivityImport.offlineMessage]
+            }
+            if let http = error as? ClientHTTPError, http.status == 400 || http.status == 413 {
+                return ["status": "invalid", "message": ActivityImport.message(for: error)]
+            }
+            throw error
+        }
+    }
+
     private static func stravaStart(_ object: [String: Any]) async throws -> Any {
         do {
             let graph = try graph(object)
@@ -1355,6 +1405,24 @@ enum RuntimeCall {
                 return ["offline": true, "connected": false]
             }
             throw error
+        }
+    }
+
+    /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
+    /// the app's session-expired path runs.
+    private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
+        try await deleteAccount(graph: try graph(object))
+    }
+
+    static func deleteAccount(graph: ClientGraph) async throws -> [String: Any] {
+        switch await AccountDeletion.run(graph: graph) {
+        case let .deleted(identityProvider):
+            return ["deleted": true, "identityProvider": identityProvider]
+        case let .failed(message, retryable):
+            if message == AccountDeletion.expiredMessage {
+                throw ClientHTTPError(status: 401, message: message)
+            }
+            return ["deleted": false, "message": message, "retryable": retryable]
         }
     }
 

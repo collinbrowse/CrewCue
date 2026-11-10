@@ -28,6 +28,8 @@ final class ShellModel {
     let athleteModel: AthleteSetupModel
     let profileModel: ProfileModel
     let stravaModel: StravaModel
+    let activityImportModel: ActivityImportModel
+    let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
@@ -64,6 +66,8 @@ final class ShellModel {
         self.athleteModel = AthleteSetupModel(client: client)
         self.profileModel = ProfileModel(client: client)
         self.stravaModel = StravaModel(client: client)
+        self.activityImportModel = ActivityImportModel(client: client)
+        self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
@@ -111,7 +115,8 @@ final class ShellModel {
 
     func open(_ url: URL) {
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
-        if Self.isStravaReturn(url) {
+        // Strava is off in v1 (#652): its return link then opens the shell like any other link.
+        if ClientFeatureFlags.stravaEnabled, Self.isStravaReturn(url) {
             fixtureOverlay = false
             if isSignedIn {
                 stravaModel.prepareReturn(url)
@@ -332,6 +337,8 @@ final class ShellModel {
         pendingChatRoomId = nil
         profileModel.clear()
         stravaModel.clear()
+        activityImportModel.clear()
+        accountDeletionModel.clear()
         membersModel.clear()
         incidentsModel.clear()
         paceModel.clear()

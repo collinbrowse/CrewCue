@@ -288,7 +288,8 @@ actor CourseImportTransport: HTTPTransport {
         ("crewcue://dev/push-registration", "push-registration"),
         ("crewcue://dev/profile", "profile"),
         ("crewcue://dev/room-members", "room-members"),
-        ("crewcue://dev/strava", "strava"),
+        ("crewcue://dev/activity-import", "activity-import"),
+        ("crewcue://dev/account-deletion", "account-deletion"),
         ("crewcue://dev/app-shell", "app-shell"),
         ("crewcue://dev/loader", "brand-loader")
     ]
@@ -303,6 +304,9 @@ actor CourseImportTransport: HTTPTransport {
     #expect(Route.parse("crewcue://dev/schedule-sheet?state=nope")?.state == .success)
     #expect(Route.parse("https://example.invalid") == nil)
     #expect(Route.parse("crewcue://dev/not-a-feature") == nil)
+    // Strava is behind an off-by-default flag (#652).
+    #expect(ClientFeatureFlags.stravaEnabled == false)
+    #expect(Route.parse("crewcue://dev/strava") == nil)
 }
 
 @Test func userFacingErrorMapsClientHTTPError() {

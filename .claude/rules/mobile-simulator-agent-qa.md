@@ -8,6 +8,10 @@ paths:
 
 Applies when changing **`apps/ios/**`** (SwiftUI).
 
+## Your own simulator
+
+Parallel agents each get their own simulator, named `CrewCue <worktree>`. `npm run agent:ios:ready` and `npm run test:ios` create and use it automatically. `npm run agent:device` prints its UDID: pass that UDID as the device or `simulatorId` to every iOS-simulator and XcodeBuildMCP call, because their defaults point at a shared simulator. Never boot, erase or shut down another simulator.
+
 ## Done means
 
 1. `npm run verify` (or scoped tests if agreed) **and**
