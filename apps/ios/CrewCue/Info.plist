@@ -12,6 +12,8 @@
   <string>$(CREWCUE_AUTH0_CLIENT_ID)</string>
   <key>CrewCueAuth0Audience</key>
   <string>$(CREWCUE_AUTH0_AUDIENCE)</string>
+  <key>CrewCueAccountDeletionURL</key>
+  <string>$(CREWCUE_ACCOUNT_DELETION_URL)</string>
   <key>CrewCueSentryDSN</key>
   <string>$(CREWCUE_SENTRY_DSN)</string>
   <key>CFBundleURLTypes</key>

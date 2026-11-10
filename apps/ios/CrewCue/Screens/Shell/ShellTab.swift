@@ -81,7 +81,7 @@ enum ShellTab: String, CaseIterable, Identifiable, Hashable {
     /// Settings live in the settings sheet, which opens over whichever tab is showing.
     static func isSettingsFeature(_ featureId: String) -> Bool {
         switch featureId {
-        case "chat-notification-prefs", "push-registration", "strava":
+        case "chat-notification-prefs", "push-registration", "strava", "account-deletion":
             true
         default:
             false
