@@ -272,6 +272,12 @@ class RaceDayBridge(
 
     fun stravaDisconnect(): RuntimeResult = call("stravaDisconnect")
 
+    /** `DELETE /me` (#560). `result.deleted` is true only when the server confirmed. */
+    fun deleteAccount(): RuntimeResult = call("deleteAccount")
+
+    /** Shared Delete account copy from client-core. */
+    fun accountDeletionCopy(): RuntimeResult = call("accountDeletionCopy")
+
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
     fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }

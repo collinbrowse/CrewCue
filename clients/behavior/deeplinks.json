@@ -262,7 +262,7 @@
       "sdk": "auth0",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "app-shell",

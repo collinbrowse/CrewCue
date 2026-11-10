@@ -175,7 +175,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 36 | 7946 |
+| `CrewCueClientCore` | 36 | 7962 |
 | `CrewCueClientCore/Generated` | 51 | 989 |
 
 ### iOS app (SwiftUI)
@@ -208,7 +208,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-105 files under `apps/android/app/src/main/`.
+106 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -216,7 +216,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/auth` | 3 | 192 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 487 |
+| `kotlin/com/crewcue/android/data` | 3 | 493 |
 | `kotlin/com/crewcue/android/di` | 1 | 64 |
 | `kotlin/com/crewcue/android/generated` | 51 | 520 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
@@ -238,6 +238,6 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1366 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
-| `kotlin/com/crewcue/android/ui/settings` | 1 | 180 |
+| `kotlin/com/crewcue/android/ui/settings` | 2 | 374 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 250 |
 | `kotlin/com/crewcue/android/ui/theme` | 2 | 688 |

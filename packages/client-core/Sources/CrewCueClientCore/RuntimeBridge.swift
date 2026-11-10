@@ -18,7 +18,7 @@ import Dispatch
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, pingTrack,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile.
 ///
@@ -222,6 +222,8 @@ enum RuntimeCall {
             return try await stravaDisconnect(object)
         case "deleteAccount":
             return try await deleteAccount(object)
+        case "accountDeletionCopy":
+            return AccountDeletion.copy
         case "pingTrack":
             return try await pingTrack(object)
         case "liveProjection":
