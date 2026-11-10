@@ -31,7 +31,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
 
 jobs:
   refresh:
@@ -71,17 +70,15 @@ jobs:
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'
         run: node scripts/kb/generate-kb.mjs
 
+      # The Claude Code CLI directly, not claude-code-action: the action rejects `push` events.
       - name: Reconcile narrative pages
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ github.token }}
-          prompt: |
-            Follow scripts/kb/refresh-prompt.md exactly. HEAD is ${{ github.sha }}.
-            Write your closing summary (five lines at most) to kb-summary.md in the repository root.
-          claude_args: >-
-            --max-turns 60
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.321
+          claude -p "Follow scripts/kb/refresh-prompt.md exactly. HEAD is ${GITHUB_SHA}. Write your closing summary (five lines at most) to kb-summary.md in the repository root." \
+            --max-budget-usd 5 \
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git rev-parse:*),Bash(cat:*)"
 
       - name: Refuse changes outside docs/kb
