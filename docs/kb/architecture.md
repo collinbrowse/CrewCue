@@ -12,7 +12,7 @@ flowchart LR
     AND -- "JNI .so" --> CORE
   end
   CORE -- "HTTPS + Auth0 JWT" --> API["API<br/>Fastify on Railway"]
-  iOS & AND -- "Stream SDK" --> STREAM[(Stream chat)]
+  AND -- "Stream SDK" --> STREAM[(Stream chat)]
   iOS & AND -- "MapLibre" --> OFM[(OpenFreeMap tiles)]
   iOS & AND -- "sign in" --> AUTH0[(Auth0)]
   API --> PG[(Postgres)]
@@ -33,7 +33,7 @@ flowchart LR
 | Contracts | [packages/contracts](../../packages/contracts) | Wire types and parsers. The API imports it; Swift and Kotlin types are generated from it by [generate-client-contracts.mjs](../../scripts/generate-client-contracts.mjs), which fails CI on drift. |
 | Map core | [packages/map-core](../../packages/map-core) | GPX/KML parsing, course metrics, course position. API only. |
 | Platform client | [packages/platform-client](../../packages/platform-client) | Error catalog and canonical JSON. The API uses only `canonicalJsonStringify`. |
-| client-core | [packages/client-core](../../packages/client-core) | One Swift target, no UI ([ADR 0008](../adr/0008-native-clients-with-swift-client-core.md)). API client, outbox, race-day readouts, session. |
+| client-core | [packages/client-core](../../packages/client-core) | One Swift target, no UI ([ADR 0008](../adr/0008-native-clients-with-swift-client-core.md)). API client, outbox, race-day readouts, session, chat sync ([ChatSync.swift](../../packages/client-core/Sources/CrewCueClientCore/ChatSync.swift), [ChatThread.swift](../../packages/client-core/Sources/CrewCueClientCore/ChatThread.swift)). |
 | iOS app | [apps/ios](../../apps/ios) | SwiftUI. Links client-core directly. One `@Observable` model + view per screen. |
 | Android app | [apps/android](../../apps/android) | Compose. Calls client-core through a JSON op bridge ([RuntimeBridge.swift](../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift)) compiled to `.so` for arm64-v8a and x86_64. |
 | Behavior checklists | [clients/behavior](../../clients/behavior) | Source of truth for iOS/Android parity. `deeplinks.json` status `pass` needs a device proof file. |
@@ -52,9 +52,10 @@ flowchart LR
 ## Client internals
 
 - **Single network stack**: `URLSessionTransport` in [APIClient.swift](../../packages/client-core/Sources/CrewCueClientCore/APIClient.swift). Android HTTP also runs through it via the bridge. [verify-client-boundary.mjs](../../scripts/verify-client-boundary.mjs) fails if client-core imports UI/vendor SDKs or an app grows its own outbox or HTTP client.
-- **Outbox**: [OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) is a file-backed actor (`outbox.json`, `ping-watermarks.json`). [Outbox.swift](../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) maps HTTP results to retry/drop/accept.
+- **Outbox**: [OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) is a file-backed actor (`outbox.json`, `ping-watermarks.json`). [Outbox.swift](../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) maps HTTP results to retry/drop/accept. Chat messages now flush through it too, in queue order ([OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift:435)).
+- **Chat**: iOS chat runs on our API through client-core `ChatSync` (long-poll reads with a hard [Deadline.swift](../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) timeout, outbox sends, photo upload) and no longer uses Stream ([ChatModel.swift](../../apps/ios/CrewCue/Screens/Chat/ChatModel.swift)); the StreamChat package is still linked in [project.pbxproj](../../apps/ios/CrewCue.xcodeproj/project.pbxproj). Android chat is still on Stream ([StreamAndroidRoomClient.kt](../../apps/android/app/src/stream/kotlin/com/crewcue/android/ui/chat/StreamAndroidRoomClient.kt)).
 - **Session**: Auth0 web sign-in in each app; the token goes into a static provider. A 401 calls `SessionController.expire()`, which wipes every per-user store ([Session.swift](../../packages/client-core/Sources/CrewCueClientCore/Session.swift)).
-- **Vendor SDKs stay in the apps**: Stream chat, MapLibre, Auth0, Firebase (Android, loaded by reflection).
+- **Vendor SDKs stay in the apps**: Stream chat (Android), MapLibre, Auth0, Firebase (Android, loaded by reflection).
 
 ## Deployment
 
