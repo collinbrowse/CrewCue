@@ -218,15 +218,7 @@ struct ChatBubble: View {
                             .foregroundStyle(line.mine ? theme.onPrimary : theme.ink)
                     }
                     if let url = line.imageURL {
-                        AsyncImage(url: url) { image in
-                            image.resizable().scaledToFit()
-                        } placeholder: {
-                            Color.clear.frame(height: 120)
-                        }
-                        .frame(maxWidth: 220, maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
-                        .accessibilityLabel("Photo")
-                        .accessibilityIdentifier("crewcue.chat-photo")
+                        ChatPhoto(url: url)
                     }
                 }
                 .padding(.horizontal, 18)
@@ -261,6 +253,35 @@ struct ChatBubble: View {
         Text(verbatim: line.time)
             .font(CrewFont.kicker)
             .foregroundStyle(theme.body)
+    }
+}
+
+/// A chat photo in a fixed frame, loaded or not, so the transcript never changes height after it
+/// scrolls to the newest message. Spinner while loading, an icon if the photo can't load.
+struct ChatPhoto: View {
+    static let size = CGSize(width: 220, height: 165)
+    let url: URL
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable().scaledToFill()
+            case .failure:
+                Image(systemName: "photo.badge.exclamationmark")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(theme.body)
+            default:
+                ProgressView()
+            }
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .background(theme.body.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel("Photo")
+        .accessibilityIdentifier("crewcue.chat-photo")
     }
 }
 
