@@ -84,6 +84,16 @@ private func graph(_ transport: some HTTPTransport) -> ClientGraph {
     #expect(missingBase["message"] as? String == "baseURL is required.")
 }
 
+@Test func accountDeletionCopyRuntimeOpGivesAndroidTheSharedStrings() async throws {
+    let response = try await call(["op": "accountDeletionCopy"])
+    #expect(response["ok"] as? Bool == true)
+    let copy = try #require(response["result"] as? [String: String])
+    #expect(copy["confirmTitle"] == AccountDeletion.confirmTitle)
+    #expect(copy["confirmBody"] == AccountDeletion.confirmBody)
+    #expect(copy["defaultWebURL"] == AccountDeletion.defaultWebURL)
+    #expect(copy.count == 8)
+}
+
 private func call(_ fields: [String: Any]) async throws -> [String: Any] {
     let data = try JSONSerialization.data(withJSONObject: fields)
     let raw = await RuntimeCall.perform(String(decoding: data, as: UTF8.self))

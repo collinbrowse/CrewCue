@@ -152,6 +152,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
@@ -164,11 +166,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-83 files under `packages/client-core/Sources/`.
+85 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 36 | 7634 |
+| `CrewCueClientCore` | 38 | 11223 |
 | `CrewCueClientCore/Generated` | 47 | 915 |
 
 ### iOS app (SwiftUI)
@@ -200,14 +202,14 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-97 files under `apps/android/app/src/main/`.
+98 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `kotlin/com/crewcue/android` | 2 | 115 |
 | `kotlin/com/crewcue/android/auth` | 3 | 192 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 460 |
+| `kotlin/com/crewcue/android/data` | 3 | 466 |
 | `kotlin/com/crewcue/android/di` | 1 | 53 |
 | `kotlin/com/crewcue/android/generated` | 47 | 481 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
@@ -228,6 +230,6 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1366 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
-| `kotlin/com/crewcue/android/ui/settings` | 1 | 180 |
+| `kotlin/com/crewcue/android/ui/settings` | 2 | 374 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 250 |
 | `kotlin/com/crewcue/android/ui/theme` | 2 | 688 |
