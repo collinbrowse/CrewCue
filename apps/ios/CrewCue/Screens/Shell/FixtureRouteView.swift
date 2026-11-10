@@ -58,7 +58,7 @@ struct ProductRouteView: View {
             NotificationPermissionScreen()
         case "auth-sign-in":
             AuthOrShell(model: model)
-        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "room-members", "readouts-incidents":
+        case "app-shell", "map-track", "chat-thread", "chat-notification-prefs", "push-registration", "profile", "strava", "activity-import", "account-deletion", "room-members", "readouts-incidents":
             ShellOrSignedOut(model: model)
         default:
             if ShellTab.isPaceFeature(model.route.featureId) || ShellTab.isMapFeature(model.route.featureId) {

@@ -1,5 +1,7 @@
 # strava
 
+> Deferred from v1 (#652): Strava connect is behind `ClientFeatureFlags.stravaEnabled` (off). v1 imports exported files instead; see `clients/behavior/activity-import.md`. Move this back to `clients/behavior/` and restore its `deeplinks.json` row when the flag turns on.
+
 ## Entry
 crewcue://dev/strava
 

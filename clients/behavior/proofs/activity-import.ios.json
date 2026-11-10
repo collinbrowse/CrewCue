@@ -1,0 +1,18 @@
+{
+  "id": "activity-import",
+  "platform": "ios",
+  "entry": "crewcue://dev/activity-import",
+  "device": "iPhone 17 simulator (CrewCue import-652), iOS 27.2, Debug build",
+  "date": "2026-11-09",
+  "commit": "3f172f4 (claude/import-652-ios on 9fa2906)",
+  "session": "Dev session against the local memory API (port 3652). Fixtures copied into Files > On My iPhone: activity-short-road.fit, activity-short-road.tcx, corrupt.fit. Offline by stopping the local API.",
+  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker.",
+  "checked": {
+    "Success": "FIT: 'Run imported to pacing history.' and row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10' (API 201 for each).",
+    "Empty": "Before a pick: 'Choose a .gpx, .fit or .tcx file from your watch.'",
+    "Error": "corrupt.fit: server 400 shown as 'Couldn't read this FIT file. Export it again and retry.'",
+    "Offline": "API stopped, garmin-run.fit picked: 'Offline. Import the file when you're back online.'",
+    "Accessibility labels": "crewcue.activity-import"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
