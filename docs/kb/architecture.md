@@ -15,6 +15,8 @@ flowchart LR
   AND -- "Stream SDK" --> STREAM[(Stream chat)]
   iOS & AND -- "MapLibre" --> OFM[(OpenFreeMap tiles)]
   iOS & AND -- "sign in" --> AUTH0[(Auth0)]
+  iOS & AND -- "store purchase" --> RC[(RevenueCat)]
+  RC -- "webhook" --> API
   API --> PG[(Postgres)]
   API -- "JWKS" --> AUTH0
   API -- "tokens, channel members" --> STREAM
@@ -29,7 +31,7 @@ flowchart LR
 
 | Component | Path | Role |
 | --- | --- | --- |
-| API | [services/api](../../services/api) | Fastify + TypeScript ([ADR 0002](../adr/0002-backend-runtime-and-framework.md)). Rooms, pings, projection, pacing, crew chat (messages, photos, push; [ADR 0011](../adr/0011-first-party-crew-chat.md)), Stream chat tokens, Strava, GPX. |
+| API | [services/api](../../services/api) | Fastify + TypeScript ([ADR 0002](../adr/0002-backend-runtime-and-framework.md)). Rooms, pings, projection, pacing, crew chat (messages, photos, push; [ADR 0011](../adr/0011-first-party-crew-chat.md)), Stream chat tokens, Strava, GPX, billing (store purchases via RevenueCat, [billing.md](../api/billing.md)). |
 | Contracts | [packages/contracts](../../packages/contracts) | Wire types and parsers. The API imports it; Swift and Kotlin types are generated from it by [generate-client-contracts.mjs](../../scripts/generate-client-contracts.mjs), which fails CI on drift. |
 | Map core | [packages/map-core](../../packages/map-core) | GPX/KML parsing, course metrics, course position. API only. |
 | Platform client | [packages/platform-client](../../packages/platform-client) | Error catalog and canonical JSON. The API uses only `canonicalJsonStringify`. |
@@ -41,12 +43,13 @@ flowchart LR
 ## API internals
 
 - **Startup** ([server.ts](../../services/api/src/server.ts)): validates persistence and auth env, starts OTel tracing if `OTEL_EXPORTER_OTLP_ENDPOINT` is set, starts Sentry error reporting and crash handlers if `SENTRY_DSN` is set ([errorReporting.ts](../../services/api/src/lib/errorReporting.ts)), builds the app, starts the chat retention scheduler.
-- **Plugins** ([app.ts](../../services/api/src/app.ts)): `auth` → `audit` → `rateLimit`, then 14 route modules. Body limit 32 MB.
+- **Plugins** ([app.ts](../../services/api/src/app.ts)): `auth` → `audit` → `rateLimit`, then 17 route modules. Body limit 32 MB.
 - **Auth** ([plugins/auth.ts](../../services/api/src/plugins/auth.ts)): a global `preHandler` verifies the Bearer token (Auth0 RS256 via JWKS, or HS256 `JWT_SECRET` outside production) and sets `request.identity`. It never rejects; each handler returns 401 when `identity` is missing. This is opt-in auth: a new route is open unless its handler checks.
-- **Authorization**: roles come from the room document (`room.memberships[].role`), not the JWT. Helpers `requireRoomMember` and `requireCourseEditor` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts); most handlers check membership inline. Paid features also go through `evaluateEntitlement`.
+- **Authorization**: roles come from the room document (`room.memberships[].role`), not the JWT. Helpers `requireRoomMember` and `requireCourseEditor` in [raceRooms.ts](../../services/api/src/routes/raceRooms.ts); most handlers check membership inline. Paid features also go through `evaluateEntitlement`. Crew invites, invite accepts, and code joins are refused with 409 `crew_limit_reached` past the room's crew tier ([raceRooms.ts](../../services/api/src/routes/raceRooms.ts:3158), [billingEntitlement.ts](../../services/api/src/lib/billingEntitlement.ts:57)).
 - **Persistence**: `PERSISTENCE_MODE=memory` (default) or `postgres`. Rooms are whole JSON documents (`race_rooms_json.payload`) plus per-feature JSON snapshot tables. Append-only tables: `room_athlete_pings`, `platform_domain_events`. Five separate `pg.Pool`s, one per store.
 - **Concurrency**: room reads go through in-process caches; writes serialize on in-process locks (`withRoomRuntimeLock`, `commitRaceRoomUpdate`). Correct for one instance only. See [risks.md](risks.md) R1.
 - **Chat**: messages live in `chat_messages` ([0018 migration](../../services/api/db/migrations/0018_first_party_chat.sql), [chatMessageStore.ts](../../services/api/src/lib/chatMessageStore.ts)). Long-poll wake-ups are an in-process map ([chatLive.ts](../../services/api/src/lib/chatLive.ts)). Photos go to an S3-compatible bucket signed by a small SigV4 helper ([chatPhotoStore.ts](../../services/api/src/lib/chatPhotoStore.ts), [s3Presign.ts](../../services/api/src/lib/s3Presign.ts)); outside production an in-memory store stands in, and production without a bucket has no photos. Push goes straight to APNs and FCM when configured, otherwise to a logging transport ([chatPushTransports.ts](../../services/api/src/lib/chatPushTransports.ts), [chatPushDispatch.ts](../../services/api/src/lib/chatPushDispatch.ts)). The Stream token and channel-sync routes are still served ([chatRoutes.ts](../../services/api/src/routes/chatRoutes.ts)).
+- **Billing**: [billingRoutes.ts](../../services/api/src/routes/billingRoutes.ts) serves the RevenueCat webhook (shared `Authorization` secret), an admin comp (`x-crewcue-billing-admin-secret`), the members-only `GET /race-rooms/:roomId/billing`, and a debug fake purchase. Grants live in `billing_grants`, deliveries in `billing_webhook_events` ([0019 migration](../../services/api/db/migrations/0019_billing_grants.sql), [billingStore.ts](../../services/api/src/lib/billingStore.ts)); the room's entitlement is recomputed from all its grants under the room lock ([billingRoutes.ts](../../services/api/src/routes/billingRoutes.ts:45)). Hand-set entitlement and the fake purchase are refused when `NODE_ENV=production` unless `BILLING_MANUAL_ENTITLEMENT=enabled` ([billingEnv.ts](../../services/api/src/lib/billingEnv.ts)).
 - **Idempotency**: `Idempotency-Key` header on room create, course PUT, manual stop, stop plans ([httpIdempotency.ts](../../services/api/src/lib/httpIdempotency.ts)); 24 h TTL, 5 min lease.
 
 ## Client internals
@@ -55,7 +58,7 @@ flowchart LR
 - **Outbox**: [OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) is a file-backed actor (`outbox.json`, `ping-watermarks.json`). [Outbox.swift](../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) maps HTTP results to retry/drop/accept. Chat messages now flush through it too, in queue order ([OutboxStore.swift](../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift:435)).
 - **Chat**: iOS chat runs on our API through client-core `ChatSync` (long-poll reads with a hard [Deadline.swift](../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) timeout, outbox sends, photo upload) and no longer uses Stream ([ChatModel.swift](../../apps/ios/CrewCue/Screens/Chat/ChatModel.swift)); the StreamChat package is still linked in [project.pbxproj](../../apps/ios/CrewCue.xcodeproj/project.pbxproj). Android chat is still on Stream ([StreamAndroidRoomClient.kt](../../apps/android/app/src/stream/kotlin/com/crewcue/android/ui/chat/StreamAndroidRoomClient.kt)).
 - **Session**: Auth0 web sign-in in each app; the token goes into a static provider. A 401 calls `SessionController.expire()`, which wipes every per-user store ([Session.swift](../../packages/client-core/Sources/CrewCueClientCore/Session.swift)).
-- **Vendor SDKs stay in the apps**: Stream chat (Android), MapLibre, Auth0, Firebase (Android, loaded by reflection).
+- **Vendor SDKs stay in the apps**: Stream chat (Android), MapLibre, Auth0, Firebase (Android, loaded by reflection), RevenueCat ([RevenueCatPurchaser.swift](../../apps/ios/CrewCue/App/RevenueCatPurchaser.swift), [RevenueCatPurchaser.kt](../../apps/android/app/src/main/kotlin/com/crewcue/android/billing/RevenueCatPurchaser.kt)). A build without a RevenueCat key cannot buy; debug builds can use a fake store that calls the dev purchase route ([StorePurchaser.swift](../../apps/ios/CrewCue/App/StorePurchaser.swift)).
 
 ## Deployment
 
