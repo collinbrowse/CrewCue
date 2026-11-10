@@ -202,7 +202,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-101 files under `apps/android/app/src/main/`.
+99 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -230,6 +230,6 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1366 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
-| `kotlin/com/crewcue/android/ui/settings` | 4 | 742 |
+| `kotlin/com/crewcue/android/ui/settings` | 2 | 374 |
 | `kotlin/com/crewcue/android/ui/strava` | 1 | 250 |
 | `kotlin/com/crewcue/android/ui/theme` | 2 | 688 |
