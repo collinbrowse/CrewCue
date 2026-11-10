@@ -204,6 +204,10 @@ class ShellViewModel(
                     }
                     races = loaded
                     racesMessage = if (loaded.isEmpty()) "No races yet." else ""
+                    pendingChatRoomId?.let { pending ->
+                        pendingChatRoomId = null
+                        if (loaded.any { it.id == pending }) openChat(pending)
+                    }
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
@@ -218,6 +222,23 @@ class ShellViewModel(
                 }
             }
         }
+    }
+
+    /** A chat push this race list has not loaded yet; applied after [loadRaces]. */
+    private var pendingChatRoomId: String? = null
+
+    /** A tapped chat notification: switch to that race and show its chat. */
+    fun openChat(roomId: String) {
+        if (session == null) return
+        if (roomId != session?.roomId) {
+            if (races.none { it.id == roomId }) {
+                pendingChatRoomId = roomId
+                loadRaces()
+                return
+            }
+            selectRace(roomId)
+        }
+        showShell(ShellTab.Chat)
     }
 
     /** Switch every tab to another loaded race. */

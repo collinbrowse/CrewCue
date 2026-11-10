@@ -17,6 +17,7 @@ import Dispatch
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
 /// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
+/// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
 /// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
@@ -28,25 +29,31 @@ enum RuntimeCall {
     private final class TransportBox: @unchecked Sendable {
         private let lock = NSLock()
         private var transport: (any HTTPTransport)?
+        private var byBaseURL: [String: any HTTPTransport] = [:]
 
-        func get() -> (any HTTPTransport)? {
+        func get(baseURL: String) -> (any HTTPTransport)? {
             lock.lock()
             defer { lock.unlock() }
-            return transport
+            return byBaseURL[baseURL] ?? transport
         }
 
-        func set(_ transport: (any HTTPTransport)?) {
+        func set(_ transport: (any HTTPTransport)?, baseURL: String?) {
             lock.lock()
             defer { lock.unlock() }
-            self.transport = transport
+            if let baseURL {
+                byBaseURL[baseURL] = transport
+            } else {
+                self.transport = transport
+            }
         }
     }
 
-    /// Tests inject a transport. Production calls leave this nil and use `URLSessionTransport`.
+    /// Tests inject a transport, for every request or only for one `baseURL` (so parallel tests
+    /// don't see each other's fake server). Production calls leave this nil and use `URLSessionTransport`.
     private static let transportForTests = TransportBox()
 
-    static func setTransportForTests(_ transport: (any HTTPTransport)?) {
-        transportForTests.set(transport)
+    static func setTransportForTests(_ transport: (any HTTPTransport)?, baseURL: String? = nil) {
+        transportForTests.set(transport, baseURL: baseURL)
     }
 
     static func perform(_ json: String) async -> String {
@@ -187,6 +194,16 @@ enum RuntimeCall {
             return try await enqueuePush(object)
         case "enqueueChat":
             return try await enqueueChat(object)
+        case "chatPoll":
+            return try await chatPoll(object)
+        case "chatSend":
+            return try await chatSend(object)
+        case "chatUploadPhoto":
+            return try await chatUploadPhoto(object)
+        case "chatOlder":
+            return try await chatOlder(object)
+        case "chatDiscard":
+            return try await chatDiscard(object)
         case "completeOutbox":
             return try await completeOutbox(object)
         case "claimChat":
@@ -1558,21 +1575,21 @@ enum RuntimeCall {
         return RoomStorage.directory(userDirectory: root, roomId: roomId)
     }
 
-    private static func store(_ object: [String: Any]) throws -> OutboxStore {
+    static func store(_ object: [String: Any]) throws -> OutboxStore {
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
         return try OutboxStore.shared(userId: object["userId"] as? String ?? "guest", directory: directory)
     }
 
-    private static func graph(_ object: [String: Any]) throws -> ClientGraph {
+    static func graph(_ object: [String: Any]) throws -> ClientGraph {
         guard let base = object["baseURL"] as? String, let baseURL = URL(string: base) else {
             throw ClientHTTPError(status: 0, message: "baseURL is required.")
         }
         let token = object["token"] as? String
         let outbox = try? store(object)
         return ClientGraph(
-            transport: transportForTests.get() ?? URLSessionTransport(),
+            transport: transportForTests.get(baseURL: base) ?? URLSessionTransport(),
             clock: SystemClock(),
             logger: SilentRuntimeLogger(),
             baseURL: baseURL,
@@ -1581,13 +1598,13 @@ enum RuntimeCall {
         )
     }
 
-    private static func text(_ object: [String: Any], _ key: String) -> String? {
+    static func text(_ object: [String: Any], _ key: String) -> String? {
         guard let value = object[key] as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func boolValue(_ value: Any?) -> Bool? {
+    static func boolValue(_ value: Any?) -> Bool? {
         if let bool = value as? Bool { return bool }
         if let number = value as? NSNumber { return number.boolValue }
         return nil

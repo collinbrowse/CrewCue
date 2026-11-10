@@ -160,6 +160,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox`, `RuntimeSendFailure` |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
 | [packages/client-core/Sources/CrewCueClientCore/Session.swift](../../../packages/client-core/Sources/CrewCueClientCore/Session.swift) | `ClientSession`, `UserDataStore`, `SessionController`, `SessionFile` |
@@ -171,11 +172,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-87 files under `packages/client-core/Sources/`.
+88 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 36 | 7962 |
+| `CrewCueClientCore` | 37 | 8183 |
 | `CrewCueClientCore/Generated` | 51 | 989 |
 
 ### iOS app (SwiftUI)
@@ -208,28 +209,28 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-106 files under `apps/android/app/src/main/`.
+107 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `kotlin/com/crewcue/android` | 2 | 112 |
+| `kotlin/com/crewcue/android` | 2 | 115 |
 | `kotlin/com/crewcue/android/auth` | 3 | 192 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 493 |
+| `kotlin/com/crewcue/android/data` | 3 | 503 |
 | `kotlin/com/crewcue/android/di` | 1 | 64 |
 | `kotlin/com/crewcue/android/generated` | 51 | 520 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 101 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1246 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1267 |
 | `kotlin/com/crewcue/android/ui/activity` | 1 | 185 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 173 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 479 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 5 | 989 |
+| `kotlin/com/crewcue/android/ui/chat` | 6 | 1100 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/join` | 1 | 110 |
 | `kotlin/com/crewcue/android/ui/map` | 5 | 1642 |

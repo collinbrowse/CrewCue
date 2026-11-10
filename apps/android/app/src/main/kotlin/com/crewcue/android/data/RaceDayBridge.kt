@@ -177,8 +177,6 @@ class RaceDayBridge(
         }
     }
 
-    fun streamToken(roomId: String): RuntimeResult = call("streamToken") { put("roomId", roomId) }
-
     fun parseMentions(roomId: String, body: String): RuntimeResult = call("parseMentions") {
         put("roomId", roomId)
         put("body", body)
@@ -199,29 +197,41 @@ class RaceDayBridge(
         put("token", token)
     }
 
-    fun enqueueChat(roomId: String, text: String, clientMessageId: String): RuntimeResult = call("enqueueChat") {
+    /**
+     * One step of the chat loop (client-core `ChatSync`): the newest page when [fresh], otherwise a
+     * long-poll of up to [waitSeconds]. Blocks; call it off the main thread.
+     */
+    fun chatPoll(roomId: String, fresh: Boolean, failures: Int, waitSeconds: Int = 25): RuntimeResult = call("chatPoll") {
+        put("roomId", roomId)
+        put("fresh", fresh)
+        put("failures", failures)
+        put("wait", waitSeconds)
+    }
+
+    /** Queues the message under a stable client id and sends it now when online. */
+    fun chatSend(roomId: String, text: String, photoKey: String? = null): RuntimeResult = call("chatSend") {
         put("roomId", roomId)
         put("text", text)
+        if (photoKey != null) put("photoKey", photoKey)
+    }
+
+    /** Uploads the prepared image file at [path]; returns its `photoKey`. Needs a connection. */
+    fun chatUploadPhoto(roomId: String, path: String, contentType: String = "image/jpeg"): RuntimeResult =
+        call("chatUploadPhoto") {
+            put("roomId", roomId)
+            put("path", path)
+            put("contentType", contentType)
+        }
+
+    fun chatOlder(roomId: String): RuntimeResult = call("chatOlder") { put("roomId", roomId) }
+
+    /** Drops a message the server refused from the outbox. */
+    fun chatDiscard(roomId: String, clientMessageId: String): RuntimeResult = call("chatDiscard") {
+        put("roomId", roomId)
         put("clientMessageId", clientMessageId)
     }
 
     fun completeOutbox(id: String): RuntimeResult = call("completeOutbox") { put("id", id) }
-
-    /** Claims the message this device is about to send, so redelivery can't send it too. */
-    fun claimChat(roomId: String, id: String): RuntimeResult = call("claimChat") {
-        put("roomId", roomId)
-        put("id", id)
-    }
-
-    /** Queued messages for the room that nothing else is sending, including ones a crash left. */
-    fun claimPendingChat(roomId: String): RuntimeResult = call("claimPendingChat") { put("roomId", roomId) }
-
-    /** Ends a claim. A null [error] means sent; client-core treats "already exists" as sent too. */
-    fun settleChat(roomId: String, id: String, error: String?): RuntimeResult = call("settleChat") {
-        put("roomId", roomId)
-        put("id", id)
-        if (error != null) put("error", error)
-    }
 
     /** Sign-out and session expiry: every account's files under the runtime storage root. */
     fun wipeUserData(): RuntimeResult = call("wipeUserData")

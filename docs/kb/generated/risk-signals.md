@@ -42,7 +42,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4904 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1856 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1873 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1238 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
