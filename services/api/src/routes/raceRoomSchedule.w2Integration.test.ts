@@ -206,7 +206,8 @@ function installCaptureTransport() {
     return {
       delivered: input.targets.length,
       attempts: input.targets.length,
-      failures: []
+      failures: [],
+      invalidDeviceIds: []
     };
   });
   return captured;
@@ -255,7 +256,7 @@ test("W2-I EC7+notify: mid-course closed check-in shifts later clocks and notifi
 
     const aidTitle = room.course?.checkpoints.find((cp) => cp.id === "aid-1")?.title ?? "aid-1";
     assert.equal(
-      dispatch.previewText,
+      dispatch.body,
       formatCheckInEtaNotifyPreview({
         checkpointId: "aid-1",
         checkpointLabel: aidTitle,

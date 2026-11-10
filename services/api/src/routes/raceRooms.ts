@@ -96,6 +96,7 @@ import {
 } from "../lib/roomPersistence.js";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { syncRaceRoomStreamChannelMembers } from "../lib/streamChannelMembers.js";
+import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 
 function scheduleStreamChannelMembershipSync(room: RaceRoom, log: FastifyBaseLogger): void {
@@ -3492,6 +3493,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Member not found" });
     }
     scheduleStreamChannelMembershipSync(updatedRoom, request.log);
+    // Wakes the removed member's open chat long-poll, which then answers 403.
+    publishChatRoom(roomId, "membership");
     return reply.send({ room: updatedRoom });
   });
 

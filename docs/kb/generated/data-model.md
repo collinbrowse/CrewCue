@@ -3,11 +3,33 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**16 tables** from 17 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**17 tables** from 18 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+
+## `chat_messages`
+
+Created in [services/api/db/migrations/0018_first_party_chat.sql](../../../services/api/db/migrations/0018_first_party_chat.sql).
+
+| Column | Type |
+| --- | --- |
+| `seq` | BIGSERIAL PRIMARY KEY |
+| `room_id` | TEXT NOT NULL |
+| `sender_user_id` | TEXT NOT NULL |
+| `client_message_id` | TEXT NOT NULL |
+| `body` | TEXT NOT NULL DEFAULT '' |
+| `photo_key` | TEXT |
+| `photo_content_type` | TEXT |
+| `photo_byte_size` | INTEGER |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
+
+Primary key: `seq`.
+
+Indexes: `chat_messages_room_seq`.
+
+Read/written by: [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts).
 
 ## `chat_push_devices`
 
-Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../services/api/db/migrations/0013_practical_e2e_chat.sql).
+Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../services/api/db/migrations/0013_practical_e2e_chat.sql). Altered in [services/api/db/migrations/0018_first_party_chat.sql](../../../services/api/db/migrations/0018_first_party_chat.sql).
 
 | Column | Type |
 | --- | --- |
@@ -16,6 +38,7 @@ Created in [services/api/db/migrations/0013_practical_e2e_chat.sql](../../../ser
 | `platform` | TEXT NOT NULL |
 | `token` | TEXT NOT NULL |
 | `registered_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
+| `apns_environment` | TEXT |
 
 Primary key: `device_id`.
 
