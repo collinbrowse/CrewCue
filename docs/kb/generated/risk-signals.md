@@ -5,11 +5,11 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 
 | Signal | Count |
 | --- | --- |
-| Routes with no auth guard detected | 6 |
+| Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
-| API lib modules with no same-named test | 38 |
+| API lib modules with no same-named test | 43 |
 | Native features not passing on both platforms | 12 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -19,11 +19,13 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 
 | Method | Path | Source |
 | --- | --- | --- |
+| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:92](../../../services/api/src/routes/billingRoutes.ts#L92) |
+| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:198](../../../services/api/src/routes/billingRoutes.ts#L198) |
 | POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:406](../../../services/api/src/routes/chatRoutes.ts#L406) |
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:407](../../../services/api/src/routes/chatRoutes.ts#L407) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2623](../../../services/api/src/routes/raceRooms.ts#L2623) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2642](../../../services/api/src/routes/raceRooms.ts#L2642) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -38,10 +40,10 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4840 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1779 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4892 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1792 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1144 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1186 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 871 |
@@ -59,12 +61,17 @@ Timers run per instance. With more than one API replica each one fires.
 May still be covered through route tests; check before relying on it.
 
 - [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
+- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
+- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
 - [services/api/src/lib/activityFileHistory.ts](../../../services/api/src/lib/activityFileHistory.ts)
 - [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts)
 - [services/api/src/lib/arrivalWindowTable.ts](../../../services/api/src/lib/arrivalWindowTable.ts)
 - [services/api/src/lib/athletePingTrack.ts](../../../services/api/src/lib/athletePingTrack.ts)
 - [services/api/src/lib/auth0Jwt.ts](../../../services/api/src/lib/auth0Jwt.ts)
 - [services/api/src/lib/auth0Management.ts](../../../services/api/src/lib/auth0Management.ts)
+- [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts)
+- [services/api/src/lib/billingEnv.ts](../../../services/api/src/lib/billingEnv.ts)
+- [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts)
 - [services/api/src/lib/chatLive.ts](../../../services/api/src/lib/chatLive.ts)
 - [services/api/src/lib/chatMessageStore.ts](../../../services/api/src/lib/chatMessageStore.ts)
 - [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts)
@@ -116,7 +123,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `chat-thread` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 
-Deferred: `command-center`, `billing`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
+Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 
 ## TODO / FIXME / HACK
 

@@ -99,7 +99,7 @@ final class JoinCrewModel {
             onJoined(envelope.room.id, envelope.assignedRole)
         } catch {
             guard code == requested else { return }
-            statusMessage = Self.message(for: error)
+            statusMessage = BillingErrors.isCrewLimit(error) ? BillingErrors.crewLimitForCrew.message : Self.message(for: error)
         }
     }
 

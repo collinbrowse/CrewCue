@@ -1,0 +1,18 @@
+{
+  "id": "billing-redeem",
+  "platform": "android",
+  "entry": "crewcue://dev/billing-redeem",
+  "device": "crewcue_api_35 emulator (emulator-5556, Android 15 / API 35, read-only, software GPU swiftshader_indirect), Debug build with the fake purchaser",
+  "date": "2026-11-09",
+  "commit": "5d0c77d + #682 merge + fake-purchaser error copy fix (this PR); first-turn rows on 29e72a7 with the identical billing tree",
+  "session": "Debug dev session (intent extras devSession/userId/role/token/roomId) against the local memory API on 10.0.2.2:3000. Offline via `cmd connectivity airplane-mode enable`. Error via the same API run with NODE_ENV=production, where the server refuses the fake purchase (403), so the store step fails for real.",
+  "action": "Opened crewcue://dev/billing-redeem as the runner of an unpaid room and tapped Redeem code (debug: fake redemption of a Race Pass; the real Play redeem page needs Play Console setup); repeated in airplane mode and against a server that refuses the purchase.",
+  "checked": {
+    "Success": "'Code redeemed. Unlocking your race.' + 'Continue to race'; GET /billing \u2192 paid.",
+    "Empty": "'Have a code? Redeem it with the App Store or Google Play.'",
+    "Error": "Server refused the redemption's purchase (403): 'Couldn't open code redemption.'",
+    "Offline": "Airplane mode, tapped Redeem code: 'Offline. Redeeming a code needs the network.'",
+    "Accessibility labels": "crewcue.billing-redeem, crewcue.billing-redeem.open"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

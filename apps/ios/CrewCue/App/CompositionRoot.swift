@@ -22,11 +22,13 @@ struct CompositionRoot {
                 session: SessionController()
             )
         )
+        let purchaser = StorePurchasers.make(apiKey: launch.revenueCatAPIKey, client: client, fakeStore: launch.fakeStore)
         let model = ShellModel(
             client: client,
             route: launch.route,
             fixtureOverlay: launch.fixtureOverlay,
-            authConfiguration: launch.auth
+            authConfiguration: launch.auth,
+            purchaser: purchaser
         )
         expiry.model = model
         model.prepareStores()

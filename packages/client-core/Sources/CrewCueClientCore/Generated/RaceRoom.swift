@@ -18,6 +18,7 @@ public struct RaceRoom: Codable, Equatable, Sendable {
     public var eventEndsAt: String?
     public var memberships: [RaceRoomMembership]
     public var entitlement: RaceRoomEntitlement
+    public var createdByUserId: String?
     public var course: RaceCourse?
     public var courseDistanceMeters: Double?
     public var courseElevationGainMeters: Double?
@@ -27,7 +28,7 @@ public struct RaceRoom: Codable, Equatable, Sendable {
     public var pacingEstimateId: String?
     public var pacingEstimate: PacingEstimate?
 
-    public init(id: String, joinCode: String? = nil, creatorName: String? = nil, description: String? = nil, crewName: String? = nil, teamId: String, athleteId: String, name: String, status: String, createdAt: String, raceStartAt: String? = nil, courseHistoryEventIds: [String]? = nil, activatedAt: String? = nil, eventEndsAt: String? = nil, memberships: [RaceRoomMembership], entitlement: RaceRoomEntitlement, course: RaceCourse? = nil, courseDistanceMeters: Double? = nil, courseElevationGainMeters: Double? = nil, courseElevationLossMeters: Double? = nil, courseFileName: String? = nil, plannedPaceSecondsPerKm: Double? = nil, pacingEstimateId: String? = nil, pacingEstimate: PacingEstimate? = nil) {
+    public init(id: String, joinCode: String? = nil, creatorName: String? = nil, description: String? = nil, crewName: String? = nil, teamId: String, athleteId: String, name: String, status: String, createdAt: String, raceStartAt: String? = nil, courseHistoryEventIds: [String]? = nil, activatedAt: String? = nil, eventEndsAt: String? = nil, memberships: [RaceRoomMembership], entitlement: RaceRoomEntitlement, createdByUserId: String? = nil, course: RaceCourse? = nil, courseDistanceMeters: Double? = nil, courseElevationGainMeters: Double? = nil, courseElevationLossMeters: Double? = nil, courseFileName: String? = nil, plannedPaceSecondsPerKm: Double? = nil, pacingEstimateId: String? = nil, pacingEstimate: PacingEstimate? = nil) {
         self.id = id
         self.joinCode = joinCode
         self.creatorName = creatorName
@@ -44,6 +45,7 @@ public struct RaceRoom: Codable, Equatable, Sendable {
         self.eventEndsAt = eventEndsAt
         self.memberships = memberships
         self.entitlement = entitlement
+        self.createdByUserId = createdByUserId
         self.course = course
         self.courseDistanceMeters = courseDistanceMeters
         self.courseElevationGainMeters = courseElevationGainMeters

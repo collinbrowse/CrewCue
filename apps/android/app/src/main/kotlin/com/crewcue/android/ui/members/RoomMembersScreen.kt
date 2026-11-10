@@ -31,6 +31,7 @@ import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.billing.UpgradeCard
 import com.crewcue.android.ui.map.isOnline
 import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
@@ -82,6 +83,13 @@ fun RoomMembersScreen(
         model.status?.let { line ->
             Text(line, modifier = Modifier.padding(top = 12.dp).semantics { contentDescription = line })
         }
+        // Race Pass line for every member; the runner also gets the Full Crew upgrade (#649).
+        UpgradeCard(
+            shell,
+            roomId,
+            isRunner = MemberPermissions.mayRemoveMembers(shell.session?.userId, model.athleteId),
+            modifier = Modifier.padding(top = 16.dp)
+        )
         if (model.members.isNotEmpty()) {
             ProductCard(Modifier.padding(top = 16.dp)) {
                 model.members.forEach { member ->
