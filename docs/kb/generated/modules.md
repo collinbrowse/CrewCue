@@ -170,7 +170,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### iOS app (SwiftUI)
 
-61 files under `apps/ios/CrewCue/`.
+59 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -193,7 +193,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 362 |
-| `Screens/Shell` | 6 | 803 |
+| `Screens/Shell` | 4 | 501 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
