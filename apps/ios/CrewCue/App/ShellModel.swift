@@ -37,6 +37,10 @@ final class ShellModel {
     let chatModel: ChatModel
     let chatPrefsModel: ChatNotificationPrefsModel
     let pushModel: PushRegistrationModel
+    /// Race Pass paywall and redeem code (#649).
+    let billingModel: BillingPurchaseModel
+    /// Full Crew upgrade on Room members (#649).
+    let upgradeModel: CrewUpgradeModel
 
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
@@ -54,7 +58,13 @@ final class ShellModel {
 
     var isSignedIn: Bool { signedInUserId != nil }
 
-    init(client: AppClient, route: Route, fixtureOverlay: Bool, authConfiguration: Auth0Configuration) {
+    init(
+        client: AppClient,
+        route: Route,
+        fixtureOverlay: Bool,
+        authConfiguration: Auth0Configuration,
+        purchaser: StorePurchaser = UnavailablePurchaser()
+    ) {
         self.client = client
         self.route = route
         self.fixtureOverlay = fixtureOverlay
@@ -75,6 +85,8 @@ final class ShellModel {
         self.chatModel = ChatModel(client: client)
         self.chatPrefsModel = ChatNotificationPrefsModel(client: client)
         self.pushModel = PushRegistrationModel(client: client)
+        self.billingModel = BillingPurchaseModel(client: client, purchaser: purchaser)
+        self.upgradeModel = CrewUpgradeModel(client: client, purchaser: purchaser)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -298,6 +310,17 @@ final class ShellModel {
         }
     }
 
+    /// A race the runner just created: note it, then open its Race Pass paywall.
+    func noteCreated(roomId: String) {
+        noteJoined(roomId: roomId, role: "athlete")
+        showBilling()
+    }
+
+    /// The Race Pass paywall for the active race. A full-screen route, like join.
+    func showBilling() {
+        show(Route(featureId: "billing-purchase", state: .success))
+    }
+
     /// Leaves a full-screen route for the shell's Profile tab.
     func showProfile() {
         show(Route(featureId: "profile", state: .success))
@@ -346,6 +369,8 @@ final class ShellModel {
         chatModel.clear()
         chatPrefsModel.clear()
         pushModel.clear()
+        billingModel.clear()
+        upgradeModel.clear()
         showsSettings = false
         settingsFocus = nil
         fixtureOverlay = false

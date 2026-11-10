@@ -50,6 +50,34 @@
       "line": 16
     },
     {
+      "method": "POST",
+      "path": "/billing/revenuecat",
+      "guard": "none detected",
+      "file": "services/api/src/routes/billingRoutes.ts",
+      "line": 92
+    },
+    {
+      "method": "GET",
+      "path": "/race-rooms/:roomId/billing",
+      "guard": "identity + membership",
+      "file": "services/api/src/routes/billingRoutes.ts",
+      "line": 179
+    },
+    {
+      "method": "POST",
+      "path": "/billing/admin/comp",
+      "guard": "none detected",
+      "file": "services/api/src/routes/billingRoutes.ts",
+      "line": 198
+    },
+    {
+      "method": "POST",
+      "path": "/race-rooms/:roomId/billing/dev-purchase",
+      "guard": "identity + membership",
+      "file": "services/api/src/routes/billingRoutes.ts",
+      "line": 232
+    },
+    {
       "method": "GET",
       "path": "/chat/rooms/:roomId/messages",
       "guard": "room-member",
@@ -201,238 +229,238 @@
       "path": "/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2526
+      "line": 2543
     },
     {
       "method": "GET",
       "path": "/race-rooms/mine",
       "guard": "identity",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2614
+      "line": 2633
     },
     {
       "method": "GET",
       "path": "/race-rooms/join-preview/:roomCode",
       "guard": "none detected",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2623
+      "line": 2642
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2639
+      "line": 2658
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/course",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2664
+      "line": 2683
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2830
+      "line": 2849
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2871
+      "line": 2890
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoint-stops",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2926
+      "line": 2945
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2971
+      "line": 2990
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3008
+      "line": 3027
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3032
+      "line": 3051
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3101
+      "line": 3120
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3148
+      "line": 3176
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites/accept",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3195
+      "line": 3223
     },
     {
       "method": "POST",
       "path": "/race-rooms/join-by-code",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3279
+      "line": 3317
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3337
+      "line": 3382
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3437
+      "line": 3482
     },
     {
       "method": "GET",
       "path": "/teams/:teamId/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3489
+      "line": 3534
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/entitlement",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3511
+      "line": 3556
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3688
+      "line": 3740
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings/batch",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3868
+      "line": 3920
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/track",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4059
+      "line": 4111
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/projection",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4094
+      "line": 4146
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/manual-stop",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4142
+      "line": 4194
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4303
+      "line": 4355
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/tasks",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4384
+      "line": 4436
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/assign",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4431
+      "line": 4483
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/start",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4508
+      "line": 4560
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/complete",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4569
+      "line": 4621
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4630
+      "line": 4682
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4661
+      "line": 4713
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/timeline",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4732
+      "line": 4784
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/history",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4758
+      "line": 4810
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/latest",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4794
+      "line": 4846
     },
     {
       "method": "POST",
@@ -639,6 +667,35 @@
     }
   ],
   "tables": [
+    {
+      "name": "billing_grants",
+      "columns": [
+        "transaction_id",
+        "room_id",
+        "product_id",
+        "app_user_id",
+        "source",
+        "status",
+        "store",
+        "environment",
+        "created_at",
+        "updated_at"
+      ],
+      "createdIn": "services/api/db/migrations/0019_billing_grants.sql"
+    },
+    {
+      "name": "billing_webhook_events",
+      "columns": [
+        "event_id",
+        "event_type",
+        "transaction_id",
+        "room_id",
+        "outcome",
+        "received_at",
+        "payload"
+      ],
+      "createdIn": "services/api/db/migrations/0019_billing_grants.sql"
+    },
     {
       "name": "chat_messages",
       "columns": [
@@ -878,6 +935,12 @@
     "AUTOMATION_BLOCK_IN_PRODUCTION": [
       "services/api/src/lib/automationAuthGuard.ts"
     ],
+    "BILLING_ADMIN_SECRET": [
+      "services/api/src/routes/billingRoutes.ts"
+    ],
+    "BILLING_MANUAL_ENTITLEMENT": [
+      "services/api/src/lib/billingEnv.ts"
+    ],
     "CHAT_PHOTO_ACCESS_KEY_ID": [
       "services/api/src/lib/chatPhotoStore.ts"
     ],
@@ -924,6 +987,7 @@
     "NODE_ENV": [
       "services/api/src/lib/authEnv.ts",
       "services/api/src/lib/automationAuthGuard.ts",
+      "services/api/src/lib/billingEnv.ts",
       "services/api/src/lib/chatPhotoStore.ts",
       "services/api/src/lib/errorReporting.ts"
     ],
@@ -958,6 +1022,9 @@
     "RAILWAY_GIT_COMMIT_SHA": [
       "services/api/src/lib/errorReporting.ts"
     ],
+    "REVENUECAT_WEBHOOK_AUTH": [
+      "services/api/src/routes/billingRoutes.ts"
+    ],
     "SENTRY_DSN": [
       "services/api/src/lib/errorReporting.ts"
     ],
@@ -982,11 +1049,11 @@
     ]
   },
   "riskSummary": {
-    "unguarded": 6,
+    "unguarded": 8,
     "roomScopedIdentityOnly": 0,
     "large": 7,
     "timers": 1,
-    "untestedLib": 38,
+    "untestedLib": 43,
     "parityGaps": 12
   }
 }

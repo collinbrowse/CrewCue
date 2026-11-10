@@ -1,7 +1,6 @@
 {
   "deferred": [
     "command-center",
-    "billing",
     "crew-tasks",
     "protocol-notes",
     "projection",
@@ -280,6 +279,33 @@
       "label": "crewcue.loader",
       "sdk": "none",
       "scope": "harness",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-purchase",
+      "entry": "crewcue://dev/billing-purchase",
+      "label": "crewcue.billing-purchase",
+      "sdk": "revenuecat",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-upgrade",
+      "entry": "crewcue://dev/billing-upgrade",
+      "label": "crewcue.billing-upgrade",
+      "sdk": "revenuecat",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-redeem",
+      "entry": "crewcue://dev/billing-redeem",
+      "label": "crewcue.billing-redeem",
+      "sdk": "revenuecat",
+      "scope": "v1",
       "ios": "pass",
       "android": "pass"
     }
