@@ -8,6 +8,7 @@ import {
   geodesicCumulativeAtVertices,
   geodesicPolylineLength,
   geodesicProjectPointToPolyline,
+  geodesicProjectPointToPolylineNearProgress,
   smoothElevations
 } from "./courseMetrics.js";
 
@@ -195,4 +196,41 @@ test("fallback baseline charges 3.6 seconds per meter of climb", () => {
   // The default must stay 3.6, and the retired 8 s/m value must remain clearly slower.
   assert.equal(actual, finishElapsed(buildPlanBaselineFromModel(climb, paceSecondsPerKm, { gainPenaltySecondsPerMeter: 3.6 })));
   assert.ok(finishElapsed(buildPlanBaselineFromModel(climb, paceSecondsPerKm, { gainPenaltySecondsPerMeter: 8 })) > actual);
+});
+
+// A square loop that finishes where it starts; the last leg arrives from the east.
+const squareLoop = [
+  { latitude: 42.0, longitude: -70.0 },
+  { latitude: 42.01, longitude: -70.0 },
+  { latitude: 42.01, longitude: -69.99 },
+  { latitude: 42.0, longitude: -69.99 },
+  { latitude: 42.0, longitude: -70.0 }
+];
+
+test("where a loop passes the same ground twice, progress follows the expected stretch", () => {
+  const total = geodesicPolylineLength(squareLoop);
+  // 6 m along the finishing straight from the start/finish corner.
+  const fix = { latitude: 42.0, longitude: -69.99993 };
+
+  assert.ok(geodesicProjectPointToPolyline(squareLoop, fix).progressMeters > total - 10, "plain nearest point is the finish");
+
+  const atStart = geodesicProjectPointToPolylineNearProgress(squareLoop, fix, 0);
+  assert.ok(atStart.progressMeters < 10, `start of the race, got ${atStart.progressMeters}`);
+  assert.equal(atStart.courseLengthMeters, total);
+  assert.ok(atStart.distanceMetersFromRoute < 10);
+
+  const atFinish = geodesicProjectPointToPolylineNearProgress(squareLoop, fix, total - 300);
+  assert.ok(atFinish.progressMeters > total - 10, `end of the race, got ${atFinish.progressMeters}`);
+});
+
+test("a fix near only one stretch of the route keeps the plain nearest point, whatever was expected", () => {
+  const total = geodesicPolylineLength(squareLoop);
+  // Halfway along the north side, 20 m off the line.
+  const fix = { latitude: 42.0102, longitude: -69.995 };
+  const plain = geodesicProjectPointToPolyline(squareLoop, fix);
+  for (const expected of [0, plain.progressMeters, total, Number.NaN]) {
+    assert.deepEqual(geodesicProjectPointToPolylineNearProgress(squareLoop, fix, expected), plain);
+  }
+  assert.deepEqual(geodesicProjectPointToPolylineNearProgress(route, { latitude: 40.015, longitude: -105.001 }, 0),
+    geodesicProjectPointToPolyline(route, { latitude: 40.015, longitude: -105.001 }));
 });
