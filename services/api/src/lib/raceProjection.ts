@@ -390,7 +390,9 @@ export function recomputeRaceProjection(params: {
     canonicalCourseLengthMeters
   });
   // A loop or out-and-back passes the same ground twice. Follow the stretch the runner is on:
-  // their last progress plus the ground they have likely covered since the previous ping.
+  // their last progress plus the ground they have likely covered since the previous ping. That
+  // is never less than plan pace: the rolling speed drops towards zero at a long stop, and with
+  // no forward lean a runner leaving a turnaround could be followed back down the outbound leg.
   const secondsSincePreviousPing =
     previousPing !== null && previousPing !== undefined
       ? Math.max(0, (recordedAtMs - Date.parse(previousPing.recordedAt)) / 1000)
@@ -398,7 +400,7 @@ export function recomputeRaceProjection(params: {
   const expectedProgressMeters =
     (previous?.lastProgressMeters ?? 0) +
     (Number.isFinite(secondsSincePreviousPing) ? secondsSincePreviousPing : 0) *
-      (previous?.rollingMovingSpeedMps ?? 1000 / plannedPaceSecondsPerKm);
+      Math.max(previous?.rollingMovingSpeedMps ?? 0, 1000 / plannedPaceSecondsPerKm);
   const alongRoute = geodesicProjectPointToPolylineNearProgress(
     routeMetricPoints,
     { latitude: ping.latitude, longitude: ping.longitude },

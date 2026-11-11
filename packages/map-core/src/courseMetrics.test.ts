@@ -234,3 +234,29 @@ test("a fix near only one stretch of the route keeps the plain nearest point, wh
   assert.deepEqual(geodesicProjectPointToPolylineNearProgress(route, { latitude: 40.015, longitude: -105.001 }, 0),
     geodesicProjectPointToPolyline(route, { latitude: 40.015, longitude: -105.001 }));
 });
+
+test("switchback legs 25 m apart are not the same ground: the nearest leg stands, whatever was expected", () => {
+  const metersPerDegreeLongitude = 111_320 * Math.cos((42 * Math.PI) / 180);
+  const east = (meters: number) => -70 + meters / metersPerDegreeLongitude;
+  const north = (meters: number) => 42 + meters / 111_320;
+  const legs = [
+    { latitude: north(0), longitude: east(0) },
+    { latitude: north(0), longitude: east(300) },
+    { latitude: north(25), longitude: east(300) },
+    { latitude: north(25), longitude: east(0) },
+    { latitude: north(50), longitude: east(0) },
+    { latitude: north(50), longitude: east(300) }
+  ];
+  // 4 m off the middle leg, 21 m from the legs either side.
+  const fix = { latitude: north(29), longitude: east(150) };
+  const plain = geodesicProjectPointToPolyline(legs, fix);
+  for (const expected of [0, 150, 800, geodesicPolylineLength(legs)]) {
+    assert.deepEqual(geodesicProjectPointToPolylineNearProgress(legs, fix, expected), plain);
+  }
+});
+
+test("a route with 250,000 points projects without overflowing the stack", () => {
+  const long = Array.from({ length: 250_000 }, (_, i) => ({ latitude: 42 + i * 0.000001, longitude: -70 }));
+  const projected = geodesicProjectPointToPolylineNearProgress(long, { latitude: 42.1, longitude: -70 }, 0);
+  assert.ok(projected.progressMeters > 11_000);
+});

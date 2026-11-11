@@ -134,15 +134,22 @@ export function geodesicProjectPointToPolyline(
   return { progressMeters, courseLengthMeters, distanceMetersFromRoute };
 }
 
-/** How much farther from the fix another stretch of the route may be and still count as "also here" (GPS error). */
-const SAME_GROUND_TOLERANCE_METERS = 50;
+/**
+ * Two stretches of the route count as the same ground when the fix is at most this much farther
+ * from one than from the other. That holds for a trail run out and back, or a loop's shared
+ * start and finish, where the two lines are a few metres apart. It does not hold for switchback
+ * legs or parallel trails 25 m or more apart, which keep the plain nearest point.
+ */
+const SAME_GROUND_TOLERANCE_METERS = 12;
+/** Along the route, points this close to each other are one stretch, not two. */
+const SAME_STRETCH_METERS = 100;
 
 /**
  * Like {@link geodesicProjectPointToPolyline}, for a route that passes the same ground more than
- * once (a loop that finishes at its start, an out-and-back, a lollipop). Where several stretches of
- * the route are about equally near the fix, take the one whose arc length is closest to
+ * once (a loop that finishes at its start, an out-and-back, a lollipop). Where the fix is on
+ * ground the route covers more than once, take the stretch whose arc length is closest to
  * `expectedProgressMeters`, the runner's last progress plus what they have likely covered since.
- * A fix with only one stretch nearby gets the plain nearest point, whatever was expected.
+ * Any other fix gets the plain nearest point, whatever was expected.
  */
 export function geodesicProjectPointToPolylineNearProgress(
   points: CourseMetricPoint[],
@@ -185,7 +192,10 @@ export function geodesicProjectPointToPolylineNearProgress(
   }
 
   // A stretch of the route that passes the fix shows up as a dip in distance along the line.
-  const nearestMeters = Math.min(...closest.map((c) => c.distanceMeters));
+  let nearestMeters = Number.POSITIVE_INFINITY;
+  for (const c of closest) {
+    nearestMeters = Math.min(nearestMeters, c.distanceMeters);
+  }
   const passes = closest.filter((c, index) => {
     const before = closest[index - 1]?.distanceMeters ?? Number.POSITIVE_INFINITY;
     const after = closest[index + 1]?.distanceMeters ?? Number.POSITIVE_INFINITY;
@@ -199,13 +209,12 @@ export function geodesicProjectPointToPolylineNearProgress(
   const expectedPass = passes.reduce((best, c) => (offExpected(c) < offExpected(best) ? c : best), passes[0]!);
 
   // Same stretch as the plain nearest point: keep that answer.
-  const sameStretchMeters = 2 * SAME_GROUND_TOLERANCE_METERS;
-  if (Math.abs(expectedPass.progressMeters - nearest.progressMeters) <= sameStretchMeters) {
+  if (Math.abs(expectedPass.progressMeters - nearest.progressMeters) <= SAME_STRETCH_METERS) {
     return nearest;
   }
   // Another stretch: the nearest point on it.
   const chosen = closest
-    .filter((c) => Math.abs(c.progressMeters - expectedPass.progressMeters) <= sameStretchMeters)
+    .filter((c) => Math.abs(c.progressMeters - expectedPass.progressMeters) <= SAME_STRETCH_METERS)
     .reduce((best, c) => (c.distanceMeters < best.distanceMeters ? c : best), expectedPass);
   const from = canonical[chosen.segment]!;
   const to = canonical[chosen.segment + 1]!;
