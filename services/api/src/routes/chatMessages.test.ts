@@ -238,27 +238,38 @@ test(
       const pool = new Pool({ connectionString: process.env.DATABASE_URL });
       try {
         await pool.query("SELECT setval(pg_get_serial_sequence('chat_messages', 'seq'), $1)", [boundary - 3]);
+        await pageAcrossBoundary();
       } finally {
+        // Put the sequence back so a reused database does not climb a power of ten on every run.
+        await pool.query("DELETE FROM chat_messages WHERE room_id = $1", [roomId]);
+        await pool.query(
+          `SELECT setval(pg_get_serial_sequence('chat_messages', 'seq'),
+                         GREATEST($1::bigint, (SELECT COALESCE(MAX(seq), 0) FROM chat_messages)))`,
+          [firstId]
+        );
         await pool.end();
       }
-      const ids: number[] = [];
-      for (let i = 1; i <= 5; i += 1) {
-        const sent = await send(app, owner, roomId, { clientMessageId: `d${i}-${Date.now()}`, text: `msg ${i}` });
-        assert.equal(sent.statusCode, 201);
-        ids.push(Number((sent.json() as ChatSendMessageResponse).message.id));
-      }
-      assert.deepEqual(ids, [boundary - 2, boundary - 1, boundary, boundary + 1, boundary + 2]);
 
-      // Opening the chat shows the newest messages, not the ones with the shorter ids.
-      const latest = (await list(app, owner, roomId, "?limit=2")).json() as ChatMessagePage;
-      assert.deepEqual(latest.messages.map((m) => m.text), ["msg 4", "msg 5"]);
-      assert.equal(latest.latestCursor, String(boundary + 2));
-      // Scrolling back and catching up both walk the messages in send order.
-      const older = (await list(app, owner, roomId, `?limit=2&before=${latest.olderCursor}`)).json() as ChatMessagePage;
-      assert.deepEqual(older.messages.map((m) => m.text), ["msg 2", "msg 3"]);
-      const catchUp = (await list(app, owner, roomId, `?after=${firstId}&limit=3`)).json() as ChatMessagePage;
-      assert.deepEqual(catchUp.messages.map((m) => m.text), ["msg 1", "msg 2", "msg 3"]);
-      assert.equal(catchUp.latestCursor, String(boundary));
+        async function pageAcrossBoundary(): Promise<void> {
+        const ids: number[] = [];
+        for (let i = 1; i <= 5; i += 1) {
+          const sent = await send(app, owner, roomId, { clientMessageId: `d${i}-${Date.now()}`, text: `msg ${i}` });
+          assert.equal(sent.statusCode, 201);
+          ids.push(Number((sent.json() as ChatSendMessageResponse).message.id));
+        }
+        assert.deepEqual(ids, [boundary - 2, boundary - 1, boundary, boundary + 1, boundary + 2]);
+
+        // Opening the chat shows the newest messages, not the ones with the shorter ids.
+        const latest = (await list(app, owner, roomId, "?limit=2")).json() as ChatMessagePage;
+        assert.deepEqual(latest.messages.map((m) => m.text), ["msg 4", "msg 5"]);
+        assert.equal(latest.latestCursor, String(boundary + 2));
+        // Scrolling back and catching up both walk the messages in send order.
+        const older = (await list(app, owner, roomId, `?limit=2&before=${latest.olderCursor}`)).json() as ChatMessagePage;
+        assert.deepEqual(older.messages.map((m) => m.text), ["msg 2", "msg 3"]);
+        const catchUp = (await list(app, owner, roomId, `?after=${firstId}&limit=3`)).json() as ChatMessagePage;
+        assert.deepEqual(catchUp.messages.map((m) => m.text), ["msg 1", "msg 2", "msg 3"]);
+        assert.equal(catchUp.latestCursor, String(boundary));
+        }
     });
   }
 );
