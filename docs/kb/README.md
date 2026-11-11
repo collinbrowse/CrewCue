@@ -1,6 +1,6 @@
 # CrewCue knowledge base
 
-Last reconciled: 2026-11-10 at `fcb65e2`.
+Last reconciled: 2026-11-11 at `e7332db`.
 
 A map of the system that keeps itself current: what the parts are, how data moves between them, and what can go wrong.
 
@@ -23,7 +23,7 @@ Two loops.
 1. **Facts, on every PR.** [scripts/kb/generate-kb.mjs](../../scripts/kb/generate-kb.mjs) reads the code and writes `generated/`. The output has no timestamps, so CI's `checks` job runs `npm run kb:check` and fails when a PR changes routes, migrations, env reads, or modules without regenerating. The check ignores line numbers and file sizes, so editing inside a file never trips it; adding or changing a route, guard, table, column, env var, module, or risk signal does. Fix: `npm run kb:generate` and commit.
 2. **Narrative, after merge.** [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) runs on pushes to `main` that touch code, and weekly. It regenerates the facts, then Claude reconciles the three narrative pages against the diff since [`.refresh-sha`](.refresh-sha), following [refresh-prompt.md](../../scripts/kb/refresh-prompt.md). The result is a PR that may touch only `docs/kb/**`, with auto-merge on.
 
-The refresh workflow needs the `ANTHROPIC_API_KEY` repository secret. Add `KB_BOT_TOKEN` (the agent bot's token) too: a PR opened with the default `GITHUB_TOKEN` does not trigger CI, so its required checks never run and it cannot auto-merge. Without the API key the workflow logs a notice and exits.
+The refresh workflow signs in to Claude with the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (your Claude subscription; create it with `claude setup-token`), or with `ANTHROPIC_API_KEY` (API credits) when that token is absent. Add `KB_BOT_TOKEN` (the agent bot's token) too: a PR opened with the default `GITHUB_TOKEN` does not trigger CI, so its required checks never run and it cannot auto-merge. With neither secret the workflow logs a notice and exits.
 
 ## Using it
 

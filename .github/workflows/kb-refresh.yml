@@ -3,7 +3,8 @@ name: Knowledge base refresh
 # Keeps docs/kb in step with main. The generated pages are rebuilt by script; the narrative
 # pages (architecture, data flow, risks) are reconciled by Claude against the diff since the
 # last refresh. The result lands as a PR that touches only docs/kb/** and auto-merges once CI
-# is green. Needs the ANTHROPIC_API_KEY secret; without it the job reports and exits cleanly.
+# is green. Signs in with CLAUDE_CODE_OAUTH_TOKEN (a Claude subscription, from `claude setup-token`)
+# when set, else ANTHROPIC_API_KEY (API credits); with neither the job reports and exits cleanly.
 # Optional KB_BOT_TOKEN (the agent bot's PAT): PRs opened with the default GITHUB_TOKEN do not
 # trigger CI, so required checks would never run on the refresh PR.
 
@@ -37,12 +38,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+      HAS_KEY: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
       BRANCH: kb/refresh
     steps:
-      - name: Skip without API key
+      - name: Skip without Claude credentials
         if: env.HAS_KEY != 'true'
-        run: echo "::notice::ANTHROPIC_API_KEY is not set; knowledge base narrative refresh skipped."
+        run: echo "::notice::Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set; knowledge base narrative refresh skipped."
 
       - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
@@ -74,8 +75,11 @@ jobs:
       - name: Reconcile narrative pages
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'
         env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          # An API key outranks the subscription token, so drop it when the token is set.
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then unset ANTHROPIC_API_KEY; fi
           npm install --global @anthropic-ai/claude-code@2.1.321
           claude -p "Follow scripts/kb/refresh-prompt.md exactly. HEAD is ${GITHUB_SHA}. Write your closing summary (five lines at most) to kb-summary.md in the repository root." \
             --max-budget-usd 5 \
