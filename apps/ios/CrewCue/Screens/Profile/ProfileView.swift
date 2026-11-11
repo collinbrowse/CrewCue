@@ -11,6 +11,8 @@ struct ProfileTabPage: View {
                 model: model.membersModel,
                 userId: model.signedInUserId,
                 roomId: model.signedInRoomId,
+                role: model.signedInRole,
+                upgradeModel: model.upgradeModel,
                 onProfile: { model.show(Route(featureId: "profile", state: .success)) }
             )
         case "readouts-incidents":
@@ -34,8 +36,9 @@ struct ProfileTabPage: View {
                 onMembers: { model.show(Route(featureId: "room-members", state: .success)) },
                 onIncidents: { model.show(Route(featureId: "readouts-incidents", state: .success)) },
                 onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                onRacePass: { model.showBilling() },
                 onCreated: { roomId in
-                    model.noteJoined(roomId: roomId, role: "athlete")
+                    model.noteCreated(roomId: roomId)
                 },
                 onName: { [weak model] name in
                     model?.updateDisplayName(name)
@@ -59,6 +62,7 @@ struct ProfileView: View {
     var onMembers: () -> Void
     var onIncidents: () -> Void
     var onJoin: () -> Void
+    var onRacePass: () -> Void = {}
     var onCreated: @MainActor (String) -> Void
     var onName: @MainActor (String) -> Void
     @Environment(\.crew) private var theme
@@ -100,6 +104,9 @@ struct ProfileView: View {
                         CrewSectionHeader(title: "Race & crew")
                         CrewListRow(systemImage: "person.3", title: "Room members", detail: "Your crew for this race", action: onMembers)
                         CrewListRow(systemImage: "exclamationmark.bubble", title: "Incidents", detail: "Log and review race incidents", action: onIncidents)
+                        if role == "athlete" {
+                            CrewListRow(systemImage: "ticket", title: "Race Pass", detail: "Unlock this race for your crew", action: onRacePass)
+                        }
                     }
                     .crewGlassCard()
                 }

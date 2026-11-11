@@ -14,6 +14,11 @@ CREWCUE_AUTH0_DOMAIN[config=Release] =
 CREWCUE_AUTH0_CLIENT_ID[config=Release] =
 CREWCUE_AUTH0_AUDIENCE[config=Release] =
 
+// RevenueCat public iOS SDK key (#649). Empty in Debug: purchases go through the fake purchaser
+// and the local API's dev purchase route. release.yml passes CREWCUE_REVENUECAT_API_KEY; a Release
+// build without it shows "Purchases aren't set up in this build." on the paywall.
+CREWCUE_REVENUECAT_API_KEY =
+CREWCUE_REVENUECAT_API_KEY[config=Release] =
 // Sentry crash reporting (ADR 0010). Empty means off. release.yml passes the iOS project DSN
 // to Release only; CrashReporting.swift never starts Sentry in Debug.
 CREWCUE_SENTRY_DSN =

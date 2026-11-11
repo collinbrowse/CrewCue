@@ -64,7 +64,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'
         with:
-          node-version: 20
+          node-version: 22 # the Claude Code CLI requires Node >= 22
 
       - name: Regenerate fact pages
         if: env.HAS_KEY == 'true' && steps.since.outputs.skip != 'true'

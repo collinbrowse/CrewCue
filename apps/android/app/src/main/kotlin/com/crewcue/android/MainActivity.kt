@@ -23,7 +23,11 @@ import com.crewcue.android.ui.ConfigurationErrorScreen
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.ShellViewModelFactory
 import com.crewcue.android.ui.brand.LaunchSplash
+import com.crewcue.android.ui.chat.CrewPush
 import com.crewcue.android.ui.theme.CrewCueTheme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AppContainer(applicationContext) }
@@ -42,7 +46,11 @@ class MainActivity : ComponentActivity() {
         // The theme paints the launch colour until the first frame; screens draw on white.
         window.setBackgroundDrawableResource(android.R.color.white)
         installMapLibre()
-        installStream()
+        CrewPush.ensureChannel(applicationContext)
+        CrewPush.chatRoomFrom(intent)?.let { shellModel.openChat(it) }
+        if (container.sessionStore.current() != null) {
+            lifecycleScope.launch(Dispatchers.IO) { CrewPush.refreshIfAllowed(applicationContext, container.raceDay) }
+        }
         // Dev deeplink launches go straight to their fixture.
         val playSplash = savedInstanceState == null && intent?.data == null
         setContent {
@@ -66,15 +74,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun installStream() {
-        if (!BuildConfig.STREAM_CHAT) return
-        runCatching {
-            Class.forName("com.crewcue.android.ui.chat.StreamChatBootstrap")
-                .getMethod("install")
-                .invoke(null)
-        }
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -82,6 +81,10 @@ class MainActivity : ComponentActivity() {
         // Auth0 returns to crewcue://auth, which this activity's bare-scheme filter catches
         // before the SDK's RedirectActivity (that one only listens on the tenant host).
         if (intent.data?.host == AUTH_REDIRECT_HOST && WebAuthProvider.resume(intent)) return
+        CrewPush.chatRoomFrom(intent)?.let {
+            shellModel.openChat(it)
+            return
+        }
         shellModel.open(intent)
     }
 

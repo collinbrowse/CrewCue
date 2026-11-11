@@ -22,23 +22,12 @@ for (version in mapLibreCandidates) {
 }
 val mapLibreFailure = if (mapLibreVersionResolved == null) mapLibreFailures.joinToString(" | ") else ""
 
-// Stream stays off the compile classpath when it does not resolve for this AGP and SDK.
-val streamCandidates = listOf(
-    "io.getstream:stream-chat-android-client:7.13.0"
-)
-var streamCoordinate: String? = null
-val streamFailures = mutableListOf<String>()
-for (coordinate in streamCandidates) {
-    try {
-        configurations.detachedConfiguration(dependencies.create(coordinate)).resolve()
-        streamCoordinate = coordinate
-        break
-    } catch (error: Throwable) {
-        val line = (error.message ?: error.toString()).lineSequence().first().take(300)
-        streamFailures += "$coordinate: $line"
-    }
+// Push needs the owner's google-services.json (docs/runbooks/chat-push.md). Without it the app
+// builds and runs; FirebaseMessaging has no app to attach to and push registration says so.
+val firebaseConfigured = file("google-services.json").exists()
+if (firebaseConfigured) {
+    apply(plugin = "com.google.gms.google-services")
 }
-val streamFailure = if (streamCoordinate == null) streamFailures.joinToString(" | ") else ""
 
 val repoRoot = rootProject.projectDir.parentFile.parentFile
 val releaseKeystore = System.getenv("CREWCUE_ANDROID_KEYSTORE")
@@ -49,6 +38,9 @@ val releaseApiBaseUrl = crewcueProp("crewcue.release.apiBaseUrl").trimEnd('/')
 val releaseAuth0Domain = crewcueProp("crewcue.release.auth0Domain").removePrefix("https://").trimEnd('/')
 val releaseAuth0ClientId = crewcueProp("crewcue.release.auth0ClientId")
 val releaseAuth0Audience = crewcueProp("crewcue.release.auth0Audience")
+// RevenueCat public Android SDK key (release.yml passes vars.CREWCUE_REVENUECAT_ANDROID_KEY). Empty in a
+// release build means purchases fail with "Purchases aren't set up in this build."
+val releaseRevenueCatApiKey = crewcueProp("crewcue.release.revenuecatApiKey")
 // Sentry crash reporting (ADR 0010). Release only; empty means off.
 val releaseSentryDsn = crewcueProp("crewcue.release.sentryDsn")
 
@@ -75,6 +67,8 @@ android {
         buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(auth0ClientId))
         buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(auth0Audience))
         buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(apiBaseUrl))
+        // Debug builds with no key buy through the fake purchaser (POST /billing/dev-purchase).
+        buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(crewcueLocal("crewcue_revenuecat_api_key")))
         // Web page where people can ask for account deletion without the app (#560; page is #569).
         buildConfigField(
             "String",
@@ -86,9 +80,7 @@ android {
         buildConfigField("boolean", "MAP_LIBRE", (mapLibreVersionResolved != null).toString())
         buildConfigField("String", "MAP_LIBRE_VERSION", crewcueQuoted(mapLibreVersionResolved ?: ""))
         buildConfigField("String", "MAP_LIBRE_ERROR", crewcueQuoted(mapLibreFailure))
-        buildConfigField("boolean", "STREAM_CHAT", (streamCoordinate != null).toString())
-        buildConfigField("String", "STREAM_CHAT_COORDINATE", crewcueQuoted(streamCoordinate ?: ""))
-        buildConfigField("String", "STREAM_CHAT_ERROR", crewcueQuoted(streamFailure))
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
         buildConfigField("String", "SENTRY_DSN", crewcueQuoted(""))
         manifestPlaceholders["auth0Domain"] = auth0Domain.ifBlank { "auth0.invalid" }
         manifestPlaceholders["auth0Scheme"] = "crewcue"
@@ -111,6 +103,7 @@ android {
             buildConfigField("String", "crewcue_auth0_client_id", crewcueQuoted(releaseAuth0ClientId))
             buildConfigField("String", "crewcue_auth0_audience", crewcueQuoted(releaseAuth0Audience))
             buildConfigField("String", "crewcue_api_base_url", crewcueQuoted(releaseApiBaseUrl))
+            buildConfigField("String", "REVENUECAT_API_KEY", crewcueQuoted(releaseRevenueCatApiKey))
             buildConfigField("String", "SENTRY_DSN", crewcueQuoted(releaseSentryDsn))
             manifestPlaceholders["auth0Domain"] = releaseAuth0Domain.ifBlank { "auth0.invalid" }
             isMinifyEnabled = true
@@ -142,9 +135,6 @@ android {
             jniLibs.srcDir(layout.buildDirectory.dir("generated/jniLibs").get().asFile)
             if (mapLibreVersionResolved != null) {
                 kotlin.srcDir("src/maplibre/kotlin")
-            }
-            if (streamCoordinate != null) {
-                kotlin.srcDir("src/stream/kotlin")
             }
         }
         getByName("androidTest") {
@@ -199,15 +189,18 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("com.auth0.android:auth0:4.2.0")
+    // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
+    implementation("com.revenuecat.purchases:purchases:9.29.1")
     implementation("io.sentry:sentry-android:8.63.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
-    streamCoordinate?.let { coordinate ->
-        implementation(coordinate)
-    }
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM tests that parse client-core bridge JSON (android.jar only has stubs).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

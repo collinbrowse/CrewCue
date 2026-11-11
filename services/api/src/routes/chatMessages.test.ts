@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Pool } from "pg";
 import type { ChatMessagePage, ChatPhotoUploadResponse, ChatSendMessageResponse } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { _resetChatPersistenceForTests, listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
+import { _resetChatPersistenceForTests, deleteChatDataForUser, listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
 import { _resetChatMessageStoreForTests } from "../lib/chatMessageStore.js";
 import { chatRoomWaiterCount } from "../lib/chatLive.js";
 import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInput } from "../lib/chatPushDispatch.js";
@@ -221,6 +222,59 @@ test("chat messages: list pages oldest-first with cursors and member names", asy
     assert.equal((await list(app, crew, roomId, "?after=abc")).statusCode, 400);
   });
 });
+
+test(
+  "chat messages: paging stays in send order when message ids gain a digit",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)" },
+  async () => {
+    await withApp(async (app) => {
+      const owner = app.jwt.sign(claims("owner-digits"));
+      const roomId = await createRoom(app, owner, "owner-digits");
+      const first = await send(app, owner, roomId, { clientMessageId: `d0-${Date.now()}`, text: "warm-up" });
+      assert.equal(first.statusCode, 201);
+      const firstId = Number((first.json() as ChatSendMessageResponse).message.id);
+
+      // Move the id sequence forward so the next five messages straddle a power of ten (…98, 99, 100, 101, 102).
+      let boundary = 10;
+      while (boundary <= firstId + 3) boundary *= 10;
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      try {
+        await pool.query("SELECT setval(pg_get_serial_sequence('chat_messages', 'seq'), $1)", [boundary - 3]);
+        await pageAcrossBoundary();
+      } finally {
+        // Put the sequence back so a reused database does not climb a power of ten on every run.
+        await pool.query("DELETE FROM chat_messages WHERE room_id = $1", [roomId]);
+        await pool.query(
+          `SELECT setval(pg_get_serial_sequence('chat_messages', 'seq'),
+                         GREATEST($1::bigint, (SELECT COALESCE(MAX(seq), 0) FROM chat_messages)))`,
+          [firstId]
+        );
+        await pool.end();
+      }
+
+        async function pageAcrossBoundary(): Promise<void> {
+        const ids: number[] = [];
+        for (let i = 1; i <= 5; i += 1) {
+          const sent = await send(app, owner, roomId, { clientMessageId: `d${i}-${Date.now()}`, text: `msg ${i}` });
+          assert.equal(sent.statusCode, 201);
+          ids.push(Number((sent.json() as ChatSendMessageResponse).message.id));
+        }
+        assert.deepEqual(ids, [boundary - 2, boundary - 1, boundary, boundary + 1, boundary + 2]);
+
+        // Opening the chat shows the newest messages, not the ones with the shorter ids.
+        const latest = (await list(app, owner, roomId, "?limit=2")).json() as ChatMessagePage;
+        assert.deepEqual(latest.messages.map((m) => m.text), ["msg 4", "msg 5"]);
+        assert.equal(latest.latestCursor, String(boundary + 2));
+        // Scrolling back and catching up both walk the messages in send order.
+        const older = (await list(app, owner, roomId, `?limit=2&before=${latest.olderCursor}`)).json() as ChatMessagePage;
+        assert.deepEqual(older.messages.map((m) => m.text), ["msg 2", "msg 3"]);
+        const catchUp = (await list(app, owner, roomId, `?after=${firstId}&limit=3`)).json() as ChatMessagePage;
+        assert.deepEqual(catchUp.messages.map((m) => m.text), ["msg 1", "msg 2", "msg 3"]);
+        assert.equal(catchUp.latestCursor, String(boundary));
+        }
+    });
+  }
+);
 
 test("chat messages: a long-poll wakes when a crew member posts", async () => {
   await withApp(async (app) => {
@@ -501,3 +555,25 @@ test(
     assert.deepEqual(result.afterTexts, ["aid 3 in 20", "copy, leaving now", "at aid 3"]);
   }
 );
+
+test("account deletion removes the messages and photos a user sent, and nobody else's", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-gone"));
+    const crew = app.jwt.sign(claims("crew-gone"));
+    const roomId = await createRoom(app, owner, "owner-gone");
+    await addMember(app, roomId, owner, crew, "Ada");
+    const upload = await app.inject({
+      method: "POST",
+      url: `/chat/rooms/${roomId}/photos`,
+      payload: Buffer.from([9, 9, 9]),
+      headers: { authorization: `Bearer ${crew}`, "content-type": "image/jpeg" }
+    });
+    const { photoKey } = upload.json() as ChatPhotoUploadResponse;
+    await send(app, crew, roomId, { clientMessageId: "c1", text: "mine", photoKey });
+    await send(app, owner, roomId, { clientMessageId: "o1", text: "theirs" });
+    const result = await deleteChatDataForUser("crew-gone");
+    assert.equal(result.messagesPurged, 1);
+    const page = (await list(app, owner, roomId)).json() as ChatMessagePage;
+    assert.deepEqual(page.messages.map((m) => m.text), ["theirs"]);
+  });
+});

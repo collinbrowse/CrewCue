@@ -412,14 +412,6 @@ public enum RaceDayAPI {
         return try await sendJSON(graph, "/race-rooms/\(roomId)/routing/route", method: .post, object: body)
     }
 
-    public static func streamToken(graph: ClientGraph, roomId: String) async throws -> ChatStreamTokenResponse {
-        try await send(graph, "/chat/stream-token", method: .post, body: #"{"roomId":"\#(roomId)"}"#)
-    }
-
-    public static func channelId(roomId: String) -> String {
-        "crew-\(roomId)"
-    }
-
     /// `GET /chat/rooms/:roomId/messages`. With `after` and `waitSeconds` it long-polls.
     public static func chatMessages(
         graph: ClientGraph,
@@ -567,7 +559,7 @@ public enum RaceDayAPI {
         }, pingBatch: pingBatch)
     }
 
-    private static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {
+    static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {
         try await send(graph, path, method: .get, body: nil, authorize: token)
     }
 
@@ -608,7 +600,7 @@ public enum RaceDayAPI {
         return try await APIClient.send(request, transport: graph.transport).body
     }
 
-    private static func sendData(_ graph: ClientGraph, _ path: String, method: HTTPMethod, body: String?) async throws -> Data {
+    static func sendData(_ graph: ClientGraph, _ path: String, method: HTTPMethod, body: String?) async throws -> Data {
         guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, path) else {
             throw ClientHTTPError(status: 0, message: "API base URL is not set.")
         }

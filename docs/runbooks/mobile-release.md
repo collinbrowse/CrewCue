@@ -37,10 +37,12 @@ Add these environment **variables** (not secrets). They pick the server and Auth
 | `CREWCUE_AUTH0_DOMAIN` | The Auth0 tenant domain. Staging: `dev-ozh1r6603ymvszq6.us.auth0.com` |
 | `CREWCUE_AUTH0_CLIENT_ID` | The Auth0 native application's client id. Staging: `oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia` |
 | `CREWCUE_AUTH0_AUDIENCE` | The API audience. Staging: `https://api.crewcue.staging` |
+| `CREWCUE_REVENUECAT_IOS_KEY` | RevenueCat → Project → API keys → the **Apple App Store public SDK key** (`appl_…`). Public by design; it ships in the app. |
+| `CREWCUE_REVENUECAT_ANDROID_KEY` | RevenueCat → Project → API keys → the **Google Play public SDK key** (`goog_…`). |
 
 In that Auth0 application, allow these callback and logout URLs: `crewcue://auth` (iOS, `Auth0SignIn.swift`) and `crewcue://<auth0-domain>/android/com.crewcue.android/callback` (Android, the Auth0 SDK default for the `crewcue` scheme).
 
-To build Release locally, pass the same values: iOS as build settings (`xcodebuild … CREWCUE_API_BASE_URL=https://… CREWCUE_AUTH0_DOMAIN=…`); Android as Gradle properties (`-Pcrewcue.release.apiBaseUrl=https://… -Pcrewcue.release.auth0Domain=… -Pcrewcue.release.auth0ClientId=… -Pcrewcue.release.auth0Audience=…`). Debug builds keep using the local API and the dev tenant (`apps/ios/Config/CrewCue.xcconfig`, `apps/android/app/src/main/res/values/strings.xml`).
+To build Release locally, pass the same values: iOS as build settings (`xcodebuild … CREWCUE_API_BASE_URL=https://… CREWCUE_AUTH0_DOMAIN=…`); Android as Gradle properties (`-Pcrewcue.release.apiBaseUrl=https://… -Pcrewcue.release.auth0Domain=… -Pcrewcue.release.auth0ClientId=… -Pcrewcue.release.auth0Audience=… -Pcrewcue.release.revenuecatApiKey=goog_…`). The iOS RevenueCat key is the build setting `CREWCUE_REVENUECAT_API_KEY=appl_…`. Debug builds use a fake purchaser against the local API and need no RevenueCat key. Debug builds keep using the local API and the dev tenant (`apps/ios/Config/CrewCue.xcconfig`, `apps/android/app/src/main/res/values/strings.xml`).
 
 Optional: Sentry crash reporting (ADR 0010, free Developer plan). Create one Sentry project per app (iOS, Android) and add to the `release` environment. Without them the apps ship with crash reporting off and the symbol upload steps skip with a warning.
 
@@ -67,6 +69,23 @@ Optional variable `PLAY_RELEASE_STATUS`: set it to `draft` until the Play app ha
 
 1. Create the app in Play Console with package `com.crewcue.android`. Enroll in Play App Signing (default) and register the upload key above.
 2. Play requires the **first** bundle to be uploaded by hand. Build it locally with the same env vars as the workflow, or take `app-release.aab` from a failed workflow run's artifacts, and upload it to Internal testing once. After that the workflow can upload.
+
+### Billing (RevenueCat, #649)
+
+Runners buy per race; crew never pay. Products are **consumables**; the server attaches each purchase to a race room.
+
+| Store product id | Price | Unlocks |
+| --- | --- | --- |
+| `race_pass` | $14.99 | One room: runner + 1 crew |
+| `crew_upgrade` | $9.99 | Unlimited crew on a room with a pass |
+| `race_pass_full_crew` | $19.99 | Both |
+
+1. App Store Connect and Play Console: create the three products as consumable in-app products with those exact ids and prices.
+2. RevenueCat: create the project, add the iOS and Android apps, import the three products, and copy the two public SDK keys into the release variables above.
+3. RevenueCat → Integrations → Webhooks: URL `https://<api-host>/billing/revenuecat`; set the **Authorization header** value to a long random string. Put the same string in the API service variable `REVENUECAT_WEBHOOK_AUTH` (Railway). Without it the webhook answers 503 and rooms never unlock.
+4. API service variable `BILLING_ADMIN_SECRET` (long random string) enables the comp script for race directors: `CREWCUE_API_URL=https://<api-host> BILLING_ADMIN_SECRET=… npm run billing:comp -- <roomId> [--unlimited]`. It is never in the apps.
+5. Staging only, optional: `BILLING_MANUAL_ENTITLEMENT=enabled` keeps `POST /race-rooms/:roomId/entitlement` (used by `scripts/staging-smoke-stoppage.sh`) and the debug fake purchase route working. Leave it unset in production: there, both answer 403.
+6. Free codes: iOS uses App Store Connect **offer codes** (the app shows Apple's redeem sheet); Android uses Play **promo codes** (the app opens the Play redeem page). Beta testers buy in the TestFlight sandbox or as Play license testers at no charge.
 
 ## Failure modes
 

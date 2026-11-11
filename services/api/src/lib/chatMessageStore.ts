@@ -106,6 +106,8 @@ function fromRow(row: Row): StoredChatMessage {
   };
 }
 
+// `seq` comes back as text, so a bare `ORDER BY seq` sorts the text alias ("100" before "99").
+// Order by `chat_messages.seq` to sort the numeric column.
 const COLUMNS =
   "seq::text AS seq, room_id, sender_user_id, client_message_id, body, photo_key, photo_content_type, photo_byte_size, created_at";
 
@@ -179,7 +181,7 @@ export async function listChatMessages(query: ChatMessageQuery): Promise<StoredC
   await initChatMessageStore();
   if (query.after !== undefined) {
     const result = await pool.query<Row>(
-      `SELECT ${COLUMNS} FROM chat_messages WHERE room_id = $1 AND seq > $2 ORDER BY seq ASC LIMIT $3`,
+      `SELECT ${COLUMNS} FROM chat_messages WHERE room_id = $1 AND seq > $2 ORDER BY chat_messages.seq ASC LIMIT $3`,
       [query.roomId, query.after, query.limit]
     );
     return result.rows.map(fromRow);
@@ -188,7 +190,7 @@ export async function listChatMessages(query: ChatMessageQuery): Promise<StoredC
     `
       SELECT ${COLUMNS} FROM chat_messages
       WHERE room_id = $1 AND ($2::bigint IS NULL OR seq < $2::bigint)
-      ORDER BY seq DESC LIMIT $3
+      ORDER BY chat_messages.seq DESC LIMIT $3
     `,
     [query.roomId, query.before ?? null, query.limit]
   );
@@ -240,6 +242,30 @@ export async function deleteChatMessagesForRoom(
   const result = await pool.query<{ photo_key: string | null }>(
     "DELETE FROM chat_messages WHERE room_id = $1 RETURNING photo_key",
     [roomId]
+  );
+  return {
+    messagesPurged: result.rowCount ?? 0,
+    photoKeys: result.rows.flatMap((r) => (r.photo_key ? [r.photo_key] : []))
+  };
+}
+
+/** Account deletion: every message this user sent, in any room. Returns their photo keys. */
+export async function deleteChatMessagesBySender(
+  senderUserId: string
+): Promise<{ messagesPurged: number; photoKeys: string[] }> {
+  if (!pool) {
+    const removed = memoryMessages.filter((m) => m.senderUserId === senderUserId);
+    const keep = memoryMessages.filter((m) => m.senderUserId !== senderUserId);
+    memoryMessages.splice(0, memoryMessages.length, ...keep);
+    return {
+      messagesPurged: removed.length,
+      photoKeys: removed.flatMap((m) => (m.photoKey ? [m.photoKey] : []))
+    };
+  }
+  await initChatMessageStore();
+  const result = await pool.query<{ photo_key: string | null }>(
+    "DELETE FROM chat_messages WHERE sender_user_id = $1 RETURNING photo_key",
+    [senderUserId]
   );
   return {
     messagesPurged: result.rowCount ?? 0,

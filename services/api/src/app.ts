@@ -20,6 +20,7 @@ import { ws5SyncRoutes } from "./routes/ws5SyncRoutes.js";
 import { ws6CommandCenterRoutes } from "./routes/ws6CommandCenterRoutes.js";
 import { ws7PlatformRoutes } from "./routes/ws7PlatformRoutes.js";
 import { accountRoutes } from "./routes/accountRoutes.js";
+import { billingRoutes } from "./routes/billingRoutes.js";
 
 /** GPX activity XML as JSON can exceed Fastify’s 1MB default; mobile may still prefer metrics-only ingest. */
 const BODY_LIMIT_BYTES = 32 * 1024 * 1024;
@@ -28,7 +29,7 @@ export function buildApp() {
   const app = Fastify({
     logger: {
       // Never log credentials. Request URLs drop their query (OAuth codes, search text).
-      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-chat-push-secret']"],
+      redact: ["req.headers.authorization", "req.headers.cookie", "req.headers['x-crewcue-billing-admin-secret']"],
       serializers: {
         req(request) {
           return {
@@ -64,6 +65,7 @@ export function buildApp() {
   app.register(ws6CommandCenterRoutes);
   app.register(ws7PlatformRoutes);
   app.register(accountRoutes);
+  app.register(billingRoutes);
 
   return app;
 }

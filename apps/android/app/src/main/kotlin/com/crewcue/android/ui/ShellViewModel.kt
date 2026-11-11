@@ -1,7 +1,5 @@
 package com.crewcue.android.ui
 
-import com.crewcue.android.BuildConfig
-
 import android.app.Activity
 import android.content.Intent
 import androidx.compose.runtime.getValue
@@ -10,7 +8,10 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.crewcue.android.BuildConfig
 import com.crewcue.android.auth.AuthResult
+import com.crewcue.android.billing.BillingInfo
+import com.crewcue.android.billing.FakeStorePurchaser
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.di.AppContainer
@@ -18,6 +19,7 @@ import com.crewcue.android.nav.DevRoutes
 import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
 import com.crewcue.android.session.applyingJoin
+import com.crewcue.android.ui.billing.BillingCopy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -130,6 +132,9 @@ class ShellViewModel(
         private set
     var racesLoading by mutableStateOf(false)
         private set
+    /** The active room when its billing says unpaid; Map, Pace, and Chat show the paywall instead. */
+    var unpaidRoomId by mutableStateOf<String?>(null)
+        private set
     private var racesJob: Job? = null
     private var racesTicket = 0
 
@@ -199,6 +204,10 @@ class ShellViewModel(
                     }
                     races = loaded
                     racesMessage = if (loaded.isEmpty()) "No races yet." else ""
+                    pendingChatRoomId?.let { pending ->
+                        pendingChatRoomId = null
+                        if (loaded.any { it.id == pending }) openChat(pending)
+                    }
                     val activeId = result.result.optString("activeRoomId").takeUnless {
                         result.result.isNull("activeRoomId") || it.isBlank()
                     }
@@ -213,6 +222,23 @@ class ShellViewModel(
                 }
             }
         }
+    }
+
+    /** A chat push this race list has not loaded yet; applied after [loadRaces]. */
+    private var pendingChatRoomId: String? = null
+
+    /** A tapped chat notification: switch to that race and show its chat. */
+    fun openChat(roomId: String) {
+        if (session == null) return
+        if (roomId != session?.roomId) {
+            if (races.none { it.id == roomId }) {
+                pendingChatRoomId = roomId
+                loadRaces()
+                return
+            }
+            selectRace(roomId)
+        }
+        showShell(ShellTab.Chat)
     }
 
     /** Switch every tab to another loaded race. */
@@ -232,6 +258,7 @@ class ShellViewModel(
 
     fun open(intent: Intent?) {
         captureDevSession(intent)
+        captureWebhookDelay(intent)
         val url = intent?.dataString
         if (BuildConfig.STRAVA_ENABLED && isStravaReturn(url)) {
             opened = true
@@ -318,6 +345,58 @@ class ShellViewModel(
         container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
         session = container.sessionStore.current()
         loadRaces()
+    }
+
+    /** A race the runner just created. New rooms are unpaid, so the paywall comes first. */
+    fun adoptCreatedRoom(roomId: String) {
+        if (roomId.isBlank()) return
+        adoptRoom(roomId)
+        unpaidRoomId = roomId
+        showShell(ShellTab.Map)
+    }
+
+    /** Reads the active room's billing. Only an explicit "unpaid" gates the race; a failed read never does. */
+    fun checkBilling(roomId: String) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { container.raceDay.billing(roomId) }
+            if (session?.roomId != roomId || result !is RuntimeResult.Success) return@launch
+            val info = BillingInfo.from(result.result)
+            unpaidRoomId = when {
+                !info.isPaid -> roomId
+                unpaidRoomId == roomId -> null
+                else -> unpaidRoomId
+            }
+        }
+    }
+
+    /** The paywall's "Continue to race" after a purchase or redemption unlocked [roomId]. */
+    fun noteUnlocked(roomId: String) {
+        if (unpaidRoomId == roomId) unpaidRoomId = null
+        showShell(ShellTab.Map)
+    }
+
+    /** Billing checklist copy owned by client-core, read from its fixture screens. */
+    fun billingCopy(): BillingCopy = BillingCopy(
+        purchaseError = checklistCopy("billing-purchase", "error"),
+        purchaseOffline = checklistCopy("billing-purchase", "offline"),
+        redeemSuccess = checklistCopy("billing-redeem", "success"),
+        redeemEmpty = checklistCopy("billing-redeem", "empty"),
+        redeemError = checklistCopy("billing-redeem", "error"),
+        redeemOffline = checklistCopy("billing-redeem", "offline")
+    )
+
+    private fun checklistCopy(feature: String, state: String): String = load("crewcue://dev/$feature?state=$state").body
+
+    /** Debug only: `?webhookDelay=<seconds>` (or a `webhookDelay` extra) delays the fake store's webhook. */
+    private fun captureWebhookDelay(intent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        val fake = container.storePurchaser as? FakeStorePurchaser ?: return
+        val raw = intent?.data?.getQueryParameter("webhookDelay")
+            ?: intent?.extras?.let { extras ->
+                extras.getString("webhookDelay") ?: extras.getInt("webhookDelay", -1).takeIf { it >= 0 }?.toString()
+            }
+            ?: return
+        fake.webhookDelaySeconds = raw.toDoubleOrNull()?.coerceIn(0.0, 600.0) ?: 0.0
     }
 
     fun signOut(activity: Activity?) {
@@ -478,10 +557,11 @@ class ShellViewModel(
                     replaceBody("Invite code ready for preview.", kind = "success")
                 }
                 is RuntimeResult.Failure -> {
-                    if (result.offline) {
-                        replaceBody("Offline. Invite preview needs the network.", kind = "offline")
-                    } else {
-                        replaceBody("That invite code was not found.", kind = "error")
+                    when {
+                        result.offline -> replaceBody("Offline. Invite preview needs the network.", kind = "offline")
+                        // 409 crew_limit_reached: the room's Race Pass seat is taken.
+                        result.crewLimit -> replaceBody(checklistCopy("billing-upgrade", "error"), kind = "error")
+                        else -> replaceBody("That invite code was not found.", kind = "error")
                     }
                 }
             }
@@ -640,7 +720,7 @@ class ShellViewModel(
     }
 
     private fun profilePaneFor(featureId: String): String = when (featureId) {
-        "room-members" -> "members"
+        "room-members", "billing-upgrade" -> "members"
         "readouts-incidents" -> "incidents"
         else -> "profile"
     }

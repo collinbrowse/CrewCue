@@ -1585,6 +1585,14 @@ test("concurrent join-by-code keeps both memberships (no last-write-wins loss)",
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string; joinCode?: string };
   assert.ok(room.joinCode);
+  // Two crew need the Full Crew tier (#649); the cap itself is covered in raceRooms.billing.test.ts.
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: { status: "paid", crewTier: "unlimited" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(paid.statusCode, 200);
 
   // Hold the first join between its read and its save, so the second join lands in that gap.
   setMembershipWriteDelayForTests(() => new Promise((resolve) => setTimeout(resolve, 50)));

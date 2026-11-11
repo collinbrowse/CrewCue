@@ -321,6 +321,11 @@ export interface RaceRoom {
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
   entitlement: RaceRoomEntitlement;
+  /**
+   * User who created the room (the purchaser). With the athlete, holds a seat that
+   * does not count against the crew cap. Absent on rooms created before #649.
+   */
+  createdByUserId?: string;
   /** Set when a course is saved; drives WS2 split / ETA projection. */
   course?: RaceCourse;
   /** Persisted at upload time for fast UI reads without recomputation. */
@@ -382,10 +387,47 @@ export interface RaceRoomJoinPreview {
 
 export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";
 
+/**
+ * How many crew a paid room allows besides the runner.
+ * `one`: Race Pass (runner + 1 crew). `unlimited`: Full Crew upgrade or the combined product.
+ */
+export type RaceRoomCrewTier = "one" | "unlimited";
+
 export interface RaceRoomEntitlement {
   status: RaceRoomEntitlementStatus;
   lastUpdatedAt: string;
-  source: "manual" | "provider_webhook";
+  source: "manual" | "provider_webhook" | "admin_comp";
+  /** Absent on rooms stored before billing (#649); the API reads absent as `unlimited`. */
+  crewTier?: RaceRoomCrewTier;
+}
+
+/** Store product ids (consumables). Purchases attach to one race room. */
+export type BillingProductId = "race_pass" | "crew_upgrade" | "race_pass_full_crew";
+
+/**
+ * `GET /race-rooms/:roomId/billing`. Members only, and not entitlement-gated,
+ * so an unpaid room can show its paywall and a client can poll after a purchase.
+ */
+export interface RaceRoomBilling {
+  roomId: string;
+  entitlement: RaceRoomEntitlement;
+  /** Members other than the runner. */
+  crewCount: number;
+  /** Crew allowed besides the runner; absent means unlimited. */
+  crewLimit?: number;
+  /** Products that would change this room's entitlement, cheapest path first. */
+  offers: BillingProductId[];
+}
+
+/** 409 body when a join, invite, or invite accept would exceed the room's crew tier. */
+export interface CrewLimitReachedError {
+  error: "Crew limit reached";
+  code: "crew_limit_reached";
+  roomId: string;
+  crewLimit: number;
+  crewCount: number;
+  /** Product that lifts the cap. */
+  upgradeProductId: "crew_upgrade";
 }
 
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
@@ -995,40 +1037,6 @@ export interface ReplayedRaceRoomAggregate {
   lastActivatedEventEndsAt?: string;
 }
 
-// --- Crew chat contracts (MVP: plaintext on Stream) ---
-// Message bodies are normal Stream `text`. The API mints Stream tokens, stores
-// push devices and notification prefs, and fans out push with a short preview.
-// End-to-end encryption was removed for MVP reliability; any future crypto must
-// be a blank-slate redesign (do not revive the retired room-key/envelope model).
-
-/** One race-room member as Stream Chat sees them, with the display name for that room. */
-export interface ChatStreamMember {
-  /** Stream user id derived from the member's auth subject. */
-  streamUserId: string;
-  /** Display name on this race-room membership. Names are per race, not global. */
-  displayName?: string;
-}
-
-/** Mints a short-lived Stream Chat user token bound to the authenticated user. */
-export interface ChatStreamTokenResponse {
-  /** Stream Chat user token (JWT signed with the server-side Stream secret). */
-  token: string;
-  /** The Stream user id used for this client session (matches the auth subject). */
-  streamUserId: string;
-  /** Stream Chat API key (public, safe to embed in clients). */
-  streamApiKey: string;
-  /**
-   * Members of the requested room with their per-room display names, so clients label
-   * authors by room instead of by the global Stream user name. Present when `roomId` was sent.
-   */
-  members?: ChatStreamMember[];
-}
-
-/** Returns the deterministic Stream channel id for a CrewCue race room. */
-export function chatChannelIdForRoom(roomId: string): string {
-  return `crew-${roomId}`;
-}
-
 // --- First-party crew chat (ADR 0011) ---
 // Messages live in our Postgres. Clients page with cursors and long-poll for new
 // messages; photos sit in object storage behind short-lived signed URLs.
@@ -1128,24 +1136,6 @@ export type ChatPushTokenRegistration = ChatPushDeviceRegistration;
 
 /** @deprecated Use ChatPushDeviceRecord */
 export type ChatPushTokenRecord = ChatPushDeviceRecord;
-
-/**
- * Stream Chat push webhook payload (subset). The server uses this to fan out
- * APNS/FCM with a short plaintext preview (or generic fallback copy).
- */
-export interface ChatPushWebhookPayload {
-  channelId: string;
-  /** Stream user id of the sender. */
-  senderUserId: string;
-  /** Recipient user ids excluding the sender. */
-  recipientUserIds: string[];
-  /** Crew room id this channel maps to. */
-  roomId: string;
-  /** Mentioned user ids inside the message body. */
-  mentionedUserIds?: string[];
-  /** Optional short plaintext preview for the notification body. */
-  previewText?: string;
-}
 
 /** Result of a retention deletion job run for a single room. */
 export interface ChatRetentionResult {

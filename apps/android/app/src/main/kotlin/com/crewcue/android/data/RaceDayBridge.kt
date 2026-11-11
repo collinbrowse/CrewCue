@@ -8,7 +8,8 @@ import org.json.JSONObject
 
 sealed interface RuntimeResult {
     data class Success(val result: JSONObject) : RuntimeResult
-    data class Failure(val message: String, val offline: Boolean) : RuntimeResult
+    /** [crewLimit]: a join or invite refused because the room's crew tier is full (409 `crew_limit_reached`). */
+    data class Failure(val message: String, val offline: Boolean, val crewLimit: Boolean = false) : RuntimeResult
 }
 
 /**
@@ -176,8 +177,6 @@ class RaceDayBridge(
         }
     }
 
-    fun streamToken(roomId: String): RuntimeResult = call("streamToken") { put("roomId", roomId) }
-
     fun parseMentions(roomId: String, body: String): RuntimeResult = call("parseMentions") {
         put("roomId", roomId)
         put("body", body)
@@ -198,29 +197,41 @@ class RaceDayBridge(
         put("token", token)
     }
 
-    fun enqueueChat(roomId: String, text: String, clientMessageId: String): RuntimeResult = call("enqueueChat") {
+    /**
+     * One step of the chat loop (client-core `ChatSync`): the newest page when [fresh], otherwise a
+     * long-poll of up to [waitSeconds]. Blocks; call it off the main thread.
+     */
+    fun chatPoll(roomId: String, fresh: Boolean, failures: Int, waitSeconds: Int = 25): RuntimeResult = call("chatPoll") {
+        put("roomId", roomId)
+        put("fresh", fresh)
+        put("failures", failures)
+        put("wait", waitSeconds)
+    }
+
+    /** Queues the message under a stable client id and sends it now when online. */
+    fun chatSend(roomId: String, text: String, photoKey: String? = null): RuntimeResult = call("chatSend") {
         put("roomId", roomId)
         put("text", text)
+        if (photoKey != null) put("photoKey", photoKey)
+    }
+
+    /** Uploads the prepared image file at [path]; returns its `photoKey`. Needs a connection. */
+    fun chatUploadPhoto(roomId: String, path: String, contentType: String = "image/jpeg"): RuntimeResult =
+        call("chatUploadPhoto") {
+            put("roomId", roomId)
+            put("path", path)
+            put("contentType", contentType)
+        }
+
+    fun chatOlder(roomId: String): RuntimeResult = call("chatOlder") { put("roomId", roomId) }
+
+    /** Drops a message the server refused from the outbox. */
+    fun chatDiscard(roomId: String, clientMessageId: String): RuntimeResult = call("chatDiscard") {
+        put("roomId", roomId)
         put("clientMessageId", clientMessageId)
     }
 
     fun completeOutbox(id: String): RuntimeResult = call("completeOutbox") { put("id", id) }
-
-    /** Claims the message this device is about to send, so redelivery can't send it too. */
-    fun claimChat(roomId: String, id: String): RuntimeResult = call("claimChat") {
-        put("roomId", roomId)
-        put("id", id)
-    }
-
-    /** Queued messages for the room that nothing else is sending, including ones a crash left. */
-    fun claimPendingChat(roomId: String): RuntimeResult = call("claimPendingChat") { put("roomId", roomId) }
-
-    /** Ends a claim. A null [error] means sent; client-core treats "already exists" as sent too. */
-    fun settleChat(roomId: String, id: String, error: String?): RuntimeResult = call("settleChat") {
-        put("roomId", roomId)
-        put("id", id)
-        if (error != null) put("error", error)
-    }
 
     /** Sign-out and session expiry: every account's files under the runtime storage root. */
     fun wipeUserData(): RuntimeResult = call("wipeUserData")
@@ -313,6 +324,38 @@ class RaceDayBridge(
         put("stoppageSeconds", stoppageSeconds)
     }
 
+    /** `{roomId,isPaid,isUnlimited,crewCount,crewLimit?,hasCrewSeat,offers[],summary}`. Not entitlement-gated. */
+    fun billing(roomId: String): RuntimeResult = call("billing") { put("roomId", roomId) }
+
+    /**
+     * After a store purchase: maps [store] ("purchased" | "cancelled" | "failed") and polls the room's
+     * billing until the server unlocks it. Result `{phase, message, code?, billing?}`.
+     */
+    fun completePurchase(
+        roomId: String,
+        product: String,
+        store: String,
+        message: String? = null,
+        offline: Boolean = false,
+        pollAttempts: Int? = null
+    ): RuntimeResult = call("completePurchase") {
+        put("roomId", roomId)
+        put("product", product)
+        put("store", store)
+        if (message != null) put("message", message)
+        if (offline) put("offline", true)
+        if (pollAttempts != null) put("pollAttempts", pollAttempts)
+    }
+
+    /** Debug builds: the fake store (POST /billing/dev-purchase) plus the same poll as [completePurchase]. */
+    fun fakePurchase(roomId: String, product: String, webhookDelaySeconds: Double, pollAttempts: Int? = null): RuntimeResult =
+        call("fakePurchase") {
+            put("roomId", roomId)
+            put("product", product)
+            if (webhookDelaySeconds > 0) put("webhookDelaySeconds", webhookDelaySeconds)
+            if (pollAttempts != null) put("pollAttempts", pollAttempts)
+        }
+
     private fun call(op: String, fill: JSONObject.() -> Unit = {}): RuntimeResult {
         val session = sessionStore.current()
         val request = JSONObject()
@@ -339,7 +382,11 @@ class RaceDayBridge(
             }
             val message = obj.optString("message").ifBlank { "Request failed" }
             logger.log("$op failed: $message")
-            return RuntimeResult.Failure(message, offline = isOffline(message))
+            return RuntimeResult.Failure(
+                message,
+                offline = obj.optBoolean("offline") || isOffline(message),
+                crewLimit = obj.optBoolean("crewLimit")
+            )
         }
         val result = obj.opt("result")
         val json = when (result) {

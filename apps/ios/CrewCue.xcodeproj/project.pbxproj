@@ -10,7 +10,7 @@
 		A10000000000000000000012 /* CrewCueClientCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000011 /* CrewCueClientCore */; };
 		A10000000000000000000015 /* Auth0 in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000014 /* Auth0 */; };
 		A10000000000000000000018 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000017 /* MapLibre */; };
-		A10000000000000000000019 /* StreamChat in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001A /* StreamChat */; };
+		A1000000000000000000001C /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000001D /* RevenueCat */; };
 		A100000000000000000000C0 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A100000000000000000000C1 /* Sentry */; };
 		A10000000000000000000063 /* deeplinks.json in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* deeplinks.json */; };
 /* End PBXBuildFile section */
@@ -66,7 +66,7 @@
 				A10000000000000000000012 /* CrewCueClientCore in Frameworks */,
 				A10000000000000000000015 /* Auth0 in Frameworks */,
 				A10000000000000000000018 /* MapLibre in Frameworks */,
-				A10000000000000000000019 /* StreamChat in Frameworks */,
+				A1000000000000000000001C /* RevenueCat in Frameworks */,
 				A100000000000000000000C0 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -132,7 +132,7 @@
 				A10000000000000000000011 /* CrewCueClientCore */,
 				A10000000000000000000014 /* Auth0 */,
 				A10000000000000000000017 /* MapLibre */,
-				A1000000000000000000001A /* StreamChat */,
+				A1000000000000000000001D /* RevenueCat */,
 				A100000000000000000000C1 /* Sentry */,
 			);
 			productName = CrewCue;
@@ -188,7 +188,7 @@
 				A10000000000000000000010 /* XCLocalSwiftPackageReference "../../packages/client-core" */,
 				A10000000000000000000013 /* XCRemoteSwiftPackageReference "Auth0.swift" */,
 				A10000000000000000000016 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
-				A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */,
+				A1000000000000000000001E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 				A100000000000000000000C2 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -431,12 +431,12 @@
 				minimumVersion = 6.31.0;
 			};
 		};
-		A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */ = {
+		A1000000000000000000001E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/GetStream/stream-chat-swift";
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 5.13.0;
+				minimumVersion = 5.102.0;
 			};
 		};
 		A100000000000000000000C2 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
@@ -465,10 +465,10 @@
 			package = A10000000000000000000016 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
 			productName = MapLibre;
 		};
-		A1000000000000000000001A /* StreamChat */ = {
+		A1000000000000000000001D /* RevenueCat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A1000000000000000000001B /* XCRemoteSwiftPackageReference "stream-chat-swift" */;
-			productName = StreamChat;
+			package = A1000000000000000000001E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
 		};
 		A100000000000000000000C1 /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;

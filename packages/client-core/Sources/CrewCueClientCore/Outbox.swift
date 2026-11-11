@@ -130,16 +130,6 @@ public enum OutboxPolicy {
         return OutboxFailureResolution(status: "pending", retryable: true, feedback: http.bodyError ?? http.message)
     }
 
-    /// The server already has this client message id. A resend after a crash or a lost
-    /// response lands here, and it counts as delivered.
-    public static func isAlreadyDelivered(_ error: any Error) -> Bool {
-        if let http = error as? ClientHTTPError {
-            return resolve(http).status == "accepted"
-        }
-        let text = "\(error) \((error as NSError).localizedDescription)".lowercased()
-        return text.contains("already exists")
-    }
-
     public static func isSafeRetry(_ operation: OutboxOperation) -> Bool {
         operation.status == "pending" && operation.type == "ping"
     }

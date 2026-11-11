@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
-import { deriveStreamUserId } from "../lib/streamChat.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -157,48 +156,6 @@ test("chat: only race owner can purge room chat data", async () => {
     assert.equal(defaultPref.statusCode, 200);
     assert.equal((defaultPref.json() as { preference: string }).preference, "all");
   } finally {
-    await app.close();
-  }
-});
-
-test("chat: stream-token returns 503 when stream credentials missing", async () => {
-  _resetChatPersistenceForTests();
-  const app = buildApp();
-  await app.ready();
-  try {
-    const token = app.jwt.sign(buildClaims("user-x"));
-    const res = await app.inject({
-      method: "POST",
-      url: "/chat/stream-token",
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(res.statusCode, 503);
-  } finally {
-    await app.close();
-  }
-});
-
-test("chat: stream-token returns signed JWT when credentials configured", async () => {
-  _resetChatPersistenceForTests();
-  process.env.STREAM_API_KEY = "test-key";
-  process.env.STREAM_API_SECRET = "test-secret";
-  const app = buildApp();
-  await app.ready();
-  try {
-    const token = app.jwt.sign(buildClaims("user-stream"));
-    const res = await app.inject({
-      method: "POST",
-      url: "/chat/stream-token",
-      headers: { authorization: `Bearer ${token}` }
-    });
-    assert.equal(res.statusCode, 200);
-    const body = res.json() as { token: string; streamUserId: string; streamApiKey: string };
-    assert.ok(body.token.length > 10);
-    assert.equal(body.streamUserId, deriveStreamUserId("user-stream"));
-    assert.equal(body.streamApiKey, "test-key");
-  } finally {
-    delete process.env.STREAM_API_KEY;
-    delete process.env.STREAM_API_SECRET;
     await app.close();
   }
 });

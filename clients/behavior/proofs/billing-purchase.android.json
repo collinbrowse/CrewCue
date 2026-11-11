@@ -1,0 +1,18 @@
+{
+  "id": "billing-purchase",
+  "platform": "android",
+  "entry": "crewcue://dev/billing-purchase",
+  "device": "crewcue_api_35 emulator (emulator-5556, Android 15 / API 35, read-only, software GPU swiftshader_indirect), Debug build with the fake purchaser",
+  "date": "2026-11-09",
+  "commit": "5d0c77d + #682 merge + fake-purchaser error copy fix (this PR); first-turn rows on 29e72a7 with the identical billing tree",
+  "session": "Debug dev session (intent extras devSession/userId/role/token/roomId) against the local memory API on 10.0.2.2:3000. Offline via `cmd connectivity airplane-mode enable`. Error via the same API run with NODE_ENV=production, where the server refuses the fake purchase (403), so the store step fails for real.",
+  "action": "Opened crewcue://dev/billing-purchase as the runner of an unpaid room and bought Race Pass through the fake purchaser; repeated with ?webhookDelay=12, in airplane mode, and against a server that refuses the purchase.",
+  "checked": {
+    "Success": "Tapped 'Buy Race Pass \u00b7 $14.99': 'Unlocked: you plus 1 crew member.' + 'Continue to race'; GET /billing \u2192 paid, crewTier one. With ?webhookDelay=12: 'Payment received. Unlocking can take a minute; pull to refresh.' then 'Unlocked: you plus 1 crew member.'",
+    "Empty": "Live unpaid room: 'No Race Pass yet. Buy one to open this race.' with 'Buy Race Pass \u00b7 $14.99', 'Buy with Full Crew \u00b7 $19.99', 'Redeem code'.",
+    "Error": "Server refused the purchase (403): 'Couldn't complete the purchase.' + 'Try again'.",
+    "Offline": "Airplane mode: 'Offline. Purchases need the network.' + 'Try again'.",
+    "Accessibility labels": "crewcue.billing-purchase, crewcue.billing-purchase.buy-pass, crewcue.billing-purchase.buy-full-crew, crewcue.billing-purchase.status"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
