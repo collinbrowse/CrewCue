@@ -60,6 +60,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.crewcue.android.ui.athlete.AthleteSetupScreen
 import com.crewcue.android.ui.brandloader.BrandLoaderDemo
+import com.crewcue.android.ui.billing.PaywallScreen
+import com.crewcue.android.ui.billing.RedeemScreen
 import com.crewcue.android.ui.auth.AuthSignInScreen
 import com.crewcue.android.ui.notifications.NotificationPermissionScreen
 import com.crewcue.android.ui.chat.ChatScreen
@@ -87,7 +89,12 @@ fun ShellScreen(viewModel: ShellViewModel) {
 @Composable
 private fun AppShell(viewModel: ShellViewModel) {
     val roomId = viewModel.session?.roomId
-    val race = if (roomId.isNullOrBlank()) null else rememberRaceDay(viewModel, roomId)
+    // An unpaid room 402s on room reads, so its race-day model waits for the Race Pass.
+    val unpaid = !roomId.isNullOrBlank() && viewModel.unpaidRoomId == roomId
+    val race = if (roomId.isNullOrBlank() || unpaid) null else rememberRaceDay(viewModel, roomId)
+    if (!roomId.isNullOrBlank()) {
+        LaunchedEffect(roomId) { viewModel.checkBilling(roomId) }
+    }
     CrewBackground(
         Modifier
             .fillMaxSize()
@@ -101,7 +108,10 @@ private fun AppShell(viewModel: ShellViewModel) {
                 .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = TOP_BAR_SPACE))
                 .padding(bottom = if (onMap) 0.dp else TAB_BAR_SPACE)
         ) {
-            when (viewModel.selectedTab) {
+            val paywallRoom = roomId?.takeIf { unpaid && viewModel.selectedTab != ShellTab.Profile }
+            if (paywallRoom != null) {
+                PaywallScreen(viewModel, paywallRoom, onContinue = { viewModel.noteUnlocked(paywallRoom) }, Modifier.weight(1f))
+            } else when (viewModel.selectedTab) {
                 ShellTab.Profile -> {
                     if (viewModel.session == null) {
                         FeatureScreen(viewModel.uiState, Modifier.weight(1f))
@@ -234,7 +244,7 @@ private fun CrewTabBar(
 @Composable
 private fun FeatureHost(viewModel: ShellViewModel) {
     val featureId = viewModel.uiState.screen.featureId
-    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate")
+    val fullBleed = featureId in setOf("map-track", "map-checkpoint-pick", "map-navigate", "runner-track")
     CrewBackground(
         Modifier
             .fillMaxSize()
@@ -255,14 +265,23 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         "onboarding-notifications" -> {
             if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else NotificationPermissionScreen()
         }
-        "profile", "room-members", "readouts-incidents" -> {
+        "billing-purchase", "billing-redeem" -> {
+            val roomId = viewModel.session?.roomId
+            when {
+                roomId.isNullOrBlank() || viewModel.stateOverlay -> FeatureScreen(viewModel.uiState)
+                viewModel.uiState.screen.featureId == "billing-redeem" ->
+                    RedeemScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
+                else -> PaywallScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
+            }
+        }
+        "profile", "room-members", "readouts-incidents", "billing-upgrade" -> {
             if (viewModel.session != null && !viewModel.stateOverlay && profileDestinationReady(viewModel)) {
                 ProfileDestination(viewModel)
             } else {
                 FeatureScreen(viewModel.uiState)
             }
         }
-        "map-track", "map-checkpoint-pick", "map-navigate", "location-heartbeat" -> {
+        "map-track", "map-checkpoint-pick", "map-navigate", "location-heartbeat", "runner-track" -> {
             val roomId = viewModel.session?.roomId
             if (!roomId.isNullOrBlank() && !viewModel.stateOverlay) {
                 MapScreen(viewModel, roomId, viewModel.uiState.screen.featureId)

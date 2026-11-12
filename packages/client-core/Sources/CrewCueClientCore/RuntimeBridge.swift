@@ -15,10 +15,13 @@ import Dispatch
 /// importGpx, enqueueGpx, enqueueCheckIn, flushOutbox, listOutbox, exportCrewSheet,
 /// projectAidSheet, stopPlanDraft, updatePlannedStops,
 /// readCourseSettings, writeCourseSettings, featureScreen, previewJoin, join,
-/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, streamToken, parseMentions,
+/// myRaces, loadRoom, latestPing, placeCheckpoint, route, enqueuePing, parseMentions,
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
-/// completeOutbox, claimChat, claimPendingChat, settleChat, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect.
+/// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
+/// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
+/// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
+/// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile.
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -26,25 +29,31 @@ enum RuntimeCall {
     private final class TransportBox: @unchecked Sendable {
         private let lock = NSLock()
         private var transport: (any HTTPTransport)?
+        private var byBaseURL: [String: any HTTPTransport] = [:]
 
-        func get() -> (any HTTPTransport)? {
+        func get(baseURL: String) -> (any HTTPTransport)? {
             lock.lock()
             defer { lock.unlock() }
-            return transport
+            return byBaseURL[baseURL] ?? transport
         }
 
-        func set(_ transport: (any HTTPTransport)?) {
+        func set(_ transport: (any HTTPTransport)?, baseURL: String?) {
             lock.lock()
             defer { lock.unlock() }
-            self.transport = transport
+            if let baseURL {
+                byBaseURL[baseURL] = transport
+            } else {
+                self.transport = transport
+            }
         }
     }
 
-    /// Tests inject a transport. Production calls leave this nil and use `URLSessionTransport`.
+    /// Tests inject a transport, for every request or only for one `baseURL` (so parallel tests
+    /// don't see each other's fake server). Production calls leave this nil and use `URLSessionTransport`.
     private static let transportForTests = TransportBox()
 
-    static func setTransportForTests(_ transport: (any HTTPTransport)?) {
-        transportForTests.set(transport)
+    static func setTransportForTests(_ transport: (any HTTPTransport)?, baseURL: String? = nil) {
+        transportForTests.set(transport, baseURL: baseURL)
     }
 
     static func perform(_ json: String) async -> String {
@@ -70,7 +79,13 @@ enum RuntimeCall {
             message = (error as? ClientHTTPError)?.message ?? "\(error)"
         }
         let expired = (error as? ClientHTTPError)?.status == 401
-        let object: [String: Any] = ["ok": false, "message": message, "sessionExpired": expired]
+        let object: [String: Any] = [
+            "ok": false,
+            "message": message,
+            "sessionExpired": expired,
+            "crewLimit": BillingErrors.isCrewLimit(error),
+            "offline": TransportFailure.isOffline(error)
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return #"{"ok":false,"message":"Request failed."}"#
         }
@@ -79,6 +94,13 @@ enum RuntimeCall {
 
     private static func dispatch(_ op: String, _ object: [String: Any]) async throws -> Any {
         switch op {
+        case "billing":
+            let state = try await RaceDayAPI.billing(graph: try graph(object), roomId: text(object, "roomId") ?? "")
+            return BillingBridge.json(state)
+        case "completePurchase":
+            return try await BillingBridge.completePurchase(graph: try graph(object), object)
+        case "fakePurchase":
+            return try await BillingBridge.fakePurchase(graph: try graph(object), object)
         case "featureScreen":
             let url = object["url"] as? String ?? ""
             return CrewCueClientCore.featureScreenJSON(forCrewCueURL: url)
@@ -119,7 +141,8 @@ enum RuntimeCall {
             }
         case "flushOutbox":
             let graph = try graph(object)
-            let report = try await RaceDayAPI.flushOutbox(graph: graph)
+            let interval = userDirectory(object).map { TrackingSettings.load(userDirectory: $0).intervalSeconds }
+            let report = try await RaceDayAPI.flushOutbox(graph: graph, uploadIntervalSeconds: interval)
             return [
                 "accepted": report.accepted,
                 "dropped": report.dropped,
@@ -159,8 +182,6 @@ enum RuntimeCall {
             return try await route(object)
         case "enqueuePing":
             return try await enqueuePing(object)
-        case "streamToken":
-            return try await streamToken(object)
         case "parseMentions":
             return try await parseMentions(object)
         case "notificationPreference":
@@ -171,15 +192,18 @@ enum RuntimeCall {
             return try await enqueuePush(object)
         case "enqueueChat":
             return try await enqueueChat(object)
+        case "chatPoll":
+            return try await chatPoll(object)
+        case "chatSend":
+            return try await chatSend(object)
+        case "chatUploadPhoto":
+            return try await chatUploadPhoto(object)
+        case "chatOlder":
+            return try await chatOlder(object)
+        case "chatDiscard":
+            return try await chatDiscard(object)
         case "completeOutbox":
             return try await completeOutbox(object)
-        case "claimChat":
-            let claimed = try await store(object).claimChat(id: object["id"] as? String ?? "")
-            return ["claimed": claimed]
-        case "claimPendingChat":
-            return try await claimPendingChat(object)
-        case "settleChat":
-            return try await settleChat(object)
         case "wipeUserData":
             return try wipeUserData(object)
         case "adoptUser":
@@ -192,12 +216,53 @@ enum RuntimeCall {
             return try await incidents(object)
         case "createIncident":
             return try await createIncident(object)
+        case "featureFlags":
+            return ["strava": ClientFeatureFlags.stravaEnabled]
+        case "activityHistoryItems":
+            return try await activityHistoryItems(object)
+        case "importActivityFile":
+            return try await importActivityFile(object)
         case "stravaStart":
             return try await stravaStart(object)
         case "stravaConnection":
             return try await stravaConnection(object)
         case "stravaDisconnect":
             return try await stravaDisconnect(object)
+        case "deleteAccount":
+            return try await deleteAccount(object)
+        case "accountDeletionCopy":
+            return AccountDeletion.copy
+        case "pingTrack":
+            return try await pingTrack(object)
+        case "liveProjection":
+            return try await liveProjection(object)
+        case "trackingSettings":
+            let directory = try requiredUserDirectory(object)
+            return ["intervalSeconds": TrackingSettings.load(userDirectory: directory).intervalSeconds,
+                    "allowedIntervalSeconds": TrackingSettings.allowedIntervalSeconds]
+        case "setTrackingSettings":
+            let directory = try requiredUserDirectory(object)
+            let settings = TrackingSettings(intervalSeconds: Int(doubleValue(object["intervalSeconds"]) ?? 0))
+            try settings.save(userDirectory: directory)
+            return ["intervalSeconds": settings.intervalSeconds]
+        case "trackingSession":
+            let directory = try requiredUserDirectory(object)
+            guard let session = TrackingSession.load(userDirectory: directory) else { return ["active": false] }
+            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+        case "startTrackingSession":
+            let directory = try requiredUserDirectory(object)
+            guard PingPolicy.mayUpload(role: object["role"] as? String ?? "") else {
+                throw ClientHTTPError(status: 400, message: "Only the athlete shares location.")
+            }
+            let session = TrackingSession(
+                roomId: object["roomId"] as? String ?? "",
+                startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(Date())
+            )
+            try session.save(userDirectory: directory)
+            return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
+        case "stopTrackingSession":
+            try TrackingSession.clear(userDirectory: try requiredUserDirectory(object))
+            return ["active": false]
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -326,11 +391,14 @@ enum RuntimeCall {
 
     private static func readoutPayload(sheet: CrewScheduleSheet?, request: [String: Any]) -> [String: Any] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
-        let readout = RaceDayReadouts.make(
-            sheet: sheet,
-            checkpoints: checkpoints,
-            runner: requestRunner(request),
-            now: requestNow(request)
+        let readout = RaceDayReadouts.withLive(
+            RaceDayReadouts.make(
+                sheet: sheet,
+                checkpoints: checkpoints,
+                runner: requestRunner(request),
+                now: requestNow(request)
+            ),
+            live: requestLive(request)
         )
         var row: [String: Any] = [
             "status": readout.status.rawValue,
@@ -348,6 +416,10 @@ enum RuntimeCall {
         if let ping = readout.lastPingLabel {
             row["lastPingLabel"] = ping
         }
+        if let eta = readout.finishEtaAt { row["finishEtaAt"] = eta }
+        if let start = readout.finishWindowStartAt { row["finishWindowStartAt"] = start }
+        if let end = readout.finishWindowEndAt { row["finishWindowEndAt"] = end }
+        row["liveEtaStale"] = readout.liveEtaStale
         return row
     }
 
@@ -357,7 +429,8 @@ enum RuntimeCall {
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
-            progressMeters: progressMeters ?? requestProgress(request, checkpoints)
+            progressMeters: progressMeters ?? requestProgress(request, checkpoints),
+            live: requestLive(request)
         ).map { item in
             var row: [String: Any] = [
                 "checkpointId": item.checkpointId,
@@ -370,6 +443,9 @@ enum RuntimeCall {
             if let arrival = item.clockArrivalAt { row["clockArrivalAt"] = arrival }
             if let cutoff = item.cutoffAt { row["cutoffAt"] = cutoff }
             if let status = item.cutoffStatus { row["cutoffStatus"] = status }
+            if let live = item.liveArrivalAt { row["liveArrivalAt"] = live }
+            if let start = item.arrivalWindowStartAt { row["arrivalWindowStartAt"] = start }
+            if let end = item.arrivalWindowEndAt { row["arrivalWindowEndAt"] = end }
             return row
         }
     }
@@ -902,6 +978,74 @@ enum RuntimeCall {
         }
     }
 
+    /// New path points after `after` (the previous call's `cursor`). Offline returns no points.
+    private static func pingTrack(_ object: [String: Any]) async throws -> Any {
+        let after = text(object, "after")
+        do {
+            let track = try await RaceDayAPI.refreshTrack(
+                graph: try graph(object),
+                roomId: object["roomId"] as? String ?? "",
+                track: RunnerTrack(points: [], cursor: after)
+            )
+            let points: [[String: Any]] = track.points.map {
+                ["recordedAt": RaceDayReadouts.iso8601($0.recordedAt), "latitude": $0.latitude, "longitude": $0.longitude]
+            }
+            var payload: [String: Any] = ["offline": false, "points": points]
+            if let cursor = track.cursor { payload["cursor"] = cursor }
+            return payload
+        } catch {
+            if TransportFailure.isOffline(error) {
+                var payload: [String: Any] = ["offline": true, "points": [Any]()]
+                if let after { payload["cursor"] = after }
+                return payload
+            }
+            throw error
+        }
+    }
+
+    /// `live` is the wire projection; pass it back as `live` to `projectAidSheet` and the readouts.
+    private static func liveProjection(_ object: [String: Any]) async throws -> Any {
+        let base = try graph(object)
+        let capture = CapturingTransport(base.transport)
+        let reading = ClientGraph(
+            transport: capture,
+            clock: base.clock,
+            logger: base.logger,
+            baseURL: base.baseURL,
+            tokenProvider: base.tokenProvider,
+            outbox: base.outbox
+        )
+        do {
+            let live = try await RaceDayAPI.liveProjection(graph: reading, roomId: object["roomId"] as? String ?? "")
+            guard live != nil, let data = capture.lastBody, let wire = try? JSONSerialization.jsonObject(with: data) else {
+                return ["offline": false]
+            }
+            return ["offline": false, "live": wire, "finishCrossed": TrackingSession.shouldAutoStop(live)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true]
+            }
+            throw error
+        }
+    }
+
+    private static func requestLive(_ request: [String: Any]) -> LiveProjection? {
+        guard let value = request["live"], !(value is NSNull),
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let core = try? JSONDecoder().decode(RaceRoomProjectionCore.self, from: data) else {
+            return nil
+        }
+        return LiveProjection(core: core, timeliness: try? JSONDecoder().decode(ProjectionTimeliness.self, from: data))
+    }
+
+    private static func requiredUserDirectory(_ object: [String: Any]) throws -> URL {
+        guard let directory = userDirectory(object) else {
+            throw ClientHTTPError(status: 0, message: "storageDir is required.")
+        }
+        return directory
+    }
+
     private static func placeCheckpoint(_ object: [String: Any]) async throws -> Any {
         do {
             let graph = try graph(object)
@@ -971,40 +1115,6 @@ enum RuntimeCall {
             ]
         case .rejected(let message):
             throw ClientHTTPError(status: 400, message: message)
-        }
-    }
-
-    private static func streamToken(_ object: [String: Any]) async throws -> Any {
-        let roomId = object["roomId"] as? String ?? ""
-        let channelId = RaceDayAPI.channelId(roomId: roomId)
-        do {
-            let graph = try graph(object)
-            let minted = try await RaceDayAPI.streamToken(graph: graph, roomId: roomId)
-            let authors = ChatAuthors(token: minted)
-            return [
-                "token": minted.token,
-                "streamUserId": minted.streamUserId,
-                "streamApiKey": minted.streamApiKey,
-                "channelId": channelId,
-                "authorNames": authors.names,
-                "selfAuthor": authors.selfLabel,
-                "unknownAuthor": ChatAuthors.unknown,
-                "offline": false
-            ]
-        } catch {
-            if TransportFailure.isOffline(error) {
-                return [
-                    "token": "",
-                    "streamUserId": "",
-                    "streamApiKey": "",
-                    "channelId": channelId,
-                    "authorNames": [String: String](),
-                    "selfAuthor": ChatAuthors.you,
-                    "unknownAuthor": ChatAuthors.unknown,
-                    "offline": true
-                ]
-            }
-            throw error
         }
     }
 
@@ -1111,30 +1221,6 @@ enum RuntimeCall {
         return ["status": "pending", "id": operation.id, "clientMessageId": clientMessageId]
     }
 
-    /// Pending chat for the room that no other caller is already sending.
-    private static func claimPendingChat(_ object: [String: Any]) async throws -> Any {
-        let store = try store(object)
-        let claimed = try await store.claimPendingChat(roomId: object["roomId"] as? String ?? "")
-        let messages: [[String: Any]] = claimed.map { operation in
-            [
-                "id": operation.id,
-                "clientMessageId": operation.clientMessageId,
-                "text": chatText(operation.payloadJSON)
-            ]
-        }
-        return ["messages": messages]
-    }
-
-    /// Ends a claim. No `error` means delivered; an "already exists" error also counts as delivered.
-    private static func settleChat(_ object: [String: Any]) async throws -> Any {
-        let store = try store(object)
-        let id = object["id"] as? String ?? ""
-        let failure = text(object, "error").map { RuntimeSendFailure(description: $0) }
-        try await store.settleChat(id: id, error: failure)
-        let delivered = failure.map(OutboxPolicy.isAlreadyDelivered) ?? true
-        return ["status": delivered ? "delivered" : "pending", "id": id]
-    }
-
     /// Sign-out and session expiry: every user's files under the storage root. Open outboxes are
     /// closed even when the app already deleted their directory, so a late write can't recreate them.
     private static func wipeUserData(_ object: [String: Any]) throws -> Any {
@@ -1162,14 +1248,6 @@ enum RuntimeCall {
         }
         _ = try storage.directory(userId: userId)
         return ["status": "adopted"]
-    }
-
-    private static func chatText(_ payloadJSON: String) -> String {
-        guard let data = payloadJSON.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ""
-        }
-        return object["text"] as? String ?? ""
     }
 
     private static func completeOutbox(_ object: [String: Any]) async throws -> Any {
@@ -1252,6 +1330,48 @@ enum RuntimeCall {
         }
     }
 
+    private static func activityItemJSON(_ item: ActivityHistoryItem) -> [String: Any] {
+        var json: [String: Any] = ["id": item.id, "source": item.source, "recordedAt": item.recordedAt, "summary": item.summary]
+        if let distance = item.distanceMeters { json["distanceMeters"] = distance }
+        if let elapsed = item.elapsedSeconds { json["elapsedSeconds"] = elapsed }
+        return json
+    }
+
+    private static func activityHistoryItems(_ object: [String: Any]) async throws -> Any {
+        do {
+            let items = try await RaceDayAPI.activityHistoryItems(graph: try graph(object))
+            return ["offline": false, "items": items.map(activityItemJSON)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["offline": true, "items": [[String: Any]]()]
+            }
+            throw error
+        }
+    }
+
+    /// `contentBase64` is the file. Returns status saved, duplicate, empty, invalid or offline with
+    /// a user-facing `message`; a server 400/413 comes back as `invalid` with the server's message.
+    private static func importActivityFile(_ object: [String: Any]) async throws -> Any {
+        let fileName = text(object, "fileName") ?? "activity"
+        let data = Data(base64Encoded: object["contentBase64"] as? String ?? "") ?? Data()
+        if let problem = ActivityImport.localProblem(fileName: fileName, byteCount: data.count) {
+            return ["status": data.isEmpty ? "empty" : "invalid", "message": problem]
+        }
+        do {
+            let result = try await RaceDayAPI.importActivityFile(graph: try graph(object), fileName: fileName, data: data)
+            let message = result.status == .saved ? ActivityImport.successMessage : ActivityImport.duplicateMessage
+            return ["status": result.status.rawValue, "message": message, "item": activityItemJSON(result.item)]
+        } catch {
+            if TransportFailure.isOffline(error) {
+                return ["status": "offline", "message": ActivityImport.offlineMessage]
+            }
+            if let http = error as? ClientHTTPError, http.status == 400 || http.status == 413 {
+                return ["status": "invalid", "message": ActivityImport.message(for: error)]
+            }
+            throw error
+        }
+    }
+
     private static func stravaStart(_ object: [String: Any]) async throws -> Any {
         do {
             let graph = try graph(object)
@@ -1300,6 +1420,24 @@ enum RuntimeCall {
                 return ["offline": true, "connected": false]
             }
             throw error
+        }
+    }
+
+    /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
+    /// the app's session-expired path runs.
+    private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
+        try await deleteAccount(graph: try graph(object))
+    }
+
+    static func deleteAccount(graph: ClientGraph) async throws -> [String: Any] {
+        switch await AccountDeletion.run(graph: graph) {
+        case let .deleted(identityProvider):
+            return ["deleted": true, "identityProvider": identityProvider]
+        case let .failed(message, retryable):
+            if message == AccountDeletion.expiredMessage {
+                throw ClientHTTPError(status: 401, message: message)
+            }
+            return ["deleted": false, "message": message, "retryable": retryable]
         }
     }
 
@@ -1359,21 +1497,21 @@ enum RuntimeCall {
         return RoomStorage.directory(userDirectory: root, roomId: roomId)
     }
 
-    private static func store(_ object: [String: Any]) throws -> OutboxStore {
+    static func store(_ object: [String: Any]) throws -> OutboxStore {
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
         return try OutboxStore.shared(userId: object["userId"] as? String ?? "guest", directory: directory)
     }
 
-    private static func graph(_ object: [String: Any]) throws -> ClientGraph {
+    static func graph(_ object: [String: Any]) throws -> ClientGraph {
         guard let base = object["baseURL"] as? String, let baseURL = URL(string: base) else {
             throw ClientHTTPError(status: 0, message: "baseURL is required.")
         }
         let token = object["token"] as? String
         let outbox = try? store(object)
         return ClientGraph(
-            transport: transportForTests.get() ?? URLSessionTransport(),
+            transport: transportForTests.get(baseURL: base) ?? URLSessionTransport(),
             clock: SystemClock(),
             logger: SilentRuntimeLogger(),
             baseURL: baseURL,
@@ -1382,25 +1520,25 @@ enum RuntimeCall {
         )
     }
 
-    private static func text(_ object: [String: Any], _ key: String) -> String? {
+    static func text(_ object: [String: Any], _ key: String) -> String? {
         guard let value = object[key] as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func boolValue(_ value: Any?) -> Bool? {
+    static func boolValue(_ value: Any?) -> Bool? {
         if let bool = value as? Bool { return bool }
         if let number = value as? NSNumber { return number.boolValue }
         return nil
     }
 
-    private static func intValue(_ value: Any?) -> Int? {
+    static func intValue(_ value: Any?) -> Int? {
         if let number = value as? NSNumber { return number.intValue }
         if let number = value as? Int { return number }
         return nil
     }
 
-    private static func doubleValue(_ value: Any?) -> Double? {
+    static func doubleValue(_ value: Any?) -> Double? {
         if let number = value as? NSNumber { return number.doubleValue }
         if let number = value as? Double { return number }
         if let number = value as? Int { return Double(number) }
@@ -1651,6 +1789,3 @@ public func crewcue_runtime_json(_ request: UnsafePointer<CChar>?) -> UnsafeMuta
     return strdup(box.value ?? #"{"ok":false,"message":"bridge failed"}"#)
 }
 
-private struct RuntimeSendFailure: Error, CustomStringConvertible {
-    var description: String
-}

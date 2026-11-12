@@ -34,6 +34,8 @@ apps/android/.kotlin/
 apps/android/build/
 apps/android/app/build/
 apps/android/local.properties
+# Firebase config for push (owner-provided; see docs/runbooks/chat-push.md)
+apps/android/app/google-services.json
 
 # Accidental tsc emit next to the pacing fixture helper (import the .ts from tests)
 fixtures/pacing/*.js
@@ -45,9 +47,12 @@ fixtures/pacing/*.d.ts.map
 /ios/
 /app.json
 
-# Local iOS secrets (MapTiler key)
+# Local iOS secrets (optional xcconfig overrides)
 apps/ios/Config/Secrets.xcconfig
 
 # Xcode and SwiftPM per-user state
 xcuserdata/
 .swiftpm/
+
+# Projection backtest race data (scripts/projection-backtest/README.md). Never commit race results.
+services/api/projection-backtest-data/

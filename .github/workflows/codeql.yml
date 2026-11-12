@@ -1,0 +1,72 @@
+name: CodeQL
+
+# Advanced setup (replaces GitHub's default setup, which must stay off or it rejects these uploads).
+# Source-only languages run on every PR and push. Swift needs a ~40 min macOS app build, so it runs
+# only on release tags, weekly, and by hand.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  schedule:
+    - cron: "0 7 * * 1" # Monday 07:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  # Keyed by event too, so a merge to main doesn't cancel the weekly Swift scan.
+  group: codeql-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    # A release tag points at a commit main already scanned, so it only runs the Swift job.
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  analyze-swift:
+    if: github.ref_type == 'tag' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    # ~40 min: CodeQL's tracer slows every Xcode process (an untraced build takes ~2 min), and a
+    # prebuild can't be reused because tracing changes the environment Xcode hashes into the build.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+      # Unsigned simulator build: same sources as the TestFlight archive, no App Store secrets.
+      # arm64 only; the generic destination otherwise compiles every file for x86_64 too.
+      - name: Build CrewCue
+        run: |
+          xcodebuild build \
+            -project apps/ios/CrewCue.xcodeproj -scheme CrewCue -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:swift
+          # Report tag scans against main so alerts show in the default-branch Security view.
+          ref: ${{ github.ref_type == 'tag' && 'refs/heads/main' || '' }}
+          sha: ${{ github.ref_type == 'tag' && github.sha || '' }}

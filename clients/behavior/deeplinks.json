@@ -1,7 +1,6 @@
 {
   "deferred": [
     "command-center",
-    "billing",
     "crew-tasks",
     "protocol-notes",
     "projection",
@@ -9,7 +8,8 @@
     "activity-history",
     "recommendations",
     "sync-health",
-    "geocode-search"
+    "geocode-search",
+    "strava"
   ],
   "features": [
     {
@@ -184,10 +184,28 @@
       "android": "pass"
     },
     {
+      "id": "runner-track",
+      "entry": "crewcue://dev/runner-track",
+      "label": "crewcue.runner-track",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "live-eta",
+      "entry": "crewcue://dev/live-eta",
+      "label": "crewcue.live-eta",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
       "id": "chat-thread",
       "entry": "crewcue://dev/chat",
       "label": "crewcue.chat",
-      "sdk": "stream",
+      "sdk": "none",
       "scope": "v1",
       "ios": "fail",
       "android": "fail"
@@ -229,13 +247,22 @@
       "android": "pass"
     },
     {
-      "id": "strava",
-      "entry": "crewcue://dev/strava",
-      "label": "crewcue.strava",
+      "id": "activity-import",
+      "entry": "crewcue://dev/activity-import",
+      "label": "crewcue.activity-import",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "account-deletion",
+      "entry": "crewcue://dev/account-deletion",
+      "label": "crewcue.account-deletion",
       "sdk": "auth0",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "app-shell",
@@ -252,6 +279,33 @@
       "label": "crewcue.loader",
       "sdk": "none",
       "scope": "harness",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-purchase",
+      "entry": "crewcue://dev/billing-purchase",
+      "label": "crewcue.billing-purchase",
+      "sdk": "revenuecat",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-upgrade",
+      "entry": "crewcue://dev/billing-upgrade",
+      "label": "crewcue.billing-upgrade",
+      "sdk": "revenuecat",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "billing-redeem",
+      "entry": "crewcue://dev/billing-redeem",
+      "label": "crewcue.billing-redeem",
+      "sdk": "revenuecat",
+      "scope": "v1",
       "ios": "pass",
       "android": "pass"
     }

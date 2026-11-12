@@ -12,7 +12,8 @@ export const WAYPOINT_TAGS = ["aid", "water", "dropbag", "crew"] as const;
 export type WaypointTag = (typeof WAYPOINT_TAGS)[number];
 
 /** Provenance for an athlete activity used as pacing history. */
-export const ACTIVITY_HISTORY_SOURCES = ["gpx_upload", "strava"] as const;
+/** `strava` is kept for stored rows; v1 imports files only (#652). */
+export const ACTIVITY_HISTORY_SOURCES = ["gpx_upload", "fit_upload", "tcx_upload", "strava"] as const;
 
 export type ActivityHistorySource = (typeof ACTIVITY_HISTORY_SOURCES)[number];
 
@@ -201,6 +202,11 @@ export interface ActivityHistoryRef {
   distanceMeters?: number;
   elapsedSeconds?: number;
   elevationGainMeters?: number;
+  /**
+   * The runner's late-race slowdown measured from this activity's timed track (uploads of 30 km
+   * or more). Feeds the runner's own slowdown in the pace model.
+   */
+  slowdownSlope?: number;
 }
 
 /** Finish (or equivalent) instant for one confidence band. */
@@ -310,7 +316,7 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
     throw new TypeError(`${field} must be an object`);
   }
   if (!isActivityHistorySource(value.source)) {
-    throw new TypeError(`${field}.source must be gpx_upload or strava`);
+    throw new TypeError(`${field}.source must be gpx_upload, fit_upload, tcx_upload, or strava`);
   }
   const ref: ActivityHistoryRef = {
     id: requireNonEmptyString(value.id, `${field}.id`),
@@ -330,6 +336,12 @@ export function parseActivityHistoryRef(value: unknown, field = "activityHistory
       value.elevationGainMeters,
       `${field}.elevationGainMeters`
     );
+  }
+  if (value.slowdownSlope !== undefined) {
+    if (typeof value.slowdownSlope !== "number" || !Number.isFinite(value.slowdownSlope)) {
+      throw new TypeError(`${field}.slowdownSlope must be a finite number`);
+    }
+    ref.slowdownSlope = value.slowdownSlope;
   }
   return ref;
 }

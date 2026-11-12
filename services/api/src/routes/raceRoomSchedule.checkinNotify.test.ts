@@ -153,7 +153,8 @@ function installCaptureTransport() {
     return {
       delivered: input.targets.length,
       attempts: input.targets.length,
-      failures: []
+      failures: [],
+      invalidDeviceIds: []
     };
   });
   return captured;
@@ -368,7 +369,7 @@ test("W2-2 EC6/EC8 material mid-course shift notifies with checkpoint + directio
     assert.equal(captured.length, 1);
     const dispatch = captured[0]!;
     assert.equal(dispatch.roomId, roomId);
-    assert.equal(dispatch.channelId, `crew-${roomId}`);
+    assert.equal(dispatch.kind, "schedule");
     assert.equal(dispatch.targets.length, 1);
     assert.equal(dispatch.targets[0]?.userId, "crew-w22-ec68");
     assert.ok(dispatch.targets.every((t) => t.userId !== "owner-w22-ec68"));
@@ -381,10 +382,10 @@ test("W2-2 EC6/EC8 material mid-course shift notifies with checkpoint + directio
       maxAbsShiftSeconds: 120,
       direction: "late"
     });
-    assert.equal(dispatch.previewText, expectedPreview);
-    assert.match(dispatch.previewText ?? "", /late/);
-    assert.match(dispatch.previewText ?? "", /2 min|120 sec/);
-    assert.ok(!(dispatch.previewText ?? "").toLowerCase().includes("token"));
+    assert.equal(dispatch.body, expectedPreview);
+    assert.match(dispatch.body ?? "", /late/);
+    assert.match(dispatch.body ?? "", /2 min|120 sec/);
+    assert.ok(!(dispatch.body ?? "").toLowerCase().includes("token"));
   } finally {
     resetChatPushTransport();
     await app.close();

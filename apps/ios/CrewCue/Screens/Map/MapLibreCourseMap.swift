@@ -7,21 +7,34 @@ import MapLibre
 
 struct MapLibreCourseMap: UIViewRepresentable {
     var points: [MapCoursePoint]
+    /// The runner's path from the API, oldest first. Drawn over the course; the last point is the runner.
+    var track: [CLLocationCoordinate2D] = []
     var onTap: (Double, Double) -> Void
     var onStyleFailure: (Bool) -> Void
     var onStyleLoaded: () -> Void
     var recenterRequest = 0
     var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
+    var trackColor = UIColor.systemOrange
 
-    static let fallbackStyleURL = URL(string: "https://demotiles.maplibre.org/style.json")
+    /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
+    /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
+    static func styleURL(dark: Bool) -> URL? {
+        URL(string: "https://tiles.openfreemap.org/styles/\(dark ? "dark" : "liberty")")
+    }
 
-    /// MapTiler topo when a key is configured (see apps/ios/Config/CrewCue.xcconfig), else the demo style.
-    static func styleURL(dark: Bool, bundle: Bundle = .main) -> URL? {
-        let key = (bundle.object(forInfoDictionaryKey: "CrewCueMapTilerKey") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard key.isEmpty == false, key.hasPrefix("$(") == false else { return fallbackStyleURL }
-        let style = dark ? "topo-v2-dark" : "topo-v2"
-        return URL(string: "https://api.maptiler.com/maps/\(style)/style.json?key=\(key)")
+    /// A local style with only a background layer. Loaded when the tile server is unreachable so the
+    /// course line and checkpoints still draw on a blank background.
+    static func blankStyleURL(dark: Bool) -> URL? {
+        let color = dark ? "#1c1c1e" : "#f2efe9"
+        let json = #"{"version":8,"sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"\#(color)"}}]}"#
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("crewcue-blank-style-\(dark ? "dark" : "light").json")
+        do {
+            try Data(json.utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -35,7 +48,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         mapView.delegate = context.coordinator
         mapView.tintColor = lineColor
         mapView.logoView.isHidden = true
-        // Keep MapTiler/OSM attribution reachable: below the top bar and status chips.
+        // Keep OpenFreeMap/OSM attribution reachable: below the top bar and status chips.
         mapView.attributionButtonPosition = .topLeft
         mapView.attributionButtonMargins = CGPoint(x: 16, y: 150)
         mapView.compassViewPosition = .topLeft
@@ -53,13 +66,17 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.onStyleFailure = onStyleFailure
         context.coordinator.onStyleLoaded = onStyleLoaded
         context.coordinator.points = points
+        context.coordinator.track = track
         context.coordinator.lineColor = lineColor
+        context.coordinator.trackColor = trackColor
         let dark = context.environment.colorScheme == .dark
         if context.coordinator.dark != dark {
             context.coordinator.dark = dark
+            context.coordinator.usingBlankStyle = false
             mapView.styleURL = Self.styleURL(dark: dark)
         }
         context.coordinator.redraw(force: false)
+        context.coordinator.redrawTrack(force: false)
         if context.coordinator.recenterRequest != recenterRequest {
             context.coordinator.recenterRequest = recenterRequest
             context.coordinator.fitCourse(animated: true)
@@ -86,8 +103,14 @@ struct MapLibreCourseMap: UIViewRepresentable {
         weak var mapView: MLNMapView?
         var recenterRequest = 0
         var dark = false
+        /// True after the remote style failed and the blank local style replaced it.
+        var usingBlankStyle = false
         var lineColor = UIColor.systemPurple
+        var trackColor = UIColor.systemOrange
+        var track: [CLLocationCoordinate2D] = []
         private var drawnPoints: [MapCoursePoint] = []
+        private var drawnTrack: [CLLocationCoordinate2D] = []
+        private var trackAnnotations: [MLNAnnotation] = []
 
         init(
             onTap: @escaping (Double, Double) -> Void,
@@ -103,7 +126,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
             guard let mapView, mapView.style != nil else { return }
             if !force, points == drawnPoints { return }
             if let existing = mapView.annotations {
-                mapView.removeAnnotations(existing)
+                mapView.removeAnnotations(existing.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) })
             }
             var annotations: [MLNAnnotation] = []
             if points.count >= 2 {
@@ -124,19 +147,48 @@ struct MapLibreCourseMap: UIViewRepresentable {
             drawnPoints = points
         }
 
+        /// Replaces the runner's path and position marker. Never moves the camera: a 30-second
+        /// refresh must not pull the map away from where the crew member panned it.
+        func redrawTrack(force: Bool) {
+            guard let mapView, mapView.style != nil else { return }
+            if !force, Self.same(track, drawnTrack) { return }
+            mapView.removeAnnotations(trackAnnotations)
+            var next: [MLNAnnotation] = []
+            if track.count >= 2 {
+                var coordinates = track
+                next.append(RunnerPathPolyline(coordinates: &coordinates, count: UInt(coordinates.count)))
+            }
+            if let last = track.last {
+                let marker = RunnerMarker()
+                marker.coordinate = last
+                marker.title = "Runner"
+                next.append(marker)
+            }
+            mapView.addAnnotations(next)
+            trackAnnotations = next
+            drawnTrack = track
+        }
+
+        private static func same(_ a: [CLLocationCoordinate2D], _ b: [CLLocationCoordinate2D]) -> Bool {
+            a.count == b.count && zip(a, b).allSatisfy { $0.latitude == $1.latitude && $0.longitude == $1.longitude }
+        }
+
         /// Frames the course above the bottom sheet and below the top chips.
         func fitCourse(animated: Bool) {
-            guard let mapView, let annotations = mapView.annotations, annotations.isEmpty == false else { return }
+            guard let mapView, let all = mapView.annotations else { return }
+            let annotations = all.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) }
+            guard annotations.isEmpty == false else { return }
             let padding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
             mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {
-            MainActor.assumeIsolated { self.lineColor }
+            let isTrack = annotation is RunnerPathPolyline
+            return MainActor.assumeIsolated { isTrack ? self.trackColor : self.lineColor }
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, lineWidthForPolylineAnnotation annotation: MLNPolyline) -> CGFloat {
-            5
+            annotation is RunnerPathPolyline ? 4 : 5
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, alphaForShapeAnnotation annotation: MLNShape) -> CGFloat {
@@ -145,9 +197,13 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
         nonisolated func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             MainActor.assumeIsolated {
-                self.onStyleLoaded()
+                // The blank fallback keeps the failure message up; only the real style counts as loaded.
+                if !self.usingBlankStyle {
+                    self.onStyleLoaded()
+                }
                 self.drawnPoints = []
                 self.redraw(force: true)
+                self.redrawTrack(force: true)
             }
         }
 
@@ -155,15 +211,29 @@ struct MapLibreCourseMap: UIViewRepresentable {
             let offline = MapLibreCourseMap.isOffline(error)
             MainActor.assumeIsolated {
                 self.onStyleFailure(offline)
+                guard !self.usingBlankStyle, let blank = MapLibreCourseMap.blankStyleURL(dark: self.dark) else { return }
+                self.usingBlankStyle = true
+                mapView.styleURL = blank
             }
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {
+            if annotation is RunnerMarker {
+                return MainActor.assumeIsolated { self.runnerView() }
+            }
             guard let point = annotation as? MLNPointAnnotation else { return nil }
             let title = point.title ?? ""
             return MainActor.assumeIsolated {
                 self.checkpointView(title: title)
             }
+        }
+
+        private func runnerView() -> RunnerMarkerView {
+            let reuse = "crewcue-runner"
+            let view = mapView?.dequeueReusableAnnotationView(withIdentifier: reuse) as? RunnerMarkerView
+                ?? RunnerMarkerView(reuseIdentifier: reuse)
+            view.color = trackColor
+            return view
         }
 
         private func checkpointView(title: String) -> CheckpointTitleView {
@@ -179,6 +249,34 @@ struct MapLibreCourseMap: UIViewRepresentable {
             let coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: nil)
             onTap(coordinate.latitude, coordinate.longitude)
         }
+    }
+}
+
+/// The runner's path, told apart from the course line for color and width.
+final class RunnerPathPolyline: MLNPolyline {}
+
+/// The runner's latest accepted position.
+final class RunnerMarker: MLNPointAnnotation {}
+
+final class RunnerMarkerView: MLNAnnotationView {
+    var color = UIColor.systemOrange {
+        didSet { backgroundColor = color }
+    }
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        bounds = CGRect(x: 0, y: 0, width: 22, height: 22)
+        layer.cornerRadius = 11
+        layer.borderColor = UIColor.white.cgColor
+        layer.borderWidth = 3
+        backgroundColor = color
+        isAccessibilityElement = true
+        accessibilityLabel = "Runner position"
+        accessibilityIdentifier = "crewcue.runner-track.marker"
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 

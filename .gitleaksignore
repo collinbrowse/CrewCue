@@ -7,3 +7,10 @@
 e36d08f4f6a21714cff30e1ef3ba8d865cc0d689:apps/mobile/src/navigation/onboardingState.ts:generic-api-key:3
 06c5896aa7d66343df74dee8ab80e1b8e4b9399e:apps/mobile/src/sync/pendingHeartbeat.ts:generic-api-key:9
 b34002a1348c4621cda2927cca78863fa47d5940:apps/mobile/src/sync/pendingHeartbeat.ts:generic-api-key:4
+# Synthetic projection-backtest course names (`key:` field, renamed to `course` in the next commit).
+e7facfc8d2e7cb23a78e1262512a1c485233b600:services/api/scripts/projection-backtest/make-synthetic-fixture.ts:generic-api-key:107
+e7facfc8d2e7cb23a78e1262512a1c485233b600:services/api/scripts/projection-backtest/make-synthetic-fixture.ts:generic-api-key:118
+e7facfc8d2e7cb23a78e1262512a1c485233b600:services/api/scripts/projection-backtest/make-synthetic-fixture.ts:generic-api-key:126
+e7facfc8d2e7cb23a78e1262512a1c485233b600:fixtures/projection-backtest/manifest.json:generic-api-key:4
+e7facfc8d2e7cb23a78e1262512a1c485233b600:fixtures/projection-backtest/manifest.json:generic-api-key:12
+e7facfc8d2e7cb23a78e1262512a1c485233b600:fixtures/projection-backtest/manifest.json:generic-api-key:19

@@ -28,6 +28,8 @@ final class ShellModel {
     let athleteModel: AthleteSetupModel
     let profileModel: ProfileModel
     let stravaModel: StravaModel
+    let activityImportModel: ActivityImportModel
+    let accountDeletionModel: AccountDeletionModel
     let membersModel: RoomMembersModel
     let incidentsModel: IncidentsModel
     let paceModel: PaceModel
@@ -35,10 +37,16 @@ final class ShellModel {
     let chatModel: ChatModel
     let chatPrefsModel: ChatNotificationPrefsModel
     let pushModel: PushRegistrationModel
+    /// Race Pass paywall and redeem code (#649).
+    let billingModel: BillingPurchaseModel
+    /// Full Crew upgrade on Room members (#649).
+    let upgradeModel: CrewUpgradeModel
 
-    private(set) var signedInUserId: String?
-    private(set) var signedInRole: String?
-    private(set) var signedInRoomId: String?
+    private(set) var signedInUserId: String? { didSet { syncChat() } }
+    private(set) var signedInRole: String? { didSet { syncChat() } }
+    private(set) var signedInRoomId: String? { didSet { syncChat() } }
+    /// A tapped chat push for a race the roster has not loaded yet.
+    private var pendingChatRoomId: String?
     private(set) var signedInDisplayName: String?
     /// Every race the user belongs to. `signedInRoomId` is the active one; every tab follows it.
     private(set) var roster = RaceRoster()
@@ -50,7 +58,13 @@ final class ShellModel {
 
     var isSignedIn: Bool { signedInUserId != nil }
 
-    init(client: AppClient, route: Route, fixtureOverlay: Bool, authConfiguration: Auth0Configuration) {
+    init(
+        client: AppClient,
+        route: Route,
+        fixtureOverlay: Bool,
+        authConfiguration: Auth0Configuration,
+        purchaser: StorePurchaser = UnavailablePurchaser()
+    ) {
         self.client = client
         self.route = route
         self.fixtureOverlay = fixtureOverlay
@@ -62,6 +76,8 @@ final class ShellModel {
         self.athleteModel = AthleteSetupModel(client: client)
         self.profileModel = ProfileModel(client: client)
         self.stravaModel = StravaModel(client: client)
+        self.activityImportModel = ActivityImportModel(client: client)
+        self.accountDeletionModel = AccountDeletionModel(client: client)
         self.membersModel = RoomMembersModel(client: client)
         self.incidentsModel = IncidentsModel(client: client)
         self.paceModel = PaceModel(client: client)
@@ -69,6 +85,8 @@ final class ShellModel {
         self.chatModel = ChatModel(client: client)
         self.chatPrefsModel = ChatNotificationPrefsModel(client: client)
         self.pushModel = PushRegistrationModel(client: client)
+        self.billingModel = BillingPurchaseModel(client: client, purchaser: purchaser)
+        self.upgradeModel = CrewUpgradeModel(client: client, purchaser: purchaser)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -81,11 +99,36 @@ final class ShellModel {
         self.profileModel.bindSignOut { [weak self] in
             self?.signOut()
         }
+        PushRouter.shared.handler = { [weak self] roomId in
+            self?.openChat(roomId: roomId)
+        }
+    }
+
+    /// A tapped chat notification: switch to that race and show its chat.
+    func openChat(roomId: String) {
+        guard isSignedIn else { return }
+        if roomId != signedInRoomId {
+            if roster.races.contains(where: { $0.id == roomId }) {
+                selectRace(roomId)
+            } else {
+                pendingChatRoomId = roomId
+                Task { await loadRaces() }
+                return
+            }
+        }
+        fixtureOverlay = false
+        show(Route(featureId: "chat-thread", state: .success))
+        enterShellIfNeeded()
+    }
+
+    private func syncChat() {
+        chatModel.activate(userId: signedInUserId, roomId: signedInRoomId, role: signedInRole)
     }
 
     func open(_ url: URL) {
         guard url.scheme?.caseInsensitiveCompare("crewcue") == .orderedSame else { return }
-        if Self.isStravaReturn(url) {
+        // Strava is off in v1 (#652): its return link then opens the shell like any other link.
+        if ClientFeatureFlags.stravaEnabled, Self.isStravaReturn(url) {
             fixtureOverlay = false
             if isSignedIn {
                 stravaModel.prepareReturn(url)
@@ -182,6 +225,8 @@ final class ShellModel {
         roster = RaceRoster(activeRoomId: session.roomId)
         enterShellIfNeeded()
         Task { await loadRaces() }
+        // Tokens rotate; re-register silently when notifications are already allowed.
+        Task { await pushModel.refreshIfAuthorized(role: session.role) }
     }
 
     /// Load the user's races. The stored active room stays active while the server still lists it.
@@ -197,6 +242,12 @@ final class ShellModel {
             let next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
             roster = next
             racesMessage = races.isEmpty ? "No races yet." : ""
+            if let pending = pendingChatRoomId {
+                pendingChatRoomId = nil
+                if next.races.contains(where: { $0.id == pending }) {
+                    openChat(roomId: pending)
+                }
+            }
             if let active = next.active {
                 if active.id != signedInRoomId || active.role != signedInRole {
                     apply(active)
@@ -259,6 +310,17 @@ final class ShellModel {
         }
     }
 
+    /// A race the runner just created: note it, then open its Race Pass paywall.
+    func noteCreated(roomId: String) {
+        noteJoined(roomId: roomId, role: "athlete")
+        showBilling()
+    }
+
+    /// The Race Pass paywall for the active race. A full-screen route, like join.
+    func showBilling() {
+        show(Route(featureId: "billing-purchase", state: .success))
+    }
+
     /// Leaves a full-screen route for the shell's Profile tab.
     func showProfile() {
         show(Route(featureId: "profile", state: .success))
@@ -295,8 +357,11 @@ final class ShellModel {
         roster = RaceRoster()
         racesMessage = ""
         racesLoading = false
+        pendingChatRoomId = nil
         profileModel.clear()
         stravaModel.clear()
+        activityImportModel.clear()
+        accountDeletionModel.clear()
         membersModel.clear()
         incidentsModel.clear()
         paceModel.clear()
@@ -304,6 +369,8 @@ final class ShellModel {
         chatModel.clear()
         chatPrefsModel.clear()
         pushModel.clear()
+        billingModel.clear()
+        upgradeModel.clear()
         showsSettings = false
         settingsFocus = nil
         fixtureOverlay = false

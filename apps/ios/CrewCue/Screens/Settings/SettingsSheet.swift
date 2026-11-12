@@ -1,4 +1,5 @@
 import SwiftUI
+import CrewCueClientCore
 
 /// Every app setting, reached from the top-bar gear on any tab. Settings deeplinks open this sheet at their section.
 struct ShellSettingsSheet: View {
@@ -24,8 +25,16 @@ struct ShellSettingsSheet: View {
                         registerOnAppear: model.settingsFocus == "push-registration"
                     )
                         .id("push-registration")
-                    SettingsStravaSection(model: model.stravaModel)
-                        .id("strava")
+                    if model.mapModel.isAthlete {
+                        SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
+                            .id("location-heartbeat")
+                    }
+                    SettingsActivityImportSection(model: model.activityImportModel, userId: model.signedInUserId)
+                        .id("activity-import")
+                    if ClientFeatureFlags.stravaEnabled {
+                        SettingsStravaSection(model: model.stravaModel)
+                            .id("strava")
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         CrewSectionHeader(title: "Account")
                         CrewListRow(systemImage: "rectangle.portrait.and.arrow.right", title: "Sign out", tint: theme.danger) {
@@ -33,8 +42,18 @@ struct ShellSettingsSheet: View {
                             model.profileModel.signOut()
                         }
                         .accessibilityLabel("Sign out")
+                        SettingsDeleteAccountRow(model: model.accountDeletionModel) {
+                            dismiss()
+                            model.profileModel.signOut()
+                        }
                     }
                     .crewCard()
+                    .id("account-deletion")
+                    Text("Pacing model built with race results from [OpenSplitTime.org](https://www.opensplittime.org).")
+                        .font(.footnote)
+                        .foregroundStyle(theme.body)
+                        .tint(theme.body)
+                        .accessibilityIdentifier("crewcue.settings.credits")
                 }
                 .onAppear {
                     if let focus = model.settingsFocus {
@@ -157,6 +176,44 @@ struct SettingsPushSection: View {
     }
 }
 
+/// How often the runner's phone shares a position on race day. Saved on this device.
+struct SettingsTrackingSection: View {
+    var mapModel: MapModel
+    var userId: String?
+    @State private var interval = TrackingSettings.defaultIntervalSeconds
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CrewSectionHeader(title: "Location interval")
+            Text("How often your phone shares your position with your crew during the race. Shorter uses more battery.")
+                .font(CrewFont.body)
+                .foregroundStyle(theme.body)
+            Picker("Location interval", selection: $interval) {
+                ForEach(TrackingSettings.allowedIntervalSeconds, id: \.self) { seconds in
+                    Text(verbatim: "Every \(MapModel.intervalText(seconds))").tag(seconds)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("crewcue.location-interval")
+        }
+        .crewCard()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Location interval")
+        .onAppear {
+            interval = mapModel.trackingIntervalSeconds
+            if let userId, let directory = try? AppDirectories.userDirectory(userId: userId) {
+                interval = TrackingSettings.load(userDirectory: directory).intervalSeconds
+            }
+        }
+        .onChange(of: interval) { _, seconds in
+            guard let userId, let directory = try? AppDirectories.userDirectory(userId: userId) else { return }
+            try? TrackingSettings(intervalSeconds: seconds).save(userDirectory: directory)
+            mapModel.reloadTrackingInterval()
+        }
+    }
+}
+
 struct SettingsStravaSection: View {
     @Bindable var model: StravaModel
     @Environment(\.crew) private var theme
@@ -210,5 +267,46 @@ struct ChatAlertChoice: View {
             }
         }
         .disabled(isWorking)
+    }
+}
+
+/// Delete account row and its confirm step (#560, App Store 5.1.1(v)).
+struct SettingsDeleteAccountRow: View {
+    @Bindable var model: AccountDeletionModel
+    var onDeleted: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CrewListRow(systemImage: "trash", title: AccountDeletion.rowTitle, tint: theme.danger) {
+                model.confirming = true
+            }
+            .disabled(model.deleting)
+            .accessibilityIdentifier("crewcue.account-deletion")
+            .accessibilityLabel(AccountDeletion.rowTitle)
+            if model.message.isEmpty == false {
+                Text(verbatim: model.message)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .accessibilityIdentifier("crewcue.account-deletion.message")
+            }
+            if let url = model.webURL {
+                Link(AccountDeletion.webLinkLabel, destination: url)
+                    .font(.footnote)
+                    .tint(theme.body)
+            }
+        }
+        .alert(AccountDeletion.confirmTitle, isPresented: $model.confirming) {
+            Button(AccountDeletion.confirmButton, role: .destructive) {
+                Task {
+                    if await model.delete() {
+                        onDeleted()
+                    }
+                }
+            }
+            Button(AccountDeletion.cancelButton, role: .cancel) {}
+        } message: {
+            Text(AccountDeletion.confirmBody)
+        }
     }
 }

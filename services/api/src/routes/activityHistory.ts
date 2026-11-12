@@ -1,6 +1,7 @@
 /**
  * Athlete past-activity history ingest (W3-1).
  * GPX upload → ActivityHistoryRef; list/get for later W3-3 pacing.
+ * `POST /activity-history/file` takes GPX, FIT or TCX exports (#652).
  */
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -12,6 +13,12 @@ import {
   parseGpxActivityMetrics
 } from "../lib/gpxActivityHistory.js";
 import { MAX_GPX_XML_CHARS } from "../lib/gpxLimits.js";
+import {
+  ActivityFileError,
+  fingerprintActivityFile,
+  MAX_ACTIVITY_FILE_BYTES,
+  parseActivityFileMetrics
+} from "../lib/activityFileHistory.js";
 import {
   getActivityHistoryForAthlete,
   initActivityHistoryStore,
@@ -28,6 +35,19 @@ const ingestGpxInput = z
      * Optional athlete scope. When present must equal the authenticated user.
      * Prevents writing another athlete's history (EC3).
      */
+    athleteUserId: z.string().min(1).optional()
+  })
+  .strict();
+
+/** Base64 length of the largest accepted file. */
+const MAX_ACTIVITY_FILE_BASE64_CHARS = Math.ceil(MAX_ACTIVITY_FILE_BYTES / 3) * 4;
+
+/** Exported watch file (.gpx, .fit, .tcx) as base64 (#652). */
+const ingestFileInput = z
+  .object({
+    fileName: z.string().min(1).max(255),
+    contentBase64: z.string().min(1),
+    externalId: z.string().min(1).optional(),
     athleteUserId: z.string().min(1).optional()
   })
   .strict();
@@ -128,7 +148,59 @@ export async function activityHistoryRoutes(app: FastifyInstance): Promise<void>
       ...(metrics.elapsedSeconds !== undefined ? { elapsedSeconds: metrics.elapsedSeconds } : {}),
       ...(metrics.elevationGainMeters !== undefined
         ? { elevationGainMeters: metrics.elevationGainMeters }
-        : {})
+        : {}),
+      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {})
+    };
+
+    const validated = parseActivityHistoryRef(candidate);
+    const result = await upsertActivityHistory(athleteUserId, validated);
+    return reply.code(result.created ? 201 : 200).send(result.ref);
+  });
+
+  app.post("/activity-history/file", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const parsedBody = ingestFileInput.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply.code(400).send({ error: "Invalid activity file payload" });
+    }
+
+    const athleteUserId = request.identity.sub;
+    if (parsedBody.data.athleteUserId !== undefined && parsedBody.data.athleteUserId !== athleteUserId) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    if (parsedBody.data.contentBase64.length > MAX_ACTIVITY_FILE_BASE64_CHARS) {
+      return reply
+        .code(413)
+        .send({ error: "The file is larger than 10 MB. Export a single activity.", code: "file_too_large" });
+    }
+
+    const bytes = new Uint8Array(Buffer.from(parsedBody.data.contentBase64, "base64"));
+    let metrics;
+    try {
+      metrics = parseActivityFileMetrics(bytes, parsedBody.data.fileName);
+    } catch (err) {
+      if (err instanceof ActivityFileError) {
+        return reply.code(err.code === "file_too_large" ? 413 : 400).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
+
+    const ingestedAt = toIsoNow();
+    const candidate: ActivityHistoryRef = {
+      id: randomUUID(),
+      source: metrics.source,
+      externalId: parsedBody.data.externalId ?? fingerprintActivityFile(bytes),
+      recordedAt: metrics.recordedAt ?? ingestedAt,
+      ingestedAt,
+      distanceMeters: metrics.distanceMeters,
+      ...(metrics.elapsedSeconds !== undefined ? { elapsedSeconds: metrics.elapsedSeconds } : {}),
+      ...(metrics.elevationGainMeters !== undefined
+        ? { elevationGainMeters: metrics.elevationGainMeters }
+        : {}),
+      ...(metrics.slowdownSlope !== undefined ? { slowdownSlope: metrics.slowdownSlope } : {})
     };
 
     const validated = parseActivityHistoryRef(candidate);

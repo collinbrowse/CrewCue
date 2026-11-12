@@ -6,6 +6,9 @@ import com.crewcue.android.ClientCoreBridge
 import com.crewcue.android.auth.Auth0SdkGateway
 import com.crewcue.android.auth.AuthConfig
 import com.crewcue.android.auth.AuthGateway
+import com.crewcue.android.billing.FakeStorePurchaser
+import com.crewcue.android.billing.RevenueCatPurchaser
+import com.crewcue.android.billing.StorePurchaser
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
@@ -18,6 +21,14 @@ class AppContainer(context: Context) {
     val authConfig = AuthConfig.load(appContext)
     val authGateway: AuthGateway = Auth0SdkGateway(authConfig)
     val raceDay = RaceDayBridge(authConfig.apiBaseUrl, sessionStore, logger)
+
+    /** Debug builds with no RevenueCat key buy through the API's fake purchaser; everything else uses RevenueCat. */
+    val storePurchaser: StorePurchaser =
+        if (BuildConfig.DEBUG && BuildConfig.REVENUECAT_API_KEY.isBlank()) {
+            FakeStorePurchaser(raceDay)
+        } else {
+            RevenueCatPurchaser(appContext, BuildConfig.REVENUECAT_API_KEY, raceDay, sessionStore, logger)
+        }
 
     fun featureScreenJson(url: String): String {
         if (BuildConfig.DEBUG) logger.log(url)

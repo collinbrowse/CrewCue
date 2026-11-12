@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 
 @MainActor
 final class RemoteNotificationTokenCenter {
@@ -61,7 +62,61 @@ final class RemoteNotificationTokenCenter {
     }
 }
 
-final class CrewCueAppDelegate: NSObject, UIApplicationDelegate {
+/// Hands tapped chat notifications to the shell. Holds one tap until the shell is ready.
+@MainActor
+final class PushRouter {
+    static let shared = PushRouter()
+
+    var handler: ((String) -> Void)? {
+        didSet { deliverPending() }
+    }
+    private var pending: String?
+
+    func open(roomId: String) {
+        pending = roomId
+        deliverPending()
+    }
+
+    private func deliverPending() {
+        guard let handler, let roomId = pending else { return }
+        pending = nil
+        handler(roomId)
+    }
+}
+
+final class CrewCueAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    /// Payload from the API: `{"aps": {...}, "type": "chat", "roomId": "..."}`.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let info = response.notification.request.content.userInfo
+        let roomId = info["roomId"] as? String
+        let type = info["type"] as? String
+        completionHandler()
+        guard let roomId, !roomId.isEmpty, type == nil || type == "chat" else { return }
+        Task { @MainActor in
+            PushRouter.shared.open(roomId: roomId)
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data

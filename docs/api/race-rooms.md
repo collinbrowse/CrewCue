@@ -44,6 +44,12 @@ Non-members receive **403 Forbidden** for those operations (except invite accept
 
 Entitlement updates themselves do **not** require a paid entitlement; they only require membership and sufficient role.
 
+### Crew tier (#649)
+
+`room.entitlement.crewTier` is `one` (Race Pass: the runner plus 1 crew member) or `unlimited` (Full Crew). New rooms start `unpaid` with `one`. Rooms stored before billing have no tier and read as `unlimited`. The runner seat (the race athlete and the room creator, `createdByUserId`) does not count; every other member is crew.
+
+Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
+
 ## Endpoints
 
 ### `POST /race-rooms`
@@ -121,7 +127,7 @@ Issues a pending invite for an email and target role.
 | 201 | Returns invite metadata (`token`, `roomId`, `email`, `role`, `expiresAt`) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
-| 403 | Not a member or insufficient role |
+| 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/invites/accept`
@@ -147,13 +153,14 @@ Accepts an invite token for the authenticated user (membership is created or rol
 
 ### `POST /race-rooms/:roomId/entitlement`
 
-Updates `room.entitlement` (manual source, server timestamp).
+Updates `room.entitlement` (manual source, server timestamp). For local dev, tests, and staging only: with `NODE_ENV=production` it answers **403** `Manual entitlement is disabled` unless `BILLING_MANUAL_ENTITLEMENT=enabled`. Production rooms are paid by store purchases ([billing.md](billing.md)).
 
 **Body (JSON)**
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `status` | `"unpaid"` \| `"paid"` \| `"expired"` | required |
+| `crewTier` | `"one"` \| `"unlimited"` | optional, default `unlimited` |
 
 **Responses**
 

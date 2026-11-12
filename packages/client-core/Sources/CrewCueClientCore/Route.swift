@@ -48,14 +48,21 @@ public struct Route: Equatable, Hashable, Sendable {
         case "dev/map-checkpoint-pick": "map-checkpoint-pick"
         case "dev/map-navigate": "map-navigate"
         case "dev/location-heartbeat": "location-heartbeat"
+        case "dev/runner-track": "runner-track"
+        case "dev/live-eta": "live-eta"
         case "dev/chat": "chat-thread"
         case "dev/chat-notification-prefs": "chat-notification-prefs"
         case "dev/push-registration": "push-registration"
         case "dev/profile": "profile"
         case "dev/room-members": "room-members"
-        case "dev/strava": "strava"
+        case "dev/activity-import": "activity-import"
+        case "dev/strava": ClientFeatureFlags.stravaEnabled ? "strava" : nil
+        case "dev/account-deletion": "account-deletion"
         case "dev/app-shell": "app-shell"
         case "dev/loader": "brand-loader"
+        case "dev/billing-purchase": "billing-purchase"
+        case "dev/billing-upgrade": "billing-upgrade"
+        case "dev/billing-redeem": "billing-redeem"
         default: nil
         }
     }

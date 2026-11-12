@@ -63,11 +63,32 @@ final class PushRegistrationModel {
         await enqueue(token: token, ticket: ticket)
     }
 
+    /// Re-registers this device's token without asking, when notifications are already allowed.
+    func refreshIfAuthorized(role: String?) async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) else { return }
+        self.role = role ?? ""
+        generation += 1
+        let ticket = generation
+        guard let token = await RemoteNotificationTokenCenter.shared.requestToken(), !token.isEmpty else { return }
+        await enqueue(token: token, ticket: ticket)
+        message = ""
+    }
+
     func clear() {
         generation += 1
         message = ""
         role = ""
         isWorking = false
+    }
+
+    /// Debug builds get tokens from the APNs development gateway (see CrewCue.entitlements).
+    static var apnsEnvironment: String {
+        #if DEBUG
+        "development"
+        #else
+        "production"
+        #endif
     }
 
     private func authorization(status: UNAuthorizationStatus) async -> Bool {
@@ -98,7 +119,8 @@ final class PushRegistrationModel {
                 deviceId: InstallDeviceId.current(),
                 platform: "ios",
                 token: token,
-                role: role.isEmpty ? "crew" : role
+                role: role.isEmpty ? "crew" : role,
+                apnsEnvironment: Self.apnsEnvironment
             )
         } catch {
             guard ticket == generation else { return }

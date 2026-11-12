@@ -124,20 +124,10 @@ public enum OutboxPolicy {
         if http.status == 409 {
             return OutboxFailureResolution(status: "conflict", retryable: false, feedback: http.bodyError ?? http.message)
         }
-        if [400, 403, 404].contains(http.status) {
+        if [400, 403, 404, 413, 415].contains(http.status) {
             return OutboxFailureResolution(status: "rejected", retryable: false, feedback: http.bodyError ?? http.message)
         }
         return OutboxFailureResolution(status: "pending", retryable: true, feedback: http.bodyError ?? http.message)
-    }
-
-    /// The server (or Stream) already has this client message id. A resend after a crash or a lost
-    /// response lands here, and it counts as delivered.
-    public static func isAlreadyDelivered(_ error: any Error) -> Bool {
-        if let http = error as? ClientHTTPError {
-            return resolve(http).status == "accepted"
-        }
-        let text = "\(error) \((error as NSError).localizedDescription)".lowercased()
-        return text.contains("already exists")
     }
 
     public static func isSafeRetry(_ operation: OutboxOperation) -> Bool {

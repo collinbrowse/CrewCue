@@ -6,14 +6,18 @@
   <string>CrewCue</string>
   <key>CrewCueAPIBaseURL</key>
   <string>$(CREWCUE_API_BASE_URL)</string>
-  <key>CrewCueMapTilerKey</key>
-  <string>$(CREWCUE_MAPTILER_KEY)</string>
   <key>CrewCueAuth0Domain</key>
   <string>$(CREWCUE_AUTH0_DOMAIN)</string>
   <key>CrewCueAuth0ClientId</key>
   <string>$(CREWCUE_AUTH0_CLIENT_ID)</string>
   <key>CrewCueAuth0Audience</key>
   <string>$(CREWCUE_AUTH0_AUDIENCE)</string>
+  <key>CrewCueRevenueCatAPIKey</key>
+  <string>$(CREWCUE_REVENUECAT_API_KEY)</string>
+  <key>CrewCueAccountDeletionURL</key>
+  <string>$(CREWCUE_ACCOUNT_DELETION_URL)</string>
+  <key>CrewCueSentryDSN</key>
+  <string>$(CREWCUE_SENTRY_DSN)</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -34,7 +38,13 @@
     </dict>
   </array>
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>CrewCue uses your location while you are using the app to share the athlete's position with the crew.</string>
+  <string>CrewCue shares the runner's position with their crew during the race.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>Allow "Always" so CrewCue keeps sharing the runner's position with their crew every few minutes while the phone is locked during the race. Tracking runs only after you tap Start tracking, and stops at the finish.</string>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+  </array>
   <key>UILaunchScreen</key>
   <dict>
     <key>UIColorName</key>

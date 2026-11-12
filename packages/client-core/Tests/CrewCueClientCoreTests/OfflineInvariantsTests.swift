@@ -212,59 +212,7 @@ import Testing
     let report = try await RaceDayAPI.flushOutbox(graph: graph(transport: transport, outbox: store))
     #expect(report.accepted.count == 1)
     #expect(try await store.operations().isEmpty)
-
-    #expect(OutboxPolicy.isAlreadyDelivered(StreamStyleError(description: #"Message with id "m-1" already exists"#)))
-    #expect(!OutboxPolicy.isAlreadyDelivered(StreamStyleError(description: "The request timed out.")))
 }
-
-@Test func claimedChatIsHandedOutOnceAndReclaimedAfterRelaunch() async throws {
-    let directory = temporaryDirectory()
-    let store = try OutboxStore.shared(userId: "crew-1", directory: directory)
-    _ = try await store.enqueueChat(roomId: "room", text: "On my way", clientMessageId: "m-1", role: "crew_member")
-    _ = try await store.enqueueChat(roomId: "other", text: "Elsewhere", clientMessageId: "m-2", role: "crew_member")
-    let claimed = try await store.claimPendingChat(roomId: "room")
-    #expect(claimed.map(\.clientMessageId) == ["m-1"])
-    #expect(try await store.claimPendingChat(roomId: "room").isEmpty)
-
-    // Relaunch: the memory-only claim is gone, the message is still pending on disk.
-    OutboxStore.forgetSharedStoreForTesting(directory: directory)
-    let relaunched = try OutboxStore.shared(userId: "crew-1", directory: directory)
-    let reclaimed = try await relaunched.claimPendingChat(roomId: "room")
-    #expect(reclaimed.map(\.clientMessageId) == ["m-1"])
-
-    try await relaunched.settleChat(id: "m-1", error: StreamStyleError(description: "timeout"))
-    #expect(try await relaunched.operations().contains { $0.id == "m-1" && $0.status == "pending" })
-    #expect(try await relaunched.claimPendingChat(roomId: "room").map(\.id) == ["m-1"])
-    try await relaunched.settleChat(id: "m-1", error: StreamStyleError(description: "message already exists"))
-    #expect(try await relaunched.operations().map(\.id) == ["m-2"])
-}
-
-@Test func aMessageBeingSentIsNotClaimedByRedelivery() async throws {
-    let store = try OutboxStore.shared(userId: "crew-1", directory: temporaryDirectory())
-    _ = try await store.enqueueChat(roomId: "room", text: "One", clientMessageId: "m-1", role: "crew_member")
-    _ = try await store.enqueueChat(roomId: "room", text: "Two", clientMessageId: "m-2", role: "crew_member")
-    #expect(try await store.claimChat(id: "m-1"))
-    #expect(try await store.claimChat(id: "m-1") == false)
-    #expect(try await store.claimPendingChat(roomId: "room").map(\.id) == ["m-2"])
-    #expect(try await store.claimChat(id: "missing") == false)
-}
-
-@Test func bridgeSettleChatTreatsAlreadyExistsAsDelivered() async throws {
-    let root = temporaryDirectory()
-    let base: [String: Any] = ["storageDir": root.path, "userId": "crew-1", "role": "crew_member", "roomId": "room"]
-    _ = try await runtime(base.merging(["op": "enqueueChat", "text": "Hi", "clientMessageId": "m-1"]) { $1 })
-    let claimed = try resultObject(try await runtime(base.merging(["op": "claimPendingChat"]) { $1 }))
-    let rows = try #require(claimed["messages"] as? [[String: Any]])
-    #expect(rows.compactMap { $0["clientMessageId"] as? String } == ["m-1"])
-    #expect(rows.compactMap { $0["text"] as? String } == ["Hi"])
-
-    let retry = try resultObject(try await runtime(base.merging(["op": "settleChat", "id": "m-1", "error": "socket closed"]) { $1 }))
-    #expect((retry["status"] as? String) == "pending")
-    let done = try resultObject(try await runtime(base.merging(["op": "settleChat", "id": "m-1", "error": "a message with ID m-1 already exists"]) { $1 }))
-    #expect((done["status"] as? String) == "delivered")
-}
-
-// MARK: 4. No data across accounts
 
 @Test func signOutRunsEveryWiperEvenWhenOneFails() throws {
     let session = SessionController(session: ClientSession(userId: "athlete-1", role: "athlete"))
@@ -387,18 +335,6 @@ import Testing
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["users"])
     let kept = try resultObject(try await runtime(["op": "listOutbox", "storageDir": root.path, "userId": "crew-b"]))
     #expect(number(kept["pending"]) == 1)
-}
-
-@Test func bridgeClaimChatHandsOutOneSendOnly() async throws {
-    let root = temporaryDirectory()
-    let base: [String: Any] = ["storageDir": root.path, "userId": "crew-1", "role": "crew_member", "roomId": "room"]
-    _ = try await runtime(base.merging(["op": "enqueueChat", "text": "Hi", "clientMessageId": "m-1"]) { $1 })
-    let first = try resultObject(try await runtime(base.merging(["op": "claimChat", "id": "m-1"]) { $1 }))
-    let second = try resultObject(try await runtime(base.merging(["op": "claimChat", "id": "m-1"]) { $1 }))
-    #expect(flag(first, "claimed"))
-    #expect(flag(second, "claimed") == false)
-    let pending = try resultObject(try await runtime(base.merging(["op": "claimPendingChat"]) { $1 }))
-    #expect((pending["messages"] as? [[String: Any]])?.isEmpty == true)
 }
 
 @Test func expiredSessionStopsTheFlushWithoutRejectingWork() async throws {
@@ -584,9 +520,6 @@ private func number(_ value: Any?) -> Int? {
     return value as? Int
 }
 
-private struct StreamStyleError: Error, CustomStringConvertible {
-    var description: String
-}
 
 /// Holds a send open until the test releases it, so other work can interleave.
 private actor Gate {

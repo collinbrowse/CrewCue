@@ -94,6 +94,7 @@ jobs:
       - run: npm run build
       - run: npm run test
       - run: npm run agent:harness:test
+      - run: npm run kb:check  # docs/kb/generated must match the code; fix with `npm run kb:generate`
       - uses: ./.github/actions/setup-swift
         with:
           version: "6.3.2"

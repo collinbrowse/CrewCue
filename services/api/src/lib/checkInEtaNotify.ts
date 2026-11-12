@@ -11,18 +11,14 @@
  * planned stoppage + delayOverride at the check-in checkpoint (LWW absolute).
  */
 import type { FastifyBaseLogger } from "fastify";
-import {
-  chatChannelIdForRoom,
-  type ChatNotificationPref,
-  type RaceRoom
-} from "@crewcue/contracts";
+import type { ChatNotificationPref, RaceRoom } from "@crewcue/contracts";
 import {
   listChatNotificationPrefsForUsers,
   listChatPushDevicesForUsers
 } from "./chatPersistence.js";
 import {
   dispatchChatPush,
-  tokensToTargets,
+  devicesToTargets,
   type ChatPushDispatchResult
 } from "./chatPushDispatch.js";
 
@@ -213,11 +209,11 @@ export async function notifyEntitledMembersOfCheckInEtaShift(input: {
   const previewText = formatCheckInEtaNotifyPreview(shift);
   try {
     const dispatch = await dispatchChatPush({
-      channelId: chatChannelIdForRoom(input.room.id),
+      kind: "schedule",
       roomId: input.room.id,
-      previewText,
-      targets: tokensToTargets(tokens),
-      genericFallback: "Crew schedule updated"
+      title: input.room.name?.trim() || "Crew schedule updated",
+      body: previewText,
+      targets: devicesToTargets(tokens)
     });
     input.log.info(
       {

@@ -12,7 +12,7 @@ What is enforced today, and where.
 
 - Never commit real secrets. Only `*.example` env files are tracked (`.gitignore`).
 - Deployed API secrets live in Railway variables. CI and release secrets live in GitHub Actions environments.
-- Native apps ship only public identifiers (Auth0 domain and client id, API base URL, Stream public key). Management credentials never go into an app.
+- Native apps ship only public identifiers (Auth0 domain and client id, API base URL). Management credentials never go into an app.
 
 ## Client data (requirements for native auth; not built yet)
 

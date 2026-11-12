@@ -140,6 +140,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.map-navigate", title: "Navigate", body: navigateBody(state))
         case "location-heartbeat":
             return FeatureCopy(accessibilityIdentifier: "crewcue.location-heartbeat", title: "Location", body: locationBody(state))
+        case "runner-track":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.runner-track", title: "Runner path", body: runnerTrackBody(state))
+        case "live-eta":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.live-eta", title: "Live ETAs", body: liveEtaBody(state))
         case "chat-thread":
             return FeatureCopy(accessibilityIdentifier: "crewcue.chat", title: "Chat", body: chatBody(state))
         case "chat-notification-prefs":
@@ -150,12 +154,22 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.profile", title: "Profile", body: profileBody(state))
         case "room-members":
             return FeatureCopy(accessibilityIdentifier: "crewcue.room-members", title: "Room members", body: membersBody(state))
+        case "activity-import":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.activity-import", title: "Past runs", body: activityImportBody(state))
         case "strava":
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
+        case "account-deletion":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.account-deletion", title: AccountDeletion.rowTitle, body: accountDeletionBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
             return FeatureCopy(accessibilityIdentifier: "crewcue.loader", title: "Loading", body: loaderBody(state))
+        case "billing-purchase":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-purchase", title: "Race Pass", body: billingPurchaseBody(state))
+        case "billing-upgrade":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-upgrade", title: "Full Crew", body: billingUpgradeBody(state))
+        case "billing-redeem":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.billing-redeem", title: "Redeem code", body: billingRedeemBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -342,10 +356,28 @@ private func locationBody(_ state: FeatureState) -> String {
     let sample = OutboxOperation(id: "loc-1", type: "ping", status: "pending", conflictKey: "ping:room")
     let merged = OutboxPolicy.merge([], sample, conflictKey: sample.conflictKey)
     switch state {
-    case .success: return "Location sample queued. Pending \(OutboxPolicy.countPending(merged))."
+    case .success: return "Tracking. A sample every 3 min. Pending \(OutboxPolicy.countPending(merged))."
     case .empty: return "No location sample yet."
-    case .error: return "Location permission was denied."
+    case .error: return "Location permission was denied. Turn it on in Settings to share your position."
     case .offline: return "Offline. Sample queued in the outbox."
+    }
+}
+
+private func runnerTrackBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: return "PATH · 12 POINTS"
+    case .empty: return "NO PATH YET"
+    case .error: return "The last path stays drawn and the ping chip ages to stale."
+    case .offline: return "The last path stays drawn; new points appear after the connection returns."
+    }
+}
+
+private func liveEtaBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: return "Finish ETA 14:20"
+    case .empty: return "No Finish ETA row; the timeline shows planned times only."
+    case .error: return "The last ETAs stay visible."
+    case .offline: return "The last ETAs stay visible, marked old ping once the server's projection is stale."
     }
 }
 
@@ -353,10 +385,10 @@ private func chatBody(_ state: FeatureState) -> String {
     let tokens = Mentions.parse("See @Ada at aid 1", members: [MentionMember(userId: "u1", displayName: "Ada")])
     let mentioned = tokens.contains { if case .mention(let name, _) = $0 { return name == "Ada" }; return false }
     switch state {
-    case .success: return mentioned ? "Stream pocket. Mentioned Ada." : "Stream pocket."
-    case .empty: return "No messages."
-    case .error: return "Couldn't open the channel."
-    case .offline: return "Offline. Message queued on this device."
+    case .success: return mentioned ? "Crew chat. Mentioned Ada." : "Crew chat."
+    case .empty: return ChatCopy.empty
+    case .error: return ChatCopy.error
+    case .offline: return ChatCopy.offline
     }
 }
 
@@ -396,12 +428,30 @@ private func membersBody(_ state: FeatureState) -> String {
     }
 }
 
+private func activityImportBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: ActivityImport.successMessage
+    case .empty: ActivityImport.emptyMessage
+    case .error: ActivityImport.errorMessage
+    case .offline: ActivityImport.offlineMessage
+    }
+}
+
 private func stravaBody(_ state: FeatureState) -> String {
     switch state {
     case .success: "Strava disconnected."
     case .empty: "Strava is not connected."
     case .error: "Strava connection failed."
     case .offline: "Offline. Can't reach Strava."
+    }
+}
+
+private func accountDeletionBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Account deleted. You are signed out."
+    case .empty: AccountDeletion.confirmBody
+    case .error: AccountDeletion.genericFailureMessage
+    case .offline: AccountDeletion.offlineMessage
     }
 }
 
@@ -420,5 +470,35 @@ private func loaderBody(_ state: FeatureState) -> String {
     case .empty: "Loading."
     case .error: "Couldn't load."
     case .offline: "Offline. Waiting for a connection."
+    }
+}
+
+/// Copy for clients/behavior/billing-purchase.md.
+private func billingPurchaseBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Unlocked: you plus 1 crew member."
+    case .empty: "No Race Pass yet. Buy one to open this race."
+    case .error: "Couldn't complete the purchase."
+    case .offline: "Offline. Purchases need the network."
+    }
+}
+
+/// Copy for clients/behavior/billing-upgrade.md.
+private func billingUpgradeBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Unlocked: unlimited crew."
+    case .empty: "Race Pass: you plus 1 crew member (1 of 1 joined)."
+    case .error: "This race is full. Ask the runner to add Full Crew so more crew can join."
+    case .offline: "Offline. Purchases need the network."
+    }
+}
+
+/// Copy for clients/behavior/billing-redeem.md.
+private func billingRedeemBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Code redeemed. Unlocking your race."
+    case .empty: "Have a code? Redeem it with the App Store or Google Play."
+    case .error: "Couldn't open code redemption."
+    case .offline: "Offline. Redeeming a code needs the network."
     }
 }
