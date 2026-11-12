@@ -1,6 +1,10 @@
 package com.crewcue.android.ui.chat
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
+import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.ui.draw.clip
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,7 +26,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -73,22 +76,61 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
 
+/** Decoded chat photos, so a bubble scrolled back into view shows its photo at once. */
+private object ChatPhotoCache {
+    private val bitmaps = object : LruCache<String, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 16).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    ) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    fun get(url: String): Bitmap? = bitmaps.get(url)
+
+    fun load(url: String): Bitmap? {
+        get(url)?.let { return it }
+        val bytes = URL(url).openStream().use { it.readBytes() }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = ChatPhotoLayout.sampleSize(bounds.outWidth, bounds.outHeight)
+        }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+        bitmaps.put(url, bitmap)
+        return bitmap
+    }
+}
+
+/** A chat photo in a fixed frame: a spinner while loading, an icon if it can't load. */
 @Composable
 private fun ChatImage(url: String, modifier: Modifier = Modifier) {
-    var bitmap by remember(url) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var bitmap by remember(url) { mutableStateOf(ChatPhotoCache.get(url)) }
+    var failed by remember(url) { mutableStateOf(false) }
     LaunchedEffect(url) {
-        bitmap = withContext(Dispatchers.IO) {
-            runCatching { BitmapFactory.decodeStream(URL(url).openStream()) }.getOrNull()
-        }
+        if (bitmap != null) return@LaunchedEffect
+        val loaded = withContext(Dispatchers.IO) { runCatching { ChatPhotoCache.load(url) }.getOrNull() }
+        bitmap = loaded
+        failed = loaded == null
     }
-    val loaded = bitmap
-    if (loaded != null) {
-        Image(
-            loaded.asImageBitmap(),
-            contentDescription = "Shared photo",
-            modifier = modifier,
-            contentScale = ContentScale.Fit
-        )
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .size(ChatPhotoLayout.FRAME_WIDTH_DP.dp, ChatPhotoLayout.FRAME_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.surfaceContainerHighest)
+            .semantics { contentDescription = if (failed) "Photo unavailable" else "Shared photo" },
+        contentAlignment = Alignment.Center
+    ) {
+        val loaded = bitmap
+        when {
+            loaded != null -> Image(
+                loaded.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            failed -> Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = colors.onSurfaceVariant)
+            else -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
     }
 }
 
@@ -114,8 +156,9 @@ fun ChatScreen(
         if (uri != null) model.sendPhoto(context.applicationContext, uri)
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(model.messages.size) {
-        if (model.messages.isNotEmpty()) listState.animateScrollToItem(model.messages.lastIndex)
+    // Follow the newest message. Keyed on its id, so loading older messages doesn't jump down.
+    LaunchedEffect(model.messages.lastOrNull()?.id) {
+        ChatPhotoLayout.newestIndex(model.messages.size, model.hasOlder)?.let { listState.animateScrollToItem(it) }
     }
     Column(
         modifier
@@ -284,7 +327,12 @@ private fun ChatBubble(line: CrewChatMessage, onDiscard: () -> Unit) {
                         Text(line.text, style = MaterialTheme.typography.bodyLarge, color = if (line.mine) colors.onPrimary else colors.onSurface)
                     }
                     line.imageUrl?.let { url ->
-                        ChatImage(url, Modifier.padding(top = 6.dp).heightIn(max = 180.dp).testTag("crewcue.chat-photo"))
+                        ChatImage(
+                            url,
+                            Modifier
+                                .padding(top = if (line.text.isNotBlank()) 6.dp else 0.dp)
+                                .testTag("crewcue.chat-photo")
+                        )
                     }
                 }
             }

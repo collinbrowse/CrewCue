@@ -134,6 +134,101 @@ export function geodesicProjectPointToPolyline(
   return { progressMeters, courseLengthMeters, distanceMetersFromRoute };
 }
 
+/**
+ * Two stretches of the route count as the same ground when the fix is at most this much farther
+ * from one than from the other. That holds for a trail run out and back, or a loop's shared
+ * start and finish, where the two lines are a few metres apart. It does not hold for switchback
+ * legs or parallel trails 25 m or more apart, which keep the plain nearest point.
+ */
+const SAME_GROUND_TOLERANCE_METERS = 12;
+/** Along the route, points this close to each other are one stretch, not two. */
+const SAME_STRETCH_METERS = 100;
+
+/**
+ * Like {@link geodesicProjectPointToPolyline}, for a route that passes the same ground more than
+ * once (a loop that finishes at its start, an out-and-back, a lollipop). Where the fix is on
+ * ground the route covers more than once, take the stretch whose arc length is closest to
+ * `expectedProgressMeters`, the runner's last progress plus what they have likely covered since.
+ * Any other fix gets the plain nearest point, whatever was expected.
+ */
+export function geodesicProjectPointToPolylineNearProgress(
+  points: CourseMetricPoint[],
+  target: Pick<CourseMetricPoint, "latitude" | "longitude">,
+  expectedProgressMeters: number
+): ProjectedCoursePoint {
+  const nearest = geodesicProjectPointToPolyline(points, target);
+  const canonical = validPolyline(points);
+  if (canonical.length < 3 || !Number.isFinite(expectedProgressMeters)) {
+    return nearest;
+  }
+
+  // Flat metres around the fix: exact enough near it, and far stretches only need to rank as far.
+  const metersPerDegreeLatitude = 111_320;
+  const metersPerDegreeLongitude = metersPerDegreeLatitude * Math.cos((target.latitude * Math.PI) / 180);
+  const xs = canonical.map((p) => (p.longitude - target.longitude) * metersPerDegreeLongitude);
+  const ys = canonical.map((p) => (p.latitude - target.latitude) * metersPerDegreeLatitude);
+  const cumulative = geodesicCumulativeAtVertices(canonical);
+
+  // Closest point to the fix on each segment.
+  const closest: Array<{ segment: number; ratio: number; progressMeters: number; distanceMeters: number }> = [];
+  for (let i = 0; i < canonical.length - 1; i += 1) {
+    const segmentMeters = cumulative[i + 1]! - cumulative[i]!;
+    const dx = xs[i + 1]! - xs[i]!;
+    const dy = ys[i + 1]! - ys[i]!;
+    const squared = dx * dx + dy * dy;
+    if (segmentMeters < 1e-6 || squared <= 0) {
+      continue;
+    }
+    const ratio = Math.max(0, Math.min(1, -(xs[i]! * dx + ys[i]! * dy) / squared));
+    closest.push({
+      segment: i,
+      ratio,
+      progressMeters: cumulative[i]! + ratio * segmentMeters,
+      distanceMeters: Math.hypot(xs[i]! + ratio * dx, ys[i]! + ratio * dy)
+    });
+  }
+  if (closest.length === 0) {
+    return nearest;
+  }
+
+  // A stretch of the route that passes the fix shows up as a dip in distance along the line.
+  let nearestMeters = Number.POSITIVE_INFINITY;
+  for (const c of closest) {
+    nearestMeters = Math.min(nearestMeters, c.distanceMeters);
+  }
+  const passes = closest.filter((c, index) => {
+    const before = closest[index - 1]?.distanceMeters ?? Number.POSITIVE_INFINITY;
+    const after = closest[index + 1]?.distanceMeters ?? Number.POSITIVE_INFINITY;
+    return (
+      c.distanceMeters <= before &&
+      c.distanceMeters <= after &&
+      c.distanceMeters <= nearestMeters + SAME_GROUND_TOLERANCE_METERS
+    );
+  });
+  const offExpected = (c: { progressMeters: number }) => Math.abs(c.progressMeters - expectedProgressMeters);
+  const expectedPass = passes.reduce((best, c) => (offExpected(c) < offExpected(best) ? c : best), passes[0]!);
+
+  // Same stretch as the plain nearest point: keep that answer.
+  if (Math.abs(expectedPass.progressMeters - nearest.progressMeters) <= SAME_STRETCH_METERS) {
+    return nearest;
+  }
+  // Another stretch: the nearest point on it.
+  const chosen = closest
+    .filter((c) => Math.abs(c.progressMeters - expectedPass.progressMeters) <= SAME_STRETCH_METERS)
+    .reduce((best, c) => (c.distanceMeters < best.distanceMeters ? c : best), expectedPass);
+  const from = canonical[chosen.segment]!;
+  const to = canonical[chosen.segment + 1]!;
+  const onRoute = {
+    latitude: from.latitude + chosen.ratio * (to.latitude - from.latitude),
+    longitude: from.longitude + chosen.ratio * (to.longitude - from.longitude)
+  };
+  return {
+    progressMeters: Math.min(nearest.courseLengthMeters, Math.max(0, chosen.progressMeters)),
+    courseLengthMeters: nearest.courseLengthMeters,
+    distanceMetersFromRoute: geodesicDistanceMeters(onRoute, target)
+  };
+}
+
 function projectionRatioOnSegment(
   start: Pick<CourseMetricPoint, "latitude" | "longitude">,
   end: Pick<CourseMetricPoint, "latitude" | "longitude">,

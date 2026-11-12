@@ -61,7 +61,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 765 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 779 |
 | [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 3 | 192 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
@@ -192,7 +192,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Auth` | 2 | 175 |
 | `Screens/Billing` | 2 | 455 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 888 |
+| `Screens/Chat` | 4 | 909 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 4 | 1767 |
@@ -206,7 +206,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### Android app (Compose)
 
-105 files under `apps/android/app/src/main/`.
+106 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -227,7 +227,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 479 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 6 | 1100 |
+| `kotlin/com/crewcue/android/ui/chat` | 7 | 1179 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/join` | 1 | 110 |
 | `kotlin/com/crewcue/android/ui/map` | 5 | 1642 |
