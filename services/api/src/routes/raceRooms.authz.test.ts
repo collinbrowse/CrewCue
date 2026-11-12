@@ -480,6 +480,14 @@ test("only the race owner can issue invites above crew_member", async () => {
   });
   assert.equal(createResponse.statusCode, 201);
   const roomId = (createResponse.json() as { id: string }).id;
+  // Crew plus a crew chief needs the Full Crew tier (#649).
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid", crewTier: "unlimited" },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(paid.statusCode, 200);
 
   const chiefInvite = await app.inject({
     method: "POST",
