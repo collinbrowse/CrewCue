@@ -1,0 +1,18 @@
+{
+  "id": "chat-thread",
+  "platform": "android",
+  "entry": "crewcue://dev/chat",
+  "device": "crewcue_api_35 emulator (API 35) as emulator-5558, read-only, debug APK",
+  "date": "2026-11-09",
+  "commit": "Local build of #674 (Stream removed) merged with main 9375f4b, plus the poll deadline (02c9335, #671) and the debug cleartext config (#672)",
+  "session": "Dev session (crew-collin, \"Pacer Collin\") against a local memory API seeded with two races, through a local proxy that answered HTTP 500 to chat reads for Error; Offline used the emulator's Wi-Fi and data toggles.",
+  "action": "Opened crewcue://dev/chat; Ada posted through the API while the chat was open; sent text and a library photo from the app; turned Wi-Fi and data off, sent two messages, turned them back on; reopened with chat reads failing; opened an empty race.",
+  "checked": {
+    "Success": "Ada's message appeared live without a reload, labelled 'Ada'; own messages labelled 'Pacer Collin (you)'; a photo picked on the device uploaded and rendered, as did one sent from iOS; header names the race ('Leadville 100').",
+    "Empty": "Western States race with no messages: 'No messages.'",
+    "Error": "Chat reads answered 500 on open: 'Couldn't load chat.'",
+    "Offline": "Network off: both sends showed 'Queued' and 'Offline. Message queued on this device.'; 42 s after the network returned they were stored once each and flipped to sent.",
+    "Accessibility labels": "crewcue.chat; crewcue.chat-attach, crewcue.chat-photo"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

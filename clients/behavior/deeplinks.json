@@ -207,8 +207,8 @@
       "label": "crewcue.chat",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "chat-notification-prefs",
