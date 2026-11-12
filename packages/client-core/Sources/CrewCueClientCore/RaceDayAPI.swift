@@ -412,14 +412,6 @@ public enum RaceDayAPI {
         return try await sendJSON(graph, "/race-rooms/\(roomId)/routing/route", method: .post, object: body)
     }
 
-    public static func streamToken(graph: ClientGraph, roomId: String) async throws -> ChatStreamTokenResponse {
-        try await send(graph, "/chat/stream-token", method: .post, body: #"{"roomId":"\#(roomId)"}"#)
-    }
-
-    public static func channelId(roomId: String) -> String {
-        "crew-\(roomId)"
-    }
-
     /// `GET /chat/rooms/:roomId/messages`. With `after` and `waitSeconds` it long-polls.
     public static func chatMessages(
         graph: ClientGraph,

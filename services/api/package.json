@@ -40,7 +40,6 @@
     "fastify-plugin": "^6.0.1",
     "jose": "^6.2.13",
     "pg": "^8.23.1",
-    "stream-chat": "^9.54.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

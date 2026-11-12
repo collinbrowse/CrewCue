@@ -5,11 +5,11 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 
 | Signal | Count |
 | --- | --- |
-| Routes with no auth guard detected | 9 |
+| Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
-| API lib modules with no same-named test | 42 |
+| API lib modules with no same-named test | 41 |
 | Native features not passing on both platforms | 12 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -21,12 +21,11 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | --- | --- | --- |
 | POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:92](../../../services/api/src/routes/billingRoutes.ts#L92) |
 | POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:198](../../../services/api/src/routes/billingRoutes.ts#L198) |
-| GET | `/chat/photos/*` | [services/api/src/routes/chatRoutes.ts:382](../../../services/api/src/routes/chatRoutes.ts#L382) |
-| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:481](../../../services/api/src/routes/chatRoutes.ts#L481) |
-| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:482](../../../services/api/src/routes/chatRoutes.ts#L482) |
+| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:406](../../../services/api/src/routes/chatRoutes.ts#L406) |
+| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:407](../../../services/api/src/routes/chatRoutes.ts#L407) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2651](../../../services/api/src/routes/raceRooms.ts#L2651) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2642](../../../services/api/src/routes/raceRooms.ts#L2642) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -41,10 +40,10 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4904 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1873 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4892 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1792 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1238 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1186 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 871 |
@@ -55,7 +54,7 @@ Timers run per instance. With more than one API replica each one fires.
 
 | Kind | Source |
 | --- | --- |
-| `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:77](../../../services/api/src/lib/chatRetentionScheduler.ts#L77) |
+| `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
 
 ## API lib modules with no same-named test
 
@@ -101,7 +100,6 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts)
 - [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
 - [services/api/src/lib/slowdownShrinkage.ts](../../../services/api/src/lib/slowdownShrinkage.ts)
-- [services/api/src/lib/streamChat.ts](../../../services/api/src/lib/streamChat.ts)
 - [services/api/src/lib/testCourseRouteLayer.ts](../../../services/api/src/lib/testCourseRouteLayer.ts)
 
 ## Native parity gaps

@@ -45,8 +45,6 @@ const roots = [
   "RaceRoomProjectionCore",
   "ProjectionTimeliness",
   "IncidentEvent",
-  "ChatStreamMember",
-  "ChatStreamTokenResponse",
   "ChatRoomMember",
   "ChatMessagePhoto",
   "ChatMessage",
