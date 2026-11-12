@@ -60,9 +60,9 @@ The API holds first-party chat ([ADR 0011](../adr/0011-first-party-crew-chat.md)
 ## 5. Rooms, invites, join
 
 - **Create**: `POST /race-rooms` with `Idempotency-Key`; room id derived from sub + key. The creator becomes the first member with the role they choose.
-- **Invite**: an inviter (athlete, crew chief, team manager) creates a UUID token, 24 h default. Accept adds or changes the caller's membership under the room lock.
+- **Invite**: an inviter (athlete, crew chief, team manager) creates a UUID token, 24 h default. Only the race owner (the room's `athleteId`) may invite above `crew_member`; any other issuer gets 403 ([raceRooms.ts](../../services/api/src/routes/raceRooms.ts:3146)). Accept adds or changes the caller's membership under the room lock.
 - **Join by code**: any signed-in user with the 6-digit code joins as `crew_member`. `GET /race-rooms/join-preview/:roomCode` is public and rate-limited per IP.
-- **Crew cap**: new rooms start `unpaid` with crew tier `one`. Rooms stored before billing have no tier and count as unlimited. The runner and the room's creator do not take the crew seat. Past the cap, crew invites, invite accepts, and code joins answer 409 `crew_limit_reached`; accepts and joins check under the room lock. Existing members are never removed ([raceRooms.ts](../../services/api/src/routes/raceRooms.ts:3158), [billingEntitlement.ts](../../services/api/src/lib/billingEntitlement.ts:29)).
+- **Crew cap**: new rooms start `unpaid` with crew tier `one`. Rooms stored before billing have no tier and count as unlimited. The runner and the room's creator do not take the crew seat. Past the cap, crew invites, invite accepts, and code joins answer 409 `crew_limit_reached`; accepts and joins check under the room lock. Existing members are never removed ([raceRooms.ts](../../services/api/src/routes/raceRooms.ts:3155), [billingEntitlement.ts](../../services/api/src/lib/billingEntitlement.ts:29)).
 
 ## 6. Auth
 

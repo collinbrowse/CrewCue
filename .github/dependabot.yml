@@ -1,25 +1,49 @@
+# Dependabot only opens PRs. Nothing merges without a human (no auto-merge).
+# Every Dependabot PR runs the full CI workflow (lint, typecheck, build, unit tests,
+# Postgres integration tests, and the Android/iOS jobs when native files change).
+#
+# Shape of what you get each week:
+#   - one grouped PR per ecosystem with all minor and patch bumps
+#   - one PR per major bump, kept separate so a breaking change is reviewed on its own
+# `cooldown` waits a few days after a release before proposing it, so a bad or
+# compromised publish is usually yanked before it reaches us. Security updates skip it.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
     open-pull-requests-limit: 5
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Types must match the Node major we run on (CI and engines pin Node 20+),
+      # so bump these by hand when the runtime moves.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: gradle
     directory: /apps/android
     schedule:
       interval: weekly
+      day: monday
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
     open-pull-requests-limit: 3
     groups:
       gradle:
-        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
