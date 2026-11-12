@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import {
   lineStringRouteOverlayForCheckpoints,
   load50kCourseWithAids
@@ -520,6 +523,141 @@ test("EC8 delete visited checkpoint returns 400 and leaves course unchanged", as
 
   await app.close();
 });
+
+test(
+  "after an API restart a checkpoint the runner already passed still cannot be deleted from the course",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    // The athlete owns the room so their phone is a member and its pings drive runner progress.
+    const ownerToken = app.jwt.sign(buildClaims("athlete-w11-ec8-restart"));
+    const created = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: {
+        teamId: "team-1",
+        athleteId: "athlete-w11-ec8-restart",
+        name: "EC8 visited delete after restart",
+        creatorRole: "athlete"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(created.statusCode, 201);
+    const roomId = (created.json() as { id: string }).id;
+    const paid = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/entitlement`,
+      payload: { status: "paid" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(paid.statusCode, 200);
+
+    const activate = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/course`,
+      payload: {
+        course: {
+          checkpoints: [
+            { id: "cp0", latitude: 41.0, longitude: -71.0, tags: ["aid"] },
+            { id: "cp1", latitude: 41.005, longitude: -71.0, tags: ["water"] },
+            { id: "cp2", latitude: 41.01, longitude: -71.0 }
+          ]
+        },
+        routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
+          { latitude: 41.0, longitude: -71.0 },
+          { latitude: 41.005, longitude: -71.0 },
+          { latitude: 41.01, longitude: -71.0 }
+        ]),
+        plannedPaceSecondsPerKm: 600,
+        raceStartAt: "2026-05-12T16:00:00.000Z"
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(activate.statusCode, 200);
+    const before = activate.json() as RaceRoom;
+    const activatedAtMs = Date.parse(before.activatedAt ?? "");
+
+    const crewChiefToken = app.jwt.sign(buildClaims("crew-chief-w11-ec8-restart"));
+    const invite = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/invites`,
+      payload: { email: "crew-chief-ec8@example.com", role: "crew_chief" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(invite.statusCode, 201);
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/invites/accept`,
+      payload: { token: (invite.json() as { token: string }).token },
+      headers: { authorization: `Bearer ${crewChiefToken}` }
+    });
+    assert.equal(accepted.statusCode, 200);
+
+    const ping = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings`,
+      payload: {
+        latitude: 41.0,
+        longitude: -71.0,
+        recordedAt: new Date().toISOString()
+      },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.ok(ping.statusCode < 300, `the athlete's ping is accepted (${ping.statusCode})`);
+    const manual = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/checkpoints/cp0/manual-stop`,
+      payload: {
+        arrivalAt: new Date(activatedAtMs + 40_000).toISOString(),
+        departureAt: new Date(activatedAtMs + 200_000).toISOString()
+      },
+      headers: { authorization: `Bearer ${crewChiefToken}` }
+    });
+    assert.equal(manual.statusCode, 200);
+    await app.close();
+
+    // A fresh process has no projection in memory; the "runner already passed cp0" fact must come
+    // back from Postgres, or a crew edit could silently drop an aid station the runner already used.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const auth = { authorization: "Bearer " + process.argv[3] };
+      const url = "/race-rooms/" + process.argv[2];
+      const visited = await app.inject({ method: "DELETE", url: url + "/checkpoints/cp0", headers: auth });
+      const unvisited = await app.inject({ method: "DELETE", url: url + "/checkpoints/cp1", headers: auth });
+      const room = await app.inject({ method: "GET", url, headers: auth });
+      process.stdout.write("\\nRESULT:" + JSON.stringify({
+        visited: { status: visited.statusCode, body: visited.json() },
+        unvisited: { status: unvisited.statusCode },
+        room: room.json()
+      }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crewChiefToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      visited: { status: number; body: { error?: string } };
+      unvisited: { status: number };
+      room: { room: RaceRoom };
+    };
+    assert.equal(result.visited.status, 400, "the passed checkpoint is still protected after the restart");
+    assert.match(result.visited.body.error ?? "", /visited checkpoint: cp0/);
+    assert.equal(result.unvisited.status, 200, "a checkpoint the runner has not reached can still be removed");
+    assert.deepEqual(
+      result.room.room.course?.checkpoints.map((checkpoint) => checkpoint.id),
+      ["cp0", "cp2"],
+      "only the unvisited checkpoint is gone"
+    );
+    assert.deepEqual(checkpointById(result.room.room, "cp0").tags, ["aid"]);
+  }
+);
 
 test("EC9 PATCH unknown checkpoint returns 404", async () => {
   const app = buildApp();

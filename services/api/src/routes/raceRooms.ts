@@ -3143,6 +3143,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "Invalid invite payload" });
     }
 
+    // An invite grants its role on accept, so it must not be a way around the owner-only
+    // role rules (PATCH /members). Only the race owner may invite above crew_member.
+    if (room.athleteId !== request.identity.sub && parsed.data.role !== "crew_member") {
+      return reply.code(403).send({ error: "Only the race owner can invite above crew_member" });
+    }
+
     // Inviting crew past the room's tier is refused up front, so the runner sees the
     // upgrade prompt instead of the invitee hitting it on accept.
     if (parsed.data.role !== "athlete") {
