@@ -61,7 +61,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 765 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 779 |
 | [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 3 | 192 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
