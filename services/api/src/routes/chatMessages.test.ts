@@ -11,6 +11,8 @@ import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInpu
 import { _settleChatPushForTests } from "./chatRoutes.js";
 import { runChatRetentionPass } from "../lib/chatRetention.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -480,6 +482,79 @@ test("chat retention deletes a finished room's messages and photos", async () =>
     assert.deepEqual(page.messages, []);
   });
 });
+
+test(
+  "chat messages: the crew's conversation survives an API restart, and a retry after the restart is not stored twice",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    let roomId = "";
+    let ownerToken = "";
+    let crewToken = "";
+    let firstId = "";
+    let latestCursor = "";
+    await withApp(async (app) => {
+      const sub = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ownerToken = app.jwt.sign(claims(`owner-rs-${sub}`));
+      crewToken = app.jwt.sign(claims(`crew-rs-${sub}`));
+      roomId = await createRoom(app, ownerToken, `owner-rs-${sub}`);
+      await addMember(app, roomId, ownerToken, crewToken, "Ada");
+      const a = await send(app, ownerToken, roomId, { clientMessageId: "rs-1", text: "aid 3 in 20" });
+      const b = await send(app, crewToken, roomId, { clientMessageId: "rs-2", text: "copy, leaving now" });
+      assert.equal(a.statusCode, 201);
+      assert.equal(b.statusCode, 201);
+      firstId = (a.json() as ChatSendMessageResponse).message.id;
+      const page = (await list(app, crewToken, roomId)).json() as ChatMessagePage;
+      assert.deepEqual(page.messages.map((m) => m.text), ["aid 3 in 20", "copy, leaving now"]);
+      latestCursor = page.latestCursor;
+    });
+
+    // A fresh process has no chat state in memory; everything must come back from Postgres.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, owner, crew] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = (method, token, url, payload) =>
+        app.inject({ method, url, payload, headers: { authorization: "Bearer " + token } });
+      const before = (await call("GET", crew, "/chat/rooms/" + roomId + "/messages")).json();
+      const retry = await call("POST", owner, "/chat/rooms/" + roomId + "/messages", { clientMessageId: "rs-1", text: "aid 3 in 20" });
+      const fresh = await call("POST", crew, "/chat/rooms/" + roomId + "/messages", { clientMessageId: "rs-3", text: "at aid 3" });
+      const after = (await call("GET", owner, "/chat/rooms/" + roomId + "/messages")).json();
+      const out = {
+        beforeTexts: before.messages.map((m) => m.text),
+        beforeCursor: before.latestCursor,
+        retryStatus: retry.statusCode,
+        retry: retry.json(),
+        freshStatus: fresh.statusCode,
+        afterTexts: after.messages.map((m) => m.text)
+      };
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken, crewToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+      beforeTexts: string[];
+      beforeCursor: string;
+      retryStatus: number;
+      retry: ChatSendMessageResponse;
+      freshStatus: number;
+      afterTexts: string[];
+    };
+    assert.deepEqual(result.beforeTexts, ["aid 3 in 20", "copy, leaving now"]);
+    assert.equal(result.beforeCursor, latestCursor);
+    assert.equal(result.retryStatus, 200);
+    assert.equal(result.retry.duplicate, true);
+    assert.equal(result.retry.message.id, firstId);
+    assert.equal(result.freshStatus, 201);
+    assert.deepEqual(result.afterTexts, ["aid 3 in 20", "copy, leaving now", "at aid 3"]);
+  }
+);
 
 test("account deletion removes the messages and photos a user sent, and nobody else's", async () => {
   await withApp(async (app) => {
