@@ -5,7 +5,7 @@ import type { ChatMessagePage, ChatPhotoUploadResponse, ChatSendMessageResponse 
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests, deleteChatDataForUser, listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
-import { _resetChatMessageStoreForTests } from "../lib/chatMessageStore.js";
+import { _resetChatMessageStoreForTests, setChatInsertCommitDelayForTests } from "../lib/chatMessageStore.js";
 import { chatRoomWaiterCount } from "../lib/chatLive.js";
 import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInput } from "../lib/chatPushDispatch.js";
 import { _settleChatPushForTests } from "./chatRoutes.js";
@@ -272,6 +272,47 @@ test(
         assert.deepEqual(catchUp.messages.map((m) => m.text), ["msg 1", "msg 2", "msg 3"]);
         assert.equal(catchUp.latestCursor, String(boundary));
         }
+    });
+  }
+);
+
+test(
+  "chat messages: a crew phone following the cursor gets both of two sends that commit out of order",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)" },
+  async () => {
+    await withApp(async (app) => {
+      const owner = app.jwt.sign(claims("owner-overlap"));
+      const crew = app.jwt.sign(claims("crew-overlap"));
+      const roomId = await createRoom(app, owner, "owner-overlap");
+      await addMember(app, roomId, owner, crew, "Pacer");
+      const opened = (await list(app, crew, roomId)).json() as ChatMessagePage;
+      const startCursor = opened.latestCursor || "0";
+
+      // The runner's send takes its id first but is still committing when the crew's send lands.
+      let paused = false;
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      setChatInsertCommitDelayForTests(async () => {
+        paused = true;
+        await held;
+      });
+      const first = send(app, owner, roomId, { clientMessageId: "overlap-a", text: "at the aid station" });
+      await waitUntil(() => paused, "first send to hold before commit");
+      const second = send(app, crew, roomId, { clientMessageId: "overlap-b", text: "on my way" });
+      await Promise.race([second, new Promise((r) => setTimeout(r, 500))]);
+
+      // A crew phone polls in that moment, then keeps following the cursor it was given.
+      const during = (await list(app, crew, roomId, `?after=${startCursor}`)).json() as ChatMessagePage;
+      release();
+      assert.equal((await first).statusCode, 201);
+      assert.equal((await second).statusCode, 201);
+      const next = during.latestCursor || startCursor;
+      const after = (await list(app, crew, roomId, `?after=${next}`)).json() as ChatMessagePage;
+
+      const seen = [...during.messages, ...after.messages].map((m) => m.text).sort();
+      assert.deepEqual(seen, ["at the aid station", "on my way"]);
     });
   }
 );
