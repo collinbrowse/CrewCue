@@ -111,6 +111,9 @@ function fromRow(row: Row): StoredChatMessage {
 const COLUMNS =
   "seq::text AS seq, room_id, sender_user_id, client_message_id, body, photo_key, photo_content_type, photo_byte_size, created_at";
 
+/** Advisory lock class for per-room chat inserts (two-key form; init uses the one-key 711201). */
+const CHAT_INSERT_LOCK_CLASS = 711202;
+
 let insertCommitDelayForTests: (() => Promise<void>) | undefined;
 
 /**
@@ -143,6 +146,10 @@ export async function insertChatMessage(
   let insertedRow: Row | undefined;
   try {
     await client.query("BEGIN");
+    // Ids come from a sequence, and two sends can commit in the other order from the ids they
+    // drew. A crew phone that polls in between moves its cursor past the lower id and never
+    // sees that message. One insert at a time per room keeps id order and commit order the same.
+    await client.query("SELECT pg_advisory_xact_lock($1, hashtext($2))", [CHAT_INSERT_LOCK_CLASS, input.roomId]);
     const inserted = await client.query<Row>(
       `
         INSERT INTO chat_messages
