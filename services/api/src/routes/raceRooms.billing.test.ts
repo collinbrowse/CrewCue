@@ -6,6 +6,7 @@ import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
 import { evictRaceRoomFromMemoryForTests, setMembershipWriteDelayForTests } from "./raceRooms.js";
+import { setWebhookRoomLookupFailureForTests } from "./billingRoutes.js";
 import { anonymizeBillingForUser, getBillingGrant, resetBillingStoreForTests } from "../lib/billingStore.js";
 import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 
@@ -28,6 +29,7 @@ afterEach(() => {
     else process.env[key] = savedEnv[key];
   }
   setMembershipWriteDelayForTests(undefined);
+  setWebhookRoomLookupFailureForTests(undefined);
 });
 
 function token(app: App, sub: string): string {
@@ -275,6 +277,31 @@ test("duplicate webhook delivery is acknowledged once and applied once", async (
   assert.equal((resent.json() as { duplicate: boolean }).duplicate, true);
 
   assert.equal((await billing(app, room.id, "runner-dup")).entitlement.status, "paid");
+  await app.close();
+});
+
+test("a purchase whose first delivery failed before it was applied still pays the room on the store's retry", async () => {
+  const app = buildApp();
+  await app.ready();
+  const room = await createRunnerRoom(app, "runner-retry");
+  const body = rcEvent({ productId: "race_pass", transactionId: "tx-retry", roomId: room.id, eventId: "evt-retry" });
+
+  // The room read fails (a database error): the store gets a 5xx and will send the event again.
+  setWebhookRoomLookupFailureForTests(new Error("room read failed"));
+  const failed = await webhook(app, body);
+  assert.equal(failed.statusCode, 500);
+  assert.equal((await billing(app, room.id, "runner-retry")).entitlement.status, "unpaid");
+
+  // The retry is the same event id. It must be applied, not acknowledged as a duplicate.
+  const retried = await webhook(app, body);
+  assert.equal(retried.statusCode, 200);
+  assert.equal((retried.json() as { duplicate: boolean }).duplicate, false);
+  assert.equal((await billing(app, room.id, "runner-retry")).entitlement.status, "paid");
+  assert.equal((await getBillingGrant("tx-retry"))?.status, "active");
+
+  // Once applied, a further redelivery is a duplicate again.
+  const again = await webhook(app, body);
+  assert.equal((again.json() as { duplicate: boolean }).duplicate, true);
   await app.close();
 });
 
