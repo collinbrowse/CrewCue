@@ -19,8 +19,8 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 
 | Method | Path | Source |
 | --- | --- | --- |
-| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:92](../../../services/api/src/routes/billingRoutes.ts#L92) |
-| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:198](../../../services/api/src/routes/billingRoutes.ts#L198) |
+| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:99](../../../services/api/src/routes/billingRoutes.ts#L99) |
+| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:210](../../../services/api/src/routes/billingRoutes.ts#L210) |
 | POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:406](../../../services/api/src/routes/chatRoutes.ts#L406) |
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:407](../../../services/api/src/routes/chatRoutes.ts#L407) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
