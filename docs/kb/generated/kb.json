@@ -54,28 +54,28 @@
       "path": "/billing/revenuecat",
       "guard": "none detected",
       "file": "services/api/src/routes/billingRoutes.ts",
-      "line": 92
+      "line": 99
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/billing",
       "guard": "identity + membership",
       "file": "services/api/src/routes/billingRoutes.ts",
-      "line": 179
+      "line": 191
     },
     {
       "method": "POST",
       "path": "/billing/admin/comp",
       "guard": "none detected",
       "file": "services/api/src/routes/billingRoutes.ts",
-      "line": 198
+      "line": 210
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/billing/dev-purchase",
       "guard": "identity + membership",
       "file": "services/api/src/routes/billingRoutes.ts",
-      "line": 232
+      "line": 244
     },
     {
       "method": "GET",
