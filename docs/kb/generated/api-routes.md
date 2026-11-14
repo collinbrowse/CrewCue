@@ -33,10 +33,10 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/billing/revenuecat` | none detected | [services/api/src/routes/billingRoutes.ts:92](../../../services/api/src/routes/billingRoutes.ts#L92) |
-| GET | `/race-rooms/:roomId/billing` | identity + membership | [services/api/src/routes/billingRoutes.ts:179](../../../services/api/src/routes/billingRoutes.ts#L179) |
-| POST | `/billing/admin/comp` | none detected | [services/api/src/routes/billingRoutes.ts:198](../../../services/api/src/routes/billingRoutes.ts#L198) |
-| POST | `/race-rooms/:roomId/billing/dev-purchase` | identity + membership | [services/api/src/routes/billingRoutes.ts:232](../../../services/api/src/routes/billingRoutes.ts#L232) |
+| POST | `/billing/revenuecat` | none detected | [services/api/src/routes/billingRoutes.ts:99](../../../services/api/src/routes/billingRoutes.ts#L99) |
+| GET | `/race-rooms/:roomId/billing` | identity + membership | [services/api/src/routes/billingRoutes.ts:191](../../../services/api/src/routes/billingRoutes.ts#L191) |
+| POST | `/billing/admin/comp` | none detected | [services/api/src/routes/billingRoutes.ts:210](../../../services/api/src/routes/billingRoutes.ts#L210) |
+| POST | `/race-rooms/:roomId/billing/dev-purchase` | identity + membership | [services/api/src/routes/billingRoutes.ts:244](../../../services/api/src/routes/billingRoutes.ts#L244) |
 
 ## chatRoutes
 
