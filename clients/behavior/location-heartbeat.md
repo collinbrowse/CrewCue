@@ -10,7 +10,7 @@ The athlete taps Start tracking. The phone keeps one location sample per interva
 POST /race-rooms/:roomId/pings/batch
 
 ## Permissions
-location always (iOS asks When In Use, then Always; Android asks fine location, then "all the time", and shows a foreground-service notification while tracking)
+location always (iOS asks When In Use, then Always; Android asks fine location, then "all the time", and shows a foreground-service notification while tracking). Android only: until CrewCue is exempt from battery optimization, the athlete's Location section says "Android may stop tracking to save battery. Set CrewCue's battery use to Unrestricted." with Open battery settings (App info). It is checked again each time the app returns to the foreground.
 
 ## Success
 Tracking. A sample every 3 min. After each sample reaches the server: Location sample sent.
@@ -27,6 +27,14 @@ Offline. Sample queued in the outbox.
 ## Accessibility labels
 - crewcue.location-heartbeat
 - crewcue.location-interval
+- crewcue.location-battery (Android only)
 
 ## Native SDK pocket
 location
+
+## Proof
+Real phone only (`"proof": "physical"` in deeplinks.json). A simulator or emulator fakes GPS and never ends the app to save power, so it can't show this row. The proof sets `deviceClass: "physical"`, and its `checked.Action` must cover:
+- Screen locked in a pocket for at least 2 hours, one sample per interval on the server.
+- The app ended by the system or the debugger, not swiped away. Samples resume without the athlete opening the app.
+- Real loss of service (no coverage or airplane mode). The backlog reaches the server in one batch when service returns.
+- Android: a Samsung or other OEM phone with its default battery settings, not only a Pixel.

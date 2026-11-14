@@ -16,5 +16,6 @@ paths:
 - MapLibre, Auth0, and push registration (APNs, Firebase Messaging) stay in the platform app. Crew chat is first-party (ADR 0011) and lives in client-core.
 - Expo is removed. Do not add `apps/mobile`.
 - A checklist row may be `pass` only after device proof, not because fixture copy renders.
+- A row with `"proof": "physical"` (background or all-race promises, like `location-heartbeat`) needs proof from a real phone. Simulator and emulator runs don't count. See the row's `## Proof` section.
 - iOS proof: `npm run agent:ios:ready -- --deeplink crewcue://dev/<id>`
 - Android proof: `npm run agent:android:ready -- --deeplink crewcue://dev/<id>`

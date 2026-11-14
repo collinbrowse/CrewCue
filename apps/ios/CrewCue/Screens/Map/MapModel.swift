@@ -110,6 +110,11 @@ final class MapModel {
         await loadCourse(ticket: ticket)
         await refreshRunner(ticket: ticket)
         resumeTrackingIfSaved()
+        if trackingActive {
+            // A sample taken since tracking resumed at launch lost its upload to
+            // `invalidateInFlight` above. It is still in the outbox; send it now, not next interval.
+            await flushBacklog(ticket: ticket)
+        }
     }
 
     /// The athlete on this phone, the only role that shares location.
@@ -149,6 +154,21 @@ final class MapModel {
         if trackingActive {
             await flushBacklog(ticket: generation)
         }
+    }
+
+    /// Restarts the athlete's saved tracking at app launch, before any view or network call.
+    /// When iOS relaunches a killed app in the background for a significant location change, no
+    /// window appears, so the shell's `.task` never calls `activate`, and the relaunched app has
+    /// only a few seconds before it is suspended again. A later `activate` for the same race
+    /// sees no context change and leaves the locator running.
+    func resumeTrackingAtLaunch(userId: String?, roomId: String?, role: String?) {
+        guard self.userId == nil, self.roomId == nil else { return }
+        let trimmedRoom = roomId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let userId, let room = trimmedRoom, !room.isEmpty else { return }
+        self.userId = userId
+        self.roomId = room
+        self.role = role ?? ""
+        resumeTrackingIfSaved()
     }
 
     private func resumeTrackingIfSaved() {
