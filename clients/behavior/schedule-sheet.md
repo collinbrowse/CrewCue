@@ -4,7 +4,7 @@
 crewcue://dev/schedule-sheet
 
 ## Action
-Open Pace for the joined room and read each stop's elapsed time and UTC clock. `?state=` only overlays fixture copy.
+Open Pace for the joined room and read each stop's elapsed time and the viewer's local clock. `?state=` only overlays fixture copy.
 
 ## API
 GET /race-rooms/:roomId/schedule

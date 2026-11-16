@@ -112,7 +112,8 @@ public enum AidStationSheet {
         paceSecondsPerKm: Double?,
         selectedIndex: Int,
         follow: Bool,
-        elevation: ElevationProfile? = nil
+        elevation: ElevationProfile? = nil,
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> AidStationProjection {
         let progress = progressMeters.isFinite ? progressMeters : 0
         let rows = pages(sheet: sheet, checkpoints: checkpoints)
@@ -132,7 +133,8 @@ public enum AidStationSheet {
                 progress: progress,
                 now: now,
                 pace: paceSecondsPerKm,
-                elevation: elevation
+                elevation: elevation,
+                timeZone: timeZone
             )
         }
         return AidStationProjection(pages: stamped, liveNextIndex: live, selectedIndex: index, phase: phase)
@@ -243,9 +245,17 @@ public enum AidStationSheet {
         progress: Double,
         now: Date,
         pace: Double?,
-        elevation: ElevationProfile?
+        elevation: ElevationProfile?,
+        timeZone: TimeZone
     ) -> AidStationPage {
-        let arrival = arrival(stop: row.stop, distance: row.distanceMetersFromStart, progress: progress, now: now, pace: pace)
+        let arrival = arrival(
+            stop: row.stop,
+            distance: row.distanceMetersFromStart,
+            progress: progress,
+            now: now,
+            pace: pace,
+            timeZone: timeZone
+        )
         let climb = row.distanceMetersFromStart.flatMap { elevation?.gainMeters(from: progress, to: $0) }
         let delay = row.stop?.delayOverrideSeconds
         let line: String
@@ -253,7 +263,8 @@ public enum AidStationSheet {
             line = ScheduleFormat.scheduleLine(
                 checkpointId: stop.checkpointId,
                 elapsedSeconds: stop.elapsedSeconds,
-                clockArrivalAt: stop.clockArrivalAt
+                clockArrivalAt: stop.clockArrivalAt,
+                timeZone: timeZone
             )
         } else {
             line = row.title
@@ -301,11 +312,12 @@ public enum AidStationSheet {
         distance: Double?,
         progress: Double,
         now: Date,
-        pace: Double?
+        pace: Double?,
+        timeZone: TimeZone
     ) -> (clock: String, remain: String, iso: String?) {
         if let iso = stop?.clockArrivalAt, let date = ScheduleFormat.parseISO8601(iso) {
             let remain = date.timeIntervalSince(now)
-            return (ScheduleFormat.formatUtcHhMm(iso), remainLabel(remain), iso)
+            return (ScheduleFormat.formatScheduleClock(iso, timeZone: timeZone), remainLabel(remain), iso)
         }
         if let distance, let pace, pace > 0, pace.isFinite, distance.isFinite {
             let remain = max(0, distance - progress) / 1000 * pace
@@ -314,7 +326,7 @@ public enum AidStationSheet {
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             formatter.timeZone = TimeZone(secondsFromGMT: 0)
             let iso = formatter.string(from: eta)
-            return (ScheduleFormat.formatUtcHhMm(iso), remainLabel(remain), iso)
+            return (ScheduleFormat.formatScheduleClock(iso, timeZone: timeZone), remainLabel(remain), iso)
         }
         return ("—", "—", nil)
     }

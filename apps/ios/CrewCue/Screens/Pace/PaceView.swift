@@ -376,7 +376,7 @@ struct PaceCheckpointCard: View {
             return parts.joined(separator: " · ")
         }
         if row.isFinish { return "TARGET" }
-        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+        // Every stop shows its local clock and elapsed time; projected stops add the planned stop.
         if let stop {
             let times = "\(stop.arrival) · \(stop.elapsed)"
             return row.state != .done && stop.stopLabel != "NO STOP" ? "\(times) · \(stop.stopLabel)" : times

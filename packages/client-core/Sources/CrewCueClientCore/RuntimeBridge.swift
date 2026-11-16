@@ -450,6 +450,15 @@ enum RuntimeCall {
         }
     }
 
+    /// The viewer's zone: an IANA `timeZone` the client sends (Android passes its device zone, since the
+    /// Swift runtime there cannot resolve `TimeZone.current` to an IANA region), else the device zone.
+    private static func requestTimeZone(_ object: [String: Any]) -> TimeZone {
+        if let id = object["timeZone"] as? String, let zone = DeviceTimeZone.resolve(id) {
+            return zone
+        }
+        return DeviceTimeZone.current
+    }
+
     private static func aidProjection(sheet: CrewScheduleSheet?, request: [String: Any]) -> AidStationProjection {
         let checkpoints = aidCheckpoints(request["checkpoints"])
         let progress = requestProgress(request, checkpoints)
@@ -464,7 +473,8 @@ enum RuntimeCall {
             paceSecondsPerKm: requestNumber(request["paceSecondsPerKm"]),
             selectedIndex: selected,
             follow: follow,
-            elevation: elevationProfile(request["elevation"])
+            elevation: elevationProfile(request["elevation"]),
+            timeZone: requestTimeZone(request)
         )
     }
 
@@ -508,11 +518,13 @@ enum RuntimeCall {
                 "timeline": timelinePayload(sheet: nil, request: request)
             ]
         }
+        let zone = requestTimeZone(request)
         let lines = sheet.stops.map {
             ScheduleFormat.scheduleLine(
                 checkpointId: $0.checkpointId,
                 elapsedSeconds: $0.elapsedSeconds,
-                clockArrivalAt: $0.clockArrivalAt
+                clockArrivalAt: $0.clockArrivalAt,
+                timeZone: zone
             )
         }
         return [
@@ -560,7 +572,8 @@ enum RuntimeCall {
                 recompute: decision.recompute,
                 reason: decision.reason.rawValue,
                 usableHistoryCount: input.usableHistoryCount,
-                historyFingerprint: input.historyFingerprint
+                historyFingerprint: input.historyFingerprint,
+                timeZone: requestTimeZone(object)
             )
             payload["raceStartAt"] = envelope.room.raceStartAt ?? ""
             payload["plannedPaceSecondsPerKm"] = envelope.room.plannedPaceSecondsPerKm ?? 0
@@ -575,7 +588,8 @@ enum RuntimeCall {
                     recompute: false,
                     reason: EstimateRecomputeReason.none.rawValue,
                     usableHistoryCount: 0,
-                    historyFingerprint: nil
+                    historyFingerprint: nil,
+                    timeZone: requestTimeZone(object)
                 )
             }
             throw error
@@ -636,7 +650,8 @@ enum RuntimeCall {
                 recompute: false,
                 reason: EstimateRecomputeReason.none.rawValue,
                 usableHistoryCount: count,
-                historyFingerprint: fingerprint
+                historyFingerprint: fingerprint,
+                timeZone: requestTimeZone(object)
             )
         } catch {
             if TransportFailure.isOffline(error) {
@@ -748,14 +763,16 @@ enum RuntimeCall {
         guard let sheet = try ScheduleCache.load(directory: directory), !sheet.stops.isEmpty else {
             return ["empty": true]
         }
+        let zone = requestTimeZone(object)
         let lines = sheet.stops.map {
             ScheduleFormat.scheduleLine(
                 checkpointId: $0.checkpointId,
                 elapsedSeconds: $0.elapsedSeconds,
-                clockArrivalAt: $0.clockArrivalAt
+                clockArrivalAt: $0.clockArrivalAt,
+                timeZone: zone
             )
         }
-        let text = ScheduleFormat.crewSheetText(roomId: sheet.roomId, capturedAtIso: isoNow(), stopLines: lines)
+        let text = ScheduleFormat.crewSheetText(roomId: sheet.roomId, capturedAtIso: isoNow(), stopLines: lines, timeZone: zone)
         return ["empty": false, "text": text]
     }
 
@@ -815,13 +832,14 @@ enum RuntimeCall {
         recompute: Bool,
         reason: String,
         usableHistoryCount: Int,
-        historyFingerprint: String?
+        historyFingerprint: String?,
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> [String: Any] {
         [
             "hasEstimate": estimate != nil,
             "coldStart": estimate?.coldStart ?? false,
             "estimateId": estimate?.id ?? "",
-            "summary": estimate.map(estimateSummary) ?? "",
+            "summary": estimate.map { estimateSummary($0, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
             "reason": reason,
@@ -832,9 +850,9 @@ enum RuntimeCall {
         ]
     }
 
-    private static func estimateSummary(_ estimate: PacingEstimate) -> String {
+    private static func estimateSummary(_ estimate: PacingEstimate, timeZone: TimeZone) -> String {
         let elapsed = ScheduleFormat.formatDurationSeconds(estimate.expectedFinishElapsedSeconds)
-        let clock = ScheduleFormat.formatUtcHhMm(estimate.expectedFinishAt)
+        let clock = ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt, timeZone: timeZone)
         let finish = "Finish \(elapsed)  \(clock)"
         if estimate.explanation.isEmpty { return finish }
         return "\(estimate.explanation)\n\(finish)"

@@ -25,21 +25,25 @@ public enum ScheduleFixture {
         ScheduleStopFixture(checkpointId: "finish", title: "Finish", elapsedSeconds: 21000, clockArrivalAt: "2026-08-15T18:50:00.000Z")
     ]
 
-    public static func sheetLines() -> [String] {
+    public static func sheetLines(timeZone: TimeZone = DeviceTimeZone.current) -> [String] {
         stops.map { stop in
             let duration = ScheduleFormat.formatDurationSeconds(stop.elapsedSeconds)
-            let clock = ScheduleFormat.formatUtcHhMm(stop.clockArrivalAt)
+            let clock = ScheduleFormat.formatScheduleClock(stop.clockArrivalAt, timeZone: timeZone)
             return "\(stop.title)  \(duration)  \(clock)"
         }
     }
 
-    public static func sheetText() -> String {
-        sheetLines().joined(separator: "\n")
+    public static func sheetText(timeZone: TimeZone = DeviceTimeZone.current) -> String {
+        sheetLines(timeZone: timeZone).joined(separator: "\n")
     }
 
-    public static func exportText(capturedAtIso: String = "2026-09-23T16:00:00.000Z") -> String {
-        var lines = ["Crew sheet", "Captured \(ScheduleFormat.formatUtcHhMm(capturedAtIso))", "Room \(roomId)"]
-        lines.append(contentsOf: sheetLines())
+    public static func exportText(
+        capturedAtIso: String = "2026-09-23T16:00:00.000Z",
+        timeZone: TimeZone = DeviceTimeZone.current
+    ) -> String {
+        let captured = ScheduleFormat.formatScheduleClock(capturedAtIso, timeZone: timeZone)
+        var lines = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]
+        lines.append(contentsOf: sheetLines(timeZone: timeZone))
         return lines.joined(separator: "\n")
     }
 }

@@ -18,40 +18,44 @@ public enum ScheduleFormat {
         return "\(mm):\(ss)"
     }
 
-    /// Locale clock for an API ISO-8601 instant. Does not recompute from elapsed.
-    public static func formatScheduleClock(_ isoUtc: String) -> String {
+    /// Clock for an API ISO-8601 instant, shown in the viewer's time zone (default: the device's).
+    /// The wire format stays UTC; only display converts. Does not recompute from elapsed.
+    public static func formatScheduleClock(
+        _ isoUtc: String,
+        timeZone: TimeZone = DeviceTimeZone.current,
+        locale: Locale = .current
+    ) -> String {
         guard let date = parseISO8601(isoUtc) else {
             return "—"
         }
         let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter.string(from: date)
     }
 
-    /// Stable `HH:MM UTC` for crew-sheet snapshots.
-    public static func formatUtcHhMm(_ isoUtc: String) -> String {
-        guard let date = parseISO8601(isoUtc) else {
-            return "—"
-        }
-        let calendar = Calendar(identifier: .gregorian)
-        var utc = calendar
-        utc.timeZone = TimeZone(secondsFromGMT: 0) ?? utc.timeZone
-        let hour = utc.component(.hour, from: date)
-        let minute = utc.component(.minute, from: date)
-        let hourText = PortableFormat.zeroPadded(hour, width: 2)
-        let minuteText = PortableFormat.zeroPadded(minute, width: 2)
-        return "\(hourText):\(minuteText) UTC"
-    }
-
-    /// One schedule row: title, elapsed duration, and UTC clock. Matches the fixture sheet spacing.
-    public static func scheduleLine(checkpointId: String, elapsedSeconds: Double, clockArrivalAt: String) -> String {
+    /// One schedule row: title, elapsed duration, and local clock. Matches the fixture sheet spacing.
+    public static func scheduleLine(
+        checkpointId: String,
+        elapsedSeconds: Double,
+        clockArrivalAt: String,
+        timeZone: TimeZone = DeviceTimeZone.current
+    ) -> String {
         let title = slugToTitle(checkpointId)
-        return "\(title)  \(formatDurationSeconds(elapsedSeconds))  \(formatUtcHhMm(clockArrivalAt))"
+        let clock = formatScheduleClock(clockArrivalAt, timeZone: timeZone)
+        return "\(title)  \(formatDurationSeconds(elapsedSeconds))  \(clock)"
     }
 
-    public static func crewSheetText(roomId: String, capturedAtIso: String, stopLines: [String]) -> String {
-        var lines = ["Crew sheet", "Captured \(formatUtcHhMm(capturedAtIso))", "Room \(roomId)"]
+    public static func crewSheetText(
+        roomId: String,
+        capturedAtIso: String,
+        stopLines: [String],
+        timeZone: TimeZone = DeviceTimeZone.current
+    ) -> String {
+        let captured = formatScheduleClock(capturedAtIso, timeZone: timeZone)
+        var lines = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]
         lines.append(contentsOf: stopLines)
         return lines.joined(separator: "\n")
     }
