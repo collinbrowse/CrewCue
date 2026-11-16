@@ -6,9 +6,11 @@ import Testing
     let line = ScheduleFormat.scheduleLine(
         checkpointId: "aid-1",
         elapsedSeconds: 4200,
-        clockArrivalAt: "2026-08-15T14:10:00.000Z"
+        clockArrivalAt: "2026-08-15T14:10:00.000Z",
+        timeZone: TimeZone(identifier: "America/Denver")!
     )
-    #expect(line == "Aid 1  1:10:00  14:10 UTC")
+    #expect(line == "Aid 1  1:10:00  \(ScheduleFormat.formatScheduleClock("2026-08-15T14:10:00.000Z", timeZone: TimeZone(identifier: "America/Denver")!))")
+    #expect(!line.contains("UTC"))
 }
 
 @Test func courseDraftReadsCutoffAndStoppage() throws {
@@ -129,7 +131,8 @@ import Testing
     let sheet = try resultObject(exported)
     let text = try #require(sheet["text"] as? String)
     #expect(text.contains("Crew sheet"))
-    #expect(text.contains("Aid 1  1:10:00  14:10 UTC"))
+    #expect(text.contains("Aid 1  1:10:00  \(ScheduleFormat.formatScheduleClock("2026-08-15T14:10:00.000Z"))"))
+    #expect(!text.contains("UTC"))
     #expect(text.contains("Room room-1"))
 }
 

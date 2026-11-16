@@ -553,7 +553,7 @@ final class PaceModel {
                 title: courseTitle(for: stop.checkpointId)
             )
             let duration = ScheduleFormat.formatDurationSeconds(stop.elapsedSeconds)
-            let clock = ScheduleFormat.formatUtcHhMm(stop.clockArrivalAt)
+            let clock = ScheduleFormat.formatScheduleClock(stop.clockArrivalAt)
             let moving = stop.movingElapsedSeconds.map { ScheduleFormat.formatDurationSeconds($0) }
             let waited = stop.movingElapsedSeconds.map {
                 ScheduleFormat.formatDurationSeconds(max(0, stop.elapsedSeconds - $0))
@@ -600,7 +600,7 @@ final class PaceModel {
             exportMessage = failed ? "Couldn't build the crew sheet." : "Nothing to export."
             return
         }
-        let captured = ScheduleFormat.formatUtcHhMm(isoNow())
+        let captured = ScheduleFormat.formatScheduleClock(isoNow())
         var rows = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]
         rows.append(contentsOf: stopLines.map(\.text))
         exportText = rows.joined(separator: "\n")
@@ -615,7 +615,7 @@ final class PaceModel {
         if let loadedEstimate, loadedEstimate.coldStart == false, historyEmpty == false {
             showColdStart = false
             let duration = ScheduleFormat.formatDurationSeconds(loadedEstimate.expectedFinishElapsedSeconds)
-            let clock = ScheduleFormat.formatUtcHhMm(loadedEstimate.expectedFinishAt)
+            let clock = ScheduleFormat.formatScheduleClock(loadedEstimate.expectedFinishAt)
             estimateMessage = "\(loadedEstimate.explanation) \(duration) \(clock)"
             return
         }

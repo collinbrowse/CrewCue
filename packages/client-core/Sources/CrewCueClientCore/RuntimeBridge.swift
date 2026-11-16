@@ -834,7 +834,7 @@ enum RuntimeCall {
 
     private static func estimateSummary(_ estimate: PacingEstimate) -> String {
         let elapsed = ScheduleFormat.formatDurationSeconds(estimate.expectedFinishElapsedSeconds)
-        let clock = ScheduleFormat.formatUtcHhMm(estimate.expectedFinishAt)
+        let clock = ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt)
         let finish = "Finish \(elapsed)  \(clock)"
         if estimate.explanation.isEmpty { return finish }
         return "\(estimate.explanation)\n\(finish)"

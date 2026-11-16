@@ -21,7 +21,28 @@ import Testing
 @Test func scheduleClockRejectsInvalidISO() {
     #expect(ScheduleFormat.formatScheduleClock("not-a-date") == "—")
     #expect(ScheduleFormat.formatScheduleClock("2026-08-15T14:10:00.000Z") != "—")
-    #expect(ScheduleFormat.formatUtcHhMm("2026-08-15T14:10:00.000Z") == "14:10 UTC")
+}
+
+/// en_US clock text, with the narrow no-break space newer OS versions put before AM/PM normalised.
+private func clock(_ iso: String, _ zone: TimeZone) -> String {
+    ScheduleFormat.formatScheduleClock(iso, timeZone: zone, locale: Locale(identifier: "en_US"))
+        .replacingOccurrences(of: "\u{202F}", with: " ")
+}
+
+@Test func scheduleClockShowsViewerLocalTime() throws {
+    let denver = try #require(TimeZone(identifier: "America/Denver"))
+    let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    let iso = "2026-08-15T14:10:00.000Z"
+    #expect(clock(iso, utc) == "2:10 PM")
+    #expect(clock(iso, denver) == "8:10 AM")
+    #expect(clock(iso, tokyo) == "11:10 PM")
+    #expect(!ScheduleFormat.formatScheduleClock(iso, timeZone: denver).contains("UTC"))
+}
+
+@Test func scheduleClockDefaultsToDeviceZone() {
+    let iso = "2026-08-15T14:10:00.000Z"
+    #expect(ScheduleFormat.formatScheduleClock(iso) == ScheduleFormat.formatScheduleClock(iso, timeZone: .current))
 }
 
 @Test func scheduleSheetSuccessIncludesAidDuration() throws {
@@ -29,7 +50,9 @@ import Testing
     #expect(screen.accessibilityIdentifier == "crewcue.schedule-sheet")
     #expect(screen.body.contains("1:10:00"))
     #expect(screen.body.contains("Aid 1"))
-    #expect(screen.body.contains("Finish  5:50:00  18:50 UTC"))
+    let finishClock = ScheduleFormat.formatScheduleClock("2026-08-15T18:50:00.000Z")
+    #expect(screen.body.contains("Finish  5:50:00  \(finishClock)"))
+    #expect(!screen.body.contains("UTC"))
 }
 
 @Test func scheduleSheetStates() throws {
