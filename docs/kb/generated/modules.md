@@ -30,7 +30,7 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `roomPersistence.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `roomPersistence.ts`, `roomRemovalStore.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -44,8 +44,8 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4898 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 13 | 975 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4949 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 14 | 988 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |

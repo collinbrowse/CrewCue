@@ -25,6 +25,7 @@ import { deletePacingEstimatesForAthlete } from "./pacingEstimateStore.js";
 import { deleteFinishedEffortForRoom, deleteFinishedEffortsForAthlete } from "./finishedEffortStore.js";
 import { deleteChatDataForUser, deleteChatRoomData } from "./chatPersistence.js";
 import { deleteCrewCueRoomCourseHistory } from "./courseHistory/store.js";
+import { deleteRoomRemovalsForRoom, deleteRoomRemovalsForUser } from "./roomRemovalStore.js";
 import {
   deleteOAuthPendingStatesForAthlete,
   deleteStravaConnection,
@@ -84,6 +85,7 @@ export async function deleteAccountData(
       await deleteChatRoomData(room.id);
       await deleteFinishedEffortForRoom(room.id);
       await deleteCrewCueRoomCourseHistory(room.id);
+      await deleteRoomRemovalsForRoom(room.id);
       ownedRoomIds.push(room.id);
     } else if (await removeMemberForAccountDeletion(room.id, sub, identity.email, log)) {
       membershipsRemoved += 1;
@@ -98,6 +100,7 @@ export async function deleteAccountData(
   const activityHistoryDeleted = await deleteActivityHistoryForAthlete(sub);
   const pacingEstimatesDeleted = await deletePacingEstimatesForAthlete(sub);
   const finishedEffortsDeleted = await deleteFinishedEffortsForAthlete(sub);
+  await deleteRoomRemovalsForUser(sub);
   const chat = await deleteChatDataForUser(sub);
 
   const strava = await getStravaConnection(sub);

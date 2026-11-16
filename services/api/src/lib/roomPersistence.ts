@@ -98,6 +98,17 @@ const COURSE_HISTORY_DDL = `
   CREATE INDEX IF NOT EXISTS course_history_events_by_usage ON course_history_events (usage);
 `;
 
+/** Mirrors db/migrations/0020_room_removed_members.sql (see roomRemovalStore.ts). */
+const ROOM_REMOVED_MEMBERS_DDL = `
+  CREATE TABLE IF NOT EXISTS room_removed_members (
+    room_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    removed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (room_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS room_removed_members_by_user ON room_removed_members (user_id);
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -233,6 +244,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(ROOM_ATHLETE_PINGS_DDL);
     await client.query(FINISHED_EFFORTS_DDL);
     await client.query(COURSE_HISTORY_DDL);
+    await client.query(ROOM_REMOVED_MEMBERS_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -256,7 +268,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "task_board_snapshots",
           "room_athlete_pings",
           "finished_efforts",
-          "course_history_events"
+          "course_history_events",
+          "room_removed_members"
         ]
       }
     },
