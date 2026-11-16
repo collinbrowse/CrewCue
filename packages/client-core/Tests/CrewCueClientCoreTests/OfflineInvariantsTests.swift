@@ -482,6 +482,43 @@ import Testing
     #expect(try await store.operations().isEmpty)
 }
 
+@Test func overlappingFlushNeverSendsANewerPingAheadOfTheBacklog() async throws {
+    let store = try OutboxStore.shared(userId: "athlete-1", directory: temporaryDirectory())
+    for minute in 0..<5 {
+        _ = try await store.enqueuePing(
+            roomId: "room", role: "athlete", latitude: 1, longitude: 2,
+            recordedAt: "2026-08-15T14:1\(minute):00.000Z"
+        )
+    }
+    let server = PingServer()
+    let gate = Gate()
+    let batch: @Sendable (String, [StoredOperation]) async -> [OutboxFailureResolution] = { _, pings in
+        if pings.first?.recordedAt == "2026-08-15T14:10:00.000Z" {
+            await gate.wait()
+        }
+        return await server.ingest(pings)
+    }
+    let sendNothing: @Sendable (StoredOperation) async -> OutboxFailureResolution = { _ in
+        OutboxFailureResolution(status: "pending", retryable: true, feedback: "Unexpected.")
+    }
+    // The reconnect flush is still uploading the offline backlog...
+    let backlog = Task { try await store.flush(sendNothing, pingBatch: batch) }
+    await gate.waitUntilWaiting()
+    // ...when a new fix arrives and a chat send flushes the outbox again.
+    _ = try await store.enqueuePing(
+        roomId: "room", role: "athlete", latitude: 1, longitude: 2,
+        recordedAt: "2026-08-15T14:20:00.000Z"
+    )
+    _ = try await store.flush(sendNothing, pingBatch: batch)
+    await gate.open()
+    let report = try await backlog.value
+    _ = try await store.flush(sendNothing, pingBatch: batch)
+    // Every offline sample reaches the server; none is thrown away as stale.
+    #expect(report.dropped.isEmpty)
+    #expect(await server.stored.count == 6)
+    #expect(try await store.operations().isEmpty)
+}
+
 // MARK: Helpers
 
 private func temporaryDirectory() -> URL {
@@ -619,5 +656,23 @@ private actor EstimateTransport: HTTPTransport {
 
     func bodies() -> [String] {
         captured
+    }
+}
+
+/// Models `POST /pings/batch`: a sample at or before the last accepted one is `stale_recorded_at`.
+private actor PingServer {
+    private(set) var stored: [String] = []
+    private var last: Date?
+
+    func ingest(_ pings: [StoredOperation]) -> [OutboxFailureResolution] {
+        pings.map { ping in
+            let at = ping.recordedAt.flatMap(ScheduleFormat.parseISO8601) ?? .distantPast
+            if let last, at <= last {
+                return OutboxFailureResolution(status: "dropped", retryable: false, feedback: "Stale location sample dropped.")
+            }
+            last = at
+            stored.append(ping.recordedAt ?? "")
+            return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Sent.")
+        }
     }
 }
