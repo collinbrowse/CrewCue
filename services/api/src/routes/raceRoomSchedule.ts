@@ -17,10 +17,21 @@ import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
   initPacingEstimateStore,
-  savePacingEstimate
+  recordPacingEstimateRoom,
+  savePacingEstimate,
+  type StoredPacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { roomUnpaidError } from "../lib/billingEntitlement.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { commitRaceRoomUpdate, evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
+import { finishOnlyEstimate, isTeaserRoom, teaserRoom, teaserScheduleSheet } from "../lib/raceTeaser.js";
+import {
+  commitRaceRoomUpdate,
+  evaluateEntitlement,
+  getProjectionViewForRoom,
+  getRaceRoom,
+  refreshProjectionAfterPlanOfRecordChange,
+  type EntitlementOptions
+} from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -86,11 +97,17 @@ function lookupClosedActualSeconds(
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * Sends 401/404/403/402 and returns undefined unless the caller is a member of a room they may
+ * use. `allowUnpaidRunner` lets the runner through on an unpaid race (onboarding); the route
+ * must then serve the teaser (`isTeaserRoom`).
+ */
 async function requireRoomMember(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
-  roomId: string
+  roomId: string,
+  entitlementOptions: EntitlementOptions = {}
 ): Promise<RaceRoom | undefined> {
   if (!request.identity) {
     await reply.code(401).send({ error: "Unauthorized" });
@@ -106,7 +123,7 @@ async function requireRoomMember(
     await reply.code(403).send({ error: "Forbidden" });
     return undefined;
   }
-  const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+  const entitlement = evaluateEntitlement(app, room, request.identity.sub, entitlementOptions);
   if (!entitlement.allowed) {
     await reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     return undefined;
@@ -451,10 +468,16 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    * seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise. Membership and
    * entitlement gate the route; `decidePlanAuthority` decides the role and trigger.
    * Idempotent when the same estimate id is already attached.
+   *
+   * An unpaid race takes only `pacingEstimateId` of an estimate the server computed (an inline
+   * `estimate` body is 402 `room_unpaid`) and answers it finish-only. Attaching records the room
+   * on the stored estimate. An estimate computed for, or last attached to, another race that is
+   * unpaid is 402 `room_unpaid` here, so a paid race cannot unlock it.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireRoomMember(app, request, reply, roomId);
+    // Attaching the plan is part of the runner's setup before they pay.
+    const room = await requireRoomMember(app, request, reply, roomId, { allowUnpaidRunner: true });
     if (!room) {
       return;
     }
@@ -462,6 +485,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const parsedBody = attachPacingEstimateBody.safeParse(request.body ?? {});
     if (!parsedBody.success) {
       return reply.code(400).send({ error: "Invalid pacing estimate attach payload", code: "invalid_payload" });
+    }
+    // The plan of an unpaid race is always one the server computed: no client snapshot.
+    const unpaid = roomUnpaidError(room);
+    if (unpaid && parsedBody.data.estimate !== undefined) {
+      return reply.code(402).send(unpaid);
     }
 
     const callerUserId = request.identity!.sub;
@@ -483,6 +511,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         : reply.code(403).send({ error: "Forbidden" });
     let estimate: PacingEstimate;
     let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
+    /** The stored row this attach uses (its plan curve, and where it was computed or attached). */
+    let storedRow: StoredPacingEstimate | undefined;
 
     if (parsedBody.data.pacingEstimateId !== undefined) {
       const stored = await getPacingEstimateById(parsedBody.data.pacingEstimateId);
@@ -494,6 +524,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       }
       estimate = stored.estimate;
       storedBaseline = stored.baselineTrack;
+      storedRow = stored;
     } else {
       if (crewChange) {
         // A snapshot proves nothing about whose history built it.
@@ -509,18 +540,33 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(403).send({ error: "Forbidden" });
       }
       if (!existing) {
-        await savePacingEstimate(athleteUserId, estimate);
+        // Tied to this room, so the export knows whether a paid race unlocked it.
+        await savePacingEstimate(athleteUserId, estimate, undefined, { roomId });
       } else {
         storedBaseline = existing.baselineTrack;
+        storedRow = existing;
+      }
+    }
+
+    // An estimate tied to another race that is unpaid stays finish-only until that race is paid:
+    // attaching it here (with its plan curve) would unlock it on this race.
+    if (storedRow?.roomId !== undefined && storedRow.roomId !== roomId) {
+      const origin = await getRaceRoom(storedRow.roomId);
+      const originUnpaid = origin ? roomUnpaidError(origin) : undefined;
+      if (originUnpaid) {
+        return reply.code(402).send(originUnpaid);
       }
     }
 
     // Idempotent: same id already plan of record → return current snapshot without rewrite churn.
+    // On an unpaid race (only the runner gets this far) the reply is finish-only; the stored plan
+    // stays whole.
     if (room.pacingEstimateId === estimate.id && room.pacingEstimate?.id === estimate.id) {
+      if (storedRow) await recordPacingEstimateRoom(storedRow, roomId);
       const body: AttachResponse = {
         roomId,
         pacingEstimateId: estimate.id,
-        estimate: room.pacingEstimate
+        estimate: isTeaserRoom(room) ? finishOnlyEstimate(room.pacingEstimate) : room.pacingEstimate
       };
       return reply.send(body);
     }
@@ -548,6 +594,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     if (!updated) {
       return reply.code(404).send({ error: "Race room not found" });
     }
+    if (storedRow) await recordPacingEstimateRoom(storedRow, roomId);
     // Pace / map read planned splits from the stored projection; schedule rebuilds from the
     // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
     await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
@@ -555,14 +602,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const body: AttachResponse = {
       roomId,
       pacingEstimateId: estimate.id,
-      estimate
+      estimate: isTeaserRoom(updated) ? finishOnlyEstimate(estimate) : estimate
     };
     return reply.send(body);
   });
 
   app.get("/race-rooms/:roomId/schedule", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireRoomMember(app, request, reply, roomId);
+    // Unpaid: the runner sees the start and finish stops only; crew get 402.
+    const room = await requireRoomMember(app, request, reply, roomId, { allowUnpaidRunner: true });
     if (!room) {
       return;
     }
@@ -594,12 +642,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      return reply.send(
-        projectCrewScheduleSheet(room, {
-          closedActualStopSecondsByCheckpointId: closedActuals,
-          pacingEstimate: room.pacingEstimate
-        })
-      );
+      const teaser = isTeaserRoom(room);
+      // A teaser sheet is built from the teaser room (finish-only plan, no plan curve), so the
+      // start and finish rows it keeps read the finish ETA alone (see `teaserScheduleSheet`).
+      const source = teaser ? teaserRoom(room) : room;
+      const sheet = projectCrewScheduleSheet(source, {
+        closedActualStopSecondsByCheckpointId: closedActuals,
+        pacingEstimate: source.pacingEstimate
+      });
+      return reply.send(teaser ? teaserScheduleSheet(sheet, room) : sheet);
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {

@@ -10,7 +10,8 @@ import type {
   RaceRoom,
   RaceRoomBilling,
   RaceRoomCrewTier,
-  RaceRoomEntitlement
+  RaceRoomEntitlement,
+  RoomUnpaidError
 } from "@crewcue/contracts";
 
 export const BILLING_PRODUCT_IDS: readonly BillingProductId[] = ["race_pass", "crew_upgrade", "race_pass_full_crew"];
@@ -41,13 +42,33 @@ export function crewLimitOf(room: RaceRoom): number | undefined {
  * Every other member counts against the crew cap.
  */
 export function isCrewMembership(room: RaceRoom, member: { userId: string; role: string }): boolean {
-  if (member.role === "athlete" || member.userId === room.athleteId) return false;
+  if (member.role === "athlete") return false;
+  return !isRunnerSeat(room, member.userId);
+}
+
+/**
+ * Whether `userId` holds the runner seat (the race athlete or the room's creator), by who they
+ * are, not by the role they hold or are being given. An unpaid race admits only this seat.
+ */
+export function isRunnerSeat(room: RaceRoom, userId: string): boolean {
+  if (userId === room.athleteId) return true;
   const creator = room.createdByUserId ?? room.memberships[0]?.userId;
-  return member.userId !== creator;
+  return userId === creator;
 }
 
 export function crewCountOf(room: RaceRoom): number {
   return room.memberships.filter((member) => isCrewMembership(room, member)).length;
+}
+
+/**
+ * Crew chat, invites, and any seat but the runner's need a paid race (402). Kept apart from the
+ * crew cap: an unpaid race is not "full", and offering `crew_upgrade` there would sell the wrong
+ * thing. Only `unpaid` is refused here; existing members stay, and the runner's own seat
+ * (`isRunnerSeat`) is the caller's to exempt.
+ */
+export function roomUnpaidError(room: RaceRoom): RoomUnpaidError | undefined {
+  if (room.entitlement.status !== "unpaid") return undefined;
+  return { error: "Race not unlocked", code: "room_unpaid" };
 }
 
 /**

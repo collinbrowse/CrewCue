@@ -60,3 +60,37 @@ test("repeated room code attempts are throttled per user and per client address"
   assert.equal((await call("fresh-final")).statusCode, 429);
   await app.close();
 });
+
+test("pacing estimates: computing and attaching are each capped at 20 an hour per user", async () => {
+  const app = buildApp();
+  await app.ready();
+  const tokenFor = (sub: string) => app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} });
+  const compute = (sub: string) =>
+    app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      headers: { authorization: `Bearer ${tokenFor(sub)}` },
+      payload: {}
+    });
+  // Different rooms share one budget: the limit is per user, not per race.
+  const attach = (sub: string, i: number) =>
+    app.inject({
+      method: "PUT",
+      url: `/race-rooms/room-${i}/pacing-estimate`,
+      headers: { authorization: `Bearer ${tokenFor(sub)}` },
+      payload: { pacingEstimateId: "est-1" }
+    });
+
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal((await compute("user-a")).statusCode, 400);
+    assert.equal((await attach("user-a", i)).statusCode, 404);
+  }
+  const computeLimited = await compute("user-a");
+  assert.equal(computeLimited.statusCode, 429);
+  // About an hour, not a minute.
+  assert.ok(Number(computeLimited.headers["retry-after"]) > 60 * 59);
+  assert.equal((await attach("user-a", 20)).statusCode, 429);
+  assert.equal((await compute("user-b")).statusCode, 400);
+  assert.equal((await attach("user-b", 0)).statusCode, 404);
+  await app.close();
+});

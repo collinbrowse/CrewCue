@@ -1,7 +1,8 @@
 /**
  * POST /pacing-estimates — history + room course → micro-model PacingEstimate.
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
- * bodies still work with a sparse polyline from checkpoint centers.
+ * bodies still work with a sparse polyline from checkpoint centers; no shipped client sends
+ * one (client-core always sends `roomId`), and they are answered finish-only, for everyone.
  */
 import { cohortForCourse } from "../lib/courseHistory/resolve.js";
 import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
@@ -27,11 +28,13 @@ import {
 } from "../lib/pacingEstimate/index.js";
 import {
   initPacingEstimateStore,
-  savePacingEstimate
+  savePacingEstimate,
+  type PacingEstimateProvenance
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
+import { finishOnlyEstimate, isTeaserRoom } from "../lib/raceTeaser.js";
+import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
   .object({
@@ -142,6 +145,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       if (!membership) {
         return reply.code(403).send({ error: "Forbidden" });
       }
+      // Same gate as attaching the plan: crew on an unpaid race get 402, the runner sets up
+      // and is answered with the finish-only estimate below.
+      const entitlement = evaluateEntitlement(app, room, callerUserId, { allowUnpaidRunner: true });
+      if (!entitlement.allowed) {
+        return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+      }
       const authority = decidePlanAuthority({
         room,
         userId: callerUserId,
@@ -223,8 +232,14 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         courseLengthMeters
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
-      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack);
-      return reply.code(200).send(parsed);
+      // Finish only, no aid ETA, for an unpaid race and for every room-less request: any race's
+      // checkpoints can be posted without a room, an unpaid one's included.
+      const finishOnly = linkedRoom === undefined || isTeaserRoom(linkedRoom);
+      const provenance: PacingEstimateProvenance = linkedRoom ? { roomId: linkedRoom.id } : {};
+      // Stored whole, so attaching it by id to a paid race (or paying for this one) unlocks the
+      // full plan. The room goes with it, so the export knows whether a paid race unlocked it.
+      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack, provenance);
+      return reply.code(200).send(finishOnly ? finishOnlyEstimate(parsed) : parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });

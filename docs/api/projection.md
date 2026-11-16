@@ -37,7 +37,7 @@ The **201** response may include a **`projection`** object (same shape as GET, i
 
 ## `GET /race-rooms/:roomId/projection`
 
-Same auth, membership, and entitlement rules as `GET /race-rooms/:roomId`.
+Same auth, membership, and entitlement rules as `GET /race-rooms/:roomId`. On an unpaid race the runner gets the teaser: finish-only, so `checkpointSplits` and `remainingCheckpointEtas` are empty, `etaFinishPlanIso`, `etaFinishWindow` and course-level fields stay, and `locked` lists every mid-course checkpoint. Before the runner's first accepted ping the finish is read from the start line and carries no window; see [race-rooms.md](race-rooms.md#unpaid-race-the-runners-teaser).
 
 | Code | When |
 | --- | --- |

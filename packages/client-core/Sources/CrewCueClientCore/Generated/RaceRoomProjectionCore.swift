@@ -14,8 +14,9 @@ public struct RaceRoomProjectionCore: Codable, Equatable, Sendable {
     public var weatherStub: ProjectionWeatherStub?
     public var remainingCheckpointEtas: [RemainingCheckpointEta]?
     public var etaFinishWindow: ArrivalWindowClock?
+    public var locked: TeaserLockedCheckpoints?
 
-    public init(roomId: String, asOfPingId: String, asOfRecordedAt: String, progressMeters: Double, courseLengthMeters: Double, plannedPaceSecondsPerKm: Double, etaFinishPlanIso: String, checkpointSplits: [RaceCheckpointSplitRow], stoppageSummary: CheckpointStoppageSummary, weatherStub: ProjectionWeatherStub? = nil, remainingCheckpointEtas: [RemainingCheckpointEta]? = nil, etaFinishWindow: ArrivalWindowClock? = nil) {
+    public init(roomId: String, asOfPingId: String, asOfRecordedAt: String, progressMeters: Double, courseLengthMeters: Double, plannedPaceSecondsPerKm: Double, etaFinishPlanIso: String, checkpointSplits: [RaceCheckpointSplitRow], stoppageSummary: CheckpointStoppageSummary, weatherStub: ProjectionWeatherStub? = nil, remainingCheckpointEtas: [RemainingCheckpointEta]? = nil, etaFinishWindow: ArrivalWindowClock? = nil, locked: TeaserLockedCheckpoints? = nil) {
         self.roomId = roomId
         self.asOfPingId = asOfPingId
         self.asOfRecordedAt = asOfRecordedAt
@@ -28,5 +29,6 @@ public struct RaceRoomProjectionCore: Codable, Equatable, Sendable {
         self.weatherStub = weatherStub
         self.remainingCheckpointEtas = remainingCheckpointEtas
         self.etaFinishWindow = etaFinishWindow
+        self.locked = locked
     }
 }

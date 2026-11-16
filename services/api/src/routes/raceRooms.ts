@@ -97,7 +97,8 @@ import {
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
-import { crewLimitError, isCrewMembership } from "../lib/billingEntitlement.js";
+import { crewLimitError, isCrewMembership, isRunnerSeat, roomUnpaidError } from "../lib/billingEntitlement.js";
+import { isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 const createRaceRoomInput = z.object({
@@ -659,7 +660,8 @@ function toJoinPreview(room: RaceRoom): RaceRoomJoinPreview {
     courseElevationGainMeters: room.courseElevationGainMeters,
     plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm,
     courseFileName: room.courseFileName,
-    baselineTrack: room.course?.baselineTrack,
+    // Anonymous, and the plan curve prices every checkpoint: an unpaid race never sends it.
+    ...(isTeaserRoom(room) ? {} : { baselineTrack: room.course?.baselineTrack }),
     checkpoints: room.course?.checkpoints.map((cp) => ({
       id: cp.id,
       latitude: cp.latitude,
@@ -1661,7 +1663,29 @@ function getTaskBoardVisibleRoles(role: Role): Role[] {
   return ["athlete", "crew_member", "crew_chief", "team_manager"];
 }
 
-export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor: string): { allowed: boolean; code?: number; error?: string } {
+export type EntitlementOptions = {
+  /**
+   * Let the race's runner (`actor === room.athleteId`) through on an unpaid race, so they can
+   * set it up before paying. The route must then shape its response with `lib/raceTeaser.ts`.
+   * Crew stay at 402, and an expired race stays blocked for everyone.
+   */
+  allowUnpaidRunner?: boolean;
+};
+
+export type EntitlementDecision = {
+  allowed: boolean;
+  code?: number;
+  error?: string;
+  /** Allowed through the unpaid-runner exception: the response must be the teaser. */
+  teaser?: boolean;
+};
+
+export function evaluateEntitlement(
+  app: FastifyInstance,
+  room: RaceRoom,
+  actor: string,
+  options: EntitlementOptions = {}
+): EntitlementDecision {
   const decision = {
     roomId: room.id,
     actor,
@@ -1674,6 +1698,10 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
   }
 
   if (room.entitlement.status === "unpaid") {
+    if (options.allowUnpaidRunner === true && actor === room.athleteId) {
+      app.log.info({ entitlement: { ...decision, allowed: true, teaser: true } }, "entitlement_decision");
+      return { allowed: true, teaser: true };
+    }
     app.log.info({ entitlement: { ...decision, allowed: false } }, "entitlement_decision");
     return { allowed: false, code: 402, error: "Entitlement unpaid" };
   }
@@ -2552,7 +2580,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const idemCreate = await beginIdempotentMutation(request, parsed.data);
     if (idemCreate.kind === "replay") {
-      return reply.code(idemCreate.statusCode).send(idemCreate.body);
+      // Answer from the room as it is now, never the stored body: the race may have been set
+      // up, paid and refunded since, and the stored body was shaped for its state back then.
+      const stored = idemCreate.body as RaceRoom | undefined;
+      const current = typeof stored?.id === "string" ? ((await getRaceRoom(stored.id)) ?? stored) : stored;
+      if (!current?.memberships?.some((member) => member.userId === request.identity?.sub)) {
+        return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
+      }
+      return reply.code(idemCreate.statusCode).send(roomForViewer(current, request.identity.sub));
     }
     if (idemCreate.kind === "conflict" || idemCreate.kind === "in_progress") {
       return idempotencyErrorReply(reply, idemCreate);
@@ -2572,8 +2607,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           await releaseIdempotentMutation(request, parsed.data);
           return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
         }
-        await completeIdempotentMutation(request, parsed.data, 201, existing);
-        return reply.code(201).send(existing);
+        const body = roomForViewer(existing, request.identity.sub);
+        await completeIdempotentMutation(request, parsed.data, 201, body);
+        return reply.code(201).send(body);
       }
     }
 
@@ -2606,12 +2642,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ]
     };
 
+    const body = roomForViewer(room, request.identity.sub);
     let roomPersisted = false;
     try {
       await saveRaceRoom(room);
       roomPersisted = true;
-      await completeIdempotentMutation(request, parsed.data, 201, room);
-      return reply.code(201).send(room);
+      await completeIdempotentMutation(request, parsed.data, 201, body);
+      return reply.code(201).send(body);
     } catch (err) {
       if (!roomPersisted) {
         await releaseIdempotentMutation(request, parsed.data);
@@ -2619,14 +2656,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       // Room is durable — do not release the lease (that created orphans on retry).
       try {
-        await completeIdempotentMutation(request, parsed.data, 201, room);
+        await completeIdempotentMutation(request, parsed.data, 201, body);
       } catch (completeErr) {
         request.log.warn(
           { err: completeErr, roomId: room.id },
           "idempotency complete failed after race room save"
         );
       }
-      return reply.code(201).send(room);
+      return reply.code(201).send(body);
     }
   });
 
@@ -2635,8 +2672,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
-    const rooms = await listRaceRoomsForMember(request.identity.sub);
-    return reply.send({ rooms });
+    const viewer = request.identity.sub;
+    const rooms = await listRaceRoomsForMember(viewer);
+    return reply.send({ rooms: rooms.map((room) => roomForViewer(room, viewer)) });
   });
 
   app.get("/race-rooms/join-preview/:roomCode", async (request, reply) => {
@@ -2671,13 +2709,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // The runner sets up an unpaid race before paying; they see the teaser, crew get 402.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
     const permissions = getPermissions(membership.role);
-    return reply.send({ room, permissions });
+    return reply.send({ room: roomForViewer(room, request.identity.sub), permissions });
   });
 
   app.put("/race-rooms/:roomId/course", async (request, reply) => {
@@ -2701,7 +2740,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // Course setup is part of the runner's onboarding, before they pay.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
@@ -2713,7 +2753,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const idemCourse = await beginIdempotentMutation(request, parsed.data);
     if (idemCourse.kind === "replay") {
-      return reply.code(idemCourse.statusCode).send(idemCourse.body);
+      // Answer from the room as it is now, shaped for this caller, never the stored body: a
+      // body stored while paid must not replay the whole plan after a refund.
+      const current = (await getRaceRoom(roomId)) ?? room;
+      return reply.code(idemCourse.statusCode).send(roomForViewer(current, request.identity.sub));
     }
     if (idemCourse.kind === "conflict" || idemCourse.kind === "in_progress") {
       return idempotencyErrorReply(reply, idemCourse);
@@ -2834,9 +2877,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       await ensureBootstrapProjection(roomId, updatedRoom, true);
       await saveWs2RuntimeSnapshot(roomId);
-      await completeIdempotentMutation(request, parsed.data, 200, updatedRoom);
+      // The unpaid runner gets the teaser here too. A replay re-reads the room instead of
+      // sending this body, but it is stored shaped all the same.
+      const body = roomForViewer(updatedRoom, request.identity.sub);
+      await completeIdempotentMutation(request, parsed.data, 200, body);
       idemCourseFinished = true;
-      return reply.send(updatedRoom);
+      return reply.send(body);
     } finally {
       // Never release after a durable course write — retry/reclaim must not treat
       // a partially completed PUT as a fresh mutation that can wipe again freely.
@@ -2884,7 +2930,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: rebuilt.error });
     }
     await persistCourseShapeChange(app, roomId, room, rebuilt.room);
-    return reply.code(201).send(rebuilt.room);
+    return reply.code(201).send(roomForViewer(rebuilt.room, request.identity?.sub));
   });
 
   app.patch("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
@@ -2932,7 +2978,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (checkpointMissing) {
       return reply.code(404).send({ error: "Checkpoint not found" });
     }
-    return reply.send(updatedRoom);
+    return reply.send(roomForViewer(updatedRoom, request.identity?.sub));
   });
 
   /**
@@ -2984,7 +3030,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: "Course not found" });
     }
     await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
-    return reply.send(updatedRoom);
+    return reply.send(roomForViewer(updatedRoom, request.identity?.sub));
   });
 
   app.delete("/race-rooms/:roomId/checkpoints/:checkpointId", async (request, reply) => {
@@ -3021,7 +3067,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: rebuilt.error });
     }
     await persistCourseShapeChange(app, roomId, room, rebuilt.room);
-    return reply.send(rebuilt.room);
+    return reply.send(roomForViewer(rebuilt.room, request.identity?.sub));
   });
 
   app.get("/race-rooms/:roomId/map-workspace", async (request, reply) => {
@@ -3114,7 +3160,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
     await discardWs5RoomState(roomId);
 
-    return reply.send(updatedRoom);
+    return reply.send(roomForViewer(updatedRoom, request.identity?.sub));
   });
 
   app.post("/race-rooms/:roomId/invites", async (request, reply) => {
@@ -3147,6 +3193,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // role rules (PATCH /members). Only the race owner may invite above crew_member.
     if (room.athleteId !== request.identity.sub && parsed.data.role !== "crew_member") {
       return reply.code(403).send({ error: "Only the race owner can invite above crew_member" });
+    }
+
+    // An unpaid race takes no one new: that is the pass, not the upgrade. Every role is
+    // refused, `athlete` included, since an invite names an email, not the runner's seat,
+    // and an athlete-role invite accepted by someone else would be a free seat.
+    const unpaid = roomUnpaidError(room);
+    if (unpaid) {
+      return reply.code(402).send(unpaid);
     }
 
     // Inviting crew past the room's tier is refused up front, so the runner sees the
@@ -3271,6 +3325,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ) {
         return reply.code(409).send({ error: "Race owner role cannot be changed from athlete" });
       }
+      // An invite issued while the race was paid is still refused once it is not, whatever
+      // role it grants: on an unpaid race only the runner's own seat is taken or changed.
+      if (!isRunnerSeat(room, userId)) {
+        const unpaid = roomUnpaidError(room);
+        if (unpaid) {
+          return reply.code(402).send(unpaid);
+        }
+      }
       const becomesCrew =
         isCrewMembership(room, { userId, role: invite.role }) &&
         !(existing && isCrewMembership(room, existing));
@@ -3313,7 +3375,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
 
       return reply.send({
-        room: updatedRoom,
+        room: roomForViewer(updatedRoom, userId),
         assignedRole: membership.role,
         permissions: getPermissions(membership.role)
       });
@@ -3345,7 +3407,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await writeDelay();
       }
       const existingMembership = room.memberships.find((member) => member.userId === userId);
-      if (!existingMembership && isCrewMembership(room, { userId, role: "crew_member" })) {
+      if (!existingMembership && !isRunnerSeat(room, userId)) {
+        // Only a paid race takes someone new. The runner still joins their own.
+        const unpaid = roomUnpaidError(room);
+        if (unpaid) {
+          return reply.code(402).send(unpaid);
+        }
         // Under the room lock: of two crew joining at once, only one can take the last seat.
         const limit = crewLimitError(room);
         if (limit) {
@@ -3377,8 +3444,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(500).send({ error: "Membership assignment failed" });
       }
 
+      // An existing member rejoining an unpaid race gets the room shaped for them, never the plan.
       return reply.send({
-        room: updatedRoom,
+        room: roomForViewer(updatedRoom, userId),
         assignedRole: assignedMembership.role,
         permissions: getPermissions(assignedMembership.role)
       });
@@ -3434,7 +3502,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       if (!updatedMembership) {
         return reply.code(500).send({ error: "Could not update display name" });
       }
-      return reply.send({ room: updatedRoom, membership: updatedMembership });
+      return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub), membership: updatedMembership });
     }
 
     if (room.athleteId !== request.identity.sub) {
@@ -3482,7 +3550,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!updatedMembership) {
       return reply.code(500).send({ error: "Could not update member role" });
     }
-    return reply.send({ room: updatedRoom, membership: updatedMembership });
+    return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub), membership: updatedMembership });
   });
 
   app.delete("/race-rooms/:roomId/members/:memberUserId", async (request, reply) => {
@@ -3534,7 +3602,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
     // Wakes the removed member's open chat long-poll, which then answers 403.
     publishChatRoom(roomId, "membership");
-    return reply.send({ room: updatedRoom });
+    return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub) });
   });
 
   app.get("/teams/:teamId/race-rooms", async (request, reply) => {
@@ -3551,12 +3619,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
+    const viewer = request.identity.sub;
     const rooms = await listRaceRoomsByTeamId(teamId);
     const visibleRooms = rooms
-      .filter((room) => room.memberships.some((member) => member.userId === request.identity?.sub))
+      .filter((room) => room.memberships.some((member) => member.userId === viewer))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
-    return reply.send({ rooms: visibleRooms });
+    return reply.send({ rooms: visibleRooms.map((room) => roomForViewer(room, viewer)) });
   });
 
   app.post("/race-rooms/:roomId/entitlement", async (request, reply) => {
@@ -4165,7 +4234,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // Unpaid: the runner sees the finish ETA only (teaser); crew get 402.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
@@ -4188,7 +4258,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       Date.now(),
       pingState.lastUploadIntervalSeconds
     );
-    return reply.send(view);
+    // Before the runner's first accepted ping the projection is the bootstrap (see `teaserProjection`).
+    return reply.send(entitlement.teaser ? teaserProjection(view, room, { preRace: pingState.lastAccepted === null }) : view);
   });
 
   /**

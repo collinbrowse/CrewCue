@@ -38,17 +38,44 @@ Non-members receive **403 Forbidden** for those operations (except invite accept
 
 | Status | `GET /race-rooms/:roomId` / `POST .../activate` |
 | --- | --- |
-| `unpaid` | **402** `{ "error": "Entitlement unpaid" }` |
+| `unpaid` | **402** `{ "error": "Entitlement unpaid" }` (the runner's teaser reads below excepted) |
 | `paid` | allowed (subject to role permissions for activate) |
 | `expired` | **403** `{ "error": "Entitlement expired" }` |
 
 Entitlement updates themselves do **not** require a paid entitlement; they only require membership and sufficient role.
 
+### Unpaid race: the runner's teaser
+
+The runner (`room.athleteId`) sets up an unpaid race before paying. An unpaid race shows its runner **the course and the finish ETA only**: no aid station or other mid-course checkpoint ETA anywhere, whatever the course's tags, order or checkpoints. Only these routes let the runner through, and the reads are shaped on the server ([raceTeaser.ts](../../services/api/src/lib/raceTeaser.ts)):
+
+| Route | Unpaid, runner |
+| --- | --- |
+| `GET /race-rooms/:roomId` | 200. `course.baselineTrack` is dropped; `pacingEstimate.aidEtas` is empty (`expectedFinishAt`, `expectedFinishElapsedSeconds` and `bands` stay). Geometry and checkpoints stay. |
+| `PUT /race-rooms/:roomId/course` | allowed; the response is the room teaser. An idempotent replay answers from the room as it is now, shaped for the caller, never the stored body (a key first used while paid replays the teaser after a refund). |
+| `PUT /race-rooms/:roomId/pacing-estimate` | allowed with `pacingEstimateId` of an estimate the server computed; `estimate.aidEtas` in the response is empty. An inline `estimate` body is **402** `room_unpaid`. |
+| `POST /pacing-estimates` with `roomId` | allowed; the response is finish-only (`aidEtas` empty; finish fields and bands stay). The stored estimate is whole, so paying unlocks every ETA without a recompute. Crew get 402. |
+| `GET /race-rooms/:roomId/projection` | 200. `checkpointSplits` and `remainingCheckpointEtas` are empty; `etaFinishPlanIso`, `etaFinishWindow` and course-level fields stay. Before the runner's first accepted ping, `etaFinishPlanIso` is the finish from the start line (the plan curve to the course length plus every planned stop, never earlier than the projection), so listing a mid-course stop first cannot turn it into the finish from that stop; that pre-race read carries no `etaFinishWindow`. |
+| `GET /race-rooms/:roomId/schedule` | 200. `stops` keeps the start and the finish only. The sheet is built from the finish-only plan without the plan curve, so a course re-saved to start or end at a priced stop never carries that stop's ETA. |
+
+Teaser projection and schedule responses carry `locked: { checkpointIds }`: every checkpoint between the start and the finish, in course order. Paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
+
+Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics), every invite (any role, `athlete` included), and any invite accept or code join by someone who does not hold the runner seat (the race athlete or the room creator) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
+
+Every other route that answers a member of an unpaid race with a room (`POST /race-rooms` and its idempotent retry or reclaim, which answers from the room as it is now and gives another account reusing the key 409, `GET /race-rooms/mine`, `GET /teams/:teamId/race-rooms`, join-by-code for an existing member, invite accept, `PATCH`/`DELETE .../members/...`) shapes it with `roomForViewer`: the runner gets the room teaser above; anyone else gets the room without `pacingEstimate`, `pacingEstimateId` or `course.baselineTrack` (name, code, roster, entitlement and course stay, so lists and the paywall render). The anonymous `GET /race-rooms/join-preview/:roomCode` omits `baselineTrack` on an unpaid race.
+
+**Where an estimate went.** A stored estimate records a room (`roomId`): the race `POST /pacing-estimates` computed it for, replaced by each race it is attached to. Attaching an estimate whose recorded race is another race that is currently unpaid is **402** `room_unpaid` (by id, or an inline snapshot that reuses its id), so a paid race cannot unlock an unpaid race's plan. Once that race is paid, the estimate attaches anywhere.
+
+`GET /me/export` returns a stored estimate whole only when it is tied to a paid race the caller belongs to: its recorded race is paid, or it is the plan of record of a paid race of theirs. Everything else exports finish-only: an unpaid race's estimates, an expired race's, and room-less ones. A room-less estimate later attached to a paid race exports whole.
+
+`POST /pacing-estimates` without `roomId` (checkpoints and `raceStartAt` in the body) prices whatever checkpoints are posted, including a course copied from an unpaid race, so it always answers finish-only, for everyone, paid races included. No shipped client calls it without `roomId`.
+
+Both `POST /pacing-estimates` and `PUT /race-rooms/:roomId/pacing-estimate` are limited to 20 requests an hour per user (all races together; **429** with `retry-after` past that).
+
 ### Crew tier (#649)
 
 `room.entitlement.crewTier` is `one` (Race Pass: the runner plus 1 crew member) or `unlimited` (Full Crew). New rooms start `unpaid` with `one`. Rooms stored before billing have no tier and read as `unlimited`. The runner seat (the race athlete and the room creator, `createdByUserId`) does not count; every other member is crew.
 
-Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
+On an unpaid race these are refused first with **402** `room_unpaid` (above), not as a full cap. Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
 
 ## Endpoints
 
@@ -81,10 +108,10 @@ Returns `{ room, permissions }` for the caller’s membership role.
 
 | Code | Meaning |
 | --- | --- |
-| 200 | Success |
+| 200 | Success (on an unpaid race, the runner's teaser) |
 | 401 | Missing/invalid JWT or malformed claims |
 | 403 | Caller not a member, or entitlement `expired` |
-| 402 | Entitlement `unpaid` |
+| 402 | Entitlement `unpaid` (anyone but the runner) |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/activate`
@@ -127,6 +154,7 @@ Issues a pending invite for an email and target role.
 | 201 | Returns invite metadata (`token`, `roomId`, `email`, `role`, `expiresAt`) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
+| 402 | `room_unpaid`: the race is unpaid (any role) |
 | 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` |
 | 404 | Unknown `roomId` |
 
@@ -144,9 +172,10 @@ Accepts an invite token for the authenticated user (membership is created or rol
 
 | Code | Meaning |
 | --- | --- |
-| 200 | Returns `{ room, assignedRole, permissions }` |
+| 200 | Returns `{ room, assignedRole, permissions }` (`room` shaped by `roomForViewer` on an unpaid race) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
+| 402 | `room_unpaid`: the race is unpaid and the caller does not hold the runner seat |
 | 404 | Room not found, or invite not found for this room/token |
 | 409 | Invite not pending |
 | 410 | Invite expired (status updated to `expired`) |

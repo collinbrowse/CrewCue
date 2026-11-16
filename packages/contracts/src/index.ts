@@ -1,4 +1,10 @@
-import type { ActivityHistoryRef, PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+import type {
+  ActivityHistoryRef,
+  PacingEstimate,
+  RaceRoomStopPlan,
+  TeaserLockedCheckpoints,
+  WaypointTag
+} from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -277,6 +283,12 @@ export interface RaceRoomProjectionCore {
   remainingCheckpointEtas?: RemainingCheckpointEta[];
   /** 10th–90th percentile finish. Absent where the window isn't calibrated. */
   etaFinishWindow?: ArrivalWindowClock;
+  /**
+   * Set only on a teaser read (an unpaid race, read by its runner). `checkpointSplits` and
+   * `remainingCheckpointEtas` are then empty: the finish ETA alone shows. Never stored; absent
+   * once paid.
+   */
+  locked?: TeaserLockedCheckpoints;
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
@@ -428,6 +440,15 @@ export interface CrewLimitReachedError {
   crewCount: number;
   /** Product that lifts the cap. */
   upgradeProductId: "crew_upgrade";
+}
+
+/**
+ * 402 body when crew chat, an invite, an invite accept, or a join-by-code hits a race the
+ * runner has not paid for. The runner's own seat and setup are not refused this way.
+ */
+export interface RoomUnpaidError {
+  error: "Race not unlocked";
+  code: "room_unpaid";
 }
 
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
@@ -876,6 +897,7 @@ export {
   type ScheduleStopNotesRef,
   type RaceRoomStopPlan,
   type StopPlanNote,
+  type TeaserLockedCheckpoints,
   type WaypointTag
 } from "./pacingSchedule.js";
 
