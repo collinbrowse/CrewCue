@@ -1,0 +1,18 @@
+{
+  "id": "chat-thread",
+  "platform": "ios",
+  "entry": "crewcue://dev/chat",
+  "device": "iPhone simulator \"CrewCue chat-650\" (4DEAF0A3), iOS 27.2, Debug build",
+  "date": "2026-11-09",
+  "commit": "3fcfeda (iOS chat, #671) re-checked on 1c602ca (Stream removed, #673)",
+  "session": "Dev session (crew-collin, \"Pacer Collin\") against a local memory API seeded with two races; a local TCP proxy between app and API was killed and restarted for Offline and answered HTTP 500 to chat reads for Error.",
+  "action": "Opened crewcue://dev/chat; another member (Ada) posted through the API while the chat was open; sent text and a library photo from the app; cut the connection, sent two messages, restored it; opened an empty race; reopened with chat reads failing.",
+  "checked": {
+    "Success": "Ada's messages labelled 'Ada' appeared live without a reload; own messages labelled 'Pacer Collin (you)'; a photo uploaded and rendered; header names the race ('Leadville 100').",
+    "Empty": "Western States race with no messages: 'No messages.'",
+    "Error": "Chat reads answered 500 on open: 'Couldn't load chat.'",
+    "Offline": "Connection cut: both sends showed 'Queued' and 'Offline. Message queued on this device.'; after the connection returned they were stored once each (two POST 201) and flipped to sent.",
+    "Accessibility labels": "crewcue.chat; crewcue.chat-attach, crewcue.chat-delivery, crewcue.chat-photo, crewcue.chat-older"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
