@@ -4,6 +4,10 @@ import Foundation
 /// IANA time zone (default: the device's). Converts to and from the UTC `raceStartAt` the API uses.
 /// The API's zod schema takes `Z` timestamps only (no offsets), so `raceStartAt` always ends in `Z`.
 public struct RaceStartInput: Equatable, Sendable {
+    /// The instant these fields were built from, kept so an untouched form returns it exactly (the second
+    /// occurrence of a repeated fall-back hour, and seconds, are not recoverable from the fields alone).
+    private var source: Date?
+
     public var year: Int
     public var month: Int
     public var day: Int
@@ -18,7 +22,7 @@ public struct RaceStartInput: Equatable, Sendable {
         day: Int,
         hour: Int,
         minute: Int,
-        timeZoneIdentifier: String = TimeZone.current.identifier
+        timeZoneIdentifier: String = DeviceTimeZone.current.identifier
     ) {
         self.year = year
         self.month = month
@@ -30,8 +34,14 @@ public struct RaceStartInput: Equatable, Sendable {
 
     /// Builds the fields from an existing `raceStartAt` for display in `timeZoneIdentifier`.
     /// Nil when the string is not an ISO-8601 instant or the zone is unknown.
-    public init?(raceStartAt: String, timeZoneIdentifier: String = TimeZone.current.identifier) {
-        guard let zone = TimeZone(identifier: timeZoneIdentifier),
+    public static func == (lhs: RaceStartInput, rhs: RaceStartInput) -> Bool {
+        lhs.year == rhs.year && lhs.month == rhs.month && lhs.day == rhs.day
+            && lhs.hour == rhs.hour && lhs.minute == rhs.minute
+            && lhs.timeZoneIdentifier == rhs.timeZoneIdentifier
+    }
+
+    public init?(raceStartAt: String, timeZoneIdentifier: String = DeviceTimeZone.current.identifier) {
+        guard let zone = DeviceTimeZone.resolve(timeZoneIdentifier),
               let date = ScheduleFormat.parseISO8601(raceStartAt) else {
             return nil
         }
@@ -41,13 +51,14 @@ public struct RaceStartInput: Equatable, Sendable {
             return nil
         }
         self.init(year: year, month: month, day: day, hour: hour, minute: minute, timeZoneIdentifier: timeZoneIdentifier)
+        self.source = date
     }
 
-    /// The instant these fields name, or nil when the fields are out of range, the zone is unknown, or the
+    /// The instant these fields name (the original instant when built from `raceStartAt` and still unedited), or nil when the fields are out of range, the zone is unknown, or the
     /// local time does not exist (the hour skipped when clocks spring forward). A time that happens twice
     /// when clocks fall back resolves to its first occurrence.
     public var instant: Date? {
-        guard let zone = TimeZone(identifier: timeZoneIdentifier) else { return nil }
+        guard let zone = DeviceTimeZone.resolve(timeZoneIdentifier) else { return nil }
         var parts = DateComponents()
         parts.year = year
         parts.month = month
@@ -56,6 +67,7 @@ public struct RaceStartInput: Equatable, Sendable {
         parts.minute = minute
         parts.second = 0
         let calendar = Self.calendar(zone)
+        if let source, Self.fieldsMatch(source, calendar, self) { return source }
         guard let date = calendar.date(from: parts) else { return nil }
         // Calendar normalises invalid or skipped fields; reject them instead of silently shifting.
         let back = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
@@ -69,6 +81,12 @@ public struct RaceStartInput: Equatable, Sendable {
     /// UTC ISO-8601 with milliseconds and a `Z` suffix, the form the API's `raceStartAt` requires.
     public var raceStartAt: String? {
         instant.map(RaceDayReadouts.iso8601)
+    }
+
+    private static func fieldsMatch(_ date: Date, _ calendar: Calendar, _ input: RaceStartInput) -> Bool {
+        let c = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        return c.year == input.year && c.month == input.month && c.day == input.day
+            && c.hour == input.hour && c.minute == input.minute
     }
 
     private static func calendar(_ zone: TimeZone) -> Calendar {

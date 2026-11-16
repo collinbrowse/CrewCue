@@ -22,7 +22,7 @@ public enum ScheduleFormat {
     /// The wire format stays UTC; only display converts. Does not recompute from elapsed.
     public static func formatScheduleClock(
         _ isoUtc: String,
-        timeZone: TimeZone = .current,
+        timeZone: TimeZone = DeviceTimeZone.current,
         locale: Locale = .current
     ) -> String {
         guard let date = parseISO8601(isoUtc) else {
@@ -41,7 +41,7 @@ public enum ScheduleFormat {
         checkpointId: String,
         elapsedSeconds: Double,
         clockArrivalAt: String,
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> String {
         let title = slugToTitle(checkpointId)
         let clock = formatScheduleClock(clockArrivalAt, timeZone: timeZone)
@@ -52,7 +52,7 @@ public enum ScheduleFormat {
         roomId: String,
         capturedAtIso: String,
         stopLines: [String],
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> String {
         let captured = formatScheduleClock(capturedAtIso, timeZone: timeZone)
         var lines = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]

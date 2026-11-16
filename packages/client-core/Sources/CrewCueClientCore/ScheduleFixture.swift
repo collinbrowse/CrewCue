@@ -25,7 +25,7 @@ public enum ScheduleFixture {
         ScheduleStopFixture(checkpointId: "finish", title: "Finish", elapsedSeconds: 21000, clockArrivalAt: "2026-08-15T18:50:00.000Z")
     ]
 
-    public static func sheetLines(timeZone: TimeZone = .current) -> [String] {
+    public static func sheetLines(timeZone: TimeZone = DeviceTimeZone.current) -> [String] {
         stops.map { stop in
             let duration = ScheduleFormat.formatDurationSeconds(stop.elapsedSeconds)
             let clock = ScheduleFormat.formatScheduleClock(stop.clockArrivalAt, timeZone: timeZone)
@@ -33,13 +33,13 @@ public enum ScheduleFixture {
         }
     }
 
-    public static func sheetText(timeZone: TimeZone = .current) -> String {
+    public static func sheetText(timeZone: TimeZone = DeviceTimeZone.current) -> String {
         sheetLines(timeZone: timeZone).joined(separator: "\n")
     }
 
     public static func exportText(
         capturedAtIso: String = "2026-09-23T16:00:00.000Z",
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> String {
         let captured = ScheduleFormat.formatScheduleClock(capturedAtIso, timeZone: timeZone)
         var lines = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]

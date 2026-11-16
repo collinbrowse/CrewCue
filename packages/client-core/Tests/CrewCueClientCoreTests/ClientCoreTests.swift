@@ -40,9 +40,14 @@ private func clock(_ iso: String, _ zone: TimeZone) -> String {
     #expect(!ScheduleFormat.formatScheduleClock(iso, timeZone: denver).contains("UTC"))
 }
 
-@Test func scheduleClockDefaultsToDeviceZone() {
-    let iso = "2026-08-15T14:10:00.000Z"
-    #expect(ScheduleFormat.formatScheduleClock(iso) == ScheduleFormat.formatScheduleClock(iso, timeZone: .current))
+@Test func deviceTimeZoneAcceptsOnlyIanaRegionIds() {
+    #expect(DeviceTimeZone.resolve("America/Denver")?.identifier == "America/Denver")
+    #expect(DeviceTimeZone.resolve("UTC") != nil)
+    for abbreviation in ["MST", "PST", "IST", "CET", "", "Mars/Olympus"] {
+        #expect(DeviceTimeZone.resolve(abbreviation) == nil)
+    }
+    #expect(DeviceTimeZone.resolve(nil) == nil)
+    #expect(DeviceTimeZone.current.identifier.contains("/") || ["UTC", "GMT"].contains(DeviceTimeZone.current.identifier))
 }
 
 @Test func scheduleSheetSuccessIncludesAidDuration() throws {
@@ -50,7 +55,7 @@ private func clock(_ iso: String, _ zone: TimeZone) -> String {
     #expect(screen.accessibilityIdentifier == "crewcue.schedule-sheet")
     #expect(screen.body.contains("1:10:00"))
     #expect(screen.body.contains("Aid 1"))
-    let finishClock = ScheduleFormat.formatScheduleClock("2026-08-15T18:50:00.000Z")
+    let finishClock = ScheduleFormat.formatScheduleClock("2026-08-15T18:50:00.000Z", timeZone: DeviceTimeZone.current)
     #expect(screen.body.contains("Finish  5:50:00  \(finishClock)"))
     #expect(!screen.body.contains("UTC"))
 }

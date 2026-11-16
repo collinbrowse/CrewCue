@@ -22,7 +22,8 @@ import Testing
 
 @Test func raceStartDefaultsToDeviceZone() {
     let input = RaceStartInput(year: 2026, month: 8, day: 15, hour: 6, minute: 30)
-    #expect(input.timeZoneIdentifier == TimeZone.current.identifier)
+    #expect(input.timeZoneIdentifier == DeviceTimeZone.current.identifier)
+    #expect(DeviceTimeZone.resolve(input.timeZoneIdentifier) != nil)
 }
 
 @Test func raceStartAcrossDaylightSavingTransition() {
@@ -79,4 +80,22 @@ import Testing
     #expect(RaceStartInput(year: 2026, month: 2, day: 30, hour: 6, minute: 0, timeZoneIdentifier: "UTC").raceStartAt == nil)
     #expect(RaceStartInput(year: 2026, month: 8, day: 15, hour: 25, minute: 0, timeZoneIdentifier: "UTC").raceStartAt == nil)
     #expect(RaceStartInput(year: 2026, month: 8, day: 15, hour: 6, minute: 0, timeZoneIdentifier: "Mars/Olympus").raceStartAt == nil)
+}
+
+@Test func raceStartRejectsZoneAbbreviations() {
+    // Abbreviations are fixed offsets without DST; Android's runtime reports them for TimeZone.current.
+    #expect(RaceStartInput(year: 2026, month: 8, day: 15, hour: 6, minute: 30, timeZoneIdentifier: "MST").raceStartAt == nil)
+    #expect(RaceStartInput(raceStartAt: "2026-08-15T13:00:00.000Z", timeZoneIdentifier: "GMT0BST") == nil)
+}
+
+@Test func untouchedFormKeepsRepeatedHourAndSeconds() throws {
+    // 2026-11-01 08:30Z is the second 01:30 in Denver (MST); fields alone would map back to 07:30Z.
+    let second = try #require(RaceStartInput(raceStartAt: "2026-11-01T08:30:00.000Z", timeZoneIdentifier: "America/Denver"))
+    #expect(second.raceStartAt == "2026-11-01T08:30:00.000Z")
+    let seconds = try #require(RaceStartInput(raceStartAt: "2026-08-15T13:00:30.000Z", timeZoneIdentifier: "America/Denver"))
+    #expect(seconds.raceStartAt == "2026-08-15T13:00:30.000Z")
+    // Editing a field drops the pinned instant and converts the typed wall-clock time.
+    var edited = second
+    edited.minute = 45
+    #expect(edited.raceStartAt == "2026-11-01T07:45:00.000Z")
 }

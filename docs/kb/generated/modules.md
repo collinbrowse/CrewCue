@@ -92,6 +92,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift) | `CourseUploadSuperseded`, `CourseUploadGate`, `CourseUploadBox` |
 | [packages/client-core/Sources/CrewCueClientCore/Deadline.swift](../../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) | `Deadline`, `ResumeOnce` |
+| [packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift](../../../packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift) | `DeviceTimeZone` |
 | [packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift](../../../packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift) | `ActivityHistoryRef`, `EstimateRecomputeReason`, `EstimateHistoryRecord`, `EstimateRecomputeInput`, `EstimateRecomputeDecision`, `PlanAuthority`, `EstimateRecompute` |
 | [packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift](../../../packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift) | `FeatureState`, `FeatureScreen`, `CrewCueClientCore`, `FeatureCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/AccountDeletionResult.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/AccountDeletionResult.swift) | `AccountDeletionResult` |
@@ -170,11 +171,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-87 files under `packages/client-core/Sources/`.
+88 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 38 | 8167 |
+| `CrewCueClientCore` | 39 | 8242 |
 | `CrewCueClientCore/Generated` | 49 | 959 |
 
 ### iOS app (SwiftUI)

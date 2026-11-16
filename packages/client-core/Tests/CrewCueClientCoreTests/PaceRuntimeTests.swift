@@ -126,13 +126,15 @@ import Testing
     let exported = try await runtimeCall([
         "op": "exportCrewSheet",
         "storageDir": directory.path,
-        "roomId": "room-1"
+        "roomId": "room-1",
+        "timeZone": "America/Denver"
     ])
     let sheet = try resultObject(exported)
     let text = try #require(sheet["text"] as? String)
     #expect(text.contains("Crew sheet"))
-    #expect(text.contains("Aid 1  1:10:00  \(ScheduleFormat.formatScheduleClock("2026-08-15T14:10:00.000Z"))"))
+    #expect(text.contains("Aid 1  1:10:00  8:10"))
     #expect(!text.contains("UTC"))
+    #expect(!text.contains("14:10"))
     #expect(text.contains("Room room-1"))
 }
 

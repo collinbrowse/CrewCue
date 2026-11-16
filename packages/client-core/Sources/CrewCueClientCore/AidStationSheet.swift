@@ -113,7 +113,7 @@ public enum AidStationSheet {
         selectedIndex: Int,
         follow: Bool,
         elevation: ElevationProfile? = nil,
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = DeviceTimeZone.current
     ) -> AidStationProjection {
         let progress = progressMeters.isFinite ? progressMeters : 0
         let rows = pages(sheet: sheet, checkpoints: checkpoints)
