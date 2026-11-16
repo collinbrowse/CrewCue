@@ -20,6 +20,12 @@ Parallel agents each run their own read-only instance of the AVD on a port deriv
 
 1. `npm run verify:client-behavior` when the checklist changed, and
 2. `npm run agent:android:ready -- --deeplink crewcue://dev/<id>` on a booted emulator.
+3. For a new or reworked screen, proof at more than one size, following `.claude/rules/android-presentation.md` → Adaptive layout:
+   - the phone AVD
+   - a foldable AVD (`pixel_9_pro_fold`), folded and unfolded, with one fold or unfold in the middle of the flow showing that state was kept
+   - an expanded window (the `resizable` AVD or a tablet)
+
+   The machine lock covers every AVD you boot. If the foldable AVD doesn't exist, create it with `avdmanager` from an installed system image. If no image is installed, or a size can't be run, list it under Blocker in the PR's Device evidence.
 
 The debug APK is the Compose app.
 

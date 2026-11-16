@@ -16,6 +16,12 @@ Parallel agents each get their own simulator, named `CrewCue <worktree>`. `npm r
 
 1. `npm run verify` (or scoped tests if agreed) **and**
 2. Acceptance criteria exercised on a **booted iOS simulator** via XcodeBuildMCP (or Maestro when a flow exists).
+3. For a new or reworked screen, proof at more than one size, following `.claude/rules/ios-presentation.md` → Adaptive layout:
+   - your standard iPhone simulator
+   - an iPhone Duo simulator on both displays: outer (compact width) and inner (regular width)
+   - one switch between those displays in the middle of the flow, showing that state was kept
+
+   Name the extra simulator `CrewCue <worktree> Duo`; the ownership rules above apply to it too. If a size can't be run, list it under Blocker in the PR's Device evidence.
 
 Never report a mobile UI task complete without simulator proof.
 
