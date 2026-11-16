@@ -11,6 +11,17 @@ function buildClaims(sub: string) {
   };
 }
 
+/** Crew invites and accepts need a paid race (402 `room_unpaid`). Same grant path as a store purchase. */
+async function payForRoom(app: ReturnType<typeof buildApp>, roomId: string, memberToken: string): Promise<void> {
+  const response = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/billing/dev-purchase`,
+    payload: { productId: "race_pass" },
+    headers: { authorization: `Bearer ${memberToken}` }
+  });
+  assert.equal(response.statusCode, 200);
+}
+
 test("returns 401 when authorization is missing or JWT is invalid", async () => {
   const app = buildApp();
   await app.ready();
@@ -179,6 +190,7 @@ test("returns 403 when crew_member lacks privileged actions", async () => {
     }
   });
   const roomId = (createResponse.json() as { id: string }).id;
+  await payForRoom(app, roomId, athleteToken);
 
   const issueResponse = await app.inject({
     method: "POST",
@@ -268,6 +280,7 @@ test("returns 403 when crew_member cannot update entitlement", async () => {
     }
   });
   const roomId = (createResponse.json() as { id: string }).id;
+  await payForRoom(app, roomId, managerToken);
 
   const issueResponse = await app.inject({
     method: "POST",
@@ -410,6 +423,14 @@ test("accepting a crew invite does not demote the race athlete", async () => {
   });
   assert.equal(createResponse.statusCode, 201);
   const roomId = (createResponse.json() as { id: string }).id;
+  // Crew are invited only to a paid race.
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${athleteToken}` }
+  });
+  assert.equal(paid.statusCode, 200);
 
   const inviteResponse = await app.inject({
     method: "POST",
@@ -431,14 +452,6 @@ test("accepting a crew invite does not demote the race athlete", async () => {
     (selfAccept.json() as { error: string }).error,
     "Race owner role cannot be changed from athlete"
   );
-
-  const paid = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/entitlement`,
-    payload: { status: "paid" },
-    headers: { authorization: `Bearer ${athleteToken}` }
-  });
-  assert.equal(paid.statusCode, 200);
 
   const roomAfter = await app.inject({
     method: "GET",

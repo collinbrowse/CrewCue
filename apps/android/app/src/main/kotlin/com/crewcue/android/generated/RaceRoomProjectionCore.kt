@@ -12,5 +12,6 @@ data class RaceRoomProjectionCore(
     val stoppageSummary: CheckpointStoppageSummary,
     val weatherStub: ProjectionWeatherStub? = null,
     val remainingCheckpointEtas: List<RemainingCheckpointEta>? = null,
-    val etaFinishWindow: ArrivalWindowClock? = null
+    val etaFinishWindow: ArrivalWindowClock? = null,
+    val locked: TeaserLockedCheckpoints? = null
 )

@@ -20,7 +20,15 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { commitRaceRoomUpdate, evaluateEntitlement, getProjectionViewForRoom, getRaceRoom, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
+import { isTeaserRoom, teaserScheduleSheet } from "../lib/raceTeaser.js";
+import {
+  commitRaceRoomUpdate,
+  evaluateEntitlement,
+  getProjectionViewForRoom,
+  getRaceRoom,
+  refreshProjectionAfterPlanOfRecordChange,
+  type EntitlementOptions
+} from "./raceRooms.js";
 
 export type ProjectCrewScheduleSheetOptions = {
   /**
@@ -86,11 +94,17 @@ function lookupClosedActualSeconds(
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * Sends 401/404/403/402 and returns undefined unless the caller is a member of a room they may
+ * use. `allowUnpaidRunner` lets the runner through on an unpaid race (onboarding); the route
+ * must then serve the teaser (`isTeaserRoom`).
+ */
 async function requireRoomMember(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
-  roomId: string
+  roomId: string,
+  entitlementOptions: EntitlementOptions = {}
 ): Promise<RaceRoom | undefined> {
   if (!request.identity) {
     await reply.code(401).send({ error: "Unauthorized" });
@@ -106,7 +120,7 @@ async function requireRoomMember(
     await reply.code(403).send({ error: "Forbidden" });
     return undefined;
   }
-  const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+  const entitlement = evaluateEntitlement(app, room, request.identity.sub, entitlementOptions);
   if (!entitlement.allowed) {
     await reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     return undefined;
@@ -454,7 +468,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireRoomMember(app, request, reply, roomId);
+    // Attaching the plan is part of the runner's setup before they pay.
+    const room = await requireRoomMember(app, request, reply, roomId, { allowUnpaidRunner: true });
     if (!room) {
       return;
     }
@@ -562,7 +577,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
   app.get("/race-rooms/:roomId/schedule", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    const room = await requireRoomMember(app, request, reply, roomId);
+    // Unpaid: the runner sees the start, first aid and finish stops only; crew get 402.
+    const room = await requireRoomMember(app, request, reply, roomId, { allowUnpaidRunner: true });
     if (!room) {
       return;
     }
@@ -594,12 +610,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      return reply.send(
-        projectCrewScheduleSheet(room, {
-          closedActualStopSecondsByCheckpointId: closedActuals,
-          pacingEstimate: room.pacingEstimate
-        })
-      );
+      const sheet = projectCrewScheduleSheet(room, {
+        closedActualStopSecondsByCheckpointId: closedActuals,
+        pacingEstimate: room.pacingEstimate
+      });
+      return reply.send(isTeaserRoom(room) ? teaserScheduleSheet(sheet, room) : sheet);
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {

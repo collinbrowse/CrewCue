@@ -675,6 +675,14 @@ test("crew member can mutate checkpoint stoppage timing after invite acceptance"
   });
   const roomId = (createResponse.json() as { id: string }).id;
 
+  // Crew join only a paid race.
+  await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status: "paid" },
+    headers: { authorization: `Bearer ${managerToken}` }
+  });
+
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/invites`,
@@ -692,13 +700,6 @@ test("crew member can mutate checkpoint stoppage timing after invite acceptance"
     url: `/race-rooms/${roomId}/invites/accept`,
     payload: { token: inviteToken },
     headers: { authorization: `Bearer ${crewToken}` }
-  });
-
-  await app.inject({
-    method: "POST",
-    url: `/race-rooms/${roomId}/entitlement`,
-    payload: { status: "paid" },
-    headers: { authorization: `Bearer ${managerToken}` }
   });
 
   const activateResponse = await app.inject({

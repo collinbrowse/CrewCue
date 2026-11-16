@@ -251,6 +251,20 @@ export interface CrewScheduleSheet {
   raceStartAt: string;
   stops: ScheduleStop[];
   pacingEstimateId?: string;
+  /**
+   * Set only on a teaser read (an unpaid race, read by its runner). `stops` then holds the start,
+   * the first aid station and the finish. Absent once paid.
+   */
+  locked?: TeaserLockedCheckpoints;
+}
+
+/**
+ * The checkpoints whose ETAs an unpaid race's teaser withholds (everything but the start,
+ * the first aid station and the finish), in course order. Shared by the projection and the
+ * schedule sheet.
+ */
+export interface TeaserLockedCheckpoints {
+  checkpointIds: string[];
 }
 
 function parseNotesRef(value: unknown, field: string): ScheduleStopNotesRef {
@@ -433,6 +447,15 @@ export function parseCrewScheduleSheet(value: unknown, field = "crewScheduleShee
   };
   if (value.pacingEstimateId !== undefined) {
     sheet.pacingEstimateId = requireNonEmptyString(value.pacingEstimateId, `${field}.pacingEstimateId`);
+  }
+  if (value.locked !== undefined) {
+    if (!isRecord(value.locked) || !Array.isArray(value.locked.checkpointIds)) {
+      throw new TypeError(`${field}.locked.checkpointIds must be an array`);
+    }
+    const lockedField = `${field}.locked.checkpointIds`;
+    sheet.locked = {
+      checkpointIds: value.locked.checkpointIds.map((id, index) => requireNonEmptyString(id, `${lockedField}[${index}]`))
+    };
   }
   return sheet;
 }

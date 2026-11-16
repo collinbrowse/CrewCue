@@ -43,6 +43,7 @@ import {
   newChatPhotoKey
 } from "../lib/chatPhotoStore.js";
 import { publishChatRoom, subscribeChatRoom } from "../lib/chatLive.js";
+import { roomUnpaidError } from "../lib/billingEntitlement.js";
 import { chatPushBody, devicesToTargets, dispatchChatPush } from "../lib/chatPushDispatch.js";
 
 const UNKNOWN_SENDER = "Crew member";
@@ -75,7 +76,10 @@ const sendMessageSchema = z.object({
   photoKey: z.string().trim().min(1).max(512).optional()
 });
 
-/** Sends 401/404/403 and returns undefined unless the caller is a member of the room. */
+/**
+ * Sends 401/404/403/402 and returns undefined unless the caller is a member of a paid room.
+ * Chat is crew-facing, so an unpaid race refuses it for everyone, the runner included.
+ */
 async function requireRoomMember(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -92,6 +96,11 @@ async function requireRoomMember(
   }
   if (!room.memberships.some((m) => m.userId === request.identity?.sub)) {
     await reply.code(403).send({ error: "Not a member of this room" });
+    return undefined;
+  }
+  const unpaid = roomUnpaidError(room);
+  if (unpaid) {
+    await reply.code(402).send(unpaid);
     return undefined;
   }
   return room;
@@ -264,6 +273,11 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         const latest = await getRaceRoom(roomId);
         if (!latest || !latest.memberships.some((m) => m.userId === userId)) {
           return reply.code(403).send({ error: "Not a member of this room" });
+        }
+        // A refund during the wait locks the room; do not hand out what arrived meanwhile.
+        const unpaid = roomUnpaidError(latest);
+        if (unpaid) {
+          return reply.code(402).send(unpaid);
         }
         room = latest;
         messages = await listChatMessages({ roomId, limit, after: Number(after) });

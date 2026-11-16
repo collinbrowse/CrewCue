@@ -97,7 +97,8 @@ import {
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
-import { crewLimitError, isCrewMembership } from "../lib/billingEntitlement.js";
+import { crewLimitError, isCrewMembership, roomUnpaidError } from "../lib/billingEntitlement.js";
+import { teaserProjection, teaserRoom } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 const createRaceRoomInput = z.object({
@@ -1661,7 +1662,29 @@ function getTaskBoardVisibleRoles(role: Role): Role[] {
   return ["athlete", "crew_member", "crew_chief", "team_manager"];
 }
 
-export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor: string): { allowed: boolean; code?: number; error?: string } {
+export type EntitlementOptions = {
+  /**
+   * Let the race's runner (`actor === room.athleteId`) through on an unpaid race, so they can
+   * set it up before paying. The route must then shape its response with `lib/raceTeaser.ts`.
+   * Crew stay at 402, and an expired race stays blocked for everyone.
+   */
+  allowUnpaidRunner?: boolean;
+};
+
+export type EntitlementDecision = {
+  allowed: boolean;
+  code?: number;
+  error?: string;
+  /** Allowed through the unpaid-runner exception: the response must be the teaser. */
+  teaser?: boolean;
+};
+
+export function evaluateEntitlement(
+  app: FastifyInstance,
+  room: RaceRoom,
+  actor: string,
+  options: EntitlementOptions = {}
+): EntitlementDecision {
   const decision = {
     roomId: room.id,
     actor,
@@ -1674,6 +1697,10 @@ export function evaluateEntitlement(app: FastifyInstance, room: RaceRoom, actor:
   }
 
   if (room.entitlement.status === "unpaid") {
+    if (options.allowUnpaidRunner === true && actor === room.athleteId) {
+      app.log.info({ entitlement: { ...decision, allowed: true, teaser: true } }, "entitlement_decision");
+      return { allowed: true, teaser: true };
+    }
     app.log.info({ entitlement: { ...decision, allowed: false } }, "entitlement_decision");
     return { allowed: false, code: 402, error: "Entitlement unpaid" };
   }
@@ -2671,13 +2698,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // The runner sets up an unpaid race before paying; they see the teaser, crew get 402.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
 
     const permissions = getPermissions(membership.role);
-    return reply.send({ room, permissions });
+    return reply.send({ room: entitlement.teaser ? teaserRoom(room) : room, permissions });
   });
 
   app.put("/race-rooms/:roomId/course", async (request, reply) => {
@@ -2701,7 +2729,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // Course setup is part of the runner's onboarding, before they pay.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
@@ -3150,8 +3179,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Inviting crew past the room's tier is refused up front, so the runner sees the
-    // upgrade prompt instead of the invitee hitting it on accept.
+    // upgrade prompt instead of the invitee hitting it on accept. An unpaid race takes
+    // no crew at all: that is the pass, not the upgrade.
     if (parsed.data.role !== "athlete") {
+      const unpaid = roomUnpaidError(room);
+      if (unpaid) {
+        return reply.code(402).send(unpaid);
+      }
       const limit = crewLimitError(room);
       if (limit) {
         return reply.code(409).send(limit);
@@ -3275,6 +3309,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         isCrewMembership(room, { userId, role: invite.role }) &&
         !(existing && isCrewMembership(room, existing));
       if (becomesCrew) {
+        // An invite issued while the race was paid is still refused once it is not.
+        const unpaid = roomUnpaidError(room);
+        if (unpaid) {
+          return reply.code(402).send(unpaid);
+        }
         // Checked under the room lock, so two accepts at once cannot both take the last seat.
         const limit = crewLimitError(room);
         if (limit) {
@@ -3346,6 +3385,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       const existingMembership = room.memberships.find((member) => member.userId === userId);
       if (!existingMembership && isCrewMembership(room, { userId, role: "crew_member" })) {
+        // Crew join only a paid race. The runner (not crew) still joins their own.
+        const unpaid = roomUnpaidError(room);
+        if (unpaid) {
+          return reply.code(402).send(unpaid);
+        }
         // Under the room lock: of two crew joining at once, only one can take the last seat.
         const limit = crewLimitError(room);
         if (limit) {
@@ -4165,7 +4209,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    const entitlement = evaluateEntitlement(app, room, request.identity.sub);
+    // Unpaid: the runner sees the finish and first aid ETAs only (teaser); crew get 402.
+    const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
@@ -4188,7 +4233,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       Date.now(),
       pingState.lastUploadIntervalSeconds
     );
-    return reply.send(view);
+    return reply.send(entitlement.teaser ? teaserProjection(view, room) : view);
   });
 
   /**

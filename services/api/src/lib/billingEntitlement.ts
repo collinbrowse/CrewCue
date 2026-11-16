@@ -10,7 +10,8 @@ import type {
   RaceRoom,
   RaceRoomBilling,
   RaceRoomCrewTier,
-  RaceRoomEntitlement
+  RaceRoomEntitlement,
+  RoomUnpaidError
 } from "@crewcue/contracts";
 
 export const BILLING_PRODUCT_IDS: readonly BillingProductId[] = ["race_pass", "crew_upgrade", "race_pass_full_crew"];
@@ -48,6 +49,17 @@ export function isCrewMembership(room: RaceRoom, member: { userId: string; role:
 
 export function crewCountOf(room: RaceRoom): number {
   return room.memberships.filter((member) => isCrewMembership(room, member)).length;
+}
+
+/**
+ * Crew chat and new crew seats need a paid race (402). Kept apart from the crew cap:
+ * an unpaid race is not "full", and offering `crew_upgrade` there would sell the wrong thing.
+ * Only `unpaid` is refused here; existing members stay, and the runner's own seat is the
+ * caller's to exempt.
+ */
+export function roomUnpaidError(room: RaceRoom): RoomUnpaidError | undefined {
+  if (room.entitlement.status !== "unpaid") return undefined;
+  return { error: "Race not unlocked", code: "room_unpaid" };
 }
 
 /**

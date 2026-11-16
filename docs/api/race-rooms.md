@@ -38,17 +38,33 @@ Non-members receive **403 Forbidden** for those operations (except invite accept
 
 | Status | `GET /race-rooms/:roomId` / `POST .../activate` |
 | --- | --- |
-| `unpaid` | **402** `{ "error": "Entitlement unpaid" }` |
+| `unpaid` | **402** `{ "error": "Entitlement unpaid" }` (the runner's teaser reads below excepted) |
 | `paid` | allowed (subject to role permissions for activate) |
 | `expired` | **403** `{ "error": "Entitlement expired" }` |
 
 Entitlement updates themselves do **not** require a paid entitlement; they only require membership and sufficient role.
 
+### Unpaid race: the runner's teaser
+
+The runner (`room.athleteId`) sets up an unpaid race before paying. Only these routes let them through, and the reads are shaped on the server ([raceTeaser.ts](../../services/api/src/lib/raceTeaser.ts)):
+
+| Route | Unpaid, runner |
+| --- | --- |
+| `GET /race-rooms/:roomId` | 200. `course.baselineTrack` is dropped; `pacingEstimate.aidEtas` keeps the first aid station only. Geometry and checkpoints stay. |
+| `PUT /race-rooms/:roomId/course` | allowed |
+| `PUT /race-rooms/:roomId/pacing-estimate` | allowed |
+| `GET /race-rooms/:roomId/projection` | 200. `checkpointSplits` and `remainingCheckpointEtas` keep the first aid station only; `etaFinishPlanIso` and course-level fields stay. |
+| `GET /race-rooms/:roomId/schedule` | 200. `stops` keeps the start, the first aid station and the finish. |
+
+The first aid station is the first mid-course checkpoint tagged `aid` (the start and finish are never it). Teaser projection and schedule responses carry `locked: { checkpointIds }`, the withheld checkpoints in course order; paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
+
+Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics) and new crew seats (a non-athlete invite, an invite accept or a code join that adds crew) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
+
 ### Crew tier (#649)
 
 `room.entitlement.crewTier` is `one` (Race Pass: the runner plus 1 crew member) or `unlimited` (Full Crew). New rooms start `unpaid` with `one`. Rooms stored before billing have no tier and read as `unlimited`. The runner seat (the race athlete and the room creator, `createdByUserId`) does not count; every other member is crew.
 
-Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
+On an unpaid race these are refused first with **402** `room_unpaid` (above), not as a full cap. Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
 
 ## Endpoints
 
@@ -81,10 +97,10 @@ Returns `{ room, permissions }` for the caller’s membership role.
 
 | Code | Meaning |
 | --- | --- |
-| 200 | Success |
+| 200 | Success (on an unpaid race, the runner's teaser) |
 | 401 | Missing/invalid JWT or malformed claims |
 | 403 | Caller not a member, or entitlement `expired` |
-| 402 | Entitlement `unpaid` |
+| 402 | Entitlement `unpaid` (anyone but the runner) |
 | 404 | Unknown `roomId` |
 
 ### `POST /race-rooms/:roomId/activate`

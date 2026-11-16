@@ -166,6 +166,79 @@ test("chat messages: a non-member can neither read nor post; signed-out is 401",
   });
 });
 
+const ROOM_UNPAID = { error: "Race not unlocked", code: "room_unpaid" };
+
+async function setEntitlement(app: App, roomId: string, ownerToken: string, status: "paid" | "unpaid") {
+  const res = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/entitlement`,
+    payload: { status },
+    headers: { authorization: `Bearer ${ownerToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+}
+
+test("chat messages: an unpaid race refuses chat with 402 room_unpaid, the runner included", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-unpaid-chat"));
+    const crew = app.jwt.sign(claims("crew-unpaid-chat"));
+    const roomId = await createRoom(app, owner, "owner-unpaid-chat");
+    await addMember(app, roomId, owner, crew, "Ada");
+    assert.equal((await send(app, owner, roomId, { clientMessageId: "paid-1", text: "see you at aid 1" })).statusCode, 201);
+
+    await setEntitlement(app, roomId, owner, "unpaid");
+    for (const [label, who] of [["runner", owner], ["crew", crew]] as const) {
+      const read = await list(app, who, roomId);
+      assert.equal(read.statusCode, 402, `${label} read`);
+      assert.deepEqual(read.json(), ROOM_UNPAID);
+      const post = await send(app, who, roomId, { clientMessageId: `unpaid-${label}`, text: "hello?" });
+      assert.equal(post.statusCode, 402);
+      assert.deepEqual(post.json(), ROOM_UNPAID);
+      const photo = await app.inject({
+        method: "POST",
+        url: `/chat/rooms/${roomId}/photos`,
+        payload: Buffer.from([0xff, 0xd8, 0xff]),
+        headers: { authorization: `Bearer ${who}`, "content-type": "image/jpeg" }
+      });
+      assert.equal(photo.statusCode, 402);
+      const diagnostics = await app.inject({
+        method: "GET",
+        url: `/chat/rooms/${roomId}/diagnostics`,
+        headers: { authorization: `Bearer ${who}` }
+      });
+      assert.equal(diagnostics.statusCode, 402);
+    }
+    // Notification prefs stay member-only, so a client can keep its settings screen.
+    const prefs = await app.inject({
+      method: "GET",
+      url: `/chat/rooms/${roomId}/notification-prefs`,
+      headers: { authorization: `Bearer ${crew}` }
+    });
+    assert.equal(prefs.statusCode, 200);
+    // A non-member still gets 403, not a payment prompt.
+    assert.equal((await list(app, app.jwt.sign(claims("stranger-unpaid-chat")), roomId)).statusCode, 403);
+
+    await setEntitlement(app, roomId, owner, "paid");
+    const page = (await list(app, crew, roomId)).json() as ChatMessagePage;
+    assert.deepEqual(page.messages.map((m) => m.text), ["see you at aid 1"], "nothing was stored while unpaid");
+  });
+});
+
+test("chat messages: a long-poll that wakes after the race is unpaid returns 402", async () => {
+  await withApp(async (app) => {
+    const owner = app.jwt.sign(claims("owner-unpaid-poll"));
+    const crew = app.jwt.sign(claims("crew-unpaid-poll"));
+    const roomId = await createRoom(app, owner, "owner-unpaid-poll");
+    await addMember(app, roomId, owner, crew, "Ada");
+    const poll = list(app, crew, roomId, "?after=0&wait=1");
+    await waitUntil(() => chatRoomWaiterCount(roomId) > 0, "the poll to park");
+    await setEntitlement(app, roomId, owner, "unpaid");
+    const res = await poll;
+    assert.equal(res.statusCode, 402);
+    assert.deepEqual(res.json(), ROOM_UNPAID);
+  });
+});
+
 test("chat messages: a retried client message id is stored once", async () => {
   await withApp(async (app) => {
     const captured = capturePush();
