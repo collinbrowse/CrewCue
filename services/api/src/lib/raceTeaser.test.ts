@@ -10,11 +10,15 @@ import type {
 } from "@crewcue/contracts";
 import { isRunnerSeat, roomUnpaidError } from "./billingEntitlement.js";
 import {
+  carryTeaserPin,
+  exportedEstimate,
   isTeaserRoom,
   lockedRoom,
+  pickTeaserCheckpoint,
   roomForViewer,
   teaserCheckpointsOf,
   teaserEstimate,
+  teaserPinOf,
   teaserProjection,
   teaserRoom,
   teaserScheduleSheet
@@ -282,4 +286,128 @@ test("runner seat is who you are, not the role you hold or are given", () => {
   assert.equal(isRunnerSeat(base, "runner"), true, "the race athlete");
   assert.equal(isRunnerSeat(base, "manager"), true, "the creator");
   assert.equal(isRunnerSeat(base, "someone-else"), false, "an athlete-role invitee is still not the runner");
+});
+
+/** COURSE with a plan attached that prices every mid-course stop, as a room write would store it. */
+function plannedRoom(checkpoints: RaceCourseCheckpoint[] = COURSE, status: RaceRoom["entitlement"]["status"] = "unpaid"): RaceRoom {
+  const plan = estimate(["water-1", "aid-a", "aid-b"]);
+  const before: RaceRoom = room(checkpoints, status);
+  return carryTeaserPin(before, { ...before, pacingEstimateId: plan.id, pacingEstimate: plan });
+}
+
+function withCourse(base: RaceRoom, checkpoints: RaceCourseCheckpoint[]): RaceRoom {
+  return carryTeaserPin(base, { ...base, course: { ...base.course!, checkpoints } });
+}
+
+const shownAid = (subject: RaceRoom) => teaserRoom(subject).pacingEstimate?.aidEtas.map((eta) => eta.checkpointId);
+
+test("pick: the first priced mid-course stop, preferring an aid tag; an unpriced aid tag does not count", () => {
+  const plan = estimate(["water-1", "aid-b"]);
+  // aid-a is tagged but unpriced, so the first tagged priced stop wins.
+  assert.deepEqual(pickTeaserCheckpoint(COURSE, plan), { checkpointId: "aid-b", distanceMetersFromStart: 20_000 });
+  assert.deepEqual(pickTeaserCheckpoint(COURSE, estimate(["water-1"])), {
+    checkpointId: "water-1",
+    distanceMetersFromStart: 5_000
+  });
+  assert.deepEqual(pickTeaserCheckpoint(COURSE, estimate([])), {});
+  assert.deepEqual(pickTeaserCheckpoint(COURSE, undefined), { checkpointId: "aid-a", distanceMetersFromStart: 10_000 });
+});
+
+test("pin: attaching a plan pins its teaser stop on the room, and the pin never goes out", () => {
+  const pinned = plannedRoom();
+  assert.deepEqual(pinned.teaserCheckpoint, { pacingEstimateId: "est-1", checkpointId: "aid-a", distanceMetersFromStart: 10_000 });
+  assert.equal(Object.hasOwn(roomForViewer(pinned, "runner"), "teaserCheckpoint"), false);
+  assert.equal(Object.hasOwn(roomForViewer(pinned, "crew"), "teaserCheckpoint"), false);
+  const paid = { ...pinned, entitlement: { ...pinned.entitlement, status: "paid" as const } };
+  const { teaserCheckpoint: _pin, ...paidWithoutPin } = paid;
+  assert.deepEqual(roomForViewer(paid, "runner"), paidWithoutPin, "a paid room goes out whole but for the pin");
+});
+
+test("pin: re-tagging the course cannot move the teaser to another stop", () => {
+  let subject = plannedRoom();
+  const retags: Array<Record<string, RaceCourseCheckpoint["tags"]>> = [
+    { "water-1": ["aid"], "aid-a": ["water"], "aid-b": ["water"] },
+    { "water-1": ["water"], "aid-a": ["water"], "aid-b": ["aid"] },
+    { "water-1": [], "aid-a": [], "aid-b": [] }
+  ];
+  for (const tags of retags) {
+    subject = withCourse(subject, COURSE.map((checkpoint) => ({ ...checkpoint, tags: tags[checkpoint.id] ?? checkpoint.tags })));
+    assert.equal(teaserCheckpointsOf(subject).firstAidCheckpointId, "aid-a");
+    assert.deepEqual(shownAid(subject), ["aid-a"]);
+  }
+});
+
+test("pin: a deleted or moved pinned stop shows no aid ETA, and stays spent until a new plan", () => {
+  const deleted = withCourse(plannedRoom(), COURSE.filter((checkpoint) => checkpoint.id !== "aid-a"));
+  assert.equal(teaserCheckpointsOf(deleted).firstAidCheckpointId, undefined);
+  assert.deepEqual(shownAid(deleted), []);
+  assert.deepEqual(teaserCheckpointsOf(deleted).lockedCheckpointIds, ["water-1", "aid-b"]);
+  // Putting it back does not bring the ETA back: the plan's pin is spent.
+  const restored = withCourse(deleted, COURSE);
+  assert.deepEqual(shownAid(restored), []);
+
+  // Same id, moved onto aid-b's spot: the plan curve there is aid-b's ETA, so nothing shows.
+  const moved = withCourse(
+    plannedRoom(),
+    COURSE.map((checkpoint) => (checkpoint.id === "aid-a" ? { ...checkpoint, distanceMetersFromStart: 19_990 } : checkpoint))
+  );
+  assert.equal(teaserCheckpointsOf(moved).firstAidCheckpointId, undefined);
+  assert.deepEqual(shownAid(moved), []);
+  // A nudge within the tolerance is still the same stop.
+  const nudged = withCourse(
+    plannedRoom(),
+    COURSE.map((checkpoint) => (checkpoint.id === "aid-a" ? { ...checkpoint, distanceMetersFromStart: 10_010 } : checkpoint))
+  );
+  assert.deepEqual(shownAid(nudged), ["aid-a"]);
+
+  // A new plan picks again on the course it is attached to.
+  const replan = { ...estimate(["water-1", "aid-b"]), id: "est-2" };
+  const replanned = carryTeaserPin(deleted, { ...deleted, pacingEstimateId: replan.id, pacingEstimate: replan });
+  assert.deepEqual(replanned.teaserCheckpoint, { pacingEstimateId: "est-2", checkpointId: "aid-b", distanceMetersFromStart: 20_000 });
+  assert.deepEqual(shownAid(replanned), ["aid-b"]);
+});
+
+test("pin: a pick recorded when the plan was computed is kept on attach; dropping the plan drops the pin", () => {
+  const base = room(COURSE);
+  const plan = estimate(["water-1", "aid-a", "aid-b"]);
+  const recorded = { pacingEstimateId: plan.id, checkpointId: "water-1", distanceMetersFromStart: 5_000 };
+  const attached = carryTeaserPin(base, { ...base, pacingEstimateId: plan.id, pacingEstimate: plan, teaserCheckpoint: recorded });
+  assert.deepEqual(attached.teaserCheckpoint, recorded);
+  assert.deepEqual(shownAid(attached), ["water-1"]);
+  // A later write cannot swap it for another pick.
+  const rewritten = carryTeaserPin(attached, { ...attached, teaserCheckpoint: { ...recorded, checkpointId: "aid-b" } });
+  assert.deepEqual(rewritten.teaserCheckpoint, recorded);
+
+  const { pacingEstimate: _plan, pacingEstimateId: _id, ...withoutPlan } = attached;
+  assert.equal(Object.hasOwn(carryTeaserPin(attached, withoutPlan), "teaserCheckpoint"), false);
+});
+
+test("pin: a plan attached before pins existed is pinned from the course before the first write", () => {
+  const plan = estimate(["water-1", "aid-a", "aid-b"]);
+  const legacy: RaceRoom = { ...room(COURSE), pacingEstimateId: plan.id, pacingEstimate: plan };
+  assert.equal(teaserPinOf(legacy)?.checkpointId, "aid-a");
+  const retagged = withCourse(
+    legacy,
+    COURSE.map((checkpoint) => ({ ...checkpoint, tags: checkpoint.id === "aid-b" ? ["aid"] : [] }))
+  );
+  assert.equal(retagged.teaserCheckpoint?.checkpointId, "aid-a");
+  assert.deepEqual(shownAid(retagged), ["aid-a"]);
+});
+
+test("export: an unpaid race's estimates as the race showed them; paid races and room-less snapshots in full", () => {
+  const pinned = plannedRoom();
+  const attachedPlan = pinned.pacingEstimate!;
+  const ids = (shown: PacingEstimate) => shown.aidEtas.map((eta) => eta.checkpointId);
+  assert.deepEqual(ids(exportedEstimate({ estimate: attachedPlan }, pinned)), ["aid-a"]);
+  const other = { ...estimate(["water-1", "aid-a", "aid-b"]), id: "est-other" };
+  assert.deepEqual(ids(exportedEstimate({ estimate: other, teaser: { checkpointId: "water-1" } }, pinned)), ["water-1"]);
+  assert.deepEqual(ids(exportedEstimate({ estimate: other }, pinned)), ["aid-a"]);
+  assert.deepEqual(ids(exportedEstimate({ estimate: other, teaser: {} }, undefined)), []);
+  assert.deepEqual(ids(exportedEstimate({ estimate: other }, undefined)), ["water-1", "aid-a", "aid-b"]);
+  const paid = { ...pinned, entitlement: { ...pinned.entitlement, status: "paid" as const } };
+  assert.deepEqual(ids(exportedEstimate({ estimate: attachedPlan, teaser: { checkpointId: "aid-a" } }, paid)), [
+    "water-1",
+    "aid-a",
+    "aid-b"
+  ]);
 });

@@ -410,8 +410,12 @@ test("fixture history + course returns parseable PacingEstimate with aid ETAs", 
     const estimate = parsePacingEstimate(response.json());
     assert.equal(estimate.coldStart, false);
     assert.deepEqual(estimate.historyRefIds, [long.id]);
-    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
-    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
+    // Room-less: any race's checkpoints can be posted here, so the response keeps one aid ETA
+    // (the teaser shape). The stored estimate is whole.
+    assert.deepEqual(estimate.aidEtas.map((eta) => eta.checkpointId), ["aid-1"]);
+    const stored = await getPacingEstimateById(estimate.id);
+    assert.ok(stored?.estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
+    assert.ok(stored?.estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
     assert.match(estimate.explanation, /outside the window excluded|similarity window/i);
   });
 });

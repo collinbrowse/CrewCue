@@ -1,7 +1,8 @@
 /**
  * POST /pacing-estimates — history + room course → micro-model PacingEstimate.
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
- * bodies still work with a sparse polyline from checkpoint centers.
+ * bodies still work with a sparse polyline from checkpoint centers; no shipped client sends
+ * one (client-core always sends `roomId`), and they are answered with the teaser shape.
  */
 import { cohortForCourse } from "../lib/courseHistory/resolve.js";
 import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
@@ -27,11 +28,19 @@ import {
 } from "../lib/pacingEstimate/index.js";
 import {
   initPacingEstimateStore,
-  savePacingEstimate
+  savePacingEstimate,
+  type PacingEstimateProvenance
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import { isTeaserRoom, teaserEstimate } from "../lib/raceTeaser.js";
+import {
+  estimateShowing,
+  isTeaserRoom,
+  midCourseCheckpointsOf,
+  pickTeaserCheckpoint,
+  teaserPickShown,
+  type TeaserPick
+} from "../lib/raceTeaser.js";
 import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -230,11 +239,25 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         courseLengthMeters
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
-      // Stored whole, so attaching it by id and paying later unlocks the full plan.
-      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack);
-      return reply
-        .code(200)
-        .send(linkedRoom && isTeaserRoom(linkedRoom) ? teaserEstimate(parsed, linkedRoom) : parsed);
+      // Which aid ETA the response may keep, when it is a teaser:
+      // - an unpaid race: its teaser stop (the pinned one when this is its attached plan, else a
+      //   fresh pick on the course);
+      // - no room: any race's checkpoints can be posted here, so a course with more than one
+      //   mid-course stop keeps one, picked the same way.
+      let teaser: TeaserPick | undefined;
+      if (linkedRoom) {
+        if (isTeaserRoom(linkedRoom)) teaser = teaserPickShown(linkedRoom, parsed);
+      } else if (midCourseCheckpointsOf(checkpoints).length > 1) {
+        teaser = pickTeaserCheckpoint(checkpoints, parsed);
+      }
+      const provenance: PacingEstimateProvenance = {
+        ...(linkedRoom ? { roomId: linkedRoom.id } : {}),
+        ...(teaser ? { teaser } : {})
+      };
+      // Stored whole, so attaching it by id and paying later unlocks the full plan. The room and
+      // the pick go with it, so the export returns what this response showed.
+      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack, provenance);
+      return reply.code(200).send(teaser ? estimateShowing(parsed, teaser.checkpointId) : parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });

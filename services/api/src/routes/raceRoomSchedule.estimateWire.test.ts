@@ -265,12 +265,14 @@ test("EC6 estimate-backed clocks remain ISO-Z; aid/finish match estimate moving 
     const ownerToken = tokenFor("owner-w34-ec6");
     const roomId = await createPaidRoom(app, ownerToken, "EC6 iso clocks");
     const room = await put50kCourse(app, roomId, ownerToken);
-    const estimate = await createEstimateViaApi(app, ownerToken, room);
+    const computed = await createEstimateViaApi(app, ownerToken, room);
 
     const attach = await attachEstimate(app, roomId, ownerToken, {
-      pacingEstimateId: estimate.id
+      pacingEstimateId: computed.id
     });
     assert.equal(attach.statusCode, 200);
+    // The room-less response is the teaser shape; the paid room's attach answers the whole plan.
+    const estimate = parsePacingEstimate((attach.json() as { estimate: unknown }).estimate);
 
     const response = await getSchedule(app, roomId, ownerToken);
     assert.equal(response.statusCode, 200);

@@ -98,7 +98,7 @@ import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import { crewLimitError, isCrewMembership, isRunnerSeat, roomUnpaidError } from "../lib/billingEntitlement.js";
-import { isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
+import { carryTeaserPin, isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 const createRaceRoomInput = z.object({
@@ -836,7 +836,8 @@ export async function commitRaceRoomUpdateAsync(
     if (!latest) {
       return undefined;
     }
-    const next = await edit(latest);
+    // The teaser pin follows the plan of record, never the edit: see `carryTeaserPin`.
+    const next = carryTeaserPin(latest, await edit(latest));
     await saveRaceRoom(next);
     return next;
   });
@@ -2580,7 +2581,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const idemCreate = await beginIdempotentMutation(request, parsed.data);
     if (idemCreate.kind === "replay") {
-      return reply.code(idemCreate.statusCode).send(idemCreate.body);
+      // Answer from the room as it is now, never the stored body: the race may have been set
+      // up, paid and refunded since, and the stored body was shaped for its state back then.
+      const stored = idemCreate.body as RaceRoom | undefined;
+      const current = typeof stored?.id === "string" ? ((await getRaceRoom(stored.id)) ?? stored) : stored;
+      if (!current?.memberships?.some((member) => member.userId === request.identity?.sub)) {
+        return reply.code(409).send({ error: "Idempotency-Key collides with an existing race room" });
+      }
+      return reply.code(idemCreate.statusCode).send(roomForViewer(current, request.identity.sub));
     }
     if (idemCreate.kind === "conflict" || idemCreate.kind === "in_progress") {
       return idempotencyErrorReply(reply, idemCreate);
@@ -2746,7 +2754,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const idemCourse = await beginIdempotentMutation(request, parsed.data);
     if (idemCourse.kind === "replay") {
-      return reply.code(idemCourse.statusCode).send(idemCourse.body);
+      // Answer from the room as it is now, shaped for this caller, never the stored body: a
+      // body stored while paid must not replay the whole plan after a refund.
+      const current = (await getRaceRoom(roomId)) ?? room;
+      return reply.code(idemCourse.statusCode).send(roomForViewer(current, request.identity.sub));
     }
     if (idemCourse.kind === "conflict" || idemCourse.kind === "in_progress") {
       return idempotencyErrorReply(reply, idemCourse);
@@ -2867,7 +2878,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       await ensureBootstrapProjection(roomId, updatedRoom, true);
       await saveWs2RuntimeSnapshot(roomId);
-      // The unpaid runner gets the teaser here too; the replay body is shaped the same way.
+      // The unpaid runner gets the teaser here too. A replay re-reads the room instead of
+      // sending this body, but it is stored shaped all the same.
       const body = roomForViewer(updatedRoom, request.identity.sub);
       await completeIdempotentMutation(request, parsed.data, 200, body);
       idemCourseFinished = true;

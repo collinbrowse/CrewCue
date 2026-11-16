@@ -11,8 +11,8 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| DELETE | `/me` | identity | [services/api/src/routes/accountRoutes.ts:17](../../../services/api/src/routes/accountRoutes.ts#L17) |
-| GET | `/me/export` | identity + membership | [services/api/src/routes/accountRoutes.ts:42](../../../services/api/src/routes/accountRoutes.ts#L42) |
+| DELETE | `/me` | identity | [services/api/src/routes/accountRoutes.ts:18](../../../services/api/src/routes/accountRoutes.ts#L18) |
+| GET | `/me/export` | identity + membership | [services/api/src/routes/accountRoutes.ts:43](../../../services/api/src/routes/accountRoutes.ts#L43) |
 
 ## activityHistory
 
@@ -70,14 +70,14 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/pacing-estimates` | identity + membership | [services/api/src/routes/pacingEstimates.ts:113](../../../services/api/src/routes/pacingEstimates.ts#L113) |
+| POST | `/pacing-estimates` | identity + membership | [services/api/src/routes/pacingEstimates.ts:122](../../../services/api/src/routes/pacingEstimates.ts#L122) |
 
 ## raceRoomSchedule
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| PUT | `/race-rooms/:roomId/pacing-estimate` | room-member | [services/api/src/routes/raceRoomSchedule.ts:469](../../../services/api/src/routes/raceRoomSchedule.ts#L469) |
-| GET | `/race-rooms/:roomId/schedule` | room-member | [services/api/src/routes/raceRoomSchedule.ts:580](../../../services/api/src/routes/raceRoomSchedule.ts#L580) |
+| PUT | `/race-rooms/:roomId/pacing-estimate` | room-member | [services/api/src/routes/raceRoomSchedule.ts:470](../../../services/api/src/routes/raceRoomSchedule.ts#L470) |
+| GET | `/race-rooms/:roomId/schedule` | room-member | [services/api/src/routes/raceRoomSchedule.ts:589](../../../services/api/src/routes/raceRoomSchedule.ts#L589) |
 
 ## raceRoomStopPlans
 
@@ -93,40 +93,40 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/race-rooms` | identity + membership | [services/api/src/routes/raceRooms.ts:2571](../../../services/api/src/routes/raceRooms.ts#L2571) |
-| GET | `/race-rooms/mine` | identity | [services/api/src/routes/raceRooms.ts:2663](../../../services/api/src/routes/raceRooms.ts#L2663) |
-| GET | `/race-rooms/join-preview/:roomCode` | none detected | [services/api/src/routes/raceRooms.ts:2673](../../../services/api/src/routes/raceRooms.ts#L2673) |
-| GET | `/race-rooms/:roomId` | identity + membership | [services/api/src/routes/raceRooms.ts:2689](../../../services/api/src/routes/raceRooms.ts#L2689) |
-| PUT | `/race-rooms/:roomId/course` | identity + membership | [services/api/src/routes/raceRooms.ts:2715](../../../services/api/src/routes/raceRooms.ts#L2715) |
-| POST | `/race-rooms/:roomId/checkpoints` | course-editor | [services/api/src/routes/raceRooms.ts:2884](../../../services/api/src/routes/raceRooms.ts#L2884) |
-| PATCH | `/race-rooms/:roomId/checkpoints/:checkpointId` | course-editor | [services/api/src/routes/raceRooms.ts:2925](../../../services/api/src/routes/raceRooms.ts#L2925) |
-| PATCH | `/race-rooms/:roomId/checkpoint-stops` | course-editor | [services/api/src/routes/raceRooms.ts:2980](../../../services/api/src/routes/raceRooms.ts#L2980) |
-| DELETE | `/race-rooms/:roomId/checkpoints/:checkpointId` | course-editor | [services/api/src/routes/raceRooms.ts:3025](../../../services/api/src/routes/raceRooms.ts#L3025) |
-| GET | `/race-rooms/:roomId/map-workspace` | identity + membership | [services/api/src/routes/raceRooms.ts:3062](../../../services/api/src/routes/raceRooms.ts#L3062) |
-| PUT | `/race-rooms/:roomId/map-workspace` | identity + membership | [services/api/src/routes/raceRooms.ts:3086](../../../services/api/src/routes/raceRooms.ts#L3086) |
-| POST | `/race-rooms/:roomId/invites` | identity + membership | [services/api/src/routes/raceRooms.ts:3155](../../../services/api/src/routes/raceRooms.ts#L3155) |
-| GET | `/race-rooms/:roomId/invites` | identity + membership | [services/api/src/routes/raceRooms.ts:3225](../../../services/api/src/routes/raceRooms.ts#L3225) |
-| POST | `/race-rooms/:roomId/invites/accept` | identity + membership | [services/api/src/routes/raceRooms.ts:3272](../../../services/api/src/routes/raceRooms.ts#L3272) |
-| POST | `/race-rooms/join-by-code` | identity + membership | [services/api/src/routes/raceRooms.ts:3374](../../../services/api/src/routes/raceRooms.ts#L3374) |
-| PATCH | `/race-rooms/:roomId/members/:memberUserId` | identity + membership | [services/api/src/routes/raceRooms.ts:3445](../../../services/api/src/routes/raceRooms.ts#L3445) |
-| DELETE | `/race-rooms/:roomId/members/:memberUserId` | identity + membership | [services/api/src/routes/raceRooms.ts:3545](../../../services/api/src/routes/raceRooms.ts#L3545) |
-| GET | `/teams/:teamId/race-rooms` | identity + membership | [services/api/src/routes/raceRooms.ts:3597](../../../services/api/src/routes/raceRooms.ts#L3597) |
-| POST | `/race-rooms/:roomId/entitlement` | identity + membership | [services/api/src/routes/raceRooms.ts:3620](../../../services/api/src/routes/raceRooms.ts#L3620) |
-| POST | `/race-rooms/:roomId/pings` | identity + membership | [services/api/src/routes/raceRooms.ts:3804](../../../services/api/src/routes/raceRooms.ts#L3804) |
-| POST | `/race-rooms/:roomId/pings/batch` | identity + membership | [services/api/src/routes/raceRooms.ts:3984](../../../services/api/src/routes/raceRooms.ts#L3984) |
-| GET | `/race-rooms/:roomId/pings/track` | identity + membership | [services/api/src/routes/raceRooms.ts:4175](../../../services/api/src/routes/raceRooms.ts#L4175) |
-| GET | `/race-rooms/:roomId/projection` | identity + membership | [services/api/src/routes/raceRooms.ts:4210](../../../services/api/src/routes/raceRooms.ts#L4210) |
-| POST | `/race-rooms/:roomId/checkpoints/:cpId/manual-stop` | identity + membership | [services/api/src/routes/raceRooms.ts:4259](../../../services/api/src/routes/raceRooms.ts#L4259) |
-| PATCH | `/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source` | identity + membership | [services/api/src/routes/raceRooms.ts:4420](../../../services/api/src/routes/raceRooms.ts#L4420) |
-| GET | `/race-rooms/:roomId/tasks` | identity + membership | [services/api/src/routes/raceRooms.ts:4501](../../../services/api/src/routes/raceRooms.ts#L4501) |
-| POST | `/race-rooms/:roomId/tasks/:taskId/assign` | identity + membership | [services/api/src/routes/raceRooms.ts:4548](../../../services/api/src/routes/raceRooms.ts#L4548) |
-| POST | `/race-rooms/:roomId/tasks/:taskId/start` | identity + membership | [services/api/src/routes/raceRooms.ts:4625](../../../services/api/src/routes/raceRooms.ts#L4625) |
-| POST | `/race-rooms/:roomId/tasks/:taskId/complete` | identity + membership | [services/api/src/routes/raceRooms.ts:4686](../../../services/api/src/routes/raceRooms.ts#L4686) |
-| GET | `/race-rooms/:roomId/protocol-notes` | identity + membership | [services/api/src/routes/raceRooms.ts:4747](../../../services/api/src/routes/raceRooms.ts#L4747) |
-| POST | `/race-rooms/:roomId/protocol-notes` | identity + membership | [services/api/src/routes/raceRooms.ts:4778](../../../services/api/src/routes/raceRooms.ts#L4778) |
-| GET | `/race-rooms/:roomId/timeline` | identity + membership | [services/api/src/routes/raceRooms.ts:4849](../../../services/api/src/routes/raceRooms.ts#L4849) |
-| GET | `/race-rooms/:roomId/pings/history` | identity + membership | [services/api/src/routes/raceRooms.ts:4875](../../../services/api/src/routes/raceRooms.ts#L4875) |
-| GET | `/race-rooms/:roomId/pings/latest` | identity + membership | [services/api/src/routes/raceRooms.ts:4911](../../../services/api/src/routes/raceRooms.ts#L4911) |
+| POST | `/race-rooms` | identity + membership | [services/api/src/routes/raceRooms.ts:2572](../../../services/api/src/routes/raceRooms.ts#L2572) |
+| GET | `/race-rooms/mine` | identity | [services/api/src/routes/raceRooms.ts:2671](../../../services/api/src/routes/raceRooms.ts#L2671) |
+| GET | `/race-rooms/join-preview/:roomCode` | none detected | [services/api/src/routes/raceRooms.ts:2681](../../../services/api/src/routes/raceRooms.ts#L2681) |
+| GET | `/race-rooms/:roomId` | identity + membership | [services/api/src/routes/raceRooms.ts:2697](../../../services/api/src/routes/raceRooms.ts#L2697) |
+| PUT | `/race-rooms/:roomId/course` | identity + membership | [services/api/src/routes/raceRooms.ts:2723](../../../services/api/src/routes/raceRooms.ts#L2723) |
+| POST | `/race-rooms/:roomId/checkpoints` | course-editor | [services/api/src/routes/raceRooms.ts:2896](../../../services/api/src/routes/raceRooms.ts#L2896) |
+| PATCH | `/race-rooms/:roomId/checkpoints/:checkpointId` | course-editor | [services/api/src/routes/raceRooms.ts:2937](../../../services/api/src/routes/raceRooms.ts#L2937) |
+| PATCH | `/race-rooms/:roomId/checkpoint-stops` | course-editor | [services/api/src/routes/raceRooms.ts:2992](../../../services/api/src/routes/raceRooms.ts#L2992) |
+| DELETE | `/race-rooms/:roomId/checkpoints/:checkpointId` | course-editor | [services/api/src/routes/raceRooms.ts:3037](../../../services/api/src/routes/raceRooms.ts#L3037) |
+| GET | `/race-rooms/:roomId/map-workspace` | identity + membership | [services/api/src/routes/raceRooms.ts:3074](../../../services/api/src/routes/raceRooms.ts#L3074) |
+| PUT | `/race-rooms/:roomId/map-workspace` | identity + membership | [services/api/src/routes/raceRooms.ts:3098](../../../services/api/src/routes/raceRooms.ts#L3098) |
+| POST | `/race-rooms/:roomId/invites` | identity + membership | [services/api/src/routes/raceRooms.ts:3167](../../../services/api/src/routes/raceRooms.ts#L3167) |
+| GET | `/race-rooms/:roomId/invites` | identity + membership | [services/api/src/routes/raceRooms.ts:3237](../../../services/api/src/routes/raceRooms.ts#L3237) |
+| POST | `/race-rooms/:roomId/invites/accept` | identity + membership | [services/api/src/routes/raceRooms.ts:3284](../../../services/api/src/routes/raceRooms.ts#L3284) |
+| POST | `/race-rooms/join-by-code` | identity + membership | [services/api/src/routes/raceRooms.ts:3386](../../../services/api/src/routes/raceRooms.ts#L3386) |
+| PATCH | `/race-rooms/:roomId/members/:memberUserId` | identity + membership | [services/api/src/routes/raceRooms.ts:3457](../../../services/api/src/routes/raceRooms.ts#L3457) |
+| DELETE | `/race-rooms/:roomId/members/:memberUserId` | identity + membership | [services/api/src/routes/raceRooms.ts:3557](../../../services/api/src/routes/raceRooms.ts#L3557) |
+| GET | `/teams/:teamId/race-rooms` | identity + membership | [services/api/src/routes/raceRooms.ts:3609](../../../services/api/src/routes/raceRooms.ts#L3609) |
+| POST | `/race-rooms/:roomId/entitlement` | identity + membership | [services/api/src/routes/raceRooms.ts:3632](../../../services/api/src/routes/raceRooms.ts#L3632) |
+| POST | `/race-rooms/:roomId/pings` | identity + membership | [services/api/src/routes/raceRooms.ts:3816](../../../services/api/src/routes/raceRooms.ts#L3816) |
+| POST | `/race-rooms/:roomId/pings/batch` | identity + membership | [services/api/src/routes/raceRooms.ts:3996](../../../services/api/src/routes/raceRooms.ts#L3996) |
+| GET | `/race-rooms/:roomId/pings/track` | identity + membership | [services/api/src/routes/raceRooms.ts:4187](../../../services/api/src/routes/raceRooms.ts#L4187) |
+| GET | `/race-rooms/:roomId/projection` | identity + membership | [services/api/src/routes/raceRooms.ts:4222](../../../services/api/src/routes/raceRooms.ts#L4222) |
+| POST | `/race-rooms/:roomId/checkpoints/:cpId/manual-stop` | identity + membership | [services/api/src/routes/raceRooms.ts:4271](../../../services/api/src/routes/raceRooms.ts#L4271) |
+| PATCH | `/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source` | identity + membership | [services/api/src/routes/raceRooms.ts:4432](../../../services/api/src/routes/raceRooms.ts#L4432) |
+| GET | `/race-rooms/:roomId/tasks` | identity + membership | [services/api/src/routes/raceRooms.ts:4513](../../../services/api/src/routes/raceRooms.ts#L4513) |
+| POST | `/race-rooms/:roomId/tasks/:taskId/assign` | identity + membership | [services/api/src/routes/raceRooms.ts:4560](../../../services/api/src/routes/raceRooms.ts#L4560) |
+| POST | `/race-rooms/:roomId/tasks/:taskId/start` | identity + membership | [services/api/src/routes/raceRooms.ts:4637](../../../services/api/src/routes/raceRooms.ts#L4637) |
+| POST | `/race-rooms/:roomId/tasks/:taskId/complete` | identity + membership | [services/api/src/routes/raceRooms.ts:4698](../../../services/api/src/routes/raceRooms.ts#L4698) |
+| GET | `/race-rooms/:roomId/protocol-notes` | identity + membership | [services/api/src/routes/raceRooms.ts:4759](../../../services/api/src/routes/raceRooms.ts#L4759) |
+| POST | `/race-rooms/:roomId/protocol-notes` | identity + membership | [services/api/src/routes/raceRooms.ts:4790](../../../services/api/src/routes/raceRooms.ts#L4790) |
+| GET | `/race-rooms/:roomId/timeline` | identity + membership | [services/api/src/routes/raceRooms.ts:4861](../../../services/api/src/routes/raceRooms.ts#L4861) |
+| GET | `/race-rooms/:roomId/pings/history` | identity + membership | [services/api/src/routes/raceRooms.ts:4887](../../../services/api/src/routes/raceRooms.ts#L4887) |
+| GET | `/race-rooms/:roomId/pings/latest` | identity + membership | [services/api/src/routes/raceRooms.ts:4923](../../../services/api/src/routes/raceRooms.ts#L4923) |
 
 ## routingRoutes
 

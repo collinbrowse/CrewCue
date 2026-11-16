@@ -17,7 +17,8 @@ import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
   initPacingEstimateStore,
-  savePacingEstimate
+  savePacingEstimate,
+  type StoredTeaserPick
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
 import { isTeaserRoom, teaserEstimate, teaserScheduleSheet } from "../lib/raceTeaser.js";
@@ -498,6 +499,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         : reply.code(403).send({ error: "Forbidden" });
     let estimate: PacingEstimate;
     let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
+    // The stop an unpaid race's teaser already showed of this estimate when it was computed:
+    // attaching it pins that stop, so the same plan never reveals a second one.
+    let shownTeaser: StoredTeaserPick | undefined;
 
     if (parsedBody.data.pacingEstimateId !== undefined) {
       const stored = await getPacingEstimateById(parsedBody.data.pacingEstimateId);
@@ -509,6 +513,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       }
       estimate = stored.estimate;
       storedBaseline = stored.baselineTrack;
+      shownTeaser = stored.teaser;
     } else {
       if (crewChange) {
         // A snapshot proves nothing about whose history built it.
@@ -524,9 +529,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(403).send({ error: "Forbidden" });
       }
       if (!existing) {
-        await savePacingEstimate(athleteUserId, estimate);
+        // Tied to this room, so the export shapes it as the room does while unpaid.
+        await savePacingEstimate(athleteUserId, estimate, undefined, { roomId });
       } else {
         storedBaseline = existing.baselineTrack;
+        shownTeaser = existing.teaser;
       }
     }
 
@@ -550,6 +557,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         ...latest,
         pacingEstimateId: estimate.id,
         pacingEstimate: estimate,
+        // Without a recorded pick, `carryTeaserPin` picks on the course it is attached to.
+        ...(shownTeaser ? { teaserCheckpoint: { pacingEstimateId: estimate.id, ...shownTeaser } } : {}),
         ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
           ? { plannedPaceSecondsPerKm: derivedPlannedPace }
           : {}),
@@ -612,11 +621,15 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
+      const teaser = isTeaserRoom(room);
+      // A teaser sheet is built from the teaser plan, so rows it keeps interpolate between the
+      // shown anchors only (see `teaserScheduleSheet`). The shown rows match the paid sheet.
+      const plan = teaser && room.pacingEstimate ? teaserEstimate(room.pacingEstimate, room) : room.pacingEstimate;
       const sheet = projectCrewScheduleSheet(room, {
         closedActualStopSecondsByCheckpointId: closedActuals,
-        pacingEstimate: room.pacingEstimate
+        pacingEstimate: plan
       });
-      return reply.send(isTeaserRoom(room) ? teaserScheduleSheet(sheet, room) : sheet);
+      return reply.send(teaser ? teaserScheduleSheet(sheet, room) : sheet);
     } catch (error) {
       const message = error instanceof Error ? error.message : "schedule_projection_failed";
       if (message === "checkpoint_distance_meters_from_start_required") {

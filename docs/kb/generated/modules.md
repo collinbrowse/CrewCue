@@ -20,7 +20,7 @@ Which `lib/` modules each route file imports directly.
 
 | Route file | Imports |
 | --- | --- |
-| [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `stravaConnectionStore.ts` |
+| [services/api/src/routes/accountRoutes.ts](../../../services/api/src/routes/accountRoutes.ts) | `accountDeletion.ts`, `activityHistoryStore.ts`, `pacingEstimateStore.ts`, `raceTeaser.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/activityHistory.ts](../../../services/api/src/routes/activityHistory.ts) | `activityFileHistory.ts`, `activityHistoryStore.ts`, `gpxActivityHistory.ts`, `gpxLimits.ts` |
 | [services/api/src/routes/analyticsRoutes.ts](../../../services/api/src/routes/analyticsRoutes.ts) | — |
 | [services/api/src/routes/billingRoutes.ts](../../../services/api/src/routes/billingRoutes.ts) | `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts` |
@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4957 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4969 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 13 | 975 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -61,13 +61,13 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
-| [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 214 |
+| [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 230 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 779 |
+| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 311 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
-| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 3 | 171 |
 | [services/api/src/lib/runnerSlowdown.ts](../../../services/api/src/lib/runnerSlowdown.ts) | 3 | 117 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |

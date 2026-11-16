@@ -50,18 +50,22 @@ The runner (`room.athleteId`) sets up an unpaid race before paying. Only these r
 
 | Route | Unpaid, runner |
 | --- | --- |
-| `GET /race-rooms/:roomId` | 200. `course.baselineTrack` is dropped; `pacingEstimate.aidEtas` keeps the first aid station only. Geometry and checkpoints stay. |
-| `PUT /race-rooms/:roomId/course` | allowed; the response (and its idempotent replay) is the room teaser |
-| `PUT /race-rooms/:roomId/pacing-estimate` | allowed; `estimate.aidEtas` in the response keeps the first aid station only |
-| `POST /pacing-estimates` with `roomId` | allowed; the response keeps the first aid station's aid ETA (finish fields and bands stay). The stored estimate is whole, so attaching it by id and paying unlocks every ETA. Crew get 402. |
-| `GET /race-rooms/:roomId/projection` | 200. `checkpointSplits` and `remainingCheckpointEtas` keep the first aid station only; `etaFinishPlanIso` and course-level fields stay. |
-| `GET /race-rooms/:roomId/schedule` | 200. `stops` keeps the start, the first aid station and the finish. |
+| `GET /race-rooms/:roomId` | 200. `course.baselineTrack` is dropped; `pacingEstimate.aidEtas` keeps the teaser stop only. Geometry and checkpoints stay. |
+| `PUT /race-rooms/:roomId/course` | allowed; the response is the room teaser. An idempotent replay answers from the room as it is now, shaped for the caller, never the stored body (a key first used while paid replays the teaser after a refund). |
+| `PUT /race-rooms/:roomId/pacing-estimate` | allowed; `estimate.aidEtas` in the response keeps the teaser stop only |
+| `POST /pacing-estimates` with `roomId` | allowed; the response keeps the teaser stop's aid ETA (finish fields and bands stay). The stored estimate is whole, so attaching it by id and paying unlocks every ETA. Crew get 402. |
+| `GET /race-rooms/:roomId/projection` | 200. `checkpointSplits` and `remainingCheckpointEtas` keep the teaser stop only; `etaFinishPlanIso` and course-level fields stay. |
+| `GET /race-rooms/:roomId/schedule` | 200. `stops` keeps the start, the teaser stop and the finish. The sheet is built from the teaser estimate, so the start and finish rows never carry another stop's ETA. |
 
-The first aid station is the first mid-course checkpoint tagged `aid` (the start and finish are never it). On a course with no mid-course `aid` tag, it is the first mid-course checkpoint the estimate gives an aid ETA. Teaser projection and schedule responses carry `locked: { checkpointIds }`, the withheld checkpoints in course order; paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
+The teaser stop is the first aid station: the first mid-course checkpoint (the start and finish are never it) that the estimate gives an aid ETA, preferring one tagged `aid`. With no plan attached yet, it is the first mid-course checkpoint tagged `aid`. It is **pinned to the attached plan** (`room.teaserCheckpoint`, server bookkeeping that is never sent) when the plan is attached, or when it was picked for the `POST /pacing-estimates` response that computed it, so re-tagging or editing the course cannot move it to another stop. If a course save deletes the pinned checkpoint or moves it along the course (more than 25 m), the teaser shows no aid ETA, finish only, until a new estimate is attached; a new estimate picks again. Teaser projection and schedule responses carry `locked: { checkpointIds }`, the withheld checkpoints in course order; paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
 
 Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics), every invite (any role, `athlete` included), and any invite accept or code join by someone who does not hold the runner seat (the race athlete or the room creator) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
 
-Every other route that answers a member of an unpaid race with a room (`POST /race-rooms`, `GET /race-rooms/mine`, `GET /teams/:teamId/race-rooms`, join-by-code for an existing member, invite accept, `PATCH`/`DELETE .../members/...`) shapes it with `roomForViewer`: the runner gets the room teaser above; anyone else gets the room without `pacingEstimate`, `pacingEstimateId` or `course.baselineTrack` (name, code, roster, entitlement and course stay, so lists and the paywall render). The anonymous `GET /race-rooms/join-preview/:roomCode` omits `baselineTrack` on an unpaid race. `GET /me/export` is exempt: it is the account's data-rights export, and its pacing estimates are the runner's own data.
+Every other route that answers a member of an unpaid race with a room (`POST /race-rooms` and its idempotent retry, which answers from the room as it is now and gives another account reusing the key 409, `GET /race-rooms/mine`, `GET /teams/:teamId/race-rooms`, join-by-code for an existing member, invite accept, `PATCH`/`DELETE .../members/...`) shapes it with `roomForViewer`: the runner gets the room teaser above; anyone else gets the room without `pacingEstimate`, `pacingEstimateId` or `course.baselineTrack` (name, code, roster, entitlement and course stay, so lists and the paywall render). The anonymous `GET /race-rooms/join-preview/:roomCode` omits `baselineTrack` on an unpaid race.
+
+`GET /me/export` returns each stored pacing estimate as the runner was shown it. Stored estimates record the room they were computed for or attached to, and the teaser stop their response kept. An estimate tied to an unpaid race keeps that one aid ETA (the room's pinned stop for its attached plan); a paid race exports in full.
+
+`POST /pacing-estimates` without `roomId` (checkpoints and `raceStartAt` in the body) prices whatever checkpoints are posted, including a course copied from an unpaid race, so a course with more than one mid-course checkpoint is answered with the teaser shape: one aid ETA, picked as above. No shipped client calls it without `roomId`.
 
 ### Crew tier (#649)
 
