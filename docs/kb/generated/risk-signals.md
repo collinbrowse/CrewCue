@@ -10,7 +10,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
 | API lib modules with no same-named test | 41 |
-| Native features not passing on both platforms | 12 |
+| Native features not passing on both platforms | 13 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -118,6 +118,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-track` | v1 | fail | fail |
 | `map-checkpoint-pick` | v1 | fail | pass |
 | `map-navigate` | v1 | fail | pass |
+| `location-heartbeat` | v1 | fail | fail |
 | `chat-thread` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 

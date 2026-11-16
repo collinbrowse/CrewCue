@@ -27,7 +27,7 @@ Source: `GET /race-rooms/:roomId/pings/latest` → client-core `RaceDayAPI.lates
 - **Android UI** (`apps/android/**`): `.claude/rules/android-emulator-agent-qa.md`. Emulator proof on the PR before claiming done.
 - **Shared client behavior** (`packages/client-core/**`): Swift tests on the host and the Android SDK build when the SDK is installed. No UI in that package. Structure: `.claude/rules/client-core-architecture.md`.
 - **Client structure:** load only the trees the task touches. `packages/client-core/**` → `client-core-architecture.md`. `apps/ios/**` → that rule plus `ios-presentation.md`. `apps/android/**` → that rule plus `android-presentation.md`.
-- **Checklists** (`clients/behavior/**`): source of truth for parity. Do not sync by reading the other platform's UI. `deeplinks.json` `pass` is legal only with a device proof file; fixture copy is not a pass.
+- **Checklists** (`clients/behavior/**`): source of truth for parity. Do not sync by reading the other platform's UI. `deeplinks.json` `pass` is legal only with a device proof file; fixture copy is not a pass. A row with `"proof": "physical"` needs a real-phone proof (`deviceClass: "physical"`, `checked.Action`); a simulator proof doesn't count.
 - **Expo removed.** Native clients are `apps/ios` and `apps/android`. Do not add `apps/mobile`. Native race-day is unfinished while checklist rows are `fail`.
 - **XcodeBuildMCP:** Use the installed XcodeBuildMCP skill/docs before calling MCP tools.
 - **agent-ready waves:** `docs/agents/agent-work-package-verification.md` (Ready script first).

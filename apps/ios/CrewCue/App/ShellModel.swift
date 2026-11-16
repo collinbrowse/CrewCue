@@ -229,6 +229,13 @@ final class ShellModel {
         Task { await pushModel.refreshIfAuthorized(role: session.role) }
     }
 
+    /// Called once at launch with the restored session. A background relaunch for location never
+    /// shows the shell, so the athlete's saved tracking restarts here, not from a view.
+    func resumeRaceTrackingAtLaunch() {
+        guard isSignedIn, !fixtureOverlay else { return }
+        mapModel.resumeTrackingAtLaunch(userId: signedInUserId, roomId: signedInRoomId, role: signedInRole)
+    }
+
     /// Load the user's races. The stored active room stays active while the server still lists it.
     func loadRaces() async {
         guard let userId = signedInUserId else { return }

@@ -4,6 +4,9 @@
  * `ios` / `android` may be "pass" only when a device proof file exists in
  * clients/behavior/proofs/<id>.<platform>.json. The proof records what was seen on
  * the device for each checklist state; screenshots go on the PR, not in the repo.
+ * A row with `"proof": "physical"` promises behavior a simulator or emulator can't show (screen
+ * locked for hours, the OS ending the app, real radios), so its proof must come from a real phone:
+ * `deviceClass: "physical"` and a `checked.Action` that says what was run.
  * Usage: node scripts/verify-client-behavior.mjs
  */
 import fs from "node:fs";
@@ -29,6 +32,7 @@ const required = [
 const forbidden = ["match the ios screen", "port the compose file", "screenshot diff"];
 const allowedSdk = new Set(["none", "maplibre", "auth0", "location", "push", "revenuecat"]);
 const allowedStatus = new Set(["pass", "fail", "deferred"]);
+const allowedProofTier = new Set(["physical"]);
 
 function section(text, name) {
   const lines = text.split("\n");
@@ -43,7 +47,7 @@ function section(text, name) {
 }
 
 /** Returns the problem with a proof file, or undefined when it is usable. */
-function proofProblem(id, platform, entry) {
+function proofProblem(id, platform, entry, tier) {
   const file = path.join(proofDir, `${id}.${platform}.json`);
   if (!fs.existsSync(file)) return "missing";
   let parsed;
@@ -60,6 +64,10 @@ function proofProblem(id, platform, entry) {
   if (!filled(parsed.commit)) return "commit is empty";
   for (const state of proofStates) {
     if (!filled(parsed.checked?.[state])) return `checked.${state} is empty`;
+  }
+  if (tier === "physical") {
+    if (parsed.deviceClass !== "physical") return 'this row needs a real phone: deviceClass must be "physical"';
+    if (!filled(parsed.checked?.Action)) return "checked.Action is empty";
   }
   return undefined;
 }
@@ -100,11 +108,14 @@ function main() {
     if (sdk && !allowedSdk.has(sdk)) errors.push(`${file} sdk ${sdk} is not allowed`);
     if (entry && !entry.startsWith("crewcue://dev/")) errors.push(`${file} entry must be a dev deeplink`);
     if (row) {
+      if (row.proof !== undefined && !allowedProofTier.has(row.proof)) {
+        errors.push(`${id} proof tier ${row.proof} is not allowed`);
+      }
       for (const platform of ["ios", "android"]) {
         const status = row[platform];
         if (!allowedStatus.has(status)) errors.push(`${id} ${platform} status ${status} is not allowed`);
         if (status === "pass") {
-          const problem = proofProblem(id, platform, row.entry);
+          const problem = proofProblem(id, platform, row.entry, row.proof);
           if (problem) errors.push(`${id} ${platform} pass without a usable proofs/${id}.${platform}.json (${problem})`);
         }
         if (status === "deferred") errors.push(`${id} is a feature row and cannot be deferred; move it to deeplinks.deferred`);

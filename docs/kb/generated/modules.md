@@ -183,7 +183,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 93 |
-| `App` | 13 | 1358 |
+| `App` | 13 | 1366 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
@@ -195,7 +195,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Chat` | 4 | 909 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1767 |
+| `Screens/Map` | 4 | 1787 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Pace` | 2 | 1745 |
 | `Screens/Profile` | 2 | 414 |
@@ -230,7 +230,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/chat` | 7 | 1179 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/join` | 1 | 110 |
-| `kotlin/com/crewcue/android/ui/map` | 5 | 1642 |
+| `kotlin/com/crewcue/android/ui/map` | 5 | 1691 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 308 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
