@@ -340,7 +340,7 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
                     when {
                         liveClock != null -> liveCaption(row, liveStale)
                         row.isFinish -> "TARGET"
-                        // Every stop shows its UTC clock and elapsed time; projected stops add the planned stop.
+                        // Every stop shows its local clock and elapsed time; projected stops add the planned stop.
                         stop != null -> listOfNotNull(
                             "${stop.arrival} · ${stop.elapsed}",
                             stop.stopLabel.takeIf { !done && it.isNotBlank() && it != "NO STOP" }
