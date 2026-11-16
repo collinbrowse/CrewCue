@@ -28,7 +28,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "cold-start",
@@ -55,7 +55,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "outbox-status",
