@@ -414,7 +414,18 @@ public actor OutboxStore: UserDataStore {
         pingBatch: (@Sendable (_ roomId: String, _ pings: [StoredOperation]) async -> [OutboxFailureResolution])? = nil
     ) async throws -> FlushReport {
         var report = FlushReport()
-        let pending = try load().filter { $0.status == "pending" && !inFlight.contains($0.id) }
+        let all = try load()
+        // The server drops any sample at or before the room's last accepted one. While another
+        // flush is still sending a room's older samples, a newer one sent here could land first
+        // and turn that whole backlog stale, so it waits for the next flush.
+        let busyPingRooms = Set(all.filter { $0.type == "ping" && inFlight.contains($0.id) }.map(\.roomId))
+        let waiting = all.filter {
+            $0.status == "pending" && !inFlight.contains($0.id) && $0.type == "ping" && busyPingRooms.contains($0.roomId)
+        }
+        report.pending.append(contentsOf: waiting.map(\.id))
+        let pending = all.filter {
+            $0.status == "pending" && !inFlight.contains($0.id) && !($0.type == "ping" && busyPingRooms.contains($0.roomId))
+        }
         let snapshot = pending
         let ids = Set(snapshot.map(\.id))
         inFlight.formUnion(ids)
