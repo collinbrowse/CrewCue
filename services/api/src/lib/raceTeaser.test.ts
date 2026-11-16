@@ -2,13 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type {
   CrewScheduleSheet,
+  PacingEstimate,
   RaceCheckpointSplitRow,
   RaceCourseCheckpoint,
   RaceRoom,
   RaceRoomProjection
 } from "@crewcue/contracts";
-import { roomUnpaidError } from "./billingEntitlement.js";
-import { isTeaserRoom, teaserCheckpointsOf, teaserProjection, teaserRoom, teaserScheduleSheet } from "./raceTeaser.js";
+import { isRunnerSeat, roomUnpaidError } from "./billingEntitlement.js";
+import {
+  isTeaserRoom,
+  lockedRoom,
+  roomForViewer,
+  teaserCheckpointsOf,
+  teaserEstimate,
+  teaserProjection,
+  teaserRoom,
+  teaserScheduleSheet
+} from "./raceTeaser.js";
 
 function cp(id: string, distance: number | undefined, tags?: RaceCourseCheckpoint["tags"]): RaceCourseCheckpoint {
   return {
@@ -188,4 +198,88 @@ test("only an unpaid race is a teaser, and only an unpaid race refuses crew with
   assert.deepEqual(roomUnpaidError(room(COURSE, "unpaid")), { error: "Race not unlocked", code: "room_unpaid" });
   assert.equal(roomUnpaidError(room(COURSE, "paid")), undefined);
   assert.equal(roomUnpaidError(room(COURSE, "expired")), undefined);
+});
+
+function estimate(aidIds: string[]): PacingEstimate {
+  return {
+    id: "est-1",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T21:20:00.000Z",
+    expectedFinishElapsedSeconds: 30_000,
+    explanation: "fixture",
+    bands: { conservative: { finishAt: "2026-08-15T22:00:00.000Z", finishElapsedSeconds: 32_400 } },
+    aidEtas: aidIds.map((checkpointId, index) => ({
+      checkpointId,
+      clockArrivalAt: "2026-08-15T15:00:00.000Z",
+      elapsedSeconds: 3_600 * (index + 1)
+    }))
+  };
+}
+
+test("untagged course: the first aid station is the first mid-course stop the estimate prices", () => {
+  // A GPX import: stops named "Aid 1", "Aid 2" with no tags. The estimator still gives them ETAs.
+  const untagged = [cp("start", 0), cp("Aid 1", 10_000), cp("Aid 2", 20_000), cp("finish", 30_000)];
+  const plan = estimate(["Aid 1", "Aid 2"]);
+  const withPlan = { ...room(untagged), pacingEstimate: plan };
+  const picked = teaserCheckpointsOf(withPlan);
+  assert.equal(picked.firstAidCheckpointId, "Aid 1");
+  assert.deepEqual(picked.lockedCheckpointIds, ["Aid 2"]);
+  assert.deepEqual(teaserRoom(withPlan).pacingEstimate?.aidEtas.map((eta) => eta.checkpointId), ["Aid 1"]);
+
+  // A tag still wins over the estimate's order.
+  const tagged = [cp("start", 0), cp("Aid 1", 10_000), cp("Aid 2", 20_000, ["aid"]), cp("finish", 30_000)];
+  assert.equal(teaserCheckpointsOf({ ...room(tagged), pacingEstimate: plan }).firstAidCheckpointId, "Aid 2");
+
+  // An ETA on the start or finish never counts as the first aid station.
+  assert.equal(teaserCheckpointsOf({ ...room(untagged), pacingEstimate: estimate(["start", "finish"]) }).firstAidCheckpointId, undefined);
+});
+
+test("estimate teaser keeps the finish and the first aid ETA, without touching the input", () => {
+  const plan = estimate(["water-1", "aid-a", "aid-b"]);
+  const before = structuredClone(plan);
+  const shaped = teaserEstimate(plan, room(COURSE));
+  assert.deepEqual(shaped.aidEtas.map((eta) => eta.checkpointId), ["aid-a"]);
+  assert.equal(shaped.id, plan.id);
+  assert.equal(shaped.expectedFinishAt, plan.expectedFinishAt);
+  assert.deepEqual(shaped.bands, plan.bands);
+  assert.deepEqual(plan, before, "input is not mutated");
+});
+
+test("roomForViewer: paid and expired rooms go out whole; unpaid is the teaser for the runner, locked for others", () => {
+  const withPlan = (status: RaceRoom["entitlement"]["status"]): RaceRoom => ({
+    ...room(COURSE, status),
+    pacingEstimateId: "est-1",
+    pacingEstimate: estimate(["water-1", "aid-a", "aid-b"])
+  });
+  const paid = withPlan("paid");
+  assert.equal(roomForViewer(paid, "crew"), paid);
+  const expired = withPlan("expired");
+  assert.equal(roomForViewer(expired, "runner"), expired);
+
+  const unpaid = withPlan("unpaid");
+  const before = structuredClone(unpaid);
+  assert.deepEqual(roomForViewer(unpaid, "runner"), teaserRoom(unpaid));
+
+  for (const viewer of ["crew", undefined]) {
+    const locked = roomForViewer(unpaid, viewer);
+    assert.deepEqual(locked, lockedRoom(unpaid));
+    assert.equal(locked.pacingEstimate, undefined);
+    assert.equal(locked.pacingEstimateId, undefined);
+    assert.equal(locked.course?.baselineTrack, undefined);
+    assert.deepEqual(locked.course?.checkpoints, COURSE, "the map still draws");
+    assert.deepEqual(locked.memberships, unpaid.memberships);
+    assert.deepEqual(locked.entitlement, unpaid.entitlement);
+  }
+  assert.deepEqual(unpaid, before, "input is not mutated");
+});
+
+test("runner seat is who you are, not the role you hold or are given", () => {
+  const base: RaceRoom = {
+    ...room(COURSE),
+    createdByUserId: "manager",
+    memberships: [{ userId: "manager", role: "team_manager", joinedAt: "2026-08-01T00:00:00.000Z" }]
+  };
+  assert.equal(isRunnerSeat(base, "runner"), true, "the race athlete");
+  assert.equal(isRunnerSeat(base, "manager"), true, "the creator");
+  assert.equal(isRunnerSeat(base, "someone-else"), false, "an athlete-role invitee is still not the runner");
 });

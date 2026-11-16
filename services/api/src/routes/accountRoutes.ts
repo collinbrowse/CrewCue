@@ -61,6 +61,9 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
         };
       }),
       activityHistory: await listActivityHistoryForAthlete(sub),
+      // Exempt from the unpaid-race teaser on purpose: this is the account's data-rights export
+      // (access and portability), and these estimates are the runner's own data, built from
+      // their own history. It names no race plan surface, and `rooms` above carries no course.
       pacingEstimates: (await listPacingEstimatesForAthlete(sub)).map((row) => row.estimate),
       strava: { connected: (await getStravaConnectionPublic(sub)).connected }
     };

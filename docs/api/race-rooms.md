@@ -51,14 +51,17 @@ The runner (`room.athleteId`) sets up an unpaid race before paying. Only these r
 | Route | Unpaid, runner |
 | --- | --- |
 | `GET /race-rooms/:roomId` | 200. `course.baselineTrack` is dropped; `pacingEstimate.aidEtas` keeps the first aid station only. Geometry and checkpoints stay. |
-| `PUT /race-rooms/:roomId/course` | allowed |
-| `PUT /race-rooms/:roomId/pacing-estimate` | allowed |
+| `PUT /race-rooms/:roomId/course` | allowed; the response (and its idempotent replay) is the room teaser |
+| `PUT /race-rooms/:roomId/pacing-estimate` | allowed; `estimate.aidEtas` in the response keeps the first aid station only |
+| `POST /pacing-estimates` with `roomId` | allowed; the response keeps the first aid station's aid ETA (finish fields and bands stay). The stored estimate is whole, so attaching it by id and paying unlocks every ETA. Crew get 402. |
 | `GET /race-rooms/:roomId/projection` | 200. `checkpointSplits` and `remainingCheckpointEtas` keep the first aid station only; `etaFinishPlanIso` and course-level fields stay. |
 | `GET /race-rooms/:roomId/schedule` | 200. `stops` keeps the start, the first aid station and the finish. |
 
-The first aid station is the first mid-course checkpoint tagged `aid` (the start and finish are never it). Teaser projection and schedule responses carry `locked: { checkpointIds }`, the withheld checkpoints in course order; paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
+The first aid station is the first mid-course checkpoint tagged `aid` (the start and finish are never it). On a course with no mid-course `aid` tag, it is the first mid-course checkpoint the estimate gives an aid ETA. Teaser projection and schedule responses carry `locked: { checkpointIds }`, the withheld checkpoints in course order; paid responses never do. Every other member, and every other gated route, still gets 402. An expired race stays 403 for everyone.
 
-Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics) and new crew seats (a non-athlete invite, an invite accept or a code join that adds crew) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
+Crew-facing actions need a paid race for everyone, the runner included: crew chat (messages, photos, diagnostics), every invite (any role, `athlete` included), and any invite accept or code join by someone who does not hold the runner seat (the race athlete or the room creator) answer **402** `{ "error": "Race not unlocked", "code": "room_unpaid" }`. The runner's own seat is not refused this way.
+
+Every other route that answers a member of an unpaid race with a room (`POST /race-rooms`, `GET /race-rooms/mine`, `GET /teams/:teamId/race-rooms`, join-by-code for an existing member, invite accept, `PATCH`/`DELETE .../members/...`) shapes it with `roomForViewer`: the runner gets the room teaser above; anyone else gets the room without `pacingEstimate`, `pacingEstimateId` or `course.baselineTrack` (name, code, roster, entitlement and course stay, so lists and the paywall render). The anonymous `GET /race-rooms/join-preview/:roomCode` omits `baselineTrack` on an unpaid race. `GET /me/export` is exempt: it is the account's data-rights export, and its pacing estimates are the runner's own data.
 
 ### Crew tier (#649)
 
@@ -143,6 +146,7 @@ Issues a pending invite for an email and target role.
 | 201 | Returns invite metadata (`token`, `roomId`, `email`, `role`, `expiresAt`) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
+| 402 | `room_unpaid`: the race is unpaid (any role) |
 | 403 | Not a member, insufficient role, or a non-owner issuer requested a role other than `crew_member` |
 | 404 | Unknown `roomId` |
 
@@ -160,9 +164,10 @@ Accepts an invite token for the authenticated user (membership is created or rol
 
 | Code | Meaning |
 | --- | --- |
-| 200 | Returns `{ room, assignedRole, permissions }` |
+| 200 | Returns `{ room, assignedRole, permissions }` (`room` shaped by `roomForViewer` on an unpaid race) |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
+| 402 | `room_unpaid`: the race is unpaid and the caller does not hold the runner seat |
 | 404 | Room not found, or invite not found for this room/token |
 | 409 | Invite not pending |
 | 410 | Invite expired (status updated to `expired`) |

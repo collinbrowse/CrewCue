@@ -20,7 +20,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { isTeaserRoom, teaserScheduleSheet } from "../lib/raceTeaser.js";
+import { isTeaserRoom, teaserEstimate, teaserScheduleSheet } from "../lib/raceTeaser.js";
 import {
   commitRaceRoomUpdate,
   evaluateEntitlement,
@@ -531,11 +531,13 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     }
 
     // Idempotent: same id already plan of record → return current snapshot without rewrite churn.
+    // On an unpaid race (only the runner gets this far) the reply is the teaser estimate; the
+    // stored plan stays whole.
     if (room.pacingEstimateId === estimate.id && room.pacingEstimate?.id === estimate.id) {
       const body: AttachResponse = {
         roomId,
         pacingEstimateId: estimate.id,
-        estimate: room.pacingEstimate
+        estimate: isTeaserRoom(room) ? teaserEstimate(room.pacingEstimate, room) : room.pacingEstimate
       };
       return reply.send(body);
     }
@@ -570,7 +572,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const body: AttachResponse = {
       roomId,
       pacingEstimateId: estimate.id,
-      estimate
+      estimate: isTeaserRoom(updated) ? teaserEstimate(estimate, updated) : estimate
     };
     return reply.send(body);
   });

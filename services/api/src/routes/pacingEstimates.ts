@@ -31,7 +31,8 @@ import {
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
+import { isTeaserRoom, teaserEstimate } from "../lib/raceTeaser.js";
+import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
   .object({
@@ -142,6 +143,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       if (!membership) {
         return reply.code(403).send({ error: "Forbidden" });
       }
+      // Same gate as attaching the plan: crew on an unpaid race get 402, the runner sets up
+      // and is answered with the teaser estimate below.
+      const entitlement = evaluateEntitlement(app, room, callerUserId, { allowUnpaidRunner: true });
+      if (!entitlement.allowed) {
+        return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+      }
       const authority = decidePlanAuthority({
         room,
         userId: callerUserId,
@@ -223,8 +230,11 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         courseLengthMeters
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
+      // Stored whole, so attaching it by id and paying later unlocks the full plan.
       await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack);
-      return reply.code(200).send(parsed);
+      return reply
+        .code(200)
+        .send(linkedRoom && isTeaserRoom(linkedRoom) ? teaserEstimate(parsed, linkedRoom) : parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });
