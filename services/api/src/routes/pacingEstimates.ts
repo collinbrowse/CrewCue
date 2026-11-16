@@ -235,9 +235,14 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       // Finish only, no aid ETA, for an unpaid race and for every room-less request: any race's
       // checkpoints can be posted without a room, an unpaid one's included.
       const finishOnly = linkedRoom === undefined || isTeaserRoom(linkedRoom);
-      const provenance: PacingEstimateProvenance = linkedRoom ? { roomId: linkedRoom.id } : {};
+      // The room is added to the rooms this estimate id already went to (never replacing one), and
+      // the course length goes with it, so an unpaid race takes it only for that course.
+      const provenance: PacingEstimateProvenance = {
+        ...(linkedRoom ? { roomId: linkedRoom.id } : {}),
+        courseLengthMeters: artifacts.courseLengthMeters
+      };
       // Stored whole, so attaching it by id to a paid race (or paying for this one) unlocks the
-      // full plan. The room goes with it, so the export knows whether a paid race unlocked it.
+      // full plan. Its rooms go with it, so the export knows whether a paid race unlocked it.
       await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack, provenance);
       return reply.code(200).send(finishOnly ? finishOnlyEstimate(parsed) : parsed);
     } catch (err) {

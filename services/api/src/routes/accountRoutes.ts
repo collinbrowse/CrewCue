@@ -62,9 +62,10 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
         };
       }),
       activityHistory: await listActivityHistoryForAthlete(sub),
-      // Each estimate goes out whole only when tied to a paid race the caller belongs to (the
-      // race it was computed for or last attached to, or one whose plan of record it is), else
-      // finish-only, like every other read of an unpaid race. `rooms` above carries no course.
+      // Each estimate goes out whole only when tied to a paid race the caller belongs to (a race
+      // it was computed for or attached to, or one whose plan of record it is), else finish-only,
+      // like every other read of an unpaid race. A row stored before provenance was tracked goes
+      // out whole while the caller has no unpaid race. `rooms` above carries no course.
       pacingEstimates: (await listPacingEstimatesForAthlete(sub)).map((row) => exportedEstimate(row, rooms)),
       strava: { connected: (await getStravaConnectionPublic(sub)).connected }
     };

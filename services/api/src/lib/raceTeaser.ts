@@ -10,8 +10,24 @@
  * RaceRoom a route sends goes through `roomForViewer`, and every PacingEstimate a route sends for
  * an unpaid race goes through `finishOnlyEstimate`.
  */
-import type { CrewScheduleSheet, PacingEstimate, RaceCourseCheckpoint, RaceRoom, RaceRoomProjection } from "@crewcue/contracts";
+import type {
+  CrewScheduleSheet,
+  PacingEstimate,
+  RaceCourseBaselineTrack,
+  RaceCourseCheckpoint,
+  RaceRoom,
+  RaceRoomProjection
+} from "@crewcue/contracts";
 import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance } from "./raceProjection.js";
+
+/** Where a stored estimate went (see `StoredPacingEstimate` in pacingEstimateStore.ts). */
+export type EstimateProvenance = {
+  estimate: PacingEstimate;
+  /** Every race it was computed for or attached to. */
+  roomIds: readonly string[];
+  /** Stored before provenance was tracked, so `roomIds` may miss races it went to. */
+  legacyProvenance: boolean;
+};
 
 export function isTeaserRoom(room: RaceRoom): boolean {
   return room.entitlement.status === "unpaid";
@@ -100,6 +116,19 @@ export function teaserProjection(
 }
 
 /**
+ * A projection as a route returns it to the runner: the teaser on an unpaid race (see
+ * `teaserProjection`), else as is. The ping routes reply through this, so a ping to an unpaid
+ * race (402 today) could never carry more than the teaser if that gate opened.
+ */
+export function projectionForRoom(
+  projection: RaceRoomProjection,
+  room: RaceRoom,
+  options: { preRace?: boolean } = {}
+): RaceRoomProjection {
+  return isTeaserRoom(room) ? teaserProjection(projection, room, options) : projection;
+}
+
+/**
  * The pre-race finish from the start line, as the projection computes it for a runner standing at
  * the start: the plan curve to the course length plus every planned stop, never earlier than when
  * the projection was taken; without a usable plan curve, planned pace over the course from then.
@@ -133,10 +162,10 @@ function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): str
 }
 
 /**
- * Schedule teaser: the start and finish stops only. Build `sheet` from `teaserRoom(room)` (no
- * plan curve, the finish-only plan), so the two rows it keeps read the finish ETA (or planned
- * pace) alone: a course re-saved so a priced stop is its first or last row would otherwise carry
- * that stop's ETA.
+ * Schedule teaser: the start and finish stops only. Build `sheet` from `teaserScheduleRoom(room)`
+ * (the finish-only plan, the plan curve collapsed to its finish), so the two rows it keeps read
+ * the finish ETA alone: a course re-saved so a priced stop is its first or last row would
+ * otherwise carry that stop's ETA.
  */
 export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): CrewScheduleSheet {
   const { startCheckpointId, finishCheckpointId, lockedCheckpointIds } = teaserCheckpointsOf(room);
@@ -149,29 +178,134 @@ export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): C
 }
 
 /**
- * Whether a stored estimate is tied to a paid race in `callerRooms` (the caller's own races):
- * the race it was computed for or last attached to (`roomId`), or a race whose plan of record
- * it is.
+ * The room an unpaid race's schedule is built from: `teaserRoom` (the finish-only plan), with the
+ * plan curve collapsed to two points, 0 m at 0 s and `courseLengthMeters` at the curve's value
+ * there, instead of dropped. With no plan attached, the start and finish rows then read the same
+ * finish as the paid schedule and the teaser projection (not planned pace over the distance),
+ * and nothing between them reads more than a straight line to that finish. The sheet never
+ * carries the curve. Without a usable curve the room is `teaserRoom` as it is.
  */
-function tiedToPaidRace(stored: { estimate: PacingEstimate; roomId?: string }, callerRooms: readonly RaceRoom[]): boolean {
+export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): RaceRoom {
+  const shaped = teaserRoom(room);
+  const curve = room.course?.baselineTrack;
+  if (!shaped.course || !(courseLengthMeters > 0) || !hasUsableBaselineTrack(curve, courseLengthMeters)) {
+    return shaped;
+  }
+  const finishSeconds = plannedElapsedSecondsForDistance({
+    distanceMetersFromStart: courseLengthMeters,
+    plannedPaceSecondsPerKm: room.plannedPaceSecondsPerKm ?? 0,
+    baselineTrack: curve,
+    courseLengthMeters
+  });
+  const collapsed: RaceCourseBaselineTrack = {
+    points: [
+      { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+      { distanceMetersFromStart: courseLengthMeters, referenceElapsedSeconds: finishSeconds }
+    ]
+  };
+  if (hasUsableBaselineTrack(collapsed, courseLengthMeters)) {
+    shaped.course = { ...shaped.course, baselineTrack: collapsed };
+  }
+  return shaped;
+}
+
+function belongsTo(room: RaceRoom, userId: string): boolean {
+  return room.athleteId === userId || room.memberships.some((member) => member.userId === userId);
+}
+
+function isPlanOfRecord(room: RaceRoom, estimateId: string): boolean {
+  return room.pacingEstimateId === estimateId || room.pacingEstimate?.id === estimateId;
+}
+
+/**
+ * Whether a stored estimate is tied to a paid race in `callerRooms` (the caller's own races):
+ * a race it was computed for or attached to (`roomIds`), or a race whose plan of record it is.
+ */
+function tiedToPaidRace(stored: EstimateProvenance, callerRooms: readonly RaceRoom[]): boolean {
   return callerRooms.some(
     (room) =>
-      room.entitlement.status === "paid" &&
-      ((stored.roomId !== undefined && room.id === stored.roomId) ||
-        room.pacingEstimateId === stored.estimate.id ||
-        room.pacingEstimate?.id === stored.estimate.id)
+      room.entitlement.status === "paid" && (stored.roomIds.includes(room.id) || isPlanOfRecord(room, stored.estimate.id))
   );
 }
 
 /**
  * A stored estimate as `GET /me/export` returns it: whole when tied to a paid race the caller
- * belongs to, else finish-only (an unpaid race's estimates, and room-less ones).
+ * belongs to, else finish-only (an unpaid race's estimates, and room-less ones). A legacy row
+ * (stored before provenance was tracked, so it cannot say where it went) goes out whole while the
+ * caller has no unpaid race, as it did before the teaser; once they have one, the rule above.
  */
-export function exportedEstimate(
-  stored: { estimate: PacingEstimate; roomId?: string },
-  callerRooms: readonly RaceRoom[]
-): PacingEstimate {
+export function exportedEstimate(stored: EstimateProvenance, callerRooms: readonly RaceRoom[]): PacingEstimate {
+  if (stored.legacyProvenance && !callerRooms.some((room) => room.entitlement.status === "unpaid")) {
+    return stored.estimate;
+  }
   return tiedToPaidRace(stored, callerRooms) ? stored.estimate : finishOnlyEstimate(stored.estimate);
+}
+
+/**
+ * Whether a stored estimate may become `target`'s plan of record, judged by where it went.
+ * Returns the unpaid race that holds it back (answer 402 `room_unpaid`), or undefined.
+ *
+ * Allowed when `target` is in `roomIds`, or the estimate is already `target`'s plan of record.
+ * Refused only when `roomIds` names another race that is unpaid now and names neither `target`
+ * nor a paid race the caller belongs to (one that already shows the estimate whole).
+ * `provenanceRooms`: the rooms `roomIds` names that still exist.
+ */
+export function attachBlockedBy(
+  stored: EstimateProvenance,
+  target: RaceRoom,
+  callerUserId: string,
+  provenanceRooms: readonly RaceRoom[]
+): RaceRoom | undefined {
+  if (stored.roomIds.includes(target.id) || isPlanOfRecord(target, stored.estimate.id)) return undefined;
+  const others = provenanceRooms.filter((room) => room.id !== target.id && stored.roomIds.includes(room.id));
+  if (others.some((room) => room.entitlement.status === "paid" && belongsTo(room, callerUserId))) return undefined;
+  return others.find((room) => room.entitlement.status === "unpaid");
+}
+
+/** How far an unpaid race's course may be from the length its plan was computed for. */
+export const COURSE_LENGTH_TOLERANCE_METERS = 100;
+export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
+
+/**
+ * A race's course length (m), as `POST /pacing-estimates` and the schedule read it: the course's
+ * canonical distance, else the room's, else the farthest checkpoint. Undefined when none is known.
+ */
+export function courseLengthOf(room: RaceRoom): number | undefined {
+  const canonical = room.course?.derivedMetrics?.canonicalDistanceMeters;
+  if (isPositive(canonical)) return canonical;
+  if (isPositive(room.courseDistanceMeters)) return room.courseDistanceMeters;
+  const farthest = Math.max(0, ...(room.course?.checkpoints ?? []).map((checkpoint) => finiteDistance(checkpoint) ?? 0));
+  return farthest > 0 ? farthest : undefined;
+}
+
+/**
+ * The course length (m) a stored estimate was computed for: as recorded when it was computed,
+ * else (a legacy row) where its plan curve ends. Undefined when neither is known.
+ */
+export function estimateCourseLengthMeters(stored: {
+  courseLengthMeters?: number;
+  baselineTrack?: RaceCourseBaselineTrack;
+}): number | undefined {
+  if (isPositive(stored.courseLengthMeters)) return stored.courseLengthMeters;
+  const points = stored.baselineTrack?.points ?? [];
+  const end = points[points.length - 1]?.distanceMetersFromStart;
+  return isPositive(end) ? end : undefined;
+}
+
+/**
+ * Whether an estimate computed for `estimateMeters` fits a course of `courseMeters`: within 1%
+ * of the course or 100 m, whichever is larger. An unknown length never fits. Attaching a plan
+ * whose curve runs past a shortened course would read the curve at the new finish, which is an
+ * old mid-course split.
+ */
+export function courseLengthsMatch(estimateMeters: number | undefined, courseMeters: number | undefined): boolean {
+  if (!isPositive(estimateMeters) || !isPositive(courseMeters)) return false;
+  const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseMeters * COURSE_LENGTH_TOLERANCE_RATIO);
+  return Math.abs(estimateMeters - courseMeters) <= tolerance;
+}
+
+function isPositive(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 /**

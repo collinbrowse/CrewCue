@@ -98,7 +98,7 @@ import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import { crewLimitError, isCrewMembership, isRunnerSeat, roomUnpaidError } from "../lib/billingEntitlement.js";
-import { isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
+import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 const createRaceRoomInput = z.object({
@@ -2745,6 +2745,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
+    // Saves on an unpaid race are capped per user (429 past it); paid saves are not. The route
+    // limits cannot see entitlement, so the handler counts it with the same counters.
+    if (isTeaserRoom(room) && !(await app.enforceRateLimit(request, reply, "unpaidCourseSave"))) {
+      return reply;
+    }
 
     const parsed = updateRaceCourseInput.safeParse(request.body);
     if (!parsed.success) {
@@ -3969,6 +3974,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await saveWs2RuntimeSnapshot(roomId);
 
+    // Pings to an unpaid race are 402 above; were that gate opened, the reply is still the teaser.
+    const shown = projection ? projectionForRoom(projection, latestRoom, { preRace: pingState.lastAccepted === null }) : undefined;
     return reply.code(201).send({
       decision: "accepted" as const,
       pingId,
@@ -3980,7 +3987,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       ...(body.horizontalAccuracyMeters !== undefined
         ? { horizontalAccuracyMeters: body.horizontalAccuracyMeters }
         : {}),
-      ...(projection ? { projection } : {})
+      ...(shown ? { projection: shown } : {})
     });
     });
   });
@@ -4171,12 +4178,14 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
       app.log.info({ ping_batch_decision: { roomId, actor: actorUserId, ...counts } }, "ping_batch_decision");
 
+      // As in the single ping: on an unpaid race (402 above today) the reply is the teaser.
+      const shown = projection ? projectionForRoom(projection, latestRoom, { preRace: pingState.lastAccepted === null }) : undefined;
       const response: AthletePingBatchResponse = {
         roomId,
         receivedAt,
         results,
         acceptedCount: counts.accepted,
-        ...(projection ? { projection } : {})
+        ...(shown ? { projection: shown } : {})
       };
       return reply.code(200).send(response);
     });

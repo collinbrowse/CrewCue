@@ -10,14 +10,20 @@ import type {
 } from "@crewcue/contracts";
 import { isRunnerSeat, roomUnpaidError } from "./billingEntitlement.js";
 import {
+  attachBlockedBy,
+  courseLengthOf,
+  courseLengthsMatch,
+  estimateCourseLengthMeters,
   exportedEstimate,
   finishOnlyEstimate,
   isTeaserRoom,
   lockedRoom,
+  projectionForRoom,
   roomForViewer,
   teaserCheckpointsOf,
   teaserProjection,
   teaserRoom,
+  teaserScheduleRoom,
   teaserScheduleSheet
 } from "./raceTeaser.js";
 
@@ -195,6 +201,31 @@ test("pre-race projection teaser: the finish from the start line, whatever check
   assert.deepEqual(live.etaFinishWindow, bootstrap.etaFinishWindow);
 });
 
+test("ping replies: an unpaid race's projection is the teaser, a paid race's goes out as is", () => {
+  const projection = {
+    roomId: "room-1",
+    asOfPingId: "ping-1",
+    asOfRecordedAt: "2026-08-15T14:00:00.000Z",
+    progressMeters: 12_000,
+    courseLengthMeters: 30_000,
+    plannedPaceSecondsPerKm: 360,
+    etaFinishPlanIso: "2026-08-15T18:00:00.000Z",
+    checkpointSplits: COURSE.map((checkpoint) => split(checkpoint.id, checkpoint.distanceMetersFromStart!)),
+    remainingCheckpointEtas: [{ checkpointId: "aid-b", liveProjectedElapsedSeconds: 1, frozenPlanElapsedSeconds: 1, deltaSecondsVsFrozenPlan: 0 }]
+  } as RaceRoomProjection;
+  const unpaid = room(COURSE, "unpaid");
+  assert.deepEqual(projectionForRoom(projection, unpaid), teaserProjection(projection, unpaid));
+  assert.deepEqual(projectionForRoom(projection, unpaid).checkpointSplits, []);
+  assert.deepEqual(projectionForRoom(projection, unpaid).remainingCheckpointEtas, []);
+  assert.deepEqual(
+    projectionForRoom(projection, unpaid, { preRace: true }),
+    teaserProjection(projection, unpaid, { preRace: true })
+  );
+  const paid = room(COURSE, "paid");
+  assert.equal(projectionForRoom(projection, paid), projection);
+  assert.equal(projectionForRoom(projection, room(COURSE, "expired")), projection);
+});
+
 test("schedule teaser keeps the start and finish stops only", () => {
   const sheet: CrewScheduleSheet = {
     roomId: "room-1",
@@ -288,6 +319,16 @@ test("runner seat is who you are, not the role you hold or are given", () => {
   assert.equal(isRunnerSeat(base, "someone-else"), false, "an athlete-role invitee is still not the runner");
 });
 
+/** A stored estimate's provenance, as rows written from now on carry it. */
+function stored(plan: PacingEstimate, roomIds: string[] = []) {
+  return { estimate: plan, roomIds, legacyProvenance: false };
+}
+
+/** A row stored before provenance was tracked (`roomIds` holds a #724 row's single room, if any). */
+function legacy(plan: PacingEstimate, roomIds: string[] = []) {
+  return { estimate: plan, roomIds, legacyProvenance: true };
+}
+
 test("export: whole only when tied to a paid race of the caller's, finish-only otherwise", () => {
   const ids = (shown: PacingEstimate) => shown.aidEtas.map((eta) => eta.checkpointId);
   const computed = estimate(MID_COURSE, "est-computed");
@@ -297,16 +338,150 @@ test("export: whole only when tied to a paid race of the caller's, finish-only o
   const expired: RaceRoom = { ...room(COURSE, "expired"), id: "room-expired" };
 
   // Tied to an unpaid race, or to no race: finish only.
-  assert.deepEqual(ids(exportedEstimate({ estimate: computed, roomId: unpaid.id }, [unpaid])), []);
-  assert.deepEqual(ids(exportedEstimate({ estimate: attached, roomId: unpaid.id }, [unpaid])), []);
-  assert.deepEqual(ids(exportedEstimate({ estimate: computed }, [unpaid, paid])), []);
-  assert.deepEqual(ids(exportedEstimate({ estimate: computed, roomId: expired.id }, [expired])), []);
+  assert.deepEqual(ids(exportedEstimate(stored(computed, [unpaid.id]), [unpaid])), []);
+  assert.deepEqual(ids(exportedEstimate(stored(attached, [unpaid.id]), [unpaid])), []);
+  assert.deepEqual(ids(exportedEstimate(stored(computed), [unpaid, paid])), []);
+  assert.deepEqual(ids(exportedEstimate(stored(computed, [expired.id]), [expired])), []);
   // A paid race the caller is not in (not listed) unlocks nothing.
-  assert.deepEqual(ids(exportedEstimate({ estimate: computed, roomId: paid.id }, [unpaid])), []);
+  assert.deepEqual(ids(exportedEstimate(stored(computed, [paid.id]), [unpaid])), []);
 
   // Computed for or attached to a paid race, or its plan of record: whole.
-  assert.deepEqual(ids(exportedEstimate({ estimate: computed, roomId: paid.id }, [unpaid, paid])), MID_COURSE);
-  assert.deepEqual(ids(exportedEstimate({ estimate: attached }, [paid])), MID_COURSE);
-  assert.deepEqual(ids(exportedEstimate({ estimate: attached, roomId: unpaid.id }, [unpaid, paid])), MID_COURSE);
-  assert.equal(exportedEstimate({ estimate: computed, roomId: paid.id }, [paid]), computed);
+  assert.deepEqual(ids(exportedEstimate(stored(computed, [paid.id]), [unpaid, paid])), MID_COURSE);
+  assert.deepEqual(ids(exportedEstimate(stored(attached), [paid])), MID_COURSE);
+  assert.deepEqual(ids(exportedEstimate(stored(attached, [unpaid.id]), [unpaid, paid])), MID_COURSE);
+  assert.equal(exportedEstimate(stored(computed, [paid.id]), [paid]), computed);
+  // One id serving an unpaid and a paid race of the caller's: the paid one unlocks it.
+  assert.deepEqual(ids(exportedEstimate(stored(computed, [paid.id, unpaid.id]), [unpaid, paid])), MID_COURSE);
+});
+
+test("export: a legacy row goes out whole while the caller has no unpaid race, else by the same rule", () => {
+  const ids = (shown: PacingEstimate) => shown.aidEtas.map((eta) => eta.checkpointId);
+  const plan = estimate(MID_COURSE, "est-legacy");
+  const paid: RaceRoom = { ...room(COURSE, "paid"), id: "room-paid" };
+  const expired: RaceRoom = { ...room(COURSE, "expired"), id: "room-expired" };
+  const unpaid: RaceRoom = { ...room(COURSE, "unpaid"), id: "room-unpaid" };
+
+  // Paying users (and accounts with no race) keep what they had before the teaser.
+  assert.equal(exportedEstimate(legacy(plan), []), plan);
+  assert.equal(exportedEstimate(legacy(plan), [paid, expired]), plan);
+  assert.deepEqual(ids(exportedEstimate(legacy(plan, [unpaid.id]), [paid])), MID_COURSE, "a #724 row whose race is gone");
+  // With an unpaid race, a legacy row could be its plan: whole only when a paid race ties it.
+  assert.deepEqual(ids(exportedEstimate(legacy(plan), [paid, unpaid])), []);
+  assert.deepEqual(ids(exportedEstimate(legacy(plan, [unpaid.id]), [unpaid])), []);
+  assert.deepEqual(ids(exportedEstimate(legacy(plan, [paid.id]), [paid, unpaid])), MID_COURSE);
+  const planOfRecord: RaceRoom = { ...paid, pacingEstimateId: plan.id, pacingEstimate: plan };
+  assert.deepEqual(ids(exportedEstimate(legacy(plan), [planOfRecord, unpaid])), MID_COURSE);
+  // Rows written from now on never take the legacy rule.
+  assert.deepEqual(ids(exportedEstimate(stored(plan), [paid])), []);
+});
+
+test("attachBlockedBy: refused only by another race that is unpaid, with no paid race of the caller's or the target", () => {
+  const plan = estimate(MID_COURSE, "est-shared");
+  const withMember = (base: RaceRoom, id: string, member = "runner"): RaceRoom => ({
+    ...base,
+    id,
+    memberships: [{ userId: member, role: "athlete", joinedAt: "2026-08-01T00:00:00.000Z" }]
+  });
+  const unpaidA = withMember(room(COURSE, "unpaid"), "room-a");
+  const paidB = withMember(room(COURSE, "paid"), "room-b");
+  const paidElsewhere = { ...withMember(room(COURSE, "paid"), "room-other", "someone-else"), athleteId: "someone-else" };
+  const target = withMember(room(COURSE, "paid"), "room-target");
+  const unpaidTarget = withMember(room(COURSE, "unpaid"), "room-target");
+  const blocked = (roomIds: string[], to: RaceRoom, rooms: RaceRoom[], caller = "runner") =>
+    attachBlockedBy(stored(plan, roomIds), to, caller, rooms)?.id;
+
+  // Computed for unpaid A only: no paid race may take it, nor another unpaid one.
+  assert.equal(blocked([unpaidA.id], target, [unpaidA]), unpaidA.id);
+  assert.equal(blocked([unpaidA.id], unpaidTarget, [unpaidA]), unpaidA.id);
+  // The same estimate computed for paid B too (its id follows the inputs): B unlocks it.
+  assert.equal(blocked([unpaidA.id, paidB.id], paidB, [unpaidA, paidB]), undefined, "B is in the set");
+  assert.equal(blocked([unpaidA.id, paidB.id], target, [unpaidA, paidB]), undefined, "a paid race of the caller's");
+  // A paid race the caller is not in unlocks nothing.
+  assert.equal(blocked([unpaidA.id, paidElsewhere.id], target, [unpaidA, paidElsewhere]), unpaidA.id);
+  // The target in the set, or already its plan of record.
+  assert.equal(blocked([unpaidA.id, target.id], target, [unpaidA]), undefined);
+  const attachedTarget = { ...target, pacingEstimateId: plan.id, pacingEstimate: plan };
+  assert.equal(blocked([unpaidA.id], attachedTarget, [unpaidA]), undefined);
+  // No unpaid race named (none, paid only, or deleted): allowed.
+  assert.equal(blocked([], target, []), undefined);
+  assert.equal(blocked([paidElsewhere.id], target, [paidElsewhere]), undefined);
+  assert.equal(blocked([unpaidA.id], target, []), undefined, "the unpaid race is gone");
+  // Once A is paid it moves freely.
+  assert.equal(blocked([unpaidA.id], target, [{ ...unpaidA, entitlement: paidB.entitlement }]), undefined);
+});
+
+test("course length: an estimate fits within 1% or 100 m of the course, whichever is larger", () => {
+  assert.equal(courseLengthsMatch(50_000, 50_000), true);
+  assert.equal(courseLengthsMatch(50_490, 50_000), true, "1% of 50 km is 500 m");
+  assert.equal(courseLengthsMatch(49_500, 50_000), true);
+  assert.equal(courseLengthsMatch(50_510, 50_000), false);
+  assert.equal(courseLengthsMatch(49_490, 50_000), false);
+  assert.equal(courseLengthsMatch(5_099, 5_000), true, "100 m beats 1% of 5 km");
+  assert.equal(courseLengthsMatch(4_890, 5_000), false);
+  assert.equal(courseLengthsMatch(13_000, 50_000), false, "a course cut at an aid station");
+  assert.equal(courseLengthsMatch(undefined, 50_000), false, "an unknown length never fits");
+  assert.equal(courseLengthsMatch(50_000, undefined), false);
+
+  // Recorded when computed; a legacy row falls back to where its plan curve ends.
+  const curve = { points: [{ distanceMetersFromStart: 0, referenceElapsedSeconds: 0 }, { distanceMetersFromStart: 30_000, referenceElapsedSeconds: 18_000 }] };
+  assert.equal(estimateCourseLengthMeters({ courseLengthMeters: 29_000, baselineTrack: curve }), 29_000);
+  assert.equal(estimateCourseLengthMeters({ baselineTrack: curve }), 30_000);
+  assert.equal(estimateCourseLengthMeters({}), undefined);
+
+  // The race's: canonical distance, else the room's, else the farthest checkpoint.
+  const base = room(COURSE);
+  assert.equal(courseLengthOf(base), 30_000);
+  assert.equal(courseLengthOf({ ...base, courseDistanceMeters: 31_000 }), 31_000);
+  assert.equal(
+    courseLengthOf({
+      ...base,
+      courseDistanceMeters: 31_000,
+      course: {
+        ...base.course!,
+        derivedMetrics: {
+          canonicalDistanceMeters: 32_000,
+          elevationGainMeters: 0,
+          elevationLossMeters: 0,
+          elevationSource: "none",
+          metricsVersion: 1
+        }
+      }
+    }),
+    32_000
+  );
+  assert.equal(courseLengthOf({ ...base, course: undefined }), undefined);
+});
+
+test("schedule teaser room: the plan curve collapses to the start and the finish, nothing between", () => {
+  const original: RaceRoom = {
+    ...room(COURSE),
+    plannedPaceSecondsPerKm: 360,
+    course: {
+      checkpoints: COURSE,
+      baselineTrack: {
+        points: [
+          { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+          { distanceMetersFromStart: 10_000, referenceElapsedSeconds: 9_000 },
+          { distanceMetersFromStart: 30_000, referenceElapsedSeconds: 18_000 }
+        ],
+        planLogSigma: 0.1
+      }
+    }
+  };
+  const before = structuredClone(original);
+  const shaped = teaserScheduleRoom(original, 30_000);
+  assert.deepEqual(shaped.course?.baselineTrack, {
+    points: [
+      { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+      { distanceMetersFromStart: 30_000, referenceElapsedSeconds: 18_000 }
+    ]
+  });
+  assert.deepEqual(shaped.course?.checkpoints, COURSE);
+  assert.deepEqual(original, before, "input is not mutated");
+
+  // A curve that ends before the course is not usable there: dropped, as `teaserRoom` does.
+  assert.equal(teaserScheduleRoom(original, 40_000).course?.baselineTrack, undefined);
+  // With a plan attached it is finish-only, as in `teaserRoom`.
+  const withPlan = { ...original, pacingEstimateId: "est-1", pacingEstimate: estimate(MID_COURSE) };
+  assert.deepEqual(teaserScheduleRoom(withPlan, 30_000).pacingEstimate?.aidEtas, []);
 });

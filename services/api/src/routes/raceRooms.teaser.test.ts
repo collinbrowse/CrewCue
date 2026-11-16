@@ -9,14 +9,22 @@ import assert from "node:assert/strict";
 import {
   parseCrewScheduleSheet,
   type CrewScheduleSheet,
+  type MapWorkspacePosition,
   type PacingEstimate,
   type RaceRoom,
   type RaceRoomProjection
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { forgetIdempotencyRecordForTests } from "../lib/httpIdempotency.js";
-import { getPacingEstimateById, resetPacingEstimateStoreForTests, savePacingEstimate } from "../lib/pacingEstimateStore.js";
+import {
+  getPacingEstimateById,
+  resetPacingEstimateStoreForTests,
+  saveLegacyPacingEstimateForTests,
+  savePacingEstimate
+} from "../lib/pacingEstimateStore.js";
+import { courseLengthOf } from "../lib/raceTeaser.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { getRaceRoom } from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -76,11 +84,14 @@ function estimateFor(id: string): PacingEstimate {
 
 /**
  * A plan the server computed for `roomId`, as `POST /pacing-estimates` stores it (whole, tied to
- * the room), with the fixture's fixed ETAs so tests can look for them.
+ * the room, for its current course length), with the fixture's fixed ETAs so tests can look for them.
  */
 async function serverPlan(owner: string, roomId: string, id = `teaser-estimate-${roomId}`): Promise<PacingEstimate> {
   const estimate = estimateFor(id);
-  await savePacingEstimate(owner, estimate, undefined, { roomId });
+  const room = await getRaceRoom(roomId);
+  const courseLengthMeters = room ? courseLengthOf(room) : undefined;
+  assert.ok(courseLengthMeters, "serverPlan needs the race's course saved first");
+  await savePacingEstimate(owner, estimate, undefined, { roomId, courseLengthMeters });
   return estimate;
 }
 
@@ -268,7 +279,8 @@ test("unpaid race: the runner sets it up and reads only the course and the finis
     assert.deepEqual(schedule.stops.map((stop) => stop.checkpointId), ["start", "finish"]);
     assert.deepEqual(schedule.locked, { checkpointIds: MID_COURSE });
 
-    // The runner cannot send pings for an unpaid race: progress waits for the pass.
+    // The runner cannot send pings for an unpaid race, one at a time or as a backlog upload:
+    // progress waits for the pass.
     const ping = await app.inject({
       method: "POST",
       url: `/race-rooms/${room.id}/pings`,
@@ -276,6 +288,15 @@ test("unpaid race: the runner sets it up and reads only the course and the finis
       headers: auth(app, runner)
     });
     assert.equal(ping.statusCode, 402);
+    assert.equal(Object.hasOwn(ping.json() as object, "projection"), false);
+    const batch = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/pings/batch`,
+      payload: { points: [{ latitude: 39.15, longitude: -120.25, recordedAt: new Date().toISOString() }] },
+      headers: auth(app, runner)
+    });
+    assert.equal(batch.statusCode, 402, batch.body);
+    assert.equal(Object.hasOwn(batch.json() as object, "projection"), false);
   });
 });
 
@@ -608,7 +629,7 @@ test("unpaid race: attaching a server-computed plan by id shows no aid ETA anywh
     // The stored plan is whole and now records this race.
     const stored = await getPacingEstimateById(plan.id);
     assert.deepEqual(stored?.estimate.aidEtas, MID_COURSE_ETAS);
-    assert.equal(stored?.roomId, roomId);
+    assert.deepEqual(stored?.roomIds, [roomId]);
 
     await pay(app, roomId, runner);
     const full = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
@@ -679,13 +700,13 @@ test("an estimate tied to an unpaid race cannot be attached to another race unti
 
     const paidRoom = ((await get(app, `/race-rooms/${paid.id}`, runner)).json() as { room: RaceRoom }).room;
     assert.equal(paidRoom.pacingEstimateId, `teaser-estimate-${paid.id}`, "the paid race keeps its own plan");
-    assert.equal((await getPacingEstimateById(computedId))?.roomId, unpaid.id);
+    assert.deepEqual((await getPacingEstimateById(computedId))?.roomIds, [unpaid.id]);
 
-    // Once the race it came from is paid, it moves freely.
+    // Once the race it came from is paid, it moves freely. Attaching adds the race; none is dropped.
     await pay(app, unpaid.id, runner);
     const moved = await attachById(app, paid.id, runner, computedId);
     assert.equal(moved.statusCode, 200, moved.body);
-    assert.equal((await getPacingEstimateById(computedId))?.roomId, paid.id);
+    assert.deepEqual((await getPacingEstimateById(computedId))?.roomIds, [paid.id, unpaid.id].sort());
   });
 });
 
@@ -704,7 +725,7 @@ test("unpaid race: POST /pacing-estimates answers the runner finish-only, stored
     assertNoPaidPlan(estimate, "runner POST /pacing-estimates", "runner");
     const stored = await getPacingEstimateById(estimate.id);
     assert.deepEqual(stored?.estimate.aidEtas.map((eta) => eta.checkpointId), MID_COURSE, "stored whole");
-    assert.equal(stored?.roomId, room.id);
+    assert.deepEqual(stored?.roomIds, [room.id]);
 
     const attach = await attachById(app, room.id, runner, estimate.id);
     assert.equal(attach.statusCode, 200, attach.body);
@@ -749,7 +770,7 @@ test("POST /pacing-estimates without a room is finish-only for everyone, stored 
       assertNoPaidPlan(estimate, `${user} room-less POST /pacing-estimates`, "runner");
       const stored = await getPacingEstimateById(estimate.id);
       assert.ok(stored && stored.estimate.aidEtas.length > 0, "stored whole");
-      assert.equal(stored?.roomId, undefined);
+      assert.deepEqual(stored?.roomIds, []);
     }
   });
 });
@@ -1223,5 +1244,351 @@ test("unpaid race: the runner accepting an invite to their own seat gets 200 and
     assert.equal(body.assignedRole, "athlete");
     assert.equal(body.room.entitlement.status, "unpaid");
     assert.deepEqual(body.room.pacingEstimate?.aidEtas, []);
+  });
+});
+
+/** A race still to come, so the projection's finish is not clamped to now. */
+const futureStart = () => new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+
+/** A new race for `runner` (unpaid), with `checkpoints` on `route` (the full 50k route by default). */
+async function raceWithCourse(
+  app: App,
+  runner: string,
+  name: string,
+  options: { raceStartAt?: string; checkpoints?: CourseCheckpoints; route?: ReturnType<typeof taggedCourse>["routeOverlayLayer"] } = {}
+): Promise<string> {
+  const created = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: { teamId: "team-1", athleteId: runner, name, creatorRole: "athlete" },
+    headers: auth(app, runner)
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const roomId = (created.json() as RaceRoom).id;
+  const saved = await saveCourseOn(app, roomId, runner, options);
+  assert.equal(saved.statusCode, 200, saved.body);
+  return roomId;
+}
+
+/** PUT course with a route overlay: a new course, so the attached plan is dropped. */
+function saveCourseOn(
+  app: App,
+  roomId: string,
+  runner: string,
+  options: { raceStartAt?: string; checkpoints?: CourseCheckpoints; route?: ReturnType<typeof taggedCourse>["routeOverlayLayer"] } = {}
+) {
+  const course = taggedCourse();
+  return app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/course`,
+    payload: {
+      plannedPaceSecondsPerKm: course.plannedPaceSecondsPerKm,
+      course: { checkpoints: options.checkpoints ?? course.checkpoints },
+      routeOverlayLayer: options.route ?? course.routeOverlayLayer,
+      raceStartAt: options.raceStartAt ?? RACE_START_AT
+    },
+    headers: auth(app, runner)
+  });
+}
+
+/** The 50k route cut at a checkpoint, and the checkpoints up to it: a shorter course ending there. */
+function courseCutAt(checkpointId: string) {
+  const course = taggedCourse();
+  const at = course.checkpoints.find((checkpoint) => checkpoint.id === checkpointId)!;
+  const geometry = course.routeOverlayLayer.geometry;
+  assert.equal(geometry.type, "LineString");
+  const coordinates = geometry.coordinates as MapWorkspacePosition[];
+  const end = coordinates.findIndex(
+    ([longitude, latitude]) => Math.abs(latitude - at.latitude) < 1e-6 && Math.abs(longitude - at.longitude) < 1e-6
+  );
+  assert.ok(end > 0, `the route passes ${checkpointId}`);
+  const index = course.checkpoints.indexOf(at);
+  return {
+    checkpoints: course.checkpoints.slice(0, index + 1),
+    route: { ...course.routeOverlayLayer, geometry: { type: "LineString" as const, coordinates: coordinates.slice(0, end + 1) } }
+  };
+}
+
+const roomOf = async (app: App, roomId: string, user: string) =>
+  ((await get(app, `/race-rooms/${roomId}`, user)).json() as { room: RaceRoom }).room;
+
+test("GET /me/export: legacy estimates go out whole while the caller has no unpaid race; new rows keep the rule", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-export-legacy";
+    const paid = await setUpUnpaidRace(app, runner, "Paid legacy export");
+    await pay(app, paid.id, runner);
+    const curve = (await getRaceRoom(paid.id))?.course?.baselineTrack;
+    assert.ok(curve, "a stored plan curve, as estimates computed before #724 carried");
+
+    // Stored before #724 (no provenance), by #724 (one room), and from now on (room-less).
+    const beforeTeaser = estimateFor("legacy-before-teaser");
+    const fromTeaser = estimateFor("legacy-from-724");
+    await saveLegacyPacingEstimateForTests(runner, beforeTeaser, { baselineTrack: curve });
+    await saveLegacyPacingEstimateForTests(runner, fromTeaser, { roomId: paid.id });
+    const roomless = await app.inject({
+      method: "POST",
+      url: "/pacing-estimates",
+      payload: { raceStartAt: RACE_START_AT, checkpoints: taggedCourse().checkpoints, seed: "export-legacy-roomless" },
+      headers: auth(app, runner)
+    });
+    assert.equal(roomless.statusCode, 200, roomless.body);
+    const roomlessId = (roomless.json() as PacingEstimate).id;
+    assert.equal((await getPacingEstimateById(roomlessId))?.legacyProvenance, false, "rows written now are not legacy");
+
+    const exported = async (label: string) => {
+      const response = await get(app, "/me/export", runner);
+      assert.equal(response.statusCode, 200, `${label}: ${response.body}`);
+      const estimates = (response.json() as { pacingEstimates: PacingEstimate[] }).pacingEstimates;
+      const byId = (id: string) => {
+        const found = estimates.find((estimate) => estimate.id === id);
+        assert.ok(found, `${label}: export lists ${id}`);
+        return found;
+      };
+      return { byId, priced: (id: string) => byId(id).aidEtas.map((eta) => eta.checkpointId) };
+    };
+
+    // A paying runner with no unpaid race gets every legacy estimate whole, as before #724.
+    const paying = await exported("paid races only");
+    assert.deepEqual(paying.priced(beforeTeaser.id), MID_COURSE, "stored before #724");
+    assert.deepEqual(paying.priced(fromTeaser.id), MID_COURSE, "stored by #724 for the paid race");
+    assert.deepEqual(paying.priced(roomlessId), [], "a row written now keeps the rule: room-less is finish-only");
+    assertNoPaidPlan(paying.byId(roomlessId), "room-less row written now", "runner");
+
+    // Once the runner has an unpaid race, a legacy estimate could be its plan: the rule applies.
+    await setUpUnpaidRace(app, runner, "Unpaid legacy export");
+    const withUnpaid = await exported("with an unpaid race");
+    assert.deepEqual(withUnpaid.priced(beforeTeaser.id), [], "no race ties it");
+    assertNoPaidPlan(withUnpaid.byId(beforeTeaser.id), "legacy row with an unpaid race", "runner");
+    assert.deepEqual(withUnpaid.priced(fromTeaser.id), MID_COURSE, "its recorded race is paid");
+    assert.deepEqual(withUnpaid.priced(`teaser-estimate-${paid.id}`), MID_COURSE, "the paid race's plan");
+    assertNoPaidPlan(withUnpaid.byId(roomlessId), "room-less row with an unpaid race", "runner");
+  });
+});
+
+test("one estimate id computed for an unpaid and a paid race: both stay recorded and the paid race attaches it", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-shared-id";
+    const paid = await setUpUnpaidRace(app, runner, "Paid shared 50k");
+    await pay(app, paid.id, runner);
+    const unpaid = await setUpUnpaidRace(app, runner, "Unpaid shared 50k");
+
+    // Same course and start, so the same inputs and the same estimate id.
+    const forPaid = await computeForRoom(app, paid.id, runner);
+    assert.equal(forPaid.statusCode, 200, forPaid.body);
+    const forUnpaid = await computeForRoom(app, unpaid.id, runner);
+    assert.equal(forUnpaid.statusCode, 200, forUnpaid.body);
+    assertNoPaidPlan(forUnpaid.json(), "runner POST /pacing-estimates (unpaid)", "runner");
+    const id = (forPaid.json() as PacingEstimate).id;
+    assert.equal((forUnpaid.json() as PacingEstimate).id, id, "one id for both races");
+    const both = [paid.id, unpaid.id].sort();
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, both, "computing for the unpaid race kept the paid one");
+
+    // The paid race attaches it whole; computing for the unpaid race did not take it away.
+    const attached = await attachById(app, paid.id, runner, id);
+    assert.equal(attached.statusCode, 200, attached.body);
+    assert.deepEqual(
+      (attached.json() as { estimate: PacingEstimate }).estimate.aidEtas.map((eta) => eta.checkpointId),
+      MID_COURSE
+    );
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, both);
+
+    // An idempotent re-attach changes nothing, on either race.
+    const again = await attachById(app, paid.id, runner, id);
+    assert.equal(again.statusCode, 200, again.body);
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, both, "idempotent re-attach: set unchanged");
+    const onUnpaid = await attachById(app, unpaid.id, runner, id);
+    assert.equal(onUnpaid.statusCode, 200, onUnpaid.body);
+    assertNoPaidPlan(onUnpaid.json(), "runner PUT pacing-estimate (unpaid, shared id)", "runner");
+    const unpaidAgain = await attachById(app, unpaid.id, runner, id);
+    assert.equal(unpaidAgain.statusCode, 200, unpaidAgain.body);
+    assertNoPaidPlan(unpaidAgain.json(), "runner PUT pacing-estimate (unpaid, idempotent)", "runner");
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, both, "idempotent re-attach on the unpaid race: set unchanged");
+    assert.deepEqual(await readTeaser(app, unpaid.id, runner, "unpaid race, shared id"), {
+      aidEtas: [],
+      splits: [],
+      stops: ["start", "finish"],
+      locked: MID_COURSE
+    });
+
+    // The paid race in the set already shows it whole, so another paid race of the runner's takes it too.
+    const other = await setUpUnpaidRace(app, runner, "Other paid 50k");
+    await pay(app, other.id, runner);
+    assert.equal((await attachById(app, other.id, runner, id)).statusCode, 200);
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, [...both, other.id].sort());
+  });
+});
+
+test("an estimate that is already a race's plan of record re-attaches there, whatever race it last recorded", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-plan-of-record";
+    const paid = await setUpUnpaidRace(app, runner, "Paid plan of record");
+    await pay(app, paid.id, runner);
+    const unpaid = await setUpUnpaidRace(app, runner, "Unpaid plan of record");
+    const id = `teaser-estimate-${paid.id}`;
+    const stored = await getPacingEstimateById(id);
+    assert.ok(stored);
+
+    // As #724 left it when the same id was then computed for the unpaid race: one room, the unpaid one.
+    await saveLegacyPacingEstimateForTests(runner, stored.estimate, { roomId: unpaid.id });
+    const again = await attachById(app, paid.id, runner, id);
+    assert.equal(again.statusCode, 200, again.body);
+    assert.deepEqual((again.json() as { estimate: PacingEstimate }).estimate.aidEtas, MID_COURSE_ETAS);
+    // The re-attach writes the row in the current format and keeps the unpaid race in its set.
+    assert.deepEqual((await getPacingEstimateById(id))?.roomIds, [paid.id, unpaid.id].sort());
+    assert.equal((await getPacingEstimateById(id))?.legacyProvenance, false);
+    // Another paid race of the runner's takes it: the set now names a paid race of theirs, which
+    // already shows it whole.
+    const other = await setUpUnpaidRace(app, runner, "Other plan of record");
+    await pay(app, other.id, runner);
+    assert.equal((await attachById(app, other.id, runner, id)).statusCode, 200);
+  });
+});
+
+test("unpaid race: the schedule's finish is the projection's and the paid schedule's, with and without a plan", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-finish";
+    const raceStartAt = futureStart();
+    // No planned stop at the finish line: the projection's finish counts the finish's own planned
+    // stop, and the schedule's finish row is the arrival there (both before this change).
+    const checkpoints = taggedCourse().checkpoints.map((checkpoint) =>
+      checkpoint.id === "finish" ? { ...checkpoint, plannedStopSeconds: 0 } : checkpoint
+    );
+    const finishes = async (roomId: string, label: string, viewer: "unpaid" | "paid") => {
+      const scheduleRead = await get(app, `/race-rooms/${roomId}/schedule`, runner);
+      const projectionRead = await get(app, `/race-rooms/${roomId}/projection`, runner);
+      assert.equal(scheduleRead.statusCode, 200, `${label}: ${scheduleRead.body}`);
+      assert.equal(projectionRead.statusCode, 200, `${label}: ${projectionRead.body}`);
+      if (viewer === "unpaid") {
+        assertNoPaidPlan(scheduleRead.json(), `${label}: GET schedule`, "runner");
+        assertNoPaidPlan(projectionRead.json(), `${label}: GET projection`, "runner");
+      }
+      const schedule = parseCrewScheduleSheet(scheduleRead.json());
+      const finishRow = schedule.stops.find((stop) => stop.checkpointId === "finish");
+      assert.ok(finishRow, `${label}: a finish row`);
+      return {
+        schedule: (Date.parse(finishRow.clockArrivalAt) - Date.parse(raceStartAt)) / 1000,
+        projection: (Date.parse((projectionRead.json() as RaceRoomProjection).etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000
+      };
+    };
+    // Rounding to whole seconds on the schedule's side.
+    const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) <= 1, `${what}: ${a} vs ${b}`);
+
+    for (const withPlan of [false, true]) {
+      const label = withPlan ? "plan attached" : "no plan";
+      const roomId = await raceWithCourse(app, runner, `Finish ${label}`, { raceStartAt, checkpoints });
+      if (withPlan) {
+        const computed = await computeForRoom(app, roomId, runner);
+        assert.equal(computed.statusCode, 200, computed.body);
+        const attach = await attachById(app, roomId, runner, (computed.json() as PacingEstimate).id);
+        assert.equal(attach.statusCode, 200, attach.body);
+      } else {
+        assert.ok((await getRaceRoom(roomId))?.course?.baselineTrack, "the course has a plan curve and no estimate");
+        assert.equal((await getRaceRoom(roomId))?.pacingEstimateId, undefined);
+      }
+      const unpaid = await finishes(roomId, `${label}, unpaid`, "unpaid");
+      await pay(app, roomId, runner);
+      const paid = await finishes(roomId, `${label}, paid`, "paid");
+      near(unpaid.schedule, unpaid.projection, `${label}: unpaid schedule vs unpaid projection`);
+      near(unpaid.schedule, paid.schedule, `${label}: unpaid vs paid schedule`);
+      near(unpaid.projection, paid.projection, `${label}: unpaid vs paid projection`);
+    }
+  });
+});
+
+test("unpaid race: a stored plan re-attached to a shortened course is 400 course_mismatch; paid races are unchanged", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-shortened";
+    const raceStartAt = futureStart();
+    const cut = courseCutAt("aid-1");
+
+    for (const status of ["unpaid", "paid"] as const) {
+      const roomId = await raceWithCourse(app, runner, `Shortened ${status}`, { raceStartAt });
+      if (status === "paid") await pay(app, roomId, runner);
+      // Compute once on the full course and attach it.
+      const computed = await computeForRoom(app, roomId, runner);
+      assert.equal(computed.statusCode, 200, computed.body);
+      const planId = (computed.json() as PacingEstimate).id;
+      assert.equal((await attachById(app, roomId, runner, planId)).statusCode, 200);
+      const stored = await getPacingEstimateById(planId);
+      const aid1 = stored?.estimate.aidEtas.find((eta) => eta.checkpointId === "aid-1");
+      assert.ok(aid1, "the whole plan prices aid-1");
+
+      // The route cut at aid-1, checkpoints [start, aid-1]: a new course, the plan is dropped.
+      const saved = await saveCourseOn(app, roomId, runner, { raceStartAt, ...cut });
+      assert.equal(saved.statusCode, 200, saved.body);
+      assert.ok(Math.abs((courseLengthOf((await getRaceRoom(roomId))!) ?? 0) - aid1Distance()) < 100);
+      const reattach = await attachById(app, roomId, runner, planId);
+
+      if (status === "unpaid") {
+        assert.equal(reattach.statusCode, 400, reattach.body);
+        assert.equal((reattach.json() as { code: string }).code, "course_mismatch");
+        assert.equal((await roomOf(app, roomId, runner)).pacingEstimateId, undefined, "nothing attached");
+        assert.deepEqual((await getPacingEstimateById(planId))?.roomIds, [roomId], "provenance unchanged");
+        // The teaser reads show the start and the new finish, and no ETA of the old plan.
+        assert.deepEqual(await readTeaser(app, roomId, runner, "shortened, refused", new Set()), {
+          aidEtas: undefined,
+          splits: [],
+          stops: ["start", "aid-1"],
+          locked: []
+        });
+        const projection = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+        const finishElapsed = (Date.parse(projection.etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000;
+        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 240)) > 60, `the finish is not aid-1's split: ${finishElapsed}`);
+
+        // A recompute for the shortened course attaches, finish-only.
+        const recomputed = await computeForRoom(app, roomId, runner);
+        assert.equal(recomputed.statusCode, 200, recomputed.body);
+        assertNoPaidPlan(recomputed.json(), "recompute on the shortened course", "runner", new Set());
+        const fresh = await attachById(app, roomId, runner, (recomputed.json() as PacingEstimate).id);
+        assert.equal(fresh.statusCode, 200, fresh.body);
+        assertNoPaidPlan(fresh.json(), "attach the recompute on the shortened course", "runner", new Set());
+      } else {
+        // Paid: unchanged, and the finish then reads the old plan's curve at aid-1.
+        assert.equal(reattach.statusCode, 200, reattach.body);
+        assert.equal((await roomOf(app, roomId, runner)).pacingEstimateId, planId);
+        const projection = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+        const finishElapsed = (Date.parse(projection.etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000;
+        // aid-1's full-race ETA plus the planned stops at the start and at aid-1.
+        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 240)) <= 2, `paid finish ${finishElapsed} vs aid-1 ${aid1.elapsedSeconds}`);
+      }
+    }
+  });
+});
+
+function aid1Distance(): number {
+  return taggedCourse().checkpoints.find((checkpoint) => checkpoint.id === "aid-1")!.distanceMetersFromStart!;
+}
+
+test("unpaid race: course saves are capped at 10 an hour per user; paid course saves are not", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-course-limit";
+    const first = await setUpUnpaidRace(app, runner, "Limit A");
+    const second = await setUpUnpaidRace(app, runner, "Limit B");
+    const checkpoints = taggedCourse().checkpoints;
+
+    // Two saves used setting up; both races share the runner's budget.
+    for (let i = 0; i < 8; i += 1) {
+      const saved = await resaveCourse(app, i % 2 === 0 ? first.id : second.id, runner, checkpoints);
+      assert.equal(saved.statusCode, 200, `save ${i + 3}: ${saved.body}`);
+      assertNoPaidPlan(saved.json(), `unpaid course save ${i + 3}`, "runner");
+    }
+    for (const roomId of [first.id, second.id]) {
+      const limited = await resaveCourse(app, roomId, runner, checkpoints);
+      assert.equal(limited.statusCode, 429, limited.body);
+      assert.deepEqual(limited.json(), { error: "Too many requests" });
+      // About an hour, not a minute.
+      assert.ok(Number(limited.headers["retry-after"]) > 60 * 59);
+    }
+
+    // Another runner has their own budget.
+    const other = await setUpUnpaidRace(app, "runner-teaser-course-limit-other", "Limit other");
+    assert.equal((await resaveCourse(app, other.id, "runner-teaser-course-limit-other", checkpoints)).statusCode, 200);
+
+    // Paid: unlimited, as before. The unpaid race stays capped.
+    await pay(app, first.id, runner);
+    for (let i = 0; i < 12; i += 1) {
+      assert.equal((await resaveCourse(app, first.id, runner, checkpoints)).statusCode, 200, `paid save ${i + 1}`);
+    }
+    assert.equal((await resaveCourse(app, second.id, runner, checkpoints)).statusCode, 429);
   });
 });

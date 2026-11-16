@@ -23,7 +23,16 @@ import {
 } from "../lib/pacingEstimateStore.js";
 import { roomUnpaidError } from "../lib/billingEntitlement.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { finishOnlyEstimate, isTeaserRoom, teaserRoom, teaserScheduleSheet } from "../lib/raceTeaser.js";
+import {
+  attachBlockedBy,
+  courseLengthOf,
+  courseLengthsMatch,
+  estimateCourseLengthMeters,
+  finishOnlyEstimate,
+  isTeaserRoom,
+  teaserScheduleRoom,
+  teaserScheduleSheet
+} from "../lib/raceTeaser.js";
 import {
   commitRaceRoomUpdate,
   evaluateEntitlement,
@@ -420,6 +429,25 @@ type AttachResponse = {
   estimate: PacingEstimate;
 };
 
+const COURSE_MISMATCH_BODY = {
+  error: "The estimate was computed for a different course length; compute a new one for this course",
+  code: "course_mismatch"
+} as const;
+
+/** Thrown inside the attach commit when the room's course changed under it (see the attach route). */
+class CourseMismatchError extends Error {}
+
+/** The rooms an estimate's provenance names that still exist. */
+async function loadProvenanceRooms(stored: StoredPacingEstimate, targetRoomId: string): Promise<RaceRoom[]> {
+  const rooms: RaceRoom[] = [];
+  for (const id of stored.roomIds) {
+    if (id === targetRoomId) continue;
+    const room = await getRaceRoom(id);
+    if (room && room.id === id) rooms.push(room);
+  }
+  return rooms;
+}
+
 /**
  * Trap 2 (docs/sdlc/pacing-accuracy-program.md, PR A): attaching an estimate does not by itself
  * touch `plannedPaceSecondsPerKm`, so it stays at the 6:00/km GPX fallback (planned course GPX has
@@ -470,9 +498,12 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    * Idempotent when the same estimate id is already attached.
    *
    * An unpaid race takes only `pacingEstimateId` of an estimate the server computed (an inline
-   * `estimate` body is 402 `room_unpaid`) and answers it finish-only. Attaching records the room
-   * on the stored estimate. An estimate computed for, or last attached to, another race that is
-   * unpaid is 402 `room_unpaid` here, so a paid race cannot unlock it.
+   * `estimate` body is 402 `room_unpaid`), only when it was computed for the race's current course
+   * length (`courseLengthsMatch`, else 400 `course_mismatch`), and answers it finish-only.
+   *
+   * Attaching adds the room to the stored estimate's `roomIds`. An estimate whose `roomIds` names
+   * another race that is unpaid now, and neither this race nor a paid race of the caller's, is
+   * 402 `room_unpaid` (`attachBlockedBy`), so a paid race cannot unlock an unpaid race's plan.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
@@ -540,8 +571,13 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(403).send({ error: "Forbidden" });
       }
       if (!existing) {
-        // Tied to this room, so the export knows whether a paid race unlocked it.
-        await savePacingEstimate(athleteUserId, estimate, undefined, { roomId });
+        // Tied to this room, so the export knows whether a paid race unlocked it. A snapshot
+        // carries no course, so it is taken to be for the course it is attached to.
+        const lengthMeters = courseLengthOf(room);
+        await savePacingEstimate(athleteUserId, estimate, undefined, {
+          roomId,
+          ...(lengthMeters !== undefined ? { courseLengthMeters: lengthMeters } : {})
+        });
       } else {
         storedBaseline = existing.baselineTrack;
         storedRow = existing;
@@ -550,17 +586,26 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     // An estimate tied to another race that is unpaid stays finish-only until that race is paid:
     // attaching it here (with its plan curve) would unlock it on this race.
-    if (storedRow?.roomId !== undefined && storedRow.roomId !== roomId) {
-      const origin = await getRaceRoom(storedRow.roomId);
-      const originUnpaid = origin ? roomUnpaidError(origin) : undefined;
+    if (storedRow) {
+      const blockedBy = attachBlockedBy(storedRow, room, callerUserId, await loadProvenanceRooms(storedRow, roomId));
+      const originUnpaid = blockedBy ? roomUnpaidError(blockedBy) : undefined;
       if (originUnpaid) {
         return reply.code(402).send(originUnpaid);
       }
     }
 
+    // An unpaid race takes a plan only for the course length it was computed for. A stored plan
+    // re-attached to a shortened course would read its curve at the new finish: a mid-course split.
+    const estimateLengthMeters = storedRow ? estimateCourseLengthMeters(storedRow) : courseLengthOf(room);
+    const fitsCourse = (target: RaceRoom) =>
+      !isTeaserRoom(target) || courseLengthsMatch(estimateLengthMeters, courseLengthOf(target));
+    if (!fitsCourse(room)) {
+      return reply.code(400).send(COURSE_MISMATCH_BODY);
+    }
+
     // Idempotent: same id already plan of record → return current snapshot without rewrite churn.
     // On an unpaid race (only the runner gets this far) the reply is finish-only; the stored plan
-    // stays whole.
+    // stays whole. Recording the room only adds it when missing, so the set stays as it was.
     if (room.pacingEstimateId === estimate.id && room.pacingEstimate?.id === estimate.id) {
       if (storedRow) await recordPacingEstimateRoom(storedRow, roomId);
       const body: AttachResponse = {
@@ -573,24 +618,36 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     // `room` was read before the estimate lookup. Attach onto the live room so that
     // await cannot drop a membership that joined while the estimate was loading.
-    const updated = await commitRaceRoomUpdate(roomId, (latest) => {
-      const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
-      return {
-        ...latest,
-        pacingEstimateId: estimate.id,
-        pacingEstimate: estimate,
-        ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
-          ? { plannedPaceSecondsPerKm: derivedPlannedPace }
-          : {}),
-        ...(storedBaseline
-          ? {
-              course: latest.course
-                ? { ...latest.course, baselineTrack: storedBaseline }
-                : latest.course
-            }
-          : {})
-      };
-    });
+    let updated: RaceRoom | undefined;
+    try {
+      updated = await commitRaceRoomUpdate(roomId, (latest) => {
+        // A course save (or refund) that committed meanwhile decides: check the live room again.
+        if (!fitsCourse(latest)) {
+          throw new CourseMismatchError();
+        }
+        const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
+        return {
+          ...latest,
+          pacingEstimateId: estimate.id,
+          pacingEstimate: estimate,
+          ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
+            ? { plannedPaceSecondsPerKm: derivedPlannedPace }
+            : {}),
+          ...(storedBaseline
+            ? {
+                course: latest.course
+                  ? { ...latest.course, baselineTrack: storedBaseline }
+                  : latest.course
+              }
+            : {})
+        };
+      });
+    } catch (error) {
+      if (error instanceof CourseMismatchError) {
+        return reply.code(400).send(COURSE_MISMATCH_BODY);
+      }
+      throw error;
+    }
     if (!updated) {
       return reply.code(404).send({ error: "Race room not found" });
     }
@@ -643,9 +700,12 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     try {
       const teaser = isTeaserRoom(room);
-      // A teaser sheet is built from the teaser room (finish-only plan, no plan curve), so the
-      // start and finish rows it keeps read the finish ETA alone (see `teaserScheduleSheet`).
-      const source = teaser ? teaserRoom(room) : room;
+      // A teaser sheet is built from the finish-only plan and the plan curve collapsed to its
+      // finish, so the start and finish rows it keeps read the finish alone, the same finish the
+      // paid sheet shows (see `teaserScheduleRoom`, `teaserScheduleSheet`).
+      const source = teaser
+        ? teaserScheduleRoom(room, resolveCourseLengthMeters(room, room.course.checkpoints))
+        : room;
       const sheet = projectCrewScheduleSheet(source, {
         closedActualStopSecondsByCheckpointId: closedActuals,
         pacingEstimate: source.pacingEstimate
