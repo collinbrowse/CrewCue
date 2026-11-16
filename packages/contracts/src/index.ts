@@ -1,4 +1,4 @@
-import type { PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+import type { ActivityHistoryRef, PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -175,13 +175,6 @@ export interface PostNavigationRouteResponse {
   meta?: NavigationRouteMeta;
 }
 
-/** MapTiler geocode proxy result item (normalized for clients). */
-export interface GeocodeSearchResultItem {
-  label: string;
-  longitude: number;
-  latitude: number;
-}
-
 export interface RaceCheckpointSplitRow {
   checkpointId: string;
   distanceMetersFromStart: number;
@@ -328,6 +321,11 @@ export interface RaceRoom {
   eventEndsAt?: string;
   memberships: RaceRoomMembership[];
   entitlement: RaceRoomEntitlement;
+  /**
+   * User who created the room (the purchaser). With the athlete, holds a seat that
+   * does not count against the crew cap. Absent on rooms created before #649.
+   */
+  createdByUserId?: string;
   /** Set when a course is saved; drives WS2 split / ETA projection. */
   course?: RaceCourse;
   /** Persisted at upload time for fast UI reads without recomputation. */
@@ -389,10 +387,47 @@ export interface RaceRoomJoinPreview {
 
 export type RaceRoomEntitlementStatus = "unpaid" | "paid" | "expired";
 
+/**
+ * How many crew a paid room allows besides the runner.
+ * `one`: Race Pass (runner + 1 crew). `unlimited`: Full Crew upgrade or the combined product.
+ */
+export type RaceRoomCrewTier = "one" | "unlimited";
+
 export interface RaceRoomEntitlement {
   status: RaceRoomEntitlementStatus;
   lastUpdatedAt: string;
-  source: "manual" | "provider_webhook";
+  source: "manual" | "provider_webhook" | "admin_comp";
+  /** Absent on rooms stored before billing (#649); the API reads absent as `unlimited`. */
+  crewTier?: RaceRoomCrewTier;
+}
+
+/** Store product ids (consumables). Purchases attach to one race room. */
+export type BillingProductId = "race_pass" | "crew_upgrade" | "race_pass_full_crew";
+
+/**
+ * `GET /race-rooms/:roomId/billing`. Members only, and not entitlement-gated,
+ * so an unpaid room can show its paywall and a client can poll after a purchase.
+ */
+export interface RaceRoomBilling {
+  roomId: string;
+  entitlement: RaceRoomEntitlement;
+  /** Members other than the runner. */
+  crewCount: number;
+  /** Crew allowed besides the runner; absent means unlimited. */
+  crewLimit?: number;
+  /** Products that would change this room's entitlement, cheapest path first. */
+  offers: BillingProductId[];
+}
+
+/** 409 body when a join, invite, or invite accept would exceed the room's crew tier. */
+export interface CrewLimitReachedError {
+  error: "Crew limit reached";
+  code: "crew_limit_reached";
+  roomId: string;
+  crewLimit: number;
+  crewCount: number;
+  /** Product that lifts the cap. */
+  upgradeProductId: "crew_upgrade";
 }
 
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
@@ -1002,39 +1037,74 @@ export interface ReplayedRaceRoomAggregate {
   lastActivatedEventEndsAt?: string;
 }
 
-// --- Crew chat contracts (MVP: plaintext on Stream) ---
-// Message bodies are normal Stream `text`. The API mints Stream tokens, stores
-// push devices and notification prefs, and fans out push with a short preview.
-// End-to-end encryption was removed for MVP reliability; any future crypto must
-// be a blank-slate redesign (do not revive the retired room-key/envelope model).
+// --- First-party crew chat (ADR 0011) ---
+// Messages live in our Postgres. Clients page with cursors and long-poll for new
+// messages; photos sit in object storage behind short-lived signed URLs.
 
-/** One race-room member as Stream Chat sees them, with the display name for that room. */
-export interface ChatStreamMember {
-  /** Stream user id derived from the member's auth subject. */
-  streamUserId: string;
+/** One race-room member as chat shows them, with the display name for that room. */
+export interface ChatRoomMember {
+  userId: string;
   /** Display name on this race-room membership. Names are per race, not global. */
   displayName?: string;
 }
 
-/** Mints a short-lived Stream Chat user token bound to the authenticated user. */
-export interface ChatStreamTokenResponse {
-  /** Stream Chat user token (JWT signed with the server-side Stream secret). */
-  token: string;
-  /** The Stream user id used for this client session (matches the auth subject). */
-  streamUserId: string;
-  /** Stream Chat API key (public, safe to embed in clients). */
-  streamApiKey: string;
-  /**
-   * Members of the requested room with their per-room display names, so clients label
-   * authors by room instead of by the global Stream user name. Present when `roomId` was sent.
-   */
-  members?: ChatStreamMember[];
+/** A photo attached to a chat message. */
+export interface ChatMessagePhoto {
+  /** Short-lived URL. Absolute for object storage, or an API path the client resolves against its base URL. */
+  url: string;
+  contentType: string;
+  byteSize: number;
 }
 
-/** Returns the deterministic Stream channel id for a CrewCue race room. */
-export function chatChannelIdForRoom(roomId: string): string {
-  return `crew-${roomId}`;
+/** One crew chat message. */
+export interface ChatMessage {
+  /** Server-assigned, increasing within the API. Doubles as the paging cursor. */
+  id: string;
+  roomId: string;
+  senderUserId: string;
+  /** Client-chosen id. A retry with the same id returns the first message instead of a new one. */
+  clientMessageId: string;
+  text: string;
+  photo?: ChatMessagePhoto;
+  createdAt: string;
 }
+
+/** `GET /chat/rooms/:roomId/messages`: oldest first. */
+export interface ChatMessagePage {
+  messages: ChatMessage[];
+  members: ChatRoomMember[];
+  /** The caller's user id, so clients can label their own messages. */
+  selfUserId: string;
+  /** Pass as `before` to load older messages. Absent when there are none. */
+  olderCursor?: string;
+  /** Pass as `after` to wait for newer messages. Empty when the room has no messages yet. */
+  latestCursor: string;
+}
+
+/** `POST /chat/rooms/:roomId/messages` body. Needs text, a photo key, or both. */
+export interface ChatSendMessagePayload {
+  clientMessageId: string;
+  text?: string;
+  /** From `POST /chat/rooms/:roomId/photos`. */
+  photoKey?: string;
+}
+
+export interface ChatSendMessageResponse {
+  message: ChatMessage;
+  /** True when this client message id was already stored; nothing new was sent. */
+  duplicate: boolean;
+}
+
+/** `POST /chat/rooms/:roomId/photos` (raw image body) response. */
+export interface ChatPhotoUploadResponse {
+  photoKey: string;
+  contentType: string;
+  byteSize: number;
+}
+
+export const CHAT_MESSAGE_MAX_CHARS = 4000;
+export const CHAT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const CHAT_LONG_POLL_MAX_SECONDS = 25;
 
 export type ChatPushPlatform = "ios" | "android" | "web";
 
@@ -1043,6 +1113,8 @@ export interface ChatPushDeviceRegistration {
   deviceId: string;
   platform: ChatPushPlatform;
   token: string;
+  /** iOS only: which APNs gateway issued the token. Debug builds use "development". Default "production". */
+  apnsEnvironment?: "development" | "production";
 }
 
 export interface ChatPushDeviceRecord extends ChatPushDeviceRegistration {
@@ -1065,28 +1137,49 @@ export type ChatPushTokenRegistration = ChatPushDeviceRegistration;
 /** @deprecated Use ChatPushDeviceRecord */
 export type ChatPushTokenRecord = ChatPushDeviceRecord;
 
-/**
- * Stream Chat push webhook payload (subset). The server uses this to fan out
- * APNS/FCM with a short plaintext preview (or generic fallback copy).
- */
-export interface ChatPushWebhookPayload {
-  channelId: string;
-  /** Stream user id of the sender. */
-  senderUserId: string;
-  /** Recipient user ids excluding the sender. */
-  recipientUserIds: string[];
-  /** Crew room id this channel maps to. */
-  roomId: string;
-  /** Mentioned user ids inside the message body. */
-  mentionedUserIds?: string[];
-  /** Optional short plaintext preview for the notification body. */
-  previewText?: string;
-}
-
 /** Result of a retention deletion job run for a single room. */
 export interface ChatRetentionResult {
   roomId: string;
   deletedAt: string;
   prefsPurged: number;
   pushTokensPurged: number;
+  messagesPurged?: number;
+  photosPurged?: number;
+}
+
+/**
+ * `DELETE /me` response (#560). Counts describe what this call removed; a replay returns zeros.
+ * `identityProvider`: `deleted` / `already_deleted` (Auth0 user), `not_configured` (no Management
+ * API credentials on the server), `not_applicable` (dev JWT subject, no Auth0 user exists).
+ */
+export interface AccountDeletionResult {
+  deleted: true;
+  /** Runner-owned rooms closed for everyone (crew included). */
+  roomsClosed: number;
+  /** Rooms owned by someone else that the user was removed from. */
+  membershipsRemoved: number;
+  activityHistoryDeleted: number;
+  pacingEstimatesDeleted: number;
+  finishedEffortsDeleted: number;
+  pushDevicesDeleted: number;
+  chatPrefsDeleted: number;
+  stravaDisconnected: boolean;
+  identityProvider: "deleted" | "already_deleted" | "not_configured" | "not_applicable";
+}
+
+/** `GET /me/export` response (#560): the user's own data as JSON. */
+export interface AccountDataExport {
+  exportedAt: string;
+  userId: string;
+  rooms: Array<{
+    id: string;
+    name: string;
+    role: Role | "runner";
+    ownedAsRunner: boolean;
+    joinedAt?: string;
+    displayName?: string;
+  }>;
+  activityHistory: ActivityHistoryRef[];
+  pacingEstimates: PacingEstimate[];
+  strava: { connected: boolean };
 }

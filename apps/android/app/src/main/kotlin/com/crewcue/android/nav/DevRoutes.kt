@@ -33,10 +33,14 @@ object DevRoutes {
         "dev/push-registration" to "push-registration",
         "dev/profile" to "profile",
         "dev/room-members" to "room-members",
-        "dev/strava" to "strava",
+        "dev/activity-import" to "activity-import",
+        "dev/account-deletion" to "account-deletion",
         "dev/app-shell" to "app-shell",
-        "dev/loader" to "brand-loader"
-    )
+        "dev/loader" to "brand-loader",
+        "dev/billing-purchase" to "billing-purchase",
+        "dev/billing-upgrade" to "billing-upgrade",
+        "dev/billing-redeem" to "billing-redeem"
+    ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */
     fun inboundFeatureId(url: String?, enabled: Boolean = BuildConfig.DEBUG): String? =

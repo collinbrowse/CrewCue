@@ -13,16 +13,3 @@ struct MapLibrePocket: View {
         }
     }
 }
-
-/// Stream Chat owns the channel. The fixture deeplink does not open a live client.
-struct StreamPocket: View {
-    let screen: FeatureScreen
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            FeatureScreenView(screen: screen)
-            Text("Stream Chat")
-                .accessibilityIdentifier("crewcue.stream.pocket")
-        }
-    }
-}

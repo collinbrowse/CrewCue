@@ -4,6 +4,8 @@
 
 Implement → scoped `verify:*` mid-slice → full `npm run verify` pre-PR. Skip issue creation, handoff edits, and SDLC doc packs unless multi-session, cloud/staging, `agent-ready`, or the user asks for continuity.
 
+**Merge, never release.** Once required CI is green, merge your own PR (`gh pr merge --squash --auto`). Merging deploys staging only. Never create `v*` tags, run or approve the Release workflow, edit rulesets, environments or secrets, or write to Railway production: `.claude/hooks/release-guard.mjs` refuses them, and you should stop and ask the user instead. See `docs/runbooks/launch-owner-setup.md`.
+
 **PRs:** `--body` must be a filled `.github/pull_request_template.md`. Do not use a Summary-only PR recipe — CI `pr-decision-doc-guard` will fail. See `.claude/rules/pr-decision-doc-guard.md`.
 
 ## Machine gates
@@ -30,4 +32,5 @@ Source: `GET /race-rooms/:roomId/pings/latest` → client-core `RaceDayAPI.lates
 - **XcodeBuildMCP:** Use the installed XcodeBuildMCP skill/docs before calling MCP tools.
 - **agent-ready waves:** `docs/agents/agent-work-package-verification.md` (Ready script first).
 - **Handoff / staging:** read the matching `docs/agents/*.md` by its description when needed.
+- **Knowledge base:** `docs/kb/` maps architecture, data flow, and risks. Read the matching section before touching an unfamiliar flow. Changed routes, migrations, env reads, or modules? Run `npm run kb:generate` and commit `docs/kb/generated` (CI `kb:check` fails otherwise).
 - **Continuity snapshot:** `docs/sdlc/agent-handoff.md` (integration agent / PR-wave boundaries; feature agents: PR Handoff delta only).

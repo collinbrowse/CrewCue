@@ -10,6 +10,7 @@ struct CrewCueApp: App {
     private let configurationProblem = LaunchConfiguration.resolve().configurationProblem
 
     init() {
+        CrashReporting.start()
         self.model = CompositionRoot().makeModel()
     }
 

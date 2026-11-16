@@ -65,7 +65,7 @@ export function setStravaClientConfigForTests(config: StravaClientConfig | undef
   testConfigOverride = config;
 }
 
-function resolveConfig(): StravaClientConfig | undefined {
+export function resolveStravaClientConfig(): StravaClientConfig | undefined {
   return testConfigOverride ?? readStravaEnvConfig();
 }
 
@@ -83,7 +83,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
-    const config = resolveConfig();
+    const config = resolveStravaClientConfig();
     if (!config) {
       return reply.code(503).send({
         error: "Strava OAuth is not configured",
@@ -140,7 +140,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
-    const config = resolveConfig();
+    const config = resolveStravaClientConfig();
     if (!config) {
       return reply.code(503).send({
         error: "Strava OAuth is not configured",
@@ -194,7 +194,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
-    const config = resolveConfig();
+    const config = resolveStravaClientConfig();
     if (!config) {
       return reply.code(503).send({
         error: "Strava OAuth is not configured",
@@ -246,7 +246,7 @@ export async function stravaRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: "Unauthorized" });
     }
     const existing = await getStravaConnection(request.identity.sub);
-    const config = resolveConfig();
+    const config = resolveStravaClientConfig();
     if (existing && config) {
       try {
         await deauthorizeStravaAccess(config, existing);

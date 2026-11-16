@@ -13,7 +13,7 @@ paths:
 - A checklist-only change may touch `clients/behavior/**` and the harness.
 - Implement the checklist in `clients/behavior/<id>.md`. Do not open the other platform's UI to copy layout.
 - Shared behavior goes in `packages/client-core` (Swift, no SwiftUI). Structure: `client-core-architecture.md`, `ios-presentation.md`, `android-presentation.md`. Load only the trees the task touches.
-- MapLibre, Stream, and Auth0 stay in the platform app.
+- MapLibre, Auth0, and push registration (APNs, Firebase Messaging) stay in the platform app. Crew chat is first-party (ADR 0011) and lives in client-core.
 - Expo is removed. Do not add `apps/mobile`.
 - A checklist row may be `pass` only after device proof, not because fixture copy renders.
 - A row with `"proof": "physical"` (background or all-race promises, like `location-heartbeat`) needs proof from a real phone. Simulator and emulator runs don't count. See the row's `## Proof` section.

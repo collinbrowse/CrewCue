@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run verify:*)",
+      "Bash(npm run verify)",
+      "Bash(npm run agent:*)",
+      "Bash(npm test:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr update-branch:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)"
+    ],
+    "deny": [
+      "Bash(git tag v*)",
+      "Bash(git tag -a:*)",
+      "Bash(git tag -s:*)",
+      "Bash(git tag -d:*)",
+      "Bash(git push --tags:*)",
+      "Bash(git push origin main:*)",
+      "Bash(npm run release -- [0-9]*)",
+      "Bash(gh release create:*)",
+      "Bash(gh release delete:*)",
+      "Bash(gh workflow run release:*)",
+      "Bash(gh secret set:*)",
+      "Bash(gh secret delete:*)",
+      "Bash(gh auth login:*)",
+      "Bash(gh auth switch:*)",
+      "Bash(railway up --environment production:*)",
+      "mcp__railway__accept-deploy",
+      "mcp__railway__delete-service",
+      "mcp__railway__delete-volume",
+      "mcp__railway__delete-bucket"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__railway__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/release-guard.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

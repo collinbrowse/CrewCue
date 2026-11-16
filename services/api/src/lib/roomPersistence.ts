@@ -908,3 +908,67 @@ export async function resetPersistedPlatformEventsForTests(): Promise<void> {
   await pool.query("TRUNCATE TABLE platform_domain_events");
   await pool.query("TRUNCATE TABLE platform_aggregate_heads");
 }
+
+/**
+ * Account deletion: remove every durable row keyed by this room, in one transaction.
+ * Covers the room document, invites, task board, WS2/WS4/WS5 payloads, snapshots, the
+ * platform event log for the room aggregate, and the athlete ping track.
+ * No-op in memory mode (callers clear their in-process maps).
+ */
+export async function deletePersistedRaceRoomRows(roomId: string): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM race_room_invites_json WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM room_task_boards_json WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM room_ws2_runtime_json WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM room_ws4_adaptive_json WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM room_ws5_sync_json WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM race_room_snapshots WHERE aggregate_id = $1", [roomId]);
+    await client.query("DELETE FROM task_board_snapshots WHERE aggregate_id = $1", [roomId]);
+    await client.query("DELETE FROM platform_domain_events WHERE aggregate_id = $1", [roomId]);
+    await client.query("DELETE FROM platform_aggregate_heads WHERE aggregate_id = $1", [roomId]);
+    await client.query("DELETE FROM room_athlete_pings WHERE room_id = $1", [roomId]);
+    await client.query("DELETE FROM race_rooms_json WHERE id = $1", [roomId]);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Account deletion: re-attribute a deleted user's events in rooms that survive them. */
+export async function anonymizePersistedPlatformEventActor(actorUserId: string, replacement: string): Promise<number> {
+  if (!pool) {
+    return 0;
+  }
+  const result = await pool.query("UPDATE platform_domain_events SET actor_user_id = $2 WHERE actor_user_id = $1", [
+    actorUserId,
+    replacement
+  ]);
+  return result.rowCount ?? 0;
+}
+
+export async function deletePersistedRaceRoomInvite(token: string): Promise<void> {
+  if (!pool) {
+    return;
+  }
+  await pool.query("DELETE FROM race_room_invites_json WHERE token = $1", [token]);
+}
+
+/** Account deletion: rooms whose runner is this user, whether or not they are on the roster. */
+export async function listPersistedRaceRoomsForAthlete(userId: string): Promise<RaceRoom[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ payload: RaceRoom }>(
+    "SELECT payload FROM race_rooms_json WHERE payload->>'athleteId' = $1",
+    [userId]
+  );
+  return result.rows.map((r) => r.payload);
+}

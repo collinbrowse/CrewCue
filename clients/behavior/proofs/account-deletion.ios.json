@@ -1,0 +1,18 @@
+{
+  "id": "account-deletion",
+  "platform": "ios",
+  "entry": "crewcue://dev/account-deletion",
+  "device": "CrewCue deletion-560 simulator (34019D16), iPhone, Debug build",
+  "date": "2026-11-09",
+  "commit": "claude/deletion-560-ios (API e0178a2 + this PR)",
+  "session": "Dev session as the runner (proof-runner) against the local memory API on :3560, with a seeded paid race and one crew member who joined by code.",
+  "action": "Opened crewcue://dev/account-deletion; Settings scrolled to Account. Tapped Delete account → Cancel; then Delete account → Delete account with the API stopped, with a stub returning 502, and finally against the real API.",
+  "checked": {
+    "Success": "Signed out to the sign-in screen. Crew GET /race-rooms/<id> → 404 and /race-rooms/mine → []. Server log account_deleted roomsClosed 1 with a hashed subject. App container users/ directory emptied and the session file removed.",
+    "Empty": "Confirm alert 'Delete your account?' with the shared client-core copy, Delete account (destructive) and Cancel. Cancel left the room in place (crew GET 200).",
+    "Error": "Stub 502: 'Your data was deleted, but we couldn't finish removing your login. Try again.' User stays signed in on Settings.",
+    "Offline": "API stopped: 'You're offline. Your account was not deleted.' User stays signed in.",
+    "Accessibility labels": "crewcue.account-deletion row labelled 'Delete account'; 'Delete on the web instead' link from CrewCueAccountDeletionURL."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

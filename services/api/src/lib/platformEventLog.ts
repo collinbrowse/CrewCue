@@ -285,3 +285,31 @@ export async function resetPlatformEventStoreForTests(): Promise<void> {
   sequenceByAggregate.clear();
   await resetPersistedPlatformEventsInDbForTests();
 }
+
+/** Placeholder actor written over a deleted account's id in surviving rooms' event logs. */
+export const DELETED_ACCOUNT_ACTOR = "deleted-account";
+
+/**
+ * Account deletion (memory mode): drop a deleted room's events, and re-attribute the
+ * deleted user's events in rooms that survive. Postgres rows are handled in roomPersistence.
+ */
+export function forgetPlatformEventsForAccountDeletion(input: { roomIds: readonly string[]; actorUserId: string }): void {
+  const rooms = new Set(input.roomIds);
+  for (let i = store.length - 1; i >= 0; i -= 1) {
+    const event = store[i]!;
+    if (rooms.has(event.aggregateId)) {
+      store.splice(i, 1);
+      idempotencyIndex.delete(event.idempotencyKey);
+      continue;
+    }
+    if (event.actorUserId === input.actorUserId) {
+      const anonymized = { ...event, actorUserId: DELETED_ACCOUNT_ACTOR };
+      store[i] = anonymized;
+      idempotencyIndex.set(event.idempotencyKey, anonymized);
+    }
+  }
+  for (const key of [...sequenceByAggregate.keys()]) {
+    const aggregateId = key.slice(key.indexOf(":") + 1);
+    if (rooms.has(aggregateId)) sequenceByAggregate.delete(key);
+  }
+}

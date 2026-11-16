@@ -1,6 +1,9 @@
 package com.crewcue.android.ui.chat
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,17 +13,23 @@ import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
-import com.crewcue.android.ui.map.isOnline
-import java.util.UUID
+import java.io.File
+import java.text.DateFormat
+import java.time.Instant
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+/**
+ * Crew chat for one race. The loop runs client-core `chatPoll` (newest page, then long-polls with
+ * reconnect backoff); queued messages go out through the outbox on reconnect. Kotlin only renders.
+ */
 class ChatViewModel(
     private val raceDay: RaceDayBridge,
     private val roomId: String
@@ -37,25 +46,49 @@ class ChatViewModel(
         private set
     var sending by mutableStateOf(false)
         private set
+    var uploadingPhoto by mutableStateOf(false)
+        private set
+    var hasOlder by mutableStateOf(false)
+        private set
     /** The thread is opening: no messages or status yet. */
     var opening by mutableStateOf(true)
         private set
 
-    private var channelId = "crew-$roomId"
-    private var authors = ChatAuthorLabels()
-    private var channelOpen = false
+    private var loop: Job? = null
     private var parseJob: Job? = null
-    private val sessionGate = Mutex()
+    private var visible = false
 
-    fun load(context: Context) {
+    /** Starts the loop once; later calls keep it running. */
+    fun load(@Suppress("UNUSED_PARAMETER") context: Context) {
+        if (loop?.isActive == true) return
         opening = true
-        viewModelScope.launch {
-            try {
-                sessionGate.withLock { openSession(context) }
-            } finally {
+        loop = viewModelScope.launch {
+            var fresh = true
+            var failures = 0
+            while (isActive) {
+                val result = withContext(Dispatchers.IO) { raceDay.chatPoll(roomId, fresh, failures) }
                 opening = false
+                val body = (result as? RuntimeResult.Success)?.result
+                if (body == null) {
+                    status = CHAT_ERROR
+                    failures += 1
+                    delay(30_000)
+                    continue
+                }
+                fresh = false
+                apply(body)
+                failures = body.optInt("failures")
+                if (!visible) unread += body.optInt("newFromOthers")
+                if (body.optBoolean("stop")) return@launch
+                val wait = body.optInt("retryAfterSeconds")
+                if (wait > 0) delay(wait * 1000L)
             }
         }
+    }
+
+    fun setVisible(value: Boolean) {
+        visible = value
+        if (value) unread = 0
     }
 
     fun updateDraft(value: String) {
@@ -73,189 +106,100 @@ class ChatViewModel(
             }
             if (draft != value) return@launch
             if (result is RuntimeResult.Success) {
-                mentionNames = namesIn(result.result)
+                mentionNames = namesIn(result.result.optJSONArray("tokens"))
             }
         }
     }
 
-    fun send(context: Context) {
-        val text = draft
-        if (text.isBlank() || sending) return
-        val clientMessageId = "chat-$roomId-${UUID.randomUUID()}"
+    fun send(@Suppress("UNUSED_PARAMETER") context: Context) {
+        val text = draft.trim()
+        if (text.isEmpty() || sending) return
+        draft = ""
+        mentionNames = emptyList()
         viewModelScope.launch {
             sending = true
             try {
-                sessionGate.withLock { deliver(context, text, clientMessageId) }
+                when (val result = withContext(Dispatchers.IO) { raceDay.chatSend(roomId, text) }) {
+                    is RuntimeResult.Success -> apply(result.result)
+                    is RuntimeResult.Failure -> {
+                        draft = text
+                        status = CHAT_ERROR
+                    }
+                }
             } finally {
                 sending = false
             }
         }
     }
 
-    private suspend fun openSession(context: Context) {
-        val result = try {
-            withContext(Dispatchers.IO) { raceDay.streamToken(roomId) }
-        } catch (_: Throwable) {
-            status = CHAT_ERROR
-            return
-        }
-        when (result) {
-            is RuntimeResult.Failure -> status = if (result.offline) status else CHAT_ERROR
-            is RuntimeResult.Success -> openChannel(context, result.result)
-        }
-    }
-
-    private suspend fun deliver(context: Context, text: String, clientMessageId: String) {
-        val queued = try {
-            withContext(Dispatchers.IO) { raceDay.enqueueChat(roomId, text, clientMessageId) }
-        } catch (_: Throwable) {
-            status = if (context.isOnline()) CHAT_ERROR else CHAT_OFFLINE
-            return
-        }
-        val queuedBody = when (queued) {
-            is RuntimeResult.Failure -> {
-                status = if (queued.offline || !context.isOnline()) CHAT_OFFLINE else CHAT_ERROR
-                return
-            }
-            is RuntimeResult.Success -> queued.result
-        }
-        val id = queuedBody.optString("id").ifBlank { clientMessageId }
-        messages = messages + CrewChatMessage(
-            id = clientMessageId,
-            text = text,
-            author = authors.self,
-            time = "",
-            mine = true,
-            reactions = "",
-            imageUrl = null
-        )
-        draft = ""
-        mentionNames = emptyList()
-        if (!context.isOnline()) {
-            status = CHAT_OFFLINE
-            return
-        }
-        if (!channelOpen) {
-            status = CHAT_ERROR
-            return
-        }
-        val claimed = (call { raceDay.claimChat(roomId, id) } as? RuntimeResult.Success)
-            ?.result?.optBoolean("claimed") == true
-        if (!claimed) {
-            status = CHAT_ERROR
-            return
-        }
-        status = when (sendClaimed(id, text)) {
-            ChatDelivery.Delivered -> if (messages.isEmpty()) CHAT_EMPTY else null
-            ChatDelivery.Queued -> if (context.isOnline()) CHAT_ERROR else CHAT_OFFLINE
-        }
-    }
-
-    /**
-     * Sends a claimed message under its stable id, then settles the claim. Client-core decides
-     * whether Stream's error ("already exists" after a crash or lost reply) still means delivered.
-     */
-    private suspend fun sendClaimed(id: String, text: String): ChatDelivery {
-        val error = try {
-            StreamRooms.client?.send(text, id) ?: "Channel is not open."
-        } catch (failure: Throwable) {
-            failure.message ?: "Send failed."
-        }
-        val settled = call { raceDay.settleChat(roomId, id, error) }
-        val delivered = settled is RuntimeResult.Success && settled.result.optString("status") == "delivered"
-        return if (delivered) ChatDelivery.Delivered else ChatDelivery.Queued
-    }
-
-    /** Sends this room's queued messages after the channel opens, including ones a crash left behind. */
-    private suspend fun deliverPending(context: Context) {
-        val claimed = (call { raceDay.claimPendingChat(roomId) } as? RuntimeResult.Success)
-            ?.result?.optJSONArray("messages") ?: return
-        val pending = (0 until claimed.length()).mapNotNull { claimed.optJSONObject(it) }
-        for ((index, row) in pending.withIndex()) {
-            val id = row.optString("id")
-            val text = row.optString("text")
-            if (id.isBlank()) continue
-            if (text.isBlank()) {
-                call { raceDay.settleChat(roomId, id, "Empty message.") }
-                continue
-            }
-            if (sendClaimed(id, text) == ChatDelivery.Queued) {
-                pending.drop(index + 1).forEach { rest ->
-                    call { raceDay.settleChat(roomId, rest.optString("id"), "Delivery stopped.") }
+    /** Re-encodes the picked image as a JPEG of at most 2048 px, uploads it, then sends it. */
+    fun sendPhoto(context: Context, uri: Uri) {
+        if (uploadingPhoto) return
+        val caption = draft.trim()
+        viewModelScope.launch {
+            uploadingPhoto = true
+            try {
+                val file = withContext(Dispatchers.IO) { preparePhoto(context, uri) }
+                if (file == null) {
+                    status = CHAT_PHOTO_ERROR
+                    return@launch
                 }
-                status = if (context.isOnline()) CHAT_ERROR else CHAT_OFFLINE
-                return
+                val uploaded = withContext(Dispatchers.IO) { raceDay.chatUploadPhoto(roomId, file.absolutePath) }
+                file.delete()
+                val key = when (uploaded) {
+                    is RuntimeResult.Success -> uploaded.result.optText("photoKey")
+                    is RuntimeResult.Failure -> {
+                        status = if (uploaded.offline) "Photos need a connection." else uploaded.message
+                        return@launch
+                    }
+                }
+                draft = ""
+                when (val sent = withContext(Dispatchers.IO) { raceDay.chatSend(roomId, caption, key) }) {
+                    is RuntimeResult.Success -> apply(sent.result)
+                    is RuntimeResult.Failure -> status = CHAT_PHOTO_ERROR
+                }
+            } finally {
+                uploadingPhoto = false
             }
-            if (messages.none { it.id == id }) {
-                messages = messages + CrewChatMessage(
-                    id = id,
-                    text = text,
-                    author = authors.self,
-                    time = "",
-                    mine = true,
-                    reactions = "",
-                    imageUrl = null
-                )
-            }
         }
-        if (pending.isNotEmpty()) status = null
     }
 
-    private suspend fun call(block: () -> RuntimeResult): RuntimeResult = try {
-        withContext(Dispatchers.IO) { block() }
-    } catch (failure: Throwable) {
-        RuntimeResult.Failure(failure.message ?: "Request failed", offline = false)
+    fun loadOlder() {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { raceDay.chatOlder(roomId) }
+            if (result is RuntimeResult.Success) apply(result.result)
+        }
     }
 
-    private suspend fun openChannel(context: Context, json: JSONObject) {
-        channelId = json.optString("channelId").ifBlank { "crew-$roomId" }
-        authors = authorLabelsIn(json)
-        if (json.optBoolean("offline")) return
-        val token = json.optString("token")
-        val apiKey = json.optString("streamApiKey")
-        val userId = json.optString("streamUserId")
-        val client = StreamRooms.client
-        if (client == null || token.isBlank() || apiKey.isBlank() || userId.isBlank()) {
-            channelOpen = false
-            status = CHAT_ERROR
-            return
+    fun discard(line: CrewChatMessage) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { raceDay.chatDiscard(roomId, line.clientMessageId) }
+            if (result is RuntimeResult.Success) apply(result.result)
         }
-        val opened = try {
-            withContext(Dispatchers.IO) { client.open(context, apiKey, userId, token, channelId, authors) }
-        } catch (_: Throwable) {
-            null
-        }
-        if (opened == null) {
-            channelOpen = false
-            status = CHAT_ERROR
-            return
-        }
-        channelOpen = true
-        messages = opened.messages
-        unread = opened.unread
-        status = if (opened.messages.isEmpty()) CHAT_EMPTY else null
-        deliverPending(context)
     }
 
-    private fun authorLabelsIn(json: JSONObject): ChatAuthorLabels {
-        val fallback = ChatAuthorLabels()
-        val names = mutableMapOf<String, String>()
-        json.optJSONObject("authorNames")?.let { rows ->
-            rows.keys().forEach { id -> rows.optString(id).takeIf { it.isNotBlank() }?.let { names[id] = it } }
-        }
-        return ChatAuthorLabels(
-            names = names,
-            self = json.optString("selfAuthor").ifBlank { fallback.self },
-            unknown = json.optString("unknownAuthor").ifBlank { fallback.unknown }
+    private fun apply(body: JSONObject) {
+        body.optJSONArray("rows")?.let { messages = rowsIn(it) }
+        if (body.has("status")) status = body.optString("status").ifBlank { null }
+        if (body.has("hasOlder")) hasOlder = body.optBoolean("hasOlder")
+    }
+
+    private fun rowsIn(rows: JSONArray): List<CrewChatMessage> = (0 until rows.length()).mapNotNull { index ->
+        val row = rows.optJSONObject(index) ?: return@mapNotNull null
+        CrewChatMessage(
+            id = row.optString("id"),
+            clientMessageId = row.optString("clientMessageId"),
+            text = row.optString("text"),
+            author = row.optString("author"),
+            time = clock(row.optString("createdAt")),
+            mine = row.optBoolean("mine"),
+            imageUrl = row.optString("photoUrl").ifBlank { null },
+            delivery = row.optString("delivery").ifBlank { "sent" }
         )
     }
 
-    private fun namesIn(json: JSONObject): List<String> {
-        val tokens = json.optJSONArray("tokens") ?: return emptyList()
-        return namesIn(tokens)
-    }
-
-    private fun namesIn(tokens: JSONArray): List<String> {
+    private fun namesIn(tokens: JSONArray?): List<String> {
+        if (tokens == null) return emptyList()
         val names = mutableListOf<String>()
         for (index in 0 until tokens.length()) {
             val token = tokens.optJSONObject(index) ?: continue
@@ -265,9 +209,37 @@ class ChatViewModel(
         }
         return names
     }
-}
 
-private enum class ChatDelivery { Delivered, Queued }
+    private fun clock(iso: String): String {
+        if (iso.isBlank()) return ""
+        return runCatching { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date.from(Instant.parse(iso))) }
+            .getOrDefault("")
+    }
+
+    private fun preparePhoto(context: Context, uri: Uri): File? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_PHOTO_DIMENSION) sample *= 2
+        val decoded = context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: return null
+        val longest = maxOf(decoded.width, decoded.height)
+        val scaled = if (longest > MAX_PHOTO_DIMENSION) {
+            val ratio = MAX_PHOTO_DIMENSION.toFloat() / longest
+            Bitmap.createScaledBitmap(decoded, (decoded.width * ratio).toInt(), (decoded.height * ratio).toInt(), true)
+        } else {
+            decoded
+        }
+        val file = File.createTempFile("chat-photo", ".jpg", context.cacheDir)
+        file.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 80, it) }
+        file
+    }.getOrNull()
+
+    private companion object {
+        const val MAX_PHOTO_DIMENSION = 2048
+    }
+}
 
 class ChatViewModelFactory(
     private val raceDay: RaceDayBridge,

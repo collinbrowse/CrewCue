@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import type { FastifyRequest } from "fastify";
+import { createHash } from "node:crypto";
 import { logSafeUrl } from "../lib/logSafeUrl.js";
 
 interface AuditEntry {
@@ -12,7 +13,13 @@ interface AuditEntry {
 }
 
 function getActor(request: FastifyRequest): string {
-  return request.identity?.sub ?? "anonymous";
+  const sub = request.identity?.sub;
+  if (!sub) return "anonymous";
+  // Account deletion (#560): the subject is gone afterwards, so its audit line keeps only a hash.
+  if (request.method === "DELETE" && request.routeOptions.url === "/me") {
+    return `sha256:${createHash("sha256").update(sub, "utf8").digest("hex").slice(0, 16)}`;
+  }
+  return sub;
 }
 
 export const auditPlugin = fp(async (app) => {

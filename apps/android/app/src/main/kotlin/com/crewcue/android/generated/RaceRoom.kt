@@ -17,6 +17,7 @@ data class RaceRoom(
     val eventEndsAt: String? = null,
     val memberships: List<RaceRoomMembership>,
     val entitlement: RaceRoomEntitlement,
+    val createdByUserId: String? = null,
     val course: RaceCourse? = null,
     val courseDistanceMeters: Double? = null,
     val courseElevationGainMeters: Double? = null,

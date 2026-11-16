@@ -6,7 +6,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -41,7 +40,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import java.util.UUID
 
 /**
  * Device registration for race alerts, shown in the settings sheet.
@@ -111,10 +109,11 @@ class PushRegistrationViewModel(
     }
 
     private suspend fun register(context: Context): String {
-        val token = withContext(Dispatchers.IO) { firebaseTokenOrNull() }
+        CrewPush.ensureChannel(context)
+        val token = withContext(Dispatchers.IO) { CrewPush.tokenOrNull(context) }
         if (token.isNullOrBlank()) return PUSH_EMPTY
         val online = context.isOnline()
-        val enqueued = withContext(Dispatchers.IO) { raceDay.enqueuePush(deviceId(context), token) }
+        val enqueued = withContext(Dispatchers.IO) { raceDay.enqueuePush(CrewPush.deviceId(context), token) }
         val id = when (enqueued) {
             is RuntimeResult.Failure -> return if (enqueued.offline || !online) PUSH_OFFLINE else PUSH_ERROR
             is RuntimeResult.Success -> enqueued.result.optString("id")
@@ -150,31 +149,6 @@ private fun notificationsGranted(context: Context): Boolean {
         context,
         Manifest.permission.POST_NOTIFICATIONS
     ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun deviceId(context: Context): String {
-    val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-    if (!androidId.isNullOrBlank()) return androidId
-    val prefs = context.getSharedPreferences("crewcue.push", Context.MODE_PRIVATE)
-    val existing = prefs.getString("deviceId", null)
-    if (!existing.isNullOrBlank()) return existing
-    val created = UUID.randomUUID().toString()
-    prefs.edit().putString("deviceId", created).apply()
-    return created
-}
-
-private fun firebaseTokenOrNull(): String? {
-    return try {
-        val messagingClass = Class.forName("com.google.firebase.messaging.FirebaseMessaging")
-        val messaging = messagingClass.getMethod("getInstance").invoke(null) ?: return null
-        val task = messagingClass.getMethod("getToken").invoke(messaging) ?: return null
-        val tasksClass = Class.forName("com.google.android.gms.tasks.Tasks")
-        val taskClass = Class.forName("com.google.android.gms.tasks.Task")
-        val result = tasksClass.getMethod("await", taskClass).invoke(null, task)
-        (result as? String)?.trim()?.ifBlank { null }
-    } catch (_: Throwable) {
-        null
-    }
 }
 
 private fun JSONArray?.containsString(value: String): Boolean {

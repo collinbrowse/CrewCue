@@ -1,0 +1,18 @@
+{
+  "id": "billing-upgrade",
+  "platform": "ios",
+  "entry": "crewcue://dev/billing-upgrade",
+  "device": "iPhone 18 Pro simulator (CrewCue billing-649, C1190B96), iOS 27.2, Debug build",
+  "date": "2026-11-09",
+  "commit": "e64c9eb (iOS tree same as 5e2800a) plus uncommitted #649 iOS wiring (CompositionRoot, ShellModel, FixtureRouteView, Profile, Room members, Join)",
+  "session": "Dev session (HS256 dev JWT) against the local memory API on 127.0.0.1:3000. Debug fake store (no RevenueCat key) posting to POST /race-rooms/:roomId/billing/dev-purchase. Error via ?storeResult=fail; Offline via --api-base-url pointed at a closed port.",
+  "action": "Race Pass room (crew tier one) with one crew joined. A second crew member entered the code on Join and was refused (409 crew_limit_reached). The runner's Room members screen showed the Full Crew card; the runner bought Full Crew from crewcue://dev/billing-upgrade, then the refused crew member's join returned 200.",
+  "checked": {
+    "Success": "'Unlocked: unlimited crew.'; GET /billing then read crewTier unlimited and the second crew member's join-by-code returned 200.",
+    "Empty": "Room members (runner): 'Race Pass: you plus 1 crew member (1 of 1 joined).' plus 'Your Race Pass covers 1 crew member. Add Full Crew for unlimited crew.' and Add Full Crew $9.99.",
+    "Error": "Second crew member on Join: 'This race is full. Ask the runner to add Full Crew so more crew can join.'",
+    "Offline": "API unreachable: 'Offline. Purchases need the network.'",
+    "Accessibility labels": "crewcue.billing-upgrade, crewcue.billing-upgrade.buy, crewcue.billing-upgrade.status"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

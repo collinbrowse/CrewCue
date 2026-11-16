@@ -16,6 +16,8 @@ const roots = [
   "HealthStatus",
   "RaceRoomMembership",
   "RaceRoomEntitlement",
+  "RaceRoomBilling",
+  "CrewLimitReachedError",
   "RaceCourseCheckpoint",
   "RaceCourseBaselinePoint",
   "RaceCourseBaselineTrack",
@@ -43,9 +45,14 @@ const roots = [
   "RaceRoomProjectionCore",
   "ProjectionTimeliness",
   "IncidentEvent",
-  "ChatStreamMember",
-  "ChatStreamTokenResponse",
-  "RaceRoomInvite"
+  "ChatRoomMember",
+  "ChatMessagePhoto",
+  "ChatMessage",
+  "ChatMessagePage",
+  "ChatSendMessageResponse",
+  "ChatPhotoUploadResponse",
+  "RaceRoomInvite",
+  "AccountDeletionResult"
 ];
 const skipProperties = new Set([
   "courseGpxXml",

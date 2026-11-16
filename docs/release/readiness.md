@@ -17,16 +17,17 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 4. **Play target API extension:** not needed once #571 is merged (the app targets API 36).
 5. **Privacy policy URL.** Both stores need it: App Store Connect before external TestFlight, and Play before any track goes out (Data safety form). In-app links are tracked in #569.
 6. **App privacy answers (App Store) and Data safety form (Play).** Use [Privacy inputs](#privacy-inputs) below. Confirm the export-compliance answer: the app uses only HTTPS/TLS from the OS, and `ITSAppUsesNonExemptEncryption = NO` is already set for Release.
-7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing.
+7. **Account deletion web page or email flow.** Play requires a deletion URL outside the app, and the in-app flow is #560. Provide a URL, even a form, before closed or production testing. Also set `AUTH0_MGMT_DOMAIN`, `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET` on the Railway API (M2M app with `delete:users`) so deletion removes the Auth0 login: [account-deletion.md](account-deletion.md).
 8. **Railway production service** (when you leave staging).
    - Set `NODE_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE`, `PERSISTENCE_MODE=postgres` and `DATABASE_URL`.
    - New in this PR: with `NODE_ENV=production`, the API refuses to start without Auth0 unless a private `JWT_SECRET` is set. This stops it from accepting tokens signed with the public dev secret.
 9. **Push credentials** (#563).
    - Turn on the Push capability on the App ID, then create an APNs auth key (.p8).
    - Create a Firebase project and add `google-services.json` for `com.crewcue.android`.
-10. **Production third-party keys:** MapTiler (the map falls back to the MapLibre demo style without one), Stream Chat production app, and Strava API app (rate-limit tier and athlete-count approval).
+10. **Production third-party keys:** Strava API app (rate-limit tier and athlete-count approval).
 11. **Store listings:** name, subtitle, description, keywords, category (Health & Fitness or Sports), screenshots (6.9" iPhone; Play phone), feature graphic, support URL, age rating questionnaire (App Store) and content rating questionnaire (Play), and the target audience form (Play).
 12. **Background location justification** once #562 lands: an App Review note and a Play location-permission and foreground-service declaration, with a short video showing runner tracking.
+13. **Sentry crash reporting** (#564, ADR 0010): create Sentry projects for the API, iOS and Android on the free Developer plan. Set `SENTRY_DSN` on the Railway API service, and add `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT_IOS`, `SENTRY_PROJECT_ANDROID`, `SENTRY_DSN_IOS`, `SENTRY_DSN_ANDROID` to the `release` environment (`docs/runbooks/mobile-release.md`). Until then reporting stays off and symbol uploads skip.
 
 ## Fixed in this PR
 
@@ -35,20 +36,20 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Android release builds no longer accept a session from a link or intent extras. Before, any web page could open `crewcue://…?devSession=1&token=…&roomId=…` and the app saved that session. | `apps/android/.../session/DevSession.kt` (`enabled = BuildConfig.DEBUG`) |
 | Android release builds open no `crewcue://dev/*` fixture route from outside the app. Internal fixture loads (sign-in, join copy) are unchanged. | `apps/android/.../nav/DevRoutes.kt` `inboundFeatureId`, `ui/ShellViewModel.kt` `open()` |
 | Android release builds stop logging every screen URL to logcat. Dev links could carry a token. | `apps/android/.../di/AppContainer.kt` |
-| Android release build turns on R8 (minify plus resource shrinking), with keep rules for the JNI facade and the reflection-loaded MapLibre and Stream bootstraps. | `apps/android/app/build.gradle.kts`, `apps/android/app/proguard-rules.pro` |
+| Android release build turns on R8 (minify plus resource shrinking), with keep rules for the JNI facade and the reflection-loaded MapLibre bootstrap. | `apps/android/app/build.gradle.kts`, `apps/android/app/proguard-rules.pro` |
 | Android ships only the ABIs that client-core is built for (`arm64-v8a`, `x86_64`). Before, MapLibre's 32-bit libs made Play offer the app to armeabi-v7a and x86 devices, where loading the Swift core crashes at startup. This also cuts the universal release APK (265 MB before). | `apps/android/app/build.gradle.kts` `ndk.abiFilters` |
 | iOS Release builds ignore `crewcue://dev/*` links, `?state=` fixture overlays, and the `--deeplink` and `--dev-session` launch arguments. The Strava OAuth return still works. | `apps/ios/CrewCue/App/DevLinks.swift`, `App/ShellModel.swift` `open(_:)`, `App/LaunchConfiguration.swift` `resolve` |
 | iOS privacy manifest, with collected data types and required-reason APIs: UserDefaults `CA92.1` (`PushRegistrationModel.swift`) and file timestamp `C617.1` (`PaceModel.swift` schedule cache inside the app container). | `apps/ios/CrewCue/PrivacyInfo.xcprivacy` (picked up by the synchronized `CrewCue` group) |
 | iOS Dynamic Type: the 32pt invite-code field scales with `@ScaledMetric`. The fixed-size pill tab bar supports the Large Content Viewer, which is Apple's pattern for bars that cannot grow. | `Screens/Join/JoinCrewView.swift`, `Screens/Shell/ProductShellView.swift` |
 | Android TalkBack: shared chat photos read "Shared photo" instead of "Image, image". | `ui/chat/ChatScreen.kt` |
 | API refuses to start in production when it would verify tokens with the public `dev-only-secret`. | `services/api/src/lib/authEnv.ts` (+ test), `server.ts` |
-| API logs drop query strings (Strava OAuth `code`/`state`, geocode search text) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
+| API logs drop query strings (Strava OAuth `code`/`state`) from request logs and `audit_log`, and redact auth, cookie and webhook-secret headers. | `services/api/src/lib/logSafeUrl.ts` (+ test), `app.ts`, `plugins/audit.ts` |
 
 ## iOS (App Store)
 
 | Item | Status | Evidence | Fix |
 | --- | --- | --- | --- |
-| Privacy manifest | done (this PR) | `apps/ios/CrewCue/PrivacyInfo.xcprivacy`. SDK manifests ship with Auth0, StreamChat and MapLibre. | Before submitting, check that the transitive SPM packages (SimpleKeychain, JWTDecode, swift-markdown-ui, NetworkImage, Splash) are not on Apple's [list of SDKs that need a privacy manifest](https://developer.apple.com/support/third-party-SDK-requirements/). Xcode's "Generate Privacy Report" on the archive confirms it. |
+| Privacy manifest | done (this PR) | `apps/ios/CrewCue/PrivacyInfo.xcprivacy`. SDK manifests ship with Auth0 and MapLibre. | Before submitting, check that the transitive SPM packages (SimpleKeychain, JWTDecode, swift-markdown-ui, NetworkImage, Splash) are not on Apple's [list of SDKs that need a privacy manifest](https://developer.apple.com/support/third-party-SDK-requirements/). Xcode's "Generate Privacy Report" on the archive confirms it. |
 | Location usage strings | done for foreground use | `Info.plist` `NSLocationWhenInUseUsageDescription`. `MapModel.swift` `WhenInUseLocator` requests When In Use only. | Add the Always string and the `location` background mode together with the background heartbeat (#562). Adding them before the code uses them would draw a rejection. |
 | Notifications | gap | `RemoteNotifications.swift` calls `registerForRemoteNotifications()`. There is no `.entitlements` file and no `aps-environment`. | #563 (entitlement plus App ID capability: needs-user) |
 | Export compliance | done | `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO` (Release, `project.pbxproj`) | Confirm in App Store Connect (needs-user) |
@@ -61,7 +62,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Dev routes in Release | done (this PR) | `DevLinks.enabled` is false outside `DEBUG` | none |
 | Environment config | done (#561), needs-user values | `Info.plist` reads `$(CREWCUE_API_BASE_URL)` and the Auth0 settings from `Config/CrewCue.xcconfig`. Debug uses the local API; Release has no defaults, so `release.yml` passes them. `LaunchConfiguration.swift` accepts only an https, non-local server in Release and shows "CrewCue can't start" otherwise. | Needs-you item 2 |
 | Token storage | gap | `packages/client-core/.../Session.swift` writes `session.json` (plain JSON, no file protection) | #567 |
-| Crash reporting | gap | none present | #564 |
+| Crash reporting | done (#564), needs-user Sentry config | Sentry (`sentry-cocoa` SPM, ADR 0010), started by `App/CrashReporting.swift` only in Release with a DSN from `release.yml` (`CREWCUE_SENTRY_DSN`); Debug never starts it. No user, screenshots, view hierarchy or tracing; tokens, emails, lat/lng and query strings scrubbed. dSYMs uploaded by `release.yml` "Upload dSYMs to Sentry". `PrivacyInfo.xcprivacy` lists Crash Data and Performance Data (not linked). | Needs-you item 13 |
 | Accessibility | mostly done | `CrewFont` uses text styles. Labels on icon buttons (`CrewComponents.swift`, `ChatView.swift`). Race switcher has `.isSelected`. | Map and Pace screens not audited, since parallel sessions own them: #570 |
 | Privacy policy and support links in app | gap | none in Settings or Profile | #569 |
 
@@ -71,7 +72,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | --- | --- | --- | --- |
 | Permissions | done for foreground use | `AndroidManifest.xml`: `INTERNET`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`. There is no background location and no foreground service, so Play needs no background-location declaration today. | Background tracking: #562 adds a `location`-type foreground service (`FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION`) and the Play declaration |
 | Target API level | done (#571) | `compileSdk`/`targetSdk` 36, `minSdk` 28 (`app/build.gradle.kts`), on AGP 8.13 and Gradle 8.14. Play accepts new apps and updates only at API 36 since 2026-08-31 ([Play policy](https://support.google.com/googleplay/android-developer/answer/11926878)). | AGP 9 / Gradle 9 is a separate migration (Dependabot #551 was closed for it). |
-| Release minify / R8 | done (this PR) | `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-rules.pro` | Upload `mapping.txt` with the AAB once crash reporting lands (#564) |
+| Release minify / R8 | done (this PR) | `isMinifyEnabled = true`, `isShrinkResources = true`, `proguard-rules.pro` | Done (#564): the Sentry Gradle plugin stamps a mapping UUID and uploads `mapping.txt` from `release.yml` when the Sentry secret and vars are set; the mapping is also kept as the `android-mapping` artifact |
 | Signing | needs-user | Release `signingConfig` is created only when `CREWCUE_ANDROID_KEYSTORE` is set (`build.gradle.kts`). `release.yml` decodes the keystore from secrets. | Needs-you item 3 |
 | Version numbers | done | `-Pcrewcue.versionCode/versionName` from `release.yml`. The default `1` / `0.0.0-dev` applies to local builds only. | none |
 | Dev routes and dev session in release | done (this PR) | `DevSession.parse` and `DevRoutes.inboundFeatureId` gated on `BuildConfig.DEBUG` | none |
@@ -83,7 +84,7 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | App icon | done | adaptive plus monochrome `mipmap-anydpi-v26/ic_launcher*.xml` | Play listing needs a 512px icon (needs-user, store listing) |
 | Splash | done | `values-v31/themes.xml` (system splash) plus Compose `LaunchSplash` | none |
 | Token storage | gap | `session/SessionStore.kt` (plain SharedPreferences) | #567 |
-| Crash reporting | gap | none present | #564 |
+| Crash reporting | done (#564), needs-user Sentry config | Sentry Android SDK (`io.sentry:sentry-android`, ADR 0010), started by `crash/CrashReporting.kt` only in release builds with `-Pcrewcue.release.sentryDsn` from `release.yml`; debug never starts it and manifest auto-init is off. No user, screenshots, view hierarchy, tracing or tap breadcrumbs; tokens, emails, lat/lng and query strings scrubbed (`crash/CrashScrub.kt`). Play Data safety: Crash logs and Diagnostics, collected, not shared, not linked, not optional. | Sentry config in the release runbook |
 | Accessibility | mostly done | Icons with `contentDescription = null` are inside labelled parents (`ShellScreen.kt`, `CrewComponents.kt`, `ChatScreen.kt`). The race switcher row is `selectable` (announces selected). | Map and Pace: #570 |
 
 ## API (production)
@@ -96,9 +97,9 @@ Ordered by what unblocks the first TestFlight build and the first Play internal-
 | Health checks | gap | `/health/ready` is static (`routes/health.ts`). Railway checks `/health/live`. | #566 |
 | Migrations | gap | `services/api/scripts/apply-sql-migrations.mjs` re-runs every file per deploy (`railway.toml` `preDeployCommand`), with no ledger | #566 |
 | Logging of PII | done (this PR), partial | Query strings stripped and auth headers redacted. User `sub` still appears in `ping_decision` and analytics logs. There are no lat/lng log calls. | Decide whether `sub` is acceptable in logs. Retention: #568 |
-| Account deletion and data export | gap, **release blocker** | no `/me` route | #560 |
+| Account deletion and data export | done in API (#560) | `DELETE /me` and `GET /me/export` (`routes/accountRoutes.ts`). Auth0 user deletion needs `AUTH0_MGMT_*` on Railway: see [account-deletion.md](account-deletion.md) | #560 apps; web page #569 |
 | Data retention | gap | Pings and activity history kept indefinitely (`room_ws2_runtime_json`) | #568 |
-| Crash and error tracking | gap | OTel traces only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (`src/telemetry.ts`). No process-level handlers. | #564 |
+| Crash and error tracking | done (#564), needs-user DSN | Sentry (ADR 0010), on only when `SENTRY_DSN` is set (`src/lib/errorReporting.ts`). Reports 5xx and process crashes; `uncaughtException` / `unhandledRejection` log, flush and exit 1. Events are scrubbed (`src/lib/errorScrub.ts`): no query strings, auth headers, bodies, tokens, emails, lat/lng or user. OTel traces unchanged. | Set `SENTRY_DSN` (and optionally `SENTRY_ENVIRONMENT`) on the Railway API service |
 | Push delivery | gap | `lib/chatPushDispatch.ts` logs only | #563 |
 | Secrets in repo | done | Only `.env*.example` tracked. Strava tokens are stored in plaintext at rest. | #567 |
 | Persistence mode | gap | `PERSISTENCE_MODE` defaults to `memory` (`lib/roomPersistence.ts`) | #566 (guard, after confirming the staging env) |
@@ -121,12 +122,13 @@ For the App Store privacy nutrition label and the Play Data safety form. The app
 | Name (display name) | yes | yes | App functionality | Profile and crew list |
 | Email address | yes | yes | App functionality, account | Through Auth0 sign-in |
 | User ID | yes | yes | App functionality | Auth0 `sub` |
-| Other user content | yes | yes | App functionality | Chat messages (Stream), crew notes, check-ins |
+| Other user content | yes | yes | App functionality | Chat messages (CrewCue API), crew notes, check-ins |
 | Fitness | yes | yes | App functionality | Activity history and pacing from Strava or GPX import |
 | Device ID | yes | yes | App functionality | Push token |
-| Crash data | not yet | - | - | Add when #564 lands |
+| Crash data | yes | no | App functionality | Sentry crash and error reports (stack traces, device model, OS, app version). No user ID, email or location. App Store: Crash Data. Play: Crash logs. |
+| Performance data | yes | no | App functionality | Sentry app-hang and launch diagnostics, session counts. App Store: Performance Data. Play: Diagnostics. |
 
-Processors: Auth0 (identity), Stream (chat), MapTiler (tiles, geocoding), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
+Processors: Sentry (crash and error reports, not linked to identity), Auth0 (identity), OpenFreeMap (map tiles, keyless; sees the device IP and which map area is viewed, no account data; OpenStreetMap attribution shown on the map), Strava (only when the user connects it), Railway (hosting). Data is encrypted in transit (HTTPS) once #561 removes the http fallbacks. Users can request deletion once #560 and needs-you item 7 are done.
 
 ## Issues filed from this audit
 

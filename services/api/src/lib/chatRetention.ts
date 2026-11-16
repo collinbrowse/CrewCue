@@ -5,10 +5,8 @@
  * safe to run on a schedule. Returns per-room results so a smoke runbook can
  * confirm coverage.
  *
- * NOTE: this layer only deletes server-side metadata (notification prefs).
- * Stream Chat channel deletion is performed via the Stream SDK on the API
- * tier — out of scope for the in-memory unit tests but documented in the
- * Phase 7 runbook.
+ * Deletes the room's messages, their bucket photos, and notification prefs
+ * (deleteChatRoomData). See docs/runbooks/chat-retention.md.
  */
 import type { RaceRoom } from "@crewcue/contracts";
 import type { ChatRetentionResult } from "@crewcue/contracts";

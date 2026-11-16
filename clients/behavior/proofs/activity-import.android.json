@@ -1,0 +1,18 @@
+{
+  "id": "activity-import",
+  "platform": "android",
+  "entry": "crewcue://dev/activity-import",
+  "device": "crewcue_api_35 emulator (emulator-5618, read-only), Android 15, debug APK",
+  "date": "2026-11-09",
+  "commit": "7e270dd (claude/import-652-android)",
+  "session": "Dev session (intent extras) against the local memory API on the host (10.0.2.2:3652). Fixtures pushed to Downloads: garmin-run.fit, coros-run.tcx, broken.fit. Offline by stopping the local API.",
+  "action": "Athlete opened crewcue://dev/activity-import (Settings > Past runs), tapped Import past run, and chose a file in the system document picker.",
+  "checked": {
+    "Success": "FIT: 'Run imported to pacing history.' with row 'FIT · 8.0 km · 40:00 · 2026-05-10'; TCX: row 'TCX · 8.0 km · 40:00 · 2026-05-10'. Re-importing the FIT: 'Already in pacing history.' with one FIT row.",
+    "Empty": "Before a pick: 'Choose a .gpx, .fit or .tcx file from your watch.'",
+    "Error": "broken.fit: 'Couldn't read this FIT file. Export it again and retry.'",
+    "Offline": "API stopped, coros-run.tcx picked: 'Offline. Import the file when you're back online.'",
+    "Accessibility labels": "crewcue.activity-import"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

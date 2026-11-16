@@ -186,6 +186,29 @@ public enum RaceDayAPI {
         }
     }
 
+    /// The athlete's pacing history for display, newest first.
+    public static func activityHistoryItems(graph: ClientGraph) async throws -> [ActivityHistoryItem] {
+        let payload: ActivityHistoryList = try await get(graph, "/activity-history")
+        return payload.items.map(\.displayItem).sorted { $0.recordedAt > $1.recordedAt }
+    }
+
+    /// Upload an exported watch file (.gpx, .fit, .tcx) into pacing history (#652).
+    /// A file already imported returns `.duplicate` with the stored row.
+    public static func importActivityFile(graph: ClientGraph, fileName: String, data: Data) async throws -> ActivityImportResult {
+        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, "/activity-history/file") else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "fileName": fileName,
+            "contentBase64": data.base64EncodedString()
+        ])
+        let request = APIClient.authorized(url: url, method: .post, token: token, body: body)
+        let response = try await APIClient.send(request, transport: graph.transport)
+        let item = try JSONDecoder().decode(ActivityHistoryList.Item.self, from: response.body)
+        return ActivityImportResult(status: response.status == 201 ? .saved : .duplicate, item: item.displayItem)
+    }
+
     public static func updateDisplayName(graph: ClientGraph, roomId: String, userId: String, displayName: String) async throws -> RoomEnvelope {
         let body = #"{"displayName":"\#(jsonEscape(displayName))"}"#
         return try await send(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .patch, body: body)
@@ -389,12 +412,44 @@ public enum RaceDayAPI {
         return try await sendJSON(graph, "/race-rooms/\(roomId)/routing/route", method: .post, object: body)
     }
 
-    public static func streamToken(graph: ClientGraph, roomId: String) async throws -> ChatStreamTokenResponse {
-        try await send(graph, "/chat/stream-token", method: .post, body: #"{"roomId":"\#(roomId)"}"#)
+    /// `GET /chat/rooms/:roomId/messages`. With `after` and `waitSeconds` it long-polls.
+    public static func chatMessages(
+        graph: ClientGraph,
+        roomId: String,
+        after: String? = nil,
+        before: String? = nil,
+        limit: Int? = nil,
+        waitSeconds: Int? = nil
+    ) async throws -> ChatMessagePage {
+        guard let baseURL = graph.baseURL else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        var query: [String: String] = [:]
+        if let after { query["after"] = after }
+        if let before { query["before"] = before }
+        if let limit { query["limit"] = String(limit) }
+        if let waitSeconds, waitSeconds > 0 { query["wait"] = String(waitSeconds) }
+        guard let url = APIClient.endpoint(baseURL, "/chat/rooms/\(roomId)/messages", query: query) else {
+            throw ClientHTTPError(status: 0, message: "Couldn't build the request.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        return try await APIClient.send(APIClient.authorized(url: url, method: .get, token: token), transport: graph.transport)
     }
 
-    public static func channelId(roomId: String) -> String {
-        "crew-\(roomId)"
+    /// `POST /chat/rooms/:roomId/photos` with the raw image bytes.
+    public static func uploadChatPhoto(
+        graph: ClientGraph,
+        roomId: String,
+        data: Data,
+        contentType: String
+    ) async throws -> ChatPhotoUploadResponse {
+        guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, "/chat/rooms/\(roomId)/photos") else {
+            throw ClientHTTPError(status: 0, message: "API base URL is not set.")
+        }
+        let token = await graph.tokenProvider?.accessToken()
+        var request = APIClient.authorized(url: url, method: .post, token: token, body: data)
+        request.headers["Content-Type"] = contentType
+        return try await APIClient.send(request, transport: graph.transport)
     }
 
     public static func notificationPreference(graph: ClientGraph, roomId: String) async throws -> ChatPreference {
@@ -437,6 +492,11 @@ public enum RaceDayAPI {
         _ = try await sendData(graph, "/strava/connection", method: .delete, body: nil)
     }
 
+    /// `DELETE /me` (#560). Deletes the signed-in account server-side; see `AccountDeletion`.
+    public static func deleteAccount(graph: ClientGraph) async throws -> AccountDeletionResult {
+        try await send(graph, "/me", method: .delete, body: nil)
+    }
+
     /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
     /// with `uploadIntervalSeconds` so the server can judge staleness from the runner's setting.
     public static func flushOutbox(graph: ClientGraph, uploadIntervalSeconds: Int? = nil) async throws -> FlushReport {
@@ -468,9 +528,6 @@ public enum RaceDayAPI {
             }
         }
         return try await outbox.flush({ operation in
-            if operation.type == "chat" {
-                return OutboxFailureResolution(status: "pending", retryable: true, feedback: "Waiting for the app to send this.")
-            }
             if operation.type == "gpx" {
                 do {
                     _ = try await importQueuedGpx(graph, operation)
@@ -502,7 +559,7 @@ public enum RaceDayAPI {
         }, pingBatch: pingBatch)
     }
 
-    private static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {
+    static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {
         try await send(graph, path, method: .get, body: nil, authorize: token)
     }
 
@@ -543,7 +600,7 @@ public enum RaceDayAPI {
         return try await APIClient.send(request, transport: graph.transport).body
     }
 
-    private static func sendData(_ graph: ClientGraph, _ path: String, method: HTTPMethod, body: String?) async throws -> Data {
+    static func sendData(_ graph: ClientGraph, _ path: String, method: HTTPMethod, body: String?) async throws -> Data {
         guard let baseURL = graph.baseURL, let url = APIClient.endpoint(baseURL, path) else {
             throw ClientHTTPError(status: 0, message: "API base URL is not set.")
         }
@@ -698,8 +755,20 @@ private struct ActivityHistoryList: Decodable {
 
     struct Item: Decodable {
         var id: String
+        var source: String?
+        var recordedAt: String?
         var distanceMeters: Double?
         var elapsedSeconds: Double?
         var elevationGainMeters: Double?
+
+        var displayItem: ActivityHistoryItem {
+            ActivityHistoryItem(
+                id: id,
+                source: source ?? "",
+                recordedAt: recordedAt ?? "",
+                distanceMeters: distanceMeters,
+                elapsedSeconds: elapsedSeconds
+            )
+        }
     }
 }

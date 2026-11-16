@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceCourse } from "@crewcue/contracts";
-import { buildDerivedMetricsFromPolyline, checkpointsWithProjectedDistances } from "@crewcue/map-core";
+import {
+  buildDerivedMetricsFromPolyline,
+  checkpointsWithProjectedDistances,
+  geodesicCumulativeAtVertices
+} from "@crewcue/map-core";
 import type { CourseMetricPoint } from "@crewcue/map-core";
 import {
   cumulativeDistanceAtCheckpoints,
@@ -233,4 +237,162 @@ test("stoppage accumulates slowed intervals inside checkpoint radius", () => {
   assert.ok((split.totalActualStopSeconds ?? 0) > 0);
   assert.ok(split.deltaStopSeconds !== null);
   assert.equal(third.projection.stoppageSummary.totalActualStopSeconds, 0);
+});
+
+/**
+ * A point-to-point course: 1.5 km straight north, then a climb of twelve 300 m switchback legs
+ * set 25 m apart. Neighbouring legs are close together but are not the same ground.
+ */
+function switchbackClimb(): { course: RaceCourse; routeMetricPoints: CourseMetricPoint[]; cumulative: number[] } {
+  const metersPerDegreeLatitude = 111_320;
+  const metersPerDegreeLongitude = metersPerDegreeLatitude * Math.cos((42 * Math.PI) / 180);
+  const at = (northMeters: number, eastMeters: number): CourseMetricPoint => ({
+    latitude: 42 + northMeters / metersPerDegreeLatitude,
+    longitude: -70 + eastMeters / metersPerDegreeLongitude
+  });
+  const routeMetricPoints: CourseMetricPoint[] = [at(0, 0), at(1500, 0)];
+  for (let leg = 0; leg < 12; leg += 1) {
+    const north = 1500 + leg * 25;
+    routeMetricPoints.push(at(north, leg % 2 === 0 ? 300 : 0));
+    routeMetricPoints.push(at(north + 25, leg % 2 === 0 ? 300 : 0));
+  }
+  const cumulative = geodesicCumulativeAtVertices(routeMetricPoints);
+  const start = routeMetricPoints[0]!;
+  const finish = routeMetricPoints[routeMetricPoints.length - 1]!;
+  const checkpoints = checkpointsWithProjectedDistances(
+    [
+      { id: "start", latitude: start.latitude, longitude: start.longitude },
+      { id: "finish", latitude: finish.latitude, longitude: finish.longitude }
+    ],
+    routeMetricPoints
+  );
+  return {
+    course: { checkpoints, derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints) },
+    routeMetricPoints,
+    cumulative
+  };
+}
+
+function pointAtProgress(route: CourseMetricPoint[], cumulative: number[], progressMeters: number): CourseMetricPoint {
+  let i = 0;
+  while (i < cumulative.length - 2 && cumulative[i + 1]! < progressMeters) {
+    i += 1;
+  }
+  const t = (progressMeters - cumulative[i]!) / (cumulative[i + 1]! - cumulative[i]!);
+  return {
+    latitude: route[i]!.latitude + t * (route[i + 1]!.latitude - route[i]!.latitude),
+    longitude: route[i]!.longitude + t * (route[i + 1]!.longitude - route[i]!.longitude)
+  };
+}
+
+for (const gapSeconds of [30, 120, 360, 900]) {
+  test(`switchback legs 25 m apart: a ${gapSeconds} s gap as the runner slows does not move them to a neighbouring leg`, () => {
+    const { course, routeMetricPoints, cumulative } = switchbackClimb();
+    const activatedAtMs = Date.parse("2026-06-01T12:00:00.000Z");
+    // 3 m/s on the approach, 1 m/s on the climb; a fix every 30 s except one gap as the climb starts.
+    const fixes: Array<{ seconds: number; progressMeters: number }> = [];
+    let seconds = 0;
+    let progress = 0;
+    while (progress + 90 <= 1500) {
+      seconds += 30;
+      progress += 90;
+      fixes.push({ seconds, progressMeters: progress });
+    }
+    seconds += gapSeconds;
+    progress += gapSeconds;
+    fixes.push({ seconds, progressMeters: progress });
+    for (let i = 0; i < 40; i += 1) {
+      seconds += 30;
+      progress += 30;
+      fixes.push({ seconds, progressMeters: progress });
+    }
+
+    let previous: Parameters<typeof recomputeRaceProjection>[0]["previous"] = null;
+    let previousPing: Parameters<typeof recomputeRaceProjection>[0]["previousPing"] = null;
+    let worstErrorMeters = 0;
+    for (const [index, fix] of fixes.entries()) {
+      const onRoute = pointAtProgress(routeMetricPoints, cumulative, fix.progressMeters);
+      const ping = {
+        pingId: `ping-${index}`,
+        // GPS puts each fix 4 m north of the line.
+        latitude: onRoute.latitude + 4 / 111_320,
+        longitude: onRoute.longitude,
+        recordedAt: new Date(activatedAtMs + fix.seconds * 1000).toISOString()
+      };
+      const next = recomputeRaceProjection({
+        roomId: "switchbacks",
+        activatedAt: new Date(activatedAtMs).toISOString(),
+        course,
+        plannedPaceSecondsPerKm: 480,
+        ping,
+        previousPing,
+        previous,
+        routeMetricPoints
+      });
+      worstErrorMeters = Math.max(worstErrorMeters, Math.abs(next.projection.progressMeters - fix.progressMeters));
+      previous = next.state;
+      previousPing = ping;
+    }
+    assert.ok(worstErrorMeters < 30, `worst progress error ${Math.round(worstErrorMeters)} m`);
+  });
+}
+
+test("out-and-back: after a ten-minute stop near the turnaround the runner is followed home, not back down the outbound leg", () => {
+  // 3 km north and back along the same line.
+  const out: CourseMetricPoint[] = Array.from({ length: 31 }, (_, i) => ({
+    latitude: 42 + (i * 100) / 111_320,
+    longitude: -70
+  }));
+  const routeMetricPoints = [...out, ...out.slice(0, -1).reverse()];
+  const cumulative = geodesicCumulativeAtVertices(routeMetricPoints);
+  const length = cumulative[cumulative.length - 1]!;
+  const checkpoints = checkpointsWithProjectedDistances(
+    [
+      { id: "start", latitude: 42, longitude: -70 },
+      { id: "finish", latitude: 42, longitude: -70 }
+    ],
+    routeMetricPoints
+  );
+  const course: RaceCourse = { checkpoints, derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints) };
+
+  // 100 m a minute out to 150 m short of the turnaround, ten minutes stopped there, then home
+  // at the same pace. The stop takes the rolling speed down to almost nothing.
+  const stopAt = length / 2 - 150;
+  const truth: number[] = [];
+  for (let p = 50; p < stopAt; p += 100) truth.push(p);
+  for (let i = 0; i < 10; i += 1) truth.push(stopAt);
+  for (let p = stopAt + 100; p < length; p += 100) truth.push(p);
+
+  const activatedAtMs = Date.parse("2026-06-01T12:00:00.000Z");
+  let previous: Parameters<typeof recomputeRaceProjection>[0]["previous"] = null;
+  let previousPing: Parameters<typeof recomputeRaceProjection>[0]["previousPing"] = null;
+  let worstErrorOnTheWayHome = 0;
+  for (const [index, progressMeters] of truth.entries()) {
+    const onRoute = pointAtProgress(routeMetricPoints, cumulative, progressMeters);
+    const ping = {
+      pingId: `ping-${index}`,
+      latitude: onRoute.latitude,
+      longitude: onRoute.longitude + (index % 2 === 0 ? 0.00003 : -0.00003),
+      recordedAt: new Date(activatedAtMs + (index + 1) * 60_000).toISOString()
+    };
+    const next = recomputeRaceProjection({
+      roomId: "out-and-back",
+      activatedAt: new Date(activatedAtMs).toISOString(),
+      course,
+      plannedPaceSecondsPerKm: 480,
+      ping,
+      previousPing,
+      previous,
+      routeMetricPoints
+    });
+    if (progressMeters > length / 2 + 200) {
+      worstErrorOnTheWayHome = Math.max(
+        worstErrorOnTheWayHome,
+        Math.abs(next.projection.progressMeters - progressMeters)
+      );
+    }
+    previous = next.state;
+    previousPing = ping;
+  }
+  assert.ok(worstErrorOnTheWayHome < 30, `worst progress error on the way home ${Math.round(worstErrorOnTheWayHome)} m`);
 });

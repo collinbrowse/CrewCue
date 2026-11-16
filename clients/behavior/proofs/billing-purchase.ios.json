@@ -1,0 +1,18 @@
+{
+  "id": "billing-purchase",
+  "platform": "ios",
+  "entry": "crewcue://dev/billing-purchase",
+  "device": "iPhone 18 Pro simulator (CrewCue billing-649, C1190B96), iOS 27.2, Debug build",
+  "date": "2026-11-09",
+  "commit": "e64c9eb (iOS tree same as 5e2800a) plus uncommitted #649 iOS wiring (CompositionRoot, ShellModel, FixtureRouteView, Profile, Room members, Join)",
+  "session": "Dev session (HS256 dev JWT) against the local memory API on 127.0.0.1:3000. Debug fake store (no RevenueCat key) posting to POST /race-rooms/:roomId/billing/dev-purchase. Error via ?storeResult=fail; Offline via --api-base-url pointed at a closed port.",
+  "action": "Runner on an unpaid room opened crewcue://dev/billing-purchase?webhookDelay=4 and tapped Race Pass $14.99; the screen showed 'Payment received. Unlocking your race.' while it polled GET /billing, then unlocked.",
+  "checked": {
+    "Success": "'Unlocked: you plus 1 crew member.' with Open race, after the delayed fake webhook.",
+    "Empty": "Unpaid room on load: 'No Race Pass yet. Buy one to open this race.' with Race Pass $14.99 and Race Pass + Full Crew $19.99.",
+    "Error": "?storeResult=fail, tapped Race Pass: 'Couldn't complete the purchase.'",
+    "Offline": "API unreachable: 'Offline. Purchases need the network.' and the buy buttons disabled.",
+    "Accessibility labels": "crewcue.billing-purchase, crewcue.billing-purchase.buy-pass, crewcue.billing-purchase.buy-full-crew, crewcue.billing-purchase.status"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

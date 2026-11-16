@@ -143,8 +143,17 @@ public actor OutboxStore: UserDataStore {
     }
 
     /// Queues a chat message under its stable client message id. Re-queueing the same id replaces it.
-    public func enqueueChat(roomId: String, text: String, clientMessageId: String, role: String) throws -> StoredOperation {
-        let payload = try Self.json(["text": text, "clientMessageId": clientMessageId])
+    /// The flush posts it to `/chat/rooms/:roomId/messages`; the server stores one copy per id.
+    public func enqueueChat(
+        roomId: String,
+        text: String,
+        clientMessageId: String,
+        role: String,
+        photoKey: String? = nil
+    ) throws -> StoredOperation {
+        var fields = ["text": text, "clientMessageId": clientMessageId]
+        if let photoKey, !photoKey.isEmpty { fields["photoKey"] = photoKey }
+        let payload = try Self.json(fields)
         let operation = StoredOperation(
             id: clientMessageId,
             type: "chat",
@@ -163,34 +172,6 @@ public actor OutboxStore: UserDataStore {
             }
         }
         return operation
-    }
-
-    /// Pending chat for one room that no one is sending yet. The claim lives in memory only.
-    public func claimPendingChat(roomId: String) throws -> [StoredOperation] {
-        let claimed = try load().filter {
-            $0.roomId == roomId && $0.type == "chat" && $0.status == "pending" && !inFlight.contains($0.id)
-        }
-        inFlight.formUnion(claimed.map(\.id))
-        return claimed
-    }
-
-    /// Claims one pending chat message (the send that just queued it). False when it is gone or already claimed.
-    public func claimChat(id: String) throws -> Bool {
-        guard !inFlight.contains(id),
-              try load().contains(where: { $0.id == id && $0.type == "chat" && $0.status == "pending" }) else {
-            return false
-        }
-        inFlight.insert(id)
-        return true
-    }
-
-    /// Ends a claim. Delivered, or already on the server, removes the message; anything else keeps it pending.
-    public func settleChat(id: String, error: (any Error)?) throws {
-        inFlight.remove(id)
-        if let error, !OutboxPolicy.isAlreadyDelivered(error) {
-            return
-        }
-        try complete(id: id)
     }
 
     /// Most location samples one room keeps while offline (a 3-minute interval covers 100 hours).
@@ -289,8 +270,17 @@ public actor OutboxStore: UserDataStore {
         }
     }
 
-    public func enqueuePush(deviceId: String, platform: String, token: String, role: String) throws -> StoredOperation {
-        let payload = #"{"deviceId":"\#(deviceId)","platform":"\#(platform)","token":"\#(token)"}"#
+    /// `apnsEnvironment` is "development" for iOS debug builds, "production" otherwise; nil off iOS.
+    public func enqueuePush(
+        deviceId: String,
+        platform: String,
+        token: String,
+        role: String,
+        apnsEnvironment: String? = nil
+    ) throws -> StoredOperation {
+        var fields = ["deviceId": deviceId, "platform": platform, "token": token]
+        if let apnsEnvironment, !apnsEnvironment.isEmpty { fields["apnsEnvironment"] = apnsEnvironment }
+        let payload = try Self.json(fields)
         let operation = StoredOperation(
             id: "push-\(deviceId)",
             type: "push",
@@ -414,7 +404,7 @@ public actor OutboxStore: UserDataStore {
 
     /// Sends the pending snapshot. Each result is merged into the file as it is now: only the exact
     /// version that was sent (same id and idempotency key) is removed or marked, so anything queued
-    /// or replaced during the send survives. Chat is delivered by the chat screen, not here.
+    /// or replaced during the send survives. Chat goes out in the order it was queued.
     ///
     /// With `pingBatch`, a room's pending pings go out oldest first in batches of up to
     /// `maxPingsPerBatch`, and each sample settles from its own result. The closure returns one
@@ -424,9 +414,19 @@ public actor OutboxStore: UserDataStore {
         pingBatch: (@Sendable (_ roomId: String, _ pings: [StoredOperation]) async -> [OutboxFailureResolution])? = nil
     ) async throws -> FlushReport {
         var report = FlushReport()
-        let pending = try load().filter { $0.status == "pending" && !inFlight.contains($0.id) }
-        report.pending.append(contentsOf: pending.filter { $0.type == "chat" }.map(\.id))
-        let snapshot = pending.filter { $0.type != "chat" }
+        let all = try load()
+        // The server drops any sample at or before the room's last accepted one. While another
+        // flush is still sending a room's older samples, a newer one sent here could land first
+        // and turn that whole backlog stale, so it waits for the next flush.
+        let busyPingRooms = Set(all.filter { $0.type == "ping" && inFlight.contains($0.id) }.map(\.roomId))
+        let waiting = all.filter {
+            $0.status == "pending" && !inFlight.contains($0.id) && $0.type == "ping" && busyPingRooms.contains($0.roomId)
+        }
+        report.pending.append(contentsOf: waiting.map(\.id))
+        let pending = all.filter {
+            $0.status == "pending" && !inFlight.contains($0.id) && !($0.type == "ping" && busyPingRooms.contains($0.roomId))
+        }
+        let snapshot = pending
         let ids = Set(snapshot.map(\.id))
         inFlight.formUnion(ids)
         defer { inFlight.subtract(ids) }
@@ -545,6 +545,8 @@ public actor OutboxStore: UserDataStore {
             return "/race-rooms/\(operation.roomId)/checkpoints/\(checkpoint)/manual-stop"
         case "push":
             return "/chat/push/tokens"
+        case "chat":
+            return "/chat/rooms/\(operation.roomId)/messages"
         default:
             return nil
         }

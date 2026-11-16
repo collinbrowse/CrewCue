@@ -131,7 +131,7 @@ import Testing
     #expect(flag(preference, "ok") == false)
     #expect((preference["message"] as? String) == "Couldn't save alert settings.")
 
-    for op in ["streamToken", "parseMentions", "notificationPreference"] {
+    for op in ["chatPoll", "parseMentions", "notificationPreference"] {
         let response = try await chatRuntime(["op": op, "roomId": "room", "body": "@Ada"])
         #expect(flag(response, "ok") == false)
         #expect((response["message"] as? String) == "baseURL is required.")

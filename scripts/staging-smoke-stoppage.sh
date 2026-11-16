@@ -115,6 +115,9 @@ entitlement_payload='{"status":"paid"}'
 entitlement_result="$(api_request POST "/race-rooms/${ROOM_ID}/entitlement" "$entitlement_payload")"
 entitlement_code="$(printf "%s" "$entitlement_result" | sed -n '1p')"
 entitlement_file="$(printf "%s" "$entitlement_result" | sed -n '2p')"
+if [[ "$entitlement_code" == "403" ]] && jq -e '.error == "Manual entitlement is disabled"' "$entitlement_file" >/dev/null 2>&1; then
+  fail "Staging refuses manual entitlement since billing (#649). Set BILLING_MANUAL_ENTITLEMENT=enabled on the staging API service (docs/runbooks/mobile-release.md, Billing)."
+fi
 [[ "$entitlement_code" == "200" ]] || fail "Entitlement update failed (HTTP $entitlement_code): $(jq -c . "$entitlement_file")"
 
 log "Step C: upload course with stoppage checkpoint config and race start"

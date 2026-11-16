@@ -32,6 +32,8 @@ import com.crewcue.android.ui.chat.PushSection
 import com.crewcue.android.ui.map.isOnline
 import com.crewcue.android.ui.members.RoomMembersViewModel
 import com.crewcue.android.ui.members.RoomMembersViewModelFactory
+import com.crewcue.android.BuildConfig
+import com.crewcue.android.ui.activity.ActivityImportSection
 import com.crewcue.android.ui.strava.StravaSection
 import com.crewcue.android.ui.theme.CrewListRow
 import com.crewcue.android.ui.theme.CrewTextField
@@ -56,8 +58,12 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
         if (viewModel.session?.role == "athlete") {
             TrackingIntervalSection(viewModel, Modifier.focusedOn("location-heartbeat", focus))
         }
-        StravaSection(viewModel, Modifier.focusedOn("strava", focus))
-        ProductCard {
+        ActivityImportSection(viewModel, Modifier.focusedOn("activity-import", focus))
+        // Strava is off in v1 (#652); the server routes stay for later.
+        if (BuildConfig.STRAVA_ENABLED) {
+            StravaSection(viewModel, Modifier.focusedOn("strava", focus))
+        }
+        ProductCard(Modifier.focusedOn("account-deletion", focus)) {
             SectionHeader("Account")
             CrewListRow(
                 Icons.AutoMirrored.Outlined.Logout,
@@ -69,6 +75,10 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
                 tint = MaterialTheme.colorScheme.error,
                 titleColor = MaterialTheme.colorScheme.error
             )
+            DeleteAccountRow(viewModel) {
+                onDismiss()
+                viewModel.signOut(activity)
+            }
         }
         Text(
             text = buildAnnotatedString {

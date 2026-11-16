@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
  * Run the iOS UI smoke tests (every feature deeplink in clients/behavior/deeplinks.json) on an available iPhone simulator.
- * Set CREWCUE_IOS_SIMULATOR to pin a device name.
+ * Uses this checkout's own simulator (scripts/lib/agentDevice.mjs). CREWCUE_IOS_SIMULATOR pins a device name;
+ * CI or CREWCUE_SHARED_DEVICE=1 uses the first available iPhone.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "darwin") {
@@ -18,6 +20,13 @@ function pickDestination() {
   if (process.env.CREWCUE_IOS_SIMULATOR) {
     console.log(`test:ios: ${process.env.CREWCUE_IOS_SIMULATOR}`);
     return `platform=iOS Simulator,name=${process.env.CREWCUE_IOS_SIMULATOR}`;
+  }
+  if (!sharedDevice()) {
+    const config = path.join(repoRoot, ".xcodebuildmcp/config.yaml");
+    const deviceType = (fs.existsSync(config) && fs.readFileSync(config, "utf8").match(/^\s*simulatorName:\s*(.+)\s*$/m)?.[1].trim()) || "iPhone 18 Pro";
+    const own = ensureIosSimulator(repoRoot, deviceType);
+    console.log(`test:ios: ${own.name} (${own.udid})${own.created ? " [created]" : ""}`);
+    return `platform=iOS Simulator,id=${own.udid}`;
   }
   const listed = spawnSync("xcrun", ["simctl", "list", "devices", "available", "--json"], { encoding: "utf8" });
   if (listed.status !== 0) {

@@ -2,18 +2,21 @@ import Foundation
 import Observation
 import CrewCueClientCore
 
-private struct ChatDeliveryStopped: Error {}
-
 struct ChatLine: Identifiable, Equatable {
     var id: String
     var text: String
     var author: String = ""
     var time: String = ""
     var mine: Bool = false
-    var reactions: String = ""
-    var imageURL: String?
+    /// "Queued" or "Not sent" for own messages that are not on the server yet.
+    var delivery: String = ""
+    var failed: Bool = false
+    var imageURL: URL?
 }
 
+/// Crew chat for the active race. The loop lives here, not in the view, so the tab badge keeps
+/// counting while another tab is open. Messages, paging, reconnect and the outbox come from
+/// client-core `ChatSync` / `ChatThread`.
 @MainActor
 @Observable
 final class ChatModel {
@@ -21,20 +24,37 @@ final class ChatModel {
 
     private(set) var lines: [ChatLine] = []
     private(set) var unreadCount = 0
-    private(set) var channelId = ""
     private(set) var statusMessage = ""
     private(set) var isSending = false
+    private(set) var isUploadingPhoto = false
     /// The thread is opening: no lines or status message yet.
     private(set) var opening = false
+    private(set) var hasOlder = false
 
     private let client: AppClient
-    private let session = StreamRoomSession()
+    private var thread = ChatThread(roomId: "")
     private var members: [MentionMember] = []
-    private var authors = ChatAuthors(selfStreamUserId: "", members: nil)
     private var roomId: String?
     private var role = ""
     private var generation = 0
-    private var openWasOffline = false
+    private var loop: Task<Void, Never>?
+    private var offline = false
+    private var visible = false
+    private var seenIds: Set<String> = []
+    /// Sent this session but not back from a poll yet, so the row does not blink out.
+    private var recentlySent: [StoredOperation] = []
+
+    private static let clock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+    private static let iso: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     init(client: AppClient) {
         self.client = client
@@ -47,242 +67,213 @@ final class ChatModel {
         }
     }
 
-    func activate(userId: String?, roomId: String?, role: String?, displayName: String?) async {
-        generation += 1
-        let ticket = generation
+    /// Starts (or keeps) the chat loop for this race. Same race: nothing restarts.
+    func activate(userId: String?, roomId: String?, role: String?) {
         let nextRoom = Self.trimmed(roomId)
-        self.roomId = nextRoom
         self.role = role ?? ""
-        channelId = nextRoom.map { RaceDayAPI.channelId(roomId: $0) } ?? ""
-        members = []
-        authors = ChatAuthors(selfStreamUserId: "", members: nil)
-        lines = []
-        statusMessage = ""
-        opening = true
-        openWasOffline = false
-        await session.close()
-        guard ticket == generation, !Task.isCancelled else { return }
         guard userId != nil, let nextRoom else {
-            statusMessage = "No messages."
+            stop()
+            self.roomId = nil
+            lines = []
+            statusMessage = ChatCopy.empty
             opening = false
             return
         }
-        await loadMembers(roomId: nextRoom, ticket: ticket)
-        guard ticket == generation, !Task.isCancelled else { return }
-        do {
-            let minted = try await RaceDayAPI.streamToken(graph: client.graph, roomId: nextRoom)
-            guard ticket == generation, !Task.isCancelled else { return }
-            authors = ChatAuthors(token: minted)
-            let graph = client.graph
-            try await session.open(
-                apiKey: minted.streamApiKey,
-                streamUserId: minted.streamUserId,
-                displayName: displayName,
-                channelId: channelId,
-                refreshToken: {
-                    let next = try await RaceDayAPI.streamToken(graph: graph, roomId: nextRoom)
-                    return next.token
-                }
-            )
-            guard ticket == generation, !Task.isCancelled else { return }
-            openWasOffline = false
-            let sendFailed = await deliverPending(roomId: nextRoom, ticket: ticket)
-            guard ticket == generation, !Task.isCancelled else { return }
-            await showChannelResult(ticket: ticket, opened: !sendFailed)
-        } catch {
-            guard ticket == generation, !Task.isCancelled else { return }
-            openWasOffline = APIFailure.isOffline(error)
-            await showChannelResult(ticket: ticket, opened: false)
+        if nextRoom == self.roomId, loop != nil { return }
+        stop()
+        generation += 1
+        let ticket = generation
+        self.roomId = nextRoom
+        thread = ChatThread(roomId: nextRoom)
+        members = []
+        lines = []
+        seenIds = []
+        recentlySent = []
+        unreadCount = 0
+        statusMessage = ""
+        opening = true
+        offline = false
+        loop = Task { [weak self] in
+            await self?.run(roomId: nextRoom, ticket: ticket)
         }
     }
 
+    /// The chat screen is on screen: its messages count as read.
+    func setVisible(_ value: Bool) {
+        visible = value
+        if value { unreadCount = 0 }
+    }
+
     func clear() {
+        stop()
         generation += 1
         draft = ""
         lines = []
         members = []
-        authors = ChatAuthors(selfStreamUserId: "", members: nil)
-        channelId = ""
+        thread = ChatThread(roomId: "")
         statusMessage = ""
         opening = false
         roomId = nil
         role = ""
-        openWasOffline = false
         isSending = false
-        Task { await session.close() }
+        isUploadingPhoto = false
+        unreadCount = 0
+        seenIds = []
     }
 
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        guard !text.isEmpty, !isSending, let roomId else { return }
         let ticket = generation
-        guard let roomId else {
-            statusMessage = "Couldn't open the channel."
-            return
-        }
-        guard let outbox = client.graph.outbox else {
-            statusMessage = "Couldn't open the channel."
-            return
-        }
         isSending = true
         defer { isSending = false }
-        let clientMessageId = UUID().uuidString
-        do {
-            _ = try await outbox.enqueueChat(
-                roomId: roomId,
-                text: text,
-                clientMessageId: clientMessageId,
-                role: role.isEmpty ? "crew" : role
-            )
-        } catch {
-            guard ticket == generation else { return }
-            statusMessage = "Couldn't open the channel."
-            return
-        }
-        guard ticket == generation else { return }
         draft = ""
-        guard session.isOpen, (try? await outbox.claimChat(id: clientMessageId)) == true else {
-            await showChannelResult(ticket: ticket, opened: false)
+        do {
+            let outcome = try await ChatSync.send(graph: client.graph, roomId: roomId, text: text, role: sendRole)
+            guard ticket == generation else { return }
+            offline = outcome.delivery == .queued
+            noteSent(outcome)
+        } catch {
+            guard ticket == generation else { return }
+            draft = text
+            statusMessage = ChatCopy.error
             return
         }
-        do {
-            try await sendClaimed(text: text, clientMessageId: clientMessageId, outbox: outbox)
-            guard ticket == generation else { return }
-            openWasOffline = false
-            await showChannelResult(ticket: ticket, opened: true)
-            guard ticket == generation else { return }
-            if lines.contains(where: { $0.id == clientMessageId }) == false {
-                lines.append(ChatLine(id: clientMessageId, text: text, author: authors.selfLabel, mine: true))
-                statusMessage = ""
-            }
-        } catch {
-            guard ticket == generation else { return }
-            let offline = APIFailure.isOffline(error)
-            if offline {
-                openWasOffline = true
-            }
-            _ = await refreshLines()
-            guard ticket == generation else { return }
-            statusMessage = offline
-                ? "Offline. Message queued on this device."
-                : "Couldn't open the channel."
-        }
+        await refreshLines()
     }
 
-    /// Sends one claimed message under its stable id. Stream answering "already exists" means an
-    /// earlier attempt landed (a crash or lost reply), so it counts as delivered.
-    private func sendClaimed(text: String, clientMessageId: String, outbox: OutboxStore) async throws {
+    /// Uploads a JPEG/PNG/HEIC and sends it as its own message.
+    func sendPhoto(data: Data, contentType: String) async {
+        guard let roomId, !isUploadingPhoto else { return }
+        let ticket = generation
+        isUploadingPhoto = true
+        defer { isUploadingPhoto = false }
         do {
-            try await session.send(text: text, messageId: clientMessageId)
+            let key = try await ChatSync.uploadPhoto(graph: client.graph, roomId: roomId, data: data, contentType: contentType)
+            guard ticket == generation else { return }
+            let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = ""
+            let outcome = try await ChatSync.send(graph: client.graph, roomId: roomId, text: caption, photoKey: key, role: sendRole)
+            guard ticket == generation else { return }
+            noteSent(outcome)
         } catch {
-            try? await outbox.settleChat(id: clientMessageId, error: error)
-            if OutboxPolicy.isAlreadyDelivered(error) { return }
-            throw error
+            guard ticket == generation else { return }
+            if APIFailure.isOffline(error) {
+                statusMessage = ChatCopy.photoNeedsConnection
+            } else if (error as? ClientHTTPError)?.status == 413 {
+                statusMessage = ChatCopy.photoTooLarge
+            } else {
+                statusMessage = ChatCopy.error
+            }
+            return
         }
-        try await outbox.settleChat(id: clientMessageId, error: nil)
+        await refreshLines()
     }
 
-    /// Redelivers this room's queued messages, including ones a crash left behind. Each message is
-    /// claimed in memory first, so a send already in progress is never sent twice.
-    private func deliverPending(roomId: String, ticket: Int) async -> Bool {
-        guard session.isOpen, !isSending, let outbox = client.graph.outbox else { return false }
-        let pending = (try? await outbox.claimPendingChat(roomId: roomId)) ?? []
-        guard !pending.isEmpty else { return false }
-        isSending = true
-        defer {
-            if ticket == generation {
-                isSending = false
-            }
+    /// Removes a message the server refused from the outbox.
+    func discard(_ line: ChatLine) async {
+        await ChatSync.discard(graph: client.graph, clientMessageId: line.id)
+        await refreshLines()
+    }
+
+    func loadOlder() async {
+        guard let roomId, let cursor = thread.olderCursor else { return }
+        let ticket = generation
+        guard let page = try? await ChatSync.older(graph: client.graph, roomId: roomId, before: cursor), ticket == generation else {
+            return
         }
-        for (index, operation) in pending.enumerated() {
-            guard ticket == generation, session.isOpen else {
-                await release(pending[index...], outbox: outbox)
-                return true
-            }
-            let text = Self.text(in: operation.payloadJSON)
-            guard !text.isEmpty else {
-                await release(pending[index...index], outbox: outbox)
-                continue
-            }
-            do {
-                try await sendClaimed(text: text, clientMessageId: operation.clientMessageId, outbox: outbox)
-            } catch {
-                if APIFailure.isOffline(error) {
-                    openWasOffline = true
+        thread.apply(page, older: true)
+        await refreshLines()
+    }
+
+    private func noteSent(_ outcome: ChatSendOutcome) {
+        guard outcome.delivery == .sent else { return }
+        var accepted = outcome.operation
+        accepted.status = "accepted"
+        recentlySent.append(accepted)
+    }
+
+    private var sendRole: String {
+        role.isEmpty ? "crew_member" : role
+    }
+
+    private func stop() {
+        loop?.cancel()
+        loop = nil
+    }
+
+    private func run(roomId: String, ticket: Int) async {
+        var cursor: String?
+        var failures = 0
+        while !Task.isCancelled, ticket == generation {
+            let outcome = await ChatSync.poll(graph: client.graph, roomId: roomId, cursor: cursor, failures: failures)
+            guard !Task.isCancelled, ticket == generation else { return }
+            failures = outcome.failures
+            offline = outcome.offline
+            if let page = outcome.page {
+                let firstLoad = cursor == nil
+                thread.apply(page)
+                cursor = thread.pollCursor
+                members = page.members.compactMap { member in
+                    guard let name = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+                    return MentionMember(userId: member.userId, displayName: name)
                 }
-                await release(pending[(index + 1)...], outbox: outbox)
-                return true
+                countUnread(page, firstLoad: firstLoad)
             }
-        }
-        return false
-    }
-
-    /// Gives claimed messages back to the queue without sending them.
-    private func release(_ operations: ArraySlice<StoredOperation>, outbox: OutboxStore) async {
-        for operation in operations {
-            try? await outbox.settleChat(id: operation.id, error: ChatDeliveryStopped())
-        }
-    }
-
-    private func loadMembers(roomId: String, ticket: Int) async {
-        do {
-            let envelope = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId)
+            opening = false
+            await refreshLines()
             guard ticket == generation else { return }
-            members = envelope.room.memberships.compactMap { membership in
-                let name = membership.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                guard !name.isEmpty else { return nil }
-                return MentionMember(userId: membership.userId, displayName: name)
+            if outcome.stop {
+                statusMessage = outcome.removed ? ChatCopy.removed : ChatCopy.expired
+                loop = nil
+                return
             }
-        } catch {
-            guard ticket == generation else { return }
-            members = []
-        }
-    }
-
-    private func showChannelResult(ticket: Int, opened: Bool) async {
-        let pending = await refreshLines()
-        guard ticket == generation else { return }
-        opening = false
-        if opened {
-            statusMessage = lines.isEmpty ? "No messages." : ""
-            return
-        }
-        if openWasOffline && pending {
-            statusMessage = "Offline. Message queued on this device."
-        } else {
-            statusMessage = "Couldn't open the channel."
-        }
-    }
-
-    @discardableResult
-    private func refreshLines() async -> Bool {
-        var next = session.lines(authors: authors)
-        var pending = false
-        if let roomId, let outbox = client.graph.outbox {
-            let operations = (try? await outbox.operations()) ?? []
-            let known = Set(next.map(\.id))
-            for operation in operations where operation.roomId == roomId && operation.type == "chat" && operation.status == "pending" {
-                pending = true
-                guard !known.contains(operation.id) else { continue }
-                let text = Self.text(in: operation.payloadJSON)
-                guard !text.isEmpty else { continue }
-                next.append(ChatLine(id: operation.id, text: text, author: authors.selfLabel, mine: true))
+            if outcome.page == nil, !thread.loaded, !outcome.offline {
+                statusMessage = ChatCopy.error
+            }
+            if outcome.retryAfterSeconds > 0 {
+                try? await Task.sleep(for: .seconds(outcome.retryAfterSeconds))
             }
         }
-        unreadCount = session.unreadCount()
-        lines = next.filter { line in
-            !line.text.isEmpty || line.imageURL != nil || !line.reactions.isEmpty
-        }
-        return pending
     }
 
-    private static func text(in payload: String) -> String {
-        guard let data = payload.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let text = object["text"] as? String else {
-            return ""
+    private func countUnread(_ page: ChatMessagePage, firstLoad: Bool) {
+        let fresh = page.messages.filter { !seenIds.contains($0.id) }
+        seenIds.formUnion(page.messages.map(\.id))
+        guard !firstLoad, !visible else { return }
+        unreadCount += fresh.filter { $0.senderUserId != page.selfUserId }.count
+    }
+
+    private func refreshLines() async {
+        guard let roomId else { return }
+        recentlySent.removeAll { thread.contains(clientMessageId: $0.clientMessageId) }
+        let pending = await ChatSync.pending(graph: client.graph, roomId: roomId)
+        let rows = thread.rows(pending: pending + recentlySent, baseURL: client.graph.baseURL)
+        lines = rows.map { row in
+            ChatLine(
+                id: row.id,
+                text: row.text,
+                author: row.author,
+                time: Self.time(row.createdAt),
+                mine: row.isOwn,
+                delivery: row.delivery == .queued ? ChatCopy.queued : row.delivery == .failed ? ChatCopy.notSent : "",
+                failed: row.delivery == .failed,
+                imageURL: row.photoURL
+            )
         }
-        return text
+        hasOlder = thread.olderCursor != nil
+        if statusMessage == ChatCopy.removed || statusMessage == ChatCopy.expired { return }
+        let queued = rows.contains { $0.delivery == .queued }
+        if offline {
+            statusMessage = queued ? ChatCopy.offline : "Offline."
+        } else if thread.loaded {
+            statusMessage = lines.isEmpty ? ChatCopy.empty : ""
+        }
+    }
+
+    private static func time(_ iso: String) -> String {
+        guard !iso.isEmpty, let date = Self.iso.date(from: iso) else { return "" }
+        return clock.string(from: date)
     }
 
     private static func trimmed(_ value: String?) -> String? {

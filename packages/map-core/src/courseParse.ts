@@ -1323,6 +1323,11 @@ function extractOptionalTimestamp(body: string): number | null {
   return Number.isFinite(timestampMs) ? timestampMs : null;
 }
 
+/** Haversine length of a track, in meters. */
+export function computeTrackDistanceMeters(points: GpxTrackPoint[]): number {
+  return calculateTotalDistance(points);
+}
+
 function calculateTotalDistance(points: GpxTrackPoint[]): number {
   let totalMeters = 0;
 

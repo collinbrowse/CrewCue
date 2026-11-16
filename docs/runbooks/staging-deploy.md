@@ -4,6 +4,8 @@ The API and Postgres run on Railway ([ADR 0009](../adr/0009-railway-hosting.md))
 
 ## Deploy
 
+Staging follows `main`. Production does not: it deploys only from the Release workflow's `api-production` job after the owner approves the `release` environment ([launch-owner-setup.md](launch-owner-setup.md)).
+
 1. Merge to `main` with CI green.
 2. Railway builds and deploys automatically. Watch the deployment in the Railway dashboard, or run `railway status` / `railway logs`.
 3. A failed migration or health check stops the rollout, and the previous deployment keeps serving.

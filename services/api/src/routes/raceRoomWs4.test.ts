@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -235,3 +238,92 @@ test("forbids non-member and invalid checkpoint", async () => {
 
   await app.close();
 });
+
+test(
+  "the crew's incident log survives an API restart, and an incident logged after the restart keeps the earlier ones",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const { roomId, athleteToken, chiefToken } = await setupPaidActiveRoomWithChief(app);
+
+    const logIncident = async (token: string, payload: Record<string, unknown>) => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/incidents`,
+        payload,
+        headers: { authorization: `Bearer ${token}` }
+      });
+      assert.equal(res.statusCode, 201);
+      return (res.json() as { incident: Record<string, unknown> }).incident;
+    };
+    // Logged out of order on purpose: the list is read back by recordedAt.
+    const atAid = await logIncident(chiefToken, {
+      category: "hydration",
+      severity: "high",
+      checkpointId: "cp1",
+      summary: "Runner skipped the bottle swap",
+      details: "Only one soft flask left for the climb",
+      recordedAt: "2026-05-12T18:30:00.000Z"
+    });
+    const earlier = await logIncident(athleteToken, {
+      category: "fuel",
+      severity: "low",
+      summary: "Dropped a gel",
+      recordedAt: "2026-05-12T17:05:00.000Z"
+    });
+    await app.close();
+
+    // A fresh process has nothing in memory: the log must come back from Postgres, and a
+    // new incident must be added to it rather than replace it.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const roomId = process.argv[2];
+      const chief = { authorization: "Bearer " + process.argv[3] };
+      const list = async () => {
+        const res = await app.inject({ method: "GET", url: "/race-rooms/" + roomId + "/incidents", headers: chief });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const afterRestart = await list();
+      const logged = await app.inject({
+        method: "POST",
+        url: "/race-rooms/" + roomId + "/incidents",
+        payload: {
+          category: "equipment",
+          severity: "medium",
+          checkpointId: "cp1",
+          summary: "Headlamp battery low",
+          recordedAt: "2026-05-12T19:10:00.000Z"
+        },
+        headers: chief
+      });
+      const afterNewIncident = await list();
+      process.stdout.write("\\nRESULT:" + JSON.stringify({
+        afterRestart, logged: { status: logged.statusCode, body: logged.json() }, afterNewIncident
+      }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, chiefToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    type Read = { status: number; body: unknown };
+    const result = JSON.parse(
+      out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)
+    ) as { afterRestart: Read; logged: Read; afterNewIncident: Read };
+
+    assert.equal(result.afterRestart.status, 200);
+    assert.deepEqual(result.afterRestart.body, { incidents: [earlier, atAid] });
+
+    assert.equal(result.logged.status, 201);
+    const added = (result.logged.body as { incident: Record<string, unknown> }).incident;
+    assert.equal(added.reportedByUserId, "chief-user");
+    assert.equal(result.afterNewIncident.status, 200);
+    assert.deepEqual(result.afterNewIncident.body, { incidents: [earlier, atAid, added] });
+  }
+);

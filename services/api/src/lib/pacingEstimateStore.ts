@@ -175,3 +175,39 @@ export async function getPacingEstimateById(estimateId: string): Promise<StoredP
     ...(parsed.baselineTrack ? { baselineTrack: parsed.baselineTrack } : {})
   };
 }
+
+/** Account deletion: drop every pacing estimate owned by this athlete. Returns rows removed. */
+export async function deletePacingEstimatesForAthlete(athleteUserId: string): Promise<number> {
+  await ensureReady();
+  if (!pool) {
+    let removed = 0;
+    for (const [id, row] of [...memoryById.entries()]) {
+      if (row.athleteUserId !== athleteUserId) continue;
+      memoryById.delete(id);
+      removed += 1;
+    }
+    return removed;
+  }
+  const result = await pool.query(`DELETE FROM pacing_estimate_json WHERE athlete_user_id = $1`, [athleteUserId]);
+  return result.rowCount ?? 0;
+}
+
+/** Account export: estimates owned by this athlete. */
+export async function listPacingEstimatesForAthlete(athleteUserId: string): Promise<StoredPacingEstimate[]> {
+  await ensureReady();
+  if (!pool) {
+    return [...memoryById.values()].filter((row) => row.athleteUserId === athleteUserId);
+  }
+  const result = await pool.query<{ athlete_user_id: string; payload: unknown }>(
+    `SELECT athlete_user_id, payload FROM pacing_estimate_json WHERE athlete_user_id = $1 ORDER BY updated_at ASC`,
+    [athleteUserId]
+  );
+  return result.rows.map((row) => {
+    const parsed = parseStoredPayload(row.payload);
+    return {
+      athleteUserId: row.athlete_user_id,
+      estimate: parsed.estimate,
+      ...(parsed.baselineTrack ? { baselineTrack: parsed.baselineTrack } : {})
+    };
+  });
+}

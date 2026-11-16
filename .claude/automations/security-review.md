@@ -5,7 +5,7 @@ Goal: find exploitable weaknesses before launch without disclosing them. The rep
 ## Scope
 
 Auth0 JWT verification and the HS256 fallback, room membership checks on every route, invite tokens,
-webhook signature checks (chat push, Stream, Strava), input validation and upload limits (GPX), secrets in
+webhook signature checks (Strava, RevenueCat), input validation and upload limits (GPX), secrets in
 code or logs, client token storage (Keychain, keystore), sign-out data clearing, and dependency advisories
 (`npm audit --omit=dev`). Read `docs/security-baseline.md` and check the code still matches it.
 Prefer code changed since the last Monday.

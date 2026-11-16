@@ -8,7 +8,7 @@ paths:
 
 # Client-core architecture
 
-Server domain stays in `services/api`. Generated wire types stay generated. `packages/client-core` stores, syncs, and maps. It does not reimplement pacing or GPX. MapLibre, Stream, and Auth0 stay in each app.
+Server domain stays in `services/api`. Generated wire types stay generated. `packages/client-core` stores, syncs, and maps. It does not reimplement pacing or GPX. MapLibre, Auth0, and push registration stay in each app; crew chat is client-core (ADR 0011).
 
 New shared behavior is a Swift type plus a Swift test. Android calls it through `CFacade.swift` and `ClientCoreBridge.kt`. Kotlin does not grow a second outbox, formatter, or HTTP stack.
 

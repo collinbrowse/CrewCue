@@ -51,7 +51,7 @@ Scoped variants: `verify:api`, `verify:contracts`, `verify:client-core`, `verify
 
 ## Deploy and release
 
-- **API:** Railway deploys `main` (`railway.toml` runs migrations, then health-checks `/health/live`). See `docs/runbooks/staging-deploy.md`.
+- **API:** Railway staging deploys `main`. Production deploys only from the Release workflow, after the owner approves (`railway.toml` runs migrations, then health-checks `/health/live`). See `docs/runbooks/staging-deploy.md` and `docs/runbooks/launch-owner-setup.md`.
 - **Mobile:** `npm run release -- X.Y.Z` tags `main`. The `Release` workflow uploads iOS to TestFlight and Android to Play internal testing. Secrets and first-time setup: `docs/runbooks/mobile-release.md`.
 
 ## Contributing

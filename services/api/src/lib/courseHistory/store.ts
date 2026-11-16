@@ -122,3 +122,14 @@ export async function listCourseHistoryEvents(filter: { usage?: CourseHistoryUsa
 export function resetCourseHistoryForTests(): void {
   memory.clear();
 }
+
+/** Account deletion: drop the course-history event recorded from a CrewCue room (the runner's race). */
+export async function deleteCrewCueRoomCourseHistory(roomId: string): Promise<void> {
+  const id = courseHistoryEventId({ source: "crewcue", sourceEventId: roomId });
+  const pool = getPersistencePool();
+  if (!pool) {
+    memory.delete(id);
+    return;
+  }
+  await pool.query("DELETE FROM course_history_events WHERE id = $1", [id]);
+}

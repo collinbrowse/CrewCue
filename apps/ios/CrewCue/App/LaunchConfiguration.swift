@@ -35,6 +35,10 @@ struct LaunchConfiguration: Equatable {
     var auth: Auth0Configuration
     /// Why this build can't reach its server or Auth0. Release shows it instead of the app.
     var configurationProblem: String?
+    /// RevenueCat public iOS SDK key (`CREWCUE_REVENUECAT_API_KEY`). Empty means no store in this build.
+    var revenueCatAPIKey: String = ""
+    /// Debug fake store only: dev links and launch arguments that shape the fake purchase.
+    var fakeStore = FakeStoreOptions()
 
     static func resolve(
         arguments: [String] = CommandLine.arguments,
@@ -43,9 +47,25 @@ struct LaunchConfiguration: Equatable {
         localFallback: Bool = DevLinks.enabled
     ) -> LaunchConfiguration {
         let deeplink = devLinks ? parsedDeeplink(arguments: arguments) : nil
-        let raw = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String) ?? ""
+        let plistBase = (bundle.object(forInfoDictionaryKey: "CrewCueAPIBaseURL") as? String) ?? ""
+        // `--api-base-url` points a Debug build at another local server (an offline proxy for proofs).
+        let raw = devLinks ? (argument(arguments, flag: "--api-base-url", offset: 1) ?? plistBase) : plistBase
         let baseURL = baseURL(raw: raw, localFallback: localFallback)
         let auth = Auth0Configuration.load(bundle: bundle)
+        let revenueCatKey = ((bundle.object(forInfoDictionaryKey: "CrewCueRevenueCatAPIKey") as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var fakeStore = FakeStoreOptions()
+        if devLinks {
+            if let link = argument(arguments, flag: "--deeplink", offset: 1) {
+                fakeStore.apply(deeplink: link)
+            }
+            if let delay = argument(arguments, flag: "--webhook-delay", offset: 1).flatMap(Double.init) {
+                fakeStore.webhookDelaySeconds = delay
+            }
+            if let result = argument(arguments, flag: "--store-result", offset: 1) {
+                fakeStore.storeResult = result
+            }
+        }
         return LaunchConfiguration(
             route: deeplink?.route ?? Route(featureId: "app-shell", state: .success),
             fixtureOverlay: deeplink?.fixtureOverlay ?? false,
@@ -53,7 +73,9 @@ struct LaunchConfiguration: Equatable {
             signedOut: arguments.contains("--signed-out"),
             baseURL: baseURL,
             auth: auth,
-            configurationProblem: configurationProblem(baseURL: baseURL, auth: auth, localFallback: localFallback)
+            configurationProblem: configurationProblem(baseURL: baseURL, auth: auth, localFallback: localFallback),
+            revenueCatAPIKey: revenueCatKey,
+            fakeStore: fakeStore
         )
     }
 
@@ -128,5 +150,30 @@ struct LaunchConfiguration: Equatable {
         let value = arguments[target]
         guard !value.hasPrefix("--") else { return nil }
         return value
+    }
+}
+
+/// Debug fake store knobs. `?webhookDelay=<seconds>` lets the server unlock late, the way a slow
+/// RevenueCat webhook does, so the billing poll shows. `?storeResult=fail|cancel` makes the fake
+/// store decline or cancel the way the App Store can.
+struct FakeStoreOptions: Equatable, Sendable {
+    var webhookDelaySeconds: Double = 0
+    var storeResult: String?
+
+    mutating func apply(deeplink urlString: String) {
+        guard let queryStart = urlString.firstIndex(of: "?") else { return }
+        let query = urlString[urlString.index(after: queryStart)...]
+        for pair in query.split(separator: "&") {
+            let bits = pair.split(separator: "=", maxSplits: 1)
+            guard bits.count == 2 else { continue }
+            switch bits[0] {
+            case "webhookDelay":
+                if let seconds = Double(bits[1]) { webhookDelaySeconds = max(0, seconds) }
+            case "storeResult":
+                storeResult = String(bits[1])
+            default:
+                break
+            }
+        }
     }
 }

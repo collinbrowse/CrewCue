@@ -29,8 +29,12 @@ struct ShellSettingsSheet: View {
                         SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
                             .id("location-heartbeat")
                     }
-                    SettingsStravaSection(model: model.stravaModel)
-                        .id("strava")
+                    SettingsActivityImportSection(model: model.activityImportModel, userId: model.signedInUserId)
+                        .id("activity-import")
+                    if ClientFeatureFlags.stravaEnabled {
+                        SettingsStravaSection(model: model.stravaModel)
+                            .id("strava")
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         CrewSectionHeader(title: "Account")
                         CrewListRow(systemImage: "rectangle.portrait.and.arrow.right", title: "Sign out", tint: theme.danger) {
@@ -38,8 +42,13 @@ struct ShellSettingsSheet: View {
                             model.profileModel.signOut()
                         }
                         .accessibilityLabel("Sign out")
+                        SettingsDeleteAccountRow(model: model.accountDeletionModel) {
+                            dismiss()
+                            model.profileModel.signOut()
+                        }
                     }
                     .crewCard()
+                    .id("account-deletion")
                     Text("Pacing model built with race results from [OpenSplitTime.org](https://www.opensplittime.org).")
                         .font(.footnote)
                         .foregroundStyle(theme.body)
@@ -258,5 +267,46 @@ struct ChatAlertChoice: View {
             }
         }
         .disabled(isWorking)
+    }
+}
+
+/// Delete account row and its confirm step (#560, App Store 5.1.1(v)).
+struct SettingsDeleteAccountRow: View {
+    @Bindable var model: AccountDeletionModel
+    var onDeleted: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CrewListRow(systemImage: "trash", title: AccountDeletion.rowTitle, tint: theme.danger) {
+                model.confirming = true
+            }
+            .disabled(model.deleting)
+            .accessibilityIdentifier("crewcue.account-deletion")
+            .accessibilityLabel(AccountDeletion.rowTitle)
+            if model.message.isEmpty == false {
+                Text(verbatim: model.message)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .accessibilityIdentifier("crewcue.account-deletion.message")
+            }
+            if let url = model.webURL {
+                Link(AccountDeletion.webLinkLabel, destination: url)
+                    .font(.footnote)
+                    .tint(theme.body)
+            }
+        }
+        .alert(AccountDeletion.confirmTitle, isPresented: $model.confirming) {
+            Button(AccountDeletion.confirmButton, role: .destructive) {
+                Task {
+                    if await model.delete() {
+                        onDeleted()
+                    }
+                }
+            }
+            Button(AccountDeletion.cancelButton, role: .cancel) {}
+        } message: {
+            Text(AccountDeletion.confirmBody)
+        }
     }
 }
