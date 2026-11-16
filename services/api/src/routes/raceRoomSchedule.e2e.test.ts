@@ -4,8 +4,11 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parseCrewScheduleSheet, type CrewScheduleSheet, type RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
@@ -351,3 +354,83 @@ test("W1-I EC7 deleted checkpoint is absent from schedule", async () => {
 
   await app.close();
 });
+
+test(
+  "the crew's extra stop time at an aid station still shifts later arrivals after an API restart, and editing the note keeps it",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const app = buildApp();
+    await app.ready();
+    const ownerToken = app.jwt.sign(buildClaims("owner-w1i-restart"));
+    const roomId = await createPaidRoom(app, ownerToken, "W1-I stop-plan delay survives restart");
+    await put50kCourse(app, roomId, ownerToken);
+
+    const baseline = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+    const put = await putStopPlan(app, roomId, "aid-1", ownerToken, {
+      delayOverrideSeconds: AID1_DELAY_SECONDS,
+      planNotes: { id: "note-w1i-restart", body: "Swap shoes, extra 3 min" }
+    });
+    assert.equal(put.statusCode, 200);
+    assertLaterStopsShifted(
+      baseline,
+      parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json()),
+      AID1_DELAY_SECONDS
+    );
+    await app.close();
+
+    // A fresh process has no room in memory: the delay must come back from Postgres, and a
+    // notes-only edit made after the restart must not drop it.
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const app = buildApp();
+      await app.ready();
+      const roomId = process.argv[2];
+      const headers = { authorization: "Bearer " + process.argv[3] };
+      const read = async (url) => {
+        const res = await app.inject({ method: "GET", url, headers });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const schedule = await read("/race-rooms/" + roomId + "/schedule");
+      const stopPlan = await read("/race-rooms/" + roomId + "/stop-plans/aid-1");
+      const edit = await app.inject({
+        method: "PUT",
+        url: "/race-rooms/" + roomId + "/stop-plans/aid-1",
+        payload: { planNotes: { id: "note-w1i-restart", body: "Swap shoes and socks" } },
+        headers
+      });
+      const scheduleAfterEdit = await read("/race-rooms/" + roomId + "/schedule");
+      process.stdout.write("\\nRESULT:" + JSON.stringify({
+        schedule, stopPlan, edit: { status: edit.statusCode, body: edit.json() }, scheduleAfterEdit
+      }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    type Read = { status: number; body: unknown };
+    const result = JSON.parse(
+      out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)
+    ) as { schedule: Read; stopPlan: Read; edit: Read; scheduleAfterEdit: Read };
+
+    assert.equal(result.schedule.status, 200);
+    assertLaterStopsShifted(baseline, parseCrewScheduleSheet(result.schedule.body), AID1_DELAY_SECONDS);
+    assert.equal(result.stopPlan.status, 200);
+    assert.deepEqual(result.stopPlan.body, {
+      roomId,
+      checkpointId: "aid-1",
+      delayOverrideSeconds: AID1_DELAY_SECONDS,
+      planNotes: { id: "note-w1i-restart", body: "Swap shoes, extra 3 min" }
+    });
+
+    assert.equal(result.edit.status, 200);
+    const edited = result.edit.body as { delayOverrideSeconds?: number; planNotes?: { body: string } };
+    assert.equal(edited.delayOverrideSeconds, AID1_DELAY_SECONDS, "a notes-only edit keeps the delay");
+    assert.equal(edited.planNotes?.body, "Swap shoes and socks");
+    assert.equal(result.scheduleAfterEdit.status, 200);
+    assertLaterStopsShifted(baseline, parseCrewScheduleSheet(result.scheduleAfterEdit.body), AID1_DELAY_SECONDS);
+  }
+);

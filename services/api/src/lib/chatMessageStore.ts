@@ -111,6 +111,19 @@ function fromRow(row: Row): StoredChatMessage {
 const COLUMNS =
   "seq::text AS seq, room_id, sender_user_id, client_message_id, body, photo_key, photo_content_type, photo_byte_size, created_at";
 
+/** Advisory lock class for per-room chat inserts (two-key form; init uses the one-key 711201). */
+const CHAT_INSERT_LOCK_CLASS = 711202;
+
+let insertCommitDelayForTests: (() => Promise<void>) | undefined;
+
+/**
+ * Test-only: the next Postgres insert waits on `delay` after its row is written and before it
+ * commits, so a test can hold one send open while another lands. Fires once.
+ */
+export function setChatInsertCommitDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  insertCommitDelayForTests = delay;
+}
+
 /** Stores a message, or returns the one already stored under the same client message id. */
 export async function insertChatMessage(
   input: NewChatMessage
@@ -129,25 +142,46 @@ export async function insertChatMessage(
     return { message: structuredClone(stored), duplicate: false };
   }
   await initChatMessageStore();
-  const inserted = await pool.query<Row>(
-    `
-      INSERT INTO chat_messages
-        (room_id, sender_user_id, client_message_id, body, photo_key, photo_content_type, photo_byte_size)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (room_id, sender_user_id, client_message_id) DO NOTHING
-      RETURNING ${COLUMNS};
-    `,
-    [
-      input.roomId,
-      input.senderUserId,
-      input.clientMessageId,
-      input.text,
-      input.photoKey ?? null,
-      input.photoContentType ?? null,
-      input.photoByteSize ?? null
-    ]
-  );
-  if (inserted.rows[0]) return { message: fromRow(inserted.rows[0]), duplicate: false };
+  const client = await pool.connect();
+  let insertedRow: Row | undefined;
+  try {
+    await client.query("BEGIN");
+    // Ids come from a sequence, and two sends can commit in the other order from the ids they
+    // drew. A crew phone that polls in between moves its cursor past the lower id and never
+    // sees that message. One insert at a time per room keeps id order and commit order the same.
+    await client.query("SELECT pg_advisory_xact_lock($1, hashtext($2))", [CHAT_INSERT_LOCK_CLASS, input.roomId]);
+    const inserted = await client.query<Row>(
+      `
+        INSERT INTO chat_messages
+          (room_id, sender_user_id, client_message_id, body, photo_key, photo_content_type, photo_byte_size)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (room_id, sender_user_id, client_message_id) DO NOTHING
+        RETURNING ${COLUMNS};
+      `,
+      [
+        input.roomId,
+        input.senderUserId,
+        input.clientMessageId,
+        input.text,
+        input.photoKey ?? null,
+        input.photoContentType ?? null,
+        input.photoByteSize ?? null
+      ]
+    );
+    insertedRow = inserted.rows[0];
+    const delay = insertCommitDelayForTests;
+    if (delay) {
+      insertCommitDelayForTests = undefined;
+      await delay();
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+  if (insertedRow) return { message: fromRow(insertedRow), duplicate: false };
   const existing = await pool.query<Row>(
     `SELECT ${COLUMNS} FROM chat_messages WHERE room_id = $1 AND sender_user_id = $2 AND client_message_id = $3`,
     [input.roomId, input.senderUserId, input.clientMessageId]

@@ -28,7 +28,7 @@ RevenueCat webhook. No JWT. The `Authorization` header must equal `REVENUECAT_WE
 | 401 | Missing or wrong `Authorization` |
 | 503 | `REVENUECAT_WEBHOOK_AUTH` is not set |
 
-If applying a grant fails, the delivery record is removed so RevenueCat's retry applies it.
+If applying a grant fails, the delivery record is removed so RevenueCat's retry applies it. A delivery that was recorded but never finished (the request failed earlier, or the API stopped mid-request) is also taken again on retry, not acknowledged as a duplicate.
 
 ## `GET /race-rooms/:roomId/billing`
 

@@ -10,7 +10,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Source files ≥ 800 lines | 7 |
 | In-process timers in the API | 1 |
 | API lib modules with no same-named test | 41 |
-| Native features not passing on both platforms | 11 |
+| Native features not passing on both platforms | 12 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -19,8 +19,8 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 
 | Method | Path | Source |
 | --- | --- | --- |
-| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:92](../../../services/api/src/routes/billingRoutes.ts#L92) |
-| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:198](../../../services/api/src/routes/billingRoutes.ts#L198) |
+| POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:99](../../../services/api/src/routes/billingRoutes.ts#L99) |
+| POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:210](../../../services/api/src/routes/billingRoutes.ts#L210) |
 | POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:406](../../../services/api/src/routes/chatRoutes.ts#L406) |
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:407](../../../services/api/src/routes/chatRoutes.ts#L407) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
@@ -40,7 +40,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4892 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4898 |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1792 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1186 |
@@ -118,6 +118,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-track` | v1 | fail | fail |
 | `map-checkpoint-pick` | v1 | fail | pass |
 | `map-navigate` | v1 | fail | pass |
+| `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.

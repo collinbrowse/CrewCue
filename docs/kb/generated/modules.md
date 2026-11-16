@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4892 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 4898 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 13 | 975 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -173,7 +173,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 37 | 8056 |
+| `CrewCueClientCore` | 37 | 8067 |
 | `CrewCueClientCore/Generated` | 49 | 959 |
 
 ### iOS app (SwiftUI)
@@ -183,7 +183,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 93 |
-| `App` | 13 | 1358 |
+| `App` | 13 | 1366 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
@@ -195,7 +195,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Chat` | 4 | 909 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1767 |
+| `Screens/Map` | 4 | 1787 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Pace` | 2 | 1745 |
 | `Screens/Profile` | 2 | 414 |
@@ -230,7 +230,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/chat` | 7 | 1179 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/join` | 1 | 110 |
-| `kotlin/com/crewcue/android/ui/map` | 5 | 1642 |
+| `kotlin/com/crewcue/android/ui/map` | 5 | 1691 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 308 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |

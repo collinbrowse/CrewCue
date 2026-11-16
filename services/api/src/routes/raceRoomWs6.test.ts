@@ -97,7 +97,7 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const { roomId: roomA, creatorToken: hostA } = await setupPaidActiveRoom(app, {
     name: "WS6 Room A",
-    athleteId: "ath-a",
+    athleteId: "tm-user",
     creatorSub: "tm-user",
     creatorRole: "team_manager"
   });
@@ -107,7 +107,7 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const { roomId: roomB, creatorToken: hostB } = await setupPaidActiveRoom(app, {
     name: "WS6 Room B",
-    athleteId: "ath-b",
+    athleteId: "tm-user",
     creatorSub: "tm-user",
     creatorRole: "team_manager"
   });

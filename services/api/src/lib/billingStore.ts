@@ -33,6 +33,9 @@ const BILLING_DDL = `
 const memoryGrants = new Map<string, BillingGrant>();
 const memoryEvents = new Map<string, { eventType: string; outcome: string }>();
 
+/** Outcome of a delivery that was recorded but not yet ignored, stored, or applied. */
+const UNFINISHED_OUTCOME = "received";
+
 let ready: Promise<void> | null = null;
 
 function ensureReady(): Promise<void> {
@@ -86,7 +89,12 @@ function fromRow(row: GrantRow): BillingGrant {
 
 /**
  * Record a webhook delivery by event id. Returns false when the event was already
- * recorded (a redelivery), so the caller acknowledges it without applying it again.
+ * handled (a redelivery), so the caller acknowledges it without applying it again.
+ *
+ * A record still at `received` was never finished: the request failed or the process
+ * stopped before the purchase was applied. The store's retry takes it again; applying
+ * is idempotent on the transaction id. Otherwise the retry would be acknowledged as a
+ * duplicate and a paid room would stay locked.
  */
 export async function recordWebhookEvent(input: {
   eventId: string;
@@ -99,14 +107,16 @@ export async function recordWebhookEvent(input: {
   await ensureReady();
   const pool = getPersistencePool();
   if (!pool) {
-    if (memoryEvents.has(input.eventId)) return false;
+    const existing = memoryEvents.get(input.eventId);
+    if (existing && existing.outcome !== UNFINISHED_OUTCOME) return false;
     memoryEvents.set(input.eventId, { eventType: input.eventType, outcome: input.outcome });
     return true;
   }
   const result = await pool.query(
     `INSERT INTO billing_webhook_events (event_id, event_type, transaction_id, room_id, outcome, received_at, payload)
      VALUES ($1, $2, $3, $4, $5, NOW(), $6::jsonb)
-     ON CONFLICT (event_id) DO NOTHING`,
+     ON CONFLICT (event_id) DO UPDATE SET received_at = NOW()
+       WHERE billing_webhook_events.outcome = '${UNFINISHED_OUTCOME}'`,
     [input.eventId, input.eventType, input.transactionId ?? null, input.roomId ?? null, input.outcome, JSON.stringify(input.payload ?? null)]
   );
   return (result.rowCount ?? 0) > 0;

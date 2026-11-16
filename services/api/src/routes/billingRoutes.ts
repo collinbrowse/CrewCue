@@ -74,6 +74,13 @@ export async function applyBillingGrant(
   return { room, changed };
 }
 
+let webhookRoomLookupFailureForTests: Error | undefined;
+
+/** Test-only: the next webhook's room read throws `error` once, as a database read that fails. */
+export function setWebhookRoomLookupFailureForTests(error: Error | undefined): void {
+  webhookRoomLookupFailureForTests = error;
+}
+
 const compInput = z.object({
   roomId: z.string().trim().min(1),
   unlimited: z.boolean().optional()
@@ -123,6 +130,11 @@ export async function billingRoutes(app: FastifyInstance) {
       return reply.send({ ok: true, ignored: true });
     }
 
+    const lookupFailure = webhookRoomLookupFailureForTests;
+    if (lookupFailure) {
+      webhookRoomLookupFailureForTests = undefined;
+      throw lookupFailure;
+    }
     const knownRoom = event.roomId ? await getRaceRoom(event.roomId) : undefined;
     if (!knownRoom) {
       // Kept for support (the runner paid; a person can attach it) but never applied.
