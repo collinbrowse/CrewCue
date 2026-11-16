@@ -252,16 +252,15 @@ export interface CrewScheduleSheet {
   stops: ScheduleStop[];
   pacingEstimateId?: string;
   /**
-   * Set only on a teaser read (an unpaid race, read by its runner). `stops` then holds the start,
-   * the first aid station and the finish. Absent once paid.
+   * Set only on a teaser read (an unpaid race, read by its runner). `stops` then holds the start
+   * and the finish only. Absent once paid.
    */
   locked?: TeaserLockedCheckpoints;
 }
 
 /**
- * The checkpoints whose ETAs an unpaid race's teaser withholds (everything but the start,
- * the first aid station and the finish), in course order. Shared by the projection and the
- * schedule sheet.
+ * The checkpoints whose ETAs an unpaid race's teaser withholds (every checkpoint between the
+ * start and the finish), in course order. Shared by the projection and the schedule sheet.
  */
 export interface TeaserLockedCheckpoints {
   checkpointIds: string[];

@@ -98,7 +98,7 @@ import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import { crewLimitError, isCrewMembership, isRunnerSeat, roomUnpaidError } from "../lib/billingEntitlement.js";
-import { carryTeaserPin, isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
+import { isTeaserRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
 const createRaceRoomInput = z.object({
@@ -836,8 +836,7 @@ export async function commitRaceRoomUpdateAsync(
     if (!latest) {
       return undefined;
     }
-    // The teaser pin follows the plan of record, never the edit: see `carryTeaserPin`.
-    const next = carryTeaserPin(latest, await edit(latest));
+    const next = await edit(latest);
     await saveRaceRoom(next);
     return next;
   });
@@ -4235,7 +4234,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: "Forbidden" });
     }
 
-    // Unpaid: the runner sees the finish and first aid ETAs only (teaser); crew get 402.
+    // Unpaid: the runner sees the finish ETA only (teaser); crew get 402.
     const entitlement = evaluateEntitlement(app, room, request.identity.sub, { allowUnpaidRunner: true });
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
@@ -4259,7 +4258,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       Date.now(),
       pingState.lastUploadIntervalSeconds
     );
-    return reply.send(entitlement.teaser ? teaserProjection(view, room) : view);
+    // Before the runner's first accepted ping the projection is the bootstrap (see `teaserProjection`).
+    return reply.send(entitlement.teaser ? teaserProjection(view, room, { preRace: pingState.lastAccepted === null }) : view);
   });
 
   /**

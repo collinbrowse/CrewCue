@@ -220,11 +220,15 @@ test("W3-I happy path: GPX history → estimate → attach → GET /schedule est
 
     const attach = await attachEstimate(app, roomId, ownerToken, estimate.id);
     assert.equal(attach.statusCode, 200, attach.body);
+    // The room-less response is finish-only; the paid room's attach answers the whole plan.
+    assert.deepEqual(estimate.aidEtas, []);
+    const attached = parsePacingEstimate((attach.json() as { estimate: unknown }).estimate);
+    assert.equal(attached.id, estimate.id);
 
     const response = await getSchedule(app, roomId, ownerToken);
     assert.equal(response.statusCode, 200);
     const sheet = parseCrewScheduleSheet(response.json());
-    assertEstimateBaseline(sheet, estimate);
+    assertEstimateBaseline(sheet, attached);
 
     // History-backed finish must differ from pure planned-pace baseline (integration signal).
     assert.notEqual(
@@ -246,11 +250,13 @@ test("EC1: empty history coldStart estimate attaches and drives schedule", async
 
     const attach = await attachEstimate(app, roomId, ownerToken, estimate.id);
     assert.equal(attach.statusCode, 200, attach.body);
+    // The room-less response is finish-only; the paid room's attach answers the whole plan.
+    const attached = parsePacingEstimate((attach.json() as { estimate: unknown }).estimate);
 
     const response = await getSchedule(app, roomId, ownerToken);
     assert.equal(response.statusCode, 200);
     const sheet = parseCrewScheduleSheet(response.json());
-    assertEstimateBaseline(sheet, estimate);
+    assertEstimateBaseline(sheet, attached);
     assert.equal(estimate.coldStart, true);
     assert.equal((attach.json() as { estimate?: { coldStart?: boolean } }).estimate?.coldStart, true);
   });

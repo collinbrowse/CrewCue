@@ -17,11 +17,13 @@ import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
   initPacingEstimateStore,
+  recordPacingEstimateRoom,
   savePacingEstimate,
-  type StoredTeaserPick
+  type StoredPacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { roomUnpaidError } from "../lib/billingEntitlement.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
-import { isTeaserRoom, teaserEstimate, teaserScheduleSheet } from "../lib/raceTeaser.js";
+import { finishOnlyEstimate, isTeaserRoom, teaserRoom, teaserScheduleSheet } from "../lib/raceTeaser.js";
 import {
   commitRaceRoomUpdate,
   evaluateEntitlement,
@@ -466,6 +468,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    * seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise. Membership and
    * entitlement gate the route; `decidePlanAuthority` decides the role and trigger.
    * Idempotent when the same estimate id is already attached.
+   *
+   * An unpaid race takes only `pacingEstimateId` of an estimate the server computed (an inline
+   * `estimate` body is 402 `room_unpaid`) and answers it finish-only. Attaching records the room
+   * on the stored estimate. An estimate computed for, or last attached to, another race that is
+   * unpaid is 402 `room_unpaid` here, so a paid race cannot unlock it.
    */
   app.put("/race-rooms/:roomId/pacing-estimate", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
@@ -478,6 +485,11 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const parsedBody = attachPacingEstimateBody.safeParse(request.body ?? {});
     if (!parsedBody.success) {
       return reply.code(400).send({ error: "Invalid pacing estimate attach payload", code: "invalid_payload" });
+    }
+    // The plan of an unpaid race is always one the server computed: no client snapshot.
+    const unpaid = roomUnpaidError(room);
+    if (unpaid && parsedBody.data.estimate !== undefined) {
+      return reply.code(402).send(unpaid);
     }
 
     const callerUserId = request.identity!.sub;
@@ -499,9 +511,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         : reply.code(403).send({ error: "Forbidden" });
     let estimate: PacingEstimate;
     let storedBaseline: import("@crewcue/contracts").RaceCourseBaselineTrack | undefined;
-    // The stop an unpaid race's teaser already showed of this estimate when it was computed:
-    // attaching it pins that stop, so the same plan never reveals a second one.
-    let shownTeaser: StoredTeaserPick | undefined;
+    /** The stored row this attach uses (its plan curve, and where it was computed or attached). */
+    let storedRow: StoredPacingEstimate | undefined;
 
     if (parsedBody.data.pacingEstimateId !== undefined) {
       const stored = await getPacingEstimateById(parsedBody.data.pacingEstimateId);
@@ -513,7 +524,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       }
       estimate = stored.estimate;
       storedBaseline = stored.baselineTrack;
-      shownTeaser = stored.teaser;
+      storedRow = stored;
     } else {
       if (crewChange) {
         // A snapshot proves nothing about whose history built it.
@@ -529,22 +540,33 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         return reply.code(403).send({ error: "Forbidden" });
       }
       if (!existing) {
-        // Tied to this room, so the export shapes it as the room does while unpaid.
+        // Tied to this room, so the export knows whether a paid race unlocked it.
         await savePacingEstimate(athleteUserId, estimate, undefined, { roomId });
       } else {
         storedBaseline = existing.baselineTrack;
-        shownTeaser = existing.teaser;
+        storedRow = existing;
+      }
+    }
+
+    // An estimate tied to another race that is unpaid stays finish-only until that race is paid:
+    // attaching it here (with its plan curve) would unlock it on this race.
+    if (storedRow?.roomId !== undefined && storedRow.roomId !== roomId) {
+      const origin = await getRaceRoom(storedRow.roomId);
+      const originUnpaid = origin ? roomUnpaidError(origin) : undefined;
+      if (originUnpaid) {
+        return reply.code(402).send(originUnpaid);
       }
     }
 
     // Idempotent: same id already plan of record → return current snapshot without rewrite churn.
-    // On an unpaid race (only the runner gets this far) the reply is the teaser estimate; the
-    // stored plan stays whole.
+    // On an unpaid race (only the runner gets this far) the reply is finish-only; the stored plan
+    // stays whole.
     if (room.pacingEstimateId === estimate.id && room.pacingEstimate?.id === estimate.id) {
+      if (storedRow) await recordPacingEstimateRoom(storedRow, roomId);
       const body: AttachResponse = {
         roomId,
         pacingEstimateId: estimate.id,
-        estimate: isTeaserRoom(room) ? teaserEstimate(room.pacingEstimate, room) : room.pacingEstimate
+        estimate: isTeaserRoom(room) ? finishOnlyEstimate(room.pacingEstimate) : room.pacingEstimate
       };
       return reply.send(body);
     }
@@ -557,8 +579,6 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
         ...latest,
         pacingEstimateId: estimate.id,
         pacingEstimate: estimate,
-        // Without a recorded pick, `carryTeaserPin` picks on the course it is attached to.
-        ...(shownTeaser ? { teaserCheckpoint: { pacingEstimateId: estimate.id, ...shownTeaser } } : {}),
         ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
           ? { plannedPaceSecondsPerKm: derivedPlannedPace }
           : {}),
@@ -574,6 +594,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     if (!updated) {
       return reply.code(404).send({ error: "Race room not found" });
     }
+    if (storedRow) await recordPacingEstimateRoom(storedRow, roomId);
     // Pace / map read planned splits from the stored projection; schedule rebuilds from the
     // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
     await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
@@ -581,14 +602,14 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     const body: AttachResponse = {
       roomId,
       pacingEstimateId: estimate.id,
-      estimate: isTeaserRoom(updated) ? teaserEstimate(estimate, updated) : estimate
+      estimate: isTeaserRoom(updated) ? finishOnlyEstimate(estimate) : estimate
     };
     return reply.send(body);
   });
 
   app.get("/race-rooms/:roomId/schedule", async (request, reply) => {
     const roomId = (request.params as { roomId: string }).roomId;
-    // Unpaid: the runner sees the start, first aid and finish stops only; crew get 402.
+    // Unpaid: the runner sees the start and finish stops only; crew get 402.
     const room = await requireRoomMember(app, request, reply, roomId, { allowUnpaidRunner: true });
     if (!room) {
       return;
@@ -622,12 +643,12 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     try {
       const teaser = isTeaserRoom(room);
-      // A teaser sheet is built from the teaser plan, so rows it keeps interpolate between the
-      // shown anchors only (see `teaserScheduleSheet`). The shown rows match the paid sheet.
-      const plan = teaser && room.pacingEstimate ? teaserEstimate(room.pacingEstimate, room) : room.pacingEstimate;
-      const sheet = projectCrewScheduleSheet(room, {
+      // A teaser sheet is built from the teaser room (finish-only plan, no plan curve), so the
+      // start and finish rows it keeps read the finish ETA alone (see `teaserScheduleSheet`).
+      const source = teaser ? teaserRoom(room) : room;
+      const sheet = projectCrewScheduleSheet(source, {
         closedActualStopSecondsByCheckpointId: closedActuals,
-        pacingEstimate: plan
+        pacingEstimate: source.pacingEstimate
       });
       return reply.send(teaser ? teaserScheduleSheet(sheet, room) : sheet);
     } catch (error) {

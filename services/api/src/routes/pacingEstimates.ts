@@ -2,7 +2,7 @@
  * POST /pacing-estimates — history + room course → micro-model PacingEstimate.
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
  * bodies still work with a sparse polyline from checkpoint centers; no shipped client sends
- * one (client-core always sends `roomId`), and they are answered with the teaser shape.
+ * one (client-core always sends `roomId`), and they are answered finish-only, for everyone.
  */
 import { cohortForCourse } from "../lib/courseHistory/resolve.js";
 import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
@@ -33,14 +33,7 @@ import {
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import {
-  estimateShowing,
-  isTeaserRoom,
-  midCourseCheckpointsOf,
-  pickTeaserCheckpoint,
-  teaserPickShown,
-  type TeaserPick
-} from "../lib/raceTeaser.js";
+import { finishOnlyEstimate, isTeaserRoom } from "../lib/raceTeaser.js";
 import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -153,7 +146,7 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         return reply.code(403).send({ error: "Forbidden" });
       }
       // Same gate as attaching the plan: crew on an unpaid race get 402, the runner sets up
-      // and is answered with the teaser estimate below.
+      // and is answered with the finish-only estimate below.
       const entitlement = evaluateEntitlement(app, room, callerUserId, { allowUnpaidRunner: true });
       if (!entitlement.allowed) {
         return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
@@ -239,25 +232,14 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         courseLengthMeters
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
-      // Which aid ETA the response may keep, when it is a teaser:
-      // - an unpaid race: its teaser stop (the pinned one when this is its attached plan, else a
-      //   fresh pick on the course);
-      // - no room: any race's checkpoints can be posted here, so a course with more than one
-      //   mid-course stop keeps one, picked the same way.
-      let teaser: TeaserPick | undefined;
-      if (linkedRoom) {
-        if (isTeaserRoom(linkedRoom)) teaser = teaserPickShown(linkedRoom, parsed);
-      } else if (midCourseCheckpointsOf(checkpoints).length > 1) {
-        teaser = pickTeaserCheckpoint(checkpoints, parsed);
-      }
-      const provenance: PacingEstimateProvenance = {
-        ...(linkedRoom ? { roomId: linkedRoom.id } : {}),
-        ...(teaser ? { teaser } : {})
-      };
-      // Stored whole, so attaching it by id and paying later unlocks the full plan. The room and
-      // the pick go with it, so the export returns what this response showed.
+      // Finish only, no aid ETA, for an unpaid race and for every room-less request: any race's
+      // checkpoints can be posted without a room, an unpaid one's included.
+      const finishOnly = linkedRoom === undefined || isTeaserRoom(linkedRoom);
+      const provenance: PacingEstimateProvenance = linkedRoom ? { roomId: linkedRoom.id } : {};
+      // Stored whole, so attaching it by id to a paid race (or paying for this one) unlocks the
+      // full plan. The room goes with it, so the export knows whether a paid race unlocked it.
       await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack, provenance);
-      return reply.code(200).send(teaser ? estimateShowing(parsed, teaser.checkpointId) : parsed);
+      return reply.code(200).send(finishOnly ? finishOnlyEstimate(parsed) : parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });

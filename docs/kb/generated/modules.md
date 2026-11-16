@@ -28,7 +28,7 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/courseGpxRoutes.ts](../../../services/api/src/routes/courseGpxRoutes.ts) | `gpxLimits.ts` |
 | [services/api/src/routes/health.ts](../../../services/api/src/routes/health.ts) | `roomPersistence.ts` |
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceTeaser.ts` |
-| [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
+| [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `billingEntitlement.ts`, `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceTeaser.ts`, `roomPersistence.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
@@ -52,18 +52,18 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 228 |
 | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 226 |
+| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 5 | 213 |
 | [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 5 | 316 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
-| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 4 | 213 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 779 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
-| [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 230 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 4 | 779 |
-| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 311 |
+| [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 224 |
+| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 219 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |

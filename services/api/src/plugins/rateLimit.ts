@@ -8,6 +8,7 @@ interface Limit {
 }
 
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
 /** Routes that spend provider quota or CPU. Keyed by route pattern, not URL. */
 export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
@@ -17,7 +18,11 @@ export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
   "/activity-history/file": { max: 10, windowMs: MINUTE },
   "/race-rooms/join-by-code": { max: 10, windowMs: MINUTE, perIpMax: 30 },
   "/me": { max: 5, windowMs: MINUTE },
-  "/me/export": { max: 5, windowMs: MINUTE }
+  "/me/export": { max: 5, windowMs: MINUTE },
+  // Each estimate runs the micro-model, and an unpaid race can compute and attach them before
+  // paying. One route method each (POST and PUT), so the pattern alone names it.
+  "/pacing-estimates": { max: 20, windowMs: HOUR },
+  "/race-rooms/:roomId/pacing-estimate": { max: 20, windowMs: HOUR }
 };
 
 /** Fixed-window, in-process limiter per signed-in user (client IP when unauthenticated). */

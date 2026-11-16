@@ -285,7 +285,8 @@ export interface RaceRoomProjectionCore {
   etaFinishWindow?: ArrivalWindowClock;
   /**
    * Set only on a teaser read (an unpaid race, read by its runner). `checkpointSplits` and
-   * `remainingCheckpointEtas` then hold the first aid station alone. Never stored; absent once paid.
+   * `remainingCheckpointEtas` are then empty: the finish ETA alone shows. Never stored; absent
+   * once paid.
    */
   locked?: TeaserLockedCheckpoints;
 }
@@ -365,22 +366,6 @@ export interface RaceRoom {
   pacingEstimateId?: string;
   /** Snapshot of the attached plan-of-record estimate (source of truth for schedule reads). */
   pacingEstimate?: PacingEstimate;
-  /**
-   * Server bookkeeping, never sent: the stop whose ETA an unpaid race's teaser shows for the
-   * attached plan, pinned when that plan is attached so later course edits cannot move it.
-   */
-  teaserCheckpoint?: RaceRoomTeaserCheckpoint;
-}
-
-/**
- * The teaser stop pinned to one plan of record. `checkpointId` is absent when the plan priced no
- * mid-course stop. If that checkpoint leaves the course, or moves along it from
- * `distanceMetersFromStart`, the teaser shows no aid ETA until a new estimate is attached.
- */
-export interface RaceRoomTeaserCheckpoint {
-  pacingEstimateId: string;
-  checkpointId?: string;
-  distanceMetersFromStart?: number;
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */

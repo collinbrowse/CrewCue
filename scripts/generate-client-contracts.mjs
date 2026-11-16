@@ -58,8 +58,6 @@ const skipProperties = new Set([
   "courseGpxXml",
   "mapWorkspace",
   "stopPlans",
-  // Server bookkeeping for the unpaid-race teaser; never sent.
-  "teaserCheckpoint",
   "bands",
   "cutoff",
   "payload",

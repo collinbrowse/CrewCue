@@ -9,7 +9,7 @@ import { listActivityHistoryForAthlete } from "../lib/activityHistoryStore.js";
 import { listPacingEstimatesForAthlete } from "../lib/pacingEstimateStore.js";
 import { exportedEstimate } from "../lib/raceTeaser.js";
 import { getStravaConnectionPublic } from "../lib/stravaConnectionStore.js";
-import { getRaceRoom, listRaceRoomsForAccount } from "./raceRooms.js";
+import { listRaceRoomsForAccount } from "./raceRooms.js";
 
 /** One deletion per user at a time; a double-tap waits for the first and replays as zeros. */
 const inflight = new Map<string, Promise<unknown>>();
@@ -62,14 +62,10 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
         };
       }),
       activityHistory: await listActivityHistoryForAthlete(sub),
-      // The account's data-rights export returns what the runner was shown: an estimate tied to
-      // an unpaid race keeps the teaser's one aid ETA, like every other read of that race. Paid
-      // races export in full. `rooms` above carries no course.
-      pacingEstimates: await Promise.all(
-        (await listPacingEstimatesForAthlete(sub)).map(async (row) =>
-          exportedEstimate(row, row.roomId !== undefined ? await getRaceRoom(row.roomId) : undefined)
-        )
-      ),
+      // Each estimate goes out whole only when tied to a paid race the caller belongs to (the
+      // race it was computed for or last attached to, or one whose plan of record it is), else
+      // finish-only, like every other read of an unpaid race. `rooms` above carries no course.
+      pacingEstimates: (await listPacingEstimatesForAthlete(sub)).map((row) => exportedEstimate(row, rooms)),
       strava: { connected: (await getStravaConnectionPublic(sub)).connected }
     };
     return reply.header("content-disposition", 'attachment; filename="crewcue-account-export.json"').send(body);

@@ -2,11 +2,11 @@
  * Durable pacing-estimate store for Wave 3 (W3-4 attach-by-id).
  * Ownership: athleteUserId (creator). Memory for PERSISTENCE_MODE=memory; Postgres JSON when postgres.
  * Payload may include optional baselineTrack (micro-model moving plan) alongside the estimate,
- * the race room it was built for, and the teaser pick it was answered with on an unpaid race.
+ * and the race room it was computed for or last attached to.
  */
 import { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
-import type { PacingEstimate, RaceCourseBaselineTrack, RaceRoomTeaserCheckpoint } from "@crewcue/contracts";
+import type { PacingEstimate, RaceCourseBaselineTrack } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
 
 type Mode = "memory" | "postgres";
@@ -26,15 +26,13 @@ const pool = MODE === "postgres" ? new Pool({ connectionString: DATABASE_URL }) 
 let initPromise: Promise<void> | null = null;
 let initialized = false;
 
-/** The one aid stop an unpaid race's teaser showed of this estimate, and where it was. */
-export type StoredTeaserPick = Omit<RaceRoomTeaserCheckpoint, "pacingEstimateId">;
-
-/** Where an estimate came from and how it was shown, so the export returns what was shown. */
+/** Where an estimate went, so the export knows whether a paid race unlocked it. */
 export type PacingEstimateProvenance = {
-  /** The race room it was computed for or attached to. Absent for a room-less estimate. */
+  /**
+   * The race room it was computed for, or last attached to (attaching records it). Absent for a
+   * room-less estimate that was never attached.
+   */
   roomId?: string;
-  /** Set when the response was the teaser: the aid ETA it kept (none when `checkpointId` is absent). */
-  teaser?: StoredTeaserPick;
 };
 
 export type StoredPacingEstimate = PacingEstimateProvenance & {
@@ -121,20 +119,7 @@ type StoredPayload = PacingEstimateProvenance & {
 };
 
 function provenanceOf(source: PacingEstimateProvenance): PacingEstimateProvenance {
-  const teaser = source.teaser;
-  return {
-    ...(typeof source.roomId === "string" ? { roomId: source.roomId } : {}),
-    ...(teaser && typeof teaser === "object"
-      ? {
-          teaser: {
-            ...(typeof teaser.checkpointId === "string" ? { checkpointId: teaser.checkpointId } : {}),
-            ...(typeof teaser.distanceMetersFromStart === "number"
-              ? { distanceMetersFromStart: teaser.distanceMetersFromStart }
-              : {})
-          }
-        }
-      : {})
-  };
+  return typeof source.roomId === "string" ? { roomId: source.roomId } : {};
 }
 
 function parseStoredPayload(raw: unknown): Omit<StoredPacingEstimate, "athleteUserId"> {
@@ -181,6 +166,15 @@ export async function savePacingEstimate(
     [parsed.id, athleteUserId, JSON.stringify(payload)]
   );
   return row;
+}
+
+/**
+ * Attaching an estimate to a race records that race on it, so the export knows where it went.
+ * The estimate and its plan curve are kept as stored.
+ */
+export async function recordPacingEstimateRoom(stored: StoredPacingEstimate, roomId: string): Promise<void> {
+  if (stored.roomId === roomId) return;
+  await savePacingEstimate(stored.athleteUserId, stored.estimate, stored.baselineTrack, { roomId });
 }
 
 export async function getPacingEstimateById(estimateId: string): Promise<StoredPacingEstimate | undefined> {

@@ -437,4 +437,18 @@ export function clearHttpIdempotencyStoreForTests(): void {
   lastPurgeAtMs = 0;
 }
 
+/**
+ * Drops one key's record in memory and on Postgres, as a lost lease or a failed complete would:
+ * the next request with that key is a fresh claim, not a replay.
+ */
+export async function forgetIdempotencyRecordForTests(idempotencyKey: string, method: string, path: string): Promise<void> {
+  memoryStore.delete(idempotencyScopeKey(idempotencyKey, method, path));
+  if (isRoomPersistenceEnabled()) {
+    await getPersistencePool()?.query(
+      `DELETE FROM http_idempotency WHERE idempotency_key = $1 AND method = $2 AND path = $3`,
+      [idempotencyKey, method, path]
+    );
+  }
+}
+
 export { idempotencyErrorReply };
