@@ -188,14 +188,14 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("com.auth0.android:auth0:4.3.0")
+    implementation("com.auth0.android:auth0:4.3.1")
     // Store purchases (#649). Only com.crewcue.android.billing.RevenueCatPurchaser imports it.
-    implementation("com.revenuecat.purchases:purchases:11.2.0")
-    implementation("io.sentry:sentry-android:8.63.0")
+    implementation("com.revenuecat.purchases:purchases:11.2.1")
+    implementation("io.sentry:sentry-android:8.64.0")
     mapLibreVersionResolved?.let { version ->
         implementation("org.maplibre.gl:android-sdk:$version")
     }
-    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
     implementation("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
