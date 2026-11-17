@@ -20,10 +20,17 @@ import com.crewcue.android.session.DevSession
 import com.crewcue.android.session.StoredSession
 import com.crewcue.android.session.applyingJoin
 import com.crewcue.android.ui.billing.BillingCopy
+import com.crewcue.android.ui.onboarding.OnboardingDestination
+import com.crewcue.android.ui.onboarding.OnboardingFlow
+import com.crewcue.android.ui.onboarding.OnboardingRouting
+import com.crewcue.android.ui.onboarding.OnboardingText
+import com.crewcue.android.ui.onboarding.RunnerSetupEffect
+import com.crewcue.android.ui.onboarding.SETUP_FEATURE
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class StravaSignal(val id: Int = 0, val failed: Boolean = false)
@@ -132,11 +139,51 @@ class ShellViewModel(
         private set
     var racesLoading by mutableStateOf(false)
         private set
-    /** The active room when its billing says unpaid; Map, Pace, and Chat show the paywall instead. */
+    /** The active room when its billing says unpaid. Map, Pace, and Chat show an Unlock race banner. */
     var unpaidRoomId by mutableStateOf<String?>(null)
+        private set
+    /** The shell shows the paywall in place of Map, Pace, and Chat until a tab is picked. */
+    var paywallOpen by mutableStateOf(false)
+        private set
+    /** client-core's onboarding state for this user and active race; null until the first read. */
+    var onboarding by mutableStateOf<OnboardingFlow?>(null)
+        private set
+    /** The last `myRaces` rows, sent back to `readOnboarding`. Null while this user's list is unknown. */
+    private var raceRows: JSONArray? = null
+    private var onboardingTicket = 0
+    /** The join screen on show was opened by the crew choice, so a new state may move on from it. */
+    private var joinFromOnboarding = false
+    /**
+     * The setup route on show was opened by a link (the debug dev route), not by onboarding: a
+     * background state read doesn't move it, and it draws the runner's setup whatever the state.
+     */
+    var setupFromLink by mutableStateOf(false)
+        private set
+    /**
+     * The last race-list read failed ([racesFailedOffline]: offline). With nothing saved to decide
+     * from, the onboarding loader says so and offers a retry instead of waiting forever.
+     */
+    var racesFailed by mutableStateOf(false)
+        private set
+    var racesFailedOffline by mutableStateOf(false)
+        private set
+    /** Sign-up from the runner's account step failed (shared copy), shown under that step. */
+    var setupAuthFailure by mutableStateOf<String?>(null)
         private set
     private var racesJob: Job? = null
     private var racesTicket = 0
+
+    /** Shared onboarding strings, read once from client-core. */
+    val onboardingText: OnboardingText by lazy {
+        val copy = (container.raceDay.onboardingCopy() as? RuntimeResult.Success)?.result
+        OnboardingText.from(
+            copy,
+            success = checklistCopy(SETUP_FEATURE, "success"),
+            empty = checklistCopy(SETUP_FEATURE, "empty"),
+            error = checklistCopy(SETUP_FEATURE, "error"),
+            offline = checklistCopy(SETUP_FEATURE, "offline")
+        )
+    }
 
     fun noteChatUnread(count: Int) {
         chatUnread = count
@@ -169,8 +216,12 @@ class ShellViewModel(
         viewModelScope.launch(Dispatchers.IO) { container.raceDay.adoptUser(userId) }
     }
 
-    /** Load the user's races. The room they are on now stays active while the server still lists it. */
-    fun loadRaces() {
+    /**
+     * Load the user's races. The room they are on now stays active while the server still lists it.
+     * Onboarding then reads its state with the new list; [forceOnboarding] lets that state change the
+     * screen even when onboarding didn't put it there (a race just created or picked).
+     */
+    fun loadRaces(forceOnboarding: Boolean = false) {
         val current = session ?: return
         val ticket = ++racesTicket
         racesJob?.cancel()
@@ -185,9 +236,16 @@ class ShellViewModel(
             when (result) {
                 is RuntimeResult.Failure -> {
                     racesMessage = if (result.offline) "Offline. Showing your last race." else "Couldn't load your races."
+                    racesFailed = true
+                    racesFailedOffline = result.offline
+                    // The saved list (if any) still decides; with none the state stays loading.
+                    refreshOnboarding(forceOnboarding)
                 }
                 is RuntimeResult.Success -> {
+                    racesFailed = false
+                    racesFailedOffline = false
                     val rows = result.result.optJSONArray("races")
+                    raceRows = rows ?: JSONArray()
                     val loaded = buildList {
                         for (index in 0 until (rows?.length() ?: 0)) {
                             val row = rows?.optJSONObject(index) ?: continue
@@ -219,9 +277,135 @@ class ShellViewModel(
                             session = container.sessionStore.current()
                         }
                     }
+                    refreshOnboarding(forceOnboarding)
                 }
             }
         }
+    }
+
+    /** The race list and active race that every onboarding call sends client-core. */
+    fun onboardingRaceContext(): Pair<JSONArray?, String?> = raceRows to session?.roomId
+
+    /**
+     * Reads the onboarding state for this user, race list and active race, then routes by it.
+     * Without [force], the state moves the screen only from screens onboarding owns (see [applyOnboarding]).
+     */
+    fun refreshOnboarding(force: Boolean = false) {
+        val ticket = ++onboardingTicket
+        val (rows, active) = onboardingRaceContext()
+        val user = session?.userId
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { container.raceDay.readOnboarding(rows, active) }
+            if (ticket != onboardingTicket || session?.userId != user) return@launch
+            applyOnboarding(OnboardingFlow.from((result as? RuntimeResult.Success)?.result?.optJSONObject("state")), force)
+        }
+    }
+
+    /**
+     * A state `markOnboardingStep` answered for a step the runner just finished on the setup
+     * route, so it moves the screen on even from a route a link opened.
+     */
+    fun noteOnboardingState(state: JSONObject) {
+        onboardingTicket++
+        applyOnboarding(OnboardingFlow.from(state), force = true)
+    }
+
+    /** The chooser: "I'm running a race" or "I'm crewing for someone". */
+    fun chooseOnboarding(choice: String) {
+        val (rows, active) = onboardingRaceContext()
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                container.raceDay.markOnboardingStep(null, null, null, choice, rows, active)
+            }
+            val state = (result as? RuntimeResult.Success)?.result?.optJSONObject("state") ?: return@launch
+            onboardingTicket++
+            applyOnboarding(OnboardingFlow.from(state), force = true)
+        }
+    }
+
+    /** Back from the signed-out account step: forget the guest's pick and show the chooser again. */
+    fun chooseAgain() {
+        if (session != null) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { container.raceDay.resetOnboarding() }
+            refreshOnboarding(force = true)
+        }
+    }
+
+    /** What the runner's setup asks for (see [RunnerSetupEffect]). */
+    fun onSetupEffect(effect: RunnerSetupEffect) {
+        when (effect) {
+            is RunnerSetupEffect.StateChanged -> noteOnboardingState(effect.state)
+            is RunnerSetupEffect.RoomCreated -> {
+                // The setup's own race: active and the runner's, still behind the setup screens.
+                container.sessionStore.update { it.copy(roomId = effect.roomId, role = "athlete") }
+                session = container.sessionStore.current()
+                unpaidRoomId = effect.roomId
+                loadRaces()
+            }
+            is RunnerSetupEffect.DisplayNameChosen -> {
+                container.sessionStore.update { it.copy(displayName = effect.name) }
+                session = container.sessionStore.current()
+            }
+            RunnerSetupEffect.RacesChanged -> loadRaces()
+            RunnerSetupEffect.OpenPaywall -> openPaywall()
+        }
+    }
+
+    /** The Unlock race banner, a gated action (start tracking, chat send), or a 402 `room_unpaid`. */
+    fun openPaywall() {
+        val roomId = session?.roomId ?: return
+        unpaidRoomId = roomId
+        paywallOpen = true
+        if (!showAppShell) showShell(selectedTab.takeIf { it != ShellTab.Profile } ?: ShellTab.Map)
+    }
+
+    /**
+     * Routes by client-core's onboarding state. Onboarding owns the shell, its own route, the
+     * sign-in screen and a join screen it opened; any other screen (a dev fixture, a link) keeps
+     * showing unless [force].
+     */
+    private fun applyOnboarding(next: OnboardingFlow?, force: Boolean) {
+        val previous = onboarding
+        onboarding = next
+        val owns = OnboardingRouting.ownsScreen(
+            showAppShell,
+            stateOverlay,
+            uiState.screen.featureId,
+            joinOpenedByOnboarding = joinFromOnboarding,
+            setupOpenedByLink = setupFromLink
+        )
+        if (!force && !owns) return
+        val destination = OnboardingRouting.destination(
+            next,
+            previous,
+            signedIn = session != null,
+            hasActiveRoom = !session?.roomId.isNullOrBlank()
+        )
+        when (destination) {
+            OnboardingDestination.SignedOut -> showSignedOut()
+            OnboardingDestination.Onboarding -> showOnboarding()
+            OnboardingDestination.JoinCrew -> if (uiState.screen.featureId != "join-crew" || showAppShell) {
+                showFixture("crewcue://dev/join-crew")
+                joinFromOnboarding = true
+            }
+            is OnboardingDestination.Shell -> {
+                if (destination.openPaywall) {
+                    unpaidRoomId = next?.roomId ?: session?.roomId
+                    paywallOpen = true
+                }
+                showShellIfHidden()
+            }
+        }
+    }
+
+    private fun showOnboarding() {
+        if (!showAppShell && uiState.screen.featureId == SETUP_FEATURE && !stateOverlay) return
+        showFixture("crewcue://dev/$SETUP_FEATURE")
+    }
+
+    private fun showShellIfHidden() {
+        if (!showAppShell) showShell(ShellTab.Map)
     }
 
     /** A chat push this race list has not loaded yet; applied after [loadRaces]. */
@@ -246,6 +430,8 @@ class ShellViewModel(
         if (roomId == session?.roomId) return
         val race = races.firstOrNull { it.id == roomId } ?: return
         apply(race)
+        // A race of the runner's that isn't set up yet goes back behind its setup screens.
+        refreshOnboarding(force = true)
     }
 
     private fun apply(race: RaceChoice) {
@@ -273,14 +459,26 @@ class ShellViewModel(
             feature == "app-shell" && state == "success" ->
                 if (container.sessionStore.current() != null) showShell(ShellTab.Map) else showSignedOut()
             feature != null && url != null -> openLinkedFeature(feature, url)
-            container.sessionStore.current() != null -> showShell(ShellTab.Map)
-            else -> showSignedOut()
+            else -> routeEntry()
         }
+    }
+
+    /**
+     * The first screen, from client-core's onboarding state. The read is local (the saved progress
+     * and race list), so it runs before the first frame: nothing flashes, and a screen restored after
+     * process death keeps its saved state. While the race list is unknown the state is loading, so
+     * an existing user never sees the chooser before their races; a stored race keeps the shell.
+     */
+    private fun routeEntry() {
+        val read = runCatching { container.raceDay.readOnboarding(raceRows, session?.roomId) }.getOrNull()
+        onboardingTicket++
+        applyOnboarding(OnboardingFlow.from((read as? RuntimeResult.Success)?.result?.optJSONObject("state")), force = true)
     }
 
     fun selectTab(tab: ShellTab) {
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
+        paywallOpen = false
         showShell(tab)
     }
 
@@ -335,6 +533,7 @@ class ShellViewModel(
             return
         }
         signInConnection = connection.orEmpty()
+        setupAuthFailure = null
         container.authGateway.signIn(activity, connection, signUp) { result ->
             viewModelScope.launch { applyAuthResult(result) }
         }
@@ -347,12 +546,19 @@ class ShellViewModel(
         loadRaces()
     }
 
-    /** A race the runner just created. New rooms are unpaid, so the paywall comes first. */
+    /**
+     * A race the runner just created from Profile. New rooms are unpaid and have no course, so the
+     * runner's setup comes first; its state arrives with the new race list.
+     */
     fun adoptCreatedRoom(roomId: String) {
         if (roomId.isBlank()) return
-        adoptRoom(roomId)
+        container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
+        session = container.sessionStore.current()
         unpaidRoomId = roomId
-        showShell(ShellTab.Map)
+        onboarding = null
+        onboardingTicket++
+        showOnboarding()
+        loadRaces(forceOnboarding = true)
     }
 
     /** Reads the active room's billing. Only an explicit "unpaid" gates the race; a failed read never does. */
@@ -372,7 +578,9 @@ class ShellViewModel(
     /** The paywall's "Continue to race" after a purchase or redemption unlocked [roomId]. */
     fun noteUnlocked(roomId: String) {
         if (unpaidRoomId == roomId) unpaidRoomId = null
+        paywallOpen = false
         showShell(ShellTab.Map)
+        loadRaces()
     }
 
     /** Billing checklist copy owned by client-core, read from its fixture screens. */
@@ -411,7 +619,16 @@ class ShellViewModel(
         races = emptyList()
         racesMessage = ""
         racesLoading = false
+        racesFailed = false
+        racesFailedOffline = false
+        raceRows = null
+        onboarding = null
+        onboardingTicket++
+        paywallOpen = false
+        unpaidRoomId = null
         pendingJoin = false
+        // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
+        viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
         closeSettings()
         showSignedOut()
         if (authActivity != null) {
@@ -481,6 +698,8 @@ class ShellViewModel(
             roomId = request.roomId ?: session?.takeIf { it.userId == request.userId }?.roomId,
             fromAuth0 = false
         )
+        // Another user's race list must not decide this user's onboarding.
+        if (session?.userId != stored.userId) raceRows = null
         container.sessionStore.save(stored)
         session = stored
         adoptStorage(stored.userId)
@@ -499,6 +718,8 @@ class ShellViewModel(
                     roomId = session?.roomId,
                     fromAuth0 = true
                 )
+                // A new account's race list is unknown until myRaces answers.
+                raceRows = null
                 container.sessionStore.save(stored)
                 session = stored
                 adoptStorage(stored.userId)
@@ -509,7 +730,12 @@ class ShellViewModel(
                 } else if (!showAppShell && uiState.screen.featureId == "join-crew") {
                     return
                 } else {
-                    showShell(ShellTab.Map)
+                    // Onboarding decides once the races load: setup, the chooser, or the shell. The
+                    // guest's state (the chooser, the signed-out account step) gives way to the
+                    // loader until this user's state is read.
+                    onboarding = null
+                    showOnboarding()
+                    refreshOnboarding(force = true)
                 }
             }
             is AuthResult.Failure -> applyAuthFailure(result)
@@ -521,6 +747,11 @@ class ShellViewModel(
         pendingJoin = false
         if (!showAppShell && uiState.screen.featureId == "join-crew") {
             replaceBody(result.message, kind = if (result.offline) "offline" else "error")
+            return
+        }
+        // The runner's account step keeps its place; the failure shows under the step.
+        if (!showAppShell && uiState.screen.featureId == SETUP_FEATURE && !stateOverlay) {
+            setupAuthFailure = if (result.offline) onboardingText.setupOffline else onboardingText.setupError
             return
         }
         val body = when {
@@ -591,6 +822,13 @@ class ShellViewModel(
             return
         }
         showFixture(url)
+        // The live setup route renders client-core's onboarding state, so read it now. A link
+        // (the debug dev route) keeps the route on screen: only the person's own choices in it
+        // move on from it.
+        if (feature == SETUP_FEATURE && !hasStateQuery(url)) {
+            setupFromLink = true
+            refreshOnboarding()
+        }
     }
 
     private fun isPaceFeature(feature: String): Boolean {
@@ -613,6 +851,8 @@ class ShellViewModel(
         joinBusy = false
         joining = false
         stateOverlay = false
+        joinFromOnboarding = false
+        setupFromLink = false
         showAppShell = true
         selectedTab = tab
         val screen = load(tab.url)
@@ -623,6 +863,8 @@ class ShellViewModel(
     private fun showFixture(url: String) {
         previewJob?.cancel()
         stateOverlay = hasStateQuery(url)
+        joinFromOnboarding = false
+        setupFromLink = false
         inviteCode = ""
         joinPreviewName = null
         joinMembership = null

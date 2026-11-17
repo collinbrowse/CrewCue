@@ -1,0 +1,487 @@
+package com.crewcue.android.ui.onboarding
+
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.Posture
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.HingePolicy
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
+import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.window.core.layout.WindowSizeClass
+import com.crewcue.android.R
+import com.crewcue.android.ui.ShellViewModel
+import com.crewcue.android.ui.findActivity
+import com.crewcue.android.ui.map.isOnline
+import com.crewcue.android.ui.theme.CrewClock
+import com.crewcue.android.ui.theme.CrewTextField
+import com.crewcue.android.ui.theme.Kicker
+import com.crewcue.android.ui.theme.MetricLargeStyle
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * The onboarding route (`onboarding-runner-setup`): client-core's onboarding state picks what
+ * shows. Loading (never the chooser before the race list is known), the chooser, or the runner's
+ * phase 1 setup. Every other state belongs to the shell, which routes away from here.
+ */
+@Composable
+fun OnboardingScreen(shell: ShellViewModel) {
+    val text = shell.onboardingText
+    val flow = shell.onboarding
+    Box(
+        Modifier
+            .fillMaxSize()
+            .testTag(SETUP_TAG)
+            .semantics { contentDescription = shell.uiState.screen.title }
+    ) {
+        when (OnboardingRouting.content(flow, openedByLink = shell.setupFromLink)) {
+            OnboardingContent.Chooser -> OnboardingChooser(shell, text)
+            OnboardingContent.RunnerSetup -> if (flow != null) RunnerSetup(shell, flow, text)
+            OnboardingContent.Loading -> SetupLoading(shell, text)
+        }
+    }
+}
+
+@Composable
+private fun SetupLoading(shell: ShellViewModel, text: OnboardingText) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        SetupLoader(setupTag("loading"))
+        // The race list couldn't load and nothing saved decides yet: say so, and offer a retry.
+        if (shell.racesFailed && shell.session != null && !shell.racesLoading) {
+            val line = if (shell.racesFailedOffline) text.setupOffline else shell.racesMessage
+            Text(
+                line,
+                modifier = Modifier.testTag(setupTag("loading.failure")).semantics { contentDescription = line },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SetupSecondaryButton(text.label("tryAgain"), setupTag("retry"), onClick = { shell.loadRaces() })
+        }
+    }
+}
+
+/** "I'm running a race" or "I'm crewing for someone". */
+@Composable
+private fun OnboardingChooser(shell: ShellViewModel, text: OnboardingText) {
+    AdaptiveSetupLayout(
+        form = { inline ->
+            FormColumn(setupTag("chooser")) {
+                if (inline) Illustration()
+                StepHeader(text.label("chooserTitle"), "")
+                SetupPrimaryButton(text.chooserRunner, setupTag("chooser.runner"), { shell.chooseOnboarding("runner") })
+                SetupSecondaryButton(text.chooserCrew, setupTag("chooser.crew"), { shell.chooseOnboarding("crew") })
+                if (shell.session == null) {
+                    SetupSecondaryButton(text.label("signIn"), setupTag("chooser.sign-in"), shell::openSignedOut)
+                }
+            }
+        },
+        preview = { Illustration() }
+    )
+}
+
+@Composable
+private fun RunnerSetup(shell: ShellViewModel, flow: OnboardingFlow, text: OnboardingText) {
+    val session = shell.session
+    val userId = session?.userId
+    val model: RunnerSetupViewModel = viewModel(
+        key = "runner-setup-${userId ?: "guest"}",
+        factory = viewModelFactory {
+            initializer {
+                RunnerSetupViewModel(
+                    runtime = BridgeRunnerSetupRuntime(shell.container.raceDay, shell::onboardingRaceContext),
+                    drafts = shell.container.runnerSetupDrafts,
+                    savedState = createSavedStateHandle(),
+                    userId = userId,
+                    sessionName = session?.displayName,
+                    text = text,
+                    deviceZone = ZoneId.systemDefault().id,
+                    today = LocalDate.now()
+                )
+            }
+        }
+    )
+    LaunchedEffect(model, flow) { model.sync(flow) }
+    LaunchedEffect(model) { model.effects.collect(shell::onSetupEffect) }
+    val step = model.step ?: SetupSteps.ACCOUNT
+    BackHandler(enabled = step == SetupSteps.START_TIME && !model.busy) { model.backToCourse() }
+    BackHandler(enabled = step == SetupSteps.ACCOUNT && session == null) { shell.chooseAgain() }
+    AdaptiveSetupLayout(
+        form = { inlinePreview -> StepForm(shell, model, step, text, inlinePreview) },
+        preview = { LivePreview(model, step, text) }
+    )
+}
+
+/**
+ * Compact: one step per screen. Medium and expanded: the step beside a live preview
+ * (`SupportingPaneScaffold`, kept off any vertical hinge). Tabletop: the preview above the fold,
+ * the controls below it.
+ */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+private fun AdaptiveSetupLayout(form: @Composable (inlinePreview: Boolean) -> Unit, preview: @Composable () -> Unit) {
+    val info = currentWindowAdaptiveInfo()
+    val wide = info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
+    when {
+        info.windowPosture.isTabletop -> TabletopSplit(info.windowPosture, top = preview, bottom = { form(false) })
+        wide -> {
+            val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info, HingePolicy.AlwaysAvoid)
+            val navigator = rememberSupportingPaneScaffoldNavigator(scaffoldDirective = directive)
+            SupportingPaneScaffold(
+                directive = navigator.scaffoldDirective,
+                value = navigator.scaffoldValue,
+                mainPane = { AnimatedPane(Modifier.testTag(setupTag("pane.form"))) { form(false) } },
+                supportingPane = { AnimatedPane(Modifier.testTag(setupTag("pane.preview"))) { preview() } }
+            )
+        }
+        else -> form(true)
+    }
+}
+
+/** Half-open, hinge across: content on the top half, controls on the bottom, nothing on the hinge. */
+@Composable
+private fun TabletopSplit(posture: Posture, top: @Composable () -> Unit, bottom: @Composable () -> Unit) {
+    val hinge = posture.hingeList.firstOrNull { !it.isVertical }
+    var rootTop by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .testTag(setupTag("tabletop"))
+            .onGloballyPositioned { rootTop = it.positionInWindow().y }
+    ) {
+        if (hinge == null) {
+            Box(Modifier.fillMaxWidth().weight(1f)) { top() }
+            Box(Modifier.fillMaxWidth().weight(1f)) { bottom() }
+        } else {
+            val topHeight = with(density) { (hinge.bounds.top - rootTop).coerceAtLeast(0f).toDp() }
+            val gap = with(density) { hinge.bounds.height.toDp() }
+            Box(Modifier.fillMaxWidth().height(topHeight)) { top() }
+            Spacer(Modifier.height(gap))
+            Box(Modifier.fillMaxWidth().weight(1f)) { bottom() }
+        }
+    }
+}
+
+@Composable
+private fun FormColumn(tag: String, content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Column(
+            Modifier
+                .widthIn(max = 560.dp)
+                .fillMaxWidth()
+                .testTag(tag)
+                .animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun StepForm(shell: ShellViewModel, model: RunnerSetupViewModel, step: String, text: OnboardingText, inlinePreview: Boolean) {
+    AnimatedContent(
+        targetState = step,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "setup-step"
+    ) { shown ->
+        FormColumn(setupTag("step.$shown")) {
+            StepHeader(
+                text.title(shown),
+                if (shown == SetupSteps.TEASER) text.setupSuccess else text.explanation(shown)
+            )
+            when (shown) {
+                SetupSteps.ACCOUNT -> AccountStep(shell, model, text)
+                SetupSteps.COURSE -> CourseStep(model, text, inlinePreview)
+                SetupSteps.START_TIME -> StartTimeStep(model, text)
+                SetupSteps.HISTORY -> HistoryStep(model, text)
+                SetupSteps.TEASER -> TeaserStep(model, text, inlinePreview)
+            }
+            val context = LocalContext.current
+            StatusLine(model.status, text) { model.retry(context.isOnline()) }
+        }
+    }
+}
+
+@Composable
+private fun AccountStep(shell: ShellViewModel, model: RunnerSetupViewModel, text: OnboardingText) {
+    val activity = LocalContext.current.findActivity()
+    if (shell.session == null) {
+        val working = shell.signInConnection != null
+        SetupPrimaryButton(
+            text.label("createAccount"),
+            setupTag("account.sign-up"),
+            { shell.signIn(activity, connection = null, signUp = true) },
+            busy = working
+        )
+        SetupSecondaryButton(text.label("signIn"), setupTag("account.sign-in"), { shell.signIn(activity) }, enabled = !working)
+    } else {
+        CrewTextField(model.draft.displayName, model::updateName, text.label("displayName"), Modifier.testTag(setupTag("account.name")))
+        SetupPrimaryButton(
+            text.label("continueStep"),
+            setupTag("account.continue"),
+            model::saveAccount,
+            enabled = model.draft.displayName.isNotBlank(),
+            busy = model.busy
+        )
+    }
+    shell.setupAuthFailure?.let { line ->
+        Text(
+            line,
+            modifier = Modifier.testTag(setupTag("account.failure")).semantics { contentDescription = line },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+}
+
+@Composable
+private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText, inlinePreview: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val (name, xml) = withContext(Dispatchers.IO) { readCourseFile(context, uri) }
+            model.chooseCourse(name, xml, context.isOnline())
+        }
+    }
+    // GPX has no registered MIME type on most devices; the server checks the content.
+    val choose = { picker.launch(arrayOf("*/*")) }
+    val fileName = model.draft.courseFileName
+    if (fileName == null) {
+        Text(text.setupEmpty, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        Text(
+            fileName,
+            modifier = Modifier.testTag(setupTag("course.file")),
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+    val preview = model.preview
+    if (inlinePreview && preview != null) CourseMapPreview(preview, text)
+    if (preview == null) {
+        SetupPrimaryButton(text.label("chooseCourseFile"), setupTag("course.choose"), choose, busy = model.busy)
+    } else {
+        SetupPrimaryButton(text.label("continueStep"), setupTag("course.continue"), model::confirmCourse, enabled = !model.busy)
+        SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("course.choose-another"), choose, enabled = !model.busy)
+    }
+}
+
+@Composable
+private fun StartTimeStep(model: RunnerSetupViewModel, text: OnboardingText) {
+    val context = LocalContext.current
+    val start = model.start
+    var dialog by rememberSaveable { mutableStateOf<String?>(null) }
+    FieldButton(text.label("raceDate"), localDateLabel(start), setupTag("start.date")) { dialog = "date" }
+    FieldButton(text.label("raceTime"), localTimeLabel(start), setupTag("start.time")) { dialog = "time" }
+    FieldButton(text.label("raceTimeZone"), start.timeZone.replace('_', ' '), setupTag("start.zone")) { dialog = "zone" }
+    model.startProblem?.let { problem ->
+        Text(
+            problem,
+            modifier = Modifier.testTag(setupTag("start.problem")).semantics { contentDescription = problem },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    SetupPrimaryButton(
+        text.label("continueStep"),
+        setupTag("start.continue"),
+        { model.saveStart(context.isOnline()) },
+        enabled = model.startInstant != null,
+        busy = model.busy
+    )
+    SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("start.back"), model::backToCourse, enabled = !model.busy)
+    val deviceZone = remember { ZoneId.systemDefault().id }
+    when (dialog) {
+        "date" -> RaceDateDialog(start, text, model::updateStart) { dialog = null }
+        "time" -> RaceTimeDialog(start, text, model::updateStart) { dialog = null }
+        "zone" -> RaceZoneDialog(start, deviceZone, text, model::updateStart) { dialog = null }
+    }
+}
+
+@Composable
+private fun HistoryStep(model: RunnerSetupViewModel, text: OnboardingText) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val (name, content) = withContext(Dispatchers.IO) { readHistoryFile(context, uri) }
+            model.importHistory(name, content, context.isOnline())
+        }
+    }
+    model.historyMessage?.let { line ->
+        Text(
+            line,
+            modifier = Modifier.testTag(setupTag("history.message")).semantics { contentDescription = line },
+            style = MaterialTheme.typography.bodyLarge
+        )
+    }
+    // Hidden when client-core answers null: history changed nothing the runner can see.
+    model.comparison?.let { line ->
+        Text(
+            line,
+            modifier = Modifier.testTag(setupTag("history.comparison")).semantics { contentDescription = line },
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+    // FIT and TCX have no registered MIME type on most devices; the server checks the content.
+    val choose = { picker.launch(arrayOf("*/*")) }
+    if (model.historyImported) {
+        SetupPrimaryButton(text.label("continueStep"), setupTag("history.continue"), model::finishHistory, busy = model.busy)
+        SetupSecondaryButton(text.label("importHistory"), setupTag("history.import"), choose, enabled = !model.busy)
+    } else {
+        SetupPrimaryButton(text.label("importHistory"), setupTag("history.import"), choose, busy = model.busy)
+        SetupSecondaryButton(text.label("skipHistory"), setupTag("history.skip"), model::skipHistory, enabled = !model.busy)
+    }
+}
+
+@Composable
+private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText, inlinePreview: Boolean) {
+    val teaser = model.teaser
+    if (teaser == null) {
+        if (model.busy) SetupLoader(setupTag("teaser.loading"))
+        return
+    }
+    val finish = CrewClock.short(teaser.finishAt) ?: "—"
+    Column(
+        Modifier.testTag(setupTag("teaser.finish")).semantics(mergeDescendants = true) {
+            contentDescription = "${text.label("finish")} $finish"
+        }
+    ) {
+        Kicker(text.label("finish"))
+        Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+        teaser.summary?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    // Compact has no preview pane: the course and its elevation (from the route) show here.
+    if (inlinePreview) model.preview?.let { CourseMapPreview(it, text) }
+    Column(Modifier.testTag(setupTag("teaser.timeline")), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        teaser.rows.forEach { row -> TeaserRowCard(row, text) }
+    }
+    SetupPrimaryButton(text.label("continueStep"), setupTag("teaser.continue"), model::finishTeaser, busy = model.busy)
+}
+
+/** The supporting pane: the course on the map with its elevation, and what the runner picked so far. */
+@Composable
+private fun LivePreview(model: RunnerSetupViewModel, step: String, text: OnboardingText) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .testTag(setupTag("preview"))
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Kicker(text.label("coursePreview"))
+        val course = model.preview
+        if (course == null || course.isEmpty) {
+            Illustration()
+        } else {
+            CourseMapPreview(course, text)
+        }
+        if (step == SetupSteps.START_TIME || step == SetupSteps.HISTORY) {
+            val start = model.start
+            Text(
+                listOf(localDateLabel(start), localTimeLabel(start), start.timeZone.replace('_', ' ')).joinToString(" · "),
+                modifier = Modifier.testTag(setupTag("preview.start")),
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+        model.teaser?.finishAt?.let { finishAt ->
+            Column(Modifier.testTag(setupTag("preview.finish"))) {
+                Kicker(text.label("finish"))
+                Text(CrewClock.short(finishAt) ?: "—", style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        model.comparison?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary) }
+    }
+}
+
+@Composable
+private fun Illustration() {
+    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+        Image(
+            painter = painterResource(R.drawable.onboarding_runner),
+            contentDescription = null,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+            contentScale = ContentScale.Fit
+        )
+    }
+}

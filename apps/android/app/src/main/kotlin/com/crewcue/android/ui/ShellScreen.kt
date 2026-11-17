@@ -76,6 +76,10 @@ import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.SecondaryButton
 import com.crewcue.android.ui.settings.ShellSettingsSheet
+import com.crewcue.android.ui.onboarding.OnboardingScreen
+import com.crewcue.android.ui.onboarding.RaceGate
+import com.crewcue.android.ui.onboarding.RaceLockedPane
+import com.crewcue.android.ui.onboarding.UnlockRaceBanner
 
 @Composable
 fun ShellScreen(viewModel: ShellViewModel) {
@@ -89,9 +93,19 @@ fun ShellScreen(viewModel: ShellViewModel) {
 @Composable
 private fun AppShell(viewModel: ShellViewModel) {
     val roomId = viewModel.session?.roomId
-    // An unpaid room 402s on room reads, so its race-day model waits for the Race Pass.
-    val unpaid = !roomId.isNullOrBlank() && viewModel.unpaidRoomId == roomId
-    val race = if (roomId.isNullOrBlank() || unpaid) null else rememberRaceDay(viewModel, roomId)
+    // Billing or client-core's state (the runner's paywall phase, a crew member's raceLocked) says unpaid.
+    val gate = RaceGate.of(
+        roomId = roomId,
+        role = viewModel.session?.role,
+        unpaidRoomId = viewModel.unpaidRoomId,
+        onboarding = viewModel.onboarding,
+        paywallOpen = viewModel.paywallOpen,
+        onRaceTab = viewModel.selectedTab != ShellTab.Profile
+    )
+    val race = if (roomId.isNullOrBlank() || !gate.loadsRace) null else rememberRaceDay(viewModel, roomId, sampleLocation = gate.samplesLocation)
+    val unlockBanner = viewModel.onboardingText.unpaidBanner
+    // Start tracking and chat send open the paywall on an unpaid race.
+    val onLocked: (() -> Unit)? = if (gate.gatesActions) viewModel::openPaywall else null
     if (!roomId.isNullOrBlank()) {
         LaunchedEffect(roomId) { viewModel.checkBilling(roomId) }
     }
@@ -101,16 +115,19 @@ private fun AppShell(viewModel: ShellViewModel) {
             .testTag("crewcue.app-shell")
             .semantics { contentDescription = "CrewCue" }
     ) {
-        val onMap = viewModel.selectedTab == ShellTab.Map && race != null
+        val paywallRoom = roomId?.takeIf { gate.showsPaywall }
+        val lockedReason = gate.lockedReason
+        val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
         Column(
             Modifier
                 .fillMaxSize()
                 .then(if (onMap) Modifier else Modifier.statusBarsPadding().padding(top = TOP_BAR_SPACE))
                 .padding(bottom = if (onMap) 0.dp else TAB_BAR_SPACE)
         ) {
-            val paywallRoom = roomId?.takeIf { unpaid && viewModel.selectedTab != ShellTab.Profile }
             if (paywallRoom != null) {
                 PaywallScreen(viewModel, paywallRoom, onContinue = { viewModel.noteUnlocked(paywallRoom) }, Modifier.weight(1f))
+            } else if (lockedReason != null) {
+                RaceLockedPane(lockedReason, Modifier.weight(1f))
             } else when (viewModel.selectedTab) {
                 ShellTab.Profile -> {
                     if (viewModel.session == null) {
@@ -123,6 +140,7 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
+                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                         PaceScreen(viewModel, roomId, Modifier.weight(1f), viewModel.paceFocus, race)
                     }
                 }
@@ -130,17 +148,30 @@ private fun AppShell(viewModel: ShellViewModel) {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
-                        MapScreen(viewModel, roomId, "map-track", Modifier.weight(1f), bottomInset = TAB_BAR_SPACE)
+                        MapScreen(viewModel, roomId, "map-track", Modifier.weight(1f), bottomInset = TAB_BAR_SPACE, onLocked = onLocked)
                     }
                 }
                 ShellTab.Chat -> {
                     if (roomId.isNullOrBlank()) {
                         NoRaceScreen(viewModel, Modifier.weight(1f))
                     } else {
-                        ChatPane(viewModel, roomId, Modifier.weight(1f), race = race)
+                        if (onLocked != null) UnlockRaceBanner(unlockBanner, onLocked, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                        ChatPane(viewModel, roomId, Modifier.weight(1f), race = race, onLocked = onLocked)
                     }
                 }
             }
+        }
+        // The map is full-bleed under the top bar, so its banner floats below that bar.
+        if (onLocked != null && onMap) {
+            UnlockRaceBanner(
+                unlockBanner,
+                onLocked,
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = TOP_BAR_SPACE + 48.dp)
+                    .padding(horizontal = 16.dp)
+            )
         }
         CrewTopBar(
             onSettings = { viewModel.openSettings() },
@@ -168,20 +199,23 @@ private fun AppShell(viewModel: ShellViewModel) {
 private val TOP_BAR_SPACE = 72.dp
 private val TAB_BAR_SPACE = 96.dp
 
-/** Course, schedule, and location feed readouts on every tab, so they load with the shell. */
+/**
+ * Course, schedule, and location feed readouts on every tab, so they load with the shell. Without
+ * [sampleLocation] (an unpaid race) the athlete's phone sends no position sample.
+ */
 @Composable
-private fun rememberRaceDay(viewModel: ShellViewModel, roomId: String): MapViewModel {
+private fun rememberRaceDay(viewModel: ShellViewModel, roomId: String, sampleLocation: Boolean): MapViewModel {
     val role = viewModel.session?.role.orEmpty()
     val race: MapViewModel = viewModel(
         key = "map-$roomId-$role",
         factory = MapViewModelFactory(viewModel.container.raceDay, roomId, role)
     )
     val context = LocalContext.current
-    LaunchedEffect(roomId, role) {
+    LaunchedEffect(roomId, role, sampleLocation) {
         race.load()
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) captureLocation(context, race)
+        if (granted && sampleLocation) captureLocation(context, race)
     }
     return race
 }
@@ -264,6 +298,10 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         }
         "onboarding-notifications" -> {
             if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else NotificationPermissionScreen()
+        }
+        // The chooser and the runner's setup, driven by client-core's onboarding state.
+        "onboarding-runner-setup" -> {
+            if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else OnboardingScreen(viewModel)
         }
         "billing-purchase", "billing-redeem" -> {
             val roomId = viewModel.session?.roomId
@@ -403,13 +441,15 @@ private fun ChatPane(
     viewModel: ShellViewModel,
     roomId: String,
     modifier: Modifier = Modifier,
-    race: MapViewModel? = null
+    race: MapViewModel? = null,
+    onLocked: (() -> Unit)? = null
 ) {
     ChatScreen(
         viewModel,
         roomId,
         race = race,
-        modifier = modifier
+        modifier = modifier,
+        onLocked = onLocked
     )
 }
 

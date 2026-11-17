@@ -139,7 +139,9 @@ fun ChatScreen(
     shell: ShellViewModel,
     roomId: String,
     modifier: Modifier = Modifier,
-    race: MapViewModel? = null
+    race: MapViewModel? = null,
+    /** Set on an unpaid race: sending opens the paywall instead. */
+    onLocked: (() -> Unit)? = null
 ) {
     val model: ChatViewModel = viewModel(
         key = "chat-$roomId",
@@ -213,8 +215,10 @@ fun ChatScreen(
             onDraft = model::updateDraft,
             sending = model.sending,
             uploadingPhoto = model.uploadingPhoto,
-            onPhoto = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            onSend = { model.send(context.applicationContext) }
+            onPhoto = {
+                if (onLocked != null) onLocked() else picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onSend = { if (onLocked != null) onLocked() else model.send(context.applicationContext) }
         )
     }
 }

@@ -24,7 +24,8 @@ import Dispatch
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
-/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`).
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`),
+/// raceStartInput, gpxPreview (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -87,14 +88,22 @@ enum RuntimeCall {
         } else {
             message = (error as? ClientHTTPError)?.message ?? "\(error)"
         }
-        let expired = (error as? ClientHTTPError)?.status == 401
-        let object: [String: Any] = [
+        let http = error as? ClientHTTPError
+        let expired = http?.status == 401
+        var object: [String: Any] = [
             "ok": false,
             "message": message,
             "sessionExpired": expired,
             "crewLimit": BillingErrors.isCrewLimit(error),
-            "offline": TransportFailure.isOffline(error)
+            "offline": TransportFailure.isOffline(error),
+            // The HTTP status, 0 when the failure isn't an HTTP answer. With `code`, the body's
+            // code (402 `room_unpaid`, 400 `course_mismatch`), Android branches on these instead
+            // of on server wording.
+            "status": http?.status ?? 0
         ]
+        if let code = http?.reason ?? http?.decision, !code.isEmpty {
+            object["code"] = code
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return #"{"ok":false,"message":"Request failed."}"#
         }
@@ -301,6 +310,10 @@ enum RuntimeCall {
             return try demoRaceControl(op, object)
         case "demoRaceCleanup":
             return try demoRaceCleanup(object)
+        case "raceStartInput":
+            return raceStartInput(object)
+        case "gpxPreview":
+            return try await gpxPreview(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -878,6 +891,8 @@ enum RuntimeCall {
             "hasEstimate": estimate != nil,
             "coldStart": estimate?.coldStart ?? false,
             "estimateId": estimate?.id ?? "",
+            // The finish instant (API ISO-8601) for `onboardingHistoryComparison`; "" without one.
+            "expectedFinishAt": estimate?.expectedFinishAt ?? "",
             "summary": estimate.map { estimateSummary($0, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
@@ -1727,10 +1742,35 @@ enum CoursePayload {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return empty(offline: false)
         }
-        let room = (root["room"] as? [String: Any]) ?? root
+        return make(room: (root["room"] as? [String: Any]) ?? root)
+    }
+
+    /// The course a `gpx-preview` answer describes (`course`, `routeOverlayLayer`), before it is
+    /// saved: the same `line`, `checkpoints` and `elevation` as a saved room, plus the server's
+    /// `plannedPaceSecondsPerKm` for the GPX.
+    static func preview(from data: Data) -> [String: Any] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return empty(offline: false)
+        }
+        var room: [String: Any] = [:]
+        if let course = root["course"] { room["course"] = course }
+        if let layer = root["routeOverlayLayer"] as? [String: Any] {
+            room["mapWorkspace"] = ["layers": [layer], "selectedLayerId": layer["id"] ?? NSNull()] as [String: Any]
+        }
+        var payload = make(room: room)
+        payload["courseFileName"] = (root["courseFileName"] as? String) ?? ""
+        if let pace = number(root["plannedPaceSecondsPerKm"]), pace > 0 {
+            payload["plannedPaceSecondsPerKm"] = pace
+        }
+        return payload
+    }
+
+    private static func make(room: [String: Any]) -> [String: Any] {
         let checkpoints = checkpointRows(room)
-        let drawn = workspaceLine(room)
+        let geometry = workspaceGeometry(room)
+        let drawn = coordinates(from: geometry)
         let line = drawn.count >= 2 ? drawn : checkpointLine(checkpoints)
+        let planned = elevationRows(room)
         return [
             "offline": false,
             "checkpoints": checkpoints,
@@ -1738,9 +1778,36 @@ enum CoursePayload {
             // Android shows Remove member only to the race's athlete, as the API allows.
             "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
-            "elevation": elevationRows(room),
+            // An unpaid race's teaser has no baseline track, so its profile comes from the route.
+            "elevation": planned.isEmpty ? geometryElevation(geometry) : planned,
             "memberships": membershipRows(room)
         ]
+    }
+
+    /// `[distanceMeters, elevationMeters]` along the route line, from each vertex's third value
+    /// (GeoJSON altitude), distances summed great-circle from the first vertex. Empty when fewer
+    /// than two vertices carry an elevation.
+    static func geometryElevation(_ geometry: Any?) -> [[Double]] {
+        var rows: [[Double]] = []
+        var distance = 0.0
+        var previous: (latitude: Double, longitude: Double)?
+        for vertex in vertices(from: geometry) {
+            if let previous {
+                distance += greatCircleMeters(previous.latitude, previous.longitude, vertex.latitude, vertex.longitude)
+            }
+            previous = (vertex.latitude, vertex.longitude)
+            if let elevation = vertex.elevation { rows.append([distance, elevation]) }
+        }
+        return rows.count >= 2 ? rows : []
+    }
+
+    private static func greatCircleMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+        let radius = 6_371_000.0
+        let dLat = (lat2 - lat1) * .pi / 180
+        let dLon = (lon2 - lon1) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * sin(dLon / 2) * sin(dLon / 2)
+        return 2 * radius * asin(min(1, sqrt(a)))
     }
 
     /// `[distanceMeters, elevationMeters]` pairs from the course baseline track.
@@ -1807,8 +1874,10 @@ enum CoursePayload {
         return parsed.sorted { $0.distance < $1.distance }.map(\.row)
     }
 
-    private static func workspaceLine(_ room: [String: Any]) -> [[Double]] {
-        guard let workspace = room["mapWorkspace"] as? [String: Any] else { return [] }
+    /// The geometry of the layer that drives the projection (else the selected one, else the first
+    /// with a line), or nil.
+    private static func workspaceGeometry(_ room: [String: Any]) -> Any? {
+        guard let workspace = room["mapWorkspace"] as? [String: Any] else { return nil }
         let layers = ((workspace["layers"] as? [Any]) ?? []).compactMap { $0 as? [String: Any] }
         let driver = (workspace["drivesProjectionLayerId"] as? String) ?? (workspace["selectedLayerId"] as? String)
         let chosen: [String: Any]?
@@ -1817,11 +1886,14 @@ enum CoursePayload {
         } else {
             chosen = layers.first { coordinates(from: $0["geometry"]).count >= 2 }
         }
-        guard let chosen else { return [] }
-        return coordinates(from: chosen["geometry"])
+        return chosen?["geometry"]
     }
 
     private static func coordinates(from geometry: Any?) -> [[Double]] {
+        vertices(from: geometry).map { [$0.longitude, $0.latitude] }
+    }
+
+    private static func vertices(from geometry: Any?) -> [(longitude: Double, latitude: Double, elevation: Double?)] {
         guard let geometry = geometry as? [String: Any],
               let coordinates = geometry["coordinates"] as? [Any] else {
             return []
@@ -1838,13 +1910,14 @@ enum CoursePayload {
         }
     }
 
-    private static func position(_ value: Any) -> [Double]? {
+    private static func position(_ value: Any) -> (longitude: Double, latitude: Double, elevation: Double?)? {
         guard let pair = value as? [Any], pair.count >= 2,
               let longitude = number(pair[0]),
               let latitude = number(pair[1]) else {
             return nil
         }
-        return [longitude, latitude]
+        let elevation = pair.count >= 3 ? number(pair[2]) : nil
+        return (longitude, latitude, elevation)
     }
 
     private static func checkpointLine(_ checkpoints: [[String: Any]]) -> [[Double]] {
