@@ -23,7 +23,7 @@ import Dispatch
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding (`RuntimeOnboarding.swift`),
-/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip (`RuntimeDemoRace.swift`).
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -65,6 +65,9 @@ enum RuntimeCall {
               let op = object["op"] as? String else {
             return #"{"ok":false,"message":"Invalid runtime request."}"#
         }
+        // A replay op that began before the replay ended can write after it: sweep once it returns.
+        let demo = demoRace(object)
+        defer { sweepDemo(demo) }
         do {
             let value = try await dispatch(op, object)
             let encoded = try JSONSerialization.data(withJSONObject: ["ok": true, "result": value])
@@ -281,6 +284,8 @@ enum RuntimeCall {
             return try await demoRaceCreate(object)
         case "demoRacePlay", "demoRacePause", "demoRaceTick", "demoRaceSkip":
             return try demoRaceControl(op, object)
+        case "demoRaceCleanup":
+            return try demoRaceCleanup(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -947,7 +952,8 @@ enum RuntimeCall {
     }
 
     /// The user's races plus the one every tab follows. `roomId` is the preferred active room.
-    /// Each row also carries `entitlementStatus` and `hasCourse`, so it can go back to `readOnboarding`.
+    /// Each row also carries `entitlementStatus`, `hasCourse` and the legacy `activatedAt` (the
+    /// race clock's start when `raceStartAt` is unset), so it can go back to `readOnboarding`.
     private static func myRaces(_ object: [String: Any]) async throws -> Any {
         let graph = try graph(object)
         let userId = object["userId"] as? String ?? ""
@@ -961,6 +967,9 @@ enum RuntimeCall {
                 row["roleLabel"] = race.roleLabel
                 row["entitlementStatus"] = onboarding.entitlementStatus
                 row["hasCourse"] = onboarding.hasCourse
+                if let activatedAt = room.activatedAt?.trimmingCharacters(in: .whitespacesAndNewlines), !activatedAt.isEmpty {
+                    row["activatedAt"] = activatedAt
+                }
                 return row
             },
             "activeRoomId": roster.activeRoomId ?? NSNull()
@@ -1466,13 +1475,14 @@ enum RuntimeCall {
     }
 
     /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
-    /// the app's session-expired path runs.
+    /// the app's session-expired path runs. A confirmed delete also removes the user's onboarding
+    /// progress, which sign-out keeps.
     private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
-        try await deleteAccount(graph: try graph(object))
+        try await deleteAccount(graph: try graph(object), onboarding: try? onboardingStore(object), userId: text(object, "userId"))
     }
 
-    static func deleteAccount(graph: ClientGraph) async throws -> [String: Any] {
-        switch await AccountDeletion.run(graph: graph) {
+    static func deleteAccount(graph: ClientGraph, onboarding: OnboardingStore? = nil, userId: String? = nil) async throws -> [String: Any] {
+        switch await AccountDeletion.run(graph: graph, onboarding: onboarding, userId: userId) {
         case let .deleted(identityProvider):
             return ["deleted": true, "identityProvider": identityProvider]
         case let .failed(message, retryable):
@@ -1533,9 +1543,14 @@ enum RuntimeCall {
     }
 
     /// The signed-in user's directory under the storage root. The outbox keys rows by room itself.
+    /// A replay's is under its temporary directory, and none once the replay ended.
     private static func userDirectory(_ object: [String: Any]) -> URL? {
+        let userId = object["userId"] as? String ?? ""
+        if demoURL(object) != nil {
+            return try? demoRace(object)?.userDirectory(userId: userId)
+        }
         guard let root = storageRoot(object) else { return nil }
-        return try? UserStorage(root: root).directory(userId: object["userId"] as? String ?? "")
+        return try? UserStorage(root: root).directory(userId: userId)
     }
 
     /// Per-room caches and drafts. Nil without a room, so one race never reads another's files.

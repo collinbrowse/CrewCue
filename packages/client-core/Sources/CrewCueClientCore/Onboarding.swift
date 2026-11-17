@@ -64,23 +64,30 @@ public enum OnboardingError: Error, Equatable, Sendable {
     case followsServer(OnboardingStep)
     case outcomeNotAllowed(OnboardingStep, OnboardingOutcome)
     case roomRequired(OnboardingStep)
+    /// `join` is confirmed for one invite, named by its token or code.
+    case inviteRequired
 
     public var message: String {
         switch self {
         case .followsServer(let step): "\(step.rawValue) follows the race on the server."
         case .outcomeNotAllowed(let step, let outcome): "\(step.rawValue) can't be \(outcome.rawValue)."
         case .roomRequired(let step): "\(step.rawValue) needs a race."
+        case .inviteRequired: "join needs the invite's token or code."
         }
     }
 }
 
-/// One race the user belongs to, as `GET /race-rooms/mine` lists it.
+/// One race the user belongs to, as `GET /race-rooms/mine` lists it. The progress file keeps the
+/// last list the server answered, so a relaunch without it (offline, or before it answers) still
+/// knows each race's role, payment, course and start.
 public struct OnboardingRace: Equatable, Sendable {
     public var roomId: String
     /// This user's role in this race. Roles differ per race.
     public var role: String
     /// `unpaid`, `paid` or `expired`.
     public var entitlementStatus: String
+    /// The race clock's start: `raceStartAt`, else the legacy `activatedAt` the server's clock
+    /// falls back to (`resolveRaceAnchorIso`).
     public var raceStartAt: String?
     public var hasCourse: Bool
 
@@ -99,7 +106,7 @@ public struct OnboardingRace: Equatable, Sendable {
             roomId: room.id,
             role: summary.role,
             entitlementStatus: room.entitlement.status,
-            raceStartAt: room.raceStartAt,
+            raceStartAt: Self.raceClockStart(raceStartAt: room.raceStartAt, activatedAt: room.activatedAt),
             hasCourse: room.course?.checkpoints.isEmpty == false || !fileName.isEmpty
         )
     }
@@ -108,6 +115,41 @@ public struct OnboardingRace: Equatable, Sendable {
     public var isPaid: Bool { entitlementStatus == "paid" }
     public var isExpired: Bool { entitlementStatus == "expired" }
     var hasStartTime: Bool { raceStartAt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
+
+    /// The server's race clock anchor: `raceStartAt`, else `activatedAt`. Blank counts as unset.
+    public static func raceClockStart(raceStartAt: String?, activatedAt: String?) -> String? {
+        for value in [raceStartAt, activatedAt] {
+            if let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    var jsonObject: [String: Any] {
+        var object: [String: Any] = [
+            "roomId": roomId,
+            "role": role,
+            "entitlementStatus": entitlementStatus,
+            "hasCourse": hasCourse
+        ]
+        if let raceStartAt { object["raceStartAt"] = raceStartAt }
+        return object
+    }
+
+    init?(jsonObject value: Any) {
+        guard let object = value as? [String: Any],
+              let roomId = (object["roomId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !roomId.isEmpty,
+              let role = object["role"] as? String,
+              let status = object["entitlementStatus"] as? String else { return nil }
+        self.init(
+            roomId: roomId,
+            role: role,
+            entitlementStatus: status,
+            raceStartAt: object["raceStartAt"] as? String,
+            hasCourse: object["hasCourse"] as? Bool ?? false
+        )
+    }
 }
 
 /// Everything the flow is decided from. Races are ignored while signed out: they come from the
@@ -115,8 +157,13 @@ public struct OnboardingRace: Equatable, Sendable {
 public struct OnboardingInput: Sendable {
     public var signedIn: Bool
     public var userId: String?
-    public var hasPendingInvite: Bool
-    public var races: [OnboardingRace]
+    /// The pending invite's token or code, nil when there is none. A signed-out confirmation
+    /// counts only for this invite; an empty string is an invite the app can't name, which no
+    /// confirmation matches.
+    public var pendingInvite: String?
+    /// `GET /race-rooms/mine` as it answered this time. Nil while it hasn't (loading, offline):
+    /// the flow then follows the list saved with the progress (`OnboardingProgress.knownRaces`).
+    public var races: [OnboardingRace]?
     /// The race every tab follows. A race the list no longer has falls back to the first one.
     public var activeRoomId: String?
     public var progress: OnboardingProgress
@@ -124,18 +171,20 @@ public struct OnboardingInput: Sendable {
     public init(
         signedIn: Bool,
         userId: String?,
-        hasPendingInvite: Bool = false,
-        races: [OnboardingRace] = [],
+        pendingInvite: String? = nil,
+        races: [OnboardingRace]? = nil,
         activeRoomId: String? = nil,
         progress: OnboardingProgress = .empty
     ) {
         self.signedIn = signedIn
         self.userId = userId
-        self.hasPendingInvite = hasPendingInvite
+        self.pendingInvite = pendingInvite
         self.races = races
         self.activeRoomId = activeRoomId
         self.progress = progress
     }
+
+    public var hasPendingInvite: Bool { pendingInvite != nil }
 }
 
 public struct OnboardingStepStatus: Equatable, Sendable {
@@ -153,8 +202,11 @@ public struct OnboardingStepStatus: Equatable, Sendable {
 
 /// Where onboarding stands for the active race and this user's role in it.
 public struct OnboardingState: Equatable, Sendable {
+    /// `loading`: signed in, and neither this read nor the saved progress has the race list yet
+    /// (a first launch before `GET /race-rooms/mine` answers). Wait for the list; the tab bar
+    /// stays for a user with a stored active race.
     public enum Flow: String, Sendable {
-        case runner, crew, chooser, done
+        case runner, crew, chooser, done, loading
     }
 
     /// Runner: setup (before the tab bar), preview (replay and paywall), tour. Crew: join, tour.
@@ -163,16 +215,19 @@ public struct OnboardingState: Equatable, Sendable {
     }
 
     public var flow: Flow
-    /// Whose flow this is, or was once `done`. Nil for the chooser.
+    /// Whose flow this is, or was once `done`. Nil for the chooser and while loading.
     public var role: OnboardingChoice?
-    /// The race the flow is for. Nil before the runner's race exists or the crew's join lands.
+    /// The race the flow is for. Nil before the runner's race exists or the crew's join lands;
+    /// while loading, the stored active race.
     public var roomId: String?
     public var phase: Phase?
     /// The screen to show. Nil for the chooser and when done.
     public var step: OnboardingStep?
-    /// The role's required steps in order, with how each ended.
+    /// The role's required steps in order, with how each ended. A paid runner race leaves out
+    /// course and startTime, which are checklist items there.
     public var steps: [OnboardingStepStatus]
-    /// Runner setup checklist items, shown until done; they never block the flow.
+    /// Runner setup checklist items, shown until done; they never block the flow. A paid race
+    /// lists its course and start time here too, so a missing one never hides the tab bar.
     public var checklist: [OnboardingStepStatus]
     /// Signed out with a pending invite the person already confirmed: sign in, then accept it.
     public var inviteConfirmed: Bool
@@ -215,26 +270,45 @@ public struct OnboardingState: Equatable, Sendable {
 /// a start time, a payment) and from the saved progress for the rest. Pure.
 public enum Onboarding {
     public static func resolve(_ input: OnboardingInput) -> OnboardingState {
+        // Signed out, the server's races don't apply. Signed in: this read's list, else the one
+        // saved with the progress; nil when neither exists yet.
+        let races: [OnboardingRace]? = input.signedIn ? (input.races ?? input.progress.knownRaces) : []
         if input.hasPendingInvite {
-            return crew(race: nil, input)
+            // The join comes first, presented over the tab bar of a race the user already has.
+            let underway = races.map { !$0.isEmpty } ?? (room(input.activeRoomId) != nil)
+            return crew(race: nil, input, showsTabBar: underway)
         }
-        if let race = activeRace(input) {
+        guard let races else { return loading(input) }
+        if let race = activeRace(races, preferred: input.activeRoomId) {
             if race.isExpired {
                 return finished(role: race.isRunner ? .runner : .crew, race: race, input)
             }
-            return race.isRunner ? runner(race: race, input) : crew(race: race, input)
+            return race.isRunner ? runner(race: race, input) : crew(race: race, input, showsTabBar: true)
         }
         switch input.progress.choice {
         case .runner: return runner(race: nil, input)
-        case .crew: return crew(race: nil, input)
+        case .crew: return crew(race: nil, input, showsTabBar: false)
         case nil: return .chooser
         }
     }
 
-    static func activeRace(_ input: OnboardingInput) -> OnboardingRace? {
-        guard input.signedIn else { return nil }
-        let preferred = input.activeRoomId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return input.races.first { $0.roomId == preferred } ?? input.races.first
+    static func activeRace(_ races: [OnboardingRace], preferred: String?) -> OnboardingRace? {
+        let preferred = room(preferred)
+        return races.first { $0.roomId == preferred } ?? races.first
+    }
+
+    /// The race list isn't known yet. Nothing to decide but the tab bar: a stored active race keeps it.
+    private static func loading(_ input: OnboardingInput) -> OnboardingState {
+        let roomId = room(input.activeRoomId)
+        return OnboardingState(
+            flow: .loading, role: nil, roomId: roomId, phase: nil, step: nil,
+            steps: [], checklist: [], inviteConfirmed: false, showsTabBar: roomId != nil
+        )
+    }
+
+    private static func room(_ roomId: String?) -> String? {
+        let trimmed = roomId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func runner(race: OnboardingRace?, _ input: OnboardingInput) -> OnboardingState {
@@ -246,10 +320,13 @@ public enum Onboarding {
             progress.outcome(step, roomId: roomId)
         }
         func done(_ complete: Bool) -> OnboardingOutcome? { complete ? .done : nil }
+        let course = OnboardingStepStatus(step: .course, outcome: done(race?.hasCourse == true))
+        let startTime = OnboardingStepStatus(step: .startTime, outcome: done(race?.hasStartTime == true))
+        // A paid race never goes back behind the tab bar: its course and start time move to the
+        // checklist instead of blocking setup.
         let setup: [OnboardingStepStatus] = [
-            OnboardingStepStatus(step: .account, outcome: input.signedIn ? (saved(.account) ?? done(race != nil)) : nil),
-            OnboardingStepStatus(step: .course, outcome: done(race?.hasCourse == true)),
-            OnboardingStepStatus(step: .startTime, outcome: done(race?.hasStartTime == true)),
+            OnboardingStepStatus(step: .account, outcome: input.signedIn ? (saved(.account) ?? done(race != nil)) : nil)
+        ] + (paid ? [] : [course, startTime]) + [
             OnboardingStepStatus(step: .history, outcome: saved(.history) ?? done(paid)),
             OnboardingStepStatus(step: .projectionTeaser, outcome: race == nil ? nil : saved(.projectionTeaser) ?? done(paid))
         ]
@@ -258,7 +335,8 @@ public enum Onboarding {
             OnboardingStepStatus(step: .paywall, outcome: done(paid))
         ]
         let tour = OnboardingStep.runnerTour.map { OnboardingStepStatus(step: $0, outcome: race == nil ? nil : saved($0)) }
-        let checklist = OnboardingStep.runnerChecklist.map { OnboardingStepStatus(step: $0, outcome: race == nil ? nil : saved($0)) }
+        let checklist = (paid ? [course, startTime] : [])
+            + OnboardingStep.runnerChecklist.map { OnboardingStepStatus(step: $0, outcome: race == nil ? nil : saved($0)) }
         let phases: [(OnboardingState.Phase, [OnboardingStepStatus])] = [(.setup, setup), (.preview, preview), (.tour, tour)]
         let steps = setup + preview + tour
         guard let next = firstIncomplete(phases) else {
@@ -277,10 +355,10 @@ public enum Onboarding {
         )
     }
 
-    private static func crew(race: OnboardingRace?, _ input: OnboardingInput) -> OnboardingState {
+    private static func crew(race: OnboardingRace?, _ input: OnboardingInput, showsTabBar: Bool) -> OnboardingState {
         // A pending invite wins over the active race: that join comes first.
         let seat = input.hasPendingInvite ? nil : race
-        let confirmed = input.hasPendingInvite && input.progress.outcome(.join, roomId: nil) != nil
+        let confirmed = input.hasPendingInvite && input.progress.inviteConfirmed(input.pendingInvite)
         let join = [
             OnboardingStepStatus(step: .join, outcome: seat == nil ? nil : .done),
             OnboardingStepStatus(step: .account, outcome: input.signedIn ? .done : nil)
@@ -294,7 +372,7 @@ public enum Onboarding {
             let step: OnboardingStep = !input.signedIn && confirmed ? .account : .join
             return OnboardingState(
                 flow: .crew, role: .crew, roomId: nil, phase: .join, step: step,
-                steps: steps, checklist: [], inviteConfirmed: confirmed, showsTabBar: false
+                steps: steps, checklist: [], inviteConfirmed: confirmed, showsTabBar: showsTabBar
             )
         }
         guard let next = firstIncomplete([(.tour, tour)]) else {

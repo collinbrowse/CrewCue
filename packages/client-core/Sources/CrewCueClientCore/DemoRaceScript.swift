@@ -88,7 +88,9 @@ public struct DemoRaceCourse: Equatable, Sendable {
 
         let estimate = room.pacingEstimate
         let estimateFinish = estimate.flatMap { ScheduleFormat.parseISO8601($0.expectedFinishAt) }
-        let start = room.raceStartAt.flatMap(ScheduleFormat.parseISO8601)
+        // The server's race clock: `raceStartAt`, else the legacy `activatedAt`, else the plan's.
+        let start = OnboardingRace.raceClockStart(raceStartAt: room.raceStartAt, activatedAt: room.activatedAt)
+            .flatMap(ScheduleFormat.parseISO8601)
             ?? estimateFinish.flatMap { finish in estimate.map { finish.addingTimeInterval(-$0.expectedFinishElapsedSeconds) } }
         guard let start else { throw DemoRaceError.noStartTime }
         let roomPace = room.plannedPaceSecondsPerKm.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }

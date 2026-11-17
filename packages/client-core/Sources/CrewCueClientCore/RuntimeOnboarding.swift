@@ -2,25 +2,26 @@ import Foundation
 
 /// Android's onboarding ops. The state is decided here, so both apps follow one flow.
 ///
-/// - `readOnboarding`: `signedIn?` (default: a `userId` is set), `hasPendingInvite`, `races`
-///   (rows from `myRaces`: `id`, `role`, `entitlementStatus`, `raceStartAt?`, `hasCourse`),
-///   `activeRoomId?`. A signed-in read first adopts the signed-out guest's progress.
+/// - `readOnboarding`: `signedIn?` (default: a `userId` is set), `pendingInvite?` (the pending
+///   invite's token or code; `hasPendingInvite: true` alone is an invite that can't be confirmed
+///   signed out), `races?` (rows from `myRaces`: `id`, `role`, `entitlementStatus`,
+///   `raceStartAt?`, `activatedAt?`, `hasCourse`), `activeRoomId?`. Leave `races` out (or null)
+///   while `myRaces` hasn't answered: the state then follows the list saved by the last read that
+///   had one, or is `loading` when there is none. A signed-in read adopts the signed-out guest's
+///   progress and saves a loaded list.
 /// - `markOnboardingStep`: `step` + `outcome?` (done, skipped, deferred) + `roomId?` for a
-///   per-race step, or `choice` (runner, crew) for the chooser. Answers `progress`, plus `state`
-///   when the request carries `races`.
+///   per-race step (`invite` for `join`: the token or code confirmed), or `choice` (runner, crew)
+///   for the chooser. Takes the same fields as `readOnboarding` and answers `progress` and `state`.
 /// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`.
 ///
 /// Progress lives in `onboardingDir`, else `crewcue-onboarding` beside `storageDir`, which
-/// sign-out and `adoptUser` never touch.
+/// sign-out and `adoptUser` never touch. `deleteAccount` removes the user's file.
 extension RuntimeCall {
     static func readOnboarding(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object)
-        let progress: OnboardingProgress
-        if onboardingSignedIn(object), let userId = text(object, "userId") {
-            progress = try store.adoptGuest(userId: userId)
-        } else {
-            progress = store.load(userId: nil)
-        }
+        let progress = try store.progress(
+            signedIn: onboardingSignedIn(object), userId: text(object, "userId"), races: onboardingRaces(object)
+        )
         return [
             "state": onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress))),
             "progress": progress.jsonObject
@@ -30,7 +31,7 @@ extension RuntimeCall {
     static func markOnboardingStep(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object)
         let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
-        let progress: OnboardingProgress
+        var progress: OnboardingProgress
         do {
             if let raw = text(object, "choice") {
                 guard let choice = OnboardingChoice(rawValue: raw) else {
@@ -45,16 +46,20 @@ extension RuntimeCall {
                 guard let outcome = OnboardingOutcome(rawValue: outcomeName) else {
                     throw ClientHTTPError(status: 400, message: "Unknown onboarding outcome \(outcomeName).")
                 }
-                progress = try store.mark(step, outcome: outcome, roomId: text(object, "roomId"), userId: userId)
+                progress = try store.mark(
+                    step, outcome: outcome, roomId: text(object, "roomId"), invite: text(object, "invite"), userId: userId
+                )
             }
         } catch let error as OnboardingError {
             throw ClientHTTPError(status: 400, message: error.message)
         }
-        var payload: [String: Any] = ["progress": progress.jsonObject]
-        if object["races"] != nil {
-            payload["state"] = onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress)))
+        if let userId, let races = onboardingRaces(object) {
+            progress = try store.remember(races, userId: userId)
         }
-        return payload
+        return [
+            "progress": progress.jsonObject,
+            "state": onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress)))
+        ] as [String: Any]
     }
 
     static func resetOnboarding(_ object: [String: Any]) throws -> Any {
@@ -66,7 +71,7 @@ extension RuntimeCall {
 
     /// The real app-level directory, read from the request as sent: a demo runtime's storage
     /// redirect never applies, since onboarding progress is not replay data.
-    private static func onboardingStore(_ object: [String: Any]) throws -> OnboardingStore {
+    static func onboardingStore(_ object: [String: Any]) throws -> OnboardingStore {
         if let path = text(object, "onboardingDir") {
             return OnboardingStore(directory: URL(fileURLWithPath: path, isDirectory: true))
         }
@@ -80,9 +85,10 @@ extension RuntimeCall {
         boolValue(object["signedIn"]) ?? (text(object, "userId") != nil)
     }
 
-    private static func onboardingInput(_ object: [String: Any], progress: OnboardingProgress) -> OnboardingInput {
-        let rows = (object["races"] as? [Any]) ?? []
-        let races = rows.compactMap { item -> OnboardingRace? in
+    /// The request's race rows, or nil when it has none (`myRaces` hasn't answered).
+    private static func onboardingRaces(_ object: [String: Any]) -> [OnboardingRace]? {
+        guard let rows = object["races"] as? [Any] else { return nil }
+        return rows.compactMap { item -> OnboardingRace? in
             guard let row = item as? [String: Any],
                   let roomId = text(row, "roomId") ?? text(row, "id") else { return nil }
             let entitlement = text(row, "entitlementStatus")
@@ -91,15 +97,19 @@ extension RuntimeCall {
                 roomId: roomId,
                 role: text(row, "role") ?? "crew_member",
                 entitlementStatus: entitlement ?? "unpaid",
-                raceStartAt: text(row, "raceStartAt"),
+                raceStartAt: OnboardingRace.raceClockStart(raceStartAt: text(row, "raceStartAt"), activatedAt: text(row, "activatedAt")),
                 hasCourse: boolValue(row["hasCourse"]) ?? false
             )
         }
+    }
+
+    private static func onboardingInput(_ object: [String: Any], progress: OnboardingProgress) -> OnboardingInput {
+        let named = text(object, "pendingInvite")
         return OnboardingInput(
             signedIn: onboardingSignedIn(object),
             userId: text(object, "userId"),
-            hasPendingInvite: boolValue(object["hasPendingInvite"]) ?? false,
-            races: races,
+            pendingInvite: named ?? (boolValue(object["hasPendingInvite"]) == true ? "" : nil),
+            races: onboardingRaces(object),
             activeRoomId: text(object, "activeRoomId") ?? text(object, "roomId"),
             progress: progress
         )

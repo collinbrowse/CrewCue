@@ -43,9 +43,18 @@ public enum AccountDeletion {
     public static let genericFailureMessage = "Couldn't delete your account. Try again."
     public static let expiredMessage = "Your session expired. Sign in again to delete your account."
 
-    public static func run(graph: ClientGraph) async -> Outcome {
+    /// On `.deleted`, also removes the user's onboarding progress from `onboarding` (it survives
+    /// sign-out, so nothing else would). `userId` defaults to the graph's session.
+    public static func run(graph: ClientGraph, onboarding: OnboardingStore? = nil, userId: String? = nil) async -> Outcome {
         do {
             let result = try await RaceDayAPI.deleteAccount(graph: graph)
+            if let onboarding, let id = userId ?? graph.session?.session?.userId {
+                do {
+                    try onboarding.removeUser(id)
+                } catch {
+                    graph.logger.log("onboarding progress removal failed")
+                }
+            }
             return .deleted(identityProvider: result.identityProvider)
         } catch {
             return outcome(for: error)

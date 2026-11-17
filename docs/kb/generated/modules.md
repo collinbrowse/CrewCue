@@ -184,7 +184,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 46 | 10001 |
+| `CrewCueClientCore` | 46 | 10285 |
 | `CrewCueClientCore/Generated` | 50 | 974 |
 
 ### iOS app (SwiftUI)
@@ -194,7 +194,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 93 |
-| `App` | 13 | 1366 |
+| `App` | 13 | 1371 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
@@ -211,7 +211,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Pace` | 2 | 1745 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
-| `Screens/Settings` | 2 | 362 |
+| `Screens/Settings` | 2 | 363 |
 | `Screens/Shell` | 4 | 499 |
 | `Screens/Strava` | 2 | 193 |
 

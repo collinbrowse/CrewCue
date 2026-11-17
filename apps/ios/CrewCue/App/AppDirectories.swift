@@ -45,6 +45,11 @@ enum AppDirectories {
         return directory
     }
 
+    /// Onboarding progress, beside the root so sign-out's wipe never reaches it.
+    static func onboardingStore() throws -> OnboardingStore {
+        OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: try root()))
+    }
+
     static func athleteDraftURL() throws -> URL {
         try root().appendingPathComponent("athlete-draft.json")
     }

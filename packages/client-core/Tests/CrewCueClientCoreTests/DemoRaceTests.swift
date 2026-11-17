@@ -352,6 +352,56 @@ private let planFinish = raceStart.addingTimeInterval(28_800)
     #expect(!FileManager.default.fileExists(atPath: directory.path))
 }
 
+@Test func demoRaceSessionDirectoriesKeepModelCachesInTheReplay() throws {
+    let root = freshDirectory()
+    let demo = try session(root: root)
+    // The runtime's layout, under the replay's directory: never the app's real room storage.
+    let room = try demo.roomDirectory(userId: "runner-1", roomId: "room-1")
+    let expected = RoomStorage.directory(userDirectory: try UserStorage(root: demo.cacheDirectory).directory(userId: "runner-1"), roomId: "room-1")
+    #expect(room.standardizedFileURL == expected.standardizedFileURL)
+    #expect(room.standardizedFileURL.path.hasPrefix(demo.cacheDirectory.standardizedFileURL.path + "/"))
+    #expect(FileManager.default.fileExists(atPath: room.path))
+    demo.player.skip()
+    #expect(!FileManager.default.fileExists(atPath: demo.cacheDirectory.path))
+    // Once ended, nothing resolves, so a late model write can't recreate the directory.
+    #expect(throws: DemoRaceError.ended) { try demo.roomDirectory(userId: "runner-1", roomId: "room-1") }
+    #expect(throws: DemoRaceError.ended) { try demo.userDirectory(userId: "runner-1") }
+    #expect(!FileManager.default.fileExists(atPath: demo.cacheDirectory.path))
+    // A write that was already in flight is swept again.
+    try FileManager.default.createDirectory(at: room, withIntermediateDirectories: true)
+    #expect(demo.player.sweepIfEnded())
+    #expect(!FileManager.default.fileExists(atPath: demo.cacheDirectory.path))
+}
+
+@Test func demoRaceLaunchCleanupRemovesOnlyLeftovers() throws {
+    let root = freshDirectory()
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("crewcue-demo-killed"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("keep-me"), withIntermediateDirectories: true)
+    let live = try session(root: root)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("crewcue-demo-killed-too"), withIntermediateDirectories: true)
+    #expect(DemoRace.removeStaleDirectories(in: root) == 1)
+    #expect(Set(try FileManager.default.contentsOfDirectory(atPath: root.path)) == ["keep-me", live.cacheDirectory.lastPathComponent])
+    live.player.skip()
+    #expect(DemoRace.removeStaleDirectories(in: root) == 0)
+    #expect(DemoRace.removeStaleDirectories(in: freshDirectory()) == 0)
+}
+
+@Test func demoRaceStartsFromTheLegacyActivatedAt() throws {
+    var object = demoRoomObject()
+    var room = try #require(object["room"] as? [String: Any])
+    room["raceStartAt"] = nil
+    room["pacingEstimate"] = nil
+    room["activatedAt"] = "2026-08-15T12:00:00.000Z"
+    object["room"] = room
+    let course = try DemoRaceCourse(roomData: try JSONSerialization.data(withJSONObject: object), viewerUserId: "runner-1")
+    #expect(course.raceStart == raceStart)
+    room["activatedAt"] = nil
+    object["room"] = room
+    #expect(throws: DemoRaceError.noStartTime) {
+        try DemoRaceCourse(roomData: try JSONSerialization.data(withJSONObject: object), viewerUserId: "runner-1")
+    }
+}
+
 @Test func demoRaceSkipDeletesTheDirectoryAndStaleOnesGo() throws {
     let root = freshDirectory()
     try FileManager.default.createDirectory(at: root.appendingPathComponent("crewcue-demo-leftover"), withIntermediateDirectories: true)

@@ -32,7 +32,7 @@ private var unpaidRace: [String: Any] { [
 
     let chosen = try result(try await runtime(signedOut.merging(["op": "markOnboardingStep", "choice": "runner"]) { $1 }))
     #expect((chosen["progress"] as? [String: Any])?["choice"] as? String == "runner")
-    #expect(chosen["state"] == nil)
+    #expect((chosen["state"] as? [String: Any])?["flow"] as? String == "runner")
     read = try state(try await runtime(signedOut.merging(["op": "readOnboarding"]) { $1 }))
     #expect(read["flow"] as? String == "runner")
     #expect(read["step"] as? String == "account")
@@ -74,7 +74,8 @@ private var unpaidRace: [String: Any] { [
     #expect(read["phase"] as? String == "tour")
     #expect(read["step"] as? String == "invites")
     #expect(read["showsTabBar"] as? Bool == true)
-    #expect((read["checklist"] as? [[String: Any]])?.count == 2)
+    // Paid: course and start time are checklist items, so they never hide the tab bar.
+    #expect((read["checklist"] as? [[String: Any]])?.compactMap { $0["step"] as? String } == ["course", "startTime", "etaEdits", "checkpointDetails"])
 
     // Sign-out wipes the storage root; the progress stays.
     _ = try result(try await runtime(["op": "wipeUserData", "storageDir": storage]))
@@ -104,8 +105,116 @@ private struct MineServer: HTTPTransport {
         crew["course"] = nil
         crew["memberships"] = [["userId": "runner-1", "role": "crew_member", "joinedAt": "2026-08-01T00:00:00.000Z"]]
         crew["entitlement"] = ["status": "paid", "lastUpdatedAt": "2026-08-01T00:00:00.000Z", "source": "store"]
+        crew["raceStartAt"] = nil
+        crew["activatedAt"] = "2026-08-14T12:00:00.000Z"
         return HTTPResponse(status: 200, body: try JSONSerialization.data(withJSONObject: ["rooms": [room, crew]]))
     }
+}
+
+@Test func onboardingRuntimeResolvesWithoutTheRaceList() async throws {
+    let storage = FileManager.default.temporaryDirectory
+        .appendingPathComponent("onboarding-rt-\(UUID().uuidString)/crewcue-user", isDirectory: true).path
+    let ada: [String: Any] = ["storageDir": storage, "userId": "ada", "token": "t"]
+
+    // Signed in, `myRaces` hasn't answered, nothing saved: loading, with the tab bar only for a stored race.
+    var read = try state(try await runtime(ada.merging(["op": "readOnboarding"]) { $1 }))
+    #expect(read["flow"] as? String == "loading")
+    #expect(read["showsTabBar"] as? Bool == false)
+    read = try state(try await runtime(ada.merging(["op": "readOnboarding", "activeRoomId": "r2", "races": NSNull()]) { $1 }))
+    #expect(read["flow"] as? String == "loading")
+    #expect(read["showsTabBar"] as? Bool == true)
+
+    // The list answers once: a paid crew race, mid-tour.
+    let crewRace: [String: Any] = ["id": "r2", "role": "crew_member", "entitlementStatus": "paid", "hasCourse": true]
+    read = try state(try await runtime(ada.merging(["op": "readOnboarding", "races": [crewRace], "activeRoomId": "r2"]) { $1 }))
+    #expect(read["flow"] as? String == "crew" && read["step"] as? String == "runnerLocation")
+    _ = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "step": "runnerLocation", "roomId": "r2"]) { $1 }))
+
+    // Relaunched with no service: the saved list resolves the same race and keeps the tab bar.
+    read = try state(try await runtime(ada.merging(["op": "readOnboarding", "activeRoomId": "r2"]) { $1 }))
+    #expect(read["flow"] as? String == "crew")
+    #expect(read["step"] as? String == "lastUpdateAge")
+    #expect(read["roomId"] as? String == "r2")
+    #expect(read["showsTabBar"] as? Bool == true)
+
+    // A legacy race with only `activatedAt` has a start time.
+    let legacy: [String: Any] = [
+        "id": "r1", "role": "athlete", "entitlementStatus": "unpaid", "activatedAt": "2026-08-15T12:00:00.000Z", "hasCourse": true
+    ]
+    _ = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "step": "account"]) { $1 }))
+    read = try state(try await runtime(ada.merging(["op": "readOnboarding", "races": [legacy]]) { $1 }))
+    #expect(read["step"] as? String == "history")
+}
+
+@Test func onboardingRuntimeConfirmsOneInvite() async throws {
+    let storage = FileManager.default.temporaryDirectory
+        .appendingPathComponent("onboarding-rt-\(UUID().uuidString)/crewcue-user", isDirectory: true).path
+    let signedOut: [String: Any] = ["storageDir": storage, "userId": ""]
+    let missing = try await runtime(signedOut.merging(["op": "markOnboardingStep", "step": "join"]) { $1 })
+    #expect(missing["ok"] as? Bool == false)
+    #expect(missing["message"] as? String == OnboardingError.inviteRequired.message)
+    let marked = try state(try await runtime(signedOut.merging([
+        "op": "markOnboardingStep", "step": "join", "invite": "tok-a", "pendingInvite": "tok-a"
+    ]) { $1 }))
+    #expect(marked["step"] as? String == "account")
+    #expect(marked["inviteConfirmed"] as? Bool == true)
+    let other = try state(try await runtime(signedOut.merging(["op": "readOnboarding", "pendingInvite": "tok-b"]) { $1 }))
+    #expect(other["step"] as? String == "join")
+    #expect(other["inviteConfirmed"] as? Bool == false)
+}
+
+private let deletedBody = Data(#"""
+{"deleted":true,"roomsClosed":0,"membershipsRemoved":0,"activityHistoryDeleted":0,"pacingEstimatesDeleted":0,
+ "finishedEffortsDeleted":0,"pushDevicesDeleted":0,"chatPrefsDeleted":0,"stravaDisconnected":false,"identityProvider":"deleted"}
+"""#.utf8)
+
+private struct DeleteMeServer: HTTPTransport {
+    let status: Int
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard request.url.path == "/me", request.method == .delete else { return HTTPResponse(status: 404, body: Data("{}".utf8)) }
+        return HTTPResponse(status: status, body: status == 200 ? deletedBody : Data("{}".utf8))
+    }
+}
+
+@Test func deleteAccountRuntimeOpRemovesTheOnboardingProgress() async throws {
+    let storage = FileManager.default.temporaryDirectory
+        .appendingPathComponent("onboarding-rt-\(UUID().uuidString)/crewcue-user", isDirectory: true)
+    let store = OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: storage))
+    try store.mark(.account, userId: "ada")
+    try store.choose(.crew, userId: nil)
+    let failing = "https://delete-fail-\(UUID().uuidString.lowercased()).example.invalid"
+    let base = "https://delete-\(UUID().uuidString.lowercased()).example.invalid"
+    RuntimeCall.setTransportForTests(DeleteMeServer(status: 500), baseURL: failing)
+    RuntimeCall.setTransportForTests(DeleteMeServer(status: 200), baseURL: base)
+    defer {
+        RuntimeCall.setTransportForTests(nil, baseURL: failing)
+        RuntimeCall.setTransportForTests(nil, baseURL: base)
+    }
+    let request: [String: Any] = ["op": "deleteAccount", "token": "t", "userId": "ada", "storageDir": storage.path]
+
+    // Not deleted: the progress stays.
+    let failed = try result(try await runtime(request.merging(["baseURL": failing]) { $1 }))
+    #expect(failed["deleted"] as? Bool == false)
+    #expect(FileManager.default.fileExists(atPath: store.file(userId: "ada").path))
+
+    let deleted = try result(try await runtime(request.merging(["baseURL": base]) { $1 }))
+    #expect(deleted["deleted"] as? Bool == true)
+    #expect(!FileManager.default.fileExists(atPath: store.file(userId: "ada").path))
+    // The signed-out file is not the deleted account's.
+    #expect(store.load(userId: nil).choice == .crew)
+}
+
+@Test func accountDeletionRemovesTheSessionUsersOnboardingProgress() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("onboarding-del-\(UUID().uuidString)", isDirectory: true)
+    let store = OnboardingStore(directory: directory)
+    try store.mark(.account, userId: "ada")
+    let graph = ClientGraph(
+        transport: DeleteMeServer(status: 200), clock: SystemClock(), logger: SilentLogger(),
+        baseURL: URL(string: "https://api.example.test"), tokenProvider: StaticTokenProvider(token: "jwt"),
+        session: SessionController(session: ClientSession(userId: "ada", role: "athlete"))
+    )
+    #expect(await AccountDeletion.run(graph: graph, onboarding: store) == .deleted(identityProvider: "deleted"))
+    #expect(!FileManager.default.fileExists(atPath: store.file(userId: "ada").path))
 }
 
 @Test func myRacesRowsCarryWhatOnboardingReads() async throws {
@@ -118,6 +227,7 @@ private struct MineServer: HTTPTransport {
     #expect(rows.compactMap { $0["entitlementStatus"] as? String } == ["unpaid", "paid"])
     #expect(rows.compactMap { $0["hasCourse"] as? Bool } == [true, false])
     #expect(rows.compactMap { $0["role"] as? String } == ["athlete", "crew_member"])
+    #expect(rows.compactMap { $0["activatedAt"] as? String } == ["2026-08-14T12:00:00.000Z"])
 
     // The rows go straight back to readOnboarding: the crew race is the crew flow.
     let read = try state(try await runtime([

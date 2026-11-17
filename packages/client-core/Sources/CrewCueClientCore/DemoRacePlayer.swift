@@ -21,7 +21,10 @@ public struct DemoRaceSnapshot: Equatable, Sendable {
 /// once (`MapModel.refreshNow()`) instead of waiting for the 30 s poll.
 ///
 /// The replay's caches live in `cacheDirectory`, a fresh temporary directory deleted on finish or
-/// skip; the graph then answers nothing more, so no late write can recreate it.
+/// skip. The graph then answers nothing more and `DemoRaceSession`'s directories refuse to
+/// resolve, but a request already in flight can still write once: the runtime removes the
+/// directory again when such an op returns, and `DemoRace.removeStaleDirectories` at launch
+/// sweeps whatever an app kill left.
 public final class DemoRacePlayer: @unchecked Sendable {
     public let script: DemoRaceScript
     public let cacheDirectory: URL
@@ -175,6 +178,15 @@ public final class DemoRacePlayer: @unchecked Sendable {
         )
     }
 
+    /// After the end, removes the directory again: a write that was in flight when the replay
+    /// ended may have recreated it. True when the replay has ended.
+    @discardableResult
+    func sweepIfEnded() -> Bool {
+        guard world.isEnded else { return false }
+        DemoRace.removeDirectory(cacheDirectory)
+        return true
+    }
+
     private func teardown() {
         world.end()
         DemoRace.removeDirectory(cacheDirectory)
@@ -186,9 +198,17 @@ public final class DemoRacePlayer: @unchecked Sendable {
     }
 }
 
-/// A demo graph and the player that drives it. Point the real Map, Pace and Chat models at
-/// `graph`: it has the scripted transport and clock, no outbox, no token and no session, so the
-/// replay never writes the real room storage or the outbox and never uploads a ping.
+/// A demo graph and the player that drives it. `graph` has the scripted transport and clock, no
+/// outbox, no token and no session, so pointing the real Map, Pace and Chat models at it keeps the
+/// network and the outbox away from the replay: nothing is uploaded, nothing is queued.
+///
+/// The graph does not isolate model caches. Models that pick their own directory (iOS `MapModel`
+/// and `PaceModel` use `AppDirectories` with their user and room ids, and the replay reuses the
+/// real room id) would write the replay's schedule, course map and estimate history into the real
+/// `users/<id>/rooms/<roomId>`. Give those models `userDirectory(userId:)` and
+/// `roomDirectory(userId:roomId:)` instead: the runtime's layout under the replay's temporary
+/// directory (Android's runtime already redirects `storageDir` there). Keep tracking off: the
+/// replay never starts a `TrackingSession`.
 public struct DemoRaceSession: Sendable {
     public let roomId: String
     public let baseURL: URL
@@ -197,6 +217,20 @@ public struct DemoRaceSession: Sendable {
 
     public var cacheDirectory: URL { player.cacheDirectory }
     public var transport: DemoRaceTransport? { graph.transport as? DemoRaceTransport }
+
+    /// `<cacheDirectory>/users/<id>`, the same layout as `UserStorage`. Throws once the replay ended.
+    public func userDirectory(userId: String) throws -> URL {
+        guard !player.world.isEnded else { throw DemoRaceError.ended }
+        return try UserStorage(root: cacheDirectory).directory(userId: userId)
+    }
+
+    /// `<cacheDirectory>/users/<id>/rooms/<roomId>`, created, the same layout as `RoomStorage`.
+    /// Throws once the replay ended.
+    public func roomDirectory(userId: String, roomId: String) throws -> URL {
+        let directory = RoomStorage.directory(userDirectory: try userDirectory(userId: userId), roomId: roomId)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
 }
 
 public enum DemoRace {
@@ -240,15 +274,20 @@ public enum DemoRace {
         return DemoRaceSession(roomId: course.roomId, baseURL: baseURL, graph: graph, player: player)
     }
 
-    /// Removes replay directories no live player owns.
-    static func removeStaleDirectories(in root: URL) {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return }
+    /// Removes replay directories no live player owns, for example the one an app killed
+    /// mid-replay left. Call at app start with the root replays are created in (iOS: the default
+    /// temporary directory; Android: `context.cacheDir`). Answers how many it removed.
+    @discardableResult
+    public static func removeStaleDirectories(in root: URL = FileManager.default.temporaryDirectory) -> Int {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return 0 }
+        var removed = 0
         for name in names where name.hasPrefix(directoryPrefix) {
             let url = root.appendingPathComponent(name, isDirectory: true)
-            if !LiveDemoDirectories.shared.contains(url) {
-                try? FileManager.default.removeItem(at: url)
+            if !LiveDemoDirectories.shared.contains(url), (try? FileManager.default.removeItem(at: url)) != nil {
+                removed += 1
             }
         }
+        return removed
     }
 
     static func removeDirectory(_ directory: URL) {

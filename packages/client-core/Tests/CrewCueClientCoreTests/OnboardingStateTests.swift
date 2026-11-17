@@ -12,16 +12,17 @@ private func race(
     OnboardingRace(roomId: roomId, role: role, entitlementStatus: status, raceStartAt: start, hasCourse: course)
 }
 
+/// `races: nil` is a list that hasn't loaded; the default is a loaded, empty one.
 private func resolve(
     signedIn: Bool = true,
     userId: String? = "ada",
-    invite: Bool = false,
-    races: [OnboardingRace] = [],
+    invite: String? = nil,
+    races: [OnboardingRace]? = [],
     active: String? = nil,
     progress: OnboardingProgress = .empty
 ) -> OnboardingState {
     Onboarding.resolve(OnboardingInput(
-        signedIn: signedIn, userId: userId, hasPendingInvite: invite, races: races, activeRoomId: active, progress: progress
+        signedIn: signedIn, userId: userId, pendingInvite: invite, races: races, activeRoomId: active, progress: progress
     ))
 }
 
@@ -92,6 +93,8 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     #expect([.account, .course, .startTime, .history, .projectionTeaser, .preview, .paywall].allSatisfy {
         state.status($0)?.isComplete == true
     })
+    // Paid, the course and start time are checklist items, never setup steps.
+    #expect(state.steps.map(\.step) == [.account, .history, .projectionTeaser] + OnboardingStep.runnerPreview + OnboardingStep.runnerTour)
     for step in OnboardingStep.runnerTour {
         try progress.record(step, outcome: step == .location ? .deferred : .done, roomId: "r1")
     }
@@ -101,14 +104,33 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     #expect(state.roomId == "r1")
     #expect(state.status(.location)?.outcome == .deferred)
     // The optional checklist never blocks done and stays visible until ticked.
-    #expect(state.checklist.map(\.step) == [.etaEdits, .checkpointDetails])
-    #expect(state.checklist.allSatisfy { !$0.isComplete })
+    #expect(state.checklist.map(\.step) == [.course, .startTime, .etaEdits, .checkpointDetails])
+    #expect(state.checklist.filter { !$0.isComplete }.map(\.step) == [.etaEdits, .checkpointDetails])
     try progress.record(.etaEdits, outcome: .done, roomId: "r1")
     #expect(resolve(races: [race("r1", status: "paid")], progress: progress).status(.etaEdits)?.isComplete == true)
 }
 
-@Test func onboardingPaidRaceWithoutStartTimeAsksForIt() {
-    #expect(resolve(races: [race("r1", status: "paid", start: nil)]).step == .startTime)
+@Test func onboardingPaidRaceKeepsTheTabBarWithoutCourseOrStartTime() {
+    let state = resolve(races: [race("r1", status: "paid", start: nil, course: false)])
+    #expect(state.flow == .runner)
+    #expect(state.phase == .tour && state.step == .invites)
+    #expect(state.showsTabBar)
+    #expect(state.checklist.filter { !$0.isComplete }.map(\.step) == [.course, .startTime, .etaEdits, .checkpointDetails])
+    // Unpaid, a missing start time is still a setup step.
+    #expect(resolve(races: [race("r1", start: nil)], progress: OnboardingProgress(account: [.account: .done])).step == .startTime)
+}
+
+@Test func onboardingTreatsTheLegacyActivatedAtAsTheStartTime() throws {
+    var room = try JSONDecoder().decode(RoomEnvelope.self, from: try demoRoomData()).room
+    room.raceStartAt = nil
+    room.activatedAt = "2026-08-15T12:00:00.000Z"
+    let legacy = OnboardingRace(room: room, userId: "runner-1")
+    #expect(legacy.raceStartAt == "2026-08-15T12:00:00.000Z")
+    let progress = OnboardingProgress(account: [.account: .done])
+    #expect(resolve(races: [legacy], progress: progress).step == .history)
+    room.activatedAt = "  "
+    #expect(OnboardingRace(room: room, userId: "runner-1").raceStartAt == nil)
+    #expect(OnboardingRace.raceClockStart(raceStartAt: "2026-08-15T13:00:00.000Z", activatedAt: "2026-08-15T12:00:00.000Z") == "2026-08-15T13:00:00.000Z")
 }
 
 @Test func onboardingExpiredRaceHasNothingToSetUp() {
@@ -119,29 +141,91 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
 
 @Test func onboardingPendingInviteGivesTheCrewFlow() throws {
     // Signed out: the invite preview first, then sign in once it's confirmed.
-    var state = resolve(signedIn: false, userId: nil, invite: true)
+    var state = resolve(signedIn: false, userId: nil, invite: "tok-a")
     #expect(state.flow == .crew)
     #expect(state.phase == .join)
     #expect(state.step == .join)
     #expect(state.showsTabBar == false)
     #expect(state.steps.map(\.step) == OnboardingStep.crewJoin + OnboardingStep.crewTour)
     var guest = OnboardingProgress.empty
-    try guest.record(.join, outcome: .done, roomId: nil)
-    state = resolve(signedIn: false, userId: nil, invite: true, progress: guest)
+    #expect(throws: OnboardingError.inviteRequired) { try guest.record(.join, outcome: .done, roomId: nil) }
+    try guest.record(.join, outcome: .done, roomId: nil, invite: "tok-a")
+    state = resolve(signedIn: false, userId: nil, invite: "tok-a", progress: guest)
     #expect(state.step == .account)
     #expect(state.inviteConfirmed)
 
-    // Signed in: accept it. A pending invite wins over the race the runner already has.
-    state = resolve(invite: true, races: [race("r1", status: "paid")], active: "r1", progress: guest)
+    // Signed in: accept it. A pending invite wins over the race the runner already has, and is
+    // shown over that race's tab bar.
+    state = resolve(invite: "tok-a", races: [race("r1", status: "paid")], active: "r1", progress: guest)
     #expect(state.flow == .crew)
     #expect(state.step == .join)
     #expect(state.roomId == nil)
     #expect(state.status(.account)?.isComplete == true)
+    #expect(state.showsTabBar)
+    // No race yet: the join is all there is.
+    #expect(resolve(invite: "tok-a", progress: guest).showsTabBar == false)
 
     // Joined: the crew tour, for that race.
     state = resolve(races: [race("r2", role: "crew_member", status: "paid")])
     #expect(state.flow == .crew && state.phase == .tour && state.step == .runnerLocation && state.roomId == "r2")
     #expect(state.status(.join)?.isComplete == true)
+}
+
+@Test func onboardingInviteConfirmationCountsOnlyForThatInvite() throws {
+    var guest = OnboardingProgress.empty
+    try guest.record(.join, outcome: .done, roomId: nil, invite: "tok-a")
+    // Invite A was confirmed and never signed in for; invite B starts over at its own preview.
+    let other = resolve(signedIn: false, userId: nil, invite: "tok-b", progress: guest)
+    #expect(other.step == .join)
+    #expect(other.inviteConfirmed == false)
+    // An invite the app can't name is never confirmed.
+    #expect(resolve(signedIn: false, userId: nil, invite: "", progress: guest).step == .join)
+    // Confirming B replaces A.
+    try guest.record(.join, outcome: .done, roomId: nil, invite: " tok-b ")
+    #expect(resolve(signedIn: false, userId: nil, invite: "tok-b", progress: guest).step == .account)
+    #expect(resolve(signedIn: false, userId: nil, invite: "tok-a", progress: guest).step == .join)
+    // The file keeps a digest, not the token.
+    let saved = OnboardingProgress(jsonObject: guest.jsonObject)
+    #expect(saved == guest)
+    #expect(!"\(guest.jsonObject)".contains("tok-b"))
+}
+
+@Test func onboardingWithoutTheRaceListAndNothingSavedIsLoading() {
+    // Signed in before `GET /race-rooms/mine` answers, on a device that never had the list.
+    let state = resolve(races: nil, progress: OnboardingProgress(choice: .runner))
+    #expect(state.flow == .loading)
+    #expect(state.step == nil)
+    #expect(state.showsTabBar == false)
+    // A stored active race keeps the tab bar while the list loads.
+    let stored = resolve(races: nil, active: "r1")
+    #expect(stored.flow == .loading)
+    #expect(stored.roomId == "r1")
+    #expect(stored.showsTabBar)
+    // A pending invite still shows its join, over the stored race's tab bar.
+    let invited = resolve(invite: "tok-a", races: nil, active: "r1")
+    #expect(invited.flow == .crew && invited.step == .join && invited.showsTabBar)
+    // Signed out, races never apply: no loading.
+    #expect(resolve(signedIn: false, userId: nil, races: nil) == .chooser)
+}
+
+@Test func onboardingWithoutTheRaceListResolvesFromTheSavedOne() throws {
+    // A crew member who finished the tour relaunches at an aid station with no service.
+    var crew = OnboardingProgress(account: [.account: .done], knownRaces: [race("r2", role: "crew_member", status: "paid")])
+    for step in OnboardingStep.crewTour {
+        try crew.record(step, outcome: .done, roomId: "r2")
+    }
+    var state = resolve(races: nil, active: "r2", progress: crew)
+    #expect(state.flow == .done && state.role == .crew && state.roomId == "r2" && state.showsTabBar)
+
+    // A paid runner keeps the tab bar too, never the course step.
+    let runner = OnboardingProgress(choice: .runner, knownRaces: [race("r1", status: "paid", course: false)])
+    state = resolve(races: nil, active: "r1", progress: runner)
+    #expect(state.flow == .runner && state.phase == .tour && state.showsTabBar)
+
+    // A fresh list wins over the saved one.
+    #expect(resolve(races: [race("r1")], active: "r1", progress: runner).phase == .setup)
+    // The saved list said no races: the chooser is right.
+    #expect(resolve(races: nil, progress: OnboardingProgress(knownRaces: [])) == .chooser)
 }
 
 @Test func onboardingCrewChoiceWithoutInviteAsksForACode() {
@@ -195,11 +279,32 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     try first.mark(.account, userId: "ada")
     try first.mark(.history, outcome: .skipped, roomId: nil, userId: "ada")
     try first.mark(.projectionTeaser, roomId: "r1", userId: "ada")
+    // The list answered once, so it is saved with the progress.
+    _ = try first.progress(signedIn: true, userId: "ada", races: [race("r1")])
     // A new process: a new store on the same directory.
     let relaunched = OnboardingStore(directory: first.directory)
-    let state = resolve(races: [race("r1")], progress: relaunched.load(userId: "ada"))
+    var state = resolve(races: [race("r1")], progress: relaunched.load(userId: "ada"))
     #expect(state.step == .preview)
     #expect(state.status(.history)?.outcome == .skipped)
+    // Relaunched offline (or before the list answers): the same step, from the saved list.
+    let offline = try relaunched.progress(signedIn: true, userId: "ada", races: nil)
+    #expect(offline.knownRaces == [race("r1")])
+    state = resolve(races: nil, active: "r1", progress: offline)
+    #expect(state.step == .preview && state.roomId == "r1" && state.showsTabBar)
+}
+
+@Test func onboardingStoreSavesOnlyLoadedListsForSignedInUsers() throws {
+    let (onboarding, _) = store()
+    // Signed out: the guest file never keeps races.
+    _ = try onboarding.progress(signedIn: false, userId: nil, races: [race("r1")])
+    #expect(onboarding.load(userId: nil).knownRaces == nil)
+    // Signed in without the list: nothing saved yet.
+    #expect(try onboarding.progress(signedIn: true, userId: "ada", races: nil).knownRaces == nil)
+    #expect(try onboarding.progress(signedIn: true, userId: "ada", races: [race("r1"), race("r2", role: "crew_member")]).knownRaces?.map(\.roomId) == ["r1", "r2"])
+    // A later answer replaces it, an empty one included.
+    #expect(try onboarding.progress(signedIn: true, userId: "ada", races: []).knownRaces == [])
+    #expect(onboarding.load(userId: "ada").knownRaces == [])
+    #expect(onboarding.load(userId: "bo").knownRaces == nil)
 }
 
 @Test func onboardingProgressSurvivesSignOutAndSignIn() async throws {
@@ -247,12 +352,26 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     #expect(onboarding.load(userId: "bo").choice == .crew)
 }
 
+@Test func onboardingAccountDeletionRemovesOnlyThatUsersFile() throws {
+    let (onboarding, _) = store()
+    try onboarding.mark(.account, userId: "ada")
+    try onboarding.choose(.crew, userId: "bo")
+    try onboarding.choose(.runner, userId: nil)
+    try onboarding.removeUser("ada")
+    #expect(!FileManager.default.fileExists(atPath: onboarding.file(userId: "ada").path))
+    #expect(onboarding.load(userId: "bo").choice == .crew)
+    // Blank never reaches the signed-out file.
+    try onboarding.removeUser("  ")
+    #expect(onboarding.load(userId: nil).choice == .runner)
+    try onboarding.removeUser("ada")
+}
+
 @Test func onboardingSignInAdoptsTheSignedOutChoice() throws {
     let (onboarding, _) = store()
     try onboarding.mark(.history, outcome: .done, roomId: nil, userId: "ada")
     try onboarding.choose(.runner, userId: "ada")
     try onboarding.choose(.crew, userId: nil)
-    try onboarding.mark(.join, roomId: nil, userId: nil)
+    try onboarding.mark(.join, roomId: nil, invite: "tok-a", userId: nil)
     try onboarding.mark(.history, outcome: .skipped, roomId: nil, userId: nil)
     let merged = try onboarding.adoptGuest(userId: "ada")
     #expect(merged.choice == .crew)

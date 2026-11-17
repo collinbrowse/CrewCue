@@ -1,7 +1,8 @@
 import Foundation
 
-/// The steps a user finished that the server can't tell: the chooser pick, account-wide steps,
-/// and per-race steps keyed by room id. Unknown names in a saved file are ignored.
+/// The steps a user finished that the server can't tell (the chooser pick, account-wide steps,
+/// per-race steps keyed by room id, the invite confirmed while signed out), plus the race list
+/// the server last answered. Unknown names in a saved file are ignored.
 public struct OnboardingProgress: Equatable, Sendable {
     public static let empty = OnboardingProgress()
     static let version = 1
@@ -9,29 +10,53 @@ public struct OnboardingProgress: Equatable, Sendable {
     public var choice: OnboardingChoice?
     public var account: [OnboardingStep: OnboardingOutcome]
     public var races: [String: [OnboardingStep: OnboardingOutcome]]
+    /// The last `GET /race-rooms/mine` list resolved on this device, in server order. Nil until one
+    /// is: a relaunch before the list answers then has nothing to resolve from.
+    public var knownRaces: [OnboardingRace]?
+    /// Which invite the signed-out person confirmed, as a digest of its token or code (the file
+    /// never keeps the token itself). A different invite is not confirmed.
+    public var confirmedInvite: String?
 
     public init(
         choice: OnboardingChoice? = nil,
         account: [OnboardingStep: OnboardingOutcome] = [:],
-        races: [String: [OnboardingStep: OnboardingOutcome]] = [:]
+        races: [String: [OnboardingStep: OnboardingOutcome]] = [:],
+        knownRaces: [OnboardingRace]? = nil,
+        confirmedInvite: String? = nil
     ) {
         self.choice = choice
         self.account = account
         self.races = races
+        self.knownRaces = knownRaces
+        self.confirmedInvite = confirmedInvite
     }
 
     /// How a saved step ended. Steps that follow the server are never saved, so they read nil.
+    /// `join` reads done once any invite was confirmed; `inviteConfirmed(_:)` asks about one invite.
     public func outcome(_ step: OnboardingStep, roomId: String?) -> OnboardingOutcome? {
+        if step == .join { return confirmedInvite == nil ? nil : .done }
         if step.accountWide { return account[step] }
         guard let roomId = Self.room(roomId) else { return nil }
         return races[roomId]?[step]
     }
 
-    /// Saves how a step ended. Server steps, an outcome the step does not offer, and a per-race
-    /// step without a race are refused.
-    public mutating func record(_ step: OnboardingStep, outcome: OnboardingOutcome, roomId: String?) throws {
+    /// True when this invite (its token or code) is the one confirmed.
+    public func inviteConfirmed(_ invite: String?) -> Bool {
+        guard let key = Self.inviteKey(invite) else { return false }
+        return confirmedInvite == key
+    }
+
+    /// Saves how a step ended. Server steps, an outcome the step does not offer, a per-race step
+    /// without a race, and `join` without its invite are refused. Confirming an invite replaces
+    /// any earlier one.
+    public mutating func record(_ step: OnboardingStep, outcome: OnboardingOutcome, roomId: String?, invite: String? = nil) throws {
         if step.followsServer { throw OnboardingError.followsServer(step) }
         guard step.allowedOutcomes.contains(outcome) else { throw OnboardingError.outcomeNotAllowed(step, outcome) }
+        if step == .join {
+            guard let key = Self.inviteKey(invite) else { throw OnboardingError.inviteRequired }
+            confirmedInvite = key
+            return
+        }
         if step.accountWide {
             account[step] = outcome
             return
@@ -42,7 +67,7 @@ public struct OnboardingProgress: Equatable, Sendable {
 
     /// Signed-out progress joins the account that signs in: the newer chooser pick wins and the
     /// account's own outcomes are kept. The pre-sign-in invite confirmation is not carried over,
-    /// because a signed-in user accepts the invite directly.
+    /// because a signed-in user accepts the invite directly. A guest never has a race list.
     func adopting(_ guest: OnboardingProgress) -> OnboardingProgress {
         var merged = self
         merged.choice = guest.choice ?? choice
@@ -57,6 +82,19 @@ public struct OnboardingProgress: Equatable, Sendable {
         return merged
     }
 
+    /// A stable digest of the invite's token or code (64-bit FNV-1a). Nil for blank.
+    static func inviteKey(_ invite: String?) -> String? {
+        let trimmed = invite?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in trimmed.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        return "fnv1a64:" + String(repeating: "0", count: max(0, 16 - hex.count)) + hex
+    }
+
     public var jsonObject: [String: Any] {
         var object: [String: Any] = [
             "version": Self.version,
@@ -64,6 +102,8 @@ public struct OnboardingProgress: Equatable, Sendable {
             "races": races.mapValues(Self.encode)
         ]
         if let choice { object["choice"] = choice.rawValue }
+        if let knownRaces { object["knownRaces"] = knownRaces.map(\.jsonObject) }
+        if let confirmedInvite { object["confirmedInvite"] = confirmedInvite }
         return object
     }
 
@@ -74,7 +114,9 @@ public struct OnboardingProgress: Equatable, Sendable {
             races: ((object["races"] as? [String: Any]) ?? [:]).reduce(into: [:]) { races, entry in
                 let steps = Self.decode(entry.value)
                 if !steps.isEmpty { races[entry.key] = steps }
-            }
+            },
+            knownRaces: (object["knownRaces"] as? [Any]).map { $0.compactMap(OnboardingRace.init(jsonObject:)) },
+            confirmedInvite: (object["confirmedInvite"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 
@@ -84,7 +126,7 @@ public struct OnboardingProgress: Equatable, Sendable {
 
     private static func decode(_ value: Any?) -> [OnboardingStep: OnboardingOutcome] {
         ((value as? [String: Any]) ?? [:]).reduce(into: [:]) { steps, entry in
-            guard let step = OnboardingStep(rawValue: entry.key), !step.followsServer,
+            guard let step = OnboardingStep(rawValue: entry.key), !step.followsServer, step != .join,
                   let raw = entry.value as? String, let outcome = OnboardingOutcome(rawValue: raw) else { return }
             steps[step] = outcome
         }
@@ -98,7 +140,7 @@ public struct OnboardingProgress: Equatable, Sendable {
 
 /// One JSON file per user id, in an app-level directory that sign-out does not wipe. The
 /// signed-out user (chooser pick, a confirmed invite) is a separate guest file that the next
-/// sign-in adopts.
+/// sign-in adopts. A deleted account's file goes with it (`removeUser`).
 ///
 /// Both apps wipe their storage root on sign-out (`UserStorage.wipeAll`, Android
 /// `SessionStore.clear`) and clear everything but `users/` on sign-in, so this directory sits
@@ -146,9 +188,42 @@ public struct OnboardingStore: Sendable {
         try data.write(to: file(userId: userId), options: .atomic)
     }
 
+    /// What both apps read on launch and on every race-list answer: the user's progress, with the
+    /// guest's adopted on a signed-in read and a loaded list (`races` non-nil) saved as the last
+    /// known one, so a relaunch without the list (offline, or before it answers) resolves from it.
+    /// Signed out reads the guest file; races are the server's, so they are not saved for it.
+    public func progress(signedIn: Bool, userId: String?, races: [OnboardingRace]?) throws -> OnboardingProgress {
+        let trimmed = userId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard signedIn, !trimmed.isEmpty else { return load(userId: nil) }
+        let adopted = try adoptGuest(userId: trimmed)
+        guard let races else { return adopted }
+        return try remember(races, userId: trimmed)
+    }
+
+    /// Saves `races` as the user's last known list. Unchanged lists are not rewritten.
     @discardableResult
-    public func mark(_ step: OnboardingStep, outcome: OnboardingOutcome = .done, roomId: String? = nil, userId: String?) throws -> OnboardingProgress {
-        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId) }
+    public func remember(_ races: [OnboardingRace], userId: String) throws -> OnboardingProgress {
+        let trimmed = userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return load(userId: nil) }
+        return try OnboardingFileLock.shared.run {
+            var progress = load(userId: trimmed)
+            guard progress.knownRaces != races else { return progress }
+            progress.knownRaces = races
+            try save(progress, userId: trimmed)
+            return progress
+        }
+    }
+
+    /// `invite` is the pending invite's token or code, required for `join`.
+    @discardableResult
+    public func mark(
+        _ step: OnboardingStep,
+        outcome: OnboardingOutcome = .done,
+        roomId: String? = nil,
+        invite: String? = nil,
+        userId: String?
+    ) throws -> OnboardingProgress {
+        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId, invite: invite) }
     }
 
     @discardableResult
@@ -164,6 +239,19 @@ public struct OnboardingStore: Sendable {
         }
         try OnboardingFileLock.shared.run {
             let url = file(userId: userId)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    /// Account deletion: removes the user's file. Never the signed-out guest's, so a blank id
+    /// does nothing. Sign-out keeps the file.
+    public func removeUser(_ userId: String) throws {
+        let trimmed = userId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try OnboardingFileLock.shared.run {
+            let url = file(userId: trimmed)
             if FileManager.default.fileExists(atPath: url.path) {
                 try FileManager.default.removeItem(at: url)
             }
