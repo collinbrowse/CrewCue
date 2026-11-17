@@ -1046,6 +1046,42 @@ test("estimate projection treats farthest checkpoint as finish when finish id is
   assert.equal(moving.get("last-aid"), 12_000);
 });
 
+test("estimate projection stamps the plan's finish on the farthest checkpoint only at the course's end", () => {
+  // A course file with no finish waypoint: its last aid is 10 km short of the 40 km route's end.
+  const checkpoints: RaceCourseCheckpoint[] = [
+    { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },
+    { id: "aid-1", latitude: 0, longitude: 0, distanceMetersFromStart: 10_000 },
+    { id: "last-aid", latitude: 0, longitude: 0, distanceMetersFromStart: 30_000 },
+    { id: "viewpoint", latitude: 0, longitude: 0, distanceMetersFromStart: 35_000 }
+  ];
+  const estimate: PacingEstimate = {
+    id: "est_short_checkpoints",
+    coldStart: true,
+    expectedFinishAt: "2026-08-15T17:00:00.000Z",
+    expectedFinishElapsedSeconds: 14_400,
+    aidEtas: [
+      { checkpointId: "aid-1", clockArrivalAt: "2026-08-15T14:00:00.000Z", elapsedSeconds: 3600 },
+      { checkpointId: "last-aid", clockArrivalAt: "2026-08-15T15:45:00.000Z", elapsedSeconds: 9900 }
+    ],
+    explanation: "Synthetic estimate whose finish is read at the route's end."
+  };
+
+  const short = movingElapsedSecondsFromEstimate(estimate, checkpoints, 40_000);
+  assert.equal(short.get("last-aid"), 9900, "the last aid keeps the plan's own ETA there");
+  // The farthest checkpoint, no aid ETA of its own: halfway from the last aid to the route's end.
+  assert.equal(short.get("viewpoint"), Math.round(9900 + (14_400 - 9900) / 2));
+
+  // Within the course-length tolerance (1% of 40 km) the farthest checkpoint is the finish line.
+  const nearEnd = checkpoints.map((checkpoint) =>
+    checkpoint.id === "viewpoint" ? { ...checkpoint, distanceMetersFromStart: 39_700 } : checkpoint
+  );
+  assert.equal(movingElapsedSecondsFromEstimate(estimate, nearEnd, 40_000).get("viewpoint"), 14_400);
+  const outside = checkpoints.map((checkpoint) =>
+    checkpoint.id === "viewpoint" ? { ...checkpoint, distanceMetersFromStart: 39_500 } : checkpoint
+  );
+  assert.ok((movingElapsedSecondsFromEstimate(estimate, outside, 40_000).get("viewpoint") ?? 0) < 14_400);
+});
+
 test("estimate projection does not treat an early finish id as the race finish", () => {
   const checkpoints: RaceCourseCheckpoint[] = [
     { id: "start", latitude: 0, longitude: 0, distanceMetersFromStart: 0 },

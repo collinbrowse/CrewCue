@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MapWorkspaceLayer, RaceCourseCheckpoint } from "@crewcue/contracts";
-import { buildRaceCourseFromGpx, parseGpxTrack, parsedTrackToWorkspaceLayer } from "@crewcue/map-core";
+import { buildRaceCourseFromGpx, geodesicDistanceMeters, parseGpxTrack, parsedTrackToWorkspaceLayer } from "@crewcue/map-core";
 
 /** Minimal LineString overlay for integration tests (merged as primary course route on PUT /course). */
 export function lineStringRouteOverlayForCheckpoints(
@@ -59,4 +59,28 @@ export function load50kCourseWithAids(): {
     plannedPaceSecondsPerKm
   };
   return load50kCourseWithAids();
+}
+
+/**
+ * A position on the 50k fixture's route `metersBeforeEnd` before its end, walking back along its
+ * legs: where a checkpoint short of the route's end sits.
+ */
+export function pointOn50kRouteBeforeEnd(metersBeforeEnd: number): { latitude: number; longitude: number } {
+  const geometry = load50kCourseWithAids().routeOverlayLayer.geometry;
+  if (geometry.type !== "LineString") {
+    throw new Error("the 50k route is a LineString");
+  }
+  const coordinates = geometry.coordinates;
+  let left = metersBeforeEnd;
+  for (let index = coordinates.length - 1; index > 0; index -= 1) {
+    const [lonA, latA] = coordinates[index - 1]!;
+    const [lonB, latB] = coordinates[index]!;
+    const leg = geodesicDistanceMeters({ latitude: latA, longitude: lonA }, { latitude: latB, longitude: lonB });
+    if (left <= leg) {
+      const t = leg > 0 ? 1 - left / leg : 0;
+      return { latitude: latA + t * (latB - latA), longitude: lonA + t * (lonB - lonA) };
+    }
+    left -= leg;
+  }
+  throw new Error(`the 50k route is shorter than ${metersBeforeEnd} m`);
 }
