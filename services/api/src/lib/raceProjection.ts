@@ -528,12 +528,15 @@ export function recomputeRaceProjection(params: {
       const visits = visitStates[checkpointId] ?? [];
       const metadata = visitMeta[checkpointId] ?? [];
       const checkpointDistanceMeters = cumAt[checkpointIndex] ?? 0;
-      // A checkpoint the course reaches again later (the way-back checkpoint at an out-and-back
-      // aid station, a loop finish at the start line) is inside the radius long before the runner
-      // gets there along the course. Its first visit waits until their progress is within reach.
+      // Repeated ground puts two checkpoints at one spot (an out-and-back aid station passed both
+      // ways, a finish line at the start). The runner is inside both radii on each pass, so a
+      // checkpoint's first visit opens only while their progress along the course is within reach
+      // of it: not miles before it (the way-back twin), and not miles after it (the start line
+      // when the runner crosses the finish).
       const reachMeters = 2 * checkpointRadiusMeters(cp);
-      const reachedNow = progressMeters + reachMeters >= checkpointDistanceMeters;
-      const reachedBefore = prevProgress + reachMeters >= checkpointDistanceMeters;
+      const isWithinReach = (meters: number) => Math.abs(meters - checkpointDistanceMeters) <= reachMeters;
+      const reachedNow = isWithinReach(progressMeters);
+      const reachedBefore = isWithinReach(prevProgress);
       const prevInRadius = isPingInsideRadius(origin, previousPing, cp);
       const currInRadius = isPingInsideRadius(origin, ping, cp);
       let currentVisit = visits.length > 0 ? visits[visits.length - 1] : undefined;
