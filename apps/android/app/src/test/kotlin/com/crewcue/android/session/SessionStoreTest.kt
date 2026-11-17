@@ -99,6 +99,20 @@ class SessionStoreTest {
     }
 
     @Test
+    fun anotherStoreOnTheSamePrefsSeesSaveAndClear() {
+        val app = store()
+        val other = store()
+        app.save(ada)
+        assertEquals(ada, app.current())
+
+        other.clear()
+        assertNull(app.current())
+
+        other.save(ada.copy(userId = "grace"))
+        assertEquals("grace", app.current()?.userId)
+    }
+
+    @Test
     fun aSessionSealedWithAnotherKeyReadsAsSignedOutAndIsCleared() {
         store().save(ada)
         val otherKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()

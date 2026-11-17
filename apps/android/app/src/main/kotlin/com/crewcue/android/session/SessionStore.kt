@@ -36,8 +36,12 @@ class SessionStore(
     )
 
     private val lock = Any()
+
+    // Decrypting goes through the Keystore, so the last decrypted session is kept, keyed by the
+    // sealed text. Another SessionStore on the same prefs (tests, a second container) can't make
+    // it stale: a different sealed value is decrypted again.
+    private var cachedSealed: String? = null
     private var cached: StoredSession? = null
-    private var loaded = false
 
     init {
         migrateLegacy()
@@ -53,13 +57,8 @@ class SessionStore(
     }
 
     private fun readLocked(): StoredSession? {
-        if (loaded) return cached
-        val sealed = vault.getString(KEY_SEALED, null)
-        if (sealed == null) {
-            loaded = true
-            cached = null
-            return null
-        }
+        val sealed = vault.getString(KEY_SEALED, null) ?: return null
+        if (sealed == cachedSealed) return cached
         val session = runCatching { decode(String(cipher.decrypt(Base64.getDecoder().decode(sealed)), Charsets.UTF_8)) }
             .getOrNull()
         if (session == null) {
@@ -67,8 +66,8 @@ class SessionStore(
             clear()
             return null
         }
+        cachedSealed = sealed
         cached = session
-        loaded = true
         return session
     }
 
@@ -78,9 +77,10 @@ class SessionStore(
 
     private fun saveLocked(session: StoredSession) {
         val sealed = cipher.encrypt(encode(session).toByteArray(Charsets.UTF_8))
-        vault.edit().putString(KEY_SEALED, Base64.getEncoder().encodeToString(sealed)).commit()
+        val text = Base64.getEncoder().encodeToString(sealed)
+        vault.edit().putString(KEY_SEALED, text).commit()
+        cachedSealed = text
         cached = session
-        loaded = true
     }
 
     fun update(transform: (StoredSession) -> StoredSession) {
@@ -94,8 +94,8 @@ class SessionStore(
     fun clear() {
         synchronized(lock) {
             vault.edit().clear().commit()
+            cachedSealed = null
             cached = null
-            loaded = true
             wipeLegacy()
             storageRoot.deleteRecursively()
         }
