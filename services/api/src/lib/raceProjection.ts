@@ -163,6 +163,67 @@ function checkpointPlannedStopSeconds(checkpoint: RaceCourseCheckpoint): number 
   return Math.max(0, checkpoint.plannedStopSeconds ?? 0);
 }
 
+/** How far a length may be from the course length and still be read as it (`withinCourseLength`). */
+export const COURSE_LENGTH_TOLERANCE_METERS = 100;
+export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
+
+/**
+ * Whether `meters` is the course length `courseLengthMeters`: within 1% of it or 100 m,
+ * whichever is larger.
+ */
+export function withinCourseLength(meters: number, courseLengthMeters: number): boolean {
+  const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseLengthMeters * COURSE_LENGTH_TOLERANCE_RATIO);
+  return Math.abs(meters - courseLengthMeters) <= tolerance;
+}
+
+/**
+ * Whether a checkpoint `distanceMeters` from the start is at the course's end (the finish line):
+ * at or past the course length, or short of it by no more than the tolerance. A course file with
+ * no finish waypoint has its farthest checkpoint (its last aid station) well short of the end.
+ */
+export function isAtCourseEnd(distanceMeters: number, courseLengthMeters: number): boolean {
+  return distanceMeters >= courseLengthMeters || withinCourseLength(distanceMeters, courseLengthMeters);
+}
+
+/** What the finish rule reads of a checkpoint (`finishCheckpointIndex`). */
+export type FinishCandidate = Pick<RaceCourseCheckpoint, "id" | "title" | "tags" | "distanceMetersFromStart">;
+
+/** Whether a checkpoint is marked as the finish: `finish`, in any case, as its id, title or a tag. */
+export function isMarkedFinish(checkpoint: FinishCandidate): boolean {
+  const isFinish = (value: string | undefined) => value?.trim().toLowerCase() === "finish";
+  return isFinish(checkpoint.id) || isFinish(checkpoint.title) || (checkpoint.tags ?? []).some((tag) => isFinish(tag));
+}
+
+/**
+ * Index of the finish checkpoint, the one rule the projection, the schedule and the unpaid teaser
+ * read the finish line with: the farthest checkpoint along the course, ties keeping the later
+ * row, when it is at the course's end (`isAtCourseEnd`) or marked as the finish
+ * (`isMarkedFinish`: a finish waypoint a little more than 1% short of where the route ends is
+ * still the finish). The finish ETA is the arrival there, so it never adds this checkpoint's own
+ * planned stop. -1 when there is no finish checkpoint: a course of fewer than two checkpoints (no
+ * finish apart from the start), one whose checkpoints stop short of the route's end with no
+ * finish among them (no finish waypoint), where the finish is read at the route's end and every
+ * checkpoint's stop is on the way there, or one with a checkpoint whose distance is unknown.
+ */
+export function finishCheckpointIndex(checkpoints: readonly FinishCandidate[], courseLengthMeters: number): number {
+  if (checkpoints.length < 2) {
+    return -1;
+  }
+  let best = -1;
+  let bestDistance = -Infinity;
+  for (const [index, checkpoint] of checkpoints.entries()) {
+    const distance = checkpoint.distanceMetersFromStart;
+    if (typeof distance !== "number" || !Number.isFinite(distance)) {
+      return -1;
+    }
+    if (distance >= bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  }
+  return isAtCourseEnd(bestDistance, courseLengthMeters) || isMarkedFinish(checkpoints[best]!) ? best : -1;
+}
+
 function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): number {
   return checkpoint.slowdownThresholdRatio ?? 0.5;
 }
@@ -605,7 +666,20 @@ export function recomputeRaceProjection(params: {
     return sum + (reached ? 0 : row.plannedStopSeconds);
   }, 0);
 
-  const currentCheckpointRemainingStop = checkpointSplits.reduce((remaining, row) => {
+  // The finish ETA is the arrival at the finish line, as the schedule's finish row reads it: the
+  // planned stops on the way there, never the finish checkpoint's own. Checkpoints that stop
+  // short of the route's end have no finish among them, so every one of their stops counts.
+  const finishIndex = finishCheckpointIndex(course.checkpoints, courseLengthMeters);
+  const plannedStopSecondsBeforeFinish = checkpointSplits.reduce((sum, row, index) => {
+    const reached = row.visits.length > 0;
+    return sum + (reached || index === finishIndex ? 0 : row.plannedStopSeconds);
+  }, 0);
+
+  const currentCheckpointRemainingStop = checkpointSplits.reduce((remaining, row, index) => {
+    if (index === finishIndex) {
+      // Stopped at the finish is finished: its planned stop is after the finish line.
+      return remaining;
+    }
     const lastVisit = row.visits[row.visits.length - 1];
     if (!lastVisit || !lastVisit.autoDetected) {
       return remaining;
@@ -654,17 +728,20 @@ export function recomputeRaceProjection(params: {
         return Math.max(
           recordedAtMs,
           activatedAtMs +
-            (anchoredFinishElapsedSeconds + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) *
+            (anchoredFinishElapsedSeconds + plannedStopSecondsBeforeFinish + currentCheckpointRemainingStop) *
               1000
         );
       })()
     : (() => {
         const remainingM = Math.max(0, courseLengthMeters - progressMeters);
         const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
-      return (
-        recordedAtMs +
-        (remainingSec + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) * 1000
-      );
+        // The rest of the course runs from now, or from the start when the projection is taken
+        // before it (the pre-race bootstrap): the pre-race finish is the start plus the plan.
+        const remainingFromMs = Math.max(recordedAtMs, activatedAtMs);
+        return (
+          remainingFromMs +
+          (remainingSec + plannedStopSecondsBeforeFinish + currentCheckpointRemainingStop) * 1000
+        );
       })();
   let etaFinishPlanIso = new Date(etaFinishMs).toISOString();
   let remainingCheckpointEtas: RemainingCheckpointEta[] | undefined;
@@ -724,7 +801,7 @@ export function recomputeRaceProjection(params: {
     const finishElapsed =
       elapsedNow +
       scale * Math.max(0, finishReferenceElapsedSeconds - planNow) +
-      stopRatio * remainingPlannedStopSecondsAhead +
+      stopRatio * plannedStopSecondsBeforeFinish +
       currentCheckpointRemainingStop;
     etaFinishPlanIso = new Date(Math.max(recordedAtMs, activatedAtMs + finishElapsed * 1000)).toISOString();
     const finishWindow = arrivalWindow({ ...windowInput, etaElapsed: finishElapsed, towardFinish: 1 });

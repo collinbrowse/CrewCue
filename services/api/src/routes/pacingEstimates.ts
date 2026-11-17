@@ -133,7 +133,7 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
     let routeMetricPoints: CourseMetricPoint[] | null = null;
     let courseLengthMeters: number | undefined;
-    /** Read the finish at the course length, not the farthest checkpoint (an unpaid race). */
+    /** Read the finish at the course length, not the farthest checkpoint (every race's compute). */
     let finishAtCourseEnd = false;
     let linkedRoom: RaceRoom | undefined;
 
@@ -184,17 +184,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
           code: "course_incomplete"
         });
       }
-      if (isTeaserRoom(room)) {
-        // The model simulates the whole route. On a paid race it reads the finish at the farthest
-        // checkpoint; an unpaid race whose checkpoints stop short of the route's end would then get
-        // that stop's full-race ETA as its finish. So an unpaid race reads it at the course
-        // length, as the projection and the schedule do (`courseLengthOf`): the stored length,
-        // else the route's own (a legacy room).
-        courseLengthMeters = courseLengthOf(room, routeMetricPoints);
-        finishAtCourseEnd = true;
-      } else {
-        courseLengthMeters = room.course.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters;
-      }
+      // The model simulates the whole route. Read at the farthest checkpoint, the finish of a
+      // course whose checkpoints stop short of the route's end (no finish waypoint) would be that
+      // stop's ETA. So a race's compute, paid or unpaid, reads it at the course length, as the
+      // projection does (`courseLengthOf`): the stored length, else the route's own (a legacy room).
+      courseLengthMeters = courseLengthOf(room, routeMetricPoints);
+      finishAtCourseEnd = true;
     }
 
     if (!raceStartAt || !checkpoints) {
