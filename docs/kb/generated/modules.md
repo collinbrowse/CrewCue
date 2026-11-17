@@ -185,7 +185,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 47 | 10516 |
+| `CrewCueClientCore` | 47 | 10576 |
 | `CrewCueClientCore/Generated` | 50 | 974 |
 
 ### iOS app (SwiftUI)

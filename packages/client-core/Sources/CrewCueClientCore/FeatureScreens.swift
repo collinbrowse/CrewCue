@@ -523,6 +523,6 @@ private func onboardingRacePreviewBody(_ state: FeatureState) -> String {
     case .success: OnboardingCopy.replayCaption(.following)
     case .empty: "Add your course to see the replay on your own route."
     case .error: "Couldn't play the replay. Skip to unlock your race."
-    case .offline: "Offline. The replay uses demo data on this phone and plays as usual."
+    case .offline: "Offline. The replay plays from the race saved on this phone."
     }
 }

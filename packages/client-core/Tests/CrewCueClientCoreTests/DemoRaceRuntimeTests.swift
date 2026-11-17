@@ -46,6 +46,20 @@ private func realBase() -> String {
 /// One replay at a time: `demoRaceCreate` retires any earlier one, so these run one by one.
 @Suite(.serialized)
 struct DemoRaceRuntimeTests {
+    @Test func demoRaceCreateSendsAndroidTheSharedOnboardingCaptions() async throws {
+        let created = try result(try await runtime([
+            "op": "demoRaceCreate", "userId": "runner-1", "tempDir": freshDirectory().path, "room": demoRoomObject()
+        ]))
+        let beats = try #require(created["beats"] as? [[String: Any]])
+        #expect(beats.count == DemoRaceBeat.allCases.count)
+        for entry in beats {
+            let beat = try #require(DemoRaceBeat(rawValue: entry["beat"] as? String ?? ""))
+            #expect(entry["caption"] as? String == OnboardingCopy.replayCaption(beat))
+        }
+        let snapshot = try #require(created["snapshot"] as? [String: Any])
+        #expect(snapshot["caption"] as? String == OnboardingCopy.replayCaption(.following))
+    }
+
     @Test func demoRuntimeStaysIndependentOfTheRealRuntime() async throws {
         let real = realBase()
         RuntimeCall.setTransportForTests(RealServer(), baseURL: real)

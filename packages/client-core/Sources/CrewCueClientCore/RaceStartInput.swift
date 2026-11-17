@@ -78,6 +78,28 @@ public struct RaceStartInput: Equatable, Sendable {
         return date
     }
 
+    /// Why `instant` is nil, or nil when the fields name a real instant.
+    public enum Problem: Equatable, Sendable {
+        case unknownZone, invalidDate, daylightSavingGap
+    }
+
+    public var problem: Problem? {
+        guard let zone = DeviceTimeZone.resolve(timeZoneIdentifier) else { return .unknownZone }
+        if instant != nil { return nil }
+        // Noon exists on every valid date, so a round-trip failure there means the date itself is bad.
+        let calendar = Self.calendar(zone)
+        var noon = DateComponents()
+        noon.year = year
+        noon.month = month
+        noon.day = day
+        noon.hour = 12
+        let valid = (0...23).contains(hour) && (0...59).contains(minute) && calendar.date(from: noon).map {
+            let c = calendar.dateComponents([.year, .month, .day], from: $0)
+            return c.year == year && c.month == month && c.day == day
+        } == true
+        return valid ? .daylightSavingGap : .invalidDate
+    }
+
     /// UTC ISO-8601 with milliseconds and a `Z` suffix, the form the API's `raceStartAt` requires.
     public var raceStartAt: String? {
         instant.map(RaceDayReadouts.iso8601)

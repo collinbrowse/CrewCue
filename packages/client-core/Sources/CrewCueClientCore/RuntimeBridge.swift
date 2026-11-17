@@ -19,7 +19,7 @@ import Dispatch
 /// notificationPreference, saveNotificationPreference, enqueuePush, enqueueChat,
 /// chatPoll, chatSend, chatUploadPhoto, chatOlder, chatDiscard,
 /// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
-/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
+/// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, onboardingCopy, onboardingHistoryComparison, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
@@ -241,6 +241,10 @@ enum RuntimeCall {
             return try await deleteAccount(object)
         case "accountDeletionCopy":
             return AccountDeletion.copy
+        case "onboardingCopy":
+            return OnboardingCopy.runtimeCopy
+        case "onboardingHistoryComparison":
+            return try onboardingHistoryComparison(object)
         case "pingTrack":
             return try await pingTrack(object)
         case "liveProjection":
@@ -1488,6 +1492,17 @@ enum RuntimeCall {
     /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
     /// the app's session-expired path runs. A confirmed delete also removes the user's onboarding
     /// progress, which sign-out keeps.
+    /// `onboardingHistoryComparison`: withHistoryFinishAt, withoutHistoryFinishAt, optional timeZone (IANA id).
+    /// Result `{"text": String?}`; text is null when the line should be hidden.
+    private static func onboardingHistoryComparison(_ object: [String: Any]) throws -> Any {
+        guard let with = text(object, "withHistoryFinishAt"), let without = text(object, "withoutHistoryFinishAt") else {
+            throw ClientHTTPError(status: 400, message: "withHistoryFinishAt and withoutHistoryFinishAt are required.")
+        }
+        let zone = text(object, "timeZone").flatMap(DeviceTimeZone.resolve) ?? DeviceTimeZone.current
+        let line = OnboardingCopy.historyComparison(withHistoryFinishAt: with, withoutHistoryFinishAt: without, timeZone: zone)
+        return ["text": line ?? NSNull()] as [String: Any]
+    }
+
     private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
         try await deleteAccount(graph: try graph(object), onboarding: try? onboardingStore(object), userId: text(object, "userId"))
     }

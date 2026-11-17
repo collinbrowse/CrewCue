@@ -28,7 +28,7 @@ public enum OnboardingCopy {
     public static func explanation(for step: OnboardingStep) -> String? {
         switch step {
         case .account: "Sign in and pick the name your crew sees."
-        case .course: "Add your course file so CrewCue can plan your aid stations."
+        case .course: "Add your course file so CrewCue can estimate your finish."
         case .startTime: "Pick the date and time you start, in the time zone of the race."
         case .history: "Add past runs to tighten your estimate, or skip this and add them later."
         case .projectionTeaser: "This is your estimated finish time. Aid station times unlock with your race."
@@ -41,7 +41,7 @@ public enum OnboardingCopy {
     // MARK: History comparison
 
     /// "Finish 9:42 AM instead of 10:15 AM". Both instants are API ISO-8601 strings, shown in the
-    /// viewer's zone through `ScheduleFormat.formatScheduleClock`. Nil when either instant does not parse.
+    /// viewer's zone through `ScheduleFormat.formatScheduleClock`. Nil when either instant does not parse or both print as the same clock.
     public static func historyComparison(
         withHistoryFinishAt: String,
         withoutHistoryFinishAt: String,
@@ -52,6 +52,8 @@ public enum OnboardingCopy {
               ScheduleFormat.parseISO8601(withoutHistoryFinishAt) != nil else { return nil }
         let with = ScheduleFormat.formatScheduleClock(withHistoryFinishAt, timeZone: timeZone, locale: locale)
         let without = ScheduleFormat.formatScheduleClock(withoutHistoryFinishAt, timeZone: timeZone, locale: locale)
+        // Same printed clock: history changed nothing the runner can see, so the caller hides the line.
+        guard with != without else { return nil }
         return "Finish \(with) instead of \(without)"
     }
 
@@ -72,11 +74,12 @@ public enum OnboardingCopy {
     // MARK: Paywall
 
     public static let paywallRunnerPlusOneTitle = "You + 1 crew"
-    public static let paywallRunnerPlusOneProduct = "Race Pass"
-    public static let paywallRunnerPlusOnePrice = "$14.99"
+    // The paywall shows the store-localized price; these are the fallbacks `BillingProduct` already owns.
+    public static let paywallRunnerPlusOneProduct = BillingProduct.racePass.title
+    public static let paywallRunnerPlusOnePrice = BillingProduct.racePass.fallbackPrice
     public static let paywallFullCrewTitle = "Your whole crew"
-    public static let paywallFullCrewProduct = "Race Pass + Full Crew"
-    public static let paywallFullCrewPrice = "$19.99"
+    public static let paywallFullCrewProduct = BillingProduct.racePassFullCrew.title
+    public static let paywallFullCrewPrice = BillingProduct.racePassFullCrew.fallbackPrice
     public static let paywallPitch = "Give your crew this on race day."
 
     // MARK: Unpaid banner
@@ -90,4 +93,30 @@ public enum OnboardingCopy {
     /// A time that does not exist on that date in the chosen zone (spring-forward gap).
     public static let startTimeDstGap = "That time doesn't exist on that date because of daylight saving. Pick another time."
     // `course_mismatch` has no copy on purpose: the client recomputes the estimate and shows nothing.
+
+    // MARK: Runtime (Android)
+
+    /// Every static string plus step titles, explanations and beat captions, for runtime op `onboardingCopy`.
+    static var runtimeCopy: [String: Any] {
+        var titles: [String: String] = [:]
+        var explanations: [String: String] = [:]
+        for step in OnboardingStep.allCases {
+            if let title = title(for: step) { titles[step.rawValue] = title }
+            if let text = explanation(for: step) { explanations[step.rawValue] = text }
+        }
+        var captions: [String: String] = [:]
+        for beat in DemoRaceBeat.allCases { captions[beat.rawValue] = replayCaption(beat) }
+        return [
+            "chooserRunner": chooserRunner, "chooserCrew": chooserCrew,
+            "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
+            "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
+            "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,
+            "paywallRunnerPlusOnePrice": paywallRunnerPlusOnePrice,
+            "paywallFullCrewTitle": paywallFullCrewTitle,
+            "paywallFullCrewProduct": paywallFullCrewProduct,
+            "paywallFullCrewPrice": paywallFullCrewPrice,
+            "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
+            "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions
+        ]
+    }
 }

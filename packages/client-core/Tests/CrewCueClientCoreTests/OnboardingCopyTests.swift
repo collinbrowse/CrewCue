@@ -98,3 +98,61 @@ private func plain(_ text: String?) -> String? {
         }
     }
 }
+
+@Test func historyComparisonIsNilWhenBothFinishesPrintTheSame() {
+    let utc = TimeZone(identifier: "UTC")!
+    #expect(OnboardingCopy.historyComparison(
+        withHistoryFinishAt: "2026-08-15T09:42:05Z", withoutHistoryFinishAt: "2026-08-15T09:42:40Z", timeZone: utc, locale: enUS
+    ) == nil)
+}
+
+@Test func replayCaptionsHaveOneSourceInClientCore() {
+    #expect(DemoRaceBeat.allCases.allSatisfy { $0.caption == OnboardingCopy.replayCaption($0) })
+}
+
+@Test func paywallPricesAreTheBillingFallbacks() {
+    #expect(OnboardingCopy.paywallRunnerPlusOnePrice == BillingProduct.racePass.fallbackPrice)
+    #expect(OnboardingCopy.paywallFullCrewProduct == BillingProduct.racePassFullCrew.title)
+}
+
+@Test func onboardingCopyRuntimeOpGivesAndroidTheSharedStrings() async throws {
+    let copy = try await runtimeResult(["op": "onboardingCopy"])
+    #expect(copy["chooserRunner"] as? String == OnboardingCopy.chooserRunner)
+    #expect(copy["startTimeDstGap"] as? String == OnboardingCopy.startTimeDstGap)
+    #expect((copy["stepTitles"] as? [String: String])?["course"] == OnboardingCopy.title(for: .course))
+    #expect((copy["stepExplanations"] as? [String: String])?["paywall"] == OnboardingCopy.explanation(for: .paywall))
+    #expect((copy["beatCaptions"] as? [String: String])?["deadZone"] == OnboardingCopy.replayCaption(.deadZone))
+}
+
+@Test func onboardingHistoryComparisonRuntimeOpUsesTheSharedFormatter() async throws {
+    let line = try await runtimeResult([
+        "op": "onboardingHistoryComparison", "timeZone": "UTC",
+        "withHistoryFinishAt": "2026-08-15T09:42:00Z", "withoutHistoryFinishAt": "2026-08-15T10:15:00Z"
+    ])
+    #expect(line["text"] as? String == OnboardingCopy.historyComparison(
+        withHistoryFinishAt: "2026-08-15T09:42:00Z", withoutHistoryFinishAt: "2026-08-15T10:15:00Z",
+        timeZone: TimeZone(identifier: "UTC")!))
+    let same = try await runtimeResult([
+        "op": "onboardingHistoryComparison", "timeZone": "UTC",
+        "withHistoryFinishAt": "2026-08-15T09:42:00Z", "withoutHistoryFinishAt": "2026-08-15T09:42:30Z"
+    ])
+    #expect(same["text"] is NSNull)
+}
+
+@Test func raceStartProblemSeparatesDstGapFromBadFields() {
+    // 2026-03-08 02:30 does not exist in Denver (clocks jump 02:00 to 03:00).
+    let gap = RaceStartInput(year: 2026, month: 3, day: 8, hour: 2, minute: 30, timeZoneIdentifier: "America/Denver")
+    #expect(gap.problem == .daylightSavingGap)
+    #expect(RaceStartInput(year: 2026, month: 3, day: 8, hour: 3, minute: 30, timeZoneIdentifier: "America/Denver").problem == nil)
+    #expect(RaceStartInput(year: 2026, month: 2, day: 30, hour: 9, minute: 0, timeZoneIdentifier: "America/Denver").problem == .invalidDate)
+    #expect(RaceStartInput(year: 2026, month: 3, day: 8, hour: 25, minute: 0, timeZoneIdentifier: "America/Denver").problem == .invalidDate)
+    #expect(RaceStartInput(year: 2026, month: 3, day: 8, hour: 9, minute: 0, timeZoneIdentifier: "Nowhere/Land").problem == .unknownZone)
+}
+
+private func runtimeResult(_ fields: [String: Any]) async throws -> [String: Any] {
+    let data = try JSONSerialization.data(withJSONObject: fields)
+    let raw = await RuntimeCall.perform(String(decoding: data, as: UTF8.self))
+    let json = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    #expect(json["ok"] as? Bool == true, "\(json)")
+    return json["result"] as? [String: Any] ?? [:]
+}
