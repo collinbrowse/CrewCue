@@ -20,7 +20,7 @@
  * Safe on several instances at once (risks R1, R20): the first to delete a race wins, and the
  * others find it gone, which is not an error. Each tick logs counts only, never ids or user data.
  */
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyBaseLogger } from "fastify";
 import type { RaceRoomDeleteCondition, RaceRoomDeletion } from "../routes/raceRooms.js";
 import { ensureBillingStoreReady, roomHasBillingGrants } from "./billingStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
@@ -228,22 +228,4 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
       return handle !== undefined;
     }
   };
-}
-
-/**
- * Run the sweeper for an app's lifetime: it starts when the app is ready (`listen` included) and
- * stops on `app.close()`. server.ts calls this before `listen`.
- */
-export function attachUnpaidRaceExpiryScheduler(
-  app: FastifyInstance,
-  opts: Omit<UnpaidRaceExpirySchedulerOptions, "log"> & { log?: UnpaidRaceExpirySchedulerOptions["log"] }
-): UnpaidRaceExpiryScheduler {
-  const scheduler = createUnpaidRaceExpiryScheduler({ ...opts, log: opts.log ?? app.log });
-  app.addHook("onReady", async () => {
-    scheduler.start();
-  });
-  app.addHook("onClose", async () => {
-    await scheduler.stop();
-  });
-  return scheduler;
 }

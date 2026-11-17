@@ -11,7 +11,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import Fastify from "fastify";
 import type { RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { applyBillingGrant } from "../routes/billingRoutes.js";
@@ -38,7 +37,6 @@ import {
 import { lineStringRouteOverlayForCheckpoints } from "./testCourseRouteLayer.js";
 import { claimTrackingReminder, listTrackingReminderClaims } from "./trackingReminderScheduler.js";
 import {
-  attachUnpaidRaceExpiryScheduler,
   createUnpaidRaceExpiryScheduler,
   isUnpaidRaceExpired,
   UNPAID_RACE_TTL_MS,
@@ -673,10 +671,9 @@ test("a failing delete is logged without the room id and the rest of the tick go
   );
 });
 
-test("the sweeper starts with the app, ticks on its interval, and stops on app close", async () => {
-  const app = Fastify();
+test("the sweeper ticks on its interval from start and stops on stop", async () => {
   let calls = 0;
-  const sweep = attachUnpaidRaceExpiryScheduler(app, {
+  const sweep = createUnpaidRaceExpiryScheduler({
     listRooms: async () => {
       calls += 1;
       return [];
@@ -685,24 +682,23 @@ test("the sweeper starts with the app, ticks on its interval, and stops on app c
     intervalMs: 5
   });
   assert.equal(sweep.running, false);
-  await app.ready();
+  sweep.start();
   assert.equal(sweep.running, true);
   const deadline = Date.now() + 2000;
   while (calls < 3 && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.ok(calls >= 3, `ticked ${calls} times`);
-  await app.close();
+  await sweep.stop();
   assert.equal(sweep.running, false);
-  const afterClose = calls;
+  const afterStop = calls;
   await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(calls, afterClose, "no tick after close");
+  assert.equal(calls, afterStop, "no tick after stop");
 });
 
-test("app close does not wait on a hung tick past its bound", async () => {
-  const app = Fastify();
+test("stop does not wait on a hung tick past its bound", async () => {
   let listed = false;
-  const sweep = attachUnpaidRaceExpiryScheduler(app, {
+  const sweep = createUnpaidRaceExpiryScheduler({
     // Never settles: a store call that hangs.
     listRooms: () => {
       listed = true;
@@ -711,14 +707,14 @@ test("app close does not wait on a hung tick past its bound", async () => {
     log: recordingLog(),
     stopWaitMs: 20
   });
-  await app.ready();
+  sweep.start();
   const deadline = Date.now() + 2000;
   while (!listed && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.ok(listed, "the first tick runs on start");
-  const closing = Date.now();
-  await app.close();
+  const stopping = Date.now();
+  await sweep.stop();
   assert.equal(sweep.running, false);
-  assert.ok(Date.now() - closing < 2000, "close returned without waiting for the hung tick");
+  assert.ok(Date.now() - stopping < 2000, "stop returned without waiting for the hung tick");
 });
