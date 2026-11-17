@@ -173,21 +173,21 @@
       "path": "/pacing-estimates",
       "guard": "identity + membership",
       "file": "services/api/src/routes/pacingEstimates.ts",
-      "line": 120
+      "line": 115
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/pacing-estimate",
       "guard": "room-member",
       "file": "services/api/src/routes/raceRoomSchedule.ts",
-      "line": 517
+      "line": 519
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/schedule",
       "guard": "room-member",
       "file": "services/api/src/routes/raceRoomSchedule.ts",
-      "line": 683
+      "line": 680
     },
     {
       "method": "GET",

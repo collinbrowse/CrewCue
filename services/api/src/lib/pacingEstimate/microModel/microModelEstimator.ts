@@ -41,6 +41,13 @@ export type MicroModelEstimateInput = PacingEstimateInput & {
   routeMetricPoints: CourseMetricPoint[];
   /** Optional canonical length override. */
   courseLengthMeters?: number;
+  /**
+   * Read the finish (expected and bands) at the course length instead of at the farthest
+   * checkpoint. The route is simulated end to end either way; this only moves where the finish
+   * is read. Off by default (paid races, room-less requests). An unpaid race sets it, so its
+   * finish is the route's end even when its checkpoints stop short of it.
+   */
+  finishAtCourseEnd?: boolean;
 };
 
 export type MicroModelEstimateArtifacts = {
@@ -223,8 +230,9 @@ export function estimatePacingMicroModelWithArtifacts(
   // keeps its shape between checkpoints. Tuned constants only (the 25-finisher threshold and the
   // ±10% band come from the Nov 2026 backtest).
   const cohort = tuned && input.courseHistoryCohort && cohortIsUsable(input.courseHistoryCohort) ? input.courseHistoryCohort : undefined;
+  const finishAt = input.finishAtCourseEnd === true ? "courseEnd" : "farthestCheckpoint";
   if (cohort) {
-    const plannedFinish = interpolateFinish(sims.expected, courseDistance, checkpoints);
+    const plannedFinish = interpolateFinish(sims.expected, courseDistance, checkpoints, finishAt);
     const distanceOf = new Map(checkpoints.map((cp) => [cp.id, cp.distanceMetersFromStart as number]));
     const elapsed = cohortPlanElapsed(cohort, plannedFinish);
     const anchors = cohort.checkpointIds.map((id, i) => ({ distanceMeters: distanceOf.get(id) ?? 0, elapsedSeconds: elapsed[i]! }));
@@ -232,13 +240,13 @@ export function estimatePacingMicroModelWithArtifacts(
   }
   const expectedElapsedByCp = elapsedAtCheckpoints(sims.expected, checkpoints);
   const finishElapsed = roundElapsed(
-    interpolateFinish(sims.expected, courseDistance, checkpoints)
+    interpolateFinish(sims.expected, courseDistance, checkpoints, finishAt)
   );
   const conservativeFinish = roundElapsed(
-    interpolateFinish(sims.conservative, courseDistance, checkpoints)
+    interpolateFinish(sims.conservative, courseDistance, checkpoints, finishAt)
   );
   const aggressiveFinish = roundElapsed(
-    interpolateFinish(sims.aggressive, courseDistance, checkpoints)
+    interpolateFinish(sims.aggressive, courseDistance, checkpoints, finishAt)
   );
 
   // Band ordering: conservative ≥ expected ≥ aggressive
@@ -322,11 +330,19 @@ function farthestCheckpointDistance(checkpoints: readonly RaceCourseCheckpoint[]
   return best >= 0 ? best : undefined;
 }
 
+/**
+ * Elapsed at the finish: at the farthest checkpoint (the default), or at the course length
+ * (`courseEnd`, see `finishAtCourseEnd`). A distance past the simulated route reads its end.
+ */
 function interpolateFinish(
   sim: { distanceElapsedCurve: Array<{ distanceMetersFromStart: number; referenceElapsedSeconds: number }> },
   courseDistance: number,
-  checkpoints: RaceCourseCheckpoint[]
+  checkpoints: RaceCourseCheckpoint[],
+  finishAt: "farthestCheckpoint" | "courseEnd"
 ): number {
+  if (finishAt === "courseEnd") {
+    return interpolateElapsedAtDistance(sim.distanceElapsedCurve, courseDistance);
+  }
   const farthest = farthestCheckpointDistance(checkpoints);
   const d = farthest !== undefined && farthest > 0 ? farthest : courseDistance;
   return interpolateElapsedAtDistance(sim.distanceElapsedCurve, d);

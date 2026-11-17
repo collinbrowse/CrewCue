@@ -12,6 +12,7 @@ import {
   runScenarioSims,
   SURFACE_COMPLEXITY
 } from "./index.js";
+import { geodesicPolylineLength } from "@crewcue/map-core";
 import { METERS_PER_MILE } from "./constants.js";
 
 test("cold-start GAP is 10:00 per mile", () => {
@@ -345,6 +346,42 @@ test("loop finish waypoint does not collapse the predicted finish to the first p
     Math.abs(
       loop.estimate.expectedFinishElapsedSeconds - pointToPoint.estimate.expectedFinishElapsedSeconds
     ) < 120
+  );
+});
+
+test("finishAtCourseEnd reads the finish at the course length; by default it stays at the farthest checkpoint", () => {
+  const route = Array.from({ length: 41 }, (_, i) => ({
+    latitude: 40 + i * 0.0009,
+    longitude: -105.2,
+    elevationMeters: 1700 + i * 3
+  }));
+  const lengthMeters = geodesicPolylineLength(route);
+  const at = (i: number, id: string, tags?: Array<"aid">) => ({
+    id,
+    latitude: route[i]!.latitude,
+    longitude: route[i]!.longitude,
+    distanceMetersFromStart: (lengthMeters * i) / 40,
+    ...(tags ? { tags } : {})
+  });
+  const shared = { raceStartAt: "2026-08-01T06:00:00.000Z", history: [], routeMetricPoints: route, courseLengthMeters: lengthMeters };
+  // An aid 300 m before the end; the finish waypoint dropped.
+  const cut = [at(0, "start"), at(20, "aid-1", ["aid"]), at(37, "aid-near-end", ["aid"])];
+  const full = estimatePacingMicroModelWithArtifacts({ ...shared, checkpoints: [...cut, at(40, "finish")] });
+  const nearEnd = full.estimate.aidEtas.find((eta) => eta.checkpointId === "aid-near-end");
+  assert.ok(nearEnd && nearEnd.elapsedSeconds < full.estimate.expectedFinishElapsedSeconds - 60);
+
+  // Default (paid): the finish is read at the farthest checkpoint, the near-end aid's ETA.
+  const atFarthest = estimatePacingMicroModelWithArtifacts({ ...shared, checkpoints: cut });
+  assert.equal(atFarthest.estimate.expectedFinishElapsedSeconds, nearEnd.elapsedSeconds);
+
+  // At the course end: the full course's estimate exactly (finish, bands, aid ETAs, id), the same curve.
+  const atEnd = estimatePacingMicroModelWithArtifacts({ ...shared, checkpoints: cut, finishAtCourseEnd: true });
+  assert.deepEqual(atEnd.estimate, full.estimate);
+  assert.deepEqual(atEnd.baselineTrack, full.baselineTrack);
+  // A course that already ends at a checkpoint reads the same either way.
+  assert.deepEqual(
+    estimatePacingMicroModelWithArtifacts({ ...shared, checkpoints: [...cut, at(40, "finish")], finishAtCourseEnd: true }).estimate,
+    full.estimate
   );
 });
 

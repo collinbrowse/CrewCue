@@ -8,15 +8,14 @@ import type {
   RaceRoom,
   RaceRoomProjection
 } from "@crewcue/contracts";
+import { geodesicPolylineLength } from "@crewcue/map-core";
 import { isRunnerSeat, roomUnpaidError } from "./billingEntitlement.js";
 import {
   attachBlockedBy,
-  courseEndsAtFarthestCheckpoint,
   courseLengthOf,
   courseLengthsMatch,
   estimateCourseLengthMeters,
   exportedEstimate,
-  farthestCheckpointMeters,
   finishOnlyEstimate,
   isTeaserRoom,
   lockedRoom,
@@ -69,6 +68,13 @@ const COURSE = [
   cp("finish", 30_000, ["aid"])
 ];
 const MID_COURSE = ["water-1", "aid-a", "aid-b"];
+
+/** A 30 km route along the equator (no stored length on `room()`). */
+const ROUTE = [
+  { latitude: 0, longitude: 0, elevationMeters: null },
+  { latitude: 0, longitude: 0.1349, elevationMeters: null },
+  { latitude: 0, longitude: 0.2698, elevationMeters: null }
+];
 
 function split(checkpointId: string, distance: number): RaceCheckpointSplitRow {
   return {
@@ -445,28 +451,48 @@ test("course length: an estimate fits within 1% or 100 m of the course, whicheve
   assert.equal(estimateCourseLengthMeters({ baselineTrack: curve }), 30_000);
   assert.equal(estimateCourseLengthMeters({}), undefined);
 
-  // The race's: canonical distance, else the room's, else the farthest checkpoint.
+  // The race's: canonical distance, else the room's, else its route's (below).
   const base = room(COURSE);
-  assert.equal(courseLengthOf(base), 30_000);
-  assert.equal(courseLengthOf({ ...base, courseDistanceMeters: 31_000 }), 31_000);
+  assert.equal(courseLengthOf({ ...base, courseDistanceMeters: 31_000 }, ROUTE), 31_000);
   assert.equal(
-    courseLengthOf({
-      ...base,
-      courseDistanceMeters: 31_000,
-      course: {
-        ...base.course!,
-        derivedMetrics: {
-          canonicalDistanceMeters: 32_000,
-          elevationGainMeters: 0,
-          elevationLossMeters: 0,
-          elevationSource: "none",
-          metricsVersion: 1
+    courseLengthOf(
+      {
+        ...base,
+        courseDistanceMeters: 31_000,
+        course: {
+          ...base.course!,
+          derivedMetrics: {
+            canonicalDistanceMeters: 32_000,
+            elevationGainMeters: 0,
+            elevationLossMeters: 0,
+            elevationSource: "none",
+            metricsVersion: 1
+          }
         }
-      }
-    }),
+      },
+      ROUTE
+    ),
     32_000
   );
-  assert.equal(courseLengthOf({ ...base, course: undefined }), undefined);
+  assert.equal(courseLengthOf({ ...base, course: undefined }, null), undefined);
+});
+
+test("course length: with no stored length it is the route's, never the farthest checkpoint's", () => {
+  const routeMeters = geodesicPolylineLength(ROUTE);
+  assert.ok(Math.abs(routeMeters - 30_000) < 100, `route ${routeMeters}`);
+  // A legacy room (no canonical or room distance) whose checkpoints stop at aid-b, 20 km in: the
+  // route's 30 km, not aid-b's 20 km, so a plan computed there reads its finish at the end.
+  const legacy = room(COURSE.slice(0, 4));
+  assert.equal(courseLengthOf(legacy, ROUTE), routeMeters);
+  assert.equal(courseLengthsMatch(20_000, courseLengthOf(legacy, ROUTE)), false, "a plan priced at aid-b does not fit");
+  assert.equal(courseLengthsMatch(routeMeters, courseLengthOf(legacy, ROUTE)), true);
+  // No stored length and no route: unknown, so no plan fits it (attach is 400 course_mismatch).
+  for (const route of [null, undefined, [], ROUTE.slice(0, 1)]) {
+    assert.equal(courseLengthOf(legacy, route), undefined);
+    assert.equal(courseLengthsMatch(20_000, courseLengthOf(legacy, route)), false);
+  }
+  // A stored length wins over the route.
+  assert.equal(courseLengthOf({ ...legacy, courseDistanceMeters: 31_000 }, ROUTE), 31_000);
 });
 
 test("schedule teaser room: the plan curve collapses to the start and the finish, nothing between", () => {
@@ -527,35 +553,4 @@ test("schedule teaser room: a course whose checkpoints stop short of its end put
   const noCurve = teaserScheduleRoom({ ...original, course: { checkpoints: cut } }, 30_000);
   assert.equal(noCurve.course?.baselineTrack, undefined);
   assert.equal(noCurve.course?.checkpoints.at(-1)?.distanceMetersFromStart, 30_000);
-});
-
-test("course end: an unpaid race takes a plan only when its farthest checkpoint is at the course end", () => {
-  const withLength = (checkpoints: RaceCourseCheckpoint[], canonicalDistanceMeters: number): RaceRoom => ({
-    ...room(checkpoints),
-    course: {
-      checkpoints,
-      derivedMetrics: {
-        canonicalDistanceMeters,
-        elevationGainMeters: 0,
-        elevationLossMeters: 0,
-        elevationSource: "none",
-        metricsVersion: 1
-      }
-    }
-  });
-  assert.equal(farthestCheckpointMeters(room(COURSE)), 30_000);
-  // The farthest checkpoint, not the last listed.
-  assert.equal(farthestCheckpointMeters(room([COURSE[4]!, COURSE[0]!, COURSE[2]!])), 30_000);
-  assert.equal(farthestCheckpointMeters(room([cp("a", undefined), cp("b", undefined)])), undefined);
-
-  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_000)), true);
-  // Within 1% or 100 m (whichever is larger) of the course end.
-  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_300)), true);
-  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_310)), false);
-  // Checkpoints that stop at a priced stop, on the whole route: the finish would be that stop's ETA.
-  for (const last of [1, 2, 3]) {
-    assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE.slice(0, last + 1), 30_000)), false, COURSE[last]!.id);
-  }
-  // No checkpoint distance: nothing to read the finish at.
-  assert.equal(courseEndsAtFarthestCheckpoint(withLength([cp("a", undefined), cp("b", undefined)], 30_000)), false);
 });

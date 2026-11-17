@@ -18,6 +18,7 @@ import type {
   RaceRoom,
   RaceRoomProjection
 } from "@crewcue/contracts";
+import { geodesicPolylineLength, type CourseMetricPoint } from "@crewcue/map-core";
 import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance } from "./raceProjection.js";
 
 /** Where a stored estimate went (see `StoredPacingEstimate` in pacingEstimateStore.ts). */
@@ -176,7 +177,8 @@ export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): C
  * there, as the teaser projection reads it), never a priced stop's ETA, also when the checkpoints
  * stop short of the route's end. Nothing between the start and the finish reads more than a
  * straight line to that finish. The sheet never carries the curve. Without a usable curve it is
- * dropped, as in `teaserRoom`.
+ * dropped, as in `teaserRoom`. Pass `courseLengthOf(room, route)`, the length the projection and
+ * an unpaid compute read the finish at.
  */
 export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): RaceRoom {
   const shaped = teaserRoom(room);
@@ -271,15 +273,23 @@ export const COURSE_LENGTH_TOLERANCE_METERS = 100;
 export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
 
 /**
- * A race's course length (m), as `POST /pacing-estimates` and the schedule read it: the course's
- * canonical distance, else the room's, else the farthest checkpoint. Undefined when none is known.
+ * A race's course length (m), the length the projection reads its finish at: the course's
+ * canonical distance, else the room's, else the length of `route` (the room's route polyline,
+ * which the micro-model simulates). Never a checkpoint's distance: checkpoints can stop short of
+ * the route's end. Undefined when none is known (no stored length and no route).
+ *
+ * An unpaid race's compute reads its finish here (`finishAtCourseEnd`), its schedule puts its
+ * finish row here, and its attach takes only a plan computed for this length.
  */
-export function courseLengthOf(room: RaceRoom): number | undefined {
+export function courseLengthOf(
+  room: RaceRoom,
+  route: readonly CourseMetricPoint[] | null | undefined
+): number | undefined {
   const canonical = room.course?.derivedMetrics?.canonicalDistanceMeters;
   if (isPositive(canonical)) return canonical;
   if (isPositive(room.courseDistanceMeters)) return room.courseDistanceMeters;
-  const farthest = Math.max(0, ...(room.course?.checkpoints ?? []).map((checkpoint) => finiteDistance(checkpoint) ?? 0));
-  return farthest > 0 ? farthest : undefined;
+  const routeLength = route && route.length >= 2 ? geodesicPolylineLength([...route]) : undefined;
+  return isPositive(routeLength) ? routeLength : undefined;
 }
 
 /**
@@ -307,34 +317,6 @@ export function courseLengthsMatch(estimateMeters: number | undefined, courseMet
   const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseMeters * COURSE_LENGTH_TOLERANCE_RATIO);
   return Math.abs(estimateMeters - courseMeters) <= tolerance;
 }
-
-/**
- * Where the micro-model reads a race's finish: the farthest checkpoint's distance (m). Undefined
- * when no checkpoint has one.
- */
-export function farthestCheckpointMeters(room: RaceRoom): number | undefined {
-  const distances = (room.course?.checkpoints ?? [])
-    .map((checkpoint) => finiteDistance(checkpoint))
-    .filter((distance): distance is number => distance !== undefined);
-  return distances.length > 0 ? Math.max(...distances) : undefined;
-}
-
-/**
- * Whether a race's course ends at its farthest checkpoint, within `courseLengthsMatch`. The
- * micro-model simulates the whole route and reads the finish at the farthest checkpoint, so a
- * course whose checkpoints stop short of the route's end (the route kept, a priced stop the last
- * checkpoint) prices its "finish" at that stop's full-race ETA. An unpaid race takes a plan, by
- * compute or attach, only for a course that ends at a checkpoint.
- */
-export function courseEndsAtFarthestCheckpoint(room: RaceRoom): boolean {
-  return courseLengthsMatch(farthestCheckpointMeters(room), courseLengthOf(room));
-}
-
-/** 400 for an unpaid race whose course does not end at a checkpoint (`courseEndsAtFarthestCheckpoint`). */
-export const COURSE_END_MISMATCH_BODY = {
-  error: "The course must end at its last checkpoint; add a finish at the end of the route",
-  code: "course_mismatch"
-} as const;
 
 function isPositive(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;

@@ -33,12 +33,7 @@ import {
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import {
-  COURSE_END_MISMATCH_BODY,
-  courseEndsAtFarthestCheckpoint,
-  finishOnlyEstimate,
-  isTeaserRoom
-} from "../lib/raceTeaser.js";
+import { courseLengthOf, finishOnlyEstimate, isTeaserRoom } from "../lib/raceTeaser.js";
 import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -138,6 +133,8 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
     let routeMetricPoints: CourseMetricPoint[] | null = null;
     let courseLengthMeters: number | undefined;
+    /** Read the finish at the course length, not the farthest checkpoint (an unpaid race). */
+    let finishAtCourseEnd = false;
     let linkedRoom: RaceRoom | undefined;
 
     if (parsedBody.data.roomId) {
@@ -181,19 +178,22 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         });
       }
       routeMetricPoints = resolveRouteMetricPointsFromRaceRoomExport(room);
-      courseLengthMeters =
-        room.course.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters;
       if (!routeMetricPoints) {
         return reply.code(400).send({
           error: "Room course route geometry is required for micro-model pacing",
           code: "course_incomplete"
         });
       }
-      // The model simulates the whole route and reads the finish at the farthest checkpoint. An
-      // unpaid race whose checkpoints stop short of the route's end would get that stop's
-      // full-race ETA as its finish, so it gets no plan until its course ends at a checkpoint.
-      if (isTeaserRoom(room) && !courseEndsAtFarthestCheckpoint(room)) {
-        return reply.code(400).send(COURSE_END_MISMATCH_BODY);
+      if (isTeaserRoom(room)) {
+        // The model simulates the whole route. On a paid race it reads the finish at the farthest
+        // checkpoint; an unpaid race whose checkpoints stop short of the route's end would then get
+        // that stop's full-race ETA as its finish. So an unpaid race reads it at the course
+        // length, as the projection and the schedule do (`courseLengthOf`): the stored length,
+        // else the route's own (a legacy room).
+        courseLengthMeters = courseLengthOf(room, routeMetricPoints);
+        finishAtCourseEnd = true;
+      } else {
+        courseLengthMeters = room.course.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters;
       }
     }
 
@@ -240,7 +240,8 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         planLogSigmaByBranch,
         seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED,
         routeMetricPoints,
-        courseLengthMeters
+        courseLengthMeters,
+        ...(finishAtCourseEnd ? { finishAtCourseEnd } : {})
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
       // Finish only, no aid ETA, for an unpaid race and for every room-less request: any race's

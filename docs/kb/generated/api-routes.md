@@ -70,14 +70,14 @@ Guard key: `identity` checks `request.identity` (Auth0 JWT, set by `plugins/auth
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| POST | `/pacing-estimates` | identity + membership | [services/api/src/routes/pacingEstimates.ts:120](../../../services/api/src/routes/pacingEstimates.ts#L120) |
+| POST | `/pacing-estimates` | identity + membership | [services/api/src/routes/pacingEstimates.ts:115](../../../services/api/src/routes/pacingEstimates.ts#L115) |
 
 ## raceRoomSchedule
 
 | Method | Path | Guard | Source |
 | --- | --- | --- | --- |
-| PUT | `/race-rooms/:roomId/pacing-estimate` | room-member | [services/api/src/routes/raceRoomSchedule.ts:517](../../../services/api/src/routes/raceRoomSchedule.ts#L517) |
-| GET | `/race-rooms/:roomId/schedule` | room-member | [services/api/src/routes/raceRoomSchedule.ts:683](../../../services/api/src/routes/raceRoomSchedule.ts#L683) |
+| PUT | `/race-rooms/:roomId/pacing-estimate` | room-member | [services/api/src/routes/raceRoomSchedule.ts:519](../../../services/api/src/routes/raceRoomSchedule.ts#L519) |
+| GET | `/race-rooms/:roomId/schedule` | room-member | [services/api/src/routes/raceRoomSchedule.ts:680](../../../services/api/src/routes/raceRoomSchedule.ts#L680) |
 
 ## raceRoomStopPlans
 
