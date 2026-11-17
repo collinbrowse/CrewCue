@@ -470,3 +470,62 @@ test("out-and-back: a stop at the aid station on the way out is not logged on it
     "the outbound stop is counted once"
   );
 });
+
+test("out-and-back: a stop at the finish line is logged on the finish, not on the start checkpoint at the same spot", () => {
+  // 3 km north and back, finishing where it started: start and finish are two checkpoints, same spot.
+  const out: CourseMetricPoint[] = Array.from({ length: 31 }, (_, i) => ({
+    latitude: 42 + (i * 100) / 111_320,
+    longitude: -70
+  }));
+  const routeMetricPoints = [...out, ...out.slice(0, -1).reverse()];
+  const cumulative = geodesicCumulativeAtVertices(routeMetricPoints);
+  const checkpoints = checkpointsWithProjectedDistances(
+    [
+      { id: "start", latitude: 42, longitude: -70 },
+      { id: "turnaround", latitude: out[30]!.latitude, longitude: out[30]!.longitude },
+      { id: "finish", latitude: 42, longitude: -70, plannedStopSeconds: 300 }
+    ],
+    routeMetricPoints
+  );
+  const course: RaceCourse = { checkpoints, derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints) };
+
+  // The first ping is already past the start line's radius, so the start never gets a visit on
+  // the way out. 100 m a minute to the finish, then six minutes stopped on the line.
+  const truth: number[] = [];
+  for (let p = 200; p < 6_000; p += 100) truth.push(p);
+  for (let i = 0; i < 6; i += 1) truth.push(6_000);
+
+  const activatedAtMs = Date.parse("2026-06-01T12:00:00.000Z");
+  let previous: Parameters<typeof recomputeRaceProjection>[0]["previous"] = null;
+  let previousPing: Parameters<typeof recomputeRaceProjection>[0]["previousPing"] = null;
+  let last: ReturnType<typeof recomputeRaceProjection> | undefined;
+  for (const [index, progressMeters] of truth.entries()) {
+    const onRoute = pointAtProgress(routeMetricPoints, cumulative, progressMeters);
+    const ping = {
+      pingId: `ping-${index}`,
+      latitude: onRoute.latitude,
+      longitude: onRoute.longitude,
+      recordedAt: new Date(activatedAtMs + (index + 1) * 60_000).toISOString()
+    };
+    last = recomputeRaceProjection({
+      roomId: "out-and-back-finish",
+      activatedAt: new Date(activatedAtMs).toISOString(),
+      course,
+      plannedPaceSecondsPerKm: 480,
+      ping,
+      previousPing,
+      previous,
+      routeMetricPoints
+    });
+    previous = last.state;
+    previousPing = ping;
+  }
+  const projection = last!.projection;
+  assert.ok(projection.progressMeters > 5_800, `runner is at the finish (${Math.round(projection.progressMeters)} m)`);
+  const row = (id: string) => projection.checkpointSplits.find((r) => r.checkpointId === id)!;
+  assert.deepEqual(row("start").visits, [], "the finish-line stop is not logged on the start checkpoint");
+  assert.equal(row("start").totalActualStopSeconds, null);
+  assert.equal(row("finish").visits.length, 1, "the finish-line stop is logged on the finish");
+  assert.ok((row("finish").totalActualStopSeconds ?? 0) >= 240, "the stop time is on the finish");
+  assert.equal(projection.stoppageSummary.remainingPlannedStopSeconds, 0, "the finish stop is no longer ahead");
+});
