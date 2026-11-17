@@ -11,6 +11,8 @@ struct CrewCueApp: App {
 
     init() {
         CrashReporting.start()
+        // A replay killed mid-way (PR 9b) leaves its temporary directory behind; sweep it once.
+        DemoRace.removeStaleDirectories()
         self.model = CompositionRoot().makeModel()
     }
 

@@ -574,7 +574,7 @@ test("PATCH race-start: the runner moves the start, and the projection, schedule
   });
 });
 
-test("PATCH race-start: course editors only, a Z time only", async () => {
+test("PATCH race-start: race setup editors only (a crew member is refused), a Z time only", async () => {
   await withApp(async (app) => {
     const runner = "runner-race-start-gates";
     const raceStartAt = iso(wholeSecond(Date.now() + 3 * DAY));

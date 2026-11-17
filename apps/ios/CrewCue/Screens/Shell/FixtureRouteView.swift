@@ -62,6 +62,8 @@ struct ProductRouteView: View {
             AthleteSetupView(model: model.athleteModel)
         case "onboarding-notifications":
             NotificationPermissionScreen()
+        case "onboarding-runner-setup":
+            RunnerSetupView(model: model.runnerSetup)
         case "auth-sign-in":
             AuthOrShell(model: model)
         case "billing-purchase", "billing-redeem", "billing-upgrade":
@@ -78,12 +80,13 @@ struct ProductRouteView: View {
     }
 }
 
+/// The explicit sign-in route. Signed in, onboarding decides between setup and the tab bar.
 struct AuthOrShell: View {
     @Bindable var model: ShellModel
 
     var body: some View {
         if model.isSignedIn {
-            ProductShellView(model: model)
+            OnboardingGate(model: model)
         } else {
             AuthSignInView(model: model.authModel, onJoin: {
                 model.show(Route(featureId: "join-crew", state: .success))
@@ -92,19 +95,126 @@ struct AuthOrShell: View {
     }
 }
 
+/// The app's own launch (`app-shell`) and every tab route. Signed out, the app shell starts
+/// onboarding (the chooser, or the step a relaunch resumes); other dev links show their fixture.
 struct ShellOrSignedOut: View {
     @Bindable var model: ShellModel
 
     var body: some View {
-        if model.isSignedIn {
-            ProductShellView(model: model)
-        } else if model.route.featureId == "app-shell" {
-            AuthSignInView(model: model.authModel, onJoin: {
-                model.show(Route(featureId: "join-crew", state: .success))
-            })
+        if model.isSignedIn || model.route.featureId == "app-shell" {
+            OnboardingGate(model: model)
         } else {
             FixtureRouteView(route: model.route, screen: model.screen)
         }
+    }
+}
+
+/// Picks the screen from the onboarding state (`OnboardingStore.read`): the chooser, runner
+/// setup, the paywall after the teaser, crew join, a neutral loader while the first race list
+/// loads, or the tab bar.
+struct OnboardingGate: View {
+    @Bindable var model: ShellModel
+
+    var body: some View {
+        Group {
+            switch model.onboarding.entry {
+            case .chooser:
+                OnboardingChooserView(
+                    onRunner: { choose(.runner) },
+                    onCrew: { choose(.crew) },
+                    onSignIn: model.isSignedIn ? nil : {
+                        model.show(Route(featureId: "auth-sign-in", state: .success))
+                    }
+                )
+            case .runnerSetup:
+                RunnerSetupView(model: model.runnerSetup)
+            case .paywall:
+                BillingPurchaseView(
+                    model: model.billingModel,
+                    roomId: model.onboarding.state.roomId,
+                    onContinue: { Task { await model.loadRaces() } },
+                    onLeave: { model.leaveOnboardingPaywall() },
+                    leaveLabel: OnboardingCopy.paywallNotNow
+                )
+            case .crewJoin:
+                JoinCrewView(model: model.joinModel, onBack: { back() })
+            case .signIn:
+                AuthSignInView(model: model.authModel, onJoin: {
+                    model.show(Route(featureId: "join-crew", state: .success))
+                })
+            case .loading:
+                OnboardingLoadingView()
+            case .shell:
+                ProductShellView(model: model)
+            }
+        }
+        .toolbar {
+            if showsAccountMenu {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    OnboardingAccountMenu(
+                        races: model.otherRaces,
+                        onSelectRace: { model.selectRace($0) },
+                        onSignOut: { model.signOut() }
+                    )
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: model.onboarding.entry)
+    }
+
+    /// Signed in, onboarding replaces the tab bar (and its settings) on these screens. The menu
+    /// is the way out: sign out, or open another of the person's races.
+    private var showsAccountMenu: Bool {
+        guard model.isSignedIn else { return false }
+        switch model.onboarding.entry {
+        case .chooser, .runnerSetup, .crewJoin: return true
+        default: return false
+        }
+    }
+
+    private func choose(_ choice: OnboardingChoice) {
+        model.onboarding.choose(choice)
+        model.syncOnboarding()
+    }
+
+    private func back() {
+        model.onboarding.clearChoice()
+        model.syncOnboarding()
+    }
+}
+
+/// The setup screens' toolbar menu: every other race the person has, then Sign out.
+struct OnboardingAccountMenu: View {
+    let races: [RaceSummary]
+    var onSelectRace: (String) -> Void
+    var onSignOut: () -> Void
+
+    var body: some View {
+        Menu {
+            if !races.isEmpty {
+                Section(OnboardingCopy.switchRace) {
+                    ForEach(races, id: \.id) { race in
+                        Button {
+                            onSelectRace(race.id)
+                        } label: {
+                            Label {
+                                Text(verbatim: race.name)
+                            } icon: {
+                                Image(systemName: race.role == "athlete" ? "figure.run" : "person.2")
+                            }
+                        }
+                        .accessibilityIdentifier("crewcue.onboarding.switch-race.\(race.id)")
+                    }
+                }
+            }
+            Button(role: .destructive, action: onSignOut) {
+                Label(OnboardingCopy.signOut, systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .accessibilityIdentifier("crewcue.onboarding.sign-out")
+        } label: {
+            Label(OnboardingCopy.accountMenu, systemImage: "person.crop.circle")
+        }
+        .accessibilityIdentifier("crewcue.onboarding.account-menu")
     }
 }
 
@@ -144,5 +254,7 @@ struct BillingRouteView: View {
     private func openRace() {
         model.show(Route(featureId: "map-track", state: .success))
         model.enterShellIfNeeded()
+        // The race is paid now: onboarding reads the new entitlement from the race list.
+        Task { await model.loadRaces() }
     }
 }

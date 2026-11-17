@@ -72,6 +72,8 @@ final class PaceModel {
     private(set) var outboxMessage = "Outbox is empty."
 
     private var loadedStops: [ScheduleStop] = []
+    /// The aid stations an unpaid race withholds (`locked` on the schedule), shown locked on the timeline.
+    private var loadedLocked: TeaserLockedCheckpoints?
     private var loadedEstimate: PacingEstimate?
     private var courseCheckpoints: [RaceCourseCheckpoint] = []
     private var raceStartAt: String?
@@ -525,6 +527,7 @@ final class PaceModel {
 
     private func applySheet(_ sheet: CrewScheduleSheet, offline: Bool, failed: Bool) {
         loadedStops = sheet.stops
+        loadedLocked = sheet.locked
         scheduleRaceStart = sheet.raceStartAt
         if checkpointId.isEmpty, let first = sheet.stops.first?.checkpointId, first.isEmpty == false {
             checkpointId = first
@@ -582,6 +585,7 @@ final class PaceModel {
 
     private func applyScheduleFailure(_ error: Error) {
         loadedStops = []
+        loadedLocked = nil
         stopLines = []
         stops = []
         let offline = APIFailure.isTransport(error)
@@ -706,7 +710,9 @@ final class PaceModel {
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
             progressMeters: runner.progressMeters(checkpoints: aidCheckpoints),
-            live: live
+            live: live,
+            // An unpaid race lists its locked aid stations too, shown locked.
+            showLocked: true
         )
     }
 
@@ -726,7 +732,7 @@ final class PaceModel {
     private var loadedSheet: CrewScheduleSheet? {
         guard loadedStops.isEmpty == false else { return nil }
         let stops = stopDraft?.projectedStops(loadedStops) ?? loadedStops
-        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops)
+        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops, locked: loadedLocked)
     }
 
     private var aidCheckpoints: [AidStationCheckpoint] {
@@ -830,6 +836,7 @@ final class PaceModel {
         scheduleMessage = ""
         scheduleOffline = false
         loadedStops = []
+        loadedLocked = nil
         estimateMessage = "No estimate yet."
         showColdStart = false
         loadedEstimate = nil

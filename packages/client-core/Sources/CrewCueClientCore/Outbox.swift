@@ -18,11 +18,15 @@ public struct OutboxFailureResolution: Equatable, Sendable {
     public var status: String
     public var retryable: Bool
     public var feedback: String
+    /// The server refused the request for now (429). The row stays pending, and a queued course
+    /// upload waits out a backoff instead of going again on the next flush (`OutboxStore.flush`).
+    public var throttled: Bool
 
-    public init(status: String, retryable: Bool, feedback: String) {
+    public init(status: String, retryable: Bool, feedback: String, throttled: Bool = false) {
         self.status = status
         self.retryable = retryable
         self.feedback = feedback
+        self.throttled = throttled
     }
 }
 
@@ -127,7 +131,18 @@ public enum OutboxPolicy {
         if [400, 403, 404, 413, 415].contains(http.status) {
             return OutboxFailureResolution(status: "rejected", retryable: false, feedback: http.bodyError ?? http.message)
         }
+        if http.status == 429 {
+            return OutboxFailureResolution(status: "pending", retryable: true, feedback: http.bodyError ?? http.message, throttled: true)
+        }
         return OutboxFailureResolution(status: "pending", retryable: true, feedback: http.bodyError ?? http.message)
+    }
+
+    /// How long a queued course upload waits after its `failures`-th 429 in a row: two minutes,
+    /// doubling, at most 30 minutes. The server's unpaid course-save window is an hour and its
+    /// 429 carries no `Retry-After` the transport can read, so the client backs off on its own.
+    public static func courseUploadBackoffSeconds(failures: Int) -> TimeInterval {
+        let steps = min(max(failures, 1) - 1, 4)
+        return min(120 * pow(2, Double(steps)), 1800)
     }
 
     public static func isSafeRetry(_ operation: OutboxOperation) -> Bool {

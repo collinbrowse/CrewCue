@@ -174,7 +174,7 @@ test("EC4: an unknown checkpoint fails the whole request with 404 (all or nothin
   await app.close();
 });
 
-test("EC5: only course editors may set planned stops", async () => {
+test("EC5: any room member except strangers (crew included) may set planned stops", async () => {
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(claims("athlete-stops-ec5"));
@@ -198,7 +198,7 @@ test("EC5: only course editors may set planned stops", async () => {
 
   const body = { stops: [{ checkpointId: "aid-1", plannedStopSeconds: 300 }] };
   assert.equal((await patchStops(app, roomId, null, body)).statusCode, 401);
-  assert.equal((await patchStops(app, roomId, crewToken, body)).statusCode, 403);
   assert.equal((await patchStops(app, roomId, strangerToken, body)).statusCode, 403);
+  assert.equal((await patchStops(app, roomId, crewToken, body)).statusCode, 200);
   await app.close();
 });

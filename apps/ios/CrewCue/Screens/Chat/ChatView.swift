@@ -13,7 +13,8 @@ struct ChatTabPage: View {
             roomId: model.signedInRoomId,
             role: model.signedInRole,
             raceName: model.roster.races.first { $0.id == model.signedInRoomId }?.name ?? "",
-            status: ChatRaceStatus(map: model.mapModel)
+            status: ChatRaceStatus(map: model.mapModel),
+            onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil
         )
     }
 }
@@ -46,6 +47,9 @@ struct ChatView: View {
     var role: String?
     var raceName: String
     var status: ChatRaceStatus
+    /// The runner's unpaid race: sending opens the paywall instead of queueing a message the
+    /// server refuses (402). The draft stays.
+    var onUnlock: (() -> Void)? = nil
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -88,8 +92,8 @@ struct ChatView: View {
                 names: model.mentionNames,
                 isSending: model.isSending,
                 isUploadingPhoto: model.isUploadingPhoto,
-                onSend: model.send,
-                onPhoto: model.sendPhoto
+                onSend: { await send() },
+                onPhoto: { data, type in await sendPhoto(data, type) }
             )
                 .padding(.horizontal, CrewSpace.gutter)
                 .padding(.bottom, CrewSpace.base)
@@ -106,6 +110,22 @@ struct ChatView: View {
 
     private var activationID: String {
         "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
+    }
+
+    private func send() async {
+        if let onUnlock {
+            onUnlock()
+            return
+        }
+        await model.send()
+    }
+
+    private func sendPhoto(_ data: Data, _ type: String) async {
+        if let onUnlock {
+            onUnlock()
+            return
+        }
+        await model.sendPhoto(data: data, contentType: type)
     }
 }
 

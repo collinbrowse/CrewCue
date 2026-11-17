@@ -32,6 +32,10 @@ struct MapView: View {
     @Bindable var model: MapModel
     var focus: String = "map-track"
     var onSettings: () -> Void = {}
+    /// The race isn't unlocked: a banner under the top bar.
+    var access: RaceAccess? = nil
+    /// The runner's unpaid race: the banner and Start tracking open the paywall instead.
+    var onUnlock: (() -> Void)? = nil
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -64,11 +68,11 @@ struct MapView: View {
                         .allowsHitTesting(false)
                 }
             }
-            MapAidSheet(model: model, tool: $tool)
+            MapAidSheet(model: model, tool: $tool, onUnlock: onUnlock)
                 .padding(.horizontal, 8)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings)
+            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {})
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -85,6 +89,8 @@ private struct MapOverlayControls: View {
     var model: MapModel
     @Binding var tool: MapTool
     var onSettings: () -> Void
+    var access: RaceAccess?
+    var onUnlock: () -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -92,6 +98,10 @@ private struct MapOverlayControls: View {
             CrewTopBar(onSettings: onSettings)
                 .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
                 .padding(.horizontal, 8)
+            if let access {
+                RaceAccessBanner(access: access, onUnlock: onUnlock)
+                    .padding(.horizontal, CrewSpace.gutter)
+            }
             HStack(alignment: .top) {
                 if model.readout.statusLabel.isEmpty == false {
                     StatusChip(text: model.readout.statusLabel, style: model.readout.status == .behind ? .soft : .filled)
@@ -255,6 +265,8 @@ private struct MetricDivider: View {
 struct MapAidSheet: View {
     @Bindable var model: MapModel
     @Binding var tool: MapTool
+    /// Set on the runner's unpaid race: Start tracking opens the paywall (pings answer 402 there).
+    var onUnlock: (() -> Void)? = nil
     @Environment(\.crew) private var theme
     @State private var expanded = false
 
@@ -403,7 +415,7 @@ struct MapAidSheet: View {
                     isAthlete: model.isAthlete,
                     isTracking: model.trackingActive,
                     intervalText: MapModel.intervalText(model.trackingIntervalSeconds),
-                    onStart: model.startTracking,
+                    onStart: onUnlock ?? model.startTracking,
                     onStop: model.stopTracking
                 )
             }

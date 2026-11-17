@@ -10,6 +10,9 @@ final class AuthSignInModel {
     /// The connection whose button started the current sign-in. Empty for the plain Sign in button.
     private(set) var workingConnection: String?
     var signingUp = false
+    /// How the last sign-in ended without a session, for onboarding's account step: offline, or
+    /// any other failure. Nil while signing in, after a cancel, and after a session.
+    private(set) var failure: OnboardingSetupFailure?
     private let configuration: Auth0Configuration
     private var onSession: @MainActor (ClientSession) -> Void
 
@@ -25,6 +28,7 @@ final class AuthSignInModel {
     func signIn(connection: String? = nil) {
         guard !isWorking else { return }
         isWorking = true
+        failure = nil
         workingConnection = connection ?? ""
         let provider = connection
         let signUp = signingUp
@@ -38,6 +42,7 @@ final class AuthSignInModel {
     private func performSignIn(connection: String?, signUp: Bool) async {
         guard configuration.hasKeys, Auth0SignIn.sdkAvailable else {
             statusMessage = "Sign-in isn't configured."
+            failure = .failed
             return
         }
         do {
@@ -48,8 +53,10 @@ final class AuthSignInModel {
             statusMessage = "No session."
         } catch Auth0SignInFailure.offline {
             statusMessage = "Offline. Can't reach Auth0."
+            failure = .offline
         } catch {
             statusMessage = "Sign-in failed."
+            failure = .failed
         }
     }
 }
