@@ -69,6 +69,7 @@ import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } f
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
+  checkPersistedRaceRoomDeleteCondition,
   countPersistedUnpaidRaceRoomsCreatedBy,
   deletePersistedRaceRoomInvite,
   deletePersistedRaceRoomRows,
@@ -83,6 +84,7 @@ import {
   listPersistedRaceRoomsStartingBetween,
   listPersistedUnpaidRaceRoomsCreatedBefore,
   type PersistedRaceRoomDeletion,
+  type PersistenceQueryable,
   type RaceRoomExpiryFields,
   type RaceRoomStartFields,
   isJoinCodeTakenInDb,
@@ -113,6 +115,7 @@ import {
   roomUnpaidError,
   unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
+import { ensureBillingStoreReady, listRoomIdsWithBillingGrants } from "../lib/billingStore.js";
 import { forgetTrackingRemindersForRoom } from "../lib/trackingReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
@@ -1954,11 +1957,12 @@ function expiryFieldsOf(room: RaceRoom): RaceRoomExpiryFields {
 }
 
 /**
- * Unpaid rooms created at or before `createdBeforeMs`, oldest first, at most `limit`: the unpaid
- * race sweeper's candidates. Memory mode scans the in-process rooms (its store). Postgres reads
- * the stored rows, not this instance's cache (R1), through the unpaid partial index, a day wider
- * than asked (stored times are ISO-8601 UTC from `toISOString`; the margin covers any other
- * offset), then the parsed time decides. A room with no parsable `createdAt` is never listed.
+ * Unpaid rooms created at or before `createdBeforeMs` and never paid, oldest first, at most
+ * `limit`: the unpaid race sweeper's candidates. A room with a billing grant, a refunded one
+ * included, was paid once and is never listed. Memory mode scans the in-process rooms (its store).
+ * Postgres reads the stored rows, not this instance's cache (R1), through the unpaid partial index,
+ * a day wider than asked (stored times are ISO-8601 UTC from `toISOString`; the margin covers any
+ * other offset), then the parsed time decides. A room with no parsable `createdAt` is never listed.
  */
 export async function listUnpaidRaceRoomsCreatedBefore(
   createdBeforeMs: number,
@@ -1970,12 +1974,17 @@ export async function listUnpaidRaceRoomsCreatedBefore(
     return Number.isFinite(ms) && ms <= createdBeforeMs;
   };
   if (!isRoomPersistenceEnabled()) {
-    return [...raceRooms.values()]
+    const unpaid = [...raceRooms.values()]
       .map(expiryFieldsOf)
-      .filter((room) => room.entitlementStatus === "unpaid" && createdInRange(room))
+      .filter((room) => room.entitlementStatus === "unpaid" && createdInRange(room));
+    const paidOnce = await listRoomIdsWithBillingGrants(unpaid.map((room) => room.id));
+    return unpaid
+      .filter((room) => !paidOnce.has(room.id))
       .sort((a, b) => createdMs(a) - createdMs(b))
       .slice(0, limit);
   }
+  // The query reads billing_grants (migration 0019; created here too when missing).
+  await ensureBillingStoreReady();
   const persisted = await listPersistedUnpaidRaceRoomsCreatedBefore(
     new Date(createdBeforeMs + 24 * 60 * 60 * 1000).toISOString(),
     limit
@@ -1984,14 +1993,19 @@ export async function listUnpaidRaceRoomsCreatedBefore(
 }
 
 /**
- * Rooms `userId` created that are still `unpaid` (the unpaid race limit on `POST /race-rooms`).
+ * Rooms `userId` created that are still `unpaid` and were never paid (the unpaid race limit on
+ * `POST /race-rooms`): a room with a billing grant, a refunded one included, doesn't count.
  * Counted from the store every instance shares, never this instance's cache: memory mode's rooms,
  * or the stored rows in Postgres.
  */
 export async function countUnpaidRaceRoomsCreatedBy(userId: string): Promise<number> {
   if (!isRoomPersistenceEnabled()) {
-    return [...raceRooms.values()].filter((room) => countsTowardUnpaidRaceLimit(room, userId)).length;
+    const unpaid = [...raceRooms.values()].filter((room) => countsTowardUnpaidRaceLimit(room, userId));
+    const paidOnce = await listRoomIdsWithBillingGrants(unpaid.map((room) => room.id));
+    return unpaid.filter((room) => !paidOnce.has(room.id)).length;
   }
+  // The query reads billing_grants (migration 0019; created here too when missing).
+  await ensureBillingStoreReady();
   return countPersistedUnpaidRaceRoomsCreatedBy(userId);
 }
 
@@ -2008,8 +2022,36 @@ export async function listRaceRoomsForAccount(userId: string): Promise<RaceRoom[
 
 export type RaceRoomDeletion = PersistedRaceRoomDeletion;
 
-/** Decides, from the room as stored right now, whether a conditional delete goes ahead. */
-export type RaceRoomDeleteCondition = (room: RaceRoomExpiryFields) => boolean | Promise<boolean>;
+/**
+ * Decides, from the room as stored right now, whether a conditional delete goes ahead. In Postgres
+ * it is asked while the room row is locked, and `db` is that transaction's client: read anything
+ * more through it (`roomHasBillingGrants(id, db)`), never through a second pool connection. Memory
+ * mode passes no `db`.
+ */
+export type RaceRoomDeleteCondition = (
+  room: RaceRoomExpiryFields,
+  db?: PersistenceQueryable
+) => boolean | Promise<boolean>;
+
+/**
+ * Ask `onlyIf` about the room as stored, under its lock (Postgres: the row locked, then released),
+ * and change nothing: `deleted` when it says yes (the room may go), `kept` when it says no, `gone`
+ * when there is no room. `deleteRaceRoomAndData` asks this before it removes the room's data that
+ * lives outside the room's tables, and {@link deleteRaceRoomRecord} asks again as it deletes.
+ */
+export async function checkRaceRoomDeleteCondition(
+  roomId: string,
+  onlyIf: RaceRoomDeleteCondition
+): Promise<RaceRoomDeletion> {
+  return withRoomRuntimeLock(roomId, async (): Promise<RaceRoomDeletion> => {
+    if (isRoomPersistenceEnabled()) {
+      return checkPersistedRaceRoomDeleteCondition(roomId, onlyIf);
+    }
+    // Memory mode: the in-process room is the stored one.
+    const live = raceRooms.get(roomId);
+    return !live ? "gone" : (await onlyIf(expiryFieldsOf(live))) ? "deleted" : "kept";
+  });
+}
 
 /**
  * Close a room for everyone (account deletion #560, the unpaid race sweeper). Takes the runtime

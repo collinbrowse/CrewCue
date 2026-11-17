@@ -30,7 +30,7 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `billingEntitlement.ts`, `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `trackingReminderScheduler.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `trackingReminderScheduler.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -44,12 +44,12 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5512 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 15 | 1177 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5554 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 15 | 1246 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
-| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 7 | 259 |
-| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 7 | 316 |
+| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 7 | 328 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
+| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 6 | 262 |
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 228 |
@@ -59,13 +59,13 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 875 |
+| [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 4 | 312 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 4 | 135 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
 | [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 396 |
-| [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 3 | 269 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |

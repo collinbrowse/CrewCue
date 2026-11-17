@@ -9,6 +9,8 @@ import type { RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { getRaceRoom } from "../routes/raceRooms.js";
 import { appendTrackPoints, listTrackPoints } from "./athletePingTrack.js";
+import { insertChatMessage, listChatMessages } from "./chatMessageStore.js";
+import { MemoryChatPhotoStore, setChatPhotoStoreForTests } from "./chatPhotoStore.js";
 import { listFinishedEfforts, recordFinishedEffort } from "./finishedEffortStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import type { RaceRoomExpiryFields } from "./roomPersistence.js";
@@ -121,4 +123,70 @@ test("a condition that throws deletes nothing and the error reaches the caller",
     assert.equal((await listTrackPoints(room.id, undefined, 100)).length, 1);
     await deleteRaceRoomAndData(room.id);
   });
+});
+
+test("the condition is asked again as the row is deleted; a no then keeps the room", async () => {
+  await withApp(async (app) => {
+    const runner = uid("runner-asked-twice");
+    const room = await raceWithData(app, runner);
+    let asked = 0;
+    // Yes before anything is deleted, no as the row goes: a purchase landed in between.
+    const result = await deleteRaceRoomAndData(room.id, () => {
+      asked += 1;
+      return asked === 1;
+    });
+    assert.equal(result, "kept");
+    assert.equal(asked, 2);
+    assert.ok(await getRaceRoom(room.id));
+    assert.equal((await listTrackPoints(room.id, undefined, 100)).length, 1, "the room's own tables are untouched");
+    await deleteRaceRoomAndData(room.id);
+  });
+});
+
+test("a delete that fails partway leaves the room stored, and a repeat finishes it", async () => {
+  const photos = new MemoryChatPhotoStore();
+  let photoStoreDown = true;
+  setChatPhotoStoreForTests({
+    kind: "memory",
+    put: (key, bytes, contentType) => photos.put(key, bytes, contentType),
+    url: (key) => photos.url(key),
+    stat: (key) => photos.stat(key),
+    delete: async (keys) => {
+      if (photoStoreDown) throw new Error("photo store unavailable");
+      return photos.delete(keys);
+    }
+  });
+  try {
+    await withApp(async (app) => {
+      const runner = uid("runner-partway");
+      const room = await raceWithData(app, runner);
+      const photoKey = `rooms/${room.id}/${randomUUID()}.jpg`;
+      await photos.put(photoKey, Buffer.from("jpeg"), "image/jpeg");
+      await insertChatMessage({
+        roomId: room.id,
+        senderUserId: runner,
+        clientMessageId: randomUUID(),
+        text: "photo",
+        photoKey,
+        photoContentType: "image/jpeg",
+        photoByteSize: 4
+      });
+
+      // Account deletion's unconditional delete, with the photo store down.
+      await assert.rejects(deleteRaceRoomAndData(room.id), /photo store unavailable/);
+      assert.ok(await getRaceRoom(room.id), "the room is still there to retry");
+      assert.equal((await listChatMessages({ roomId: room.id, limit: 10 }))[0]?.photoKey, photoKey);
+      assert.ok(await photos.stat(photoKey));
+
+      photoStoreDown = false;
+      assert.equal(await deleteRaceRoomAndData(room.id), "deleted");
+      assert.equal(await getRaceRoom(room.id), undefined);
+      assert.deepEqual(await listChatMessages({ roomId: room.id, limit: 10 }), []);
+      assert.equal(await photos.stat(photoKey), undefined);
+      assert.deepEqual(await listTrackPoints(room.id, undefined, 100), []);
+      assert.deepEqual(await listFinishedEfforts({ athleteUserId: runner }), []);
+    });
+  } finally {
+    setChatPhotoStoreForTests(undefined);
+  }
 });

@@ -1,7 +1,8 @@
 /**
- * Unpaid race expiry: races still `unpaid` 30 days after they were created are deleted with all
- * their data. The sweeper runs against the real API and store (memory here, Postgres in CI's
- * api-postgres-integration job, where the listing, the locked re-read and the delete are SQL).
+ * Unpaid race expiry: races still `unpaid` 30 days after they were created, and never paid, are
+ * deleted with all their data. The sweeper runs against the real API and store (memory here,
+ * Postgres in CI's api-postgres-integration job, where the listing, the locked re-read and the
+ * delete are SQL, and the tests marked Postgres run two deletes against one row).
  *
  * Rooms are created through the routes and then backdated. Every tick sees every room in the
  * store, so assertions filter outcomes by the test's own rooms, and accounts are fresh because
@@ -13,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import type { RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
+import { applyBillingGrant } from "../routes/billingRoutes.js";
 import {
   getProjectionViewForRoom,
   getRaceRoom,
@@ -20,12 +22,19 @@ import {
   setRaceRoomCreatedAtForTests
 } from "../routes/raceRooms.js";
 import { listTrackPoints } from "./athletePingTrack.js";
-import { listBillingGrantsForRoom, upsertBillingGrant } from "./billingStore.js";
-import { listChatMessages } from "./chatMessageStore.js";
+import { ensureBillingStoreReady, upsertBillingGrant } from "./billingStore.js";
+import { insertChatMessage, listChatMessages } from "./chatMessageStore.js";
+import { MemoryChatPhotoStore, setChatPhotoStoreForTests } from "./chatPhotoStore.js";
 import { COURSE_HISTORY_FORMAT_VERSION } from "./courseHistory/format.js";
 import { courseHistoryEventId, getCourseHistoryEvents, importCourseHistoryEvents } from "./courseHistory/store.js";
 import { listFinishedEfforts, recordFinishedEffort } from "./finishedEffortStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
+import {
+  deletePersistedRaceRoomRows,
+  isRoomPersistenceEnabled,
+  loadRaceRoom,
+  persistRaceRoom
+} from "./roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "./testCourseRouteLayer.js";
 import { claimTrackingReminder, listTrackingReminderClaims } from "./trackingReminderScheduler.js";
 import {
@@ -33,6 +42,7 @@ import {
   createUnpaidRaceExpiryScheduler,
   isUnpaidRaceExpired,
   UNPAID_RACE_TTL_MS,
+  unpaidRaceDeleteCondition,
   type UnpaidRaceExpiryListRooms,
   type UnpaidRaceExpiryOutcome
 } from "./unpaidRaceExpiryScheduler.js";
@@ -44,6 +54,26 @@ const DAY = 24 * 60 * MINUTE;
 const uid = (name: string) => `${name}-${randomUUID().slice(0, 8)}`;
 const iso = (ms: number) => new Date(ms).toISOString();
 const daysAgo = (days: number) => iso(Date.now() - days * DAY);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Tests that run two deletes against one stored row, past this instance's room lock. */
+const postgresOnly = { skip: !isRoomPersistenceEnabled() && "needs Postgres (test:pg)" };
+
+/** A promise the test opens by hand, with a signal for when it is first awaited. */
+function gate() {
+  let entered!: () => void;
+  let open!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const wait = async () => {
+    entered();
+    await opened;
+  };
+  return { reached, open, wait };
+}
 
 function auth(app: App, sub: string) {
   return { authorization: `Bearer ${app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} })}` };
@@ -104,6 +134,25 @@ async function setEntitlement(app: App, roomId: string, runner: string, status: 
   assert.equal(set.statusCode, 200, set.body);
 }
 
+/**
+ * A race paid through billing (the webhook's path, a grant recorded), then refunded: `unpaid`
+ * again, with a revoked grant.
+ */
+async function refundedRace(app: App, runner: string, days: number): Promise<RaceRoom> {
+  const room = await createRace(app, runner, `refunded ${days}d`);
+  const grant = {
+    transactionId: uid("txn"),
+    roomId: room.id,
+    productId: "race_pass",
+    appUserId: runner,
+    source: "revenuecat" as const
+  };
+  assert.equal((await applyBillingGrant({ ...grant, status: "active" }, app.log)).room?.entitlement.status, "paid");
+  assert.equal((await applyBillingGrant({ ...grant, status: "revoked" }, app.log)).room?.entitlement.status, "unpaid");
+  await setRaceRoomCreatedAtForTests(room.id, daysAgo(days));
+  return room;
+}
+
 /** An unpaid race created `days` ago. */
 async function unpaidRace(app: App, runner: string, days: number, status: "paid" | "unpaid" | "expired" = "unpaid") {
   const room = await createRace(app, runner, `${status} ${days}d`);
@@ -129,13 +178,15 @@ test("expired means still unpaid and at least 30 days old; no creation time neve
   assert.equal(isUnpaidRaceExpired({ entitlementStatus: "unpaid", createdAt: at(now + DAY) }, now), false);
 });
 
-test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-day paid and 31-day expired races stay", async () => {
+test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-day paid, 31-day expired and refunded races stay", async () => {
   await withApp(async (app) => {
     const runner = uid("runner-expiry");
     const crew = uid("crew-expiry");
 
-    // The race that expires was paid, used (course, crew, invite, ping, chat), then refunded.
-    const expiring = await createRace(app, runner, "Refunded 50k");
+    // The race that expires is loaded with data (course, crew, invite, ping, chat) while paid by
+    // hand, then set back to unpaid by hand: the dev and staging entitlement route records no
+    // billing grant, so it is a race never paid as far as billing knows.
+    const expiring = await createRace(app, runner, "Hand-paid 50k");
     await setEntitlement(app, expiring.id, runner, "paid");
     const course = await app.inject({
       method: "PUT",
@@ -201,7 +252,7 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
         formatVersion: COURSE_HISTORY_FORMAT_VERSION,
         source: "crewcue",
         sourceEventId: expiring.id,
-        name: "Refunded 50k",
+        name: "Hand-paid 50k",
         startTime: iso(Date.now() - 60 * MINUTE),
         checkpoints: [
           { id: "e0", name: "Start", distanceMeters: 0, latitude: 42.0, longitude: -70.0 },
@@ -221,17 +272,25 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
     const young = await unpaidRace(app, uid("runner-young"), 29);
     const paid = await unpaidRace(app, uid("runner-paid"), 31, "paid");
     const expired = await unpaidRace(app, uid("runner-expired"), 31, "expired");
+    // Paid through billing, raced long ago, refunded on day 45: unpaid again, but paid once.
+    const refunded = await refundedRace(app, uid("runner-refunded"), 45);
 
     const log = recordingLog();
     const outcomes = await sweeper(log).tick();
     assert.deepEqual(forRoom(outcomes, expiring.id), ["deleted"]);
-    for (const kept of [young, paid, expired]) {
+    for (const kept of [young, paid, expired, refunded]) {
       assert.deepEqual(forRoom(outcomes, kept.id), [], "never a candidate");
       assert.ok(await getRaceRoom(kept.id), "still stored");
     }
     assert.equal((await getRaceRoom(paid.id))?.entitlement.status, "paid");
     assert.equal((await getRaceRoom(expired.id))?.entitlement.status, "expired");
+    assert.equal((await getRaceRoom(refunded.id))?.entitlement.status, "unpaid");
     assert.deepEqual(log.warns, []);
+    // Handed to the sweeper directly, the refunded race is still kept: its grant is re-read.
+    const handed = await sweeper(recordingLog(), async () => [
+      { id: refunded.id, entitlementStatus: "unpaid", createdAt: daysAgo(45) }
+    ]).tick();
+    assert.deepEqual(handed, [{ roomId: refunded.id, result: "kept" }]);
 
     // The race is gone for everyone, by id and by code, with everything keyed by it.
     assert.equal(await getRaceRoom(expiring.id), undefined);
@@ -274,7 +333,7 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
 
     // The next tick finds nothing more of it.
     assert.deepEqual(forRoom(await sweeper().tick(), expiring.id), []);
-    for (const room of [young, paid, expired]) {
+    for (const room of [young, paid, expired, refunded]) {
       await deleteRaceRoomAndData(room.id);
     }
   });
@@ -299,28 +358,92 @@ test("a race paid between the listing and the delete survives", async () => {
   });
 });
 
-test("a Race Pass recorded but not yet applied to the race (webhook waiting on the room) keeps it", async () => {
+test("a billing grant keeps the race: one recorded between the listing and the delete, and a refunded one", async () => {
   await withApp(async (app) => {
     const runner = uid("runner-grant-pending");
     const room = await unpaidRace(app, runner, 31);
-    await upsertBillingGrant({
+    const grant = {
       transactionId: uid("txn"),
       roomId: room.id,
       productId: "race_pass",
       appUserId: runner,
-      source: "revenuecat",
-      status: "active"
-    });
-    assert.equal((await getRaceRoom(room.id))?.entitlement.status, "unpaid");
-    assert.deepEqual(forRoom(await sweeper().tick(), room.id), ["kept"]);
-    assert.ok(await getRaceRoom(room.id));
+      source: "revenuecat" as const
+    };
+    // The webhook records the pass after the listing saw the race, then waits for the room lock.
+    const listRooms: UnpaidRaceExpiryListRooms = async (createdBeforeMs) => {
+      const listed = await listUnpaidRaceRoomsCreatedBefore(createdBeforeMs, 10_000);
+      await upsertBillingGrant({ ...grant, status: "active" });
+      return listed.filter((candidate) => candidate.id === room.id);
+    };
+    assert.deepEqual(forRoom(await sweeper(recordingLog(), listRooms).tick(), room.id), ["kept"]);
+    assert.equal((await getRaceRoom(room.id))?.entitlement.status, "unpaid", "the webhook has not applied it yet");
 
-    // A refunded pass no longer protects it.
-    const [grant] = await listBillingGrantsForRoom(room.id);
-    await upsertBillingGrant({ ...grant!, status: "revoked" });
-    assert.deepEqual(forRoom(await sweeper().tick(), room.id), ["deleted"]);
-    assert.equal(await getRaceRoom(room.id), undefined);
+    // Refunded before it was applied: the grant is revoked, and the race was still paid once.
+    await upsertBillingGrant({ ...grant, status: "revoked" });
+    const candidates = await listUnpaidRaceRoomsCreatedBefore(Date.now() - UNPAID_RACE_TTL_MS, 10_000);
+    assert.equal(candidates.some((candidate) => candidate.id === room.id), false, "never listed");
+    const handed = await sweeper(recordingLog(), async () => [
+      { id: room.id, entitlementStatus: "unpaid", createdAt: daysAgo(31) }
+    ]).tick();
+    assert.deepEqual(handed, [{ roomId: room.id, result: "kept" }]);
+    assert.ok(await getRaceRoom(room.id));
+    await deleteRaceRoomAndData(room.id);
   });
+});
+
+test("a delete that fails partway leaves the race listed, and the next tick finishes it", async () => {
+  const photos = new MemoryChatPhotoStore();
+  let photoStoreDown = true;
+  setChatPhotoStoreForTests({
+    kind: "memory",
+    put: (key, bytes, contentType) => photos.put(key, bytes, contentType),
+    url: (key) => photos.url(key),
+    stat: (key) => photos.stat(key),
+    delete: async (keys) => {
+      if (photoStoreDown) throw new Error("photo store unavailable");
+      return photos.delete(keys);
+    }
+  });
+  try {
+    await withApp(async (app) => {
+      const runner = uid("runner-partway");
+      const room = await unpaidRace(app, runner, 31);
+      const photoKey = `rooms/${room.id}/${randomUUID()}.jpg`;
+      await photos.put(photoKey, Buffer.from("jpeg"), "image/jpeg");
+      await insertChatMessage({
+        roomId: room.id,
+        senderUserId: runner,
+        clientMessageId: randomUUID(),
+        text: "photo",
+        photoKey,
+        photoContentType: "image/jpeg",
+        photoByteSize: 4
+      });
+
+      // Only this race, so other candidates in a shared database can't fill the batch.
+      const listOurs: UnpaidRaceExpiryListRooms = async (createdBeforeMs) =>
+        (await listUnpaidRaceRoomsCreatedBefore(createdBeforeMs, 10_000)).filter((listed) => listed.id === room.id);
+
+      const log = recordingLog();
+      assert.deepEqual(forRoom(await sweeper(log, listOurs).tick(), room.id), ["error"]);
+      assert.deepEqual(
+        log.warns.map((line) => line.msg),
+        ["unpaid_race_expiry_delete_failed"]
+      );
+      // Nothing is lost track of: the race, its message and the photo's key are all still stored.
+      assert.ok(await getRaceRoom(room.id));
+      assert.equal((await listChatMessages({ roomId: room.id, limit: 10 }))[0]?.photoKey, photoKey);
+      assert.equal((await listOurs(Date.now() - UNPAID_RACE_TTL_MS, 1)).length, 1, "still a candidate");
+
+      photoStoreDown = false;
+      assert.deepEqual(forRoom(await sweeper(recordingLog(), listOurs).tick(), room.id), ["deleted"]);
+      assert.equal(await getRaceRoom(room.id), undefined);
+      assert.deepEqual(await listChatMessages({ roomId: room.id, limit: 10 }), []);
+      assert.equal(await photos.stat(photoKey), undefined, "the photo went too");
+    });
+  } finally {
+    setChatPhotoStoreForTests(undefined);
+  }
 });
 
 test("two sweepers ticking at once delete the race once, with no error", async () => {
@@ -345,6 +468,80 @@ test("two sweepers ticking at once delete the race once, with no error", async (
     assert.deepEqual(results, ["deleted", "gone"]);
     assert.deepEqual([...logA.warns, ...logB.warns], []);
     assert.equal(await getRaceRoom(room.id), undefined);
+  });
+});
+
+test("Postgres: a second delete of the row waits on the first one's row lock, then finds it gone", postgresOnly, async () => {
+  await withApp(async (app) => {
+    const room = await unpaidRace(app, uid("runner-row-lock"), 31);
+    // Straight to the SQL, past this instance's room lock, as two instances deleting at once.
+    const paused = gate();
+    const first = deletePersistedRaceRoomRows(room.id, async () => {
+      await paused.wait();
+      return true;
+    });
+    await paused.reached;
+    let secondAsked = false;
+    let secondSettled = false;
+    const second = deletePersistedRaceRoomRows(room.id, () => {
+      secondAsked = true;
+      return true;
+    }).finally(() => {
+      secondSettled = true;
+    });
+    await sleep(200);
+    assert.equal(secondSettled, false, "the second delete waits on the locked row");
+    assert.equal(secondAsked, false);
+    paused.open();
+    assert.equal(await first, "deleted");
+    assert.equal(await second, "gone");
+    assert.equal(secondAsked, false, "nothing to ask about a row that is gone");
+    assert.equal(await loadRaceRoom(room.id), undefined);
+    // This instance's cached copy and anything else keyed by the race.
+    assert.equal(await deleteRaceRoomAndData(room.id), "gone");
+  });
+});
+
+test("Postgres: a purchase that lands while the sweeper holds the row keeps the race, and its paid write waits for the lock", postgresOnly, async () => {
+  await withApp(async (app) => {
+    const runner = uid("runner-row-lock-purchase");
+    const room = await unpaidRace(app, runner, 31);
+    const stored = await loadRaceRoom(room.id);
+    assert.ok(stored);
+    await ensureBillingStoreReady();
+    const stillExpired = unpaidRaceDeleteCondition();
+    const paused = gate();
+    // The sweeper's own condition, paused after the row is locked and before the grants are read.
+    const sweep = deletePersistedRaceRoomRows(room.id, async (fields, db) => {
+      await paused.wait();
+      return stillExpired(fields, db);
+    });
+    await paused.reached;
+
+    // The webhook on another instance: the grant first (no room lock), then the room marked paid.
+    await upsertBillingGrant({
+      transactionId: uid("txn"),
+      roomId: room.id,
+      productId: "race_pass",
+      appUserId: runner,
+      source: "revenuecat",
+      status: "active"
+    });
+    let paidWritten = false;
+    const paidWrite = persistRaceRoom({
+      ...stored,
+      entitlement: { status: "paid", lastUpdatedAt: iso(Date.now()), source: "provider_webhook", crewTier: "one" }
+    }).then(() => {
+      paidWritten = true;
+    });
+    await sleep(200);
+    assert.equal(paidWritten, false, "the paid write waits on the sweeper's row lock");
+
+    paused.open();
+    assert.equal(await sweep, "kept", "the grant read under the lock wins");
+    await paidWrite;
+    assert.equal((await loadRaceRoom(room.id))?.entitlement.status, "paid");
+    await deleteRaceRoomAndData(room.id);
   });
 });
 

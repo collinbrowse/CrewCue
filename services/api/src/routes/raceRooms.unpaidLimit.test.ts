@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { RaceRoom, UnpaidRaceLimitError } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { UNPAID_RACE_LIMIT } from "../lib/billingEntitlement.js";
+import { applyBillingGrant } from "./billingRoutes.js";
 import { countUnpaidRaceRoomsCreatedBy, saveRaceRoom, setRaceRoomCreateDelayForTests } from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
@@ -110,10 +111,30 @@ test("paid and expired races don't count; once one race is paid a new create suc
     await createRace(app, runner);
     assertLimitReached(await create(app, runner));
     assert.equal(await countUnpaidRaceRoomsCreatedBy(runner), 3);
+  });
+});
 
-    // A refund puts a race back to unpaid, and it counts again.
-    await setEntitlement(app, first.id, runner, "unpaid");
-    assert.equal(await countUnpaidRaceRoomsCreatedBy(runner), 4);
+test("a race paid through billing and then refunded was paid once: it doesn't count again", async () => {
+  await withApp(async (app) => {
+    const runner = uid("runner-limit-refund");
+    const first = await createRace(app, runner);
+    await createRace(app, runner);
+    await createRace(app, runner);
+    const grant = {
+      transactionId: uid("txn"),
+      roomId: first.id,
+      productId: "race_pass",
+      appUserId: runner,
+      source: "revenuecat" as const
+    };
+    await applyBillingGrant({ ...grant, status: "active" }, app.log);
+    await createRace(app, runner);
+    assertLimitReached(await create(app, runner));
+
+    // The refund (webhook CANCELLATION) revokes the grant and puts the race back to unpaid.
+    const { room } = await applyBillingGrant({ ...grant, status: "revoked" }, app.log);
+    assert.equal(room?.entitlement.status, "unpaid");
+    assert.equal(await countUnpaidRaceRoomsCreatedBy(runner), 3, "the refunded race is not counted");
     assertLimitReached(await create(app, runner));
   });
 });
@@ -124,7 +145,8 @@ test("races the user only crews don't count, nor races someone else created nami
     const otherRunner = uid("other-runner");
     const crewChief = uid("crew-chief");
 
-    // The user crews someone else's race, which is later refunded to unpaid.
+    // The user crews someone else's race, later set back to unpaid by hand (no billing grant, so
+    // it counts toward its creator again).
     const crewed = await createRace(app, otherRunner);
     await setEntitlement(app, crewed.id, otherRunner, "paid");
     const joined = await app.inject({

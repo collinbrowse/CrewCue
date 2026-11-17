@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 import type {
   PlatformAggregateType,
@@ -47,6 +47,14 @@ export function isRoomPersistenceEnabled(): boolean {
 export function getPersistencePool(): Pool | null {
   return pool;
 }
+
+/**
+ * Where a query runs: the pool, or the client of a transaction the caller holds open (a query
+ * that must see, or must not wait behind, that transaction's locks).
+ */
+export type PersistenceQueryable = {
+  query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
+};
 
 export function getRoomPersistenceMode(): PersistenceMode {
   return PERSISTENCE_MODE;
@@ -116,14 +124,19 @@ const TRACKING_REMINDERS_DDL = `
 `;
 
 /**
- * Mirrors db/migrations/0021_unpaid_race_rooms.sql: unpaid rooms only, by creation time. The
- * unpaid race sweeper reads a range of it and the unpaid race limit scans it, so neither reads
- * every paid room's payload. Queries must spell the predicate exactly as below, `'unpaid'` as a
- * literal (not a bind parameter), or Postgres can't prove the partial index applies.
+ * Mirrors db/migrations/0021_unpaid_race_rooms.sql: two partial indexes over unpaid rooms only.
+ * The unpaid race sweeper reads a range of the first (by creation time); the unpaid race limit
+ * reads the caller's entries of the second (by creator, spelled as `raceCreatorOf` reads it), so
+ * neither reads any other room's payload. Queries must spell the predicate and the expressions
+ * exactly as below, `'unpaid'` as a literal (not a bind parameter), or Postgres can't prove the
+ * partial index applies.
  */
 const UNPAID_RACE_ROOMS_DDL = `
   CREATE INDEX IF NOT EXISTS race_rooms_json_unpaid_created_at
     ON race_rooms_json ((payload->>'createdAt') COLLATE "C")
+    WHERE payload->'entitlement'->>'status' = 'unpaid';
+  CREATE INDEX IF NOT EXISTS race_rooms_json_unpaid_creator
+    ON race_rooms_json ((COALESCE(payload->>'createdByUserId', payload->'memberships'->0->>'userId')))
     WHERE payload->'entitlement'->>'status' = 'unpaid';
 `;
 
@@ -478,6 +491,11 @@ export type RaceRoomExpiryFields = {
  * first, at most `limit`: a range of the `race_rooms_json_unpaid_created_at` partial index. A
  * prefilter like `listPersistedRaceRoomsStartingBetween`: callers widen the range and check the
  * parsed time. Only the sweeper's three fields leave the database, never the payload (course GPX).
+ *
+ * Rooms with a billing grant, active or revoked, are left out: they were paid once (a refund puts
+ * a race back to `unpaid`), and the sweeper never deletes them, so listing them would let them
+ * fill every batch ahead of the races it does delete. Needs the `billing_grants` table
+ * (migration 0019; callers run the billing store's `ensureBillingStoreReady` first).
  */
 export async function listPersistedUnpaidRaceRoomsCreatedBefore(
   beforeIso: string,
@@ -498,6 +516,7 @@ export async function listPersistedUnpaidRaceRoomsCreatedBefore(
       FROM race_rooms_json
       WHERE payload->'entitlement'->>'status' = 'unpaid'
         AND payload->>'createdAt' < $1::text COLLATE "C"
+        AND NOT EXISTS (SELECT 1 FROM billing_grants WHERE billing_grants.room_id = race_rooms_json.id)
       ORDER BY (payload->>'createdAt') COLLATE "C" ASC
       LIMIT $2
     `,
@@ -511,9 +530,12 @@ export async function listPersistedUnpaidRaceRoomsCreatedBefore(
 }
 
 /**
- * How many stored rooms `userId` created that are still `unpaid` (the unpaid race limit). The
- * creator is `createdByUserId`, else the first member (rooms from before #649), as
- * `raceCreatorOf` reads it. Scans the unpaid partial index, not every room.
+ * How many stored rooms `userId` created that are still `unpaid` and were never paid (the unpaid
+ * race limit). The creator is `createdByUserId`, else the first member (rooms from before #649),
+ * as `raceCreatorOf` reads it: the `race_rooms_json_unpaid_creator` partial index, so only the
+ * caller's own unpaid rows are read. A room with a billing grant, a refunded one included, was
+ * paid once and doesn't count. Needs the `billing_grants` table (migration 0019; callers run the
+ * billing store's `ensureBillingStoreReady` first).
  */
 export async function countPersistedUnpaidRaceRoomsCreatedBy(userId: string): Promise<number> {
   if (!pool) {
@@ -525,6 +547,7 @@ export async function countPersistedUnpaidRaceRoomsCreatedBy(userId: string): Pr
       FROM race_rooms_json
       WHERE payload->'entitlement'->>'status' = 'unpaid'
         AND COALESCE(payload->>'createdByUserId', payload->'memberships'->0->>'userId') = $1
+        AND NOT EXISTS (SELECT 1 FROM billing_grants WHERE billing_grants.room_id = race_rooms_json.id)
     `,
     [userId]
   );
@@ -1071,22 +1094,86 @@ export async function resetPersistedPlatformEventsForTests(): Promise<void> {
 export type PersistedRaceRoomDeletion = "deleted" | "kept" | "gone";
 
 /**
+ * A conditional room delete's question, asked of the stored row while it is locked. `db` is the
+ * locking transaction's client: a condition that reads more (billing grants) reads it there, so it
+ * never waits for a second pool connection while holding the lock (writers queued on that lock can
+ * fill the pool, and Postgres can't see that wait as a deadlock).
+ */
+export type PersistedRaceRoomDeleteCondition = (
+  room: RaceRoomExpiryFields,
+  db: PersistenceQueryable
+) => boolean | Promise<boolean>;
+
+/** The room's sweeper fields, read and locked `FOR UPDATE` inside `client`'s transaction; undefined when there is no row. */
+async function lockRaceRoomExpiryFields(client: PoolClient, roomId: string): Promise<RaceRoomExpiryFields | undefined> {
+  const locked = await client.query<{
+    entitlement_status: RaceRoomEntitlementStatus | null;
+    created_at: string | null;
+  }>(
+    `
+      SELECT payload->'entitlement'->>'status' AS entitlement_status,
+             payload->>'createdAt' AS created_at
+      FROM race_rooms_json
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [roomId]
+  );
+  const row = locked.rows[0];
+  if (!row) {
+    return undefined;
+  }
+  return { id: roomId, entitlementStatus: row.entitlement_status ?? undefined, createdAt: row.created_at ?? undefined };
+}
+
+/**
+ * Ask `onlyIf` about the stored room row under its row lock, then release it, changing nothing:
+ * `deleted` when it says yes (the room may be deleted), `kept` when it says no, `gone` when there
+ * is no row. `deleteRaceRoomAndData` asks this before it removes the room's data kept outside these
+ * tables, and `deletePersistedRaceRoomRows` asks again as it deletes the row.
+ *
+ * Memory mode keeps no rows: it returns `gone`, and the caller decides from its in-process maps.
+ */
+export async function checkPersistedRaceRoomDeleteCondition(
+  roomId: string,
+  onlyIf: PersistedRaceRoomDeleteCondition
+): Promise<PersistedRaceRoomDeletion> {
+  if (!pool) {
+    return "gone";
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const fields = await lockRaceRoomExpiryFields(client, roomId);
+    const result = !fields ? "gone" : (await onlyIf(fields, client)) ? "deleted" : "kept";
+    await client.query("ROLLBACK");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Room deletion (account deletion, the unpaid race sweeper): remove every durable row keyed by
  * this room, in one transaction. Covers the room document, invites, task board, WS2/WS4/WS5
  * payloads, snapshots, the platform event log for the room aggregate, and the athlete ping track
  * (tracking reminder claims go with the room row, ON DELETE CASCADE).
  *
  * With `onlyIf`, the stored row is read and locked (`FOR UPDATE`) first, and nothing is deleted
- * unless `onlyIf` returns true for it. A write from another instance waits on that lock, so the
- * condition holds for the row the delete removes (that instance's whole-document upsert can still
- * re-create the row after the commit from its stale cache: R1). Without `onlyIf` the delete is
- * unconditional, and dependent rows go even when the room row is already gone.
+ * unless `onlyIf` returns true for it, asked on this transaction's client. A write from another
+ * instance waits on that lock, so the condition holds for the row the delete removes (that
+ * instance's whole-document upsert can still re-create the row after the commit from its stale
+ * cache: R1). Without `onlyIf` the delete is unconditional, and dependent rows go even when the
+ * room row is already gone.
  *
  * Memory mode keeps no rows: it returns `gone`, and the caller decides from its in-process maps.
  */
 export async function deletePersistedRaceRoomRows(
   roomId: string,
-  onlyIf?: (room: RaceRoomExpiryFields) => boolean | Promise<boolean>
+  onlyIf?: PersistedRaceRoomDeleteCondition
 ): Promise<PersistedRaceRoomDeletion> {
   if (!pool) {
     return "gone";
@@ -1095,30 +1182,12 @@ export async function deletePersistedRaceRoomRows(
   try {
     await client.query("BEGIN");
     if (onlyIf) {
-      const locked = await client.query<{
-        entitlement_status: RaceRoomEntitlementStatus | null;
-        created_at: string | null;
-      }>(
-        `
-          SELECT payload->'entitlement'->>'status' AS entitlement_status,
-                 payload->>'createdAt' AS created_at
-          FROM race_rooms_json
-          WHERE id = $1
-          FOR UPDATE
-        `,
-        [roomId]
-      );
-      const row = locked.rows[0];
-      if (!row) {
+      const fields = await lockRaceRoomExpiryFields(client, roomId);
+      if (!fields) {
         await client.query("ROLLBACK");
         return "gone";
       }
-      const fields: RaceRoomExpiryFields = {
-        id: roomId,
-        entitlementStatus: row.entitlement_status ?? undefined,
-        createdAt: row.created_at ?? undefined
-      };
-      if (!(await onlyIf(fields))) {
+      if (!(await onlyIf(fields, client))) {
         await client.query("ROLLBACK");
         return "kept";
       }

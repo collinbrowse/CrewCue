@@ -26,7 +26,7 @@ Primary key: `transaction_id`.
 
 Indexes: `billing_grants_by_room`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
 
 ## `billing_webhook_events`
 
@@ -232,7 +232,7 @@ Created in [services/api/db/migrations/0001_ws1_room_invite_json.sql](../../../s
 
 Primary key: `id`.
 
-Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`.
+Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 

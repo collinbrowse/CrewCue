@@ -11,7 +11,11 @@ import type {
   ChatPushPlatform,
   ChatRetentionResult
 } from "@crewcue/contracts";
-import { deleteChatMessagesBySender, deleteChatMessagesForRoom } from "./chatMessageStore.js";
+import {
+  deleteChatMessagesBySender,
+  deleteChatMessagesForRoom,
+  listChatPhotoKeysForRoom
+} from "./chatMessageStore.js";
 import { chatPhotoStore } from "./chatPhotoStore.js";
 
 type Mode = "memory" | "postgres";
@@ -251,11 +255,19 @@ export async function listChatPushDevicesForUsers(
   }));
 }
 
-/** Deletes a room's chat: messages, their photos, and notification prefs. */
+/**
+ * Deletes a room's chat: messages, their photos, and notification prefs. Photos go first, while
+ * their message rows still hold the keys: a photo delete that throws leaves the rows, so a retry
+ * finds the keys again instead of leaving photos nothing points to. A photo sent in between is
+ * deleted after the rows.
+ */
 export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionResult> {
-  const { messagesPurged, photoKeys } = await deleteChatMessagesForRoom(roomId);
   const store = chatPhotoStore();
-  const photosPurged = store && photoKeys.length ? await store.delete(photoKeys) : 0;
+  const keys = store ? await listChatPhotoKeysForRoom(roomId) : [];
+  let photosPurged = store && keys.length ? await store.delete(keys) : 0;
+  const { messagesPurged, photoKeys } = await deleteChatMessagesForRoom(roomId);
+  const sentMeanwhile = photoKeys.filter((key) => !keys.includes(key));
+  if (store && sentMeanwhile.length) photosPurged += await store.delete(sentMeanwhile);
   let prefsPurged = 0;
   if (!pool) {
     for (const key of Array.from(memoryPrefs.keys())) {

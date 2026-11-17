@@ -2,25 +2,27 @@
  * Unpaid race expiry (runner and crew onboarding).
  *
  * A runner can set up a race and see the finish-only teaser before paying. A race still `unpaid`
- * 30 days after it was created is deleted, with everything keyed by it, through the same full
- * delete account deletion uses (`deleteRaceRoomAndData`). Paid and expired races are never
- * touched. A race whose payload has no parsable `createdAt` is kept: it has no age.
+ * 30 days after it was created, and never paid, is deleted, with everything keyed by it, through
+ * the same full delete account deletion uses (`deleteRaceRoomAndData`). Paid and expired races are
+ * never touched, and neither is a race with any billing grant: a refund (or a store EXPIRATION)
+ * revokes the grant and puts the race back to `unpaid`, but a race someone paid for, raced and
+ * chatted in is not an abandoned teaser. A race whose payload has no parsable `createdAt` is kept:
+ * it has no age.
  *
- * Every hour a tick lists the oldest unpaid races past the cutoff (a slim query: id, entitlement
- * status, creation time; never the payload with the course GPX), at most `batchSize` of them, so
- * a backlog drains over several ticks instead of one long pass. Each race is re-read under its
- * room lock right before the delete (Postgres: the stored row, locked until the delete commits)
- * and deleted only if it is still unpaid, still past the cutoff, and has no active Race Pass grant
- * (one recorded by a webhook still waiting for that lock): a purchase that lands during the tick
- * wins.
+ * Every hour a tick lists the oldest never-paid unpaid races past the cutoff (a slim query: id,
+ * entitlement status, creation time; never the payload with the course GPX), at most `batchSize`
+ * of them, so a backlog drains over several ticks instead of one long pass. Each race is re-read
+ * under its room lock before anything is deleted, and again as its row is deleted (Postgres: the
+ * stored row, locked until the delete commits, with the grants read on that same transaction),
+ * and deleted only if it is still unpaid, still past the cutoff, and still has no grant (one
+ * recorded by a webhook still waiting for that lock): a purchase that lands during the tick wins.
  *
  * Safe on several instances at once (risks R1, R20): the first to delete a race wins, and the
  * others find it gone, which is not an error. Each tick logs counts only, never ids or user data.
  */
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { RaceRoomDeleteCondition, RaceRoomDeletion } from "../routes/raceRooms.js";
-import { entitlementFromGrants } from "./billingEntitlement.js";
-import { listBillingGrantsForRoom } from "./billingStore.js";
+import { ensureBillingStoreReady, roomHasBillingGrants } from "./billingStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import type { RaceRoomExpiryFields } from "./roomPersistence.js";
 
@@ -50,10 +52,14 @@ export function isUnpaidRaceExpired(
   return Number.isFinite(createdMs) && nowMs - createdMs >= UNPAID_RACE_TTL_MS;
 }
 
-/** Whether the room has an active grant that makes it paid (one the webhook may not have applied yet). */
-async function hasActiveRacePass(roomId: string, nowMs: number): Promise<boolean> {
-  const grants = await listBillingGrantsForRoom(roomId);
-  return entitlementFromGrants(grants, new Date(nowMs).toISOString())?.status === "paid";
+/**
+ * The sweeper's question, asked of the room as stored, under its lock, right before anything is
+ * deleted: still expired at `now()`, and no billing grant, active or revoked (a race paid once, or
+ * a purchase recorded by a webhook still waiting for the room lock). The grants are read on the
+ * locking transaction's client (`db`), never on a second pool connection.
+ */
+export function unpaidRaceDeleteCondition(now: () => number = Date.now): RaceRoomDeleteCondition {
+  return async (latest, db) => isUnpaidRaceExpired(latest, now()) && !(await roomHasBillingGrants(latest.id, db));
 }
 
 /**
@@ -71,11 +77,15 @@ export type UnpaidRaceExpiryDeleteRoom = (
 export type UnpaidRaceExpiryResult =
   /** Deleted by this tick, with all its data. */
   | "deleted"
-  /** Re-read before the delete and no longer expired (paid, a pass grant waiting, or not that old): kept. */
+  /** Re-read before the delete and no longer expired (paid, a grant recorded, or not that old): kept. */
   | "kept"
   /** Already deleted (another tick, instance or account deletion). */
   | "gone"
-  /** The delete threw; logged, and the next tick tries again. */
+  /**
+   * The delete threw; logged. The room row is deleted last but one, so a throw before it leaves
+   * the race listed and the next tick runs the whole delete again. A throw after it (the final
+   * pass over chat, effort and history) can leave what was written in between.
+   */
   | "error";
 
 export type UnpaidRaceExpiryOutcome = { roomId: string; result: UnpaidRaceExpiryResult };
@@ -118,15 +128,14 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
   let timerTick: Promise<unknown> | undefined;
 
   /** Asked under the room lock, of the room as stored right now. */
-  const stillExpired: RaceRoomDeleteCondition = async (latest) => {
-    const atMs = now();
-    return isUnpaidRaceExpired(latest, atMs) && !(await hasActiveRacePass(latest.id, atMs));
-  };
+  const stillExpired = unpaidRaceDeleteCondition(now);
 
   async function tick(): Promise<UnpaidRaceExpiryOutcome[]> {
     const nowMs = now();
     let rooms: RaceRoomExpiryFields[];
     try {
+      // The grant table first, so the condition never creates it while it holds a room lock.
+      await ensureBillingStoreReady();
       rooms = await opts.listRooms(nowMs - UNPAID_RACE_TTL_MS, batchSize);
     } catch (err) {
       log.warn({ err, unpaidRaceExpiry: { phase: "list_rooms" } }, "unpaid_race_expiry_pass_failed");
