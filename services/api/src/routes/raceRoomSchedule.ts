@@ -12,7 +12,7 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
-import { isAtCourseEnd, plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
+import { finishCheckpointIndex, plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
 import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
@@ -30,11 +30,13 @@ import {
   estimateCourseLengthMeters,
   finishOnlyEstimate,
   isTeaserRoom,
+  teaserFinishStandInId,
   teaserScheduleRoom,
   teaserScheduleSheet
 } from "../lib/raceTeaser.js";
 import {
   commitRaceRoomUpdate,
+  estimateAtStart,
   evaluateEntitlement,
   getProjectionViewForRoom,
   getRaceRoom,
@@ -46,6 +48,16 @@ import {
 /** A race's course length as its projection reads it (`courseLengthOf` with the room's route). */
 function roomCourseLengthMeters(room: RaceRoom): number | undefined {
   return courseLengthOf(room, resolveRouteMetricPointsFromRaceRoomExport(room));
+}
+
+/**
+ * The course length a schedule reads its finish at, paid or unpaid: the projection's
+ * (`roomCourseLengthMeters`: the stored length, else the route's on a legacy room), else, with
+ * neither, the farthest checkpoint. A legacy room with no finish waypoint would otherwise put the
+ * plan's finish on its last aid while the projection and the estimator read it at the route end.
+ */
+function scheduleCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
+  return roomCourseLengthMeters(room) ?? resolveCourseLengthMeters(room, checkpoints);
 }
 
 export type ProjectCrewScheduleSheetOptions = {
@@ -61,6 +73,13 @@ export type ProjectCrewScheduleSheetOptions = {
    * overlays still stack on later clocks.
    */
   pacingEstimate?: PacingEstimate;
+  /**
+   * A checkpoint whose row stands in for the finish line past it: an unpaid race's finish row on
+   * a course with no finish waypoint (`teaserFinishStandInId`), which `teaserScheduleRoom` places
+   * at the course end. Its arrival is the finish's, after its own stop, as the projection counts
+   * every stop toward the finish on such a course.
+   */
+  finishStandInCheckpointId?: string;
 };
 
 /**
@@ -176,20 +195,6 @@ function checkpointDistanceMeters(checkpoint: RaceCourseCheckpoint): number {
   return distance;
 }
 
-/** Farthest checkpoint along the course. Ties keep the later row. */
-function farthestCheckpoint(checkpoints: readonly RaceCourseCheckpoint[]): RaceCourseCheckpoint | undefined {
-  let best: RaceCourseCheckpoint | undefined;
-  let bestDistance = -1;
-  for (const checkpoint of checkpoints) {
-    const distance = checkpointDistanceMeters(checkpoint);
-    if (distance >= bestDistance) {
-      best = checkpoint;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 function resolveCourseLengthMeters(room: RaceRoom, checkpoints: RaceCourseCheckpoint[]): number {
   const fromDerived = room.course?.derivedMetrics?.canonicalDistanceMeters;
   if (typeof fromDerived === "number" && Number.isFinite(fromDerived) && fromDerived >= 0) {
@@ -215,10 +220,11 @@ export function setScheduleProjectionLoaderForTests(loader?: ScheduleProjectionL
  * Build moving-time anchors from an estimate: start=0, aid ETAs, finish=expectedFinish at the
  * course length. Unknown checkpoints interpolate by distance between neighboring anchors.
  *
- * The plan's finish goes on the farthest checkpoint only when that checkpoint is the finish line
- * (`isAtCourseEnd`). A course file with no finish waypoint stops short of the route's end, and
- * its farthest checkpoint is an aid station: it keeps its own ETA (or its interpolation), and the
- * finish is read from the estimate and the projection, not from that row.
+ * The plan's finish goes on the finish checkpoint (`finishCheckpointIndex`, as the projection
+ * reads it): the farthest, when it is at the course's end or marked as the finish. A course file
+ * with no finish waypoint stops short of the route's end, and its farthest checkpoint is an aid
+ * station: it keeps its own ETA (or its interpolation), and the finish is read from the estimate
+ * and the projection, not from that row.
  */
 export function movingElapsedSecondsFromEstimate(
   estimate: PacingEstimate,
@@ -241,10 +247,10 @@ export function movingElapsedSecondsFromEstimate(
   const finishElapsed = estimate.expectedFinishElapsedSeconds;
   anchors.push({ distanceMeters: courseLengthMeters, elapsedSeconds: finishElapsed });
 
-  // Stamp the plan finish on the farthest checkpoint when it is at the course's end. An earlier
-  // id of `finish` is the first pass of a loop or out-and-back, not the end of the race.
-  const finishCp = farthestCheckpoint(checkpoints);
-  if (finishCp && isAtCourseEnd(checkpointDistanceMeters(finishCp), courseLengthMeters)) {
+  // Stamp the plan finish on the finish checkpoint. An earlier id of `finish` is the first pass
+  // of a loop or out-and-back, not the end of the race: only the farthest checkpoint is read.
+  const finishCp = checkpoints[finishCheckpointIndex(checkpoints, courseLengthMeters)];
+  if (finishCp) {
     byId.set(finishCp.id, finishElapsed);
   }
 
@@ -310,7 +316,10 @@ export function movingElapsedSecondsFromEstimate(
  * Build a crew schedule sheet from live checkpoints + stop-plan overlays + closed check-ins.
  * Clock policy:
  * - Moving time from distance/pace (or estimate plan-of-record); a stop’s own stoppage/delay/actual
- *   does not shift its arrival.
+ *   does not shift its arrival (except a row standing in for the finish past it,
+ *   `finishStandInCheckpointId`).
+ * - The course length is the projection's (`scheduleCourseLengthMeters`), and the finish row
+ *   (`finishCheckpointIndex`) reads the plan's finish there, with or without an estimate.
  * - Later arrivals add cumulative prior planned stoppage + delay overrides, unless a **closed** visit
  *   exists at a prior stop — then that stop contributes `actualStopSeconds` instead
  *   (equiv. shift delta = actual − plannedStoppage − delayOverride; no double-count of delay).
@@ -344,7 +353,7 @@ export function projectCrewScheduleSheet(
 
   const estimate = options?.pacingEstimate ?? room.pacingEstimate;
   const overlays = overlayByCheckpointId(room);
-  const courseLengthMeters = resolveCourseLengthMeters(room, checkpoints);
+  const courseLengthMeters = scheduleCourseLengthMeters(room, checkpoints);
   const ordered = [...checkpoints].sort(
     (a, b) => checkpointDistanceMeters(a) - checkpointDistanceMeters(b)
   );
@@ -353,6 +362,9 @@ export function projectCrewScheduleSheet(
     estimate !== undefined
       ? movingElapsedSecondsFromEstimate(estimate, ordered, courseLengthMeters)
       : undefined;
+  // Without a plan the finish row reads the plan curve at the course end, where the projection
+  // reads the finish, not at a finish waypoint a little short of it.
+  const finishCheckpointId = ordered[finishCheckpointIndex(ordered, courseLengthMeters)]?.id;
 
   let cumulativePriorStoppageSeconds = 0;
   const stops: ScheduleStop[] = [];
@@ -365,13 +377,26 @@ export function projectCrewScheduleSheet(
       estimateMoving?.get(checkpoint.id) ??
       Math.round(
         plannedElapsedSecondsForDistance({
-          distanceMetersFromStart: checkpointDistanceMeters(checkpoint),
+          distanceMetersFromStart:
+            checkpoint.id === finishCheckpointId
+              ? Math.max(checkpointDistanceMeters(checkpoint), courseLengthMeters)
+              : checkpointDistanceMeters(checkpoint),
           plannedPaceSecondsPerKm,
           baselineTrack: course.baselineTrack,
           courseLengthMeters
         })
       );
-    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds;
+    const plannedContribution =
+      plannedStoppageSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
+    const closedActual = lookupClosedActualSeconds(
+      options?.closedActualStopSecondsByCheckpointId,
+      checkpoint.id
+    );
+    // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
+    const stopContribution = closedActual !== undefined ? closedActual : plannedContribution;
+    // A row standing in for the finish past it arrives after its own stop, as the finish does.
+    const ownStopBeforeArrival = checkpoint.id === options?.finishStandInCheckpointId ? stopContribution : 0;
+    const elapsedSeconds = movingSeconds + cumulativePriorStoppageSeconds + ownStopBeforeArrival;
     const notes = notesRefFromOverlay(overlay);
     const clockArrivalAt = new Date(raceStartMs + elapsedSeconds * 1000).toISOString();
     const stop: ScheduleStop = {
@@ -400,14 +425,7 @@ export function projectCrewScheduleSheet(
     }
     stops.push(stop);
 
-    const plannedContribution =
-      plannedStoppageSeconds + (delayOverrideSeconds !== undefined ? delayOverrideSeconds : 0);
-    const closedActual = lookupClosedActualSeconds(
-      options?.closedActualStopSecondsByCheckpointId,
-      checkpoint.id
-    );
-    // Closed visit replaces planned+delay (delta = actual − planned − delay). Incomplete → plan path.
-    cumulativePriorStoppageSeconds += closedActual !== undefined ? closedActual : plannedContribution;
+    cumulativePriorStoppageSeconds += stopContribution;
   }
 
   const sheet: CrewScheduleSheet = {
@@ -490,7 +508,7 @@ function derivePlannedPaceSecondsPerKm(
   const checkpoints = room.course?.checkpoints;
   if (Array.isArray(checkpoints) && checkpoints.length >= 2) {
     try {
-      const km = resolveCourseLengthMeters(room, checkpoints) / 1000;
+      const km = scheduleCourseLengthMeters(room, checkpoints) / 1000;
       if (km > 0 && estimate.expectedFinishElapsedSeconds > 0) {
         return estimate.expectedFinishElapsedSeconds / km;
       }
@@ -510,7 +528,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    * attach only an estimate built from the athlete's history (owned by the athlete), and only to
    * seed a cold start or on an explicit Recalculate (#538). 401/403 otherwise. Membership and
    * entitlement gate the route; `decidePlanAuthority` decides the role and trigger.
-   * Idempotent when the same estimate id is already attached.
+   * Idempotent when the same estimate id is already attached. The attached plan's clocks (finish,
+   * bands, aid ETAs) are the race's start now plus its elapsed seconds (`estimateAtStart`), also
+   * for an estimate computed before the start moved; the stored estimate is unchanged.
    *
    * An unpaid race takes only `pacingEstimateId` of an estimate the server computed (an inline
    * `estimate` body is 402 `room_unpaid`), only when it was computed for the race's current course
@@ -644,10 +664,14 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
           throw new CourseMismatchError();
         }
         const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
+        // The plan's clocks are this race's start plus its elapsed seconds, as PATCH /race-start
+        // and a course save keep them: an estimate computed before the start moved keeps its
+        // elapsed plan and takes the start as it is now.
+        const raceStartAt = latest.raceStartAt?.trim();
         return {
           ...latest,
           pacingEstimateId: estimate.id,
-          pacingEstimate: estimate,
+          pacingEstimate: raceStartAt ? estimateAtStart(estimate, raceStartAt) : estimate,
           ...(derivedPlannedPace !== undefined && derivedPlannedPace > 0
             ? { plannedPaceSecondsPerKm: derivedPlannedPace }
             : {}),
@@ -674,10 +698,12 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     // estimate. Refresh projection so those surfaces pick up the new baseline + planned pace.
     await refreshProjectionAfterPlanOfRecordChange(roomId, updated, request.log);
 
+    // The plan of record as attached: its clocks at the race's start.
+    const attached = updated.pacingEstimate ?? estimate;
     const body: AttachResponse = {
       roomId,
       pacingEstimateId: estimate.id,
-      estimate: isTeaserRoom(updated) ? finishOnlyEstimate(estimate) : estimate
+      estimate: isTeaserRoom(updated) ? finishOnlyEstimate(attached) : attached
     };
     return reply.send(body);
   });
@@ -721,17 +747,16 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       // A teaser sheet is built from the finish-only plan, the finish at the course length and the
       // plan curve collapsed to its finish, so the start and finish rows it keeps read the finish
       // alone, the same finish the teaser projection shows (see `teaserScheduleRoom`,
-      // `teaserScheduleSheet`). The course length is the projection's (the route's on a legacy
-      // room with no stored length), never the farthest checkpoint's.
-      const source = teaser
-        ? teaserScheduleRoom(
-            room,
-            roomCourseLengthMeters(room) ?? resolveCourseLengthMeters(room, room.course.checkpoints)
-          )
-        : room;
+      // `teaserScheduleSheet`). On a course with no finish waypoint its finish row stands in for
+      // the finish past it, after its own stop (`teaserFinishStandInId`). The course length is the
+      // projection's (the route's on a legacy room with no stored length), as on a paid sheet.
+      const courseLengthMeters = scheduleCourseLengthMeters(room, room.course.checkpoints);
+      const source = teaser ? teaserScheduleRoom(room, courseLengthMeters) : room;
+      const finishStandInCheckpointId = teaser ? teaserFinishStandInId(room, courseLengthMeters) : undefined;
       const sheet = projectCrewScheduleSheet(source, {
         closedActualStopSecondsByCheckpointId: closedActuals,
-        pacingEstimate: source.pacingEstimate
+        pacingEstimate: source.pacingEstimate,
+        ...(finishStandInCheckpointId !== undefined ? { finishStandInCheckpointId } : {})
       });
       return reply.send(teaser ? teaserScheduleSheet(sheet, room) : sheet);
     } catch (error) {

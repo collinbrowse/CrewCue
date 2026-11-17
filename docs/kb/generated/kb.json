@@ -180,14 +180,14 @@
       "path": "/race-rooms/:roomId/pacing-estimate",
       "guard": "room-member",
       "file": "services/api/src/routes/raceRoomSchedule.ts",
-      "line": 524
+      "line": 544
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/schedule",
       "guard": "room-member",
       "file": "services/api/src/routes/raceRoomSchedule.ts",
-      "line": 685
+      "line": 711
     },
     {
       "method": "GET",
@@ -229,245 +229,245 @@
       "path": "/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2773
+      "line": 2795
     },
     {
       "method": "GET",
       "path": "/race-rooms/mine",
       "guard": "identity",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2872
+      "line": 2894
     },
     {
       "method": "GET",
       "path": "/race-rooms/join-preview/:roomCode",
       "guard": "none detected",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2882
+      "line": 2904
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2898
+      "line": 2920
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/course",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 2924
+      "line": 2946
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/race-start",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3121
+      "line": 3146
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3196
+      "line": 3221
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3237
+      "line": 3262
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoint-stops",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3292
+      "line": 3317
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/checkpoints/:checkpointId",
       "guard": "course-editor",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3337
+      "line": 3362
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3374
+      "line": 3399
     },
     {
       "method": "PUT",
       "path": "/race-rooms/:roomId/map-workspace",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3398
+      "line": 3423
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3467
+      "line": 3492
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/invites",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3537
+      "line": 3562
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/invites/accept",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3584
+      "line": 3609
     },
     {
       "method": "POST",
       "path": "/race-rooms/join-by-code",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3686
+      "line": 3711
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3757
+      "line": 3782
     },
     {
       "method": "DELETE",
       "path": "/race-rooms/:roomId/members/:memberUserId",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3857
+      "line": 3882
     },
     {
       "method": "GET",
       "path": "/teams/:teamId/race-rooms",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3909
+      "line": 3934
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/entitlement",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 3932
+      "line": 3957
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4130
+      "line": 4155
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/pings/batch",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4319
+      "line": 4344
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/track",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4515
+      "line": 4540
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/projection",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4552
+      "line": 4577
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/manual-stop",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4604
+      "line": 4629
     },
     {
       "method": "PATCH",
       "path": "/race-rooms/:roomId/checkpoints/:cpId/visits/:visitIndex/resolved-source",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4765
+      "line": 4790
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/tasks",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4846
+      "line": 4871
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/assign",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4893
+      "line": 4918
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/start",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 4970
+      "line": 4995
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/tasks/:taskId/complete",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5031
+      "line": 5056
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5092
+      "line": 5117
     },
     {
       "method": "POST",
       "path": "/race-rooms/:roomId/protocol-notes",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5123
+      "line": 5148
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/timeline",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5194
+      "line": 5219
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/history",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5220
+      "line": 5245
     },
     {
       "method": "GET",
       "path": "/race-rooms/:roomId/pings/latest",
       "guard": "identity + membership",
       "file": "services/api/src/routes/raceRooms.ts",
-      "line": 5260
+      "line": 5285
     },
     {
       "method": "POST",

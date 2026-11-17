@@ -123,8 +123,9 @@ private let testPingAtFinish = #"{"pingId":"p-test","latitude":39.2,"longitude":
 }
 
 @Test func runtimeProjectAidSheetPutsAPreStartRunnerAtTheStart() async throws {
-    // Android reads the runner through the bridge: the same rule.
-    let runner = try JSONSerialization.jsonObject(with: Data(latestJSON(ping: testPingAtFinish).utf8))
+    // Android reads the runner through the bridge: the same rule. The test ping sits on the finish
+    // line with no `progressMeters`, and the bridge gets a sheet, after the gun: only `preStart`
+    // crossing the bridge keeps it from snapping to the finish.
     let checkpoints = course.map { checkpoint -> [String: Any] in
         [
             "id": checkpoint.id,
@@ -134,23 +135,35 @@ private let testPingAtFinish = #"{"pingId":"p-test","latitude":39.2,"longitude":
             "distanceMetersFromStart": checkpoint.distanceMetersFromStart ?? 0
         ]
     }
-    let request: [String: Any] = [
-        "op": "projectAidSheet",
-        "checkpoints": checkpoints,
-        "runner": runner,
-        "selectedIndex": 0,
-        "follow": true,
-        "nowMs": date("2026-08-15T11:55:00.000Z").timeIntervalSince1970 * 1000
-    ]
-    let raw = await RuntimeCall.perform(String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self))
-    let root = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
-    let result = try #require(root["result"] as? [String: Any])
-    let readout = try #require(result["readout"] as? [String: Any])
-    #expect((readout["progressLabel"] as? String) == "MILE 0 / 20")
-    #expect((readout["pingState"] as? String) == "live")
-    #expect((readout["statusLabel"] as? String) == "")
-    let timeline = try #require(result["timeline"] as? [[String: Any]])
-    #expect(timeline.map { $0["state"] as? String } == ["current", "projected", "projected"])
+    let sheetObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sheet))
+    func project(_ ping: String) async throws -> (readout: [String: Any], timeline: [[String: Any]]) {
+        let runner = try JSONSerialization.jsonObject(with: Data(latestJSON(ping: ping).utf8))
+        let request: [String: Any] = [
+            "op": "projectAidSheet",
+            "sheet": sheetObject,
+            "checkpoints": checkpoints,
+            "runner": runner,
+            "selectedIndex": 0,
+            "follow": true,
+            "nowMs": date("2026-08-15T12:05:00.000Z").timeIntervalSince1970 * 1000
+        ]
+        let raw = await RuntimeCall.perform(String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self))
+        let root = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+        let result = try #require(root["result"] as? [String: Any])
+        return (try #require(result["readout"] as? [String: Any]), try #require(result["timeline"] as? [[String: Any]]))
+    }
+    let testPing = #"{"pingId":"p-test","latitude":39.2,"longitude":-120.0,"recordedAt":"2026-08-15T11:58:00.000Z","receivedAt":"2026-08-15T11:58:01.000Z","preStart":true}"#
+    #expect(!testPing.contains("progressMeters"))
+    let preStart = try await project(testPing)
+    #expect((preStart.readout["progressLabel"] as? String) == "MILE 0 / 20")
+    #expect((preStart.readout["pingState"] as? String) == "live")
+    #expect((preStart.readout["statusLabel"] as? String) == "")
+    #expect(preStart.timeline.map { $0["state"] as? String } == ["current", "projected", "projected"])
+
+    // The same ping without `preStart`, as if the bridge dropped it: a finished race.
+    let raced = try await project(testPing.replacingOccurrences(of: #","preStart":true"#, with: ""))
+    #expect((raced.readout["progressLabel"] as? String) == "MILE 20 / 20")
+    #expect((raced.readout["statusLabel"] as? String) == "AHEAD 3H 55M")
 }
 
 @Test func unreadablePingCountsAsNoPing() throws {

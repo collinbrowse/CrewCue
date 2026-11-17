@@ -20,9 +20,9 @@ import {
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
-import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
-import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
-import { commitRaceRoomUpdate } from "./raceRooms.js";
+import { plannedElapsedSecondsForDistance, withinCourseLength } from "../lib/raceProjection.js";
+import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
+import { commitRaceRoomUpdate, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
 type Checkpoints = ReturnType<typeof load50kCourseWithAids>["checkpoints"];
@@ -425,6 +425,81 @@ test("a paid course with no finish waypoint reads its finish at the end of the r
     // Pace plans aid-3 where the schedule does.
     const aid3Split = projection.checkpointSplits.find((row) => row.checkpointId === "aid-3")!;
     withinASecond(aid3Split.plannedElapsedSecondsAtCross, lastAid.elapsedSeconds, "Pace's aid-3 split");
+
+    // A legacy room (saved before course lengths were stored): the schedule reads the course
+    // length the projection and the estimator do, the route's, never aid-3's. aid-3 keeps its own
+    // ETA instead of taking the plan's finish.
+    const legacy = await commitRaceRoomUpdate(noFinishRoom, (latest) => {
+      const { courseDistanceMeters: _distance, ...room } = latest;
+      const { derivedMetrics: _metrics, ...course } = latest.course!;
+      return { ...room, course };
+    });
+    assert.ok(legacy);
+    await refreshProjectionAfterPlanOfRecordChange(noFinishRoom, legacy);
+    const legacyReads = await raceReads(app, noFinishRoom, runner);
+    assert.equal(legacyReads.room.courseDistanceMeters, undefined, "no stored length");
+    assert.equal(legacyReads.room.course?.derivedMetrics, undefined, "no stored length");
+    assert.ok(Math.abs(legacyReads.projection.courseLengthMeters - projection.courseLengthMeters) < 1, "the route's length");
+    const legacyAid3 = legacyReads.schedule.stops.find((stop) => stop.checkpointId === "aid-3")!;
+    assert.equal(legacyAid3.movingElapsedSeconds, lastAid.elapsedSeconds, "legacy: aid-3 keeps its own ETA");
+    assert.deepEqual(legacyReads.schedule.stops, schedule.stops, "legacy: the same schedule");
+    withinASecond(
+      sinceStart(legacyReads.projection.etaFinishPlanIso, raceStartAt),
+      noFinish.expectedFinishElapsedSeconds + 4 * 120,
+      "legacy: projection"
+    );
+  });
+});
+
+test("a finish waypoint more than 1% short of the route's end, marked by its id or title, is the finish: the schedule and the projection read one finish", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-short-finish";
+    const raceStartAt = iso(wholeSecond(Date.now() + 3 * DAY));
+    const fixture = load50kCourseWithAids().checkpoints;
+    for (const marks of [
+      { id: "finish", title: "Finish" },
+      { id: "line", title: "FINISH" }
+    ]) {
+      const label = `finish ${marks.id} "${marks.title}", 750 m short`;
+      // The finish waypoint 750 m (1.5%) before the route's end; the server projects its distance.
+      const checkpoints = fixture.map((checkpoint) => {
+        if (checkpoint.id !== "finish") return checkpoint;
+        const { distanceMetersFromStart: _projected, ...rest } = checkpoint;
+        return { ...rest, ...marks, ...pointOn50kRouteBeforeEnd(750) };
+      });
+      const roomId = await paidRace(app, runner, raceStartAt, checkpoints);
+      const finishRow = async (stage: string) => {
+        const { projection, schedule, room } = await raceReads(app, roomId, runner);
+        const finish = room.course!.checkpoints.at(-1)!;
+        assert.equal(finish.id, marks.id);
+        assert.equal(withinCourseLength(finish.distanceMetersFromStart!, projection.courseLengthMeters), false, `${label}: more than 1% short`);
+        const row = schedule.stops.at(-1)!;
+        assert.equal(row.checkpointId, marks.id, `${label}, ${stage}: the finish row`);
+        const finishSeconds = sinceStart(projection.etaFinishPlanIso, raceStartAt);
+        // The four stops before the finish, not the finish's own.
+        withinASecond(row.elapsedSeconds, (row.movingElapsedSeconds ?? NaN) + 4 * 120, `${label}, ${stage}: the stops before it`);
+        withinASecond(scheduleFinishSeconds(schedule, raceStartAt), finishSeconds, `${label}, ${stage}: one finish`);
+        return { row, finishSeconds, room, courseLengthMeters: projection.courseLengthMeters };
+      };
+
+      // No plan: the plan curve read at the route's end, on both.
+      const noPlan = await finishRow("no plan");
+      withinASecond(noPlan.finishSeconds, plannedFinishSeconds(noPlan.room, noPlan.courseLengthMeters), `${label}: the curve at the route's end`);
+
+      const computed = await app.inject({ method: "POST", url: "/pacing-estimates", payload: { roomId }, headers: auth(app, runner) });
+      assert.equal(computed.statusCode, 200, computed.body);
+      const plan = computed.json() as PacingEstimate;
+      const attach = await app.inject({
+        method: "PUT",
+        url: `/race-rooms/${roomId}/pacing-estimate`,
+        payload: { pacingEstimateId: plan.id },
+        headers: auth(app, runner)
+      });
+      assert.equal(attach.statusCode, 200, attach.body);
+      const withPlan = await finishRow("plan attached");
+      assert.equal(withPlan.row.movingElapsedSeconds, plan.expectedFinishElapsedSeconds, `${label}: the finish row is the plan's finish`);
+      withinASecond(withPlan.finishSeconds, plan.expectedFinishElapsedSeconds + 4 * 120, `${label}: the projection's finish`);
+    }
   });
 });
 
@@ -773,6 +848,118 @@ test("a start moved later than some race pings: their auto visits go, the later 
     assert.deepEqual(moved.checkpointSplits[0]!.visits, [], "no visit from the pre-start pings");
     assert.equal(moved.checkpointSplits[0]!.crossedAtRecordedAt, laterStart);
     assert.equal(moved.stoppageSummary.remainingPlannedStopSeconds, 5 * 120);
+  });
+});
+
+test("a course save that moves the start, with race pings, moves the start crossing and the finish as PATCH race-start does, later or earlier", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-put-moves";
+    const now = wholeSecond(Date.now());
+    const raceStartMs = now - 30 * MINUTE;
+    const fixture = load50kCourseWithAids();
+    // Two pings at the start line, then running up the route: the last two drive the projection
+    // whichever way the start moves.
+    const points = [
+      { ...START, recordedAt: iso(raceStartMs + 1 * MINUTE) },
+      { ...START, recordedAt: iso(raceStartMs + 5 * MINUTE) },
+      { ...upRoute(400), recordedAt: iso(raceStartMs + 12 * MINUTE) },
+      { ...upRoute(1_000), recordedAt: iso(raceStartMs + 17 * MINUTE) }
+    ];
+    const moveStart = (how: "PATCH race-start" | "PUT course", roomId: string, raceStartAt: string) =>
+      how === "PATCH race-start"
+        ? patchStart(app, roomId, runner, raceStartAt)
+        : app.inject({
+            method: "PUT",
+            url: `/race-rooms/${roomId}/course`,
+            payload: {
+              plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
+              course: { checkpoints: fixture.checkpoints },
+              routeOverlayLayer: fixture.routeOverlayLayer,
+              raceStartAt
+            },
+            headers: auth(app, runner)
+          });
+
+    for (const shiftMinutes of [10, -10]) {
+      const movedAt = iso(raceStartMs + shiftMinutes * MINUTE);
+      const shown: Record<string, unknown> = {};
+      for (const how of ["PATCH race-start", "PUT course"] as const) {
+        const label = `${how}, ${Math.abs(shiftMinutes)} min ${shiftMinutes > 0 ? "later" : "earlier"}`;
+        const roomId = await paidRace(app, runner, iso(raceStartMs));
+        const uploaded = await app.inject({
+          method: "POST",
+          url: `/race-rooms/${roomId}/pings/batch`,
+          payload: { points, uploadIntervalSeconds: 30 },
+          headers: auth(app, runner)
+        });
+        assert.equal(uploaded.statusCode, 200, uploaded.body);
+        const before = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+        assert.equal(before.checkpointSplits[0]!.crossedAtRecordedAt, iso(raceStartMs));
+
+        const moved = await moveStart(how, roomId, movedAt);
+        assert.equal(moved.statusCode, 200, `${label}: ${moved.body}`);
+        const { projection, schedule } = await raceReads(app, roomId, runner);
+        const start = projection.checkpointSplits[0]!;
+        assert.equal(start.crossedAtRecordedAt, movedAt, `${label}: the start crossing moves to the new start`);
+        assert.equal(start.actualElapsedSecondsAtCross, 0, `${label}: crossed at 0 s`);
+        assert.equal(projection.asOfPingId, before.asOfPingId, `${label}: the last race ping still drives it`);
+        withinASecond(
+          sinceStart(projection.etaFinishPlanIso, before.etaFinishPlanIso),
+          shiftMinutes * 60,
+          `${label}: the finish moves with the start`
+        );
+        assert.equal(schedule.raceStartAt, movedAt);
+        // Each room has its own ping ids, and the age of the last ping is read at each GET.
+        const { roomId: _roomId, asOfPingId: _pingId, secondsSinceLastAcceptedPing: _age, ...rest } = projection;
+        shown[how] = { projection: rest, stops: schedule.stops };
+      }
+      assert.deepEqual(shown["PUT course"], shown["PATCH race-start"], `${shiftMinutes} min: a course save shows what PATCH race-start does`);
+    }
+  });
+});
+
+test("attaching an estimate computed before the start moved: its clocks are the start as it is now, its elapsed plan as computed", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-attach-moved";
+    const raceStartMs = wholeSecond(Date.now() + 3 * DAY);
+    const raceStartAt = iso(raceStartMs);
+    const roomId = await paidRace(app, runner, raceStartAt);
+    const attach = (payload: object) =>
+      app.inject({ method: "PUT", url: `/race-rooms/${roomId}/pacing-estimate`, payload, headers: auth(app, runner) });
+    const computed = await app.inject({ method: "POST", url: "/pacing-estimates", payload: { roomId }, headers: auth(app, runner) });
+    assert.equal(computed.statusCode, 200, computed.body);
+    const plan = computed.json() as PacingEstimate;
+    assert.ok(plan.aidEtas.length > 0 && plan.bands, "a plan with aid ETAs and bands");
+    assertPlanClocksAt(plan, raceStartAt, "as computed");
+
+    // The plan attached, then another (a snapshot of it under another id), then the start moves.
+    assert.equal((await attach({ pacingEstimateId: plan.id })).statusCode, 200);
+    assert.equal((await attach({ estimate: { ...plan, id: `${plan.id}-other` } })).statusCode, 200);
+    const laterStart = iso(raceStartMs + 90 * MINUTE);
+    assert.equal((await patchStart(app, roomId, runner, laterStart)).statusCode, 200);
+
+    // Re-attaching the stored plan (its clocks at the old start), then a snapshot of it.
+    for (const [label, payload] of [
+      ["re-attach by id", { pacingEstimateId: plan.id }],
+      ["a snapshot", { estimate: { ...plan, id: `${plan.id}-snapshot` } }]
+    ] as const) {
+      const attached = await attach(payload);
+      assert.equal(attached.statusCode, 200, `${label}: ${attached.body}`);
+      assertPlanClocksAt((attached.json() as { estimate: PacingEstimate }).estimate, laterStart, `${label}: the reply`);
+      const { room, schedule } = await raceReads(app, roomId, runner);
+      const planOfRecord = room.pacingEstimate!;
+      assertPlanClocksAt(planOfRecord, laterStart, `${label}: the plan of record`);
+      assert.equal(planOfRecord.expectedFinishElapsedSeconds, plan.expectedFinishElapsedSeconds, `${label}: the elapsed plan stays`);
+      assert.deepEqual(
+        planOfRecord.aidEtas.map((eta) => eta.elapsedSeconds),
+        plan.aidEtas.map((eta) => eta.elapsedSeconds)
+      );
+      // The schedule's aid rows are the plan's aid clocks.
+      for (const eta of planOfRecord.aidEtas) {
+        const row = schedule.stops.find((stop) => stop.checkpointId === eta.checkpointId)!;
+        assert.equal(row.movingElapsedSeconds, eta.elapsedSeconds);
+      }
+    }
   });
 });
 

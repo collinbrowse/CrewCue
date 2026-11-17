@@ -19,7 +19,12 @@ import type {
   RaceRoomProjection
 } from "@crewcue/contracts";
 import { geodesicPolylineLength, type CourseMetricPoint } from "@crewcue/map-core";
-import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance, withinCourseLength } from "./raceProjection.js";
+import {
+  finishCheckpointIndex,
+  hasUsableBaselineTrack,
+  plannedElapsedSecondsForDistance,
+  withinCourseLength
+} from "./raceProjection.js";
 
 /** Where a stored estimate went (see `StoredPacingEstimate` in pacingEstimateStore.ts). */
 export type EstimateProvenance = {
@@ -122,21 +127,24 @@ export function projectionForRoom(projection: RaceRoomProjection, room: RaceRoom
 
 /**
  * The finish from the start line, as the projection computes it for a runner standing at the
- * start: the plan curve to the course length plus every planned stop before the finish (the
- * finish checkpoint's own stop is after the finish line), never earlier than when the projection
- * was taken; without a usable plan curve, planned pace over the course from then, or from the
- * start when the projection was taken before it. It reads only the course length, so no
- * checkpoint edit or ping position moves it.
+ * start: the plan curve to the course length plus every planned stop before the finish, never
+ * earlier than when the projection was taken; without a usable plan curve, planned pace over the
+ * course from then, or from the start when the projection was taken before it. The finish
+ * checkpoint's own stop is after the finish line; which checkpoint that is, if any, is the
+ * projection's rule (`finishCheckpointIndex`), so on a course with no finish waypoint every stop
+ * counts, the last aid's too, as on a paid race. It reads only the course length and the planned
+ * stops, so no ping position moves it.
  */
 function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): string {
   const recordedAtMs = Date.parse(projection.asOfRecordedAt);
   const anchorMs = Date.parse(room.raceStartAt?.trim() || room.activatedAt?.trim() || projection.asOfRecordedAt);
   const lengthMeters = projection.courseLengthMeters;
   const paceSecondsPerKm = projection.plannedPaceSecondsPerKm;
-  const { finishCheckpointId } = teaserCheckpointsOf(room);
-  const plannedStopSeconds = (room.course?.checkpoints ?? []).reduce(
-    (sum, checkpoint) =>
-      checkpoint.id === finishCheckpointId ? sum : sum + Math.max(0, checkpoint.plannedStopSeconds ?? 0),
+  const checkpoints = room.course?.checkpoints ?? [];
+  const finishIndex = finishCheckpointIndex(checkpoints, lengthMeters);
+  const plannedStopSeconds = checkpoints.reduce(
+    (sum, checkpoint, index) =>
+      index === finishIndex ? sum : sum + Math.max(0, checkpoint.plannedStopSeconds ?? 0),
     0
   );
   const baselineTrack = room.course?.baselineTrack;
@@ -180,10 +188,11 @@ export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): C
  * 0 m at 0 s and `courseLengthMeters` at the curve's value there, instead of dropped. The finish
  * row then reads the race's finish at the course end (the attached plan's, else the curve's value
  * there, as the teaser projection reads it), never a priced stop's ETA, also when the checkpoints
- * stop short of the route's end. Nothing between the start and the finish reads more than a
- * straight line to that finish. The sheet never carries the curve. Without a usable curve it is
- * dropped, as in `teaserRoom`. Pass `courseLengthOf(room, route)`, the length the projection and
- * an unpaid compute read the finish at.
+ * stop short of the route's end: there the row stands in for the finish past it, and is built
+ * with `teaserFinishStandInId` so it arrives after its own stop. Nothing between the start and
+ * the finish reads more than a straight line to that finish. The sheet never carries the curve.
+ * Without a usable curve it is dropped, as in `teaserRoom`. Pass `courseLengthOf(room, route)`,
+ * the length the projection and an unpaid compute read the finish at.
  */
 export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): RaceRoom {
   const shaped = teaserRoom(room);
@@ -218,6 +227,20 @@ export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): 
     shaped.course.baselineTrack = collapsed;
   }
   return shaped;
+}
+
+/**
+ * The teaser's finish row on a course with no finish checkpoint (`finishCheckpointIndex` is -1:
+ * the checkpoints stop short of the route's end and none is marked the finish): the farthest
+ * checkpoint, which `teaserScheduleRoom` places at the course end. Its row stands in for the
+ * finish past it, so it arrives after its own stop, as the projection and the teaser projection
+ * count every stop toward the finish there, and paying shows the same finish. Undefined when a
+ * checkpoint is the finish (its own stop is after the finish line) or there is no finish row.
+ */
+export function teaserFinishStandInId(room: RaceRoom, courseLengthMeters: number): string | undefined {
+  const { finishCheckpointId } = teaserCheckpointsOf(room);
+  if (finishCheckpointId === undefined) return undefined;
+  return finishCheckpointIndex(room.course?.checkpoints ?? [], courseLengthMeters) < 0 ? finishCheckpointId : undefined;
 }
 
 function belongsTo(room: RaceRoom, userId: string): boolean {

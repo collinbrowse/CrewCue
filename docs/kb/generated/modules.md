@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5309 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5334 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 13 | 975 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -57,13 +57,13 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 840 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 856 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
-| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 373 |
+| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 396 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |

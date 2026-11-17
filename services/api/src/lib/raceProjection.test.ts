@@ -10,6 +10,8 @@ import type { CourseMetricPoint } from "@crewcue/map-core";
 import {
   cumulativeDistanceAtCheckpoints,
   finishCheckpointIndex,
+  isMarkedFinish,
+  type FinishCandidate,
   polylineCourseLengthAndProgress,
   recomputeRaceProjection
 } from "./raceProjection.js";
@@ -619,15 +621,48 @@ test("a projection taken before the start counts the rest of the course from the
   }
 });
 
+/** Checkpoints at `distances`, named `cp-0`, `cp-1`, ... (none of them marked the finish). */
+const atDistances = (distances: Array<number | undefined>): FinishCandidate[] =>
+  distances.map((distance, index) => ({ id: `cp-${index}`, ...(distance !== undefined ? { distanceMetersFromStart: distance } : {}) }));
+
 test("the finish checkpoint is the farthest one only at the course's end", () => {
-  assert.equal(finishCheckpointIndex([0, 10_000, 40_000], 40_000), 2);
-  assert.equal(finishCheckpointIndex([0, 40_000, 10_000], 40_000), 1, "farthest, not last listed");
-  assert.equal(finishCheckpointIndex([0, 10_000, 39_700], 40_000), 2, "within 1% of the course length");
-  assert.equal(finishCheckpointIndex([0, 10_000, 40_200], 40_000), 2, "past it");
-  assert.equal(finishCheckpointIndex([0, 10_000, 30_000], 40_000), -1, "a last aid short of the route's end");
-  assert.equal(finishCheckpointIndex([0, 4_920], 5_000), 1, "100 m beats 1% of 5 km");
-  assert.equal(finishCheckpointIndex([0, 4_890], 5_000), -1);
-  assert.equal(finishCheckpointIndex([0], 5_000), -1, "the start alone has no finish");
+  assert.equal(finishCheckpointIndex(atDistances([0, 10_000, 40_000]), 40_000), 2);
+  assert.equal(finishCheckpointIndex(atDistances([0, 40_000, 10_000]), 40_000), 1, "farthest, not last listed");
+  assert.equal(finishCheckpointIndex(atDistances([0, 40_000, 40_000]), 40_000), 2, "a tie keeps the later row");
+  assert.equal(finishCheckpointIndex(atDistances([0, 10_000, 39_700]), 40_000), 2, "within 1% of the course length");
+  assert.equal(finishCheckpointIndex(atDistances([0, 10_000, 40_200]), 40_000), 2, "past it");
+  assert.equal(finishCheckpointIndex(atDistances([0, 10_000, 30_000]), 40_000), -1, "a last aid short of the route's end");
+  assert.equal(finishCheckpointIndex(atDistances([0, 4_920]), 5_000), 1, "100 m beats 1% of 5 km");
+  assert.equal(finishCheckpointIndex(atDistances([0, 4_890]), 5_000), -1);
+  assert.equal(finishCheckpointIndex(atDistances([0]), 5_000), -1, "the start alone has no finish");
+  assert.equal(finishCheckpointIndex(atDistances([0, undefined, 40_000]), 40_000), -1, "a distance unknown: no finish known");
+});
+
+test("the farthest checkpoint marked as the finish is the finish, however far short of the route's end", () => {
+  // A finish waypoint 1.5% short of where the route ends (past the 1% tolerance).
+  const short = (marks: Partial<FinishCandidate>): FinishCandidate[] => [
+    { id: "start", distanceMetersFromStart: 0 },
+    { id: "aid-1", distanceMetersFromStart: 20_000 },
+    { id: "last", distanceMetersFromStart: 39_400, ...marks }
+  ];
+  assert.equal(finishCheckpointIndex(short({}), 40_000), -1, "unmarked, it is an aid short of the end");
+  for (const marks of [
+    { id: "finish" },
+    { id: "FINISH" },
+    { title: "Finish" },
+    { title: " finish " },
+    { tags: ["aid", "Finish"] as unknown as FinishCandidate["tags"] }
+  ]) {
+    assert.equal(finishCheckpointIndex(short(marks), 40_000), 2, JSON.stringify(marks));
+    assert.equal(isMarkedFinish({ ...short(marks)[2]! }), true, JSON.stringify(marks));
+  }
+  assert.equal(isMarkedFinish({ id: "finish-line" }), false, "the word alone, not a name containing it");
+  assert.equal(isMarkedFinish({ id: "aid-3", title: "Finish Line" }), false);
+  // Only the farthest is read: an earlier `finish` is a loop's first pass, not the end.
+  assert.equal(
+    finishCheckpointIndex([{ id: "start", distanceMetersFromStart: 0 }, { id: "finish", distanceMetersFromStart: 20_000 }, { id: "aid-9", distanceMetersFromStart: 30_000 }], 40_000),
+    -1
+  );
 });
 
 /** Three checkpoints with planned stops on a route that runs on as far again past the last (no finish waypoint). */

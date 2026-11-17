@@ -986,7 +986,7 @@ export function resolveRaceAnchorIso(room: RaceRoom): string | undefined {
  * seconds, as the estimator writes them: the plan of record once the start moved. The elapsed
  * plan stays as computed. Unchanged when `raceStartAt` does not parse.
  */
-function estimateAtStart(estimate: PacingEstimate, raceStartAt: string): PacingEstimate {
+export function estimateAtStart(estimate: PacingEstimate, raceStartAt: string): PacingEstimate {
   const startMs = Date.parse(raceStartAt);
   if (Number.isNaN(startMs)) {
     return estimate;
@@ -1154,14 +1154,20 @@ export async function refreshProjectionAfterPlanOfRecordChange(
  * one (pre-start pings do not count), re-seeded at the room's start with only the crew's
  * check-ins kept (`reseedPreRaceProjection`): nothing a pre-start ping put there survives. A
  * recompute that fails is passed to `onRecomputeError` and the stored projection stays.
+ *
+ * `previousAnchorIso` is the race clock start before the change. When the start moved (PATCH
+ * /race-start, or a course save with another start), the start crossing moves with it before the
+ * recompute (`reanchorStartCrossing`), whichever route moved it.
  */
 async function recomputeProjectionForRoomChange(
   roomId: string,
   room: RaceRoom,
-  onRecomputeError: (err: unknown) => void
+  onRecomputeError: (err: unknown) => void,
+  previousAnchorIso?: string
 ): Promise<void> {
   const pingState = getOrInitPingState(roomId);
   if (lastRacePing(pingState, room)) {
+    reanchorStartCrossing(roomId, room, previousAnchorIso);
     try {
       await recomputeStoredProjectionAfterCourseChange(roomId, room);
     } catch (err) {
@@ -1176,6 +1182,25 @@ async function recomputeProjectionForRoomChange(
     delete pingState.lastUploadIntervalSeconds;
   }
   await saveWs2RuntimeSnapshot(roomId);
+}
+
+/**
+ * The start moved from `previousAnchorIso` to the room's race clock start: a start crossing at the
+ * old start (the first projection puts it there, `recomputeRaceProjection`) moves to the new one,
+ * so the elapsed time and the finish anchored at it move with the start. A crossing anywhere else
+ * stays. Changes the stored projection in place; the recompute that follows carries it.
+ */
+function reanchorStartCrossing(roomId: string, room: RaceRoom, previousAnchorIso: string | undefined): void {
+  const anchor = resolveRaceAnchorIso(room);
+  const startId = room.course?.checkpoints[0]?.id;
+  const stored = roomProjectionState.get(roomId);
+  if (!stored || startId === undefined || !anchor || previousAnchorIso === undefined) {
+    return;
+  }
+  const crossed = stored.splitCrossedAt[startId];
+  if (crossed !== undefined && Date.parse(crossed) === Date.parse(previousAnchorIso)) {
+    stored.splitCrossedAt = { ...stored.splitCrossedAt, [startId]: anchor };
+  }
 }
 
 /**
@@ -2631,15 +2656,21 @@ async function persistCourseShapeChange(
  * projection, so adding/removing an unvisited waypoint (or re-saving the course) silently
  * destroyed visits and reverted GET /schedule ETAs to plan. Before the race's first ping the
  * projection is re-seeded for the new course and start with the crew's check-ins put back; with
- * one, it is recomputed over the last (`recomputeProjectionForRoomChange`).
+ * one, it is recomputed over the last (`recomputeProjectionForRoomChange`). A save that moved the
+ * start passes the start before it (`previousAnchorIso`), so the start crossing moves as on
+ * PATCH /race-start.
  */
 async function recomputeProjectionAfterCourseSave(
   app: FastifyInstance,
   roomId: string,
-  updatedRoom: RaceRoom
+  updatedRoom: RaceRoom,
+  previousAnchorIso?: string
 ): Promise<void> {
-  await recomputeProjectionForRoomChange(roomId, updatedRoom, (err) =>
-    app.log.warn({ err, roomId }, "projection_recompute_after_course_failed")
+  await recomputeProjectionForRoomChange(
+    roomId,
+    updatedRoom,
+    (err) => app.log.warn({ err, roomId }, "projection_recompute_after_course_failed"),
+    previousAnchorIso
   );
 }
 
@@ -2649,8 +2680,8 @@ async function recomputeProjectionAfterCourseSave(
  * is re-seeded at the new start with only the crew's check-ins kept: a ping the move made
  * pre-start leaves no position, crossing or auto visit behind (`reseedPreRaceProjection`). With
  * race pings, it is recomputed over the last one, without the auto visits pre-start pings made,
- * and the start crossing, which is the old start, moves to the new one. The schedule reads
- * `raceStartAt` on every GET.
+ * and the start crossing, which is the old start, moves to the new one (`reanchorStartCrossing`,
+ * as on a course save that moves the start). The schedule reads `raceStartAt` on every GET.
  */
 async function recomputeProjectionAfterRaceStartChange(
   log: FastifyBaseLogger,
@@ -2661,21 +2692,12 @@ async function recomputeProjectionAfterRaceStartChange(
   await withRoomRuntimeLock(roomId, async () => {
     await loadWs2RuntimeIfNeeded(roomId);
     const latest = (await getRaceRoom(roomId)) ?? room;
-    const anchor = resolveRaceAnchorIso(latest);
-    const startId = latest.course?.checkpoints[0]?.id;
-    const stored = roomProjectionState.get(roomId);
-    const crossed = startId !== undefined ? stored?.splitCrossedAt[startId] : undefined;
-    if (
-      stored &&
-      startId !== undefined &&
-      anchor &&
-      crossed !== undefined &&
-      previousAnchorIso !== undefined &&
-      Date.parse(crossed) === Date.parse(previousAnchorIso)
-    ) {
-      stored.splitCrossedAt = { ...stored.splitCrossedAt, [startId]: anchor };
-    }
-    await refreshProjectionAfterPlanOfRecordChange(roomId, latest, log);
+    await recomputeProjectionForRoomChange(
+      roomId,
+      latest,
+      (err) => log.warn({ err, roomId }, "projection_recompute_after_race_start_failed"),
+      previousAnchorIso
+    );
   });
 }
 
@@ -3031,11 +3053,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     let shouldResetCourseDependentState = false;
+    let previousAnchorIso: string | undefined;
     // Persist the course before wiping dependents. Otherwise a failed save after
     // deleteTaskBoard*/deleteWs* leaves boards/sync gone while the room is unchanged.
     // `room` was read before idempotency and the runtime load. Overlay the new course
     // onto the live room so a join in that gap stays on the roster.
     const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+      previousAnchorIso = resolveRaceAnchorIso(latest);
       let next: RaceRoom = {
         ...latest,
         course: recomputedCourse,
@@ -3093,7 +3117,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       await discardWs5RoomState(roomId);
     }
 
-      await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
+      // A save that moved the start moves the start crossing too, as PATCH /race-start does.
+      await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom, previousAnchorIso);
       // The unpaid runner gets the teaser here too. A replay re-reads the room instead of
       // sending this body, but it is stored shaped all the same.
       const body = roomForViewer(updatedRoom, request.identity.sub);
