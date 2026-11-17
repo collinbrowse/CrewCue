@@ -53,13 +53,24 @@ public struct RunnerPing: Equatable, Sendable {
     public var recordedAt: Date
     /// Route-snapped progress from the server projection for this ping. Nil when the room has none.
     public var progressMeters: Double?
+    /// Recorded before the race start: the runner's test ping. It shows the dot and the last-ping
+    /// age only; it puts the runner nowhere on the course and makes no on-track call.
+    public var preStart: Bool
 
-    public init(pingId: String, latitude: Double, longitude: Double, recordedAt: Date, progressMeters: Double? = nil) {
+    public init(
+        pingId: String,
+        latitude: Double,
+        longitude: Double,
+        recordedAt: Date,
+        progressMeters: Double? = nil,
+        preStart: Bool = false
+    ) {
         self.pingId = pingId
         self.latitude = latitude
         self.longitude = longitude
         self.recordedAt = recordedAt
         self.progressMeters = progressMeters
+        self.preStart = preStart
     }
 }
 
@@ -104,15 +115,17 @@ public struct RunnerProgress: Equatable, Sendable {
                 latitude: wire.latitude,
                 longitude: wire.longitude,
                 recordedAt: recordedAt,
-                progressMeters: wire.progressMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+                progressMeters: wire.progressMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil },
+                preStart: wire.preStart == true
             )
         }
         self.init(ping: ping, stalenessThresholdSeconds: response.stalenessThresholdSeconds)
     }
 
     /// Server progress when the projection has it, else the ping snapped to the nearest checkpoint.
+    /// A pre-start ping is at the start whatever its position: the race has not begun.
     public func progressMeters(checkpoints: [AidStationCheckpoint]) -> Double {
-        guard let ping else { return 0 }
+        guard let ping, ping.preStart == false else { return 0 }
         if let meters = ping.progressMeters { return meters }
         return AidStationSheet.progressMeters(latitude: ping.latitude, longitude: ping.longitude, checkpoints: checkpoints)
     }
@@ -244,7 +257,8 @@ public enum RaceDayReadouts {
     public static let noPingLabel = "NO PING YET"
 
     /// Readouts from the athlete's latest ping. A stale ping keeps its position but drops the
-    /// on-track call, because the runner may have moved on since.
+    /// on-track call, because the runner may have moved on since. A pre-start (test) ping puts the
+    /// runner at the start and makes no on-track call: the race has not begun.
     public static func make(
         sheet: CrewScheduleSheet?,
         checkpoints: [AidStationCheckpoint],
@@ -260,7 +274,7 @@ public enum RaceDayReadouts {
             lastPingAt: runner.ping?.recordedAt
         )
         readout.pingState = state
-        if state != .live {
+        if state != .live || runner.ping?.preStart == true {
             readout.status = .unknown
             readout.statusLabel = ""
         }
