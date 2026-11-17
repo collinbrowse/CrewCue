@@ -483,8 +483,9 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
       await Promise.race([
         timerTick,
         new Promise<void>((resolve) => {
+          // Kept ref'd on purpose: it is bounded by stopWaitMs, and an unref'd wait lets the
+          // event loop drain while close() is still pending on a hung tick.
           timeout = setTimeout(resolve, stopWaitMs);
-          timeout.unref?.();
         })
       ]);
       clearTimeout(timeout);
