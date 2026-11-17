@@ -29,7 +29,8 @@ Effective permissions for a member:
 | Activate room (`POST .../activate`) | `athlete`, `crew_chief`, `team_manager` |
 | Issue invite (`POST .../invites`) | `athlete`, `crew_chief`, `team_manager` |
 | Update entitlement (`POST .../entitlement`) | `athlete`, `crew_chief`, `team_manager` |
-| Edit the course or the start (`PUT .../course`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` |
+| Replace the course or move the start (`PUT .../course`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
+| Edit course details: checkpoints, planned stops, stop plans, map workspace (`POST`/`PATCH`/`DELETE .../checkpoints`, `PATCH .../checkpoint-stops`, `PUT`/`PATCH`/`DELETE .../stop-plans/:checkpointId`, `PUT .../map-workspace`) | `athlete`, `crew_member`, `crew_chief`, `team_manager` (`canEditCourse`) |
 
 Non-members receive **403 Forbidden** for those operations (except invite acceptance; see below).
 
@@ -141,7 +142,7 @@ Activates the room (`status: "active"`) and sets `eventEndsAt`.
 
 ### `PATCH /race-rooms/:roomId/race-start`
 
-Sets or changes the race start without re-sending the course (onboarding: the runner sets it, also before paying, and changes it on race morning). Same gates as `PUT .../course`: a course editor (`athlete`, `crew_chief`, `team_manager`); on an unpaid race only the runner, answered with the teaser. `raceStartAt` and the legacy `activatedAt` move together, as on a course save. Nothing else on the room changes (course, crew state) but the plan of record's clocks (below).
+Sets or changes the race start without re-sending the course (onboarding: the runner sets it, also before paying, and changes it on race morning). Same gates as `PUT .../course`: race setup rights (`athlete`, `crew_chief`, `team_manager`; a `crew_member` gets 403); on an unpaid race only the runner, answered with the teaser. `raceStartAt` and the legacy `activatedAt` move together, as on a course save. Nothing else on the room changes (course, crew state) but the plan of record's clocks (below).
 
 Pings are judged against the new start (see [Pings before the race start](#pings-before-the-race-start)). With no race ping yet (a delayed start can make every ping pre-start), the projection is re-seeded at the new start with only the crew's check-ins kept: no position, crossing, auto visit or stop from a ping that is pre-start now, so it is the projection and schedule of a room that had the new start from the outset. Its finish is the new start plus the plan. With race pings, it is recomputed over the last one, without the auto visits pre-start pings made, and with the start crossing moved to the new start. A `PUT .../course` that moves the start does the same, so the start split and the finish move with it either way. `GET .../schedule` reads the start on every request, so every row moves with it.
 
@@ -163,7 +164,7 @@ Send `Idempotency-Key` to retry safely: a replay answers the room as it is now, 
 | 400 | `{ "error": "Invalid race start payload" }` (missing, not a datetime, or an offset) |
 | 401 | Missing/invalid JWT or malformed claims |
 | 402 | Entitlement unpaid (anyone but the runner) |
-| 403 | Not a member, not a course editor, or entitlement expired |
+| 403 | Not a member, no race setup rights, or entitlement expired |
 | 404 | Unknown `roomId` |
 | 409 | `Idempotency-Key` reused with another body, or still in progress |
 | 429 | Unpaid race: the course-save limit is spent |
@@ -261,7 +262,7 @@ Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependen
 | 200 | Returns the updated race room |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
-| 403 | Not a member, not a course editor (athlete, crew chief, team manager), or entitlement |
+| 403 | Not a member (every member role may edit course details), or entitlement |
 | 404 | Unknown room, no course, or unknown checkpoint ids (`checkpointIds` lists them; nothing is saved) |
 
 ## Notes for consumers

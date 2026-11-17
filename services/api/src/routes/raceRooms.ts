@@ -1737,6 +1737,11 @@ type PermissionSet = {
   canViewRoom: boolean;
   /** Course upload, race start anchor, entitlement updates (replaces legacy activate permission). */
   canEditRaceSetup: boolean;
+  /**
+   * Course details: checkpoints, planned stops, stop plans, map workspace. Wider than race setup so any
+   * crew member can fix a checkpoint on race day.
+   */
+  canEditCourse: boolean;
   canIssueInvite: boolean;
   /** Crew stop edits (manual arrival/departure); aligned with `canEditCheckpointStoppage`. */
   canEditCheckpointStops: boolean;
@@ -1744,10 +1749,12 @@ type PermissionSet = {
 
 function getPermissions(role: Role): PermissionSet {
   const canEditRaceSetup = role === "athlete" || role === "crew_chief" || role === "team_manager";
+  const canEditCourse = canEditRaceSetup || role === "crew_member";
   const canIssueInvite = role === "athlete" || role === "crew_chief" || role === "team_manager";
   return {
     canViewRoom: true,
     canEditRaceSetup,
+    canEditCourse,
     canIssueInvite,
     canEditCheckpointStops: canEditCheckpointStoppage(role)
   };
@@ -2530,7 +2537,7 @@ export async function requireCourseEditor(
     await reply.code(403).send({ error: "Forbidden" });
     return undefined;
   }
-  if (!getPermissions(membership.role).canEditRaceSetup) {
+  if (!getPermissions(membership.role).canEditCourse) {
     await reply.code(403).send({ error: "Insufficient permissions" });
     return undefined;
   }
@@ -3437,7 +3444,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    if (!permissions.canEditRaceSetup) {
+    if (!permissions.canEditCourse) {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 

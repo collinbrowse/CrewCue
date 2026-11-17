@@ -133,7 +133,7 @@ private let stops = [
     #expect(PlanAuthority.mayEditCourse(role: "athlete"))
     #expect(PlanAuthority.mayEditCourse(role: "crew_chief"))
     #expect(PlanAuthority.mayEditCourse(role: "team_manager"))
-    #expect(PlanAuthority.mayEditCourse(role: "crew_member") == false)
+    #expect(PlanAuthority.mayEditCourse(role: "crew_member"))
     #expect(PlanAuthority.mayEditCourse(role: "") == false)
 }
 
