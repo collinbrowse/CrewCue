@@ -148,7 +148,10 @@ fun ChatScreen(
         factory = ChatViewModelFactory(shell.container.raceDay, roomId)
     )
     val context = LocalContext.current
-    LaunchedEffect(roomId) { model.load(context.applicationContext) }
+    // An unpaid race's chat answers 402: show the banner and the composer, and poll nothing until
+    // the race is unlocked (the effect starts the loop then).
+    val locked = onLocked != null
+    LaunchedEffect(roomId, locked) { if (!locked) model.load(context.applicationContext) }
     LaunchedEffect(model.unread) { shell.noteChatUnread(model.unread) }
     DisposableEffect(model) {
         model.setVisible(true)
@@ -187,14 +190,14 @@ fun ChatScreen(
                 }
                 items(model.messages, key = { it.id }) { line -> ChatBubble(line, onDiscard = { model.discard(line) }) }
             }
-            if (model.opening && model.messages.isEmpty()) {
+            if (!locked && model.opening && model.messages.isEmpty()) {
                 CairnLoader(
                     modifier = Modifier.size(72.dp).testTag("crewcue.chat-loading"),
                     onLight = !LocalCrewExtras.current.dark
                 )
             }
         }
-        model.status?.let { line ->
+        model.status?.takeIf { !locked }?.let { line ->
             Text(
                 line,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).semantics { contentDescription = line },

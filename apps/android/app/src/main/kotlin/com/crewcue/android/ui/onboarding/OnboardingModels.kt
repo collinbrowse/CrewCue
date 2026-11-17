@@ -44,6 +44,16 @@ data class OnboardingFlow(
     val isRunnerPreview: Boolean get() = flow == "runner" && phase == "preview"
     val isCrewJoin: Boolean get() = flow == "crew" && phase == "join"
 
+    /** The state back as `readOnboarding` answered it, for ops that read it (`raceAccess`). */
+    fun toJson(): JSONObject = JSONObject()
+        .put("flow", flow)
+        .put("role", role ?: JSONObject.NULL)
+        .put("roomId", roomId ?: JSONObject.NULL)
+        .put("phase", phase ?: JSONObject.NULL)
+        .put("step", step ?: JSONObject.NULL)
+        .put("showsTabBar", showsTabBar)
+        .put("reason", reason ?: JSONObject.NULL)
+
     companion object {
         fun from(state: JSONObject?): OnboardingFlow? {
             state ?: return null
@@ -259,7 +269,8 @@ fun parseTimeline(array: JSONArray?): List<TimelineRow> {
             cutoffAt = row.optText("cutoffAt").ifBlank { null },
             cutoffStatus = row.optText("cutoffStatus").ifBlank { null },
             distanceToLabel = row.optString("distanceToLabel", "—"),
-            isFinish = row.optBoolean("isFinish")
+            isFinish = row.optBoolean("isFinish"),
+            clockLabel = row.optText("clockLabel").ifBlank { null }
         )
     }
     return rows

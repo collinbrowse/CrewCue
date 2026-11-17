@@ -92,7 +92,9 @@ data class RunnerSetupDraft(
     val uploadedStartAt: String? = null,
     /** The estimate's finish before and after the history import, for `onboardingHistoryComparison`. */
     val withoutHistoryFinishAt: String? = null,
-    val withHistoryFinishAt: String? = null
+    val withHistoryFinishAt: String? = null,
+    /** A history file went in on this phone, so the history step offers Continue, not Skip. */
+    val historyImported: Boolean = false
 ) {
     fun toJson(): String = JSONObject()
         .put("roomId", roomId ?: JSONObject.NULL)
@@ -104,6 +106,7 @@ data class RunnerSetupDraft(
         .put("uploadedStartAt", uploadedStartAt ?: JSONObject.NULL)
         .put("withoutHistoryFinishAt", withoutHistoryFinishAt ?: JSONObject.NULL)
         .put("withHistoryFinishAt", withHistoryFinishAt ?: JSONObject.NULL)
+        .put("historyImported", historyImported)
         .toString()
 
     companion object {
@@ -119,7 +122,8 @@ data class RunnerSetupDraft(
                 start = RaceStartFields.from(json.optJSONObject("start")),
                 uploadedStartAt = json.optText("uploadedStartAt").ifBlank { null },
                 withoutHistoryFinishAt = json.optText("withoutHistoryFinishAt").ifBlank { null },
-                withHistoryFinishAt = json.optText("withHistoryFinishAt").ifBlank { null }
+                withHistoryFinishAt = json.optText("withHistoryFinishAt").ifBlank { null },
+                historyImported = json.optBoolean("historyImported")
             )
         }
     }

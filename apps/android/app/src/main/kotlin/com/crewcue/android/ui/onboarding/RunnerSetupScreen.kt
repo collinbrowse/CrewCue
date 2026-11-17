@@ -12,7 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,17 +30,17 @@ import androidx.compose.material3.adaptive.Posture
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.HingePolicy
+import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,12 +58,10 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.window.core.layout.WindowSizeClass
 import com.crewcue.android.R
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.findActivity
 import com.crewcue.android.ui.map.isOnline
-import com.crewcue.android.ui.theme.CrewClock
 import com.crewcue.android.ui.theme.CrewTextField
 import com.crewcue.android.ui.theme.Kicker
 import com.crewcue.android.ui.theme.MetricLargeStyle
@@ -110,7 +108,7 @@ private fun SetupLoading(shell: ShellViewModel, text: OnboardingText) {
         SetupLoader(setupTag("loading"))
         // The race list couldn't load and nothing saved decides yet: say so, and offer a retry.
         if (shell.racesFailed && shell.session != null && !shell.racesLoading) {
-            val line = if (shell.racesFailedOffline) text.setupOffline else shell.racesMessage
+            val line = if (shell.racesFailedOffline) text.setupOffline else text.setupError
             Text(
                 line,
                 modifier = Modifier.testTag(setupTag("loading.failure")).semantics { contentDescription = line },
@@ -157,69 +155,92 @@ private fun RunnerSetup(shell: ShellViewModel, flow: OnboardingFlow, text: Onboa
                     sessionName = session?.displayName,
                     text = text,
                     deviceZone = ZoneId.systemDefault().id,
-                    today = LocalDate.now()
+                    today = LocalDate.now(),
+                    initialFlow = flow
                 )
             }
         }
     )
     LaunchedEffect(model, flow) { model.sync(flow) }
     LaunchedEffect(model) { model.effects.collect(shell::onSetupEffect) }
-    val step = model.step ?: SetupSteps.ACCOUNT
+    // The state names the step before the first frame; a loader only if it doesn't.
+    val step = model.step
+    if (step == null) {
+        SetupLoading(shell, text)
+        return
+    }
     BackHandler(enabled = step == SetupSteps.START_TIME && !model.busy) { model.backToCourse() }
     BackHandler(enabled = step == SetupSteps.ACCOUNT && session == null) { shell.chooseAgain() }
     AdaptiveSetupLayout(
         form = { inlinePreview -> StepForm(shell, model, step, text, inlinePreview) },
         preview = { LivePreview(model, step, text) }
     )
+    // Above the layout, so a fold or resize that changes the panes never closes a picker or
+    // loses a half-made pick: which one is open lives in the ViewModel.
+    if (step == SetupSteps.START_TIME) StartTimeDialogs(model, text)
 }
 
 /**
- * Compact: one step per screen. Medium and expanded: the step beside a live preview
- * (`SupportingPaneScaffold`, kept off any vertical hinge). Tabletop: the preview above the fold,
- * the controls below it.
+ * One layout at every size, so folding, unfolding or resizing keeps the form where it is in the
+ * composition: its scroll position, fields and pickers stay, and the panes animate. Compact: one
+ * step per screen. Medium and expanded: the step beside a live preview (`SupportingPaneScaffold`,
+ * kept off any vertical hinge). Tabletop: one pane, the preview above the fold and the controls
+ * below it.
  */
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 private fun AdaptiveSetupLayout(form: @Composable (inlinePreview: Boolean) -> Unit, preview: @Composable () -> Unit) {
     val info = currentWindowAdaptiveInfo()
-    val wide = info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
-    when {
-        info.windowPosture.isTabletop -> TabletopSplit(info.windowPosture, top = preview, bottom = { form(false) })
-        wide -> {
-            val directive = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info, HingePolicy.AlwaysAvoid)
-            val navigator = rememberSupportingPaneScaffoldNavigator(scaffoldDirective = directive)
-            SupportingPaneScaffold(
-                directive = navigator.scaffoldDirective,
-                value = navigator.scaffoldValue,
-                mainPane = { AnimatedPane(Modifier.testTag(setupTag("pane.form"))) { form(false) } },
-                supportingPane = { AnimatedPane(Modifier.testTag(setupTag("pane.preview"))) { preview() } }
-            )
-        }
-        else -> form(true)
-    }
+    val tabletop = info.windowPosture.isTabletop
+    val panes = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info, HingePolicy.AlwaysAvoid)
+    // Compact gets one pane from the directive; tabletop asks for one and splits it at the fold.
+    val directive = if (tabletop) panes.copy(maxHorizontalPartitions = 1) else panes
+    val navigator = rememberSupportingPaneScaffoldNavigator(scaffoldDirective = directive)
+    val besidePreview = navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] != PaneAdaptedValue.Hidden
+    SupportingPaneScaffold(
+        directive = navigator.scaffoldDirective,
+        value = navigator.scaffoldValue,
+        mainPane = {
+            AnimatedPane(Modifier.testTag(setupTag("pane.form"))) {
+                FoldSplit(
+                    posture = info.windowPosture.takeIf { tabletop },
+                    top = preview,
+                    bottom = { form(!besidePreview && !tabletop) }
+                )
+            }
+        },
+        supportingPane = { AnimatedPane(Modifier.testTag(setupTag("pane.preview"))) { preview() } }
+    )
 }
 
-/** Half-open, hinge across: content on the top half, controls on the bottom, nothing on the hinge. */
+/**
+ * Half-open with the hinge across ([posture] set): content on the top half, controls on the bottom,
+ * nothing on the hinge. Flat ([posture] null): [bottom] fills the pane. [bottom] is always the
+ * first child, so opening or flattening the device only moves it and its state stays.
+ */
 @Composable
-private fun TabletopSplit(posture: Posture, top: @Composable () -> Unit, bottom: @Composable () -> Unit) {
-    val hinge = posture.hingeList.firstOrNull { !it.isVertical }
+private fun FoldSplit(posture: Posture?, top: @Composable () -> Unit, bottom: @Composable () -> Unit) {
     var rootTop by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
-    Column(
+    val hinge = posture?.hingeList?.firstOrNull { !it.isVertical }
+    Box(
         Modifier
             .fillMaxSize()
-            .testTag(setupTag("tabletop"))
             .onGloballyPositioned { rootTop = it.positionInWindow().y }
     ) {
-        if (hinge == null) {
-            Box(Modifier.fillMaxWidth().weight(1f)) { top() }
-            Box(Modifier.fillMaxWidth().weight(1f)) { bottom() }
-        } else {
-            val topHeight = with(density) { (hinge.bounds.top - rootTop).coerceAtLeast(0f).toDp() }
-            val gap = with(density) { hinge.bounds.height.toDp() }
-            Box(Modifier.fillMaxWidth().height(topHeight)) { top() }
-            Spacer(Modifier.height(gap))
-            Box(Modifier.fillMaxWidth().weight(1f)) { bottom() }
+        val below = when {
+            posture == null -> Modifier.fillMaxSize()
+            hinge == null -> Modifier.fillMaxWidth().fillMaxHeight(0.5f).align(Alignment.BottomCenter)
+            else -> Modifier.fillMaxSize().padding(top = with(density) { (hinge.bounds.bottom - rootTop).coerceAtLeast(0f).toDp() })
+        }
+        Box(below) { bottom() }
+        if (posture != null) {
+            val above = if (hinge == null) {
+                Modifier.fillMaxWidth().fillMaxHeight(0.5f)
+            } else {
+                Modifier.fillMaxWidth().height(with(density) { (hinge.bounds.top - rootTop).coerceAtLeast(0f).toDp() })
+            }
+            Box(above.align(Alignment.TopCenter).testTag(setupTag("tabletop"))) { top() }
         }
     }
 }
@@ -343,10 +364,11 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText, inline
 private fun StartTimeStep(model: RunnerSetupViewModel, text: OnboardingText) {
     val context = LocalContext.current
     val start = model.start
-    var dialog by rememberSaveable { mutableStateOf<String?>(null) }
-    FieldButton(text.label("raceDate"), localDateLabel(start), setupTag("start.date")) { dialog = "date" }
-    FieldButton(text.label("raceTime"), localTimeLabel(start), setupTag("start.time")) { dialog = "time" }
-    FieldButton(text.label("raceTimeZone"), start.timeZone.replace('_', ' '), setupTag("start.zone")) { dialog = "zone" }
+    FieldButton(text.label("raceDate"), model.startDateLabel, setupTag("start.date")) { model.openDialog(RunnerSetupViewModel.DIALOG_DATE) }
+    FieldButton(text.label("raceTime"), model.startTimeLabel, setupTag("start.time")) { model.openDialog(RunnerSetupViewModel.DIALOG_TIME) }
+    FieldButton(text.label("raceTimeZone"), start.timeZone.replace('_', ' '), setupTag("start.zone")) {
+        model.openDialog(RunnerSetupViewModel.DIALOG_ZONE)
+    }
     model.startProblem?.let { problem ->
         Text(
             problem,
@@ -363,11 +385,18 @@ private fun StartTimeStep(model: RunnerSetupViewModel, text: OnboardingText) {
         busy = model.busy
     )
     SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("start.back"), model::backToCourse, enabled = !model.busy)
+}
+
+/** The date, time and zone pickers, whichever the ViewModel has open. */
+@Composable
+private fun StartTimeDialogs(model: RunnerSetupViewModel, text: OnboardingText) {
+    val start = model.start
     val deviceZone = remember { ZoneId.systemDefault().id }
-    when (dialog) {
-        "date" -> RaceDateDialog(start, text, model::updateStart) { dialog = null }
-        "time" -> RaceTimeDialog(start, text, model::updateStart) { dialog = null }
-        "zone" -> RaceZoneDialog(start, deviceZone, text, model::updateStart) { dialog = null }
+    when (model.dialog) {
+        RunnerSetupViewModel.DIALOG_DATE -> RaceDateDialog(start, text, model::updateStart, model::closeDialog)
+        RunnerSetupViewModel.DIALOG_TIME -> RaceTimeDialog(start, text, model::updateStart, model::closeDialog)
+        RunnerSetupViewModel.DIALOG_ZONE ->
+            RaceZoneDialog(start, deviceZone, text, model.zoneFilter, model::updateZoneFilter, model::updateStart, model::closeDialog)
     }
 }
 
@@ -416,7 +445,8 @@ private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText, inline
         if (model.busy) SetupLoader(setupTag("teaser.loading"))
         return
     }
-    val finish = CrewClock.short(teaser.finishAt) ?: "—"
+    // client-core's clock, the one its summary and the history comparison write too.
+    val finish = teaser.finishClock ?: "—"
     Column(
         Modifier.testTag(setupTag("teaser.finish")).semantics(mergeDescendants = true) {
             contentDescription = "${text.label("finish")} $finish"
@@ -459,15 +489,17 @@ private fun LivePreview(model: RunnerSetupViewModel, step: String, text: Onboard
         if (step == SetupSteps.START_TIME || step == SetupSteps.HISTORY) {
             val start = model.start
             Text(
-                listOf(localDateLabel(start), localTimeLabel(start), start.timeZone.replace('_', ' ')).joinToString(" · "),
+                listOf(model.startDateLabel, model.startTimeLabel, start.timeZone.replace('_', ' '))
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
                 modifier = Modifier.testTag(setupTag("preview.start")),
                 style = MaterialTheme.typography.titleMedium
             )
         }
-        model.teaser?.finishAt?.let { finishAt ->
+        model.teaser?.finishClock?.let { finish ->
             Column(Modifier.testTag(setupTag("preview.finish"))) {
                 Kicker(text.label("finish"))
-                Text(CrewClock.short(finishAt) ?: "—", style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+                Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
             }
         }
         model.comparison?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary) }

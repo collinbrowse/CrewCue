@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DisplayMode
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,13 +38,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimeInput
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -59,21 +61,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.window.core.layout.WindowSizeClass
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.brand.CairnShakeLoader
 import com.crewcue.android.ui.map.CourseMaps
 import com.crewcue.android.ui.map.CoursePoint
-import com.crewcue.android.ui.theme.CrewClock
 import com.crewcue.android.ui.theme.CrewTextField
 import com.crewcue.android.ui.theme.LocalCrewExtras
 import com.crewcue.android.ui.theme.MetricStyle
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 /** Primary action. Unlike the shared button, the label wraps, so 200% font scale never clips it. */
 @Composable
@@ -183,15 +182,10 @@ fun FieldButton(label: String, value: String, tag: String, onClick: () -> Unit) 
     }
 }
 
-/** The picked local date and time as the device shows dates. No zone conversion happens here. */
-fun localDateLabel(fields: RaceStartFields): String =
-    runCatching { DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).format(LocalDate.of(fields.year, fields.month, fields.day)) }
-        .getOrDefault("")
-
-fun localTimeLabel(fields: RaceStartFields): String =
-    runCatching { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).format(LocalTime.of(fields.hour, fields.minute)) }
-        .getOrDefault("")
-
+/**
+ * The race day. The calendar grid doesn't scroll, so a short window (a landscape phone, a small
+ * multi-window pane) or a large font opens the typed date field instead; the toggle switches back.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RaceDateDialog(fields: RaceStartFields, text: OnboardingText, onPick: (RaceStartFields) -> Unit, onDismiss: () -> Unit) {
@@ -199,7 +193,12 @@ fun RaceDateDialog(fields: RaceStartFields, text: OnboardingText, onPick: (RaceS
     val initial = runCatching {
         LocalDate.of(fields.year, fields.month, fields.day).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     }.getOrNull()
-    val state = rememberDatePickerState(initialSelectedDateMillis = initial)
+    val tall = currentWindowAdaptiveInfo().windowSizeClass.isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
+    val largeText = LocalDensity.current.fontScale >= LARGE_FONT_SCALE
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = initial,
+        initialDisplayMode = if (tall && !largeText) DisplayMode.Picker else DisplayMode.Input
+    )
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -249,9 +248,17 @@ fun pickableZones(deviceZone: String): List<String> {
     return listOf(deviceZone) + regions.filter { it != deviceZone } + listOf("UTC").filter { it != deviceZone }
 }
 
+/** [filter] lives in the ViewModel, so a fold or resize keeps what the runner typed. */
 @Composable
-fun RaceZoneDialog(fields: RaceStartFields, deviceZone: String, text: OnboardingText, onPick: (RaceStartFields) -> Unit, onDismiss: () -> Unit) {
-    var filter by rememberSaveable { mutableStateOf("") }
+fun RaceZoneDialog(
+    fields: RaceStartFields,
+    deviceZone: String,
+    text: OnboardingText,
+    filter: String,
+    onFilter: (String) -> Unit,
+    onPick: (RaceStartFields) -> Unit,
+    onDismiss: () -> Unit
+) {
     val zones = remember(deviceZone) { pickableZones(deviceZone) }
     val shown = remember(filter, zones) {
         val needle = filter.trim().replace(' ', '_')
@@ -264,7 +271,7 @@ fun RaceZoneDialog(fields: RaceStartFields, deviceZone: String, text: Onboarding
         title = { Text(text.label("raceTimeZone")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CrewTextField(filter, { filter = it }, text.label("raceTimeZone"), Modifier.testTag(setupTag("start.zone.filter")))
+                CrewTextField(filter, onFilter, text.label("raceTimeZone"), Modifier.testTag(setupTag("start.zone.filter")))
                 LazyColumn(Modifier.heightIn(max = 320.dp).testTag(setupTag("start.zone.list"))) {
                     items(shown, key = { it }) { zone ->
                         val selected = zone == fields.timeZone
@@ -388,7 +395,8 @@ fun ElevationProfile(samples: List<Pair<Double, Double>>, label: String) {
 fun TeaserRowCard(row: TeaserRow, text: OnboardingText) {
     val colors = MaterialTheme.colorScheme
     val (title, kicker, value, locked) = when (row) {
-        is TeaserRow.Open -> Quad(row.row.title, row.row.kicker, CrewClock.short(row.row.clockArrivalAt) ?: "—", false)
+        // client-core's clock, the same one the estimate summary writes.
+        is TeaserRow.Open -> Quad(row.row.title, row.row.kicker, row.row.clockLabel ?: "—", false)
         is TeaserRow.Locked -> Quad(row.title, "", text.label("locked"), true)
     }
     val finish = row is TeaserRow.Open && row.row.isFinish
@@ -479,6 +487,9 @@ private fun displayName(context: Context, uri: Uri, fallback: String): String {
     }
     return uri.lastPathSegment ?: fallback
 }
+
+/** From here up the date opens as a typed field: the calendar grid would clip. */
+private const val LARGE_FONT_SCALE = 1.5f
 
 /** The server's GPX limit (`MAX_GPX_XML_CHARS` in services/api/src/lib/gpxLimits.ts). */
 private const val MAX_COURSE_CHARS = 10 * 1024 * 1024

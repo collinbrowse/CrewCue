@@ -50,6 +50,26 @@ private final class ScriptedServer: HTTPTransport, @unchecked Sendable {
     #expect(start["problem"] is NSNull)
     #expect(start["message"] is NSNull)
     #expect(start["timeZone"] as? String == "America/Denver")
+    // The pickers show client-core's labels, not a second Kotlin formatter.
+    let input = RaceStartInput(year: 2026, month: 8, day: 15, hour: 6, minute: 30, timeZoneIdentifier: "America/Denver")
+    #expect(start["dateLabel"] as? String == input.dateLabel())
+    #expect(start["timeLabel"] as? String == input.timeLabel())
+}
+
+@Test func raceStartLabelsWriteThePickedFieldsWithoutConverting() {
+    let posix = Locale(identifier: "en_US_POSIX")
+    let us = Locale(identifier: "en_US")
+    let start = RaceStartInput(year: 2026, month: 8, day: 15, hour: 18, minute: 5, timeZoneIdentifier: "Asia/Tokyo")
+    #expect(start.dateLabel(locale: us) == "Aug 15, 2026")
+    #expect(start.timeLabel(locale: posix).hasPrefix("6:05"))
+    // A time in the spring-forward gap still reads as picked, beside the problem.
+    let gap = RaceStartInput(year: 2026, month: 3, day: 8, hour: 2, minute: 30, timeZoneIdentifier: "America/Denver")
+    #expect(gap.problem == .daylightSavingGap)
+    #expect(gap.timeLabel(locale: posix).hasPrefix("2:30"))
+    #expect(gap.dateLabel(locale: us) == "Mar 8, 2026")
+    // Impossible fields read as their numbers.
+    #expect(RaceStartInput(year: 2026, month: 2, day: 30, hour: 9, minute: 0).dateLabel(locale: us) == "2026-02-30")
+    #expect(RaceStartInput(year: 2026, month: 2, day: 3, hour: 25, minute: 7).timeLabel(locale: us) == "25:07")
 }
 
 @Test func raceStartInputOpGivesTheDstCopyOnlyForTheSpringForwardGap() async throws {
@@ -190,6 +210,32 @@ private let estimateJSON = #"{"id":"e1","coldStart":true,"expectedFinishAt":"202
     let attached = try result(try await runtime(request))
     #expect(attached["expectedFinishAt"] as? String == "2026-08-15T22:10:00.000Z")
     #expect(attached["estimateId"] as? String == "e1")
+    // The big finish readout uses the summary's clock, never a Kotlin formatter.
+    let clock = try #require(attached["finishClock"] as? String)
+    #expect(clock == ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z"))
+    #expect((attached["summary"] as? String)?.hasSuffix(clock) == true)
+}
+
+@Test func timelineRowsCarryThePlanClockLabel() async throws {
+    let sheet: [String: Any] = [
+        "roomId": "r1", "raceStartAt": "2026-08-15T12:30:00.000Z",
+        "stops": [
+            ["id": "s1", "checkpointId": "start", "elapsedSeconds": 0, "plannedStoppageSeconds": 0, "clockArrivalAt": "2026-08-15T12:30:00.000Z"],
+            ["id": "s2", "checkpointId": "finish", "elapsedSeconds": 34800, "plannedStoppageSeconds": 0, "clockArrivalAt": "2026-08-15T22:10:00.000Z"]
+        ]
+    ]
+    let checkpoints: [[String: Any]] = [
+        ["id": "start", "title": "Start", "latitude": 39.0, "longitude": -120.0, "distanceMetersFromStart": 0],
+        ["id": "finish", "title": "Finish", "latitude": 39.01, "longitude": -120.0, "distanceMetersFromStart": 1100]
+    ]
+    let projected = try result(try await runtime([
+        "op": "projectAidSheet", "sheet": sheet, "checkpoints": checkpoints, "selectedIndex": 0, "follow": true,
+        "timeZone": "America/Denver"
+    ]))
+    let rows = try #require(projected["timeline"] as? [[String: Any]])
+    let finish = try #require(rows.first { $0["checkpointId"] as? String == "finish" })
+    let zone = try #require(TimeZone(identifier: "America/Denver"))
+    #expect(finish["clockLabel"] as? String == ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z", timeZone: zone))
 }
 
 // MARK: course elevation

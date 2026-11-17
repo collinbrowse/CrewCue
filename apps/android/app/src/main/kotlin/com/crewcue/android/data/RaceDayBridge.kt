@@ -422,6 +422,18 @@ class RaceDayBridge(
         put("gpxXml", gpxXml)
     }
 
+    /**
+     * client-core `RaceAccess` for the active race: [billing] is the last billing read for it
+     * (`paid`, `unpaid`, or null while unknown) and [onboarding] the state `readOnboarding`
+     * answered. Answers `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.
+     */
+    fun raceAccess(roomId: String, role: String?, billing: String?, onboarding: JSONObject?): RuntimeResult = call("raceAccess") {
+        put("roomId", roomId)
+        if (!role.isNullOrBlank()) put("role", role)
+        if (!billing.isNullOrBlank()) put("billing", billing)
+        if (onboarding != null) put("onboarding", onboarding)
+    }
+
     /** Removes demo replay folders a killed process left in [tempDir] (the app's cache directory). */
     fun demoRaceCleanup(tempDir: String): RuntimeResult = call("demoRaceCleanup") { put("tempDir", tempDir) }
 

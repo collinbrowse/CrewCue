@@ -24,7 +24,10 @@ import com.crewcue.android.ui.onboarding.OnboardingDestination
 import com.crewcue.android.ui.onboarding.OnboardingFlow
 import com.crewcue.android.ui.onboarding.OnboardingRouting
 import com.crewcue.android.ui.onboarding.OnboardingText
+import com.crewcue.android.ui.onboarding.RaceAccess
+import com.crewcue.android.ui.onboarding.RaceBilling
 import com.crewcue.android.ui.onboarding.RunnerSetupEffect
+import com.crewcue.android.ui.onboarding.SignInNext
 import com.crewcue.android.ui.onboarding.SETUP_FEATURE
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -139,8 +142,8 @@ class ShellViewModel(
         private set
     var racesLoading by mutableStateOf(false)
         private set
-    /** The active room when its billing says unpaid. Map, Pace, and Chat show an Unlock race banner. */
-    var unpaidRoomId by mutableStateOf<String?>(null)
+    /** The last billing read by race. With the onboarding state it decides [raceAccess]. */
+    var billing by mutableStateOf(RaceBilling())
         private set
     /** The shell shows the paywall in place of Map, Pace, and Chat until a tab is picked. */
     var paywallOpen by mutableStateOf(false)
@@ -283,6 +286,27 @@ class ShellViewModel(
         }
     }
 
+    private var accessCache: Pair<List<Any?>, RaceAccess>? = null
+
+    /**
+     * client-core `RaceAccess` for the active race, from its billing and the onboarding state. Read
+     * again only when one of those, the race or the role changes, so a frame never waits on it.
+     */
+    fun raceAccess(): RaceAccess {
+        val roomId = session?.roomId?.takeIf { it.isNotBlank() } ?: return RaceAccess.noRace
+        val role = session?.role
+        val status = billing.status(roomId)
+        val flow = onboarding
+        val key = listOf(roomId, role, status, flow)
+        accessCache?.let { (cached, access) -> if (cached == key) return access }
+        val result = container.raceDay.raceAccess(roomId, role, status, flow?.toJson())
+        // Unreachable unless the bridge itself failed: draw the race and let the server refuse what it must.
+        val access = RaceAccess.from((result as? RuntimeResult.Success)?.result)
+            ?: return RaceAccess(unpaid = false, loadsRace = true, samplesLocation = true, gatesActions = false, lockedReason = null)
+        accessCache = key to access
+        return access
+    }
+
     /** The race list and active race that every onboarding call sends client-core. */
     fun onboardingRaceContext(): Pair<JSONArray?, String?> = raceRows to session?.roomId
 
@@ -340,7 +364,7 @@ class ShellViewModel(
                 // The setup's own race: active and the runner's, still behind the setup screens.
                 container.sessionStore.update { it.copy(roomId = effect.roomId, role = "athlete") }
                 session = container.sessionStore.current()
-                unpaidRoomId = effect.roomId
+                billing = billing.unpaid(effect.roomId)
                 loadRaces()
             }
             is RunnerSetupEffect.DisplayNameChosen -> {
@@ -355,9 +379,9 @@ class ShellViewModel(
     /** The Unlock race banner, a gated action (start tracking, chat send), or a 402 `room_unpaid`. */
     fun openPaywall() {
         val roomId = session?.roomId ?: return
-        unpaidRoomId = roomId
+        billing = billing.unpaid(roomId)
         paywallOpen = true
-        if (!showAppShell) showShell(selectedTab.takeIf { it != ShellTab.Profile } ?: ShellTab.Map)
+        if (!showAppShell) showShell(OnboardingRouting.paywallTab(selectedTab))
     }
 
     /**
@@ -391,7 +415,7 @@ class ShellViewModel(
             }
             is OnboardingDestination.Shell -> {
                 if (destination.openPaywall) {
-                    unpaidRoomId = next?.roomId ?: session?.roomId
+                    (next?.roomId ?: session?.roomId)?.let { billing = billing.unpaid(it) }
                     paywallOpen = true
                 }
                 showShellIfHidden()
@@ -554,7 +578,7 @@ class ShellViewModel(
         if (roomId.isBlank()) return
         container.sessionStore.update { it.copy(roomId = roomId, role = "athlete") }
         session = container.sessionStore.current()
-        unpaidRoomId = roomId
+        billing = billing.unpaid(roomId)
         onboarding = null
         onboardingTicket++
         showOnboarding()
@@ -566,18 +590,15 @@ class ShellViewModel(
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { container.raceDay.billing(roomId) }
             if (session?.roomId != roomId || result !is RuntimeResult.Success) return@launch
-            val info = BillingInfo.from(result.result)
-            unpaidRoomId = when {
-                !info.isPaid -> roomId
-                unpaidRoomId == roomId -> null
-                else -> unpaidRoomId
-            }
+            // A paid read wins over an onboarding state that still says preview (a race list
+            // that failed to load after the purchase), so the banner goes and pings resume.
+            billing = billing.read(roomId, paid = BillingInfo.from(result.result).isPaid)
         }
     }
 
     /** The paywall's "Continue to race" after a purchase or redemption unlocked [roomId]. */
     fun noteUnlocked(roomId: String) {
-        if (unpaidRoomId == roomId) unpaidRoomId = null
+        billing = billing.unlocked(roomId)
         paywallOpen = false
         showShell(ShellTab.Map)
         loadRaces()
@@ -625,7 +646,8 @@ class ShellViewModel(
         onboarding = null
         onboardingTicket++
         paywallOpen = false
-        unpaidRoomId = null
+        billing = RaceBilling()
+        accessCache = null
         pendingJoin = false
         // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
         viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
@@ -724,18 +746,18 @@ class ShellViewModel(
                 session = stored
                 adoptStorage(stored.userId)
                 loadRaces()
-                if (pendingJoin) {
-                    pendingJoin = false
-                    performJoin()
-                } else if (!showAppShell && uiState.screen.featureId == "join-crew") {
-                    return
-                } else {
-                    // Onboarding decides once the races load: setup, the chooser, or the shell. The
-                    // guest's state (the chooser, the signed-out account step) gives way to the
-                    // loader until this user's state is read.
-                    onboarding = null
-                    showOnboarding()
-                    refreshOnboarding(force = true)
+                when (OnboardingRouting.afterSignIn(pendingJoin, onJoinScreen = !showAppShell && uiState.screen.featureId == "join-crew")) {
+                    SignInNext.Join -> {
+                        pendingJoin = false
+                        performJoin()
+                    }
+                    SignInNext.StayOnJoin -> return
+                    SignInNext.OnboardingLoader -> {
+                        // Onboarding decides once the races load: setup, the chooser, or the shell.
+                        onboarding = null
+                        showOnboarding()
+                        refreshOnboarding(force = true)
+                    }
                 }
             }
             is AuthResult.Failure -> applyAuthFailure(result)

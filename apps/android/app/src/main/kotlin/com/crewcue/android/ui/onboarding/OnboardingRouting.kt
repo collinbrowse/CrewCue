@@ -1,7 +1,14 @@
 package com.crewcue.android.ui.onboarding
 
+import com.crewcue.android.data.optText
+import com.crewcue.android.ui.ShellTab
+import org.json.JSONObject
+
 /** The onboarding route (client-core `Route`): the loader, the chooser and the runner's setup. */
 const val SETUP_FEATURE = "onboarding-runner-setup"
+
+/** What a sign-in does next ([OnboardingRouting.afterSignIn]). */
+enum class SignInNext { Join, StayOnJoin, OnboardingLoader }
 
 /** What the onboarding route draws for a state. */
 enum class OnboardingContent { Loading, Chooser, RunnerSetup }
@@ -58,6 +65,23 @@ object OnboardingRouting {
     }
 
     /**
+     * Where a sign-in lands. A join the person started goes on; a join screen keeps showing;
+     * anything else waits on the loader until this user's onboarding state is read, so the guest's
+     * chooser or signed-out account step never shows for the new account.
+     */
+    fun afterSignIn(pendingJoin: Boolean, onJoinScreen: Boolean): SignInNext = when {
+        pendingJoin -> SignInNext.Join
+        onJoinScreen -> SignInNext.StayOnJoin
+        else -> SignInNext.OnboardingLoader
+    }
+
+    /**
+     * The paywall opens over a race tab: the one on show, or Map when Profile is. A screen outside
+     * the shell (the setup route, the teaser) opens the shell first.
+     */
+    fun paywallTab(selected: ShellTab): ShellTab = if (selected == ShellTab.Profile) ShellTab.Map else selected
+
+    /**
      * A state read in the background moves the screen only from screens onboarding owns: the
      * shell, its own route, the sign-in screen and a join screen it opened. A dev fixture, a state
      * overlay or a screen a link opened keeps showing; the person's own choices there still route.
@@ -81,52 +105,76 @@ object OnboardingRouting {
 }
 
 /**
- * How the race tabs treat the active race's payment. Billing (`unpaidRoomId`) or client-core's
- * state (the runner's paywall phase, a crew member's `raceLocked`) can say unpaid.
+ * client-core `RaceAccess` for the active race (the `raceAccess` op): whether it is unpaid, loads
+ * its race-day model, samples location and gates actions, and a crew member's locked reason.
  */
-data class RaceGate(
+data class RaceAccess(
     val unpaid: Boolean,
-    /** Load the race-day model (course, schedule, feed). Not for a crew member's unpaid race, whose reads answer 402. */
     val loadsRace: Boolean,
-    /** The athlete's phone sends location samples. Never for an unpaid race, which takes no pings. */
     val samplesLocation: Boolean,
     /** The Unlock race banner on Map, Pace and Chat; Start tracking and chat send open the paywall. */
     val gatesActions: Boolean,
+    val lockedReason: String?
+) {
+    companion object {
+        val noRace = RaceAccess(unpaid = false, loadsRace = false, samplesLocation = false, gatesActions = false, lockedReason = null)
+
+        fun from(json: JSONObject?): RaceAccess? {
+            json ?: return null
+            if (!json.has("unpaid")) return null
+            return RaceAccess(
+                unpaid = json.optBoolean("unpaid"),
+                loadsRace = json.optBoolean("loadsRace"),
+                samplesLocation = json.optBoolean("samplesLocation"),
+                gatesActions = json.optBoolean("gatesActions"),
+                lockedReason = json.optText("lockedReason").ifBlank { null }
+            )
+        }
+    }
+}
+
+/**
+ * What the shell last read from billing, by race: `paid` or `unpaid`, or nothing yet. Only an
+ * explicit read or a 402 says unpaid, and a failed read changes nothing.
+ */
+data class RaceBilling(val paidRoomId: String? = null, val unpaidRoomId: String? = null) {
+    /** `paid`, `unpaid` or null for client-core's `raceAccess`. */
+    fun status(roomId: String?): String? = when {
+        roomId.isNullOrBlank() -> null
+        paidRoomId == roomId -> "paid"
+        unpaidRoomId == roomId -> "unpaid"
+        else -> null
+    }
+
+    /** A billing read answered for [roomId]. */
+    fun read(roomId: String, paid: Boolean): RaceBilling = if (paid) unlocked(roomId) else unpaid(roomId)
+
+    /** A purchase or redemption unlocked [roomId]. */
+    fun unlocked(roomId: String): RaceBilling =
+        RaceBilling(paidRoomId = roomId, unpaidRoomId = unpaidRoomId.takeIf { it != roomId })
+
+    /** A new race, a 402 `room_unpaid`, or a billing read said unpaid. */
+    fun unpaid(roomId: String): RaceBilling =
+        RaceBilling(paidRoomId = paidRoomId.takeIf { it != roomId }, unpaidRoomId = roomId)
+}
+
+/** Which pane the race tabs draw. Screen mapping only: client-core decides the [RaceAccess]. */
+data class RaceGate(
     /** The paywall in place of the race tab. */
     val showsPaywall: Boolean,
     /** client-core's reason in place of the race tab (a crew member's `raceLocked`), else null. */
     val lockedReason: String?
 ) {
     companion object {
-        private val open = RaceGate(
-            unpaid = false, loadsRace = false, samplesLocation = false,
-            gatesActions = false, showsPaywall = false, lockedReason = null
-        )
-
-        fun of(
-            roomId: String?,
-            role: String?,
-            unpaidRoomId: String?,
-            onboarding: OnboardingFlow?,
-            paywallOpen: Boolean,
-            onRaceTab: Boolean
-        ): RaceGate {
-            val room = roomId?.takeIf { it.isNotBlank() } ?: return open
-            val flow = onboarding?.takeIf { it.roomId == room }
-            val unpaid = unpaidRoomId == room || flow?.isRunnerPreview == true || flow?.isRaceLocked == true
-            val runner = role == "athlete"
-            val reason = flow?.takeIf { it.isRaceLocked }?.reason?.takeIf { it.isNotBlank() }
+        fun of(access: RaceAccess, paywallOpen: Boolean, onRaceTab: Boolean): RaceGate {
             // The runner's paywall opens from the teaser, the banner or a gated action. A crew
             // member's unpaid race shows the paywall's billing line until client-core names a reason.
-            val paywall = unpaid && onRaceTab && ((runner && paywallOpen) || (!runner && reason == null))
+            val runnerPaywall = access.gatesActions && paywallOpen
+            val crewPaywall = access.unpaid && !access.gatesActions && access.lockedReason == null
+            val paywall = onRaceTab && (runnerPaywall || crewPaywall)
             return RaceGate(
-                unpaid = unpaid,
-                // The runner reads an unpaid race's teaser (course and finish), but never pings it.
-                loadsRace = runner || !unpaid,
-                samplesLocation = !unpaid,
-                gatesActions = unpaid && runner,
                 showsPaywall = paywall,
-                lockedReason = reason.takeIf { !paywall && onRaceTab && !runner }
+                lockedReason = access.lockedReason.takeIf { !paywall && onRaceTab }
             )
         }
     }

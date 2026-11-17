@@ -25,7 +25,7 @@ import Dispatch
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`),
-/// raceStartInput, gpxPreview (`RuntimeRunnerSetup.swift`).
+/// raceStartInput, gpxPreview, raceAccess (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -314,6 +314,8 @@ enum RuntimeCall {
             return raceStartInput(object)
         case "gpxPreview":
             return try await gpxPreview(object)
+        case "raceAccess":
+            return raceAccess(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -478,6 +480,7 @@ enum RuntimeCall {
     /// `progressMeters` overrides the request's runner when the caller already resolved it (stop-plan draft).
     private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any], progressMeters: Double? = nil) -> [[String: Any]] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
+        let zone = requestTimeZone(request)
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
@@ -492,7 +495,11 @@ enum RuntimeCall {
                 "distanceToLabel": item.distanceToLabel,
                 "isFinish": item.isFinish
             ]
-            if let arrival = item.clockArrivalAt { row["clockArrivalAt"] = arrival }
+            if let arrival = item.clockArrivalAt {
+                row["clockArrivalAt"] = arrival
+                // The plan clock in the viewer's zone, written the way every other client-core clock is.
+                row["clockLabel"] = ScheduleFormat.formatScheduleClock(arrival, timeZone: zone)
+            }
             if let cutoff = item.cutoffAt { row["cutoffAt"] = cutoff }
             if let status = item.cutoffStatus { row["cutoffStatus"] = status }
             if let live = item.liveArrivalAt { row["liveArrivalAt"] = live }
@@ -894,6 +901,8 @@ enum RuntimeCall {
             // The finish instant (API ISO-8601) for `onboardingHistoryComparison`; "" without one.
             "expectedFinishAt": estimate?.expectedFinishAt ?? "",
             "summary": estimate.map { estimateSummary($0, timeZone: timeZone) } ?? "",
+            // The finish clock as the summary writes it, so a big finish readout matches it; "" without one.
+            "finishClock": estimate.map { ScheduleFormat.formatScheduleClock($0.expectedFinishAt, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
             "reason": reason,

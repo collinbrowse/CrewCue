@@ -1,5 +1,6 @@
 package com.crewcue.android.ui.onboarding
 
+import com.crewcue.android.ui.ShellTab
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -106,57 +107,95 @@ class OnboardingRoutingTest {
         assertFalse(OnboardingRouting.ownsScreen(false, false, SETUP_FEATURE, false, setupOpenedByLink = true))
     }
 
+    // client-core decides the access (RaceAccessTests.swift); these cover only the pane it draws.
+    private val unpaidRunner = RaceAccess(unpaid = true, loadsRace = true, samplesLocation = false, gatesActions = true, lockedReason = null)
+    private val lockedCrew = RaceAccess(
+        unpaid = true, loadsRace = false, samplesLocation = false, gatesActions = false,
+        lockedReason = "The runner hasn't unlocked this race yet."
+    )
+    private val unpaidCrew = lockedCrew.copy(lockedReason = null)
+    private val paid = RaceAccess(unpaid = false, loadsRace = true, samplesLocation = true, gatesActions = false, lockedReason = null)
+
     @Test
-    fun anUnpaidRunnerRaceGetsTheBannerAndGatedActionsAndNeverSendsLocation() {
-        val gate = RaceGate.of("r1", "athlete", unpaidRoomId = null, onboarding = preview, paywallOpen = false, onRaceTab = true)
-        assertTrue(gate.unpaid)
-        assertTrue(gate.gatesActions)
-        // The teaser (course and finish) still loads; the phone never pings an unpaid race.
-        assertTrue(gate.loadsRace)
-        assertFalse(gate.samplesLocation)
-        assertFalse(gate.showsPaywall)
-        assertNull(gate.lockedReason)
-
+    fun anUnpaidRunnerRaceShowsThePaywallOnlyOnceOpenedAndNeverOverProfile() {
+        val closed = RaceGate.of(unpaidRunner, paywallOpen = false, onRaceTab = true)
+        assertFalse(closed.showsPaywall)
+        assertNull(closed.lockedReason)
         // The banner, Start tracking or chat send opened the paywall over the race tab, not Profile.
-        assertTrue(RaceGate.of("r1", "athlete", null, preview, paywallOpen = true, onRaceTab = true).showsPaywall)
-        assertFalse(RaceGate.of("r1", "athlete", null, preview, paywallOpen = true, onRaceTab = false).showsPaywall)
-
-        // Billing alone (client-core's state for another race) also gates.
-        val billing = RaceGate.of("r1", "athlete", unpaidRoomId = "r1", onboarding = done.copy(roomId = "r9"), paywallOpen = false, onRaceTab = true)
-        assertTrue(billing.gatesActions)
-        assertFalse(billing.samplesLocation)
+        assertTrue(RaceGate.of(unpaidRunner, paywallOpen = true, onRaceTab = true).showsPaywall)
+        assertFalse(RaceGate.of(unpaidRunner, paywallOpen = true, onRaceTab = false).showsPaywall)
     }
 
     @Test
-    fun aCrewMembersLockedRaceShowsClientCoresReasonInTheShell() {
-        val gate = RaceGate.of("r2", "crew_member", unpaidRoomId = null, onboarding = locked, paywallOpen = false, onRaceTab = true)
-        assertTrue(gate.unpaid)
+    fun aCrewMembersLockedRaceShowsClientCoresReasonAndElseThePaywallsBillingLine() {
+        val gate = RaceGate.of(lockedCrew, paywallOpen = false, onRaceTab = true)
         assertEquals("The runner hasn't unlocked this race yet.", gate.lockedReason)
-        // Crew features answer 402: no race-day reads, no gated actions, no paywall.
-        assertFalse(gate.loadsRace)
-        assertFalse(gate.gatesActions)
         assertFalse(gate.showsPaywall)
         // Profile keeps its own content.
-        assertNull(RaceGate.of("r2", "crew_member", null, locked, paywallOpen = false, onRaceTab = false).lockedReason)
+        assertNull(RaceGate.of(lockedCrew, paywallOpen = false, onRaceTab = false).lockedReason)
         // Billing says unpaid before client-core names a reason: the paywall's billing line, as before.
-        assertTrue(RaceGate.of("r2", "crew_member", unpaidRoomId = "r2", onboarding = null, paywallOpen = false, onRaceTab = true).showsPaywall)
+        assertTrue(RaceGate.of(unpaidCrew, paywallOpen = false, onRaceTab = true).showsPaywall)
     }
 
     @Test
-    fun aPaidRaceOrNoRaceIsNotGated() {
-        val paid = RaceGate.of("r1", "athlete", unpaidRoomId = null, onboarding = done, paywallOpen = false, onRaceTab = true)
-        assertFalse(paid.unpaid)
-        assertFalse(paid.gatesActions)
-        assertTrue(paid.loadsRace)
-        assertTrue(paid.samplesLocation)
-        assertFalse(paid.showsPaywall)
+    fun aPaidRaceOrNoRaceDrawsTheTab() {
         // A stale paywallOpen never shows the paywall on a paid race.
-        assertFalse(RaceGate.of("r1", "athlete", null, done, paywallOpen = true, onRaceTab = true).showsPaywall)
+        assertEquals(RaceGate(showsPaywall = false, lockedReason = null), RaceGate.of(paid, paywallOpen = true, onRaceTab = true))
+        assertEquals(RaceGate(showsPaywall = false, lockedReason = null), RaceGate.of(RaceAccess.noRace, paywallOpen = true, onRaceTab = true))
+    }
 
-        val none = RaceGate.of(null, "athlete", unpaidRoomId = "r1", onboarding = preview, paywallOpen = true, onRaceTab = true)
-        assertFalse(none.unpaid)
-        assertFalse(none.loadsRace)
-        assertFalse(none.showsPaywall)
-        assertFalse(RaceGate.of("  ", "athlete", null, null, paywallOpen = true, onRaceTab = true).loadsRace)
+    @Test
+    fun raceAccessReadsClientCoresAnswer() {
+        val access = RaceAccess.from(
+            org.json.JSONObject("""{"unpaid":true,"loadsRace":true,"samplesLocation":false,"gatesActions":true,"lockedReason":null}""")
+        )
+        assertEquals(unpaidRunner, access)
+        assertNull(RaceAccess.from(org.json.JSONObject("{}")))
+        assertNull(RaceAccess.from(null))
+    }
+
+    @Test
+    fun billingRemembersThePaidReadSoAnOldPreviewStateCantGateIt() {
+        var billing = RaceBilling()
+        assertNull(billing.status("r1"))
+        // A new race, then the purchase: paid, even before the race list says so.
+        billing = billing.unpaid("r1")
+        assertEquals("unpaid", billing.status("r1"))
+        billing = billing.unlocked("r1")
+        assertEquals("paid", billing.status("r1"))
+        // A later read or a 402 (a refund) says unpaid again.
+        billing = billing.read("r1", paid = false)
+        assertEquals("unpaid", billing.status("r1"))
+        billing = billing.read("r1", paid = true)
+        assertEquals("paid", billing.status("r1"))
+        // Another race's answer leaves this one's alone.
+        billing = billing.unpaid("r2")
+        assertEquals("paid", billing.status("r1"))
+        assertEquals("unpaid", billing.status("r2"))
+        assertNull(billing.status(null))
+        assertNull(billing.status("r3"))
+    }
+
+    @Test
+    fun aSignInGoesOnWithItsJoinElseWaitsForThisUsersState() {
+        assertEquals(SignInNext.Join, OnboardingRouting.afterSignIn(pendingJoin = true, onJoinScreen = true))
+        assertEquals(SignInNext.StayOnJoin, OnboardingRouting.afterSignIn(pendingJoin = false, onJoinScreen = true))
+        // The guest's chooser or account step gives way to the loader, never flashes for the new account.
+        assertEquals(SignInNext.OnboardingLoader, OnboardingRouting.afterSignIn(pendingJoin = false, onJoinScreen = false))
+    }
+
+    @Test
+    fun thePaywallOpensOverARaceTabNeverProfile() {
+        assertEquals(ShellTab.Map, OnboardingRouting.paywallTab(ShellTab.Profile))
+        assertEquals(ShellTab.Chat, OnboardingRouting.paywallTab(ShellTab.Chat))
+        assertEquals(ShellTab.Pace, OnboardingRouting.paywallTab(ShellTab.Pace))
+    }
+
+    @Test
+    fun theStateGoesBackToClientCoreAsReadOnboardingAnsweredIt() {
+        val json = locked.toJson()
+        assertEquals(locked, OnboardingFlow.from(json))
+        assertEquals("raceLocked", json.getString("flow"))
+        assertTrue(json.isNull("phase"))
     }
 }

@@ -91,7 +91,9 @@ data class TimelineRow(
     /** Server live arrival (ISO 8601 UTC) for a stop still ahead; [clockArrivalAt] stays the plan. */
     val liveArrivalAt: String? = null,
     val arrivalWindowStartAt: String? = null,
-    val arrivalWindowEndAt: String? = null
+    val arrivalWindowEndAt: String? = null,
+    /** client-core's clock for [clockArrivalAt] (`projectAidSheet` timeline `clockLabel`), when it sent one. */
+    val clockLabel: String? = null
 )
 
 data class CoursePoint(

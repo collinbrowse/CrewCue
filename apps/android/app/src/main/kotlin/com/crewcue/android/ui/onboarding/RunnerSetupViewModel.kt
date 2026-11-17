@@ -46,6 +46,8 @@ sealed interface RunnerSetupEffect {
 /** The projection teaser: the finish only, every aid station locked. */
 data class TeaserModel(
     val finishAt: String?,
+    /** client-core's clock for [finishAt], the same one [summary] writes. */
+    val finishClock: String?,
     /** client-core's estimate summary ("Finish 10:42:00  9:42 AM"). */
     val summary: String?,
     val rows: List<TeaserRow>
@@ -68,6 +70,8 @@ class RunnerSetupViewModel(
     /** The device's IANA zone, the start time's default and the comparison's zone. */
     private val deviceZone: String,
     private val today: LocalDate,
+    /** The onboarding state on show when the screen opened, so a resume draws its step at once. */
+    initialFlow: OnboardingFlow? = null,
     private val io: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     private val effectQueue = Channel<RunnerSetupEffect>(Channel.UNLIMITED)
@@ -81,23 +85,45 @@ class RunnerSetupViewModel(
 
     var draft by mutableStateOf(initialDraft())
         private set
-    /** The step client-core's onboarding state names. */
-    var serverStep by mutableStateOf<String?>(null)
+    /**
+     * The step client-core's onboarding state names: the state the screen opened with, else the
+     * one saved before process death, so a resume never draws another step first.
+     */
+    var serverStep by mutableStateOf(
+        initialFlow?.takeIf { it.isRunnerSetup }?.step ?: savedState.get<String>(KEY_SERVER_STEP)
+    )
         private set
-    var roomId by mutableStateOf(draft.roomId)
+    var roomId by mutableStateOf(initialFlow?.takeIf { it.isRunnerSetup }?.roomId ?: draft.roomId)
         private set
     var status by mutableStateOf<SetupStatus>(SetupStatus.Ready)
         private set
-    /** The course file is on this phone (it uploads with the start time). */
-    var courseOnDevice by mutableStateOf(false)
+    /**
+     * The course file is on this phone (it uploads with the start time). Assumed from the draft
+     * until the disk says otherwise, so a resume on the start time doesn't draw the course first.
+     */
+    var courseOnDevice by mutableStateOf(draft.courseFileName != null)
         private set
     var preview by mutableStateOf<CoursePreview?>(null)
         private set
-    /** client-core's `raceStartAt` for the picked fields, null while they name no instant. */
+    /**
+     * client-core's `raceStartAt` for the picked fields, null while they name no instant or while
+     * client-core hasn't answered for the latest pick.
+     */
     var startInstant by mutableStateOf<String?>(null)
         private set
     /** The shared daylight-saving copy, only for the spring-forward gap. */
     var startProblem by mutableStateOf<String?>(null)
+        private set
+    /** client-core's labels for the picked day and time. */
+    var startDateLabel by mutableStateOf("")
+        private set
+    var startTimeLabel by mutableStateOf("")
+        private set
+    /** The start-time picker on show ([DIALOG_DATE], [DIALOG_TIME], [DIALOG_ZONE]), kept across a fold. */
+    var dialog by mutableStateOf(savedState.get<String>(KEY_DIALOG))
+        private set
+    /** What the runner typed to filter the zone list. */
+    var zoneFilter by mutableStateOf(savedState.get<String>(KEY_ZONE_FILTER).orEmpty())
         private set
     var historyMessage by mutableStateOf(savedState.get<String>(KEY_HISTORY_MESSAGE))
         private set
@@ -147,11 +173,17 @@ class RunnerSetupViewModel(
         roomId = room ?: draft.roomId
         val changed = serverStep != flow.step
         serverStep = flow.step
+        savedState[KEY_SERVER_STEP] = flow.step
         // A failure belongs to the step it happened on.
         if (changed && status !is SetupStatus.Working) status = SetupStatus.Ready
+        if (step != SetupSteps.START_TIME && dialog != null) closeDialog()
         when (step) {
             SetupSteps.COURSE, SetupSteps.START_TIME -> previewSavedCourse()
-            SetupSteps.HISTORY -> rememberFinishWithoutHistory()
+            SetupSteps.HISTORY -> {
+                rememberFinishWithoutHistory()
+                // After a relaunch the line comes back from the saved finish instants.
+                if (draft.historyImported && comparison == null) viewModelScope.launch { refreshComparison() }
+            }
             SetupSteps.TEASER -> if (teaser == null) loadTeaser()
         }
     }
@@ -226,7 +258,26 @@ class RunnerSetupViewModel(
 
     fun updateStart(fields: RaceStartFields) {
         writeDraft(draft.copy(start = fields))
+        // The old instant must not upload for the new fields: Continue waits for client-core.
+        startInstant = null
+        startProblem = null
         validateStart()
+    }
+
+    fun openDialog(id: String) {
+        if (id == DIALOG_ZONE) updateZoneFilter("")
+        dialog = id
+        savedState[KEY_DIALOG] = id
+    }
+
+    fun closeDialog() {
+        dialog = null
+        savedState[KEY_DIALOG] = null
+    }
+
+    fun updateZoneFilter(value: String) {
+        zoneFilter = value
+        savedState[KEY_ZONE_FILTER] = value
     }
 
     /** Uploads the course with the start time (the existing import path), then estimates the finish. */
@@ -255,7 +306,7 @@ class RunnerSetupViewModel(
             }
             val result = withContext(io) { runtime.importCourse(room, fileName, xml, startAt, draft.plannedPaceSecondsPerKm) }
             when (result) {
-                is RuntimeResult.Failure -> fail(result)
+                is RuntimeResult.Failure -> fail(result, courseSave = true)
                 is RuntimeResult.Success -> when (result.result.optText("status")) {
                     "saved" -> {
                         writeDraft(draft.copy(uploadedStartAt = startAt))
@@ -291,8 +342,7 @@ class RunnerSetupViewModel(
                     // client-core's message for every status, server refusals included.
                     keepHistoryMessage(result.result.optText("message").ifBlank { null })
                     if (result.result.optText("status") !in setOf("saved", "duplicate")) return@work
-                    historyImported = true
-                    savedState[KEY_HISTORY_IMPORTED] = true
+                    writeDraft(draft.copy(historyImported = true))
                     val room = roomId ?: return@work
                     val finish = estimateFinish(room) ?: return@work
                     writeDraft(draft.copy(withHistoryFinishAt = finish))
@@ -306,9 +356,11 @@ class RunnerSetupViewModel(
 
     fun skipHistory() = markHistory("skipped")
 
-    /** A history file went in (saved or already there), so Continue (done) replaces Skip. */
-    var historyImported by mutableStateOf(savedState.get<Boolean>(KEY_HISTORY_IMPORTED) == true)
-        private set
+    /**
+     * A history file went in (saved or already there), so Continue (done) replaces Skip. Kept in
+     * the draft, so a relaunch on the history step doesn't offer Skip again.
+     */
+    val historyImported: Boolean get() = draft.historyImported
 
     private fun markHistory(outcome: String) {
         if (busy) return
@@ -343,8 +395,10 @@ class RunnerSetupViewModel(
             }
             val rows = parseTimeline((projected as? RuntimeResult.Success)?.result?.optJSONArray("timeline"))
             val titles = (course ?: preview)?.checkpoints?.associate { it.id to it.title }.orEmpty()
+            val finishRow = rows.lastOrNull { it.isFinish && it.clockArrivalAt != null }
             teaser = TeaserModel(
-                finishAt = rows.lastOrNull { it.isFinish }?.clockArrivalAt ?: plan.optText("expectedFinishAt").ifBlank { null },
+                finishAt = finishRow?.clockArrivalAt ?: plan.optText("expectedFinishAt").ifBlank { null },
+                finishClock = finishRow?.clockLabel ?: plan.optText("finishClock").ifBlank { null },
                 summary = plan.optText("summary").ifBlank { null },
                 rows = TeaserRow.build(rows, TeaserRow.lockedIds(schedule), titles)
             )
@@ -418,7 +472,7 @@ class RunnerSetupViewModel(
                     roomId = null
                     writeDraft(draft.copy(roomId = null))
                 }
-                fail(result)
+                fail(result, courseSave = true)
             }
             is RuntimeResult.Success -> {
                 val parsed = CoursePreview.from(result.result)
@@ -474,15 +528,15 @@ class RunnerSetupViewModel(
     }
 
     /**
-     * Computes and attaches a plan, returning its finish instant. Only the estimator limit (429)
-     * and an unpaid race's 402 show; any other failure leaves the step as is, and the teaser
-     * computes again.
+     * Computes and attaches a plan after a step saved, returning its finish instant. Only an unpaid
+     * race's 402 shows (the paywall); any other failure, the estimator limit included, leaves the
+     * saved step as is, and the teaser computes again and says so there.
      */
     private suspend fun estimateFinish(room: String): String? {
         val result = withContext(io) { computeWithRetry(room) }
         return when (result) {
             is RuntimeResult.Failure -> {
-                if (result.status == 429 || (result.status == 402 && result.code == ROOM_UNPAID)) fail(result)
+                if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)
                 null
             }
             is RuntimeResult.Success -> result.result.optText("expectedFinishAt").ifBlank { null }
@@ -508,6 +562,8 @@ class RunnerSetupViewModel(
             if (ticket != startTicket) return@launch
             val json = (result as? RuntimeResult.Success)?.result
             startInstant = json?.optText("raceStartAt")?.ifBlank { null }
+            json?.optText("dateLabel")?.let { startDateLabel = it }
+            json?.optText("timeLabel")?.let { startTimeLabel = it }
             startProblem = if (json?.optText("problem") == "daylightSavingGap") {
                 json.optText("message").ifBlank { text.startTimeDstGap }
             } else {
@@ -525,14 +581,19 @@ class RunnerSetupViewModel(
         }
     }
 
-    private fun fail(result: RuntimeResult.Failure) {
+    /**
+     * [courseSave]: the request saved or previewed the course (`gpx-preview`, `PUT course`), the
+     * only kind whose 429 has its own copy, as on iOS. Any other 429 (the estimator's) is a plain
+     * failure: no shared copy names that limit yet.
+     */
+    private fun fail(result: RuntimeResult.Failure, courseSave: Boolean = false) {
         status = when {
             result.status == 402 && result.code == ROOM_UNPAID -> {
                 effectQueue.trySend(RunnerSetupEffect.OpenPaywall)
                 SetupStatus.Ready
             }
             result.offline -> offline()
-            result.status == 429 -> failed(text.courseSaveLimit, code = "rate_limited")
+            result.status == 429 && courseSave -> failed(text.courseSaveLimit, code = "rate_limited")
             else -> failed(text.setupError)
         }
     }
@@ -597,7 +658,12 @@ class RunnerSetupViewModel(
         private const val KEY_DRAFT = "runner-setup.draft"
         private const val KEY_HISTORY_MESSAGE = "runner-setup.history-message"
         private const val KEY_COMPARISON = "runner-setup.comparison"
-        private const val KEY_HISTORY_IMPORTED = "runner-setup.history-imported"
+        private const val KEY_SERVER_STEP = "runner-setup.server-step"
+        private const val KEY_DIALOG = "runner-setup.dialog"
+        private const val KEY_ZONE_FILTER = "runner-setup.zone-filter"
+        const val DIALOG_DATE = "date"
+        const val DIALOG_TIME = "time"
+        const val DIALOG_ZONE = "zone"
 
         /** Course and start time follow the server: a previewed course moves on to the start time on this phone. */
         fun visibleStep(serverStep: String?, draft: RunnerSetupDraft, courseOnDevice: Boolean, roomId: String?): String? =

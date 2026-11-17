@@ -93,19 +93,13 @@ fun ShellScreen(viewModel: ShellViewModel) {
 @Composable
 private fun AppShell(viewModel: ShellViewModel) {
     val roomId = viewModel.session?.roomId
-    // Billing or client-core's state (the runner's paywall phase, a crew member's raceLocked) says unpaid.
-    val gate = RaceGate.of(
-        roomId = roomId,
-        role = viewModel.session?.role,
-        unpaidRoomId = viewModel.unpaidRoomId,
-        onboarding = viewModel.onboarding,
-        paywallOpen = viewModel.paywallOpen,
-        onRaceTab = viewModel.selectedTab != ShellTab.Profile
-    )
-    val race = if (roomId.isNullOrBlank() || !gate.loadsRace) null else rememberRaceDay(viewModel, roomId, sampleLocation = gate.samplesLocation)
+    // client-core decides the race's access from billing and the onboarding state; this only picks the pane.
+    val access = viewModel.raceAccess()
+    val gate = RaceGate.of(access, paywallOpen = viewModel.paywallOpen, onRaceTab = viewModel.selectedTab != ShellTab.Profile)
+    val race = if (roomId.isNullOrBlank() || !access.loadsRace) null else rememberRaceDay(viewModel, roomId, sampleLocation = access.samplesLocation)
     val unlockBanner = viewModel.onboardingText.unpaidBanner
     // Start tracking and chat send open the paywall on an unpaid race.
-    val onLocked: (() -> Unit)? = if (gate.gatesActions) viewModel::openPaywall else null
+    val onLocked: (() -> Unit)? = if (access.gatesActions) viewModel::openPaywall else null
     if (!roomId.isNullOrBlank()) {
         LaunchedEffect(roomId) { viewModel.checkBilling(roomId) }
     }

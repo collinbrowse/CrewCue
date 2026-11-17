@@ -3,10 +3,13 @@ package com.crewcue.android.ui.onboarding
 import androidx.lifecycle.SavedStateHandle
 import com.crewcue.android.data.RuntimeResult
 import java.time.LocalDate
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -74,7 +77,10 @@ private class FakeRuntime : RunnerSetupRuntime {
     override fun gpxPreview(roomId: String, fileName: String, gpxXml: String): RuntimeResult = next("gpxPreview", ok(PREVIEW))
 
     override fun raceStartInput(fields: RaceStartFields): RuntimeResult =
-        next("raceStartInput", ok("""{"raceStartAt":"2026-08-15T12:30:00.000Z","problem":null,"message":null}"""))
+        next(
+            "raceStartInput",
+            ok("""{"raceStartAt":"2026-08-15T12:30:00.000Z","problem":null,"message":null,"dateLabel":"Aug 15, 2026","timeLabel":"6:30 AM"}""")
+        )
 
     override fun importCourse(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double?): RuntimeResult {
         imports += listOf(roomId, fileName, gpxXml, raceStartAt, plannedPaceSecondsPerKm)
@@ -82,7 +88,10 @@ private class FakeRuntime : RunnerSetupRuntime {
     }
 
     override fun loadEstimate(roomId: String): RuntimeResult =
-        next("loadEstimate", ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","summary":"Finish 9:40:00  4:10 PM","offline":false}"""))
+        next(
+            "loadEstimate",
+            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","summary":"Finish 9:40:00  4:10 PM","finishClock":"4:10 PM","offline":false}""")
+        )
 
     override fun computeEstimate(roomId: String): RuntimeResult =
         next("computeEstimate", ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","offline":false}"""))
@@ -103,7 +112,7 @@ private class FakeRuntime : RunnerSetupRuntime {
         ok(
             """{"timeline":[
               {"checkpointId":"start","state":"current","kicker":"CP1 — START","title":"Start","distanceToLabel":"0.0 MI","isFinish":false,"clockArrivalAt":"2026-08-15T12:30:00.000Z"},
-              {"checkpointId":"finish","state":"projected","kicker":"CP2","title":"Finish","distanceToLabel":"0.7 MI","isFinish":true,"clockArrivalAt":"2026-08-15T22:10:00.000Z"}]}"""
+              {"checkpointId":"finish","state":"projected","kicker":"CP2","title":"Finish","distanceToLabel":"0.7 MI","isFinish":true,"clockArrivalAt":"2026-08-15T22:10:00.000Z","clockLabel":"16:10"}]}"""
         )
     )
 }
@@ -148,11 +157,17 @@ class RunnerSetupViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun model(saved: SavedStateHandle = SavedStateHandle(), userId: String? = "ada", name: String? = "Ada") =
-        RunnerSetupViewModel(
-            runtime, drafts, saved, userId, name, text,
-            deviceZone = "America/Denver", today = LocalDate.of(2026, 8, 1), io = dispatcher
-        )
+    private fun model(
+        saved: SavedStateHandle = SavedStateHandle(),
+        userId: String? = "ada",
+        name: String? = "Ada",
+        store: RunnerSetupDraftStore = drafts,
+        initialFlow: OnboardingFlow? = null,
+        io: CoroutineDispatcher = dispatcher
+    ) = RunnerSetupViewModel(
+        runtime, store, saved, userId, name, text,
+        deviceZone = "America/Denver", today = LocalDate.of(2026, 8, 1), initialFlow = initialFlow, io = io
+    )
 
     private fun TestScope.effectsOf(model: RunnerSetupViewModel): MutableList<RunnerSetupEffect> {
         val seen = mutableListOf<RunnerSetupEffect>()
@@ -282,11 +297,29 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun startTimeDefaultsToTheDeviceZoneAndClientCoreConverts() = runTest(dispatcher) {
+    fun startTimeDefaultsToTheDeviceZoneAndClientCoreConvertsAndLabels() = runTest(dispatcher) {
         val model = model()
         assertEquals(RaceStartFields(2026, 8, 2, 6, 0, "America/Denver"), model.start)
         assertEquals("2026-08-15T12:30:00.000Z", model.startInstant)
         assertNull(model.startProblem)
+        // The pickers show client-core's labels, not a Kotlin formatter's.
+        assertEquals("Aug 15, 2026", model.startDateLabel)
+        assertEquals("6:30 AM", model.startTimeLabel)
+    }
+
+    @Test
+    fun aNewPickHoldsContinueUntilClientCoreAnswersForIt() = runTest(dispatcher) {
+        val slow = StandardTestDispatcher(testScheduler)
+        val model = model(io = slow)
+        advanceUntilIdle()
+        assertEquals("2026-08-15T12:30:00.000Z", model.startInstant)
+        runtime.answer("raceStartInput", ok("""{"raceStartAt":"2026-09-12T12:00:00.000Z","problem":null,"message":null}"""))
+        model.updateStart(RaceStartFields(2026, 9, 12, 6, 0, "America/Denver"))
+        // The old instant is gone at once: Continue can't upload it for the new fields.
+        assertNull(model.startInstant)
+        assertNull(model.startProblem)
+        advanceUntilIdle()
+        assertEquals("2026-09-12T12:00:00.000Z", model.startInstant)
     }
 
     @Test
@@ -350,6 +383,27 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun aPreviewLimitIsACourseSaveAndShowsTheSameCopy() = runTest(dispatcher) {
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        model.chooseCourse("route.gpx", "<gpx/>", online = true)
+        assertEquals(text.courseSaveLimit, (model.status as SetupStatus.Failed).failure.message)
+    }
+
+    @Test
+    fun theEstimatorLimitAfterASavedStartLeavesTheStepAlone() = runTest(dispatcher) {
+        runtime.answer("computeEstimate", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
+        val model = startTimeModel()
+        val effects = effectsOf(model)
+        model.saveStart(online = true)
+        // The course and start saved; the teaser computes the plan again later.
+        assertEquals(SetupStatus.Ready, model.status)
+        assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
+        assertNull(model.draft.withoutHistoryFinishAt)
+    }
+
+    @Test
     fun courseMismatchRecomputesSilently() = runTest(dispatcher) {
         runtime.answer(
             "computeEstimate",
@@ -392,6 +446,25 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun aRelaunchOnHistoryKeepsTheImportAndRebuildsTheComparison() = runTest(dispatcher) {
+        drafts.save(
+            "ada",
+            RunnerSetupDraft(
+                roomId = "room-1", historyImported = true,
+                withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z", withHistoryFinishAt = "2026-08-15T21:42:00.000Z"
+            )
+        )
+        // A new launch: nothing in SavedStateHandle, only the draft on disk.
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        assertTrue(model.historyImported)
+        assertEquals("Finish 3:42 PM instead of 4:10 PM", model.comparison)
+        // Continue (done), never Skip, for history that went in.
+        model.finishHistory()
+        assertEquals(Triple(SetupSteps.HISTORY, "done", null as String?), runtime.marks.last())
+    }
+
+    @Test
     fun aRefusedHistoryFileShowsClientCoresMessageAndKeepsSkip() = runTest(dispatcher) {
         runtime.answer("importActivity", ok("""{"status":"error","message":"Couldn't read this FIT file. Export it again and retry."}"""))
         val model = model()
@@ -430,6 +503,9 @@ class RunnerSetupViewModelTest {
         model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
         val teaser = assertNotNullAnd(model.teaser)
         assertEquals("2026-08-15T22:10:00.000Z", teaser.finishAt)
+        // The finish row's client-core clock, the same one the summary writes.
+        assertEquals("16:10", teaser.finishClock)
+        assertEquals("16:10", (teaser.rows.last() as TeaserRow.Open).row.clockLabel)
         assertEquals(listOf("start", "aid-1", "finish"), teaser.rows.map { it.checkpointId })
         assertEquals(TeaserRow.Locked("aid-1", "Aid 1"), teaser.rows[1])
         // The map's elevation comes from the route geometry the room answered.
@@ -450,29 +526,62 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun theTeaserEstimatorLimitShowsTheSharedCopy() = runTest(dispatcher) {
+    fun theTeaserEstimatorLimitIsAPlainFailureNotTheCourseCopy() = runTest(dispatcher) {
         runtime.answer("loadEstimate", ok("""{"hasEstimate":false,"offline":false}"""))
         runtime.answer("computeEstimate", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
         val model = model()
         model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
-        assertEquals(text.courseSaveLimit, (model.status as SetupStatus.Failed).failure.message)
+        // The runner never changed the course here: no course-limit copy (as on iOS).
+        val failed = model.status as SetupStatus.Failed
+        assertEquals(text.setupError, failed.failure.message)
+        assertTrue(failed.failure.retryable)
         assertNull(model.teaser)
     }
 
     @Test
-    fun theStepAndDraftSurviveProcessDeath() = runTest(dispatcher) {
+    fun theTeaserFallsBackToThePlansFinishClock() = runTest(dispatcher) {
+        runtime.answer("timeline", ok("""{"timeline":[]}"""))
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        assertEquals("4:10 PM", model.teaser?.finishClock)
+    }
+
+    @Test
+    fun theStepDraftAndOpenPickerSurviveProcessDeath() = runTest(dispatcher) {
         val saved = SavedStateHandle()
         val first = model(saved)
         first.sync(flow(SetupSteps.COURSE))
         first.chooseCourse("route.gpx", "<gpx/>", online = true)
         first.confirmCourse()
         first.updateStart(RaceStartFields(2026, 9, 12, 5, 0, "America/Los_Angeles"))
-        // A new process: the same saved state, the course still on disk.
-        val restored = model(saved)
-        restored.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        first.openDialog(RunnerSetupViewModel.DIALOG_ZONE)
+        first.updateZoneFilter("Los")
+        // A new process: only the saved state and the course file. No draft on disk, so the draft
+        // and the picker can only come back from SavedStateHandle.
+        val disk = MemoryDrafts().apply {
+            owner = "ada"
+            course = "<gpx/>"
+        }
+        val restored = model(saved, store = disk, initialFlow = flow(SetupSteps.COURSE, roomId = "room-1"))
+        // The resumed step draws before the first sync, never the account step first.
         assertEquals(SetupSteps.START_TIME, restored.step)
         assertEquals(RaceStartFields(2026, 9, 12, 5, 0, "America/Los_Angeles"), restored.start)
         assertEquals("room-1", restored.draft.roomId)
+        assertEquals(RunnerSetupViewModel.DIALOG_ZONE, restored.dialog)
+        assertEquals("Los", restored.zoneFilter)
+        restored.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        assertEquals(SetupSteps.START_TIME, restored.step)
+        restored.closeDialog()
+        assertNull(model(saved, store = disk).dialog)
+    }
+
+    @Test
+    fun aResumeDrawsTheStateItOpenedWith() = runTest(dispatcher) {
+        val model = model(initialFlow = flow(SetupSteps.HISTORY, roomId = "room-1"))
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertEquals("room-1", model.roomId)
+        // Without a state the step is unknown (the screen shows its loader), never the account step.
+        assertNull(model().step)
     }
 
     private fun <T> assertNotNullAnd(value: T?): T {
