@@ -394,25 +394,59 @@ export async function listPersistedRoomsForRetention(): Promise<
     .map((r) => ({ id: r.id, eventEndsAt: r.ends_at, status: r.status }));
 }
 
+/** The room fields the tracking reminder scheduler reads. */
+export type RaceRoomStartFields = Pick<
+  RaceRoom,
+  "id" | "athleteId" | "status" | "raceStartAt" | "entitlement" | "memberships"
+>;
+
 /**
  * Rooms whose stored `raceStartAt` string is after `fromIso` and at most `toIso`, compared as
  * bytes (`COLLATE "C"`, the `race_rooms_json_race_start_at` index). A prefilter: ISO-8601 UTC
  * strings sort by time to the second, so callers widen the range and check the parsed time.
+ *
+ * Only the scheduler's fields leave the database: a payload can carry the course GPX (MBs), the
+ * route overlay and the map workspace, and this runs every minute on every instance.
+ * `jsonb_to_record` reads the payload once per row instead of once per field.
  */
-export async function listPersistedRaceRoomsStartingBetween(fromIso: string, toIso: string): Promise<RaceRoom[]> {
+export async function listPersistedRaceRoomsStartingBetween(
+  fromIso: string,
+  toIso: string
+): Promise<RaceRoomStartFields[]> {
   if (!pool) {
     return [];
   }
-  const result = await pool.query<{ payload: RaceRoom }>(
+  const result = await pool.query<{
+    id: string;
+    athleteId: string;
+    status: RaceRoom["status"];
+    raceStartAt: string | null;
+    entitlement: RaceRoom["entitlement"];
+    memberships: RaceRoom["memberships"];
+  }>(
     `
-      SELECT payload
-      FROM race_rooms_json
-      WHERE payload->>'raceStartAt' > $1::text COLLATE "C"
-        AND payload->>'raceStartAt' <= $2::text COLLATE "C"
+      SELECT r.id, f."athleteId", f.status, f."raceStartAt", f.entitlement, f.memberships
+      FROM race_rooms_json r
+      CROSS JOIN LATERAL jsonb_to_record(r.payload) AS f(
+        "athleteId" text,
+        status text,
+        "raceStartAt" text,
+        entitlement jsonb,
+        memberships jsonb
+      )
+      WHERE r.payload->>'raceStartAt' > $1::text COLLATE "C"
+        AND r.payload->>'raceStartAt' <= $2::text COLLATE "C"
     `,
     [fromIso, toIso]
   );
-  return result.rows.map((r) => r.payload);
+  return result.rows.map((row) => ({
+    id: row.id,
+    athleteId: row.athleteId,
+    status: row.status,
+    ...(row.raceStartAt !== null ? { raceStartAt: row.raceStartAt } : {}),
+    entitlement: row.entitlement,
+    memberships: row.memberships
+  }));
 }
 
 export async function isJoinCodeTakenInDb(joinCode: string): Promise<boolean> {

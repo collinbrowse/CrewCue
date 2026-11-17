@@ -6,10 +6,13 @@
  * minutes before the start. A pre-start (test) ping counts: it is accepted and stored in the
  * track like any other ping, only kept out of the projection (raceRooms.ts `isPreStartPing`).
  *
- * Every minute a tick looks at rooms starting in the next 45 minutes. Each reminder has a window,
- * t45 [start − 45 min, start − 40 min) and t5 [start − 5 min, start), and a tick outside it never
+ * Every minute a tick looks at the rooms whose start puts now inside a window: t45
+ * [start − 45 min, start − 40 min) and t5 [start − 5 min, start). A tick outside a window never
  * sends it: an API that was down through T-45 skips t45 and still sends t5. Nothing is sent once
- * the race has started.
+ * the race has started. The window is judged again on a fresh clock right before the claim (a
+ * pass works through rooms one by one), and the push expires when its window closes
+ * (`apns-expiration`, FCM `android.ttl`), so a phone that was offline never shows a reminder
+ * whose minutes are wrong, or one after the gun.
  *
  * Sent once across instances (risks R1, R20): an instance first inserts a claim row in
  * `tracking_reminders_sent` (unique on room, slot and race start) and sends only when its insert
@@ -17,16 +20,17 @@
  * that reminder; it is never sent twice. The start is in the key, so moving it re-arms both.
  *
  * The push goes to the runner only (`room.athleteId`), on every device they registered for chat
- * push, through `dispatchChatPush` with type "tracking" and the roomId. The copy counts the
- * minutes left; it never shows a clock time.
+ * push, through `dispatchChatPush` with type "tracking" and the roomId. Its collapse key is
+ * `tracking:<roomId>`, so t5 replaces t45 but neither replaces a chat or schedule push for the
+ * room. The copy counts the minutes left; it never shows a clock time.
  */
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
-import type { ChatPushDeviceRecord, RaceRoom } from "@crewcue/contracts";
+import type { ChatPushDeviceRecord } from "@crewcue/contracts";
 import { hasTrackPointSince } from "./athletePingTrack.js";
 import { isRoomPaid } from "./billingEntitlement.js";
 import { listChatPushDevicesForUsers } from "./chatPersistence.js";
 import { devicesToTargets, dispatchChatPush } from "./chatPushDispatch.js";
-import { getPersistencePool } from "./roomPersistence.js";
+import { getPersistencePool, type RaceRoomStartFields } from "./roomPersistence.js";
 
 const MINUTE_MS = 60_000;
 
@@ -52,9 +56,6 @@ export const TRACKING_REMINDER_WINDOWS: ReadonlyArray<{
   { slot: "t5", opensBeforeStartMs: 5 * MINUTE_MS, closesBeforeStartMs: 0 }
 ];
 
-/** Rooms starting within this long from now can have an open window (t45 opens 45 min out). */
-export const TRACKING_REMINDER_LOOKAHEAD_MS = 45 * MINUTE_MS;
-
 /** The slot whose window `nowMs` is in, if any. */
 export function trackingReminderSlotAt(raceStartMs: number, nowMs: number): TrackingReminderSlot | undefined {
   for (const window of TRACKING_REMINDER_WINDOWS) {
@@ -63,6 +64,20 @@ export function trackingReminderSlotAt(raceStartMs: number, nowMs: number): Trac
     }
   }
   return undefined;
+}
+
+/** When `slot`'s window closes for this start: the push's expiry (t45: start − 40 min, t5: the start). */
+export function trackingReminderExpiresAt(raceStartMs: number, slot: TrackingReminderSlot): number {
+  const window = TRACKING_REMINDER_WINDOWS.find((w) => w.slot === slot);
+  return raceStartMs - (window?.closesBeforeStartMs ?? 0);
+}
+
+/**
+ * The push's collapse key: t5 replaces an unread t45 on the phone, and neither replaces a chat or
+ * schedule push for the room (those collapse by message id or room id).
+ */
+export function trackingReminderCollapseKey(roomId: string): string {
+  return `tracking:${roomId}`;
 }
 
 /** Push copy: the whole minutes left, rounded up ("45 minutes", "5 minutes", "1 minute"). */
@@ -198,12 +213,13 @@ export function _resetTrackingRemindersForTests(): void {
 // Scheduler
 // ---------------------------------------------------------------------------
 
-export type TrackingReminderRoom = Pick<
-  RaceRoom,
-  "id" | "athleteId" | "status" | "raceStartAt" | "entitlement" | "memberships"
->;
+/** The room fields the scheduler reads (the Postgres listing selects only these). */
+export type TrackingReminderRoom = RaceRoomStartFields;
 
-/** Rooms whose start is after `fromMs` and at most `toMs` (raceRooms.ts `listRaceRoomsStartingBetween`). */
+/**
+ * Rooms whose start is after `fromMs` and at most `toMs` (raceRooms.ts `listRaceRoomsStartingBetween`).
+ * A tick asks once per window: start in (now + 40 min, now + 45 min], then (now, now + 5 min].
+ */
 export type TrackingReminderListRooms = (fromMs: number, toMs: number) => Promise<TrackingReminderRoom[]>;
 
 export type TrackingReminderResult =
@@ -226,6 +242,11 @@ export type TrackingReminderResult =
   | "runner_not_member"
   /** The runner has no push device yet. Not claimed, so a later tick in the window can send. */
   | "no_devices"
+  /**
+   * The window was open when the pass began but had closed by the time this room's turn came
+   * (earlier rooms were slow). Not claimed, not sent.
+   */
+  | "window_closed"
   /** The room was deleted after it was listed. */
   | "room_gone"
   /** Checking or claiming threw; logged, and a later tick in the window tries again. */
@@ -255,7 +276,7 @@ export type TrackingReminderSchedulerOptions = {
 };
 
 export type TrackingReminderScheduler = {
-  /** One pass at `now()`. Never throws. Returns an outcome per room with an open window. */
+  /** One pass at `now()`. Never throws. Returns an outcome per room with a window open at `now()`. */
   tick(): Promise<TrackingReminderOutcome[]>;
   /** Start the timer (idempotent). Ticks right away unless `skipFirstRun`. */
   start(): void;
@@ -288,12 +309,12 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
     }
   }
 
-  async function remind(room: TrackingReminderRoom, nowMs: number): Promise<TrackingReminderOutcome | undefined> {
+  async function remind(room: TrackingReminderRoom, passNowMs: number): Promise<TrackingReminderOutcome | undefined> {
     const raceStartMs = Date.parse(room.raceStartAt ?? "");
     if (!Number.isFinite(raceStartMs)) {
       return undefined;
     }
-    const slot = trackingReminderSlotAt(raceStartMs, nowMs);
+    const slot = trackingReminderSlotAt(raceStartMs, passNowMs);
     if (!slot) {
       return undefined;
     }
@@ -314,6 +335,7 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
       return outcome("runner_not_member");
     }
     let devices: ChatPushDeviceRecord[];
+    let sendAtMs: number;
     try {
       if (await hasTrackPointSince(room.id, raceStartMs - TRACKING_REMINDER_PING_LOOKBACK_MS)) {
         return outcome("tracking");
@@ -322,7 +344,13 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
       if (devices.length === 0) {
         return outcome("no_devices");
       }
-      const claim = await claimTrackingReminder(room.id, slot, raceStartMs, nowMs);
+      // The pass's clock is stale by however long the rooms before this one took (store reads,
+      // pushes). Judge the window again now, and word the push from the same time.
+      sendAtMs = now();
+      if (trackingReminderSlotAt(raceStartMs, sendAtMs) !== slot) {
+        return outcome("window_closed");
+      }
+      const claim = await claimTrackingReminder(room.id, slot, raceStartMs, sendAtMs);
       if (claim !== "claimed") {
         return outcome(claim === "taken" ? "already_sent" : "room_gone");
       }
@@ -330,14 +358,18 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
       log.warn({ err, trackingReminder: { roomId: room.id, slot } }, "tracking_reminder_check_failed");
       return outcome("error");
     }
-    const copy = trackingReminderCopy(raceStartMs, nowMs);
+    const copy = trackingReminderCopy(raceStartMs, sendAtMs);
     try {
       const dispatch = await dispatchChatPush({
         kind: "tracking",
         roomId: room.id,
         title: copy.title,
         body: copy.body,
-        targets: devicesToTargets(devices)
+        targets: devicesToTargets(devices),
+        // Never shown once the window has closed: a held t45 would say 45 minutes at T-10, a
+        // held t5 would arrive after the gun.
+        expiresAtMs: trackingReminderExpiresAt(raceStartMs, slot),
+        collapseKey: trackingReminderCollapseKey(room.id)
       });
       // Metadata only: never tokens.
       log.info(
@@ -359,16 +391,30 @@ export function createTrackingReminderScheduler(opts: TrackingReminderSchedulerO
     }
   }
 
+  /** Rooms with a window open at `nowMs`, one listing per window. A failed listing skips only it. */
+  async function listCandidates(nowMs: number): Promise<TrackingReminderRoom[]> {
+    const byId = new Map<string, TrackingReminderRoom>();
+    for (const window of TRACKING_REMINDER_WINDOWS) {
+      // Open while start − opens <= now < start − closes, so start is in (now + closes, now + opens].
+      try {
+        const rooms = await opts.listRooms(nowMs + window.closesBeforeStartMs, nowMs + window.opensBeforeStartMs);
+        for (const room of rooms) {
+          byId.set(room.id, room);
+        }
+      } catch (err) {
+        log.warn(
+          { err, trackingReminders: { phase: "list_rooms", slot: window.slot } },
+          "tracking_reminder_pass_failed"
+        );
+      }
+    }
+    return [...byId.values()];
+  }
+
   async function tick(): Promise<TrackingReminderOutcome[]> {
     const nowMs = now();
     await prune(nowMs);
-    let rooms: TrackingReminderRoom[];
-    try {
-      rooms = await opts.listRooms(nowMs, nowMs + TRACKING_REMINDER_LOOKAHEAD_MS);
-    } catch (err) {
-      log.warn({ err, trackingReminders: { phase: "list_rooms" } }, "tracking_reminder_pass_failed");
-      return [];
-    }
+    const rooms = await listCandidates(nowMs);
     const outcomes: TrackingReminderOutcome[] = [];
     for (const room of rooms) {
       try {

@@ -8,7 +8,7 @@ Chat push goes straight from the API to APNs (iOS) and FCM (Android). See [ADR 0
 2. When a message is stored, the API pushes to every other room member whose preference allows it: `all`, or `mentions` when the text has `@TheirName`. `none` gets nothing. The sender never gets their own push.
 3. Title is the race name; body is `Sender: text` (140 characters at most) or `Sender sent a photo`. The payload carries `type: "chat"` and `roomId`; tapping it opens that room's chat.
 4. Check-in ETA alerts use the same path with `type: "schedule"`. Tracking reminders (the runner only, 45 and 5 minutes before the start of a paid race when they aren't tracking yet) use it with `type: "tracking"`; rules in [location-pings.md](../api/location-pings.md#tracking-reminders-push). Neither app routes a `tracking` tap yet ([tracking-reminder.md](../../clients/behavior/tracking-reminder.md)).
-5. A 410/`BadDeviceToken`/`Unregistered` (APNs) or `UNREGISTERED`/404 (FCM) deletes that device row. 429 and 5xx retry twice with backoff.
+5. A 410/`BadDeviceToken`/`Unregistered` (APNs) or `UNREGISTERED`/404 (FCM) deletes that device row. 429 and 5xx retry twice with backoff. Each provider request times out after 10 s. A push with an expiry (tracking reminders) sets `apns-expiration` and FCM `android.ttl`, and is not sent (failure reason `expired`) once that time has passed.
 
 With nothing configured the API logs `chat_push_dispatch` and sends nothing.
 

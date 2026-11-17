@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS tracking_reminders_sent (
   PRIMARY KEY (room_id, slot, race_start_at)
 );
 
--- The scheduler's candidates: rooms whose start is within the next 46 minutes, found each minute.
+-- The scheduler's candidates: rooms whose start puts now inside a reminder window, found each minute.
 -- "C" collation so the stored ISO-8601 UTC strings compare as bytes, which is time order.
 CREATE INDEX IF NOT EXISTS race_rooms_json_race_start_at
   ON race_rooms_json ((payload->>'raceStartAt') COLLATE "C");

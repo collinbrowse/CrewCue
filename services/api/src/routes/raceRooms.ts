@@ -80,6 +80,7 @@ import {
   listPersistedRaceRoomsForAthlete,
   listPersistedRaceRoomsForMember,
   listPersistedRaceRoomsStartingBetween,
+  type RaceRoomStartFields,
   isJoinCodeTakenInDb,
   listPersistedRoomsForRetention,
   loadRoomIdByJoinCode,
@@ -1913,10 +1914,11 @@ export async function listRaceRoomsForRetention(): Promise<
  * Rooms whose `raceStartAt` is after `fromMs` and at most `toMs`: the tracking reminder
  * scheduler's candidates. Memory mode scans the in-process rooms. Postgres reads the stored rows,
  * not this instance's cache, so every instance sees the same rooms (R1): an indexed text range
- * on `raceStartAt`, a minute wider on each side, then the parsed time decides.
+ * on `raceStartAt`, a minute wider on each side, then the parsed time decides. Postgres returns
+ * only the fields the scheduler reads, never the whole payload.
  */
-export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number): Promise<RaceRoom[]> {
-  const startsInRange = (room: RaceRoom) => {
+export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number): Promise<RaceRoomStartFields[]> {
+  const startsInRange = (room: RaceRoomStartFields) => {
     const startMs = Date.parse(room.raceStartAt ?? "");
     return Number.isFinite(startMs) && startMs > fromMs && startMs <= toMs;
   };

@@ -36,6 +36,18 @@ export type ChatPushDispatchInput = {
   kind?: "chat" | "schedule" | "tracking";
   roomId: string;
   messageId?: string;
+  /**
+   * When the push stops being true (epoch ms). Unset: the provider's default storage applies.
+   * Set: APNs gets `apns-expiration` and FCM gets `android.ttl`, so a phone that was offline
+   * never shows it late, and a provider request that would start at or after it is not made.
+   */
+  expiresAtMs?: number;
+  /**
+   * The key a newer push replaces an older one by (`apns-collapse-id`, FCM
+   * `android.notification.tag`). Unset: APNs uses `messageId ?? roomId`, FCM uses `roomId`.
+   * Not sent in the payload.
+   */
+  collapseKey?: string;
   /** Notification title (race name). */
   title: string;
   /** Notification body. Falls back to GENERIC_CHAT_PUSH_BODY. */

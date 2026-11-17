@@ -118,6 +118,53 @@ test("APNs: ExpiredProviderToken re-signs once", async () => {
   assert.notEqual(tokens[0], tokens[1]);
 });
 
+test("APNs: expiresAtMs sets apns-expiration and collapseKey sets apns-collapse-id; chat keeps its defaults", async () => {
+  const calls: Parameters<ApnsRequest>[0][] = [];
+  const transport = apnsTransport(
+    apnsConfig,
+    async (req) => {
+      calls.push(req);
+      return { status: 200, body: "" };
+    },
+    { sleep: noSleep, now: () => 1_000_000 }
+  );
+  const target = { platform: "ios" as const, token: "t", userId: "u", deviceId: "d" };
+  await transport(input([target]));
+  await transport({ ...input([target]), kind: "tracking", messageId: undefined, expiresAtMs: 1_300_999, collapseKey: "tracking:room-1" });
+
+  const [chat, tracking] = calls;
+  assert.equal(chat?.headers["apns-collapse-id"], "42", "chat collapses by message id");
+  assert.equal("apns-expiration" in (chat?.headers ?? {}), false, "chat: APNs' default storage");
+  assert.equal(tracking?.headers["apns-collapse-id"], "tracking:room-1");
+  assert.equal(tracking?.headers["apns-expiration"], "1300", "epoch seconds, rounded down");
+  const payload = JSON.parse(tracking?.body ?? "{}") as Record<string, unknown>;
+  assert.equal("collapseKey" in payload || "expiresAtMs" in payload, false, "neither is a payload field");
+});
+
+test("APNs: no request starts at or after expiresAtMs, a retry included", async () => {
+  let clock = 1_000_000;
+  let requests = 0;
+  const transport = apnsTransport(
+    apnsConfig,
+    async () => {
+      requests += 1;
+      clock += 2_000;
+      return { status: 503, body: "" };
+    },
+    { sleep: noSleep, now: () => clock }
+  );
+  const target = { platform: "ios" as const, token: "t", userId: "u", deviceId: "d" };
+  const retried = await transport({ ...input([target]), expiresAtMs: clock + 1_000 });
+  assert.equal(requests, 1, "the 503's retry would start after the expiry");
+  assert.deepEqual(retried.failures, [{ deviceId: "d", reason: "expired" }]);
+  assert.equal(retried.delivered, 0);
+
+  const late = await transport({ ...input([target]), expiresAtMs: clock });
+  assert.equal(requests, 1, "already expired: no request");
+  assert.deepEqual(late.failures, [{ deviceId: "d", reason: "expired" }]);
+  assert.deepEqual(late.invalidDeviceIds, []);
+});
+
 const account = {
   project_id: "crewcue-test",
   client_email: "push@crewcue-test.iam.gserviceaccount.com",
@@ -184,6 +231,44 @@ test("FCM: UNREGISTERED and 404 prune; 429 retries; access token is reused", asy
   const second = await transport(input([{ platform: "android", token: "busy", userId: "u", deviceId: "d-busy" }]));
   assert.equal(second.delivered, 1);
   assert.equal(calls.filter((c) => c.url.includes("oauth2")).length, 1);
+});
+
+test("FCM: expiresAtMs sets android.ttl to the seconds left and collapseKey the tag; chat has neither", async () => {
+  const clock = 1_000_000;
+  const sends: Array<{ body: string; signal?: AbortSignal }> = [];
+  const fetchImpl: FcmFetch = async (url, init) => {
+    if (url === "https://oauth2.googleapis.com/token") {
+      assert.ok(init.signal instanceof AbortSignal, "the token request times out");
+      return { status: 200, text: async () => JSON.stringify({ access_token: "at", expires_in: 3600 }) };
+    }
+    sends.push({ body: init.body, signal: init.signal });
+    return { status: 200, text: async () => "{}" };
+  };
+  const transport = fcmTransport(account, fetchImpl, { sleep: noSleep, now: () => clock });
+  const target = { platform: "android" as const, token: "fcm-1", userId: "u", deviceId: "d" };
+  await transport(input([target]));
+  await transport({ ...input([target]), kind: "tracking", messageId: undefined, expiresAtMs: clock + 300_999, collapseKey: "tracking:room-1" });
+
+  type Android = { ttl?: string; notification: { tag: string } };
+  const [chat, tracking] = sends.map((s) => (JSON.parse(s.body) as { message: { android: Android; data: Record<string, string> } }).message);
+  assert.equal(chat?.android.ttl, undefined, "chat: FCM's default TTL");
+  assert.equal(chat?.android.notification.tag, "room-1", "chat tags by room");
+  assert.equal(tracking?.android.ttl, "300s", "whole seconds left, rounded down");
+  assert.equal(tracking?.android.notification.tag, "tracking:room-1");
+  assert.equal("collapseKey" in (tracking?.data ?? {}), false);
+  assert.ok(sends.every((s) => s.signal instanceof AbortSignal), "every send times out");
+});
+
+test("FCM: an expired push is not sent", async () => {
+  const { calls, fetchImpl } = fakeFcm(() => ({ status: 200, body: "{}" }));
+  const transport = fcmTransport(account, fetchImpl, { sleep: noSleep, now: () => 2_000_000 });
+  const result = await transport({
+    ...input([{ platform: "android", token: "fcm-1", userId: "u", deviceId: "d" }]),
+    expiresAtMs: 2_000_000
+  });
+  assert.equal(calls.length, 0);
+  assert.equal(result.delivered, 0);
+  assert.deepEqual(result.failures, [{ deviceId: "d", reason: "expired" }]);
 });
 
 test("platformRoutingTransport sends unconfigured platforms to the fallback", async () => {

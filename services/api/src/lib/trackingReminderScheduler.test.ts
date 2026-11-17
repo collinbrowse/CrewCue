@@ -259,6 +259,9 @@ test("a paid race with no pings: one t45 to the runner only, then one t5, nothin
       [runner],
       "the runner gets it, the crew does not"
     );
+    assert.equal(sent[0]?.expiresAtMs, start - 40 * MINUTE, "t45 expires when its window closes");
+    assert.equal(sent[0]?.collapseKey, `tracking:${roomId}`);
+    assert.equal(sent[0]?.messageId, undefined, "clients read messageId as a chat message");
 
     for (const minutesBefore of [44, 41]) {
       clock.now = start - minutesBefore * MINUTE;
@@ -283,6 +286,8 @@ test("a paid race with no pings: one t45 to the runner only, then one t5, nothin
     assert.equal(sent[1]?.kind, "tracking");
     assert.equal(sent[1]?.body, "Your race starts in 5 minutes. Start tracking so your crew can follow you.");
     assert.deepEqual(sent[1]?.targets.map((t) => t.userId), [runner]);
+    assert.equal(sent[1]?.expiresAtMs, start, "t5 expires at the gun");
+    assert.equal(sent[1]?.collapseKey, `tracking:${roomId}`, "t5 replaces an unread t45");
     assert.deepEqual(
       (await listTrackingReminderClaims(roomId)).map((c) => `${c.slot}@${c.raceStartAt}`).sort(),
       [`t45@${iso(start)}`, `t5@${iso(start)}`]
@@ -568,7 +573,7 @@ test("a runner with no push device is not claimed, so a device registered in the
   });
 });
 
-test("on the wire: APNs and FCM carry type tracking and the roomId", async () => {
+test("on the wire: type tracking, the roomId, an expiry at the window's close and a tracking collapse key", async () => {
   await withApp(async (app) => {
     const ecKey = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({
       type: "pkcs8",
@@ -588,6 +593,9 @@ test("on the wire: APNs and FCM carry type tracking and the roomId", async () =>
       return { status: 200, text: async () => "{}" };
     };
     const fallback: ChatPushTransport = async () => ({ delivered: 0, attempts: 0, failures: [], invalidDeviceIds: [] });
+    const runner = uid("runner-wire");
+    const start = wholeSecond(Date.now()) + 50 * MINUTE;
+    const clock = { now: start - 45 * MINUTE };
     setChatPushTransport(
       platformRoutingTransport({
         ios: apnsTransport(
@@ -596,22 +604,20 @@ test("on the wire: APNs and FCM carry type tracking and the roomId", async () =>
             apnsCalls.push(req);
             return { status: 200, body: "" };
           },
-          { sleep: async () => undefined }
+          { sleep: async () => undefined, now: () => clock.now }
         ),
         android: fcmTransport(
           { project_id: "crewcue-test", client_email: "push@crewcue-test.iam.gserviceaccount.com", private_key: rsaKey },
           fetchImpl,
-          { sleep: async () => undefined }
+          { sleep: async () => undefined, now: () => clock.now }
         ),
         fallback
       })
     );
-    const runner = uid("runner-wire");
-    const start = wholeSecond(Date.now()) + 50 * MINUTE;
     const roomId = await race(app, runner, start);
     await registerDevice(app, runner, "ios");
     await registerDevice(app, runner, "android");
-    const reminders = scheduler({ now: start - 45 * MINUTE });
+    const reminders = scheduler(clock);
 
     const outcome = (await reminders.tick()).find((o) => o.roomId === roomId);
     assert.equal(outcome?.result, "sent");
@@ -630,14 +636,29 @@ test("on the wire: APNs and FCM carry type tracking and the roomId", async () =>
     assert.equal(apnsPayload.aps.alert.title, "Start tracking");
     assert.match(apnsPayload.aps.alert.body, /^Your race starts in 45 minutes\./);
     assert.equal(apnsPayload.messageId, undefined);
+    // APNs drops it at T-40 instead of holding it for a phone that is offline (no signal at the start).
+    assert.equal(apns.headers["apns-expiration"], String((start - 40 * MINUTE) / 1000));
+    assert.equal(apns.headers["apns-collapse-id"], `tracking:${roomId}`, "not the room id chat and schedule use");
 
     const fcm = fcmBodies
-      .map((body) => JSON.parse(body) as { message: { token: string; data: Record<string, string>; notification: { title: string } } })
+      .map(
+        (body) =>
+          JSON.parse(body) as {
+            message: {
+              token: string;
+              data: Record<string, string>;
+              notification: { title: string };
+              android: { ttl?: string; notification: { tag: string } };
+            };
+          }
+      )
       .find((m) => m.message.token === `tok-${runner}-android`);
     assert.ok(fcm, "FCM message for the runner's Android phone");
     assert.equal(fcm.message.data.type, "tracking");
     assert.equal(fcm.message.data.roomId, roomId);
     assert.equal(fcm.message.notification.title, "Start tracking");
+    assert.equal(fcm.message.android.ttl, "300s", "sent at T-45, dropped at T-40");
+    assert.equal(fcm.message.android.notification.tag, `tracking:${roomId}`, "a chat push can't replace it in the tray");
   });
 });
 
@@ -664,6 +685,103 @@ test("a push transport failure is logged once and not retried", async () => {
   });
 });
 
+/** Two runners' races with the same start, listed first room first, on a scheduler at `clock`. */
+async function twoRacesSameStart(app: App, name: string, start: number, clock: { now: number }) {
+  const firstRunner = uid(`${name}-first`);
+  const secondRunner = uid(`${name}-second`);
+  const first = await race(app, firstRunner, start);
+  await registerDevice(app, firstRunner);
+  const second = await race(app, secondRunner, start);
+  await registerDevice(app, secondRunner);
+  const reminders = createTrackingReminderScheduler({
+    listRooms: async (from, to) =>
+      (await listRaceRoomsStartingBetween(from, to))
+        .filter((r) => r.id === first || r.id === second)
+        .sort((a, b) => Number(b.id === first) - Number(a.id === first)),
+    log: recordingLog(),
+    now: () => clock.now,
+    skipFirstRun: true
+  });
+  return { first, second, reminders };
+}
+
+test("a pass held up by one room's push judges the next room on a fresh clock: nothing after the gun", async () => {
+  await withApp(async (app) => {
+    const start = wholeSecond(Date.now()) + 50 * MINUTE;
+    const clock = { now: start - 4 * MINUTE - 30_000 };
+    const { first, second, reminders } = await twoRacesSameStart(app, "runner-stall-t5", start, clock);
+    const sent: ChatPushDispatchInput[] = [];
+    setChatPushTransport(async (input) => {
+      sent.push(input);
+      if (input.roomId === first) {
+        // The first room's push stalls until 30 s after the gun.
+        await new Promise((resolve) => setImmediate(resolve));
+        clock.now = start + 30_000;
+      }
+      return { delivered: input.targets.length, attempts: 1, failures: [], invalidDeviceIds: [] };
+    });
+
+    const outcomes = await reminders.tick();
+    assert.deepEqual(
+      outcomes.map((o) => `${o.roomId === first ? "first" : "second"}:${o.slot}:${o.result}`),
+      ["first:t5:sent", "second:t5:window_closed"]
+    );
+    assert.deepEqual(
+      sent.map((p) => p.roomId),
+      [first],
+      "the second race is not told it starts in 5 minutes after it started"
+    );
+    assert.deepEqual(await listTrackingReminderClaims(second), [], "not claimed either");
+  });
+});
+
+test("a pass held up inside the t45 window words the next room's push from the fresh clock", async () => {
+  await withApp(async (app) => {
+    const start = wholeSecond(Date.now()) + 50 * MINUTE;
+    const clock = { now: start - 45 * MINUTE };
+    const { first, second, reminders } = await twoRacesSameStart(app, "runner-stall-t45", start, clock);
+    const sent: ChatPushDispatchInput[] = [];
+    setChatPushTransport(async (input) => {
+      sent.push(input);
+      if (input.roomId === first) {
+        clock.now = start - 41 * MINUTE - 30_000;
+      }
+      return { delivered: input.targets.length, attempts: 1, failures: [], invalidDeviceIds: [] };
+    });
+
+    const outcomes = await reminders.tick();
+    assert.deepEqual(
+      outcomes.map((o) => `${o.roomId === first ? "first" : "second"}:${o.slot}:${o.result}`),
+      ["first:t45:sent", "second:t45:sent"]
+    );
+    assert.match(sent.find((p) => p.roomId === first)?.body ?? "", /in 45 minutes\./);
+    assert.match(sent.find((p) => p.roomId === second)?.body ?? "", /in 42 minutes\./, "not a stale 45");
+    assert.deepEqual(
+      (await listTrackingReminderClaims(second)).map((c) => c.sentAt),
+      [iso(start - 41 * MINUTE - 30_000)]
+    );
+  });
+});
+
+test("a tick lists only the two windows' start ranges", async () => {
+  const calls: Array<[number, number]> = [];
+  const nowMs = Date.parse("2026-11-20T12:00:00.000Z");
+  const reminders = createTrackingReminderScheduler({
+    listRooms: async (from, to) => {
+      calls.push([from, to]);
+      return [];
+    },
+    log: recordingLog(),
+    now: () => nowMs,
+    skipFirstRun: true
+  });
+  await reminders.tick();
+  assert.deepEqual(calls, [
+    [nowMs + 40 * MINUTE, nowMs + 45 * MINUTE],
+    [nowMs, nowMs + 5 * MINUTE]
+  ]);
+});
+
 test("candidates: rooms starting after `from` and at most `to`, with or without milliseconds", async () => {
   await withApp(async (app) => {
     const runner = uid("runner-candidates");
@@ -675,6 +793,28 @@ test("candidates: rooms starting after `from` and at most `to`, with or without 
     assert.deepEqual(await ids(start - 1, start + 1), [roomId]);
     assert.deepEqual(await ids(start, start + 45 * MINUTE), [], "a start equal to `from` is excluded");
     assert.deepEqual(await ids(start - 45 * MINUTE, start - 1), []);
+
+    const listed = (await listRaceRoomsStartingBetween(start - 1, start)).find((r) => r.id === roomId);
+    assert.ok(listed);
+    assert.equal(listed.athleteId, runner);
+    assert.equal(listed.status, "active");
+    assert.equal(listed.raceStartAt, iso(start).replace(/\.\d{3}Z$/, "Z"));
+    assert.equal(listed.entitlement.status, "unpaid");
+    assert.deepEqual(
+      listed.memberships.map((m) => m.userId),
+      [runner]
+    );
+    if (isRoomPersistenceEnabled()) {
+      // Never the whole payload (course GPX, route overlay, map workspace): just what the scheduler reads.
+      assert.deepEqual(Object.keys(listed).sort(), [
+        "athleteId",
+        "entitlement",
+        "id",
+        "memberships",
+        "raceStartAt",
+        "status"
+      ]);
+    }
   });
 });
 
@@ -712,18 +852,20 @@ test("a malformed stored room is logged and the rest of the pass goes on", async
   const log = recordingLog();
   const start = Date.parse("2026-11-20T13:00:00.000Z");
   const runner = uid("runner-fake-room");
+  const rooms = [
+    { id: uid("broken-room"), raceStartAt: iso(start) } as unknown as RaceRoom,
+    {
+      id: uid("fake-room"),
+      athleteId: runner,
+      status: "active" as const,
+      raceStartAt: iso(start),
+      entitlement: { status: "paid" as const, lastUpdatedAt: iso(start), source: "manual" as const },
+      memberships: [{ userId: runner, role: "athlete" as const, joinedAt: iso(start) }]
+    }
+  ];
   const reminders = createTrackingReminderScheduler({
-    listRooms: async () => [
-      { id: uid("broken-room"), raceStartAt: iso(start) } as unknown as RaceRoom,
-      {
-        id: uid("fake-room"),
-        athleteId: runner,
-        status: "active",
-        raceStartAt: iso(start),
-        entitlement: { status: "paid", lastUpdatedAt: iso(start), source: "manual" },
-        memberships: [{ userId: runner, role: "athlete", joinedAt: iso(start) }]
-      }
-    ],
+    // Both windows' listings return the same rooms: each is still checked once.
+    listRooms: async () => rooms,
     log,
     now: () => start - 45 * MINUTE,
     skipFirstRun: true
