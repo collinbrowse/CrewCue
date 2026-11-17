@@ -51,6 +51,8 @@ struct RunnerSetupView: View {
 
     @ViewBuilder
     private var arrangement: some View {
+        // ArrangementView is in the iOS 27 SDK (Swift 6.4); older Xcode builds use the row.
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             ArrangementView {
                 formPane
@@ -61,12 +63,19 @@ struct RunnerSetupView: View {
             }
             .arrangementViewStyle(.split.axes(.horizontal))
         } else {
-            // Before ArrangementView: the same two panes in a row.
-            HStack(alignment: .top, spacing: 0) {
-                formPane
-                if splitsPreview {
-                    previewPane
-                }
+            paneRow
+        }
+        #else
+        paneRow
+        #endif
+    }
+
+    /// Before ArrangementView: the same two panes in a row.
+    private var paneRow: some View {
+        HStack(alignment: .top, spacing: 0) {
+            formPane
+            if splitsPreview {
+                previewPane
             }
         }
     }
