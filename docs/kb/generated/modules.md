@@ -212,7 +212,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 4 | 1831 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 7 | 1789 |
+| `Screens/Onboarding` | 7 | 1806 |
 | `Screens/Pace` | 2 | 1759 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
