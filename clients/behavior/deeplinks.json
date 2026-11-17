@@ -230,6 +230,16 @@
       "android": "fail"
     },
     {
+      "id": "tracking-reminder",
+      "entry": "crewcue://dev/location-heartbeat",
+      "label": "crewcue.location-heartbeat",
+      "sdk": "push",
+      "scope": "v1",
+      "proof": "physical",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
       "id": "profile",
       "entry": "crewcue://dev/profile",
       "label": "crewcue.profile",

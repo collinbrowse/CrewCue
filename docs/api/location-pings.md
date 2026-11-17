@@ -82,6 +82,27 @@ The latest **accepted** ping for the room. Crew phones drive race progress (mile
 
 Rejected pings never replace `ping`.
 
+## Tracking reminders (push)
+
+When the runner hasn't started tracking, the API pushes them a reminder 45 minutes before `raceStartAt` and another 5 minutes before ([trackingReminderScheduler.ts](../../services/api/src/lib/trackingReminderScheduler.ts), started in `server.ts`, stopped on `app.close()`).
+
+| Rule | Value |
+| --- | --- |
+| Tick | every 60 s, one listing per window: rooms starting in (now + 40 min, now + 45 min] and in (now, now + 5 min]. Postgres: an indexed range on `payload->>'raceStartAt'` that returns only the six fields the scheduler reads, never the payload (course GPX, overlay, workspace). |
+| Windows | `t45` while now is in [start − 45 min, start − 40 min); `t5` in [start − 5 min, start). A tick outside a window never sends it: an API down through T-45 skips `t45` and still sends `t5`. Nothing after the start. Each room's window is judged again on a fresh clock right before its claim, so a pass slowed by earlier rooms never sends late (`window_closed`), and the copy counts from that same time. |
+| Expiry | the push expires when its window closes: `t45` at start − 40 min, `t5` at the start (`apns-expiration`; FCM `android.ttl`, the seconds left). A phone without signal at the start never shows it late, and no provider request (a retry included) starts after it. |
+| Collapse | `apns-collapse-id` and the FCM notification tag are `tracking:<roomId>`: `t5` replaces an unread `t45`, and neither replaces a chat or schedule push for the room. |
+| Who | the runner (`athleteId`) only, every device registered with `POST /chat/push/tokens`, and only while they are on the room's roster (a runner who hasn't joined can't send pings, and the room's creator sets `athleteId`). Crew never get it. |
+| Paid | `entitlement.status` `paid` only; `unpaid` and `expired` get nothing. The room must be `active` (pings to any other room are refused). |
+| Tracking | an accepted ping recorded at or after start − 60 min suppresses the reminder. Pre-start (test) pings count; they are accepted and stored, only kept out of the projection. |
+| Once | an instance inserts a claim row in `tracking_reminders_sent` (key: room, slot, race start) before sending and sends only if its insert won; memory mode keeps the key in process. A crash between the claim and the send skips that reminder, never sends it twice. A runner with no device is not claimed, so a device registered later in the window still gets it. |
+| Start moved | the start is in the key, so both reminders re-arm for the new start. |
+| Cleanup | claim rows go with the room (`ON DELETE CASCADE`); rows older than 3 days are deleted hourly. |
+
+The push goes through the chat push path (`dispatchChatPush`) with `type: "tracking"` and `roomId`. Title `Start tracking`; body `Your race starts in 45 minutes. Start tracking so your crew can follow you.` (or 5 minutes). The minutes are the whole minutes left when it is sent, rounded up; never a clock time.
+
+Logs: `tracking_reminder_sent` (`roomId`, `slot`, `delivered`, `attempts`, `failures`; never tokens), `tracking_reminder_pass` when a tick had rooms in a window, warnings `tracking_reminder_dispatch_failed`, `tracking_reminder_check_failed`, `tracking_reminder_pass_failed`.
+
 ## Logging
 
 Accepted and rejected ingest paths emit structured log lines with message **`ping_decision`** and payload `ping_decision: { roomId, actor, decision, reason?, pingId? }`.
