@@ -8,8 +8,18 @@ import org.json.JSONObject
 
 sealed interface RuntimeResult {
     data class Success(val result: JSONObject) : RuntimeResult
-    /** [crewLimit]: a join or invite refused because the room's crew tier is full (409 `crew_limit_reached`). */
-    data class Failure(val message: String, val offline: Boolean, val crewLimit: Boolean = false) : RuntimeResult
+    /**
+     * [crewLimit]: a join or invite refused because the room's crew tier is full (409 `crew_limit_reached`).
+     * [status] is the HTTP status (0 when the failure was not an HTTP answer) and [code] the body's
+     * code, for example 402 `room_unpaid` or 400 `course_mismatch`.
+     */
+    data class Failure(
+        val message: String,
+        val offline: Boolean,
+        val crewLimit: Boolean = false,
+        val status: Int = 0,
+        val code: String? = null
+    ) : RuntimeResult
 }
 
 /**
@@ -98,7 +108,12 @@ class RaceDayBridge(
         historyFingerprint: String?,
         usableHistoryCount: Int,
         trigger: String,
-        hasPlanOfRecord: Boolean
+        hasPlanOfRecord: Boolean,
+        /**
+         * The runner's history step: `none` (Skip, a cold start even after an import) or `compare`
+         * (after an import; the result also carries `comparison`, the line to show). Null: all history.
+         */
+        historyMode: String? = null
     ): RuntimeResult =
         call("computeEstimate") {
             put("roomId", roomId)
@@ -106,6 +121,7 @@ class RaceDayBridge(
             put("trigger", trigger)
             put("hasPlanOfRecord", hasPlanOfRecord)
             if (!historyFingerprint.isNullOrBlank()) put("historyFingerprint", historyFingerprint)
+            if (historyMode != null) put("historyMode", historyMode)
         }
 
     fun importGpx(
@@ -356,6 +372,74 @@ class RaceDayBridge(
             if (pollAttempts != null) put("pollAttempts", pollAttempts)
         }
 
+    /**
+     * client-core decides the onboarding flow. [races] is the `races` array from [myRaces], or null
+     * while it hasn't answered (the state then follows the last saved list, or is `loading`).
+     */
+    fun readOnboarding(races: JSONArray?, activeRoomId: String?): RuntimeResult = call("readOnboarding") {
+        onboardingContext(races, activeRoomId)
+    }
+
+    /** Records a step ([step] + [outcome] + [roomId]) or the chooser's [choice]; answers `progress` and `state`. */
+    fun markOnboardingStep(
+        step: String?,
+        outcome: String?,
+        roomId: String?,
+        choice: String?,
+        races: JSONArray?,
+        activeRoomId: String?
+    ): RuntimeResult = call("markOnboardingStep") {
+        onboardingContext(races, activeRoomId)
+        if (!step.isNullOrBlank()) put("step", step)
+        if (!outcome.isNullOrBlank()) put("outcome", outcome)
+        if (!roomId.isNullOrBlank()) put("roomId", roomId)
+        if (!choice.isNullOrBlank()) put("choice", choice)
+    }
+
+    /** Forgets the user's onboarding progress (the signed-out guest's when signed out). */
+    fun resetOnboarding(): RuntimeResult = call("resetOnboarding")
+
+    /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
+    fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
+
+    /** client-core `RaceStartInput`: the typed fields in [timeZone] → `raceStartAt` or a `problem`. */
+    fun raceStartInput(year: Int, month: Int, day: Int, hour: Int, minute: Int, timeZone: String): RuntimeResult =
+        call("raceStartInput") {
+            put("year", year)
+            put("month", month)
+            put("day", day)
+            put("hour", hour)
+            put("minute", minute)
+            put("timeZone", timeZone)
+        }
+
+    /** The server's parse of a GPX before it is saved: `line`, `checkpoints`, `elevation`, `plannedPaceSecondsPerKm`. */
+    fun gpxPreview(roomId: String, fileName: String, gpxXml: String): RuntimeResult = call("gpxPreview") {
+        put("roomId", roomId)
+        put("fileName", fileName)
+        put("gpxXml", gpxXml)
+    }
+
+    /**
+     * client-core `RaceAccess` for the active race: [billing] is the last billing read for it
+     * (`paid`, `unpaid`, or null while unknown) and [onboarding] the state `readOnboarding`
+     * answered. Answers `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.
+     */
+    fun raceAccess(roomId: String, role: String?, billing: String?, onboarding: JSONObject?): RuntimeResult = call("raceAccess") {
+        put("roomId", roomId)
+        if (!role.isNullOrBlank()) put("role", role)
+        if (!billing.isNullOrBlank()) put("billing", billing)
+        if (onboarding != null) put("onboarding", onboarding)
+    }
+
+    /** Removes demo replay folders a killed process left in [tempDir] (the app's cache directory). */
+    fun demoRaceCleanup(tempDir: String): RuntimeResult = call("demoRaceCleanup") { put("tempDir", tempDir) }
+
+    private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
+        if (races != null) put("races", races)
+        if (!activeRoomId.isNullOrBlank()) put("activeRoomId", activeRoomId)
+    }
+
     private fun call(op: String, fill: JSONObject.() -> Unit = {}): RuntimeResult {
         val session = sessionStore.current()
         val request = JSONObject()
@@ -385,7 +469,9 @@ class RaceDayBridge(
             return RuntimeResult.Failure(
                 message,
                 offline = obj.optBoolean("offline") || isOffline(message),
-                crewLimit = obj.optBoolean("crewLimit")
+                crewLimit = obj.optBoolean("crewLimit"),
+                status = obj.optInt("status", 0),
+                code = obj.optText("code").ifBlank { null }
             )
         }
         val result = obj.opt("result")

@@ -186,6 +186,10 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    // Window size class, fold posture and the supporting-pane scaffold (adaptive layout rule).
+    implementation("androidx.compose.material3.adaptive:adaptive")
+    implementation("androidx.compose.material3.adaptive:adaptive-layout")
+    implementation("androidx.compose.material3.adaptive:adaptive-navigation")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("com.auth0.android:auth0:4.3.1")
@@ -201,6 +205,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM tests that parse client-core bridge JSON (android.jar only has stubs).
     testImplementation("org.json:json:20260814")
+    // ViewModel tests: a test Main dispatcher for viewModelScope.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

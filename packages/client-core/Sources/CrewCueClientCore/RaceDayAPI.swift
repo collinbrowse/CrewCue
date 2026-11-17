@@ -697,6 +697,13 @@ public enum RaceDayAPI {
         return try await gate.perform(roomId: operation.roomId, ticket: ticket, upload)
     }
 
+    /// `POST /race-rooms/:roomId/course/gpx-preview`: the server's parse of a GPX file (`course`,
+    /// `plannedPaceSecondsPerKm`, `routeOverlayLayer`, `courseFileName`). Saves nothing.
+    public static func previewCourse(graph: ClientGraph, roomId: String, fileName: String, gpxXml: String) async throws -> Data {
+        let body: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
+        return try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: body)
+    }
+
     private static func uploadCourse(
         graph: ClientGraph,
         roomId: String,
@@ -706,8 +713,7 @@ public enum RaceDayAPI {
         plannedPaceSecondsPerKm: Double,
         idempotencyKey: String?
     ) async throws -> Data {
-        let previewBody: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
-        let preview = try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: previewBody)
+        let preview = try await previewCourse(graph: graph, roomId: roomId, fileName: fileName, gpxXml: gpxXml)
         guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
             throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
         }
