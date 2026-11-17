@@ -44,30 +44,32 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5376 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 14 | 1048 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5512 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 15 | 1177 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
+| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 7 | 259 |
+| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 7 | 316 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
-| [services/api/src/lib/billingEntitlement.ts](../../../services/api/src/lib/billingEntitlement.ts) | 6 | 222 |
-| [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 6 | 316 |
 | [services/api/src/lib/courseHistory/format.ts](../../../services/api/src/lib/courseHistory/format.ts) | 6 | 193 |
 | [services/api/src/lib/pacingEstimate/microModel/courseMesh.ts](../../../services/api/src/lib/pacingEstimate/microModel/courseMesh.ts) | 6 | 129 |
 | [services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts](../../../services/api/src/lib/pacingEstimate/microModel/runnerProfile.ts) | 6 | 228 |
 | [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts) | 5 | 226 |
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
+| [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 5 | 160 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 875 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 4 | 135 |
-| [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
 | [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 396 |
+| [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts) | 3 | 269 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
+| [services/api/src/lib/platformEventLog.ts](../../../services/api/src/lib/platformEventLog.ts) | 3 | 333 |
 | [services/api/src/lib/runnerSlowdown.ts](../../../services/api/src/lib/runnerSlowdown.ts) | 3 | 117 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |

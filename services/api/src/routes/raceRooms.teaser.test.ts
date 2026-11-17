@@ -24,6 +24,7 @@ import {
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
 import { finishCheckpointIndex } from "../lib/raceProjection.js";
+import { deleteRaceRoomAndData } from "../lib/raceRoomDeletion.js";
 import { courseLengthOf, courseLengthsMatch } from "../lib/raceTeaser.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
 import {
@@ -1945,6 +1946,8 @@ test("unpaid race: checkpoints that end at an aid more than 1% short of the rout
       const after = await teaserFinishes(app, roomId, runner, raceStartAt, `${label}, plan`, midCourse, realValues);
       assert.deepEqual(after.stops, ["start", stop]);
       assertOneFinish(after, `${label}, plan`, plan.expectedFinishElapsedSeconds);
+      // Done with it: deleted so the runner stays under the unpaid race limit for the next one.
+      assert.equal(await deleteRaceRoomAndData(roomId), "deleted");
     }
 
     // A plan attached on the whole course, then the checkpoints cut at each aid in turn with the

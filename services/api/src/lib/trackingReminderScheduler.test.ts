@@ -15,7 +15,7 @@ import Fastify from "fastify";
 import type { RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import {
-  deleteRaceRoomForAccountDeletion,
+  deleteRaceRoomRecord,
   listRaceRoomsStartingBetween,
   setRaceRoomStatusForTests
 } from "../routes/raceRooms.js";
@@ -468,7 +468,7 @@ test("a deleted room gets nothing, and its claims go with it", async () => {
     const goneRunner = uid("runner-deleted");
     const gone = await race(app, goneRunner, start);
     await registerDevice(app, goneRunner);
-    await deleteRaceRoomForAccountDeletion(gone);
+    await deleteRaceRoomRecord(gone);
     assert.deepEqual(forRoom(await reminders.tick(), gone), []);
     assert.equal(pushesFor(pushes, gone).length, 0);
 
@@ -477,7 +477,7 @@ test("a deleted room gets nothing, and its claims go with it", async () => {
     await registerDevice(app, claimedRunner);
     assert.deepEqual(forRoom(await reminders.tick(), claimed), ["t45:sent"]);
     assert.equal((await listTrackingReminderClaims(claimed)).length, 1);
-    await deleteRaceRoomForAccountDeletion(claimed);
+    await deleteRaceRoomRecord(claimed);
     assert.deepEqual(await listTrackingReminderClaims(claimed), []);
     clock.now = start - 5 * MINUTE;
     assert.deepEqual(forRoom(await reminders.tick(), claimed), []);

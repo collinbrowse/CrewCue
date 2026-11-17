@@ -10,7 +10,12 @@ import {
   stopChatRetentionScheduler
 } from "./lib/chatRetentionScheduler.js";
 import { attachTrackingReminderScheduler } from "./lib/trackingReminderScheduler.js";
-import { listRaceRoomsForRetention, listRaceRoomsStartingBetween } from "./routes/raceRooms.js";
+import { attachUnpaidRaceExpiryScheduler } from "./lib/unpaidRaceExpiryScheduler.js";
+import {
+  listRaceRoomsForRetention,
+  listRaceRoomsStartingBetween,
+  listUnpaidRaceRoomsCreatedBefore
+} from "./routes/raceRooms.js";
 import { captureError, flushErrorReporting, initErrorReporting, installProcessHandlers } from "./lib/errorReporting.js";
 
 /** Load monorepo-root `.env` when present (Node 20.12+). Does not override existing process.env keys. */
@@ -32,6 +37,8 @@ async function start() {
   const app = buildApp();
   // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().
   attachTrackingReminderScheduler(app, { listRooms: listRaceRoomsStartingBetween });
+  // Unpaid races 30 days old are deleted: ticks hourly from when the app is ready, stops on app.close().
+  attachUnpaidRaceExpiryScheduler(app, { listRooms: listUnpaidRaceRoomsCreatedBefore });
   await app.listen({ port, host });
 
   startChatRetentionScheduler(listRaceRoomsForRetention, app.log);

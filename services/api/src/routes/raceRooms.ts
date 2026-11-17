@@ -69,6 +69,7 @@ import { appendTrackPoints, deleteTrack, existingTrackTimes, listTrackPoints } f
 import { computeLiveRemainingProjection } from "../lib/pacingEstimate/microModel/liveRemaining.js";
 import { attachProjectionTimeliness, getStalenessThresholdSeconds } from "../lib/projectionTimeliness.js";
 import {
+  countPersistedUnpaidRaceRoomsCreatedBy,
   deletePersistedRaceRoomInvite,
   deletePersistedRaceRoomRows,
   deleteTaskBoardPayload,
@@ -80,6 +81,9 @@ import {
   listPersistedRaceRoomsForAthlete,
   listPersistedRaceRoomsForMember,
   listPersistedRaceRoomsStartingBetween,
+  listPersistedUnpaidRaceRoomsCreatedBefore,
+  type PersistedRaceRoomDeletion,
+  type RaceRoomExpiryFields,
   type RaceRoomStartFields,
   isJoinCodeTakenInDb,
   listPersistedRoomsForRetention,
@@ -101,11 +105,13 @@ import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import {
+  countsTowardUnpaidRaceLimit,
   crewLimitError,
   isCrewMembership,
   isRoomPaid,
   isRunnerSeat,
-  roomUnpaidError
+  roomUnpaidError,
+  unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
 import { forgetTrackingRemindersForRoom } from "../lib/trackingReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
@@ -451,6 +457,15 @@ function pruneStopPlansToLiveCheckpoints(room: RaceRoom): RaceRoom {
 
 const roomSaveTail = new Map<string, Promise<void>>();
 const inviteSaveTail = new Map<string, Promise<void>>();
+/** One `POST /race-rooms` at a time per creator, so two at once can't both take the last unpaid slot. */
+const roomCreateTail = new Map<string, Promise<void>>();
+
+let roomCreateDelayForTests: (() => Promise<void>) | undefined;
+
+/** Test-only one-shot pause in `POST /race-rooms` after the unpaid race count and before the save. */
+export function setRaceRoomCreateDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  roomCreateDelayForTests = delay;
+}
 
 let roomSaveTailWaitForTests: ((key: string) => void) | undefined;
 
@@ -1934,6 +1949,52 @@ export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number)
   return persisted.filter(startsInRange);
 }
 
+function expiryFieldsOf(room: RaceRoom): RaceRoomExpiryFields {
+  return { id: room.id, entitlementStatus: room.entitlement?.status, createdAt: room.createdAt };
+}
+
+/**
+ * Unpaid rooms created at or before `createdBeforeMs`, oldest first, at most `limit`: the unpaid
+ * race sweeper's candidates. Memory mode scans the in-process rooms (its store). Postgres reads
+ * the stored rows, not this instance's cache (R1), through the unpaid partial index, a day wider
+ * than asked (stored times are ISO-8601 UTC from `toISOString`; the margin covers any other
+ * offset), then the parsed time decides. A room with no parsable `createdAt` is never listed.
+ */
+export async function listUnpaidRaceRoomsCreatedBefore(
+  createdBeforeMs: number,
+  limit: number
+): Promise<RaceRoomExpiryFields[]> {
+  const createdMs = (room: RaceRoomExpiryFields) => Date.parse(room.createdAt ?? "");
+  const createdInRange = (room: RaceRoomExpiryFields) => {
+    const ms = createdMs(room);
+    return Number.isFinite(ms) && ms <= createdBeforeMs;
+  };
+  if (!isRoomPersistenceEnabled()) {
+    return [...raceRooms.values()]
+      .map(expiryFieldsOf)
+      .filter((room) => room.entitlementStatus === "unpaid" && createdInRange(room))
+      .sort((a, b) => createdMs(a) - createdMs(b))
+      .slice(0, limit);
+  }
+  const persisted = await listPersistedUnpaidRaceRoomsCreatedBefore(
+    new Date(createdBeforeMs + 24 * 60 * 60 * 1000).toISOString(),
+    limit
+  );
+  return persisted.filter(createdInRange);
+}
+
+/**
+ * Rooms `userId` created that are still `unpaid` (the unpaid race limit on `POST /race-rooms`).
+ * Counted from the store every instance shares, never this instance's cache: memory mode's rooms,
+ * or the stored rows in Postgres.
+ */
+export async function countUnpaidRaceRoomsCreatedBy(userId: string): Promise<number> {
+  if (!isRoomPersistenceEnabled()) {
+    return [...raceRooms.values()].filter((room) => countsTowardUnpaidRaceLimit(room, userId)).length;
+  }
+  return countPersistedUnpaidRaceRoomsCreatedBy(userId);
+}
+
 /** Account deletion: every room the user is on, plus rooms where they are the runner. */
 export async function listRaceRoomsForAccount(userId: string): Promise<RaceRoom[]> {
   const byId = new Map<string, RaceRoom>();
@@ -1945,19 +2006,49 @@ export async function listRaceRoomsForAccount(userId: string): Promise<RaceRoom[
   return [...byId.values()];
 }
 
+export type RaceRoomDeletion = PersistedRaceRoomDeletion;
+
+/** Decides, from the room as stored right now, whether a conditional delete goes ahead. */
+export type RaceRoomDeleteCondition = (room: RaceRoomExpiryFields) => boolean | Promise<boolean>;
+
 /**
- * Account deletion (#560): close a runner-owned room for everyone. Takes the runtime lock so an
- * in-flight ping or membership write finishes first; after the room row is gone every room URL
- * returns 404, then the dependents (task board, WS2/4/5 runtime, track, invites) are dropped.
+ * Close a room for everyone (account deletion #560, the unpaid race sweeper). Takes the runtime
+ * lock so an in-flight ping, purchase or membership write finishes first, and one queued behind
+ * it finds no room. After the room row is gone every room URL returns 404, then the dependents
+ * (task board, WS2/4/5 runtime, track, invites, tracking reminder claims) are dropped. Chat,
+ * the finished effort and the course-history record live outside this module:
+ * `deleteRaceRoomAndData` (lib/raceRoomDeletion.ts) is the full delete and adds them.
+ *
+ * With `onlyIf`, the room is re-read under the lock (Postgres: the stored row, locked until the
+ * delete commits) and deleted only when `onlyIf` returns true; otherwise nothing changes (`kept`).
+ * A room that is already gone answers `gone`, not an error, and its in-process copies and
+ * dependents are dropped anyway, so a repeat or a second deleter at the same time is harmless.
  */
-export async function deleteRaceRoomForAccountDeletion(roomId: string): Promise<void> {
-  await withRoomRuntimeLock(roomId, async () => {
-    await deletePersistedRaceRoomRows(roomId);
+export async function deleteRaceRoomRecord(
+  roomId: string,
+  onlyIf?: RaceRoomDeleteCondition
+): Promise<RaceRoomDeletion> {
+  const outcome = await withRoomRuntimeLock(roomId, async (): Promise<RaceRoomDeletion> => {
+    let result: RaceRoomDeletion;
+    if (isRoomPersistenceEnabled()) {
+      result = await deletePersistedRaceRoomRows(roomId, onlyIf);
+    } else {
+      // Memory mode: the in-process room is the stored one.
+      const live = raceRooms.get(roomId);
+      result = !live ? "gone" : onlyIf && !(await onlyIf(expiryFieldsOf(live))) ? "kept" : "deleted";
+    }
+    if (result === "kept") {
+      return result;
+    }
     await withExclusiveTail(roomSaveTail, roomId, async () => {
       unindexJoinCodeForRoomId(roomId);
       raceRooms.delete(roomId);
     });
+    return result;
   });
+  if (outcome === "kept") {
+    return outcome;
+  }
   for (const [token, invite] of [...raceRoomInvites.entries()]) {
     if (invite.roomId === roomId) raceRoomInvites.delete(token);
   }
@@ -1971,6 +2062,7 @@ export async function deleteRaceRoomForAccountDeletion(roomId: string): Promise<
   forgetTrackingRemindersForRoom(roomId);
   roomPingState.delete(roomId);
   roomProjectionState.delete(roomId);
+  return outcome;
 }
 
 /**
@@ -2831,6 +2923,26 @@ export async function setRaceRoomStatusForTests(roomId: string, status: RaceRoom
   await saveRaceRoom({ ...room, status });
 }
 
+/**
+ * Test-only: backdate a room's `createdAt` (the unpaid race sweeper's clock), or drop it with
+ * `undefined` as on a malformed stored payload. Writes the store, Postgres included.
+ */
+export async function setRaceRoomCreatedAtForTests(roomId: string, createdAt: string | undefined): Promise<void> {
+  const mode = process.env.PERSISTENCE_MODE;
+  if (mode !== "memory" && mode !== "postgres") {
+    throw new Error(
+      `setRaceRoomCreatedAtForTests is test-only; use PERSISTENCE_MODE=memory or postgres (got ${mode ?? "unset"})`
+    );
+  }
+  await commitRaceRoomUpdate(roomId, (latest) => {
+    const next = { ...latest, createdAt } as RaceRoom;
+    if (createdAt === undefined) {
+      delete (next as Partial<RaceRoom>).createdAt;
+    }
+    return next;
+  });
+}
+
 export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   await initRoomPersistence(app.log);
 
@@ -2879,58 +2991,82 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const now = new Date().toISOString();
-    const joinCode = await generateUniqueJoinCode();
-    const room: RaceRoom = {
-      id: roomId,
-      joinCode,
-      creatorName: parsed.data.creatorName,
-      description: parsed.data.description,
-      crewName: parsed.data.crewName,
-      teamId: parsed.data.teamId,
-      athleteId: parsed.data.athleteId,
-      name: parsed.data.name,
-      status: "active",
-      createdAt: now,
-      createdByUserId: request.identity.sub,
-      entitlement: {
-        status: "unpaid",
-        lastUpdatedAt: now,
-        source: "manual",
-        crewTier: "one"
-      },
-      memberships: [
-        {
-          userId: request.identity.sub,
-          role: parsed.data.creatorRole,
-          joinedAt: now
-        }
-      ]
-    };
-
-    const body = roomForViewer(room, request.identity.sub);
-    let roomPersisted = false;
-    try {
-      await saveRaceRoom(room);
-      roomPersisted = true;
-      await completeIdempotentMutation(request, parsed.data, 201, body);
-      return reply.code(201).send(body);
-    } catch (err) {
-      if (!roomPersisted) {
+    const creatorId = request.identity.sub;
+    // Count and save one create at a time per creator on this instance, so two creates at once
+    // can't both take the last unpaid slot. Instances don't share this lock (R1): creates sent
+    // to two instances at the same moment can each pass the count.
+    return withExclusiveTail(roomCreateTail, creatorId, async () => {
+      let limitError: ReturnType<typeof unpaidRaceLimitError>;
+      try {
+        limitError = unpaidRaceLimitError(await countUnpaidRaceRoomsCreatedBy(creatorId));
+      } catch (err) {
         await releaseIdempotentMutation(request, parsed.data);
         throw err;
       }
-      // Room is durable — do not release the lease (that created orphans on retry).
-      try {
-        await completeIdempotentMutation(request, parsed.data, 201, body);
-      } catch (completeErr) {
-        request.log.warn(
-          { err: completeErr, roomId: room.id },
-          "idempotency complete failed after race room save"
-        );
+      if (limitError) {
+        // Released, not stored: the same key works once a race is unlocked or expires.
+        await releaseIdempotentMutation(request, parsed.data);
+        return reply.code(409).send(limitError);
       }
-      return reply.code(201).send(body);
-    }
+      const createDelay = roomCreateDelayForTests;
+      if (createDelay) {
+        roomCreateDelayForTests = undefined;
+        await createDelay();
+      }
+
+      const now = new Date().toISOString();
+      const joinCode = await generateUniqueJoinCode();
+      const room: RaceRoom = {
+        id: roomId,
+        joinCode,
+        creatorName: parsed.data.creatorName,
+        description: parsed.data.description,
+        crewName: parsed.data.crewName,
+        teamId: parsed.data.teamId,
+        athleteId: parsed.data.athleteId,
+        name: parsed.data.name,
+        status: "active",
+        createdAt: now,
+        createdByUserId: creatorId,
+        entitlement: {
+          status: "unpaid",
+          lastUpdatedAt: now,
+          source: "manual",
+          crewTier: "one"
+        },
+        memberships: [
+          {
+            userId: creatorId,
+            role: parsed.data.creatorRole,
+            joinedAt: now
+          }
+        ]
+      };
+
+      const body = roomForViewer(room, creatorId);
+      let roomPersisted = false;
+      try {
+        await saveRaceRoom(room);
+        roomPersisted = true;
+        await completeIdempotentMutation(request, parsed.data, 201, body);
+        return reply.code(201).send(body);
+      } catch (err) {
+        if (!roomPersisted) {
+          await releaseIdempotentMutation(request, parsed.data);
+          throw err;
+        }
+        // Room is durable — do not release the lease (that created orphans on retry).
+        try {
+          await completeIdempotentMutation(request, parsed.data, 201, body);
+        } catch (completeErr) {
+          request.log.warn(
+            { err: completeErr, roomId: room.id },
+            "idempotency complete failed after race room save"
+          );
+        }
+        return reply.code(201).send(body);
+      }
+    });
   });
 
   app.get("/race-rooms/mine", async (request, reply) => {

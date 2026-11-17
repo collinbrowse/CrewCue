@@ -6,6 +6,7 @@ import type {
   PlatformEventEnvelope,
   PlatformEventName,
   RaceRoom,
+  RaceRoomEntitlementStatus,
   RaceRoomInvite,
   ReplayedRaceRoomAggregate,
   TransportChannel
@@ -112,6 +113,18 @@ const TRACKING_REMINDERS_DDL = `
   );
   CREATE INDEX IF NOT EXISTS race_rooms_json_race_start_at
     ON race_rooms_json ((payload->>'raceStartAt') COLLATE "C");
+`;
+
+/**
+ * Mirrors db/migrations/0021_unpaid_race_rooms.sql: unpaid rooms only, by creation time. The
+ * unpaid race sweeper reads a range of it and the unpaid race limit scans it, so neither reads
+ * every paid room's payload. Queries must spell the predicate exactly as below, `'unpaid'` as a
+ * literal (not a bind parameter), or Postgres can't prove the partial index applies.
+ */
+const UNPAID_RACE_ROOMS_DDL = `
+  CREATE INDEX IF NOT EXISTS race_rooms_json_unpaid_created_at
+    ON race_rooms_json ((payload->>'createdAt') COLLATE "C")
+    WHERE payload->'entitlement'->>'status' = 'unpaid';
 `;
 
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
@@ -250,6 +263,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(FINISHED_EFFORTS_DDL);
     await client.query(COURSE_HISTORY_DDL);
     await client.query(TRACKING_REMINDERS_DDL);
+    await client.query(UNPAID_RACE_ROOMS_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -447,6 +461,74 @@ export async function listPersistedRaceRoomsStartingBetween(
     entitlement: row.entitlement,
     memberships: row.memberships
   }));
+}
+
+/**
+ * The room fields the unpaid race sweeper reads. Either may be missing on a malformed payload;
+ * the sweeper then keeps the room.
+ */
+export type RaceRoomExpiryFields = {
+  id: string;
+  entitlementStatus: RaceRoomEntitlementStatus | undefined;
+  createdAt: string | undefined;
+};
+
+/**
+ * Unpaid rooms whose stored `createdAt` string is before `beforeIso`, compared as bytes, oldest
+ * first, at most `limit`: a range of the `race_rooms_json_unpaid_created_at` partial index. A
+ * prefilter like `listPersistedRaceRoomsStartingBetween`: callers widen the range and check the
+ * parsed time. Only the sweeper's three fields leave the database, never the payload (course GPX).
+ */
+export async function listPersistedUnpaidRaceRoomsCreatedBefore(
+  beforeIso: string,
+  limit: number
+): Promise<RaceRoomExpiryFields[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{
+    id: string;
+    entitlement_status: RaceRoomEntitlementStatus | null;
+    created_at: string | null;
+  }>(
+    `
+      SELECT id,
+             payload->'entitlement'->>'status' AS entitlement_status,
+             payload->>'createdAt' AS created_at
+      FROM race_rooms_json
+      WHERE payload->'entitlement'->>'status' = 'unpaid'
+        AND payload->>'createdAt' < $1::text COLLATE "C"
+      ORDER BY (payload->>'createdAt') COLLATE "C" ASC
+      LIMIT $2
+    `,
+    [beforeIso, limit]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    entitlementStatus: row.entitlement_status ?? undefined,
+    createdAt: row.created_at ?? undefined
+  }));
+}
+
+/**
+ * How many stored rooms `userId` created that are still `unpaid` (the unpaid race limit). The
+ * creator is `createdByUserId`, else the first member (rooms from before #649), as
+ * `raceCreatorOf` reads it. Scans the unpaid partial index, not every room.
+ */
+export async function countPersistedUnpaidRaceRoomsCreatedBy(userId: string): Promise<number> {
+  if (!pool) {
+    return 0;
+  }
+  const result = await pool.query<{ unpaid: string }>(
+    `
+      SELECT count(*) AS unpaid
+      FROM race_rooms_json
+      WHERE payload->'entitlement'->>'status' = 'unpaid'
+        AND COALESCE(payload->>'createdByUserId', payload->'memberships'->0->>'userId') = $1
+    `,
+    [userId]
+  );
+  return Number(result.rows[0]?.unpaid ?? 0);
 }
 
 export async function isJoinCodeTakenInDb(joinCode: string): Promise<boolean> {
@@ -983,18 +1065,64 @@ export async function resetPersistedPlatformEventsForTests(): Promise<void> {
 }
 
 /**
- * Account deletion: remove every durable row keyed by this room, in one transaction.
- * Covers the room document, invites, task board, WS2/WS4/WS5 payloads, snapshots, the
- * platform event log for the room aggregate, and the athlete ping track.
- * No-op in memory mode (callers clear their in-process maps).
+ * What a room delete did. `deleted`: this call removed the room row. `kept`: the caller's
+ * condition said no, and nothing changed. `gone`: there was no room row (already deleted).
  */
-export async function deletePersistedRaceRoomRows(roomId: string): Promise<void> {
+export type PersistedRaceRoomDeletion = "deleted" | "kept" | "gone";
+
+/**
+ * Room deletion (account deletion, the unpaid race sweeper): remove every durable row keyed by
+ * this room, in one transaction. Covers the room document, invites, task board, WS2/WS4/WS5
+ * payloads, snapshots, the platform event log for the room aggregate, and the athlete ping track
+ * (tracking reminder claims go with the room row, ON DELETE CASCADE).
+ *
+ * With `onlyIf`, the stored row is read and locked (`FOR UPDATE`) first, and nothing is deleted
+ * unless `onlyIf` returns true for it. A write from another instance waits on that lock, so the
+ * condition holds for the row the delete removes (that instance's whole-document upsert can still
+ * re-create the row after the commit from its stale cache: R1). Without `onlyIf` the delete is
+ * unconditional, and dependent rows go even when the room row is already gone.
+ *
+ * Memory mode keeps no rows: it returns `gone`, and the caller decides from its in-process maps.
+ */
+export async function deletePersistedRaceRoomRows(
+  roomId: string,
+  onlyIf?: (room: RaceRoomExpiryFields) => boolean | Promise<boolean>
+): Promise<PersistedRaceRoomDeletion> {
   if (!pool) {
-    return;
+    return "gone";
   }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    if (onlyIf) {
+      const locked = await client.query<{
+        entitlement_status: RaceRoomEntitlementStatus | null;
+        created_at: string | null;
+      }>(
+        `
+          SELECT payload->'entitlement'->>'status' AS entitlement_status,
+                 payload->>'createdAt' AS created_at
+          FROM race_rooms_json
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [roomId]
+      );
+      const row = locked.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return "gone";
+      }
+      const fields: RaceRoomExpiryFields = {
+        id: roomId,
+        entitlementStatus: row.entitlement_status ?? undefined,
+        createdAt: row.created_at ?? undefined
+      };
+      if (!(await onlyIf(fields))) {
+        await client.query("ROLLBACK");
+        return "kept";
+      }
+    }
     await client.query("DELETE FROM race_room_invites_json WHERE room_id = $1", [roomId]);
     await client.query("DELETE FROM room_task_boards_json WHERE room_id = $1", [roomId]);
     await client.query("DELETE FROM room_ws2_runtime_json WHERE room_id = $1", [roomId]);
@@ -1005,8 +1133,9 @@ export async function deletePersistedRaceRoomRows(roomId: string): Promise<void>
     await client.query("DELETE FROM platform_domain_events WHERE aggregate_id = $1", [roomId]);
     await client.query("DELETE FROM platform_aggregate_heads WHERE aggregate_id = $1", [roomId]);
     await client.query("DELETE FROM room_athlete_pings WHERE room_id = $1", [roomId]);
-    await client.query("DELETE FROM race_rooms_json WHERE id = $1", [roomId]);
+    const room = await client.query("DELETE FROM race_rooms_json WHERE id = $1", [roomId]);
     await client.query("COMMIT");
+    return room.rowCount === 1 ? "deleted" : "gone";
   } catch (err) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw err;
