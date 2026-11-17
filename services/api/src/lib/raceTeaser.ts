@@ -19,7 +19,7 @@ import type {
   RaceRoomProjection
 } from "@crewcue/contracts";
 import { geodesicPolylineLength, type CourseMetricPoint } from "@crewcue/map-core";
-import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance } from "./raceProjection.js";
+import { hasUsableBaselineTrack, plannedElapsedSecondsForDistance, withinCourseLength } from "./raceProjection.js";
 
 /** Where a stored estimate went (see `StoredPacingEstimate` in pacingEstimateStore.ts). */
 export type EstimateProvenance = {
@@ -273,9 +273,11 @@ export function attachBlockedBy(
   return others.find((room) => room.entitlement.status === "unpaid");
 }
 
-/** How far an unpaid race's course may be from the length its plan was computed for. */
-export const COURSE_LENGTH_TOLERANCE_METERS = 100;
-export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
+/**
+ * How far an unpaid race's course may be from the length its plan was computed for: the course
+ * length tolerance the projection and schedule also read the finish line with.
+ */
+export { COURSE_LENGTH_TOLERANCE_METERS, COURSE_LENGTH_TOLERANCE_RATIO } from "./raceProjection.js";
 
 /**
  * A race's course length (m), the length the projection reads its finish at: the course's
@@ -319,8 +321,7 @@ export function estimateCourseLengthMeters(stored: {
  */
 export function courseLengthsMatch(estimateMeters: number | undefined, courseMeters: number | undefined): boolean {
   if (!isPositive(estimateMeters) || !isPositive(courseMeters)) return false;
-  const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseMeters * COURSE_LENGTH_TOLERANCE_RATIO);
-  return Math.abs(estimateMeters - courseMeters) <= tolerance;
+  return withinCourseLength(estimateMeters, courseMeters);
 }
 
 function isPositive(value: number | undefined): value is number {

@@ -84,6 +84,75 @@ private func graph(_ transport: some HTTPTransport) -> ClientGraph {
     #expect(runner.progressMeters(checkpoints: course) == 10 * mile)
 }
 
+// A test ping before the gun, at the finish line's coordinates (a point-to-point course's shuttle
+// lot). The race starts at 12:00.
+private let testPingAtFinish = #"{"pingId":"p-test","latitude":39.2,"longitude":-120.0,"recordedAt":"2026-08-15T11:50:00.000Z","receivedAt":"2026-08-15T11:50:01.000Z","progressMeters":0,"preStart":true}"#
+
+@Test func preStartPingShowsTheDotButPutsTheRunnerAtTheStartWithNoTrackCall() throws {
+    let response = try JSONDecoder().decode(RaceRoomLatestPingResponse.self, from: Data(latestJSON(ping: testPingAtFinish).utf8))
+    let runner = RunnerProgress(response: response)
+    #expect(runner.ping?.preStart == true)
+    #expect(runner.ping?.latitude == 39.2, "the dot stays where the ping was")
+    #expect(runner.progressMeters(checkpoints: course) == 0)
+    let readout = RaceDayReadouts.make(sheet: sheet, checkpoints: course, runner: runner, now: date("2026-08-15T11:55:00.000Z"))
+    #expect(readout.pingState == .live)
+    #expect(readout.pingLabel == "LAST PING: 5 MIN AGO")
+    #expect(readout.progressLabel == "MILE 0 / 20")
+    #expect(readout.percentLabel == "0%")
+    #expect(readout.status == .unknown)
+    #expect(readout.statusLabel == "")
+    #expect(readout.averagePaceLabel == "—")
+    #expect(RaceDayReadouts.timeline(sheet: sheet, checkpoints: course, progressMeters: runner.progressMeters(checkpoints: course)).map(\.state) == [.current, .projected, .projected])
+}
+
+@Test func preStartPingWithoutServerProgressIsNeverSnappedToACheckpoint() throws {
+    // No `progressMeters` (an API that left it out): snapped to the nearest checkpoint, the ping at
+    // the finish would read as a finished race, five minutes after the gun "AHEAD 3H 55M".
+    let json = #"{"pingId":"p-test","latitude":39.2,"longitude":-120.0,"recordedAt":"2026-08-15T11:58:00.000Z","receivedAt":"2026-08-15T11:58:01.000Z","preStart":true}"#
+    let response = try JSONDecoder().decode(RaceRoomLatestPingResponse.self, from: Data(latestJSON(ping: json).utf8))
+    let runner = RunnerProgress(response: response)
+    #expect(runner.progressMeters(checkpoints: course) == 0)
+    let readout = RaceDayReadouts.make(sheet: sheet, checkpoints: course, runner: runner, now: date("2026-08-15T12:05:00.000Z"))
+    #expect(readout.progressLabel == "MILE 0 / 20")
+    #expect(readout.statusLabel == "")
+
+    var raced = runner
+    raced.ping?.preStart = false
+    #expect(raced.progressMeters(checkpoints: course) == 20 * mile, "the same ping as a race ping snaps to the finish")
+    #expect(RaceDayReadouts.make(sheet: sheet, checkpoints: course, runner: raced, now: date("2026-08-15T12:05:00.000Z")).statusLabel == "AHEAD 3H 55M")
+}
+
+@Test func runtimeProjectAidSheetPutsAPreStartRunnerAtTheStart() async throws {
+    // Android reads the runner through the bridge: the same rule.
+    let runner = try JSONSerialization.jsonObject(with: Data(latestJSON(ping: testPingAtFinish).utf8))
+    let checkpoints = course.map { checkpoint -> [String: Any] in
+        [
+            "id": checkpoint.id,
+            "title": checkpoint.title ?? checkpoint.id,
+            "latitude": checkpoint.latitude ?? 0,
+            "longitude": checkpoint.longitude ?? 0,
+            "distanceMetersFromStart": checkpoint.distanceMetersFromStart ?? 0
+        ]
+    }
+    let request: [String: Any] = [
+        "op": "projectAidSheet",
+        "checkpoints": checkpoints,
+        "runner": runner,
+        "selectedIndex": 0,
+        "follow": true,
+        "nowMs": date("2026-08-15T11:55:00.000Z").timeIntervalSince1970 * 1000
+    ]
+    let raw = await RuntimeCall.perform(String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self))
+    let root = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    let result = try #require(root["result"] as? [String: Any])
+    let readout = try #require(result["readout"] as? [String: Any])
+    #expect((readout["progressLabel"] as? String) == "MILE 0 / 20")
+    #expect((readout["pingState"] as? String) == "live")
+    #expect((readout["statusLabel"] as? String) == "")
+    let timeline = try #require(result["timeline"] as? [[String: Any]])
+    #expect(timeline.map { $0["state"] as? String } == ["current", "projected", "projected"])
+}
+
 @Test func unreadablePingCountsAsNoPing() throws {
     let badTime = #"{"pingId":"p","latitude":39,"longitude":-120,"recordedAt":"yesterday","receivedAt":"x"}"#
     let badLat = #"{"pingId":"p","latitude":91,"longitude":-120,"recordedAt":"2026-08-15T12:58:00.000Z","receivedAt":"x"}"#

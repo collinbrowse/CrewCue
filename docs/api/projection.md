@@ -22,7 +22,9 @@ Checkpoints form an ordered **polyline**. Distances use a local equirectangular 
 
 ## Bootstrap projection (no ping yet)
 
-When the room has **course**, **planned pace**, and **race anchor** (`raceStartAt` / `activatedAt`), but no stored projection state, **`GET /race-rooms/:roomId/projection`** seeds a **bootstrap** projection (synthetic checkpoint-0 ping) so clients receive **200** with `checkpointSplits` before the first real ping. `PUT .../course` also ensures bootstrap after a successful save, and `PATCH .../race-start` re-seeds it at the new start while the race has no ping.
+When the room has **course**, **planned pace**, and **race anchor** (`raceStartAt` / `activatedAt`), but no stored projection state, **`GET /race-rooms/:roomId/projection`** seeds a **bootstrap** projection (synthetic checkpoint-0 ping) so clients receive **200** with `checkpointSplits` before the first real ping.
+
+While the race has no ping from the start on, a course save (`PUT .../course`, a waypoint added or removed), a plan attach, and `PATCH .../race-start` re-seed the bootstrap for the room as it is now (its course, plan and start), and put the crew's check-ins back on it (visits with a `manualEntry`, as `manual_crew`). Nothing a ping left there is kept: no position, crossing, auto visit or stop, and no adopted `uploadIntervalSeconds`. Such state can only come from pings that a later start made pre-start, or from before pre-start pings were ignored; the race's first ping re-seeds such a stored projection before it folds in.
 
 Taken before the start, the bootstrap's finish is **the start plus the plan** (plus the planned stops before the finish), not now plus the plan: the rest of the course counts from the later of the projection's time and the race start. A pre-start ping never replaces the bootstrap.
 
@@ -37,7 +39,7 @@ When **`POST /race-rooms/:roomId/pings`** returns **201** (`decision: "accepted"
 1. Projects the ping onto the polyline → `progressMeters` (0…`courseLengthMeters`).
 2. Updates **first crossing** times for checkpoints (checkpoint `b` when progress first reaches its cumulative distance). The start checkpoint is stamped with the race anchor on the first accepted ping.
 3. Builds `checkpointSplits[]` with planned elapsed at each checkpoint (`distanceKm × pace`), actual elapsed when crossed (`crossedAt − raceAnchor`), and `delta = actual − planned`.
-4. Computes **`etaFinishPlanIso`**, the **arrival at the finish line**: `recordedAt` of the ping (the race start, if later) plus remaining distance at **plan pace** (with a plan curve: anchored at the last crossed checkpoint), plus the planned stops still ahead **before** the finish. The finish checkpoint (the farthest along the course) never adds its own `plannedStopSeconds`, nor what is left of a stop in progress there, so the finish equals the schedule's finish-row arrival.
+4. Computes **`etaFinishPlanIso`**, the **arrival at the finish line**: `recordedAt` of the ping (the race start, if later) plus remaining distance at **plan pace** (with a plan curve: anchored at the last crossed checkpoint), plus the planned stops still ahead **before** the finish. The finish checkpoint (the farthest along the course, when it is at the course's end: within 1% of the course length or 100 m, whichever is larger) never adds its own `plannedStopSeconds`, nor what is left of a stop in progress there, so the finish equals the schedule's finish-row arrival. Checkpoints that stop short of the route's end (a course file with no finish waypoint) have no finish checkpoint: the finish is read at the course length, and every checkpoint's planned stop, the last aid's included, is on the way there.
 
 The **201** response may include a **`projection`** object (same shape as GET, including timeliness — see below); a pre-start ping's reply has none. If projection math fails, the ping is still accepted and a warning is logged (`projection_recompute_failed`).
 

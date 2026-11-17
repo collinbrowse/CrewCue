@@ -25,6 +25,7 @@ import {
   type CrewTask,
   type CrewTaskStatus,
   type OpsTimelineEvent,
+  type PacingEstimate,
   type ProtocolNote,
   type MapWorkspaceLayer,
   type RaceMapWorkspace,
@@ -981,6 +982,46 @@ export function resolveRaceAnchorIso(room: RaceRoom): string | undefined {
 }
 
 /**
+ * `estimate` with its clocks (finish, bands, aid ETAs) at `raceStartAt` plus their elapsed
+ * seconds, as the estimator writes them: the plan of record once the start moved. The elapsed
+ * plan stays as computed. Unchanged when `raceStartAt` does not parse.
+ */
+function estimateAtStart(estimate: PacingEstimate, raceStartAt: string): PacingEstimate {
+  const startMs = Date.parse(raceStartAt);
+  if (Number.isNaN(startMs)) {
+    return estimate;
+  }
+  const clockAt = (elapsedSeconds: number) => new Date(startMs + elapsedSeconds * 1000).toISOString();
+  const shifted: PacingEstimate = {
+    ...estimate,
+    expectedFinishAt: clockAt(estimate.expectedFinishElapsedSeconds),
+    aidEtas: estimate.aidEtas.map((eta) => ({ ...eta, clockArrivalAt: clockAt(eta.elapsedSeconds) }))
+  };
+  if (estimate.bands) {
+    const bands: NonNullable<PacingEstimate["bands"]> = {};
+    for (const [kind, point] of Object.entries(estimate.bands) as Array<
+      [keyof NonNullable<PacingEstimate["bands"]>, NonNullable<PacingEstimate["bands"]>[keyof NonNullable<PacingEstimate["bands"]>]]
+    >) {
+      if (point) {
+        bands[kind] = { ...point, finishAt: clockAt(point.finishElapsedSeconds) };
+      }
+    }
+    shifted.bands = bands;
+  }
+  return shifted;
+}
+
+/** `room` with `raceStartAt` and `activatedAt` at `raceStartAt`, and the plan of record's clocks with them. */
+function withRaceStart(room: RaceRoom, raceStartAt: string): RaceRoom {
+  return {
+    ...room,
+    raceStartAt,
+    activatedAt: raceStartAt,
+    ...(room.pacingEstimate ? { pacingEstimate: estimateAtStart(room.pacingEstimate, raceStartAt) } : {})
+  };
+}
+
+/**
  * The race start (ms) pings are judged against: `raceStartAt`, when the room has one. A ping
  * recorded before it is a pre-start (test) ping: the runner's "test tracking now" days before the
  * race, or a ping sent on race morning before the gun. It is stored, and the latest one still
@@ -1013,6 +1054,9 @@ function lastRacePing(pingState: RoomPingState, room: RaceRoom): AcceptedPing | 
   return last && !isPreStartPing(room, last.recordedAtMs) ? last : null;
 }
 
+/** `asOfPingId` of the pre-race projection (`ensureBootstrapProjection`): no ping drove it. */
+const BOOTSTRAP_PING_ID = "bootstrap";
+
 /**
  * When course + pace + anchor exist but no projection state yet (no accepted race ping),
  * seed in-memory (and persisted) projection at the course start. Taken before the start, its
@@ -1031,7 +1075,7 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
   if (!origin) {
     return false;
   }
-  const pingId = "bootstrap";
+  const pingId = BOOTSTRAP_PING_ID;
   const recordedAt = new Date().toISOString();
   const ping: ProjectionPing = {
     pingId,
@@ -1085,9 +1129,9 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
  * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
  * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
  *
- * Pre-race (no accepted race ping; pre-start pings do not count): drop bootstrap state and
- * re-seed from the new plan, then copy any closed/auto visit logs onto the matching checkpoint
- * ids so Recalculate cannot erase check-ins that landed before the first GPS ping.
+ * Pre-race (no accepted race ping; pre-start pings do not count): re-seed from the new plan at
+ * the room's start, keeping the crew's check-ins so Recalculate cannot erase check-ins that
+ * landed before the first GPS ping (`reseedPreRaceProjection`).
  * In-race (race ping present): recompute over the last accepted ping with the new baseline/pace
  * (visit state is already carried via `previous`).
  * The start-time route (`PATCH /race-start`) refreshes through here too, so a pre-race projection
@@ -1099,24 +1143,56 @@ export async function refreshProjectionAfterPlanOfRecordChange(
   log?: { warn: (obj: object, msg?: string) => void }
 ): Promise<void> {
   await loadWs2RuntimeIfNeeded(roomId);
+  await recomputeProjectionForRoomChange(roomId, room, (err) =>
+    log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed")
+  );
+}
+
+/**
+ * Recompute the stored projection after the room changed (course, plan, start), then save it.
+ * With a race ping, over the last one (`recomputeStoredProjectionAfterCourseChange`). Without
+ * one (pre-start pings do not count), re-seeded at the room's start with only the crew's
+ * check-ins kept (`reseedPreRaceProjection`): nothing a pre-start ping put there survives. A
+ * recompute that fails is passed to `onRecomputeError` and the stored projection stays.
+ */
+async function recomputeProjectionForRoomChange(
+  roomId: string,
+  room: RaceRoom,
+  onRecomputeError: (err: unknown) => void
+): Promise<void> {
   const pingState = getOrInitPingState(roomId);
-  const previous = roomProjectionState.get(roomId);
-  const racePing = lastRacePing(pingState, room);
-  const visitsToRestore =
-    !racePing && previous ? previous.lastProjectionCore.checkpointSplits.filter(checkpointSplitHasVisitLog) : [];
-  if (!racePing) {
-    roomProjectionState.delete(roomId);
-  }
-  try {
-    await recomputeStoredProjectionAfterCourseChange(roomId, room);
-  } catch (err) {
-    log?.warn({ err, roomId }, "projection_recompute_after_estimate_attach_failed");
-  }
-  await ensureBootstrapProjection(roomId, room, true);
-  if (visitsToRestore.length > 0) {
-    restoreProjectionVisitLogs(roomId, visitsToRestore, room);
+  if (lastRacePing(pingState, room)) {
+    try {
+      await recomputeStoredProjectionAfterCourseChange(roomId, room);
+    } catch (err) {
+      onRecomputeError(err);
+    }
+    // A room whose route went away loses its projection there; seed one if it can.
+    await ensureBootstrapProjection(roomId, room, false);
+  } else {
+    await reseedPreRaceProjection(roomId, room);
+    // The staleness threshold is a race ping's to set: one the start move made pre-start no longer
+    // sets it.
+    delete pingState.lastUploadIntervalSeconds;
   }
   await saveWs2RuntimeSnapshot(roomId);
+}
+
+/**
+ * Before the race's first ping (pre-start pings do not count): drop the stored projection, seed
+ * the bootstrap at the room's start, and put the crew's check-ins back on it
+ * (`crewCheckInSplits`). The position, crossings, stops and auto visits pings put there are not
+ * kept: every one came from a ping that is pre-start now (the start moved later than it), or
+ * from before pre-start pings were ignored. Not persisted; the caller saves.
+ */
+async function reseedPreRaceProjection(roomId: string, room: RaceRoom): Promise<void> {
+  const previous = roomProjectionState.get(roomId);
+  const checkIns = previous ? crewCheckInSplits(previous.lastProjectionCore.checkpointSplits) : [];
+  roomProjectionState.delete(roomId);
+  await ensureBootstrapProjection(roomId, room, false);
+  if (checkIns.length > 0) {
+    restoreProjectionVisitLogs(roomId, checkIns, room);
+  }
 }
 
 type TaskBoardMaterializedPayload = {
@@ -1895,9 +1971,34 @@ function checkpointSplitHasVisitLog(split: RaceCheckpointSplitRow): boolean {
 }
 
 /**
- * Copy visit logs onto a freshly bootstrapped projection after plan-of-record attach.
- * Checkpoint geometry is unchanged on attach, so ids match 1:1; planned splits stay on the
- * new baseline (#487) while closed actuals keep shifting GET `/schedule`.
+ * The crew's check-ins in a projection's splits: the visits with a `manualEntry`, renumbered,
+ * without their auto-detected part, each one the crew's (`manual_crew`). Splits with none are
+ * left out. Before the race's first ping these are the only visits that count: an auto visit,
+ * and the auto part of a check-in entered over one, came from pings that are pre-start now.
+ */
+function crewCheckInSplits(splits: readonly RaceCheckpointSplitRow[]): RaceCheckpointSplitRow[] {
+  const kept: RaceCheckpointSplitRow[] = [];
+  for (const split of splits) {
+    const visits = split.visits
+      .filter((visit) => visit.manualEntry !== undefined)
+      .map(({ autoDetected: _pingDerived, ...visit }, index): CheckpointVisit => ({
+        ...visit,
+        visitIndex: index + 1,
+        resolvedSource: "manual_crew",
+        activeActualStopSeconds: visit.manualEntry?.actualStopSeconds ?? null
+      }));
+    if (visits.length > 0) {
+      kept.push({ ...split, visits });
+    }
+  }
+  return kept;
+}
+
+/**
+ * Copy visit logs onto a freshly bootstrapped projection (`reseedPreRaceProjection`): after a
+ * plan-of-record attach, a course save or a start change before the race's first ping. Matched
+ * by checkpoint id (a visited checkpoint cannot be removed); planned splits stay on the new
+ * baseline (#487) while closed actuals keep shifting GET `/schedule`.
  */
 function restoreProjectionVisitLogs(
   roomId: string,
@@ -1946,27 +2047,6 @@ function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): 
   return ids;
 }
 
-/**
- * Course-shape writes used to drop in-memory projection whenever no GPS ping had
- * been accepted, then bootstrap empty splits. Closed check-ins live only in that
- * projection, so adding/removing an unvisited waypoint (or re-saving the course)
- * silently destroyed visits and reverted GET /schedule ETAs to plan.
- *
- * Keep the stored projection when it already has visit logs; only discard when
- * there is neither a live race ping (a pre-start ping is none) nor a check-in/auto visit to
- * preserve.
- */
-function discardStaleProjectionIfNoLivePing(roomId: string, room: RaceRoom): void {
-  if (lastRacePing(getOrInitPingState(roomId), room)) {
-    return;
-  }
-  const prev = roomProjectionState.get(roomId);
-  if (prev && visitedCheckpointIdsFromStoredProjection(prev).size > 0) {
-    return;
-  }
-  roomProjectionState.delete(roomId);
-}
-
 function pruneProjectionStateMaps(
   state: Pick<RoomProjectionState, "splitCrossedAt" | "visitStates" | "visitMeta" | "lastProgressMeters" | "rollingMovingSpeedMps" | "liveRatio">,
   allowedCheckpointIds: Set<string>
@@ -1979,6 +2059,44 @@ function pruneProjectionStateMaps(
     visitStates: Object.fromEntries(Object.entries(state.visitStates).filter(([id]) => allowedCheckpointIds.has(id))),
     visitMeta: Object.fromEntries(Object.entries(state.visitMeta).filter(([id]) => allowedCheckpointIds.has(id)))
   };
+}
+
+/**
+ * Visit accumulators without the auto visits that arrived before the race start: pings that are
+ * pre-start now made them (the start moved later than them). The crew's check-ins stay (a visit
+ * with a `manualEntry`). Renumbered. Under a start that has not moved this drops nothing: a
+ * pre-start ping never folds in, so no auto visit opens before the start.
+ */
+function withoutPreStartAutoVisits(
+  state: Pick<RoomProjectionState, "visitStates" | "visitMeta">,
+  room: RaceRoom
+): Pick<RoomProjectionState, "visitStates" | "visitMeta"> {
+  const visitStates: RoomProjectionState["visitStates"] = {};
+  const visitMeta: RoomProjectionState["visitMeta"] = { ...state.visitMeta };
+  for (const [checkpointId, visits] of Object.entries(state.visitStates)) {
+    const metadata = state.visitMeta[checkpointId] ?? [];
+    const keptVisits: RoomProjectionState["visitStates"][string] = [];
+    const keptMetadata: RoomProjectionState["visitMeta"][string] = [];
+    visits.forEach((visit, index) => {
+      const meta = metadata[index];
+      const arrivalMs = visit.arrivalRecordedAt ? Date.parse(visit.arrivalRecordedAt) : Number.NaN;
+      if (meta?.manualEntry === undefined && Number.isFinite(arrivalMs) && isPreStartPing(room, arrivalMs)) {
+        return;
+      }
+      keptVisits.push({ ...visit });
+      if (meta) {
+        keptMetadata.push({ ...meta, visitIndex: keptVisits.length });
+      }
+    });
+    delete visitMeta[checkpointId];
+    if (keptVisits.length > 0) {
+      visitStates[checkpointId] = keptVisits;
+    }
+    if (keptMetadata.length > 0) {
+      visitMeta[checkpointId] = keptMetadata;
+    }
+  }
+  return { visitStates, visitMeta };
 }
 
 async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: RaceRoom): Promise<void> {
@@ -2004,12 +2122,12 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     longitude: last.longitude,
     recordedAt: new Date(last.recordedAtMs).toISOString()
   };
+  // An auto visit a pre-start ping made (the start moved later than it) does not carry over.
   const previous = prev
     ? {
         lastProgressMeters: prev.lastProgressMeters,
         splitCrossedAt: { ...prev.splitCrossedAt },
-        visitStates: structuredClone(prev.visitStates),
-        visitMeta: structuredClone(prev.visitMeta),
+        ...withoutPreStartAutoVisits(structuredClone({ visitStates: prev.visitStates, visitMeta: prev.visitMeta }), room),
         rollingMovingSpeedMps: prev.rollingMovingSpeedMps,
         ...(prev.liveRatio ? { liveRatio: { ...prev.liveRatio } } : {})
       }
@@ -2507,27 +2625,32 @@ async function persistCourseShapeChange(
   await recomputeProjectionAfterCourseSave(app, roomId, persistedRoom);
 }
 
+/**
+ * After a course save. Course-shape writes used to drop the in-memory projection whenever no GPS
+ * ping had been accepted, then bootstrap empty splits: closed check-ins live only in that
+ * projection, so adding/removing an unvisited waypoint (or re-saving the course) silently
+ * destroyed visits and reverted GET /schedule ETAs to plan. Before the race's first ping the
+ * projection is re-seeded for the new course and start with the crew's check-ins put back; with
+ * one, it is recomputed over the last (`recomputeProjectionForRoomChange`).
+ */
 async function recomputeProjectionAfterCourseSave(
   app: FastifyInstance,
   roomId: string,
   updatedRoom: RaceRoom
 ): Promise<void> {
-  discardStaleProjectionIfNoLivePing(roomId, updatedRoom);
-  try {
-    await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
-  } catch (err) {
-    app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
-  }
-  await ensureBootstrapProjection(roomId, updatedRoom, true);
-  await saveWs2RuntimeSnapshot(roomId);
+  await recomputeProjectionForRoomChange(roomId, updatedRoom, (err) =>
+    app.log.warn({ err, roomId }, "projection_recompute_after_course_failed")
+  );
 }
 
 /**
  * After the race start moved (`PATCH /race-start`), under the room runtime lock so a ping cannot
  * fold in between. Pings are judged against the new start. With no race ping yet, the projection
- * is re-seeded at the new start, closed visit logs kept (`refreshProjectionAfterPlanOfRecordChange`).
- * With race pings, it is recomputed over the last one, and the start crossing, which is the old
- * start, moves to the new one. The schedule reads `raceStartAt` on every GET.
+ * is re-seeded at the new start with only the crew's check-ins kept: a ping the move made
+ * pre-start leaves no position, crossing or auto visit behind (`reseedPreRaceProjection`). With
+ * race pings, it is recomputed over the last one, without the auto visits pre-start pings made,
+ * and the start crossing, which is the old start, moves to the new one. The schedule reads
+ * `raceStartAt` on every GET.
  */
 async function recomputeProjectionAfterRaceStartChange(
   log: FastifyBaseLogger,
@@ -2928,6 +3051,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         raceStartAt: parsed.data.raceStartAt,
         activatedAt: parsed.data.raceStartAt
       };
+      // A start that moved takes the plan of record's clocks with it, as PATCH /race-start does.
+      if (next.pacingEstimate && Date.parse(latest.raceStartAt ?? "") !== Date.parse(parsed.data.raceStartAt)) {
+        next.pacingEstimate = estimateAtStart(next.pacingEstimate, parsed.data.raceStartAt);
+      }
 
       if (parsed.data.routeOverlayLayer) {
         const mergedWorkspace = mergePrimaryCourseRouteLayer(
@@ -2966,14 +3093,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       await discardWs5RoomState(roomId);
     }
 
-      discardStaleProjectionIfNoLivePing(roomId, updatedRoom);
-      try {
-        await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
-      } catch (err) {
-        app.log.warn({ err, roomId }, "projection_recompute_after_course_failed");
-      }
-      await ensureBootstrapProjection(roomId, updatedRoom, true);
-      await saveWs2RuntimeSnapshot(roomId);
+      await recomputeProjectionAfterCourseSave(app, roomId, updatedRoom);
       // The unpaid runner gets the teaser here too. A replay re-reads the room instead of
       // sending this body, but it is stored shaped all the same.
       const body = roomForViewer(updatedRoom, request.identity.sub);
@@ -3051,9 +3171,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply;
       }
       let previousAnchorIso: string | undefined;
+      // The plan of record's clocks (finish, bands, aid ETAs) move with the start.
       const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
         previousAnchorIso = resolveRaceAnchorIso(latest);
-        return { ...latest, raceStartAt: parsed.data.raceStartAt, activatedAt: parsed.data.raceStartAt };
+        return withRaceStart(latest, parsed.data.raceStartAt);
       });
       if (!updatedRoom) {
         return reply.code(404).send({ error: "Race room not found" });
@@ -3885,6 +4006,13 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       roomProjectionState.delete(roomId);
       app.log.warn({ roomId }, "projection_skipped_missing_route_layer");
       return undefined;
+    }
+    // The race's first ping starts from the pre-race projection. One a ping drove while every
+    // accepted ping is pre-start was driven by pre-start pings (stored before they were ignored):
+    // re-seed it, keeping only the crew's check-ins.
+    const stored = roomProjectionState.get(roomId);
+    if (previousAccepted && !racePrevious && stored && stored.lastProjectionCore.asOfPingId !== BOOTSTRAP_PING_ID) {
+      await reseedPreRaceProjection(roomId, room);
     }
     const prev = roomProjectionState.get(roomId);
     let snapshot: ProjectionPreviousState | null = prev
@@ -5125,7 +5253,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
    * Latest accepted athlete ping. Crew phones drive race progress readouts from this, never from
    * their own GPS, so every member sees the same mile, ETA, and "last ping". A ping recorded
    * before the race start is marked `preStart: true`: it shows the runner's dot, and nothing else
-   * moved with it (it carries no `progressMeters`).
+   * moved with it. Its `progressMeters` is 0, the race not begun: a client that finds no
+   * `progressMeters` snaps the ping to the nearest checkpoint, so a test ping at the finish lot
+   * would read as a finished race on every crew phone.
    */
   app.get("/race-rooms/:roomId/pings/latest", async (request, reply) => {
     if (!request.identity) {
@@ -5166,10 +5296,11 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         longitude: last.longitude,
         recordedAt: new Date(last.recordedAtMs).toISOString(),
         receivedAt: new Date(last.receivedAtMs).toISOString(),
-        ...(!preStart && core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
-          ? { progressMeters: core.progressMeters }
-          : {}),
-        ...(preStart ? { preStart: true as const } : {})
+        ...(preStart
+          ? { progressMeters: 0, preStart: true as const }
+          : core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
+            ? { progressMeters: core.progressMeters }
+            : {})
       };
     }
     return reply.send(body);

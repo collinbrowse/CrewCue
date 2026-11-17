@@ -9,6 +9,7 @@ import {
 import type { CourseMetricPoint } from "@crewcue/map-core";
 import {
   cumulativeDistanceAtCheckpoints,
+  finishCheckpointIndex,
   polylineCourseLengthAndProgress,
   recomputeRaceProjection
 } from "./raceProjection.js";
@@ -615,5 +616,93 @@ test("a projection taken before the start counts the rest of the course from the
     // at the start crossing; plan pace counts from then, as before.
     const late = withCurve ? moving + 180 : 600 + moving + 180;
     assert.ok(Math.abs(finishSeconds(atStartLine(at(600))) - late) < 0.01, `${label}: after the start`);
+  }
+});
+
+test("the finish checkpoint is the farthest one only at the course's end", () => {
+  assert.equal(finishCheckpointIndex([0, 10_000, 40_000], 40_000), 2);
+  assert.equal(finishCheckpointIndex([0, 40_000, 10_000], 40_000), 1, "farthest, not last listed");
+  assert.equal(finishCheckpointIndex([0, 10_000, 39_700], 40_000), 2, "within 1% of the course length");
+  assert.equal(finishCheckpointIndex([0, 10_000, 40_200], 40_000), 2, "past it");
+  assert.equal(finishCheckpointIndex([0, 10_000, 30_000], 40_000), -1, "a last aid short of the route's end");
+  assert.equal(finishCheckpointIndex([0, 4_920], 5_000), 1, "100 m beats 1% of 5 km");
+  assert.equal(finishCheckpointIndex([0, 4_890], 5_000), -1);
+  assert.equal(finishCheckpointIndex([0], 5_000), -1, "the start alone has no finish");
+});
+
+/** Three checkpoints with planned stops on a route that runs on as far again past the last (no finish waypoint). */
+function shortCheckpointsCourse(lastStopSeconds: number, withCurve: boolean) {
+  const raw = [
+    { id: "a", latitude: 10.0, longitude: 20.0, plannedStopSeconds: 60 },
+    { id: "b", latitude: 10.01, longitude: 20.0, plannedStopSeconds: 120 },
+    { id: "c", latitude: 10.02, longitude: 20.0, plannedStopSeconds: lastStopSeconds }
+  ];
+  const routeMetricPoints = [
+    ...raw.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+    { latitude: 10.04, longitude: 20.0 }
+  ];
+  const derivedMetrics = buildDerivedMetricsFromPolyline(routeMetricPoints);
+  const length = derivedMetrics.canonicalDistanceMeters;
+  const course: RaceCourse = {
+    checkpoints: checkpointsWithProjectedDistances(raw, routeMetricPoints),
+    derivedMetrics,
+    ...(withCurve
+      ? {
+          baselineTrack: {
+            points: [
+              { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+              { distanceMetersFromStart: length, referenceElapsedSeconds: 1200 }
+            ]
+          }
+        }
+      : {})
+  };
+  return { course, routeMetricPoints, length };
+}
+
+test("checkpoints that stop short of the route's end: every planned stop counts toward the finish, the last one's too", () => {
+  for (const withCurve of [false, true]) {
+    const label = withCurve ? "plan curve" : "plan pace";
+    const startPing = { pingId: "p0", latitude: 10.0, longitude: 20.0, recordedAt: START_AT };
+    const atC = { pingId: "p1", latitude: 10.02, longitude: 20.0, recordedAt: at(600) };
+    const stillAtC = { ...atC, pingId: "p2", recordedAt: at(660) };
+    const race = (lastStopSeconds: number) =>
+      withTunedConstants(false, () => {
+        const { course, routeMetricPoints, length } = shortCheckpointsCourse(lastStopSeconds, withCurve);
+        const project = (
+          ping: typeof startPing,
+          previousPing: typeof startPing | null,
+          previous: ReturnType<typeof recomputeRaceProjection>["state"] | null
+        ) =>
+          recomputeRaceProjection({
+            roomId: "room-1",
+            activatedAt: START_AT,
+            course,
+            plannedPaceSecondsPerKm: 600,
+            ping,
+            previousPing,
+            previous,
+            routeMetricPoints
+          });
+        const first = project(startPing, null, null);
+        const arrived = project(atC, startPing, first.state);
+        const stopped = project(stillAtC, atC, arrived.state);
+        return { length, first: first.projection, stopped: stopped.projection };
+      });
+
+    const { length, first, stopped } = race(600);
+    const moving = withCurve ? 1200 : (length / 1000) * 600;
+    assert.ok(
+      Math.abs(finishSeconds(first.etaFinishPlanIso) - (moving + 60 + 120 + 600)) < 0.01,
+      `${label}: the plan plus all three stops, ${first.etaFinishPlanIso}`
+    );
+    const visit = stopped.checkpointSplits[2]!.visits[0]!;
+    assert.ok(visit.autoDetected?.firstSlowedAt && !visit.autoDetected.departureRecordedAt, `${label}: a stop at c is in progress`);
+    // A minute into c's 600 s stop: the 540 s left of it is still ahead of the finish line.
+    const shortStop = race(60).stopped;
+    assert.ok(
+      Math.abs(finishSeconds(stopped.etaFinishPlanIso) - finishSeconds(shortStop.etaFinishPlanIso) - 540) < 0.01,
+      `${label}: ${stopped.etaFinishPlanIso} vs ${shortStop.etaFinishPlanIso}`
+    );
   }
 });

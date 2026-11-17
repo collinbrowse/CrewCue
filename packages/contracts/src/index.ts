@@ -490,13 +490,14 @@ export interface AthleteLatestPing {
   receivedAt: string;
   /**
    * Route-snapped course progress from the room projection for this exact ping.
-   * Absent when the room has no projection for it (no planned pace, start time, or route line),
-   * and on a pre-start ping.
+   * Absent when the room has no projection for it (no planned pace, start time, or route line).
+   * 0 on a pre-start ping: the race has not begun, wherever the ping was taken.
    */
   progressMeters?: number;
   /**
    * Recorded before the race start (`raceStartAt`): a test ping. It shows the runner's dot only;
-   * progress, ETAs, the schedule and projection freshness ignore it. Absent on a race ping.
+   * progress (`progressMeters` is 0), ETAs, the on-track call, the schedule and projection
+   * freshness ignore it. Absent on a race ping.
    */
   preStart?: true;
 }
@@ -579,7 +580,11 @@ export interface AthleteTrackPoint {
   recordedAt: string;
   latitude: number;
   longitude: number;
-  /** Recorded before the race start (`raceStartAt`), judged against the start as it is now. */
+  /**
+   * Recorded before the race start (`raceStartAt`), judged against the start as it is now. Not
+   * part of the race's path: clients do not draw it (a test ping from home would otherwise be a
+   * line from home to the start).
+   */
   preStart?: true;
 }
 

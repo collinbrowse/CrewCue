@@ -163,13 +163,37 @@ function checkpointPlannedStopSeconds(checkpoint: RaceCourseCheckpoint): number 
   return Math.max(0, checkpoint.plannedStopSeconds ?? 0);
 }
 
+/** How far a length may be from the course length and still be read as it (`withinCourseLength`). */
+export const COURSE_LENGTH_TOLERANCE_METERS = 100;
+export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
+
+/**
+ * Whether `meters` is the course length `courseLengthMeters`: within 1% of it or 100 m,
+ * whichever is larger.
+ */
+export function withinCourseLength(meters: number, courseLengthMeters: number): boolean {
+  const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseLengthMeters * COURSE_LENGTH_TOLERANCE_RATIO);
+  return Math.abs(meters - courseLengthMeters) <= tolerance;
+}
+
+/**
+ * Whether a checkpoint `distanceMeters` from the start is at the course's end (the finish line):
+ * at or past the course length, or short of it by no more than the tolerance. A course file with
+ * no finish waypoint has its farthest checkpoint (its last aid station) well short of the end.
+ */
+export function isAtCourseEnd(distanceMeters: number, courseLengthMeters: number): boolean {
+  return distanceMeters >= courseLengthMeters || withinCourseLength(distanceMeters, courseLengthMeters);
+}
+
 /**
  * Index of the finish checkpoint: the farthest along the course, ties keeping the later row, as
- * the schedule picks its finish row. -1 on a course of fewer than two checkpoints (no finish
- * apart from the start). The finish ETA is the arrival there, so it never adds this
- * checkpoint's own planned stop.
+ * the schedule picks its finish row, when it is at the course's end (`isAtCourseEnd`). The finish
+ * ETA is the arrival there, so it never adds this checkpoint's own planned stop. -1 when there is
+ * no finish checkpoint: a course of fewer than two checkpoints (no finish apart from the start),
+ * or one whose checkpoints stop short of the route's end (no finish waypoint), where the finish
+ * is read at the route's end and every checkpoint's stop is on the way there.
  */
-export function finishCheckpointIndex(distancesFromStart: readonly number[]): number {
+export function finishCheckpointIndex(distancesFromStart: readonly number[], courseLengthMeters: number): number {
   if (distancesFromStart.length < 2) {
     return -1;
   }
@@ -181,7 +205,7 @@ export function finishCheckpointIndex(distancesFromStart: readonly number[]): nu
       bestDistance = distance;
     }
   });
-  return best;
+  return isAtCourseEnd(bestDistance, courseLengthMeters) ? best : -1;
 }
 
 function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): number {
@@ -627,8 +651,9 @@ export function recomputeRaceProjection(params: {
   }, 0);
 
   // The finish ETA is the arrival at the finish line, as the schedule's finish row reads it: the
-  // planned stops on the way there, never the finish checkpoint's own.
-  const finishIndex = finishCheckpointIndex(cumAt);
+  // planned stops on the way there, never the finish checkpoint's own. Checkpoints that stop
+  // short of the route's end have no finish among them, so every one of their stops counts.
+  const finishIndex = finishCheckpointIndex(cumAt, courseLengthMeters);
   const plannedStopSecondsBeforeFinish = checkpointSplits.reduce((sum, row, index) => {
     const reached = row.visits.length > 0;
     return sum + (reached || index === finishIndex ? 0 : row.plannedStopSeconds);

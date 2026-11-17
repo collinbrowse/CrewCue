@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5178 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5309 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 13 | 975 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -57,13 +57,13 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 831 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 840 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
-| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 372 |
+| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 373 |
 | [services/api/src/lib/chatPushDispatch.ts](../../../services/api/src/lib/chatPushDispatch.ts) | 3 | 120 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
@@ -150,15 +150,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Generated/ScheduleStopNotesRef.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/ScheduleStopNotesRef.swift) | `ScheduleStopNotesRef` |
 | [packages/client-core/Sources/CrewCueClientCore/Generated/TeaserLockedCheckpoints.swift](../../../packages/client-core/Sources/CrewCueClientCore/Generated/TeaserLockedCheckpoints.swift) | `TeaserLockedCheckpoints` |
 | [packages/client-core/Sources/CrewCueClientCore/Idempotency.swift](../../../packages/client-core/Sources/CrewCueClientCore/Idempotency.swift) | `IdempotencyKey` |
-| [packages/client-core/Sources/CrewCueClientCore/InviteLink.swift](../../../packages/client-core/Sources/CrewCueClientCore/InviteLink.swift) | `InviteSource`, `InviteMatch`, `InviteLink` |
 | [packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift) | `LocationUploadGate` |
 | [packages/client-core/Sources/CrewCueClientCore/Logging.swift](../../../packages/client-core/Sources/CrewCueClientCore/Logging.swift) | `Logger` |
 | [packages/client-core/Sources/CrewCueClientCore/Onboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/Onboarding.swift) | `OnboardingStep`, `OnboardingOutcome`, `OnboardingChoice`, `OnboardingError`, `OnboardingRace`, `OnboardingInput`, `OnboardingStepStatus`, `OnboardingState`, `Onboarding` |
-| [packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift) | `OnboardingCopy` |
-| [packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift) | `OnboardingProgress`, `OnboardingStore`, `OnboardingRead`, `OnboardingFileLock` |
+| [packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift) | `OnboardingProgress`, `OnboardingStore`, `OnboardingFileLock` |
 | [packages/client-core/Sources/CrewCueClientCore/Outbox.swift](../../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) | `OutboxOperation`, `OutboxFailureResolution`, `ClientHTTPError`, `OutboxPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | `StoredOperation`, `CheckInEnqueue`, `PingEnqueue`, `FlushReport`, `OutboxStoreError`, `OutboxStore`, `PingPolicy`, `OutboxFile`, `SharedOutboxStores` |
-| [packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift](../../../packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift) | `PendingJoin`, `PendingJoinError`, `PendingJoinOutcome`, `PendingJoinStore` |
 | [packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift](../../../packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift) | `PlanTrigger`, `PlanAuthorityError`, `PlanOfRecord` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift) | `PortableFormat`, `JSONNumber` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift) | `PortableSHA256` |
@@ -183,11 +180,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-99 files under `packages/client-core/Sources/`.
+96 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 49 | 11279 |
+| `CrewCueClientCore` | 46 | 10414 |
 | `CrewCueClientCore/Generated` | 50 | 978 |
 
 ### iOS app (SwiftUI)
@@ -232,7 +229,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/di` | 1 | 64 |
 | `kotlin/com/crewcue/android/generated` | 50 | 514 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
-| `kotlin/com/crewcue/android/nav` | 2 | 103 |
+| `kotlin/com/crewcue/android/nav` | 2 | 101 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
 | `kotlin/com/crewcue/android/ui` | 5 | 1267 |
 | `kotlin/com/crewcue/android/ui/activity` | 1 | 185 |

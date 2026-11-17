@@ -22,6 +22,7 @@ import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { commitRaceRoomUpdate } from "./raceRooms.js";
 
 type App = ReturnType<typeof buildApp>;
 type Checkpoints = ReturnType<typeof load50kCourseWithAids>["checkpoints"];
@@ -204,7 +205,7 @@ test("a test ping days before the start, from far away, moves nothing; the first
     assert.equal(dot.ping?.pingId, homePing.pingId, "the latest ping still shows the runner's dot");
     assert.equal(dot.ping?.preStart, true);
     assert.equal(dot.ping?.latitude, HOME.latitude);
-    assert.equal(Object.hasOwn(dot.ping ?? {}, "progressMeters"), false);
+    assert.equal(dot.ping?.progressMeters, 0, "the race has not begun: a client never snaps it to a checkpoint");
     assert.equal(dot.stalenessThresholdSeconds, thresholdBefore, "its upload interval is not adopted");
 
     // Race morning, an hour before the gun, on the drive in 60 km out: still a test ping.
@@ -411,19 +412,53 @@ test("a paid course with no finish waypoint reads its finish at the end of the r
     });
     assert.equal(attach.statusCode, 200, attach.body);
     const { projection, schedule } = await raceReads(app, noFinishRoom, runner);
-    // aid-3 is the farthest checkpoint, so its own stop is after the finish row's arrival.
-    withinASecond(sinceStart(projection.etaFinishPlanIso, raceStartAt), noFinish.expectedFinishElapsedSeconds + 3 * 120, "projection");
-    withinASecond(scheduleFinishSeconds(schedule, raceStartAt), noFinish.expectedFinishElapsedSeconds + 3 * 120, "schedule finish row");
+    // No checkpoint is the finish line (aid-3 is 15 km short of the route's end), so every planned
+    // stop, aid-3's too, is on the way there.
+    withinASecond(sinceStart(projection.etaFinishPlanIso, raceStartAt), noFinish.expectedFinishElapsedSeconds + 4 * 120, "projection");
+    // The schedule has no finish row. Its last row is aid-3, at the plan's own aid-3 ETA plus the
+    // three stops before it: crews meet the runner there, not at the finish time.
+    const aid3 = schedule.stops[schedule.stops.length - 1]!;
+    assert.equal(aid3.checkpointId, "aid-3");
+    assert.equal(aid3.movingElapsedSeconds, lastAid.elapsedSeconds);
+    assert.equal(aid3.elapsedSeconds, lastAid.elapsedSeconds + 3 * 120);
+    assert.equal(aid3.clockArrivalAt, iso(Date.parse(raceStartAt) + (lastAid.elapsedSeconds + 3 * 120) * 1000));
+    // Pace plans aid-3 where the schedule does.
+    const aid3Split = projection.checkpointSplits.find((row) => row.checkpointId === "aid-3")!;
+    withinASecond(aid3Split.plannedElapsedSecondsAtCross, lastAid.elapsedSeconds, "Pace's aid-3 split");
   });
 });
 
-test("PATCH race-start: the runner moves the start, and the projection and schedule move with it", async () => {
+/** The plan's clocks are its start plus its elapsed seconds, as the estimator writes them. */
+function assertPlanClocksAt(estimate: PacingEstimate, raceStartAt: string, label: string): void {
+  const startMs = Date.parse(raceStartAt);
+  assert.equal(estimate.expectedFinishAt, iso(startMs + estimate.expectedFinishElapsedSeconds * 1000), `${label}: finish`);
+  for (const [kind, band] of Object.entries(estimate.bands ?? {})) {
+    assert.equal(band!.finishAt, iso(startMs + band!.finishElapsedSeconds * 1000), `${label}: ${kind} band`);
+  }
+  for (const eta of estimate.aidEtas) {
+    assert.equal(eta.clockArrivalAt, iso(startMs + eta.elapsedSeconds * 1000), `${label}: ${eta.checkpointId}`);
+  }
+}
+
+test("PATCH race-start: the runner moves the start, and the projection, schedule and plan clocks move with it", async () => {
   await withApp(async (app) => {
     const runner = "runner-race-start-patch";
     const raceStartMs = wholeSecond(Date.now() + 3 * DAY);
     const raceStartAt = iso(raceStartMs);
     const roomId = await paidRace(app, runner, raceStartAt);
+    const computed = await app.inject({ method: "POST", url: "/pacing-estimates", payload: { roomId }, headers: auth(app, runner) });
+    assert.equal(computed.statusCode, 200, computed.body);
+    const plan = computed.json() as PacingEstimate;
+    assert.ok(plan.aidEtas.length > 0 && plan.bands, "a plan with aid ETAs and bands");
+    const attach = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${roomId}/pacing-estimate`,
+      payload: { pacingEstimateId: plan.id },
+      headers: auth(app, runner)
+    });
+    assert.equal(attach.statusCode, 200, attach.body);
     const before = await raceReads(app, roomId, runner);
+    assertPlanClocksAt(before.room.pacingEstimate!, raceStartAt, "as computed");
 
     const laterStart = iso(raceStartMs + 90 * MINUTE);
     const patched = await patchStart(app, roomId, runner, laterStart);
@@ -434,9 +469,17 @@ test("PATCH race-start: the runner moves the start, and the projection and sched
     assert.equal(body.activatedAt, laterStart, "the legacy anchor moves with it, as on a course save");
     assert.ok(body.course?.baselineTrack, "a paid room goes out whole");
     assert.deepEqual(body.course?.checkpoints, before.room.course?.checkpoints, "the course is untouched");
+    // The plan's elapsed times stay; its clocks are the new start plus them.
+    assertPlanClocksAt(body.pacingEstimate!, laterStart, "the reply");
+    assert.equal(body.pacingEstimate!.expectedFinishElapsedSeconds, plan.expectedFinishElapsedSeconds);
+    assert.deepEqual(
+      body.pacingEstimate!.aidEtas.map((eta) => eta.elapsedSeconds),
+      plan.aidEtas.map((eta) => eta.elapsedSeconds)
+    );
 
     const after = await raceReads(app, roomId, runner);
     assert.equal(after.room.raceStartAt, laterStart);
+    assertPlanClocksAt(after.room.pacingEstimate!, laterStart, "the stored room");
     withinASecond(
       (Date.parse(after.projection.etaFinishPlanIso) - Date.parse(before.projection.etaFinishPlanIso)) / 1000,
       90 * 60,
@@ -552,5 +595,225 @@ test("PATCH race-start with race pings: later than every ping makes them test pi
     assert.equal(dot.ping?.pingId, pingId);
     assert.equal(dot.ping?.preStart, true);
     assert.deepEqual((await track(app, roomId, runner)).map((point) => point.preStart), [true]);
+  });
+});
+
+test("a test ping at the finish or at an aid station puts the runner nowhere: pings/latest sends progress 0, and no visit opens", async (t) => {
+  const realNow = wholeSecond(Date.now());
+  t.mock.timers.enable({ apis: ["Date"], now: realNow });
+  await withApp(async (app) => {
+    const runner = "runner-race-start-test-ping-places";
+    const raceStartMs = realNow + 2 * HOUR;
+    const roomId = await paidRace(app, runner, iso(raceStartMs));
+    const before = await raceReads(app, roomId, runner);
+    const checkpoints = before.room.course!.checkpoints;
+    const finish = checkpoints.find((checkpoint) => checkpoint.id === "finish")!;
+    const aid = checkpoints.find((checkpoint) => checkpoint.id === "aid-1")!;
+    // The finish line (a point-to-point course's shuttle lot), then aid-1 twice, ten minutes apart:
+    // inside its radius both times, which for race pings would open a visit there.
+    const places = [finish, aid, aid];
+    for (const [index, place] of places.entries()) {
+      t.mock.timers.setTime(realNow + index * 10 * MINUTE);
+      const sent = await ping(app, roomId, runner, place, Date.now());
+      assert.equal(sent.statusCode, 201, sent.body);
+      const dot = (await latest(app, roomId, runner)).ping!;
+      assert.equal(dot.preStart, true, place.id);
+      // A client snaps a ping with no progressMeters to its nearest checkpoint: at the finish that
+      // would read as a finished race on every crew phone.
+      assert.equal(dot.progressMeters, 0, `${place.id}: never ${place.distanceMetersFromStart} m`);
+      assert.equal(dot.latitude, place.latitude, "the dot is where the ping was");
+    }
+    const after = await raceReads(app, roomId, runner);
+    assert.deepEqual(after.projection, before.projection, "no progress, crossing, visit or stop");
+    assert.deepEqual(after.schedule, before.schedule);
+    assert.ok(after.projection.checkpointSplits.every((row) => row.visits.length === 0));
+    assert.deepEqual(after.projection.checkpointSplits.slice(1).map((row) => row.crossedAtRecordedAt), [null, null, null, null]);
+    assert.deepEqual((await track(app, roomId, runner)).map((point) => point.preStart), [true, true, true]);
+  });
+});
+
+test("a start delayed past race pings that made a closed auto visit: projection and schedule equal a clean room's, crew check-ins kept", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-delayed-visit";
+    const now = wholeSecond(Date.now());
+    const raceStartMs = now - 20 * MINUTE;
+    const delayedAt = iso(now + HOUR);
+    const fixture = load50kCourseWithAids();
+    // The runner pings 400 m up the route, walks back into the start's radius, waits four minutes
+    // there, and walks out: a closed auto visit at the start, a 240 s stop against 120 s planned.
+    const samples = [
+      { ...upRoute(400), recordedAt: iso(raceStartMs + 1 * MINUTE) },
+      { ...START, recordedAt: iso(raceStartMs + 3 * MINUTE) },
+      { ...START, recordedAt: iso(raceStartMs + 5 * MINUTE) },
+      { ...START, recordedAt: iso(raceStartMs + 7 * MINUTE) },
+      { ...upRoute(400), recordedAt: iso(raceStartMs + 9 * MINUTE) }
+    ];
+    // The crew's own check-in at aid-1: 420 s against 120 s planned.
+    const crew = "crew-race-start-delayed-visit";
+    const checkIn = async (roomId: string) => {
+      const room = ((await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom }).room;
+      const joined = await app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        payload: { roomCode: room.joinCode },
+        headers: auth(app, crew)
+      });
+      assert.equal(joined.statusCode, 200, joined.body);
+      return app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/checkpoints/aid-1/manual-stop`,
+        payload: { arrivalAt: iso(now - 10 * MINUTE), departureAt: iso(now - 3 * MINUTE) },
+        headers: auth(app, crew)
+      });
+    };
+    const pingedRoom = async () => {
+      const roomId = await paidRace(app, runner, iso(raceStartMs));
+      const uploaded = await app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings/batch`,
+        payload: { points: samples, uploadIntervalSeconds: 30 },
+        headers: auth(app, runner)
+      });
+      assert.equal(uploaded.statusCode, 200, uploaded.body);
+      assert.deepEqual(
+        (uploaded.json() as AthletePingBatchResponse).results.map((result) => result.reason ?? result.decision),
+        ["accepted", "accepted", "accepted", "accepted", "accepted"]
+      );
+      const raced = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+      const visits = raced.checkpointSplits[0]!.visits;
+      assert.equal(visits.length, 1, "an auto visit at the start");
+      assert.ok(visits[0]!.autoDetected?.departureRecordedAt, "closed");
+      assert.equal(visits[0]!.activeActualStopSeconds, 240);
+      assert.equal(raced.stalenessThresholdSeconds, 90, "the race pings' upload interval");
+      const checkedIn = await checkIn(roomId);
+      assert.equal(checkedIn.statusCode, 200, checkedIn.body);
+      return roomId;
+    };
+
+    // Delayed an hour on race morning, both ways the start can move.
+    const patched = await pingedRoom();
+    const patch = await patchStart(app, patched, runner, delayedAt);
+    assert.equal(patch.statusCode, 200, patch.body);
+    const resaved = await pingedRoom();
+    const put = await app.inject({
+      method: "PUT",
+      url: `/race-rooms/${resaved}/course`,
+      payload: {
+        plannedPaceSecondsPerKm: fixture.plannedPaceSecondsPerKm,
+        course: { checkpoints: fixture.checkpoints },
+        routeOverlayLayer: fixture.routeOverlayLayer,
+        raceStartAt: delayedAt
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(put.statusCode, 200, put.body);
+    // The clean room: that start from the outset, the same check-in, no ping.
+    const clean = await paidRace(app, runner, delayedAt);
+    assert.equal((await checkIn(clean)).statusCode, 200);
+
+    const shown = async (roomId: string) => {
+      const { projection, schedule } = await raceReads(app, roomId, runner);
+      const { roomId: _roomId, asOfRecordedAt: _asOf, ...rest } = projection;
+      return { projection: rest, raceStartAt: schedule.raceStartAt, stops: schedule.stops };
+    };
+    const expected = await shown(clean);
+    assert.equal(expected.projection.asOfPingId, "bootstrap");
+    const aidCheckIn = expected.projection.checkpointSplits.find((row) => row.checkpointId === "aid-1")!.visits;
+    assert.equal(aidCheckIn.length, 1);
+    assert.equal(aidCheckIn[0]!.activeActualStopSeconds, 420);
+    for (const [label, roomId] of [
+      ["PATCH race-start", patched],
+      ["PUT course", resaved]
+    ] as const) {
+      const actual = await shown(roomId);
+      assert.deepEqual(actual.projection, expected.projection, `${label}: projection`);
+      assert.deepEqual(actual.stops, expected.stops, `${label}: schedule`);
+      assert.equal(actual.raceStartAt, expected.raceStartAt);
+      assert.equal(actual.projection.stoppageSummary.remainingPlannedStopSeconds, 4 * 120, `${label}: only aid-1 is visited`);
+      const dot = await latest(app, roomId, runner);
+      assert.equal(dot.ping?.preStart, true, `${label}: the pings are pre-start now`);
+      assert.equal(dot.ping?.progressMeters, 0);
+      assert.equal(dot.stalenessThresholdSeconds, (await latest(app, clean, runner)).stalenessThresholdSeconds);
+    }
+  });
+});
+
+test("a start moved later than some race pings: their auto visits go, the later race pings still drive the projection", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-race-start-partly-pre-start";
+    const now = wholeSecond(Date.now());
+    const raceStartMs = now - 30 * MINUTE;
+    const roomId = await paidRace(app, runner, iso(raceStartMs));
+    // A closed auto visit at the start in the first nine minutes, then running up the route.
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings/batch`,
+      payload: {
+        points: [
+          { ...upRoute(400), recordedAt: iso(raceStartMs + 1 * MINUTE) },
+          { ...START, recordedAt: iso(raceStartMs + 3 * MINUTE) },
+          { ...START, recordedAt: iso(raceStartMs + 5 * MINUTE) },
+          { ...upRoute(400), recordedAt: iso(raceStartMs + 7 * MINUTE) },
+          { ...upRoute(1_000), recordedAt: iso(raceStartMs + 12 * MINUTE) },
+          { ...upRoute(1_600), recordedAt: iso(raceStartMs + 17 * MINUTE) }
+        ]
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(uploaded.statusCode, 200, uploaded.body);
+    const raced = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+    assert.equal(raced.checkpointSplits[0]!.visits.length, 1);
+
+    // The gun was ten minutes later than set: the visit's pings are pre-start, the last two are not.
+    const laterStart = iso(raceStartMs + 10 * MINUTE);
+    assert.equal((await patchStart(app, roomId, runner, laterStart)).statusCode, 200);
+    const moved = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+    assert.equal(moved.asOfPingId, raced.asOfPingId, "the last race ping still drives it");
+    assert.equal(moved.progressMeters, raced.progressMeters);
+    assert.deepEqual(moved.checkpointSplits[0]!.visits, [], "no visit from the pre-start pings");
+    assert.equal(moved.checkpointSplits[0]!.crossedAtRecordedAt, laterStart);
+    assert.equal(moved.stoppageSummary.remainingPlannedStopSeconds, 5 * 120);
+  });
+});
+
+test("a stored projection that pings now pre-start drove (stored before they were ignored) is re-seeded by the race's first ping", async (t) => {
+  const realNow = wholeSecond(Date.now());
+  t.mock.timers.enable({ apis: ["Date"], now: realNow });
+  await withApp(async (app) => {
+    const runner = "runner-race-start-legacy-state";
+    const oldStartMs = realNow - 20 * MINUTE;
+    const roomId = await paidRace(app, runner, iso(oldStartMs));
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings/batch`,
+      payload: {
+        points: [
+          { ...upRoute(400), recordedAt: iso(oldStartMs + 1 * MINUTE) },
+          { ...START, recordedAt: iso(oldStartMs + 3 * MINUTE) },
+          { ...START, recordedAt: iso(oldStartMs + 5 * MINUTE) },
+          { ...upRoute(400), recordedAt: iso(oldStartMs + 7 * MINUTE) }
+        ]
+      },
+      headers: auth(app, runner)
+    });
+    assert.equal(uploaded.statusCode, 200, uploaded.body);
+    const tested = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+    assert.equal(tested.checkpointSplits[0]!.visits.length, 1, "a closed auto visit at the start");
+
+    // The start moves later than every ping with no recompute, as in a room stored before
+    // pre-start pings were ignored: the stored projection is the pings'.
+    const raceStartMs = realNow + HOUR;
+    await commitRaceRoomUpdate(roomId, (latest) => ({ ...latest, raceStartAt: iso(raceStartMs), activatedAt: iso(raceStartMs) }));
+
+    // A minute after the gun, at the start line: the race's first ping.
+    t.mock.timers.setTime(raceStartMs + MINUTE);
+    const first = await ping(app, roomId, runner, START, Date.now());
+    assert.equal(first.statusCode, 201, first.body);
+    const raced = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
+    assert.equal(raced.asOfPingId, (first.json() as { pingId: string }).pingId);
+    assert.deepEqual(raced.checkpointSplits[0]!.visits, [], "no visit from the test pings");
+    assert.equal(raced.checkpointSplits[0]!.crossedAtRecordedAt, iso(raceStartMs), "the start is crossed at the start");
+    assert.ok(raced.progressMeters < 50, `at the start line: ${raced.progressMeters} m`);
+    assert.equal(raced.stoppageSummary.remainingPlannedStopSeconds, 5 * 120);
   });
 });

@@ -12,7 +12,7 @@ import type {
   ScheduleStopNotesRef
 } from "@crewcue/contracts";
 import { parsePacingEstimate } from "@crewcue/contracts";
-import { plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
+import { isAtCourseEnd, plannedElapsedSecondsForDistance } from "../lib/raceProjection.js";
 import { compareProjectedArrivalToCutoff } from "../lib/cutoffWarning.js";
 import {
   getPacingEstimateById,
@@ -212,8 +212,13 @@ export function setScheduleProjectionLoaderForTests(loader?: ScheduleProjectionL
 }
 
 /**
- * Build moving-time anchors from an estimate: start=0, aid ETAs, finish=expectedFinish.
- * Unknown checkpoints interpolate by distance between neighboring anchors.
+ * Build moving-time anchors from an estimate: start=0, aid ETAs, finish=expectedFinish at the
+ * course length. Unknown checkpoints interpolate by distance between neighboring anchors.
+ *
+ * The plan's finish goes on the farthest checkpoint only when that checkpoint is the finish line
+ * (`isAtCourseEnd`). A course file with no finish waypoint stops short of the route's end, and
+ * its farthest checkpoint is an aid station: it keeps its own ETA (or its interpolation), and the
+ * finish is read from the estimate and the projection, not from that row.
  */
 export function movingElapsedSecondsFromEstimate(
   estimate: PacingEstimate,
@@ -236,10 +241,10 @@ export function movingElapsedSecondsFromEstimate(
   const finishElapsed = estimate.expectedFinishElapsedSeconds;
   anchors.push({ distanceMeters: courseLengthMeters, elapsedSeconds: finishElapsed });
 
-  // Stamp the plan finish on the farthest checkpoint. An earlier id of `finish`
-  // is the first pass of a loop or out-and-back, not the end of the race.
+  // Stamp the plan finish on the farthest checkpoint when it is at the course's end. An earlier
+  // id of `finish` is the first pass of a loop or out-and-back, not the end of the race.
   const finishCp = farthestCheckpoint(checkpoints);
-  if (finishCp) {
+  if (finishCp && isAtCourseEnd(checkpointDistanceMeters(finishCp), courseLengthMeters)) {
     byId.set(finishCp.id, finishElapsed);
   }
 
