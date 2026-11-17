@@ -28,7 +28,7 @@ class ScreenRulesTest {
 
     @Test
     fun crewSeeAHistoryBackedEstimateWithoutLoadingHistory() {
-        val summary = "History-backed pace\nFinish 4:51:59  7:03 AM"
+        val summary = "History-backed pace\nFinish 4:51:59 · 7:03 AM"
         // Crew never load history, so usableHistoryCount is 0 for them.
         assertEquals(summary to null, PaceViewModel.estimateCopy(true, false, 0, summary))
         assertEquals(PaceViewModel.COLD_START to summary, PaceViewModel.estimateCopy(true, true, 0, summary))

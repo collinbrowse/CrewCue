@@ -24,7 +24,8 @@ import Dispatch
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
-/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`).
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`),
+/// raceStartInput, gpxPreview, raceAccess (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -87,14 +88,22 @@ enum RuntimeCall {
         } else {
             message = (error as? ClientHTTPError)?.message ?? "\(error)"
         }
-        let expired = (error as? ClientHTTPError)?.status == 401
-        let object: [String: Any] = [
+        let http = error as? ClientHTTPError
+        let expired = http?.status == 401
+        var object: [String: Any] = [
             "ok": false,
             "message": message,
             "sessionExpired": expired,
             "crewLimit": BillingErrors.isCrewLimit(error),
-            "offline": TransportFailure.isOffline(error)
+            "offline": TransportFailure.isOffline(error),
+            // The HTTP status, 0 when the failure isn't an HTTP answer. With `code`, the body's
+            // code (402 `room_unpaid`, 400 `course_mismatch`), Android branches on these instead
+            // of on server wording.
+            "status": http?.status ?? 0
         ]
+        if let code = http?.reason ?? http?.decision, !code.isEmpty {
+            object["code"] = code
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return #"{"ok":false,"message":"Request failed."}"#
         }
@@ -301,6 +310,12 @@ enum RuntimeCall {
             return try demoRaceControl(op, object)
         case "demoRaceCleanup":
             return try demoRaceCleanup(object)
+        case "raceStartInput":
+            return raceStartInput(object)
+        case "gpxPreview":
+            return try await gpxPreview(object)
+        case "raceAccess":
+            return raceAccess(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -465,6 +480,7 @@ enum RuntimeCall {
     /// `progressMeters` overrides the request's runner when the caller already resolved it (stop-plan draft).
     private static func timelinePayload(sheet: CrewScheduleSheet?, request: [String: Any], progressMeters: Double? = nil) -> [[String: Any]] {
         let checkpoints = aidCheckpoints(request["checkpoints"])
+        let zone = requestTimeZone(request)
         return RaceDayReadouts.timeline(
             sheet: sheet,
             checkpoints: checkpoints,
@@ -479,7 +495,11 @@ enum RuntimeCall {
                 "distanceToLabel": item.distanceToLabel,
                 "isFinish": item.isFinish
             ]
-            if let arrival = item.clockArrivalAt { row["clockArrivalAt"] = arrival }
+            if let arrival = item.clockArrivalAt {
+                row["clockArrivalAt"] = arrival
+                // The plan clock in the viewer's zone, written the way every other client-core clock is.
+                row["clockLabel"] = ScheduleFormat.formatScheduleClock(arrival, timeZone: zone)
+            }
             if let cutoff = item.cutoffAt { row["cutoffAt"] = cutoff }
             if let status = item.cutoffStatus { row["cutoffStatus"] = status }
             if let live = item.liveArrivalAt { row["liveArrivalAt"] = live }
@@ -587,9 +607,9 @@ enum RuntimeCall {
         let role = object["role"] as? String ?? ""
         let directory = directory(object)
         let record = EstimateRecordFile.load(directory)
+        let roomId = object["roomId"] as? String ?? ""
         do {
             let graph = try graph(object)
-            let roomId = object["roomId"] as? String ?? ""
             let envelope = try await RaceDayAPI.loadRoom(graph: graph, roomId: roomId)
             let estimate = envelope.room.pacingEstimate
             if let estimate, let directory {
@@ -604,6 +624,11 @@ enum RuntimeCall {
             if !decision.recompute {
                 EstimateRecordFile.save(decision.nextRecord, directory)
             }
+            let planFinish: ScheduleStop? = if let estimate {
+                await PlanFinish.scheduled(graph: graph, roomId: roomId, for: estimate, cacheDirectory: directory)
+            } else {
+                nil
+            }
             var payload = estimatePayload(
                 estimate,
                 role: role,
@@ -612,7 +637,8 @@ enum RuntimeCall {
                 reason: decision.reason.rawValue,
                 usableHistoryCount: input.usableHistoryCount,
                 historyFingerprint: input.historyFingerprint,
-                timeZone: requestTimeZone(object)
+                timeZone: requestTimeZone(object),
+                planFinish: planFinish
             )
             payload["raceStartAt"] = envelope.room.raceStartAt ?? ""
             payload["plannedPaceSecondsPerKm"] = envelope.room.plannedPaceSecondsPerKm ?? 0
@@ -628,11 +654,20 @@ enum RuntimeCall {
                     reason: EstimateRecomputeReason.none.rawValue,
                     usableHistoryCount: 0,
                     historyFingerprint: nil,
-                    timeZone: requestTimeZone(object)
+                    timeZone: requestTimeZone(object),
+                    planFinish: cachedFinish(roomId: roomId, directory: directory, estimate: cached)
                 )
             }
             throw error
         }
+    }
+
+    /// The finish row of the race's sheet on this device for `estimate`, the cached plan an offline
+    /// payload shows (`PlanFinish`): nil when that sheet was planned from another estimate.
+    private static func cachedFinish(roomId: String, directory: URL?, estimate: PacingEstimate?) -> ScheduleStop? {
+        guard let estimate, let directory, let sheet = try? ScheduleCache.load(directory: directory),
+              sheet.roomId == roomId else { return nil }
+        return PlanFinish.row(in: sheet, for: estimate)
     }
 
     private static func decideEstimate(_ object: [String: Any]) -> [String: Any] {
@@ -653,6 +688,9 @@ enum RuntimeCall {
         ]
     }
 
+    /// `computeEstimate`: roomId, role, trigger?, hasPlanOfRecord?, historyFingerprint?,
+    /// usableHistoryCount?, historyMode? (`none`: Skip's cold start; `compare`: also answers
+    /// `comparison`, the history step's line). Answers the estimate payload of the attached plan.
     private static func computeEstimate(_ object: [String: Any]) async throws -> Any {
         let role = object["role"] as? String ?? ""
         // Without a trigger the request is an automatic recompute, which only the athlete may make.
@@ -662,15 +700,34 @@ enum RuntimeCall {
             throw PlanAuthorityError.notAllowed
         }
         let directory = directory(object)
+        let roomId = object["roomId"] as? String ?? ""
         do {
             let graph = try graph(object)
-            let attached = try await PlanOfRecord.recompute(
-                graph: graph,
-                roomId: object["roomId"] as? String ?? "",
-                role: role,
-                trigger: trigger,
-                hasPlanOfRecord: hasPlanOfRecord
-            )
+            // The history step's two paths, the ones iOS takes (`PlanOfRecord`): `none` (Skip, a
+            // cold start even after an import) and `compare` (after an import: the comparison line).
+            let attached: PacingEstimate
+            var comparison: HistoryComparison?
+            switch text(object, "historyMode") {
+            case "none":
+                attached = try await PlanOfRecord.recomputeWithoutHistory(graph: graph, roomId: roomId, role: role)
+            case "compare":
+                let compared = try await PlanOfRecord.recomputeComparingHistory(
+                    graph: graph,
+                    roomId: roomId,
+                    role: role,
+                    cacheDirectory: directory
+                )
+                attached = compared.attached
+                comparison = compared
+            default:
+                attached = try await PlanOfRecord.recompute(
+                    graph: graph,
+                    roomId: roomId,
+                    role: role,
+                    trigger: trigger,
+                    hasPlanOfRecord: hasPlanOfRecord
+                )
+            }
             if let directory {
                 try? EstimateCache.save(attached, directory: directory)
             }
@@ -682,7 +739,12 @@ enum RuntimeCall {
                 )
             }
             let count = intValue(object["usableHistoryCount"]) ?? 0
-            return estimatePayload(
+            let zone = requestTimeZone(object)
+            // The schedule now plans from the estimate just attached; a sheet planned from another is not read.
+            let planFinish = if let comparison { comparison.planFinish } else {
+                await PlanFinish.scheduled(graph: graph, roomId: roomId, for: attached, cacheDirectory: directory)
+            }
+            var payload = estimatePayload(
                 attached,
                 role: role,
                 offline: false,
@@ -690,8 +752,13 @@ enum RuntimeCall {
                 reason: EstimateRecomputeReason.none.rawValue,
                 usableHistoryCount: count,
                 historyFingerprint: fingerprint,
-                timeZone: requestTimeZone(object)
+                timeZone: zone,
+                planFinish: planFinish
             )
+            // `compare`: "Finish 9:42 AM instead of 10:15 AM" on the plan's clock, or null when
+            // history changed nothing the runner can see.
+            if let comparison { payload["comparison"] = comparison.line(timeZone: zone) ?? NSNull() }
+            return payload
         } catch {
             if TransportFailure.isOffline(error) {
                 let cached = directory.flatMap { try? EstimateCache.load(directory: $0) }
@@ -702,7 +769,9 @@ enum RuntimeCall {
                     recompute: false,
                     reason: EstimateRecomputeReason.none.rawValue,
                     usableHistoryCount: intValue(object["usableHistoryCount"]) ?? 0,
-                    historyFingerprint: text(object, "historyFingerprint")
+                    historyFingerprint: text(object, "historyFingerprint"),
+                    timeZone: requestTimeZone(object),
+                    planFinish: cachedFinish(roomId: roomId, directory: directory, estimate: cached)
                 )
             }
             throw error
@@ -872,13 +941,23 @@ enum RuntimeCall {
         reason: String,
         usableHistoryCount: Int,
         historyFingerprint: String?,
-        timeZone: TimeZone = DeviceTimeZone.current
+        timeZone: TimeZone = DeviceTimeZone.current,
+        planFinish: ScheduleStop? = nil
     ) -> [String: Any] {
-        [
+        let finishAt = planFinish?.clockArrivalAt ?? estimate?.expectedFinishAt
+        return [
             "hasEstimate": estimate != nil,
             "coldStart": estimate?.coldStart ?? false,
             "estimateId": estimate?.id ?? "",
-            "summary": estimate.map { estimateSummary($0, timeZone: timeZone) } ?? "",
+            // The estimate's own finish (API ISO-8601): moving time only, no planned stops. Never
+            // shown as the finish. "" without one.
+            "expectedFinishAt": estimate?.expectedFinishAt ?? "",
+            // The race's finish (API ISO-8601), the one every screen shows: the schedule's finish row
+            // (`PlanFinish`), else the estimate's own. "" without an estimate.
+            "finishAt": estimate == nil ? "" : finishAt ?? "",
+            "summary": estimate.map { PlanFinish.estimateSummary($0, plan: planFinish, timeZone: timeZone) } ?? "",
+            // The finish clock as the summary writes it, so a big finish readout matches it; "" without one.
+            "finishClock": estimate == nil ? "" : finishAt.map { ScheduleFormat.formatScheduleClock($0, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
             "reason": reason,
@@ -887,14 +966,6 @@ enum RuntimeCall {
             "mayRecalculate": PlanAuthority.mayExplicitRecalculate(role: role),
             "mayAutoRecompute": PlanAuthority.mayAutoRecompute(role: role)
         ]
-    }
-
-    private static func estimateSummary(_ estimate: PacingEstimate, timeZone: TimeZone) -> String {
-        let elapsed = ScheduleFormat.formatDurationSeconds(estimate.expectedFinishElapsedSeconds)
-        let clock = ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt, timeZone: timeZone)
-        let finish = "Finish \(elapsed)  \(clock)"
-        if estimate.explanation.isEmpty { return finish }
-        return "\(estimate.explanation)\n\(finish)"
     }
 
     private static func recomputeInput(
@@ -1727,10 +1798,35 @@ enum CoursePayload {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return empty(offline: false)
         }
-        let room = (root["room"] as? [String: Any]) ?? root
+        return make(room: (root["room"] as? [String: Any]) ?? root)
+    }
+
+    /// The course a `gpx-preview` answer describes (`course`, `routeOverlayLayer`), before it is
+    /// saved: the same `line`, `checkpoints` and `elevation` as a saved room, plus the server's
+    /// `plannedPaceSecondsPerKm` for the GPX.
+    static func preview(from data: Data) -> [String: Any] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return empty(offline: false)
+        }
+        var room: [String: Any] = [:]
+        if let course = root["course"] { room["course"] = course }
+        if let layer = root["routeOverlayLayer"] as? [String: Any] {
+            room["mapWorkspace"] = ["layers": [layer], "selectedLayerId": layer["id"] ?? NSNull()] as [String: Any]
+        }
+        var payload = make(room: room)
+        payload["courseFileName"] = (root["courseFileName"] as? String) ?? ""
+        if let pace = number(root["plannedPaceSecondsPerKm"]), pace > 0 {
+            payload["plannedPaceSecondsPerKm"] = pace
+        }
+        return payload
+    }
+
+    private static func make(room: [String: Any]) -> [String: Any] {
         let checkpoints = checkpointRows(room)
-        let drawn = workspaceLine(room)
+        let geometry = workspaceGeometry(room)
+        let drawn = coordinates(from: geometry)
         let line = drawn.count >= 2 ? drawn : checkpointLine(checkpoints)
+        let planned = elevationRows(room)
         return [
             "offline": false,
             "checkpoints": checkpoints,
@@ -1738,9 +1834,36 @@ enum CoursePayload {
             // Android shows Remove member only to the race's athlete, as the API allows.
             "athleteId": (room["athleteId"] as? String) ?? "",
             "line": line,
-            "elevation": elevationRows(room),
+            // An unpaid race's teaser has no baseline track, so its profile comes from the route.
+            "elevation": planned.isEmpty ? geometryElevation(geometry) : planned,
             "memberships": membershipRows(room)
         ]
+    }
+
+    /// `[distanceMeters, elevationMeters]` along the route line, from each vertex's third value
+    /// (GeoJSON altitude), distances summed great-circle from the first vertex. Empty when fewer
+    /// than two vertices carry an elevation.
+    static func geometryElevation(_ geometry: Any?) -> [[Double]] {
+        var rows: [[Double]] = []
+        var distance = 0.0
+        var previous: (latitude: Double, longitude: Double)?
+        for vertex in vertices(from: geometry) {
+            if let previous {
+                distance += greatCircleMeters(previous.latitude, previous.longitude, vertex.latitude, vertex.longitude)
+            }
+            previous = (vertex.latitude, vertex.longitude)
+            if let elevation = vertex.elevation { rows.append([distance, elevation]) }
+        }
+        return rows.count >= 2 ? rows : []
+    }
+
+    private static func greatCircleMeters(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+        let radius = 6_371_000.0
+        let dLat = (lat2 - lat1) * .pi / 180
+        let dLon = (lon2 - lon1) * .pi / 180
+        let a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * sin(dLon / 2) * sin(dLon / 2)
+        return 2 * radius * asin(min(1, sqrt(a)))
     }
 
     /// `[distanceMeters, elevationMeters]` pairs from the course baseline track.
@@ -1807,8 +1930,10 @@ enum CoursePayload {
         return parsed.sorted { $0.distance < $1.distance }.map(\.row)
     }
 
-    private static func workspaceLine(_ room: [String: Any]) -> [[Double]] {
-        guard let workspace = room["mapWorkspace"] as? [String: Any] else { return [] }
+    /// The geometry of the layer that drives the projection (else the selected one, else the first
+    /// with a line), or nil.
+    private static func workspaceGeometry(_ room: [String: Any]) -> Any? {
+        guard let workspace = room["mapWorkspace"] as? [String: Any] else { return nil }
         let layers = ((workspace["layers"] as? [Any]) ?? []).compactMap { $0 as? [String: Any] }
         let driver = (workspace["drivesProjectionLayerId"] as? String) ?? (workspace["selectedLayerId"] as? String)
         let chosen: [String: Any]?
@@ -1817,11 +1942,14 @@ enum CoursePayload {
         } else {
             chosen = layers.first { coordinates(from: $0["geometry"]).count >= 2 }
         }
-        guard let chosen else { return [] }
-        return coordinates(from: chosen["geometry"])
+        return chosen?["geometry"]
     }
 
     private static func coordinates(from geometry: Any?) -> [[Double]] {
+        vertices(from: geometry).map { [$0.longitude, $0.latitude] }
+    }
+
+    private static func vertices(from geometry: Any?) -> [(longitude: Double, latitude: Double, elevation: Double?)] {
         guard let geometry = geometry as? [String: Any],
               let coordinates = geometry["coordinates"] as? [Any] else {
             return []
@@ -1838,13 +1966,14 @@ enum CoursePayload {
         }
     }
 
-    private static func position(_ value: Any) -> [Double]? {
+    private static func position(_ value: Any) -> (longitude: Double, latitude: Double, elevation: Double?)? {
         guard let pair = value as? [Any], pair.count >= 2,
               let longitude = number(pair[0]),
               let latitude = number(pair[1]) else {
             return nil
         }
-        return [longitude, latitude]
+        let elevation = pair.count >= 3 ? number(pair[2]) : nil
+        return (longitude, latitude, elevation)
     }
 
     private static func checkpointLine(_ checkpoints: [[String: Any]]) -> [[Double]] {

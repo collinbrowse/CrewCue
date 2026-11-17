@@ -78,7 +78,9 @@ fun MapScreen(
     roomId: String,
     focus: String,
     modifier: Modifier = Modifier,
-    bottomInset: Dp = 16.dp
+    bottomInset: Dp = 16.dp,
+    /** Set on an unpaid race: Start tracking opens the paywall instead. */
+    onLocked: (() -> Unit)? = null
 ) {
     val role = shell.session?.role.orEmpty()
     val model: MapViewModel = viewModel(
@@ -144,6 +146,7 @@ fun MapScreen(
             tool = tool,
             onCloseTool = { tool = "none" },
             fillHeight = !showMap,
+            onLocked = onLocked,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 8.dp)
@@ -207,6 +210,7 @@ private fun MapSheet(
     tool: String,
     onCloseTool: () -> Unit,
     fillHeight: Boolean,
+    onLocked: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -237,7 +241,7 @@ private fun MapSheet(
             if (tool == "none") {
                 AidContent(model, expanded)
             } else {
-                ToolContent(model, tool, onCloseTool)
+                ToolContent(model, tool, onCloseTool, onLocked)
             }
             if (!BuildConfig.MAP_LIBRE && BuildConfig.MAP_LIBRE_ERROR.isNotBlank()) {
                 Text(BuildConfig.MAP_LIBRE_ERROR, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -301,7 +305,7 @@ private fun AidContent(model: MapViewModel, expanded: Boolean) {
 }
 
 @Composable
-private fun ToolContent(model: MapViewModel, tool: String, onClose: () -> Unit) {
+private fun ToolContent(model: MapViewModel, tool: String, onClose: () -> Unit, onLocked: (() -> Unit)?) {
     val title = when (tool) {
         "pick" -> "Place checkpoint"
         "navigate" -> "Navigate"
@@ -323,7 +327,7 @@ private fun ToolContent(model: MapViewModel, tool: String, onClose: () -> Unit) 
         when (tool) {
             "pick" -> CheckpointSection(model, tagged = true)
             "navigate" -> NavigateSection(model, tagged = true)
-            "location" -> LocationSection(model, tagged = true)
+            "location" -> LocationSection(model, tagged = true, onLocked = onLocked)
         }
     }
 }
@@ -431,7 +435,8 @@ private fun CourseMapHost(
                 { settled = true; onStyleReady() },
                 { settled = true; onStyleFailed() },
                 { settled = true; onTilesUnavailable() },
-                recenterRequest
+                recenterRequest,
+                CourseFraming.Screen
             )
             if (!settled) {
                 CairnLoader(
@@ -494,7 +499,7 @@ private fun NavigateSection(model: MapViewModel, tagged: Boolean) {
 }
 
 @Composable
-private fun LocationSection(model: MapViewModel, tagged: Boolean) {
+private fun LocationSection(model: MapViewModel, tagged: Boolean, onLocked: (() -> Unit)? = null) {
     val context = LocalContext.current
     // Android 11+ asks for "all the time" separately, after fine location is granted.
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -528,6 +533,11 @@ private fun LocationSection(model: MapViewModel, tagged: Boolean) {
             PrimaryButton(
                 "Start tracking",
                 onClick = {
+                    // An unpaid race takes no pings: the paywall first.
+                    if (onLocked != null) {
+                        onLocked()
+                        return@PrimaryButton
+                    }
                     val granted = ContextCompat.checkSelfPermission(
                         context,
                         Manifest.permission.ACCESS_FINE_LOCATION

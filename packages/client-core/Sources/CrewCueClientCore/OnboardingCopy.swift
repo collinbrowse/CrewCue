@@ -166,7 +166,8 @@ public enum OnboardingCopy {
             "paywallFullCrewProduct": paywallFullCrewProduct,
             "paywallFullCrewPrice": paywallFullCrewPrice,
             "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
-            "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions
+            "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
+            "labels": runtimeLabels
         ]
     }
 }
