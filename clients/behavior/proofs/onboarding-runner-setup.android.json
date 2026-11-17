@@ -1,0 +1,23 @@
+{
+  "id": "onboarding-runner-setup",
+  "platform": "android",
+  "entry": "crewcue://dev/onboarding-runner-setup",
+  "device": "crewcue_api_35 phone emulator (API 35, 1080x2400), plus pixel_9_pro_fold AVD (API 35) folded 1080x2424 and unfolded 2076x2152, plus resizable AVD (API 35) at a 2560x1600 expanded window; all read-only, debug APK, AVDs created for this proof and deleted afterwards",
+  "date": "2026-11-17",
+  "commit": "0466809 (claude/onboarding-10a-android-runner-setup)",
+  "session": "Debug dev session (intent extras devSession/userId/role/token/roomId) as brand-new runners with no race, against the local memory API (HS256 dev JWT). The emulator could not reach 10.0.2.2:3000 from this agent's sandbox, so the debug APK was built with crewcue_api_base_url=http://localhost:3000 and reached the API through adb reverse and a small pass-through proxy. Error via the proxy answering 500 to a non-GET request; Offline via `cmd connectivity airplane-mode enable`.",
+  "action": "Opened the dev link signed in as a new runner: chooser, I'm running a race, name, course file (GPX picked from Downloads, preview), start time (date, time and zone pickers), training history (imported a GPX run), projection teaser, Continue to the paywall, relaunch to the Unlock race banner. Repeated the flow on the foldable (folded at the start-time step after editing the date, unfolded at the teaser) and the expanded window.",
+  "checked": {
+    "Success": "Teaser: 'Your finish time is ready. Aid station times unlock with your race.' with the finish ETA and AID 1, AID 2, AID 3 rows showing 'Locked'; GET calls to course, pacing-estimate and /race-rooms/mine returned 200.",
+    "Empty": "'Add your course file so CrewCue can estimate your finish.' and 'Add your course file to start. Training history is optional.'",
+    "Error": "Proxy 500 on the course step: 'Couldn't save this step.' with Try again; after the proxy recovered, Try again showed the course preview.",
+    "Offline": "Airplane mode on the start step, Continue: 'Offline. Setup needs the network. Your answers stay on this phone until you reconnect.' with Try again; the step and entered values stayed.",
+    "DST gap": "2:30 AM on 14 Mar 2027 in America/Denver: 'That time doesn't exist on that date because of daylight saving. Pick another time.'; changing the date to 15 Mar 2027 cleared it.",
+    "Process death": "On the start step with 15 Mar 2027, 2:30 AM, America/Denver: Home, `adb shell am kill`, process gone, relaunched from the launcher: back on Start time with the same date, time and zone.",
+    "Unlock race": "After the teaser Continue (paywall with Buy Race Pass), relaunch showed the Unlock race banner on Map, Pace and Chat.",
+    "Fold and unfold": "Foldable unfolded two-pane form plus preview at the start step, date changed to 20 Nov 2026, adb emu fold: same step, date kept, one pane; continued through history and teaser folded, adb emu unfold: teaser kept with all aid rows locked.",
+    "Expanded window": "Resizable AVD at 2560x1600: chooser, account, course, start time, history and teaser, form beside the live preview.",
+    "Accessibility labels": "crewcue.onboarding-runner-setup"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}
