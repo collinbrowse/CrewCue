@@ -57,7 +57,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts) | 5 | 136 |
 | [services/api/src/lib/pacingEstimate/evaluation/corpus.ts](../../../services/api/src/lib/pacingEstimate/evaluation/corpus.ts) | 5 | 246 |
 | [services/api/src/lib/pacingEstimate/microModel/constants.ts](../../../services/api/src/lib/pacingEstimate/microModel/constants.ts) | 5 | 128 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 779 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 5 | 795 |
 | [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts) | 4 | 160 |
 | [services/api/src/lib/lazyHydrate.ts](../../../services/api/src/lib/lazyHydrate.ts) | 4 | 150 |
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
