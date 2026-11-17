@@ -30,11 +30,20 @@ final class RuntimeChatThreads: @unchecked Sendable {
         defer { lock.unlock() }
         entries[key] = nil
     }
+
+    /// Drops every thread whose key starts with `prefix` (a retired replay's).
+    func reset(prefix: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries = entries.filter { !$0.key.hasPrefix(prefix) }
+    }
 }
 
 extension RuntimeCall {
+    /// A replay's threads are keyed apart, so its message never reaches the real thread for the same room.
     private static func chatKey(_ object: [String: Any], roomId: String) -> String {
-        "\(object["userId"] as? String ?? "")|\(roomId)"
+        let key = "\(object["userId"] as? String ?? "")|\(roomId)"
+        return demoURL(object).map { demoChatPrefix($0) + key } ?? key
     }
 
     private static func chatRoom(_ object: [String: Any]) throws -> String {

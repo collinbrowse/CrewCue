@@ -165,8 +165,13 @@ public enum RaceDayAPI {
 
     /// Every race room the user belongs to, newest server order kept.
     public static func myRaces(graph: ClientGraph, userId: String) async throws -> [RaceSummary] {
+        try await myRaceRooms(graph: graph).map { RaceSummary(room: $0, userId: userId) }
+    }
+
+    /// `GET /race-rooms/mine` as the server sends it (role, entitlement and course per race).
+    public static func myRaceRooms(graph: ClientGraph) async throws -> [RaceRoom] {
         let envelope: RaceListEnvelope = try await get(graph, "/race-rooms/mine")
-        return envelope.rooms.map { RaceSummary(room: $0, userId: userId) }
+        return envelope.rooms
     }
 
     public static func loadRoom(graph: ClientGraph, roomId: String) async throws -> RoomEnvelope {

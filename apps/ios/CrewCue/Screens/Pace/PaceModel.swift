@@ -712,7 +712,7 @@ final class PaceModel {
 
     func readout(runner: RunnerProgress, live: LiveProjection? = nil) -> RaceDayReadout {
         RaceDayReadouts.withLive(
-            RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: Date()),
+            RaceDayReadouts.make(sheet: loadedSheet, checkpoints: aidCheckpoints, runner: runner, now: client.graph.clock.now()),
             live: live
         )
     }
