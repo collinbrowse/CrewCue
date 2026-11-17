@@ -77,6 +77,12 @@ final class PaceModel {
     /// The aid stations an unpaid race withholds (`locked` on the schedule), shown locked on the timeline.
     private var loadedLocked: TeaserLockedCheckpoints?
     private var loadedEstimate: PacingEstimate?
+    /// The schedule as the server sent it (offline, the cached one): its finish row is the race's
+    /// finish the estimate summary prints (`PlanFinish`).
+    private var scheduleSheet: CrewScheduleSheet?
+    /// The estimate card shows the summary (not an error or the cold start), so a schedule read
+    /// moves its finish to the plan's finish row.
+    private var showsEstimateSummary = false
     private var courseCheckpoints: [RaceCourseCheckpoint] = []
     private var raceStartAt: String?
     private var scheduleRaceStart: String?
@@ -393,6 +399,7 @@ final class PaceModel {
             guard ticket == generation else { return }
             courseOffline = APIFailure.isTransport(error)
             showColdStart = false
+            showsEstimateSummary = false
             estimateMessage = courseOffline
                 ? "Offline. Estimate not updated."
                 : "Couldn't load the pace estimate."
@@ -474,6 +481,7 @@ final class PaceModel {
         } catch {
             guard ticket == generation else { return }
             showColdStart = false
+            showsEstimateSummary = false
             estimateMessage = APIFailure.isTransport(error)
                 ? "Offline. Estimate not updated."
                 : "Couldn't load the pace estimate."
@@ -529,6 +537,7 @@ final class PaceModel {
     }
 
     private func applySheet(_ sheet: CrewScheduleSheet, offline: Bool, failed: Bool) {
+        scheduleSheet = sheet
         loadedStops = sheet.stops
         loadedLocked = sheet.locked
         scheduleRaceStart = sheet.raceStartAt
@@ -549,6 +558,7 @@ final class PaceModel {
             scheduleMessage = ""
         }
         applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+        refreshEstimateSummary()
     }
 
     /// Display rows for schedule stops (server sheet, or the draft projection while editing).
@@ -587,6 +597,7 @@ final class PaceModel {
     }
 
     private func applyScheduleFailure(_ error: Error) {
+        scheduleSheet = nil
         loadedStops = []
         loadedLocked = nil
         stopLines = []
@@ -621,11 +632,18 @@ final class PaceModel {
     private func applyEstimatePresentation() {
         if let loadedEstimate, loadedEstimate.coldStart == false, historyEmpty == false {
             showColdStart = false
-            let duration = ScheduleFormat.formatDurationSeconds(loadedEstimate.expectedFinishElapsedSeconds)
-            let clock = ScheduleFormat.formatScheduleClock(loadedEstimate.expectedFinishAt)
-            estimateMessage = "\(loadedEstimate.explanation) \(duration) \(clock)"
+            showsEstimateSummary = true
+            // The race's one finish: the loaded schedule's finish row (planned stops included)
+            // when that sheet is this estimate's plan, as the teaser and Android Pace show it;
+            // else the estimate's own finish.
+            estimateMessage = PlanFinish.estimateSummary(
+                loadedEstimate,
+                plan: PlanFinish.row(in: scheduleSheet, for: loadedEstimate),
+                timeZone: DeviceTimeZone.current
+            )
             return
         }
+        showsEstimateSummary = false
         if loadedEstimate == nil, historyEmpty == false {
             showColdStart = false
             estimateMessage = "No estimate yet."
@@ -633,6 +651,12 @@ final class PaceModel {
         }
         showColdStart = true
         estimateMessage = "Cold start: no history yet. Coarse estimate only."
+    }
+
+    /// The schedule changed under a summary already on show: print its finish again.
+    private func refreshEstimateSummary() {
+        guard showsEstimateSummary else { return }
+        applyEstimatePresentation()
     }
 
     private func refreshCourseReadout() {
@@ -840,6 +864,8 @@ final class PaceModel {
         scheduleOffline = false
         loadedStops = []
         loadedLocked = nil
+        scheduleSheet = nil
+        showsEstimateSummary = false
         estimateMessage = "No estimate yet."
         showColdStart = false
         loadedEstimate = nil
