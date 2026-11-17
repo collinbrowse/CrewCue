@@ -227,7 +227,7 @@ test("EC2 invalid delay returns 400 and leaves persisted overlay unchanged", asy
   await app.close();
 });
 
-test("EC3 unauthorized, crew_member, and unpaid callers cannot write; members can read", async () => {
+test("EC3 unauthorized and unpaid callers cannot write; crew_member can write; members can read", async () => {
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-w12-ec3"));
@@ -263,25 +263,26 @@ test("EC3 unauthorized, crew_member, and unpaid callers cannot write; members ca
   const strangerPut = await putStopPlan(app, roomId, "aid-1", strangerToken, payload);
   assert.equal(strangerPut.statusCode, 403);
 
+  const afterDenied = await getStopPlan(app, roomId, "aid-1", ownerToken);
+  assert.equal(afterDenied.statusCode, 200);
+  assert.deepEqual(afterDenied.json(), { roomId, checkpointId: "aid-1" });
+
+  // A crew member may write stop plans: PUT, PATCH, then DELETE.
   const crewPut = await putStopPlan(app, roomId, "aid-1", crewToken, payload);
-  assert.equal(crewPut.statusCode, 403);
+  assert.equal(crewPut.statusCode, 200, crewPut.body);
   const crewPatch = await app.inject({
     method: "PATCH",
     url: `/race-rooms/${roomId}/stop-plans/aid-1`,
-    payload,
+    payload: { delayOverrideSeconds: 60 },
     headers: { authorization: `Bearer ${crewToken}` }
   });
-  assert.equal(crewPatch.statusCode, 403);
+  assert.equal(crewPatch.statusCode, 200, crewPatch.body);
   const crewDelete = await app.inject({
     method: "DELETE",
     url: `/race-rooms/${roomId}/stop-plans/aid-1`,
     headers: { authorization: `Bearer ${crewToken}` }
   });
-  assert.equal(crewDelete.statusCode, 403);
-
-  const afterDenied = await getStopPlan(app, roomId, "aid-1", ownerToken);
-  assert.equal(afterDenied.statusCode, 200);
-  assert.deepEqual(afterDenied.json(), { roomId, checkpointId: "aid-1" });
+  assert.equal(crewDelete.statusCode, 200, crewDelete.body);
 
   const ownerPut = await putStopPlan(app, roomId, "aid-1", ownerToken, { delayOverrideSeconds: 45 });
   assert.equal(ownerPut.statusCode, 200);
@@ -300,6 +301,8 @@ test("EC3 unauthorized, crew_member, and unpaid callers cannot write; members ca
   const unpaidWrite = await putStopPlan(app, roomId, "aid-1", ownerToken, { delayOverrideSeconds: 999 });
   assert.equal(unpaidWrite.statusCode, 402);
   assert.equal((unpaidWrite.json() as { error: string }).error, "Entitlement unpaid");
+  const crewUnpaidWrite = await putStopPlan(app, roomId, "aid-1", crewToken, { delayOverrideSeconds: 999 });
+  assert.equal(crewUnpaidWrite.statusCode, 402, crewUnpaidWrite.body);
 
   const repay = await app.inject({
     method: "POST",
