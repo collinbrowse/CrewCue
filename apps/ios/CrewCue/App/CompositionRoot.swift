@@ -5,7 +5,9 @@ import CrewCueClientCore
 struct CompositionRoot {
     func makeModel() -> ShellModel {
         let launch = LaunchConfiguration.resolve()
-        let restored = launch.devSession ?? (launch.signedOut ? nil : Self.loadPersistedSession())
+        let vault = KeychainSessionVault()
+        let persisted = Self.restorePersistedSession(vault: vault)
+        let restored = launch.devSession ?? (launch.signedOut ? nil : persisted)
         let expiry = SessionExpiryRelay()
         let transport = SessionExpiryTransport(wrapping: URLSessionTransport()) { rejectedToken in
             Task { @MainActor in
@@ -28,6 +30,7 @@ struct CompositionRoot {
             route: launch.route,
             fixtureOverlay: launch.fixtureOverlay,
             authConfiguration: launch.auth,
+            sessionVault: vault,
             purchaser: purchaser
         )
         expiry.model = model
@@ -39,9 +42,11 @@ struct CompositionRoot {
         return model
     }
 
-    private static func loadPersistedSession() -> ClientSession? {
+    /// Runs on every launch, even a signed-out or dev one, so a reinstall clears a leftover
+    /// Keychain session and an older build's session file moves into the Keychain.
+    private static func restorePersistedSession(vault: any SessionVault) -> ClientSession? {
         guard let root = try? AppDirectories.root() else { return nil }
-        return try? SessionFile.load(directory: root)
+        return SessionVaultLaunch.restore(vault: vault, directory: root, logger: OSLogLogger())
     }
 }
 

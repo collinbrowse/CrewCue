@@ -1,7 +1,9 @@
 package com.crewcue.android.session
 
 import android.content.Context
+import android.content.SharedPreferences
 import java.io.File
+import java.util.Base64
 import org.json.JSONObject
 
 data class StoredSession(
@@ -13,9 +15,33 @@ data class StoredSession(
     val fromAuth0: Boolean
 )
 
-class SessionStore(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val storageRoot = File(context.applicationContext.filesDir, "crewcue-user")
+/**
+ * The signed-in session, sealed with an Android Keystore AES-GCM key before it is written. Only
+ * ciphertext reaches SharedPreferences. Builds before the vault kept plaintext JSON in the
+ * `crewcue.session` prefs; the first launch moves it into the vault and deletes those prefs.
+ */
+class SessionStore(
+    private val vault: SharedPreferences,
+    private val legacy: SharedPreferences,
+    private val storageRoot: File,
+    private val cipher: SessionCipher,
+    private val deleteLegacy: () -> Unit = {}
+) {
+    constructor(context: Context) : this(
+        vault = context.applicationContext.getSharedPreferences(VAULT_PREFS, Context.MODE_PRIVATE),
+        legacy = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE),
+        storageRoot = File(context.applicationContext.filesDir, "crewcue-user"),
+        cipher = AesGcmSessionCipher.keystore(),
+        deleteLegacy = { context.applicationContext.deleteSharedPreferences(LEGACY_PREFS) }
+    )
+
+    private val lock = Any()
+    private var cached: StoredSession? = null
+    private var loaded = false
+
+    init {
+        migrateLegacy()
+    }
 
     fun storageDir(): File {
         storageRoot.mkdirs()
@@ -23,29 +49,71 @@ class SessionStore(context: Context) {
     }
 
     fun current(): StoredSession? {
-        if (!prefs.getBoolean(KEY_PRESENT, false)) return null
-        val raw = prefs.getString(KEY_JSON, null) ?: return null
-        return decode(raw) ?: run {
-            clear()
-            null
+        synchronized(lock) { return readLocked() }
+    }
+
+    private fun readLocked(): StoredSession? {
+        if (loaded) return cached
+        val sealed = vault.getString(KEY_SEALED, null)
+        if (sealed == null) {
+            loaded = true
+            cached = null
+            return null
         }
+        val session = runCatching { decode(String(cipher.decrypt(Base64.getDecoder().decode(sealed)), Charsets.UTF_8)) }
+            .getOrNull()
+        if (session == null) {
+            // Unreadable (a lost key, a restore onto another device): the user signs in again.
+            clear()
+            return null
+        }
+        cached = session
+        loaded = true
+        return session
     }
 
     fun save(session: StoredSession) {
-        prefs.edit()
-            .putBoolean(KEY_PRESENT, true)
-            .putString(KEY_JSON, encode(session))
-            .apply()
+        synchronized(lock) { saveLocked(session) }
+    }
+
+    private fun saveLocked(session: StoredSession) {
+        val sealed = cipher.encrypt(encode(session).toByteArray(Charsets.UTF_8))
+        vault.edit().putString(KEY_SEALED, Base64.getEncoder().encodeToString(sealed)).commit()
+        cached = session
+        loaded = true
     }
 
     fun update(transform: (StoredSession) -> StoredSession) {
-        val current = current() ?: return
-        save(transform(current))
+        synchronized(lock) {
+            val current = readLocked() ?: return
+            saveLocked(transform(current))
+        }
     }
 
+    /** Sign-out and session expiry: the sealed session, any legacy prefs, and every per-user file. */
     fun clear() {
-        prefs.edit().clear().apply()
-        storageRoot.deleteRecursively()
+        synchronized(lock) {
+            vault.edit().clear().commit()
+            cached = null
+            loaded = true
+            wipeLegacy()
+            storageRoot.deleteRecursively()
+        }
+    }
+
+    private fun migrateLegacy() {
+        if (legacy.all.isEmpty()) return
+        val plain = legacy.getString(KEY_LEGACY_JSON, null)?.takeIf { legacy.getBoolean(KEY_LEGACY_PRESENT, false) }
+        val session = plain?.let(::decode)
+        if (session != null) {
+            runCatching { saveLocked(session) }
+        }
+        wipeLegacy()
+    }
+
+    private fun wipeLegacy() {
+        legacy.edit().clear().commit()
+        deleteLegacy()
     }
 
     private fun encode(session: StoredSession): String {
@@ -79,9 +147,11 @@ class SessionStore(context: Context) {
     private fun JSONObject.optStringOrNull(key: String): String? =
         if (isNull(key)) null else optString(key).ifBlank { null }
 
-    private companion object {
-        const val PREFS = "crewcue.session"
-        const val KEY_PRESENT = "present"
-        const val KEY_JSON = "json"
+    companion object {
+        const val VAULT_PREFS = "crewcue.session.vault"
+        const val LEGACY_PREFS = "crewcue.session"
+        private const val KEY_SEALED = "sealed"
+        private const val KEY_LEGACY_PRESENT = "present"
+        private const val KEY_LEGACY_JSON = "json"
     }
 }
