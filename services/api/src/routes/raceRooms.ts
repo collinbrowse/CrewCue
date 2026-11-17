@@ -3444,7 +3444,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    if (!permissions.canEditCourse) {
+    if (!permissions.canEditRaceSetup) {
       return reply.code(403).send({ error: "Insufficient permissions" });
     }
 

@@ -613,23 +613,23 @@ test("two roles: a crew_member edits course details but not race setup", async (
     drivesProjectionLayerId: routeOverlayLayer.id,
     checkpoints
   };
-  const workspace = await app.inject({
-    method: "PUT",
+  // The map workspace replaces the course and wipes race state: race setup, not a course detail.
+  const workspaceRead = await app.inject({ method: "GET", url: `/race-rooms/${roomId}/map-workspace`, headers: crewAuth });
+  assert.equal(workspaceRead.statusCode, 200, workspaceRead.body);
+  const workspaceWrite = {
+    method: "PUT" as const,
     url: `/race-rooms/${roomId}/map-workspace`,
-    payload: workspacePayload,
-    headers: crewAuth
-  });
-  assert.equal(workspace.statusCode, 200, workspace.body);
+    payload: workspacePayload
+  };
   const strangerWorkspace = await app.inject({
-    method: "PUT",
-    url: `/race-rooms/${roomId}/map-workspace`,
-    payload: workspacePayload,
+    ...workspaceWrite,
     headers: { authorization: `Bearer ${strangerToken}` }
   });
   assert.equal(strangerWorkspace.statusCode, 403);
 
   // Race setup, invites and billing: still refused, with the same error.
   const refused = [
+    await app.inject({ ...workspaceWrite, headers: crewAuth }),
     await app.inject({ method: "PUT", url: `/race-rooms/${roomId}/course`, payload: coursePayload, headers: crewAuth }),
     await app.inject({
       method: "PATCH",

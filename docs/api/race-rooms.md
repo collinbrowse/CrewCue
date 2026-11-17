@@ -29,8 +29,8 @@ Effective permissions for a member:
 | Activate room (`POST .../activate`) | `athlete`, `crew_chief`, `team_manager` |
 | Issue invite (`POST .../invites`) | `athlete`, `crew_chief`, `team_manager` |
 | Update entitlement (`POST .../entitlement`) | `athlete`, `crew_chief`, `team_manager` |
-| Replace the course or move the start (`PUT .../course`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
-| Edit course details: checkpoints, planned stops, stop plans, map workspace (`POST`/`PATCH`/`DELETE .../checkpoints`, `PATCH .../checkpoint-stops`, `PUT`/`PATCH`/`DELETE .../stop-plans/:checkpointId`, `PUT .../map-workspace`) | `athlete`, `crew_member`, `crew_chief`, `team_manager` (`canEditCourse`) |
+| Replace the course or move the start (`PUT .../course`, `PUT .../map-workspace`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
+| Edit course details: checkpoints, planned stops, stop plans (`POST`/`PATCH`/`DELETE .../checkpoints`, `PATCH .../checkpoint-stops`, `PUT`/`PATCH`/`DELETE .../stop-plans/:checkpointId`) | `athlete`, `crew_member`, `crew_chief`, `team_manager` (`canEditCourse`) |
 
 Non-members receive **403 Forbidden** for those operations (except invite acceptance; see below).
 

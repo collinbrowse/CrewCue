@@ -10,7 +10,7 @@ On Pace, a course editor (athlete, crew chief, team manager, or crew member) tap
 PATCH /race-rooms/:roomId/checkpoint-stops with `{ stops: [{ checkpointId, plannedStopSeconds }] }`, then GET /race-rooms/:roomId/schedule. All rows apply or none. The crew task board is kept. Android uses the runtime ops `stopPlanDraft` and `updatePlannedStops`.
 
 ## Permissions
-Course editors: athlete, crew_chief, team_manager and crew_member, so any crew member can fix a stop on race day. Race setup (replacing the course, the start, billing, invites) stays with athlete, crew_chief, team_manager. Non-members never see Edit planned stops; the server answers 403.
+Course editors: athlete, crew_chief, team_manager and crew_member, so any crew member can fix a stop on race day. Race setup (replacing the course or map workspace, the start, billing, invites) stays with athlete, crew_chief, team_manager. Non-members never see Edit planned stops; the server answers 403.
 
 ## Success
 Planned stops saved.
