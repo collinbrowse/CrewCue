@@ -51,6 +51,10 @@ struct RunnerSetupView: View {
 
     @ViewBuilder
     private var arrangement: some View {
+        // ArrangementView and reserved regions ship in the iOS 27.1 SDK. CI still builds with
+        // Xcode 26 (Swift 6.2), so they are compiled only by a Swift 6.4 (Xcode 27) toolchain;
+        // older toolchains build the HStack below. Drop the `#if` once CI's Xcode has that SDK.
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             ArrangementView {
                 formPane
@@ -61,12 +65,19 @@ struct RunnerSetupView: View {
             }
             .arrangementViewStyle(.split.axes(.horizontal))
         } else {
-            // Before ArrangementView: the same two panes in a row.
-            HStack(alignment: .top, spacing: 0) {
-                formPane
-                if splitsPreview {
-                    previewPane
-                }
+            rowOfPanes
+        }
+        #else
+        rowOfPanes
+        #endif
+    }
+
+    /// Before ArrangementView: the same two panes in a row.
+    private var rowOfPanes: some View {
+        HStack(alignment: .top, spacing: 0) {
+            formPane
+            if splitsPreview {
+                previewPane
             }
         }
     }
@@ -178,7 +189,10 @@ private extension View {
 private struct ReservedRegionInsets: ViewModifier {
     @State private var insets = EdgeInsets()
 
+    @ViewBuilder
     func body(content: Content) -> some View {
+        // See `RunnerSetupView.arrangement`: reserved regions need the iOS 27.1 SDK.
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             content
                 .padding(insets)
@@ -201,6 +215,9 @@ private struct ReservedRegionInsets: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 
     /// Leading or trailing padding for each region that crosses the content's width. A region
