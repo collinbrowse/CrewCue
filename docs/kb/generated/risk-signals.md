@@ -59,7 +59,7 @@ Timers run per instance. With more than one API replica each one fires.
 | --- | --- |
 | `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
 | `setInterval` | [services/api/src/lib/trackingReminderScheduler.ts:465](../../../services/api/src/lib/trackingReminderScheduler.ts#L465) |
-| `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:193](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L193) |
+| `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:199](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L199) |
 
 ## API lib modules with no same-named test
 

@@ -28,6 +28,12 @@ import type { RaceRoomExpiryFields } from "./roomPersistence.js";
 
 const HOUR_MS = 60 * 60_000;
 
+/**
+ * Whether the API runs the sweeper. Off until the unpaid-race reminders (PR 2b) ship: a runner is
+ * warned before the delete, and the sweeper waits for the last reminder. Turning it on before that
+ * deletes every older unpaid race on the first tick with no warning (R32).
+ */
+export const UNPAID_RACE_EXPIRY_ENABLED = false;
 /** An unpaid race is deleted once it is this old. */
 export const UNPAID_RACE_TTL_MS = 30 * 24 * HOUR_MS;
 /** How often the sweeper ticks. */

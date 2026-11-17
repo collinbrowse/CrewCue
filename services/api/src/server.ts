@@ -10,7 +10,7 @@ import {
   stopChatRetentionScheduler
 } from "./lib/chatRetentionScheduler.js";
 import { attachTrackingReminderScheduler } from "./lib/trackingReminderScheduler.js";
-import { attachUnpaidRaceExpiryScheduler } from "./lib/unpaidRaceExpiryScheduler.js";
+import { UNPAID_RACE_EXPIRY_ENABLED, attachUnpaidRaceExpiryScheduler } from "./lib/unpaidRaceExpiryScheduler.js";
 import {
   listRaceRoomsForRetention,
   listRaceRoomsStartingBetween,
@@ -38,7 +38,10 @@ async function start() {
   // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().
   attachTrackingReminderScheduler(app, { listRooms: listRaceRoomsStartingBetween });
   // Unpaid races 30 days old are deleted: ticks hourly from when the app is ready, stops on app.close().
-  attachUnpaidRaceExpiryScheduler(app, { listRooms: listUnpaidRaceRoomsCreatedBefore });
+  // Off until the runner is warned first (UNPAID_RACE_EXPIRY_ENABLED, R32).
+  if (UNPAID_RACE_EXPIRY_ENABLED) {
+    attachUnpaidRaceExpiryScheduler(app, { listRooms: listUnpaidRaceRoomsCreatedBefore });
+  }
   await app.listen({ port, host });
 
   startChatRetentionScheduler(listRaceRoomsForRetention, app.log);
