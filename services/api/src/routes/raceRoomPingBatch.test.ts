@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import type { AthletePingBatchResponse, RaceRoomPingTrackResponse } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { backlogFloorMs, setPingBeforeLockDelayForTests, setRaceRoomStatusForTests } from "./raceRooms.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -287,7 +286,6 @@ test(
     await app.close();
 
     // A fresh process has no memory of this room or its path; both must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, athlete, crew, pointsJson] = process.argv.slice(2);
@@ -308,12 +306,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, athlete, crew, JSON.stringify(points)],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, athlete, crew, JSON.stringify(points)]) as {
       before: RaceRoomPingTrackResponse;
       replay: AthletePingBatchResponse;
       after: RaceRoomPingTrackResponse;

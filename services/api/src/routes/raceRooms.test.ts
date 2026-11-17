@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 import { clearHttpIdempotencyStoreForTests } from "../lib/httpIdempotency.js";
@@ -24,6 +22,7 @@ import {
   setWs2LoadDelayForTests
 } from "./raceRooms.js";
 import type { RaceRoomInvite } from "@crewcue/contracts";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 function buildClaims(sub: string) {
   return {
@@ -719,20 +718,6 @@ test("lists pending invites after an API restart", async (t) => {
   assert.deepEqual(invites.map((i) => i.token), [token]);
   await app.close();
 });
-
-/**
- * Runs `script` in a fresh Node process (nothing in memory, as after an API restart) with the
- * built app's module URL as argv[1] and `args` after it, and returns its `RESULT:` line.
- */
-function runInFreshProcess<T>(script: string, args: string[]): T {
-  const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
-  const out = execFileSync(
-    process.execPath,
-    ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, ...args],
-    { encoding: "utf8", env: process.env, timeout: 45_000 }
-  );
-  return JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as T;
-}
 
 test(
   "crew sent an invite link or a room code before an API restart can still join after it, and their seats stick",

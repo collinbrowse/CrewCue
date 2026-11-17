@@ -1,12 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RaceRoomLatestPingResponse, RaceRoomProjection } from "@crewcue/contracts";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { STALENESS_MAX_SECONDS } from "../lib/projectionTimeliness.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 function claims(sub: string) {
   return { sub, teamIds: ["team-1"], roomRoles: {} };
@@ -276,7 +275,6 @@ test(
     await app.close();
 
     // A fresh process has none of this room in memory; it must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const app = buildApp();
@@ -290,12 +288,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crew],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, crew]) as {
       status: number;
       body: RaceRoomLatestPingResponse;
     };
@@ -320,7 +313,6 @@ test(
     await app.close();
 
     // A fresh process has none of this room in memory; everything must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, crew, athlete, stranger] = process.argv.slice(2);
@@ -351,12 +343,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crew, athlete, stranger],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, crew, athlete, stranger]) as {
       crewRoom: { status: number; body: { room: { memberships: Array<{ userId: string; role: string }>; course?: { checkpoints: unknown[] } } } };
       crewMine: { status: number; body: { rooms: Array<{ id: string }> } };
       strangerRoom: { status: number };

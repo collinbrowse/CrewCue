@@ -1,10 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 function buildClaims(sub: string) {
   return {
@@ -276,7 +275,6 @@ test(
 
     // A fresh process has nothing in memory: the log must come back from Postgres, and a
     // new incident must be added to it rather than replace it.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const app = buildApp();
@@ -307,15 +305,11 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, chiefToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
     type Read = { status: number; body: unknown };
-    const result = JSON.parse(
-      out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)
-    ) as { afterRestart: Read; logged: Read; afterNewIncident: Read };
+    const result = runInFreshProcess<{ afterRestart: Read; logged: Read; afterNewIncident: Read }>(script, [
+      roomId,
+      chiefToken
+    ]);
 
     assert.equal(result.afterRestart.status, 200);
     assert.deepEqual(result.afterRestart.body, { incidents: [earlier, atAid] });
