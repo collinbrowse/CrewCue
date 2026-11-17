@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 import { clearHttpIdempotencyStoreForTests } from "../lib/httpIdempotency.js";
@@ -717,6 +719,136 @@ test("lists pending invites after an API restart", async (t) => {
   assert.deepEqual(invites.map((i) => i.token), [token]);
   await app.close();
 });
+
+/**
+ * Runs `script` in a fresh Node process (nothing in memory, as after an API restart) with the
+ * built app's module URL as argv[1] and `args` after it, and returns its `RESULT:` line.
+ */
+function runInFreshProcess<T>(script: string, args: string[]): T {
+  const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+  const out = execFileSync(
+    process.execPath,
+    ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, ...args],
+    { encoding: "utf8", env: process.env, timeout: 45_000 }
+  );
+  return JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as T;
+}
+
+test(
+  "crew sent an invite link or a room code before an API restart can still join after it, and their seats stick",
+  { skip: !isRoomPersistenceEnabled() && "needs Postgres (test:pg)", timeout: 90_000 },
+  async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const ownerId = `owner-invite-restart-${suffix}`;
+    const chiefId = `chief-invite-restart-${suffix}`;
+    const crewId = `crew-code-restart-${suffix}`;
+    const app = buildApp();
+    await app.ready();
+    const ownerToken = app.jwt.sign(buildClaims(ownerId));
+    const chiefToken = app.jwt.sign(buildClaims(chiefId));
+    const crewToken = app.jwt.sign(buildClaims(crewId));
+    const created = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: { teamId: "team-1", athleteId: ownerId, name: "Invite restart", creatorName: "Runner", creatorRole: "athlete" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(created.statusCode, 201);
+    const room = created.json() as { id: string; joinCode: string };
+    // Full crew: the chief and a second crew member both need a seat.
+    const paid = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/billing/dev-purchase`,
+      payload: { productId: "race_pass_full_crew" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(paid.statusCode, 200);
+    const issued = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${room.id}/invites`,
+      payload: { email: "chief@example.com", role: "crew_chief" },
+      headers: { authorization: `Bearer ${ownerToken}` }
+    });
+    assert.equal(issued.statusCode, 201);
+    const { token: inviteToken } = issued.json() as { token: string };
+    await app.close();
+
+    // The crew open the link and the code only after the API restarted: nothing is in memory.
+    const join = runInFreshProcess<{
+      preview: { status: number; body: { preview?: { roomName: string; joinCode: string } } };
+      accept: { status: number; body: { assignedRole?: string; room?: { id: string } } };
+      byCode: { status: number; body: { assignedRole?: string; room?: { id: string } } };
+    }>(
+      `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, joinCode, inviteToken, chief, crew] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = async (method, url, token, payload) => {
+        const res = await app.inject({
+          method, url, payload, headers: token ? { authorization: "Bearer " + token } : {}
+        });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const preview = await call("GET", "/race-rooms/join-preview/" + joinCode);
+      const accept = await call("POST", "/race-rooms/" + roomId + "/invites/accept", chief, { token: inviteToken });
+      const byCode = await call("POST", "/race-rooms/join-by-code", crew, { roomCode: joinCode });
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ preview, accept, byCode }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `,
+      [room.id, room.joinCode, inviteToken, chiefToken, crewToken]
+    );
+    assert.equal(join.preview.status, 200, "the join link's preview still finds the race by its code");
+    assert.equal(join.preview.body.preview?.roomName, "Invite restart");
+    assert.equal(join.accept.status, 200, "the invite issued before the restart is still accepted");
+    assert.equal(join.accept.body.assignedRole, "crew_chief", "the invite's role, not a default");
+    assert.equal(join.accept.body.room?.id, room.id);
+    assert.equal(join.byCode.status, 200, "the room code still joins after the restart");
+    assert.equal(join.byCode.body.assignedRole, "crew_member");
+    assert.equal(join.byCode.body.room?.id, room.id);
+
+    // A second restart: the seats taken after the first one, and the used invite, are in Postgres.
+    const after = runInFreshProcess<{
+      room: { status: number; body: { room: { memberships: Array<{ userId: string; role: string }> } } };
+      invites: { status: number; body: { invites: Array<{ token?: string; status: string; acceptedBy?: string }> } };
+      reaccept: { status: number };
+      crewMine: { status: number; body: { rooms: Array<{ id: string }> } };
+    }>(
+      `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, inviteToken, owner, chief, crew] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = async (method, url, token, payload) => {
+        const res = await app.inject({ method, url, payload, headers: { authorization: "Bearer " + token } });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const out = {
+        room: await call("GET", "/race-rooms/" + roomId, owner),
+        invites: await call("GET", "/race-rooms/" + roomId + "/invites", owner),
+        reaccept: await call("POST", "/race-rooms/" + roomId + "/invites/accept", crew, { token: inviteToken }),
+        crewMine: await call("GET", "/race-rooms/mine", crew)
+      };
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+    `,
+      [room.id, inviteToken, ownerToken, chiefToken, crewToken]
+    );
+    assert.equal(after.room.status, 200);
+    const roles = Object.fromEntries(after.room.body.room.memberships.map((m) => [m.userId, m.role]));
+    assert.deepEqual(roles, { [ownerId]: "athlete", [chiefId]: "crew_chief", [crewId]: "crew_member" });
+    assert.equal(after.invites.status, 200);
+    assert.deepEqual(
+      after.invites.body.invites.map((i) => ({ token: i.token, status: i.status, acceptedBy: i.acceptedBy })),
+      [{ token: inviteToken, status: "accepted", acceptedBy: chiefId }]
+    );
+    assert.equal(after.reaccept.status, 409, "a used invite link cannot hand out a second seat after a restart");
+    assert.equal(after.crewMine.status, 200);
+    assert.ok(after.crewMine.body.rooms.some((r) => r.id === room.id), "the race is on the crew member's list");
+  }
+);
 
 test("joins room by room code and creates membership", async () => {
   const app = buildApp();
