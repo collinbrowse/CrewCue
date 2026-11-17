@@ -396,3 +396,77 @@ test("out-and-back: after a ten-minute stop near the turnaround the runner is fo
   }
   assert.ok(worstErrorOnTheWayHome < 30, `worst progress error on the way home ${Math.round(worstErrorOnTheWayHome)} m`);
 });
+
+test("out-and-back: a stop at the aid station on the way out is not logged on its return-leg checkpoint", () => {
+  // 3 km north and back along the same line. One aid station at 1 km, passed on the way out
+  // (aid-out, ~1 km) and again on the way back (aid-back, ~5 km): two checkpoints, same spot.
+  const out: CourseMetricPoint[] = Array.from({ length: 31 }, (_, i) => ({
+    latitude: 42 + (i * 100) / 111_320,
+    longitude: -70
+  }));
+  const routeMetricPoints = [...out, ...out.slice(0, -1).reverse()];
+  const cumulative = geodesicCumulativeAtVertices(routeMetricPoints);
+  const aid = out[10]!;
+  const checkpoints = checkpointsWithProjectedDistances(
+    [
+      { id: "start", latitude: 42, longitude: -70 },
+      { id: "aid-out", latitude: aid.latitude, longitude: aid.longitude, plannedStopSeconds: 300 },
+      { id: "turnaround", latitude: out[30]!.latitude, longitude: out[30]!.longitude },
+      { id: "aid-back", latitude: aid.latitude, longitude: aid.longitude, plannedStopSeconds: 300 },
+      { id: "finish", latitude: 42, longitude: -70 }
+    ],
+    routeMetricPoints
+  );
+  const aidBackAt = checkpoints.find((c) => c.id === "aid-back")!.distanceMetersFromStart!;
+  assert.ok(aidBackAt > 4_500, `aid-back sits on the return leg (${Math.round(aidBackAt)} m)`);
+  const course: RaceCourse = { checkpoints, derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints) };
+
+  // 100 m a minute out to the aid station, six minutes stopped there, then on to 2 km.
+  const truth: number[] = [];
+  for (let p = 100; p < 1_000; p += 100) truth.push(p);
+  for (let i = 0; i < 6; i += 1) truth.push(1_000);
+  for (let p = 1_100; p <= 2_000; p += 100) truth.push(p);
+
+  const activatedAtMs = Date.parse("2026-06-01T12:00:00.000Z");
+  let previous: Parameters<typeof recomputeRaceProjection>[0]["previous"] = null;
+  let previousPing: Parameters<typeof recomputeRaceProjection>[0]["previousPing"] = null;
+  let last: ReturnType<typeof recomputeRaceProjection> | undefined;
+  for (const [index, progressMeters] of truth.entries()) {
+    const onRoute = pointAtProgress(routeMetricPoints, cumulative, progressMeters);
+    const ping = {
+      pingId: `ping-${index}`,
+      latitude: onRoute.latitude,
+      longitude: onRoute.longitude,
+      recordedAt: new Date(activatedAtMs + (index + 1) * 60_000).toISOString()
+    };
+    last = recomputeRaceProjection({
+      roomId: "out-and-back-aid",
+      activatedAt: new Date(activatedAtMs).toISOString(),
+      course,
+      plannedPaceSecondsPerKm: 480,
+      ping,
+      previousPing,
+      previous,
+      routeMetricPoints
+    });
+    previous = last.state;
+    previousPing = ping;
+  }
+  const projection = last!.projection;
+  assert.ok(projection.progressMeters < 2_100, `runner is on the way out (${Math.round(projection.progressMeters)} m)`);
+  const row = (id: string) => projection.checkpointSplits.find((r) => r.checkpointId === id)!;
+  assert.equal(row("aid-out").visits.length, 1, "the stop is logged at the aid station on the way out");
+  assert.ok((row("aid-out").totalActualStopSeconds ?? 0) >= 240, "the outbound stop time is on aid-out");
+  assert.deepEqual(row("aid-back").visits, [], "the return-leg checkpoint 3 km ahead has no visit yet");
+  assert.equal(row("aid-back").totalActualStopSeconds, null);
+  assert.equal(
+    projection.stoppageSummary.remainingPlannedStopSeconds,
+    300,
+    "the planned stop on the way back is still ahead of the runner"
+  );
+  assert.equal(
+    projection.stoppageSummary.totalActualStopSeconds,
+    row("aid-out").totalActualStopSeconds,
+    "the outbound stop is counted once"
+  );
+});
