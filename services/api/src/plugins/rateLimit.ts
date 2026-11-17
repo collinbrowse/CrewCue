@@ -32,10 +32,10 @@ export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
  */
 export const CONDITIONAL_RATE_LIMITS = {
   /**
-   * `PUT /race-rooms/:roomId/course` on an unpaid race, per user across all their races. Every
-   * save recomputes the course and its projection, and the runner can save before paying. Only a
-   * save that writes counts (not a rejected payload or an idempotent replay). Paid course saves are
-   * not limited.
+   * `PUT /race-rooms/:roomId/course` and `PATCH /race-rooms/:roomId/race-start` on an unpaid
+   * race, per user across all their races, one budget for both. Every save recomputes the
+   * projection, and the runner can save before paying. Only a save that writes counts (not a
+   * rejected payload or an idempotent replay). Paid saves are not limited.
    */
   unpaidCourseSave: { max: 10, windowMs: HOUR }
 } as const satisfies Record<string, Limit>;

@@ -197,8 +197,9 @@ test("projection teaser: the finish from the start line, whatever checkpoint is 
   } as RaceRoomProjection;
 
   const shaped = teaserProjection(bootstrap, withStops);
-  // The plan curve to the course length (18 000 s) plus five 60 s stops, from the race start.
-  assert.equal(shaped.etaFinishPlanIso, "2026-08-15T18:05:00.000Z");
+  // The plan curve to the course length (18 000 s) plus the 60 s stops before the finish (four:
+  // the finish's own stop is after the finish line), from the race start.
+  assert.equal(shaped.etaFinishPlanIso, "2026-08-15T18:04:00.000Z");
   assert.equal(Object.hasOwn(shaped, "etaFinishWindow"), false, "the window is centred on the same origin");
   assert.deepEqual(shaped.checkpointSplits, []);
 
@@ -211,13 +212,16 @@ test("projection teaser: the finish from the start line, whatever checkpoint is 
     etaFinishPlanIso: "2026-08-15T17:00:00.000Z"
   } as RaceRoomProjection;
   const live = teaserProjection(fromPing, withStops);
-  assert.equal(live.etaFinishPlanIso, "2026-08-15T18:05:00.000Z");
+  assert.equal(live.etaFinishPlanIso, "2026-08-15T18:04:00.000Z");
   assert.equal(Object.hasOwn(live, "etaFinishWindow"), false);
   assert.equal(teaserProjection({ ...fromPing, progressMeters: 10_000 }, withStops).etaFinishPlanIso, live.etaFinishPlanIso);
 
-  // Without a usable plan curve: planned pace over the course from when the projection was taken.
+  // Without a usable plan curve: planned pace over the course (10 800 s) plus the stops before the
+  // finish, from the race start when the projection was taken before it (the pre-race bootstrap)...
   const noCurve: RaceRoom = { ...withStops, course: { checkpoints: withStops.course!.checkpoints } };
-  assert.equal(teaserProjection(bootstrap, noCurve).etaFinishPlanIso, "2026-08-01T03:05:00.000Z");
+  assert.equal(teaserProjection(bootstrap, noCurve).etaFinishPlanIso, "2026-08-15T16:04:00.000Z");
+  // ...and from when it was taken, after the start.
+  assert.equal(teaserProjection(fromPing, noCurve).etaFinishPlanIso, "2026-08-15T17:04:00.000Z");
   // Never earlier than the projection was taken.
   const late = { ...bootstrap, asOfRecordedAt: "2026-09-01T00:00:00.000Z" };
   assert.equal(teaserProjection(late, withStops).etaFinishPlanIso, "2026-09-01T00:00:00.000Z");

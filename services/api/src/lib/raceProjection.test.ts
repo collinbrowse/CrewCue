@@ -470,3 +470,150 @@ test("out-and-back: a stop at the aid station on the way out is not logged on it
     "the outbound stop is counted once"
   );
 });
+
+/** A ~2.2 km three-checkpoint course with planned stops, flat (no plan curve) or with a 600 s curve. */
+function stopsCourse(stops: { a: number; b: number; c: number }, withCurve: boolean) {
+  const raw = [
+    { id: "a", latitude: 10.0, longitude: 20.0, plannedStopSeconds: stops.a },
+    { id: "b", latitude: 10.01, longitude: 20.0, plannedStopSeconds: stops.b },
+    { id: "c", latitude: 10.02, longitude: 20.0, plannedStopSeconds: stops.c }
+  ];
+  const routeMetricPoints = raw.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+  const checkpoints = checkpointsWithProjectedDistances(raw, routeMetricPoints);
+  const length = checkpoints[2]!.distanceMetersFromStart!;
+  const course: RaceCourse = {
+    checkpoints,
+    derivedMetrics: buildDerivedMetricsFromPolyline(routeMetricPoints),
+    ...(withCurve
+      ? {
+          baselineTrack: {
+            points: [
+              { distanceMetersFromStart: 0, referenceElapsedSeconds: 0 },
+              { distanceMetersFromStart: length, referenceElapsedSeconds: 600 }
+            ]
+          }
+        }
+      : {})
+  };
+  return { course, routeMetricPoints, length };
+}
+
+function withTunedConstants<T>(on: boolean, run: () => T): T {
+  const before = process.env.PROJECTION_TUNED_CONSTANTS;
+  if (on) {
+    process.env.PROJECTION_TUNED_CONSTANTS = "1";
+  } else {
+    delete process.env.PROJECTION_TUNED_CONSTANTS;
+  }
+  try {
+    return run();
+  } finally {
+    if (before === undefined) {
+      delete process.env.PROJECTION_TUNED_CONSTANTS;
+    } else {
+      process.env.PROJECTION_TUNED_CONSTANTS = before;
+    }
+  }
+}
+
+const START_AT = "2026-04-16T12:00:00.000Z";
+const startMs = Date.parse(START_AT);
+const at = (seconds: number) => new Date(startMs + seconds * 1000).toISOString();
+const finishSeconds = (iso: string) => (Date.parse(iso) - startMs) / 1000;
+
+test("finish ETA is the arrival at the finish line: the finish checkpoint's own planned stop is never added", () => {
+  for (const tuned of [false, true]) {
+    for (const withCurve of [false, true]) {
+      const label = `${tuned ? "tuned" : "today"}, ${withCurve ? "plan curve" : "plan pace"}`;
+      const finishAt = (finishStop: number) =>
+        withTunedConstants(tuned, () => {
+          const { course, routeMetricPoints } = stopsCourse({ a: 60, b: 120, c: finishStop }, withCurve);
+          return recomputeRaceProjection({
+            roomId: "room-1",
+            activatedAt: START_AT,
+            course,
+            plannedPaceSecondsPerKm: 600,
+            ping: { pingId: "at-start", latitude: 10.0, longitude: 20.0, recordedAt: START_AT },
+            previous: null,
+            routeMetricPoints
+          }).projection.etaFinishPlanIso;
+        });
+      assert.equal(finishAt(600), finishAt(0), `${label}: the finish's stop does not move the finish`);
+      if (!tuned) {
+        const { length } = stopsCourse({ a: 0, b: 0, c: 0 }, withCurve);
+        const moving = withCurve ? 600 : (length / 1000) * 600;
+        // The plan plus the stops on the way (a and b), not the finish's.
+        assert.ok(Math.abs(finishSeconds(finishAt(600)) - (moving + 180)) < 0.01, `${label}: ${finishAt(600)}`);
+      }
+    }
+  }
+});
+
+test("standing at the finish, its planned stop still running, the finish ETA is not pushed back by it", () => {
+  const { course, routeMetricPoints } = stopsCourse({ a: 0, b: 0, c: 600 }, true);
+  const finish = course.checkpoints[2]!;
+  const startPing = { pingId: "p0", latitude: 10.0, longitude: 20.0, recordedAt: START_AT };
+  const first = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt: START_AT,
+    course,
+    plannedPaceSecondsPerKm: 600,
+    ping: startPing,
+    previous: null,
+    routeMetricPoints
+  });
+  const arrive = { pingId: "p1", latitude: finish.latitude, longitude: finish.longitude, recordedAt: at(600) };
+  const arrived = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt: START_AT,
+    course,
+    plannedPaceSecondsPerKm: 600,
+    ping: arrive,
+    previousPing: startPing,
+    previous: first.state,
+    routeMetricPoints
+  });
+  // Still at the finish a minute later: a stop there is in progress (60 s of its 600 s).
+  const stopped = recomputeRaceProjection({
+    roomId: "room-1",
+    activatedAt: START_AT,
+    course,
+    plannedPaceSecondsPerKm: 600,
+    ping: { ...arrive, pingId: "p2", recordedAt: at(660) },
+    previousPing: arrive,
+    previous: arrived.state,
+    routeMetricPoints
+  });
+  const visit = stopped.projection.checkpointSplits[2]!.visits[0]!;
+  assert.ok(visit.autoDetected?.firstSlowedAt && !visit.autoDetected.departureRecordedAt, "a stop at the finish is in progress");
+  // Finished at 600 s; the ETA is never before the ping (660 s), and the 540 s left of the
+  // finish's planned stop is after the finish line.
+  assert.equal(stopped.projection.etaFinishPlanIso, at(660));
+});
+
+test("a projection taken before the start counts the rest of the course from the start, not from then", () => {
+  for (const withCurve of [false, true]) {
+    const { course, routeMetricPoints, length } = stopsCourse({ a: 60, b: 120, c: 600 }, withCurve);
+    const moving = withCurve ? 600 : (length / 1000) * 600;
+    const atStartLine = (recordedAt: string) =>
+      withTunedConstants(false, () =>
+        recomputeRaceProjection({
+          roomId: "room-1",
+          activatedAt: START_AT,
+          course,
+          plannedPaceSecondsPerKm: 600,
+          // The pre-race bootstrap: a synthetic ping at the first checkpoint, taken now.
+          ping: { pingId: "bootstrap", latitude: 10.0, longitude: 20.0, recordedAt },
+          previous: null,
+          routeMetricPoints
+        }).projection.etaFinishPlanIso
+      );
+    const label = withCurve ? "plan curve" : "plan pace";
+    // Three days before the start: the start plus the plan, never then plus the plan.
+    assert.ok(Math.abs(finishSeconds(atStartLine(at(-3 * 24 * 3600))) - (moving + 180)) < 0.01, `${label}: pre-race`);
+    // Ten minutes after the start, still at the start line: the plan curve's finish is anchored
+    // at the start crossing; plan pace counts from then, as before.
+    const late = withCurve ? moving + 180 : 600 + moving + 180;
+    assert.ok(Math.abs(finishSeconds(atStartLine(at(600))) - late) < 0.01, `${label}: after the start`);
+  }
+});

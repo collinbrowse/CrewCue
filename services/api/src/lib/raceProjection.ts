@@ -163,6 +163,27 @@ function checkpointPlannedStopSeconds(checkpoint: RaceCourseCheckpoint): number 
   return Math.max(0, checkpoint.plannedStopSeconds ?? 0);
 }
 
+/**
+ * Index of the finish checkpoint: the farthest along the course, ties keeping the later row, as
+ * the schedule picks its finish row. -1 on a course of fewer than two checkpoints (no finish
+ * apart from the start). The finish ETA is the arrival there, so it never adds this
+ * checkpoint's own planned stop.
+ */
+export function finishCheckpointIndex(distancesFromStart: readonly number[]): number {
+  if (distancesFromStart.length < 2) {
+    return -1;
+  }
+  let best = -1;
+  let bestDistance = -Infinity;
+  distancesFromStart.forEach((distance, index) => {
+    if (distance >= bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
 function checkpointSlowdownThresholdRatio(checkpoint: RaceCourseCheckpoint): number {
   return checkpoint.slowdownThresholdRatio ?? 0.5;
 }
@@ -605,7 +626,19 @@ export function recomputeRaceProjection(params: {
     return sum + (reached ? 0 : row.plannedStopSeconds);
   }, 0);
 
-  const currentCheckpointRemainingStop = checkpointSplits.reduce((remaining, row) => {
+  // The finish ETA is the arrival at the finish line, as the schedule's finish row reads it: the
+  // planned stops on the way there, never the finish checkpoint's own.
+  const finishIndex = finishCheckpointIndex(cumAt);
+  const plannedStopSecondsBeforeFinish = checkpointSplits.reduce((sum, row, index) => {
+    const reached = row.visits.length > 0;
+    return sum + (reached || index === finishIndex ? 0 : row.plannedStopSeconds);
+  }, 0);
+
+  const currentCheckpointRemainingStop = checkpointSplits.reduce((remaining, row, index) => {
+    if (index === finishIndex) {
+      // Stopped at the finish is finished: its planned stop is after the finish line.
+      return remaining;
+    }
     const lastVisit = row.visits[row.visits.length - 1];
     if (!lastVisit || !lastVisit.autoDetected) {
       return remaining;
@@ -654,17 +687,20 @@ export function recomputeRaceProjection(params: {
         return Math.max(
           recordedAtMs,
           activatedAtMs +
-            (anchoredFinishElapsedSeconds + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) *
+            (anchoredFinishElapsedSeconds + plannedStopSecondsBeforeFinish + currentCheckpointRemainingStop) *
               1000
         );
       })()
     : (() => {
         const remainingM = Math.max(0, courseLengthMeters - progressMeters);
         const remainingSec = (remainingM / 1000) * plannedPaceSecondsPerKm;
-      return (
-        recordedAtMs +
-        (remainingSec + remainingPlannedStopSecondsAhead + currentCheckpointRemainingStop) * 1000
-      );
+        // The rest of the course runs from now, or from the start when the projection is taken
+        // before it (the pre-race bootstrap): the pre-race finish is the start plus the plan.
+        const remainingFromMs = Math.max(recordedAtMs, activatedAtMs);
+        return (
+          remainingFromMs +
+          (remainingSec + plannedStopSecondsBeforeFinish + currentCheckpointRemainingStop) * 1000
+        );
       })();
   let etaFinishPlanIso = new Date(etaFinishMs).toISOString();
   let remainingCheckpointEtas: RemainingCheckpointEta[] | undefined;
@@ -724,7 +760,7 @@ export function recomputeRaceProjection(params: {
     const finishElapsed =
       elapsedNow +
       scale * Math.max(0, finishReferenceElapsedSeconds - planNow) +
-      stopRatio * remainingPlannedStopSecondsAhead +
+      stopRatio * plannedStopSecondsBeforeFinish +
       currentCheckpointRemainingStop;
     etaFinishPlanIso = new Date(Math.max(recordedAtMs, activatedAtMs + finishElapsed * 1000)).toISOString();
     const finishWindow = arrivalWindow({ ...windowInput, etaElapsed: finishElapsed, towardFinish: 1 });

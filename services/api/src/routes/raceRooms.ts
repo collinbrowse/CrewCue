@@ -267,6 +267,11 @@ const updateRaceCourseInput = z.object({
   raceStartAt: z.iso.datetime()
 });
 
+/** `PATCH /race-rooms/:roomId/race-start`: the start alone, validated as `PUT /course` takes it. */
+const updateRaceStartInput = z.object({
+  raceStartAt: z.iso.datetime()
+});
+
 const putRaceMapWorkspaceInput = z.object({
   layers: z.array(mapWorkspaceLayerInput).max(24),
   selectedLayerId: z.string().optional(),
@@ -976,8 +981,43 @@ export function resolveRaceAnchorIso(room: RaceRoom): string | undefined {
 }
 
 /**
- * When course + pace + anchor exist but no projection state yet (no accepted ping),
- * seed in-memory (and persisted) projection at the course start.
+ * The race start (ms) pings are judged against: `raceStartAt`, when the room has one. A ping
+ * recorded before it is a pre-start (test) ping: the runner's "test tracking now" days before the
+ * race, or a ping sent on race morning before the gun. It is stored, and the latest one still
+ * shows the runner's dot (`pings/latest`), but it never drives the projection, its ETAs, the
+ * schedule's closed visits or the projection's freshness. The elapsed-time anchor stays
+ * `resolveRaceAnchorIso`.
+ */
+function raceStartMs(room: RaceRoom): number | undefined {
+  const iso = room.raceStartAt?.trim();
+  if (!iso) {
+    return undefined;
+  }
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Whether a ping recorded at `recordedAtMs` is before the race start (see `raceStartMs`). */
+function isPreStartPing(room: RaceRoom, recordedAtMs: number): boolean {
+  const startMs = raceStartMs(room);
+  return startMs !== undefined && recordedAtMs < startMs;
+}
+
+/**
+ * The last accepted ping that counts for the race: null when there is none or it is pre-start.
+ * Pings are accepted in `recordedAt` order, so a pre-start last ping means every accepted ping
+ * is pre-start and the race has no ping yet.
+ */
+function lastRacePing(pingState: RoomPingState, room: RaceRoom): AcceptedPing | null {
+  const last = pingState.lastAccepted;
+  return last && !isPreStartPing(room, last.recordedAtMs) ? last : null;
+}
+
+/**
+ * When course + pace + anchor exist but no projection state yet (no accepted race ping),
+ * seed in-memory (and persisted) projection at the course start. Taken before the start, its
+ * finish is the start plus the plan, not now plus the plan (`recomputeRaceProjection` counts the
+ * rest of the course from the later of the two).
  */
 async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persistSnapshot: boolean): Promise<boolean> {
   const anchor = resolveRaceAnchorIso(room);
@@ -1045,11 +1085,13 @@ async function ensureBootstrapProjection(roomId: string, room: RaceRoom, persist
  * on every GET; Pace reads `checkpointSplits.plannedElapsedSecondsAtCross` from the stored
  * projection — without this refresh those splits stay on the pre-attach plan (#487 Pace lag).
  *
- * Pre-race (no accepted ping): drop bootstrap state and re-seed from the new plan, then copy
- * any closed/auto visit logs onto the matching checkpoint ids so Recalculate cannot erase
- * check-ins that landed before the first GPS ping.
- * In-race (ping present): recompute over the last accepted ping with the new baseline/pace
+ * Pre-race (no accepted race ping; pre-start pings do not count): drop bootstrap state and
+ * re-seed from the new plan, then copy any closed/auto visit logs onto the matching checkpoint
+ * ids so Recalculate cannot erase check-ins that landed before the first GPS ping.
+ * In-race (race ping present): recompute over the last accepted ping with the new baseline/pace
  * (visit state is already carried via `previous`).
+ * The start-time route (`PATCH /race-start`) refreshes through here too, so a pre-race projection
+ * is re-seeded at the new start.
  */
 export async function refreshProjectionAfterPlanOfRecordChange(
   roomId: string,
@@ -1059,11 +1101,10 @@ export async function refreshProjectionAfterPlanOfRecordChange(
   await loadWs2RuntimeIfNeeded(roomId);
   const pingState = getOrInitPingState(roomId);
   const previous = roomProjectionState.get(roomId);
+  const racePing = lastRacePing(pingState, room);
   const visitsToRestore =
-    !pingState.lastAccepted && previous
-      ? previous.lastProjectionCore.checkpointSplits.filter(checkpointSplitHasVisitLog)
-      : [];
-  if (!pingState.lastAccepted) {
+    !racePing && previous ? previous.lastProjectionCore.checkpointSplits.filter(checkpointSplitHasVisitLog) : [];
+  if (!racePing) {
     roomProjectionState.delete(roomId);
   }
   try {
@@ -1819,24 +1860,26 @@ export async function removeMemberForAccountDeletion(
   return removed;
 }
 
-/** Latest projection view with timeliness, when ping history produced a stored core projection or bootstrap filled state. */
+/**
+ * Latest projection view with timeliness, when ping history produced a stored core projection or
+ * bootstrap filled state. Freshness counts race pings only: a pre-start ping never makes it fresh.
+ */
 export async function getProjectionViewForRoom(roomId: string): Promise<RaceRoomProjection | undefined> {
   await loadWs2RuntimeIfNeeded(roomId);
+  const room = await getRaceRoom(roomId);
   let stored = roomProjectionState.get(roomId);
-  if (!stored) {
-    const room = await getRaceRoom(roomId);
-    if (room) {
-      await ensureBootstrapProjection(roomId, room, true);
-      stored = roomProjectionState.get(roomId);
-    }
+  if (!stored && room) {
+    await ensureBootstrapProjection(roomId, room, true);
+    stored = roomProjectionState.get(roomId);
   }
   if (!stored) {
     return undefined;
   }
   const pingState = getOrInitPingState(roomId);
+  const racePing = room ? lastRacePing(pingState, room) : pingState.lastAccepted;
   return attachProjectionTimeliness(
     stored.lastProjectionCore,
-    pingState.lastAccepted?.recordedAtMs ?? null,
+    racePing?.recordedAtMs ?? null,
     Date.now(),
     pingState.lastUploadIntervalSeconds
   );
@@ -1910,10 +1953,11 @@ function visitedCheckpointIdsFromStoredProjection(stored: RoomProjectionState): 
  * silently destroyed visits and reverted GET /schedule ETAs to plan.
  *
  * Keep the stored projection when it already has visit logs; only discard when
- * there is neither a live ping nor a check-in/auto visit to preserve.
+ * there is neither a live race ping (a pre-start ping is none) nor a check-in/auto visit to
+ * preserve.
  */
-function discardStaleProjectionIfNoLivePing(roomId: string): void {
-  if (getOrInitPingState(roomId).lastAccepted) {
+function discardStaleProjectionIfNoLivePing(roomId: string, room: RaceRoom): void {
+  if (lastRacePing(getOrInitPingState(roomId), room)) {
     return;
   }
   const prev = roomProjectionState.get(roomId);
@@ -1942,8 +1986,10 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
   if (!anchor || !room.course || room.plannedPaceSecondsPerKm === undefined) {
     return;
   }
-  const pingState = getOrInitPingState(roomId);
-  if (!pingState.lastAccepted) {
+  // Recompute over the last race ping. Before the race's first one (pre-start pings do not count)
+  // the caller seeds the bootstrap instead.
+  const last = lastRacePing(getOrInitPingState(roomId), room);
+  if (!last) {
     return;
   }
   const routeMetricPoints = resolveRouteMetricPointsFromRaceRoom(room);
@@ -1952,7 +1998,6 @@ async function recomputeStoredProjectionAfterCourseChange(roomId: string, room: 
     return;
   }
   const prev = roomProjectionState.get(roomId);
-  const last = pingState.lastAccepted;
   const ping: ProjectionPing = {
     pingId: last.pingId,
     latitude: last.latitude,
@@ -2467,7 +2512,7 @@ async function recomputeProjectionAfterCourseSave(
   roomId: string,
   updatedRoom: RaceRoom
 ): Promise<void> {
-  discardStaleProjectionIfNoLivePing(roomId);
+  discardStaleProjectionIfNoLivePing(roomId, updatedRoom);
   try {
     await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
   } catch (err) {
@@ -2475,6 +2520,40 @@ async function recomputeProjectionAfterCourseSave(
   }
   await ensureBootstrapProjection(roomId, updatedRoom, true);
   await saveWs2RuntimeSnapshot(roomId);
+}
+
+/**
+ * After the race start moved (`PATCH /race-start`), under the room runtime lock so a ping cannot
+ * fold in between. Pings are judged against the new start. With no race ping yet, the projection
+ * is re-seeded at the new start, closed visit logs kept (`refreshProjectionAfterPlanOfRecordChange`).
+ * With race pings, it is recomputed over the last one, and the start crossing, which is the old
+ * start, moves to the new one. The schedule reads `raceStartAt` on every GET.
+ */
+async function recomputeProjectionAfterRaceStartChange(
+  log: FastifyBaseLogger,
+  roomId: string,
+  room: RaceRoom,
+  previousAnchorIso: string | undefined
+): Promise<void> {
+  await withRoomRuntimeLock(roomId, async () => {
+    await loadWs2RuntimeIfNeeded(roomId);
+    const latest = (await getRaceRoom(roomId)) ?? room;
+    const anchor = resolveRaceAnchorIso(latest);
+    const startId = latest.course?.checkpoints[0]?.id;
+    const stored = roomProjectionState.get(roomId);
+    const crossed = startId !== undefined ? stored?.splitCrossedAt[startId] : undefined;
+    if (
+      stored &&
+      startId !== undefined &&
+      anchor &&
+      crossed !== undefined &&
+      previousAnchorIso !== undefined &&
+      Date.parse(crossed) === Date.parse(previousAnchorIso)
+    ) {
+      stored.splitCrossedAt = { ...stored.splitCrossedAt, [startId]: anchor };
+    }
+    await refreshProjectionAfterPlanOfRecordChange(roomId, latest, log);
+  });
 }
 
 function courseDependentStateNeedsReset(input: {
@@ -2887,7 +2966,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       await discardWs5RoomState(roomId);
     }
 
-      discardStaleProjectionIfNoLivePing(roomId);
+      discardStaleProjectionIfNoLivePing(roomId, updatedRoom);
       try {
         await recomputeStoredProjectionAfterCourseChange(roomId, updatedRoom);
       } catch (err) {
@@ -2905,6 +2984,89 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       // Never release after a durable course write — retry/reclaim must not treat
       // a partially completed PUT as a fresh mutation that can wipe again freely.
       if (!idemCourseFinished && !coursePersisted) {
+        await releaseIdempotentMutation(request, parsed.data);
+      }
+    }
+  });
+
+  /**
+   * Set or change the race start without re-sending the course: onboarding sets it, the runner
+   * included on an unpaid race (the reply is then the teaser). Same gates as PUT /course: course
+   * editors, the unpaid runner let through, crew on an unpaid race 402. `raceStartAt` and
+   * `activatedAt` move together, as on a course save; the projection is re-seeded at the new
+   * start and the schedule reads it. On an unpaid race a write counts toward the course-save
+   * budget (`unpaidCourseSave`). An Idempotency-Key replay answers the room as it is now, shaped
+   * for the caller.
+   */
+  app.patch("/race-rooms/:roomId/race-start", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+    const viewer = request.identity.sub;
+    const roomId = (request.params as { roomId: string }).roomId;
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    const membership = room.memberships.find((member) => member.userId === viewer);
+    if (!membership) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
+    if (!getPermissions(membership.role).canEditRaceSetup) {
+      return reply.code(403).send({ error: "Insufficient permissions" });
+    }
+    // The start is part of the runner's onboarding, before they pay.
+    const entitlement = evaluateEntitlement(app, room, viewer, { allowUnpaidRunner: true });
+    if (!entitlement.allowed) {
+      return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
+    }
+    const parsed = updateRaceStartInput.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid race start payload" });
+    }
+
+    const idem = await beginIdempotentMutation(request, parsed.data);
+    if (idem.kind === "replay") {
+      // As PUT /course: the room as it is now, shaped for this caller, never the stored body.
+      const current = (await getRaceRoom(roomId)) ?? room;
+      return reply.code(idem.statusCode).send(roomForViewer(current, viewer));
+    }
+    if (idem.kind === "conflict" || idem.kind === "in_progress") {
+      return idempotencyErrorReply(reply, idem);
+    }
+
+    let idemFinished = false;
+    let startPersisted = false;
+    const releaseBeforeReply = async () => {
+      idemFinished = true;
+      await releaseIdempotentMutation(request, parsed.data);
+    };
+    try {
+      // Counted just before the write, as a course save is; past the budget it is 429 and the key
+      // is released.
+      if (
+        isTeaserRoom(room) &&
+        !(await app.enforceRateLimit(request, reply, "unpaidCourseSave", { beforeReply: releaseBeforeReply }))
+      ) {
+        return reply;
+      }
+      let previousAnchorIso: string | undefined;
+      const updatedRoom = await commitRaceRoomUpdate(roomId, (latest) => {
+        previousAnchorIso = resolveRaceAnchorIso(latest);
+        return { ...latest, raceStartAt: parsed.data.raceStartAt, activatedAt: parsed.data.raceStartAt };
+      });
+      if (!updatedRoom) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
+      startPersisted = true;
+      await recomputeProjectionAfterRaceStartChange(request.log, roomId, updatedRoom, previousAnchorIso);
+      const body = roomForViewer(updatedRoom, viewer);
+      await completeIdempotentMutation(request, parsed.data, 200, body);
+      idemFinished = true;
+      return reply.send(body);
+    } finally {
+      // As PUT /course: never release after the start is written, so a retry replays.
+      if (!idemFinished && !startPersisted) {
         await releaseIdempotentMutation(request, parsed.data);
       }
     }
@@ -3698,16 +3860,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Fold accepted samples (oldest first) into the room projection. Checkpoint visits, stops and
    * progress advance per sample; the live remaining-course pass runs once, for the newest sample.
-   * Caller holds the room runtime lock. Returns undefined when the room cannot project.
+   * Only race samples fold in: one recorded before the race start (`isPreStartPing`) is stored by
+   * the caller but skipped here, and a pre-start `previousAccepted` is no previous ping, so the
+   * race's first ping starts from the pre-race projection. Caller holds the room runtime lock.
+   * Returns undefined when the room cannot project or no sample is a race sample (the stored
+   * projection is then untouched).
    */
   async function recomputeProjectionForSamples(
     room: RaceRoom,
-    samples: ProjectionSample[],
+    allSamples: ProjectionSample[],
     previousAccepted: AcceptedPing | null,
     lastUploadIntervalSeconds: number | undefined
   ): Promise<RaceRoomProjection | undefined> {
     const roomId = room.id;
     const raceAnchor = resolveRaceAnchorIso(room);
+    const samples = allSamples.filter((sample) => !isPreStartPing(room, sample.recordedAtMs));
+    const racePrevious =
+      previousAccepted && !isPreStartPing(room, previousAccepted.recordedAtMs) ? previousAccepted : null;
     if (samples.length === 0 || !room.course || room.plannedPaceSecondsPerKm === undefined || !raceAnchor) {
       return undefined;
     }
@@ -3734,12 +3903,12 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       await commitDelay.delay();
     }
     try {
-      let previousPing = previousAccepted
+      let previousPing = racePrevious
         ? {
-            pingId: previousAccepted.pingId,
-            latitude: previousAccepted.latitude,
-            longitude: previousAccepted.longitude,
-            recordedAt: new Date(previousAccepted.recordedAtMs).toISOString()
+            pingId: racePrevious.pingId,
+            latitude: racePrevious.latitude,
+            longitude: racePrevious.longitude,
+            recordedAt: new Date(racePrevious.recordedAtMs).toISOString()
           }
         : null;
       let core: RaceRoomProjectionCore | undefined;
@@ -3922,14 +4091,18 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const pingState = getOrInitPingState(roomId);
     if (pingState.lastAccepted && recordedAtMs <= pingState.lastAccepted.recordedAtMs) {
       // Progress only moves forward. A replay or an out-of-order sample would rewind the readouts.
+      // A race ping is always after a pre-start one, so a test ping never makes it stale.
       return await reject("stale_recorded_at", "recordedAt must be after the last accepted ping");
     }
-    if (pingState.lastAccepted) {
-      const dtSec = (recordedAtMs - pingState.lastAccepted.recordedAtMs) / 1000;
+    // Speed is judged against the last race ping only. A pre-start (test) ping may be from home,
+    // days or hours before: judged against it, the race's first ping could read as a drive.
+    const speedReference = lastRacePing(pingState, latestRoom);
+    if (speedReference) {
+      const dtSec = (recordedAtMs - speedReference.recordedAtMs) / 1000;
       if (dtSec > 0) {
         const dist = distanceMeters(
-          pingState.lastAccepted.latitude,
-          pingState.lastAccepted.longitude,
+          speedReference.latitude,
+          speedReference.longitude,
           body.latitude,
           body.longitude
         );
@@ -3949,7 +4122,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       recordedAtMs,
       receivedAtMs
     };
-    if (body.uploadIntervalSeconds !== undefined) {
+    // The declared interval sets the projection's staleness threshold, so a pre-start ping does
+    // not adopt it: a test ping leaves every freshness field as it was.
+    if (body.uploadIntervalSeconds !== undefined && !isPreStartPing(latestRoom, recordedAtMs)) {
       pingState.lastUploadIntervalSeconds = body.uploadIntervalSeconds;
     }
 
@@ -4126,7 +4301,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
           }
           continue;
         }
-        if (last) {
+        // As in the single ping: speed is judged against the last race sample only, never a
+        // pre-start (test) one.
+        if (last && !isPreStartPing(latestRoom, last.recordedAtMs)) {
           const dtSec = (point.recordedAtMs - last.recordedAtMs) / 1000;
           const dist = distanceMeters(last.latitude, last.longitude, point.latitude, point.longitude);
           if (dist / dtSec > MAX_SPEED_MPS) {
@@ -4154,7 +4331,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
 
       pingState.lastAccepted = last;
-      if (body.uploadIntervalSeconds !== undefined) {
+      // As in the single ping: not adopted while the room's latest ping is pre-start.
+      if (body.uploadIntervalSeconds !== undefined && !(last && isPreStartPing(latestRoom, last.recordedAtMs))) {
         pingState.lastUploadIntervalSeconds = body.uploadIntervalSeconds;
       }
       for (const result of results) {
@@ -4231,7 +4409,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const points = rows.map((row) => ({
       recordedAt: new Date(row.recordedAtMs).toISOString(),
       latitude: row.latitude,
-      longitude: row.longitude
+      longitude: row.longitude,
+      // Judged against the start as it is now, so moving the start re-marks the stored track.
+      ...(isPreStartPing(room, row.recordedAtMs) ? { preStart: true as const } : {})
     }));
     const response: RaceRoomPingTrackResponse = {
       roomId,
@@ -4275,9 +4455,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const pingState = getOrInitPingState(roomId);
+    // Fresh only after a race ping: a pre-start (test) ping never makes the projection fresh.
     const view = attachProjectionTimeliness(
       stored.lastProjectionCore,
-      pingState.lastAccepted?.recordedAtMs ?? null,
+      lastRacePing(pingState, room)?.recordedAtMs ?? null,
       Date.now(),
       pingState.lastUploadIntervalSeconds
     );
@@ -4942,7 +5123,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Latest accepted athlete ping. Crew phones drive race progress readouts from this, never from
-   * their own GPS, so every member sees the same mile, ETA, and "last ping".
+   * their own GPS, so every member sees the same mile, ETA, and "last ping". A ping recorded
+   * before the race start is marked `preStart: true`: it shows the runner's dot, and nothing else
+   * moved with it (it carries no `progressMeters`).
    */
   app.get("/race-rooms/:roomId/pings/latest", async (request, reply) => {
     if (!request.identity) {
@@ -4976,15 +5159,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     const last = state.lastAccepted;
     if (last) {
       const core = roomProjectionState.get(roomId)?.lastProjectionCore;
+      const preStart = isPreStartPing(room, last.recordedAtMs);
       body.ping = {
         pingId: last.pingId,
         latitude: last.latitude,
         longitude: last.longitude,
         recordedAt: new Date(last.recordedAtMs).toISOString(),
         receivedAt: new Date(last.receivedAtMs).toISOString(),
-        ...(core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
+        ...(!preStart && core && core.asOfPingId === last.pingId && Number.isFinite(core.progressMeters)
           ? { progressMeters: core.progressMeters }
-          : {})
+          : {}),
+        ...(preStart ? { preStart: true as const } : {})
       };
     }
     return reply.send(body);

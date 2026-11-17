@@ -44,8 +44,8 @@ export type MicroModelEstimateInput = PacingEstimateInput & {
   /**
    * Read the finish (expected and bands) at the course length instead of at the farthest
    * checkpoint. The route is simulated end to end either way; this only moves where the finish
-   * is read. Off by default (paid races, room-less requests). An unpaid race sets it, so its
-   * finish is the route's end even when its checkpoints stop short of it.
+   * is read. Off by default (room-less requests). Every race's compute, paid or unpaid, sets it,
+   * so its finish is the route's end even when its checkpoints stop short of it.
    */
   finishAtCourseEnd?: boolean;
 };

@@ -490,9 +490,15 @@ export interface AthleteLatestPing {
   receivedAt: string;
   /**
    * Route-snapped course progress from the room projection for this exact ping.
-   * Absent when the room has no projection for it (no planned pace, start time, or route line).
+   * Absent when the room has no projection for it (no planned pace, start time, or route line),
+   * and on a pre-start ping.
    */
   progressMeters?: number;
+  /**
+   * Recorded before the race start (`raceStartAt`): a test ping. It shows the runner's dot only;
+   * progress, ETAs, the schedule and projection freshness ignore it. Absent on a race ping.
+   */
+  preStart?: true;
 }
 
 /** `GET /race-rooms/:roomId/pings/latest` */
@@ -524,7 +530,10 @@ export interface AthletePingAcceptedResponse {
   latitude: number;
   longitude: number;
   horizontalAccuracyMeters?: number;
-  /** Recomputed room projection; absent when the room has no plan, start time, or route line. */
+  /**
+   * Recomputed room projection; absent when the room has no plan, start time, or route line, and
+   * for a ping recorded before the race start (it does not move the projection).
+   */
   projection?: RaceRoomProjection;
 }
 
@@ -570,6 +579,16 @@ export interface AthleteTrackPoint {
   recordedAt: string;
   latitude: number;
   longitude: number;
+  /** Recorded before the race start (`raceStartAt`), judged against the start as it is now. */
+  preStart?: true;
+}
+
+/**
+ * `PATCH /race-rooms/:roomId/race-start` — set or change the race start without re-sending the
+ * course. ISO-8601 UTC with a `Z` (no offset), as `PUT /course` takes it.
+ */
+export interface RaceRoomRaceStartPayload {
+  raceStartAt: string;
 }
 
 /** `GET /race-rooms/:roomId/pings/track?after=<iso>&limit=<n>` — accepted points, oldest first. */

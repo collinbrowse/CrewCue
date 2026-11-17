@@ -122,17 +122,21 @@ export function projectionForRoom(projection: RaceRoomProjection, room: RaceRoom
 
 /**
  * The finish from the start line, as the projection computes it for a runner standing at the
- * start: the plan curve to the course length plus every planned stop, never earlier than when the
- * projection was taken; without a usable plan curve, planned pace over the course from then. It
- * reads only the course length, so no checkpoint edit or ping position moves it.
+ * start: the plan curve to the course length plus every planned stop before the finish (the
+ * finish checkpoint's own stop is after the finish line), never earlier than when the projection
+ * was taken; without a usable plan curve, planned pace over the course from then, or from the
+ * start when the projection was taken before it. It reads only the course length, so no
+ * checkpoint edit or ping position moves it.
  */
 function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): string {
   const recordedAtMs = Date.parse(projection.asOfRecordedAt);
   const anchorMs = Date.parse(room.raceStartAt?.trim() || room.activatedAt?.trim() || projection.asOfRecordedAt);
   const lengthMeters = projection.courseLengthMeters;
   const paceSecondsPerKm = projection.plannedPaceSecondsPerKm;
+  const { finishCheckpointId } = teaserCheckpointsOf(room);
   const plannedStopSeconds = (room.course?.checkpoints ?? []).reduce(
-    (sum, checkpoint) => sum + Math.max(0, checkpoint.plannedStopSeconds ?? 0),
+    (sum, checkpoint) =>
+      checkpoint.id === finishCheckpointId ? sum : sum + Math.max(0, checkpoint.plannedStopSeconds ?? 0),
     0
   );
   const baselineTrack = room.course?.baselineTrack;
@@ -149,7 +153,8 @@ function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): str
             plannedStopSeconds) *
             1000
       )
-    : recordedAtMs + ((lengthMeters / 1000) * paceSecondsPerKm + plannedStopSeconds) * 1000;
+    : (Number.isNaN(anchorMs) ? recordedAtMs : Math.max(recordedAtMs, anchorMs)) +
+      ((lengthMeters / 1000) * paceSecondsPerKm + plannedStopSeconds) * 1000;
   return new Date(finishMs).toISOString();
 }
 
@@ -278,8 +283,8 @@ export const COURSE_LENGTH_TOLERANCE_RATIO = 0.01;
  * which the micro-model simulates). Never a checkpoint's distance: checkpoints can stop short of
  * the route's end. Undefined when none is known (no stored length and no route).
  *
- * An unpaid race's compute reads its finish here (`finishAtCourseEnd`), its schedule puts its
- * finish row here, and its attach takes only a plan computed for this length.
+ * A race's compute, paid or unpaid, reads its finish here (`finishAtCourseEnd`). An unpaid race's
+ * schedule puts its finish row here, and its attach takes only a plan computed for this length.
  */
 export function courseLengthOf(
   room: RaceRoom,

@@ -1502,15 +1502,15 @@ const sinceStart = (iso: string, raceStartAt: string) => (Date.parse(iso) - Date
 type ReadFinishes = {
   /** The schedule's rows, in order. */
   stops: string[];
-  /** The schedule's last row: its arrival plus its own planned stop (the projection counts it). */
+  /** The schedule's last row: its arrival (a row's own planned stop never shifts it). */
   schedule: number;
   /** The schedule's last row, moving time only (the attached plan's finish, when there is one). */
   scheduleMoving: number | undefined;
-  /** The projection's finish (moving time plus every planned stop). */
+  /** The projection's finish (moving time plus every planned stop before the finish). */
   projection: number;
   /** The attached plan's finish, as GET room shows it (moving time). */
   room: number | undefined;
-  /** Every checkpoint's planned stop. */
+  /** Every checkpoint's planned stop but the finish row's own (the arrival there is the finish). */
   plannedStops: number;
 };
 
@@ -1544,11 +1544,13 @@ async function teaserFinishes(
   const room = (reads.room.json() as { room: RaceRoom }).room;
   return {
     stops: schedule.stops.map((stop) => stop.checkpointId),
-    schedule: sinceStart(last.clockArrivalAt, raceStartAt) + last.plannedStoppageSeconds,
+    schedule: sinceStart(last.clockArrivalAt, raceStartAt),
     scheduleMoving: last.movingElapsedSeconds,
     projection: sinceStart((reads.projection.json() as RaceRoomProjection).etaFinishPlanIso, raceStartAt),
     room: room.pacingEstimate?.expectedFinishElapsedSeconds,
-    plannedStops: (room.course?.checkpoints ?? []).reduce((sum, checkpoint) => sum + (checkpoint.plannedStopSeconds ?? 0), 0)
+    plannedStops: (room.course?.checkpoints ?? [])
+      .filter((checkpoint) => checkpoint.id !== last.checkpointId)
+      .reduce((sum, checkpoint) => sum + (checkpoint.plannedStopSeconds ?? 0), 0)
   };
 }
 
@@ -1699,7 +1701,8 @@ test("unpaid race: a stored plan re-attached to a shortened course is 400 course
         });
         const projection = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
         const finishElapsed = (Date.parse(projection.etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000;
-        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 240)) > 60, `the finish is not aid-1's split: ${finishElapsed}`);
+        // aid-1 is the finish now, so only the start's planned stop counts toward it.
+        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 120)) > 60, `the finish is not aid-1's split: ${finishElapsed}`);
 
         // A recompute for the shortened course attaches, finish-only.
         const recomputed = await computeForRoom(app, roomId, runner);
@@ -1714,8 +1717,9 @@ test("unpaid race: a stored plan re-attached to a shortened course is 400 course
         assert.equal((await roomOf(app, roomId, runner)).pacingEstimateId, planId);
         const projection = (await get(app, `/race-rooms/${roomId}/projection`, runner)).json() as RaceRoomProjection;
         const finishElapsed = (Date.parse(projection.etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000;
-        // aid-1's full-race ETA plus the planned stops at the start and at aid-1.
-        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 240)) <= 2, `paid finish ${finishElapsed} vs aid-1 ${aid1.elapsedSeconds}`);
+        // aid-1's full-race ETA plus the planned stop at the start: aid-1 is the finish now, and
+        // the finish is the arrival there, without its own stop.
+        assert.ok(Math.abs(finishElapsed - (aid1.elapsedSeconds + 120)) <= 2, `paid finish ${finishElapsed} vs aid-1 ${aid1.elapsedSeconds}`);
       }
     }
   });
@@ -1813,9 +1817,12 @@ test("unpaid race: an aid 300 m or 450 m before the end, the finish dropped: no 
       assert.equal(twin.aidEtas.find((eta) => eta.checkpointId === aid.id)?.elapsedSeconds, aidEta.elapsedSeconds, `${label}: the twin prices the aid the same`);
       assert.equal(plan.expectedFinishElapsedSeconds, twin.expectedFinishElapsedSeconds, `${label}: the paid twin's finish`);
       assert.deepEqual(plan.bands, twin.bands, `${label}: the paid twin's bands`);
-      // Paid races are unchanged: with the finish dropped, a paid race reads its finish at that aid.
+      // A paid race reads its finish at the route's end too: with the finish dropped, its finish is
+      // the twin's, never the aid's ETA.
       const paidCut = await paidRacePlan(app, runner, `Paid, finish dropped, ${label}`, raceStartAt, [...beforeFinish, aid]);
-      assert.equal(paidCut.expectedFinishElapsedSeconds, aidEta.elapsedSeconds, `${label}: a paid race's finish is the aid's ETA`);
+      assert.equal(paidCut.expectedFinishElapsedSeconds, twin.expectedFinishElapsedSeconds, `${label}: a paid race's finish is the route end's`);
+      assert.ok(paidCut.expectedFinishElapsedSeconds > aidEta.elapsedSeconds + 60, `${label}: a paid race's finish is not the aid's ETA`);
+      assert.equal(paidCut.aidEtas.find((eta) => eta.checkpointId === aid.id)?.elapsedSeconds, aidEta.elapsedSeconds, `${label}: the aid keeps its own ETA`);
 
       // The unpaid race is still the teaser once a paid race shares its plan.
       assertOneFinish(await teaserFinishes(app, roomId, runner, raceStartAt, `${label}, after the twin`, midCourse, real.values), label, twin.expectedFinishElapsedSeconds);
@@ -2030,5 +2037,138 @@ test("unpaid race: only a course save that writes counts toward the limit; repla
     assert.equal(replay.statusCode, 200, replay.body);
     assertNoPaidPlan(replay.json(), "replay past the limit", "runner");
     assert.equal((replay.json() as RaceRoom).id, roomId);
+  });
+});
+
+/** `PATCH /race-rooms/:roomId/race-start`: the start alone, as onboarding sets it. */
+function patchRaceStart(app: App, roomId: string, user: string, raceStartAt: unknown, idempotencyKey?: string) {
+  return app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${roomId}/race-start`,
+    payload: { raceStartAt },
+    headers: { ...auth(app, user), ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }
+  });
+}
+
+const hoursAfter = (iso: string, hours: number) => new Date(Date.parse(iso) + hours * 3600 * 1000).toISOString();
+
+test("unpaid race: the runner sets the start without re-sending the course; the reply is the teaser and the finish moves with the start", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-race-start";
+    const raceStartAt = futureStart();
+    const roomId = await raceWithCourse(app, runner, "Teaser start", { raceStartAt });
+    const computed = await computeForRoom(app, roomId, runner);
+    assert.equal(computed.statusCode, 200, computed.body);
+    const plan = computed.json() as PacingEstimate;
+    assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+    const midCourse = new Set(MID_COURSE);
+    const before = await teaserFinishes(app, roomId, runner, raceStartAt, "before the move", midCourse);
+    assertOneFinish(before, "before the move", plan.expectedFinishElapsedSeconds);
+
+    const moved = hoursAfter(raceStartAt, 2);
+    const patched = await patchRaceStart(app, roomId, runner, moved);
+    assert.equal(patched.statusCode, 200, patched.body);
+    assertNoPaidPlan(patched.json(), "runner PATCH race-start", "runner");
+    const body = patched.json() as RaceRoom;
+    assert.equal(body.raceStartAt, moved);
+    assert.equal(body.activatedAt, moved);
+    assert.equal(body.entitlement.status, "unpaid");
+    assert.equal(body.pacingEstimateId, plan.id, "the plan stays attached");
+    assert.deepEqual(body.pacingEstimate?.aidEtas, []);
+
+    // The same finish, counted from the new start: projection and schedule both moved with it.
+    const after = await teaserFinishes(app, roomId, runner, moved, "after the move", midCourse);
+    assertOneFinish(after, "after the move", plan.expectedFinishElapsedSeconds);
+    withinASecond(after.projection, before.projection, "teaser projection finish from the new start");
+    withinASecond(after.schedule, before.schedule, "teaser schedule finish from the new start");
+    assert.deepEqual(after.stops, ["start", "finish"]);
+  });
+});
+
+test("unpaid race: PATCH race-start is 402 for crew, 403 for crew who cannot edit the course; a keyed replay after a refund is the teaser", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-race-start-gates";
+    const chief = "chief-teaser-race-start-gates";
+    const crew = "crew-teaser-race-start-gates";
+    const room = await setUpUnpaidRace(app, runner, "Teaser start gates");
+    // Crew can only be on an unpaid race from before it was unpaid (a refund).
+    await setEntitlement(app, room.id, runner, "paid");
+    assert.equal((await joinByCode(app, room.joinCode, chief)).statusCode, 200);
+    assert.equal((await joinByCode(app, room.joinCode, crew)).statusCode, 200);
+    const promoted = await app.inject({
+      method: "PATCH",
+      url: `/race-rooms/${room.id}/members/${chief}`,
+      payload: { role: "crew_chief" },
+      headers: auth(app, runner)
+    });
+    assert.equal(promoted.statusCode, 200, promoted.body);
+
+    // While paid: a keyed start change answers the whole room, as any paid write does.
+    const keyed = await patchRaceStart(app, room.id, runner, hoursAfter(RACE_START_AT, 1), "teaser-race-start-key");
+    assert.equal(keyed.statusCode, 200, keyed.body);
+    assert.ok((keyed.json() as RaceRoom).course?.baselineTrack, "paid: whole");
+
+    await setEntitlement(app, room.id, runner, "unpaid");
+    const chiefMove = await patchRaceStart(app, room.id, chief, hoursAfter(RACE_START_AT, 2));
+    assert.equal(chiefMove.statusCode, 402, chiefMove.body);
+    assert.equal(Object.hasOwn(chiefMove.json() as object, "course"), false);
+    const crewMove = await patchRaceStart(app, room.id, crew, hoursAfter(RACE_START_AT, 2));
+    assert.equal(crewMove.statusCode, 403, crewMove.body);
+    assert.equal((await roomOf(app, room.id, runner)).raceStartAt, hoursAfter(RACE_START_AT, 1), "neither wrote");
+
+    // The runner's retry, after the refund: the room as it is now, the teaser.
+    const replay = await patchRaceStart(app, room.id, runner, hoursAfter(RACE_START_AT, 1), "teaser-race-start-key");
+    assert.equal(replay.statusCode, 200, replay.body);
+    assertNoPaidPlan(replay.json(), "refunded keyed PATCH race-start replay", "runner");
+    assert.equal((replay.json() as RaceRoom).raceStartAt, hoursAfter(RACE_START_AT, 1));
+  });
+});
+
+test("unpaid race: a start change counts toward the course-save limit, with course saves; refused payloads and replays do not", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-race-start-limit";
+    const checkpoints = taggedCourse().checkpoints;
+    // A paid race of the runner's, set up first: its writes are not limited.
+    const paidRoom = await raceWithCourse(app, runner, "Start limit, paid"); // save 1
+    await pay(app, paidRoom, runner);
+    const roomId = await raceWithCourse(app, runner, "Start limit, unpaid"); // save 2
+
+    // Refused before any write, more times than the limit: none counts.
+    for (let i = 0; i < 12; i += 1) {
+      const offset = await patchRaceStart(app, roomId, runner, "2026-08-15T06:00:00-07:00");
+      assert.equal(offset.statusCode, 400, offset.body);
+    }
+
+    const keyed = await patchRaceStart(app, roomId, runner, hoursAfter(RACE_START_AT, 1), "start-limit-key"); // 3
+    assert.equal(keyed.statusCode, 200, keyed.body);
+    assertNoPaidPlan(keyed.json(), "keyed PATCH race-start", "runner");
+    for (let i = 0; i < 7; i += 1) {
+      // Saves 4 to 10: course saves and start changes share the budget.
+      const write =
+        i % 2 === 0
+          ? await patchRaceStart(app, roomId, runner, hoursAfter(RACE_START_AT, 2 + i))
+          : await resaveCourse(app, roomId, runner, checkpoints);
+      assert.equal(write.statusCode, 200, `save ${i + 4}: ${write.body}`);
+    }
+    const limited = await patchRaceStart(app, roomId, runner, hoursAfter(RACE_START_AT, 20), "start-limit-fresh-key");
+    assert.equal(limited.statusCode, 429, limited.body);
+    assert.deepEqual(limited.json(), { error: "Too many requests" });
+    assert.ok(Number(limited.headers["retry-after"]) > 60 * 59);
+    // The refused key was released: the same request is 429 again, not 409.
+    assert.equal(
+      (await patchRaceStart(app, roomId, runner, hoursAfter(RACE_START_AT, 20), "start-limit-fresh-key")).statusCode,
+      429
+    );
+    assert.equal((await resaveCourse(app, roomId, runner, checkpoints)).statusCode, 429, "a course save is refused too");
+    assert.notEqual((await roomOf(app, roomId, runner)).raceStartAt, hoursAfter(RACE_START_AT, 20), "nothing written");
+
+    // A retry of a change that already committed is its replay, past the limit too.
+    const replay = await patchRaceStart(app, roomId, runner, hoursAfter(RACE_START_AT, 1), "start-limit-key");
+    assert.equal(replay.statusCode, 200, replay.body);
+    assertNoPaidPlan(replay.json(), "PATCH race-start replay past the limit", "runner");
+
+    // The paid race is not limited.
+    const paidMove = await patchRaceStart(app, paidRoom, runner, hoursAfter(RACE_START_AT, 3));
+    assert.equal(paidMove.statusCode, 200, paidMove.body);
   });
 });
