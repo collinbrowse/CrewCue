@@ -69,6 +69,20 @@ public enum PlanOfRecord {
         return HistoryComparison(withoutHistory: withoutHistory, attached: attached)
     }
 
+    /// The history step's Skip: a rough estimate from no history at all (`historyRefIds: []`, a
+    /// cold start), attached as the plan, even when the athlete has imported past runs. Athlete
+    /// only, like every `auto` estimate.
+    public static func recomputeWithoutHistory(
+        graph: ClientGraph,
+        roomId: String,
+        role: String
+    ) async throws -> PacingEstimate {
+        guard PlanAuthority.allows(role: role, trigger: .auto, hasPlanOfRecord: true) else {
+            throw PlanAuthorityError.notAllowed
+        }
+        return try await computeAndAttach(graph: graph, roomId: roomId, trigger: .auto, historyRefIds: [])
+    }
+
     /// `POST /pacing-estimates` for the room, not attached. `historyRefIds` nil uses all of the
     /// athlete's history; an empty list uses none.
     public static func compute(
@@ -104,12 +118,17 @@ public enum PlanOfRecord {
         return http.reason == "course_mismatch" || http.decision == "course_mismatch"
     }
 
-    private static func computeAndAttach(graph: ClientGraph, roomId: String, trigger: PlanTrigger) async throws -> PacingEstimate {
-        let computed = try await compute(graph: graph, roomId: roomId, trigger: trigger)
+    private static func computeAndAttach(
+        graph: ClientGraph,
+        roomId: String,
+        trigger: PlanTrigger,
+        historyRefIds: [String]? = nil
+    ) async throws -> PacingEstimate {
+        let computed = try await compute(graph: graph, roomId: roomId, trigger: trigger, historyRefIds: historyRefIds)
         do {
             return try await attach(graph: graph, roomId: roomId, estimateId: computed.id, trigger: trigger)
         } catch where isCourseMismatch(error) {
-            let again = try await compute(graph: graph, roomId: roomId, trigger: trigger)
+            let again = try await compute(graph: graph, roomId: roomId, trigger: trigger, historyRefIds: historyRefIds)
             return try await attach(graph: graph, roomId: roomId, estimateId: again.id, trigger: trigger)
         }
     }

@@ -147,6 +147,46 @@ private actor SendLog {
     try store.wipe()
 }
 
+@Test func throttledCourseUploadHoldsBackEveryRaceBecauseTheLimitIsTheUsers() async throws {
+    let store = try OutboxStore(userId: "athlete-throttle-rooms", directory: setupDirectory())
+    let roomA = try await store.enqueueGpx(
+        roomId: "room-a", fileName: "a.gpx", gpxXml: "<gpx/>",
+        raceStartAt: "2026-08-15T12:00:00.000Z", plannedPaceSecondsPerKm: 360, role: "athlete"
+    )
+    let roomB = try await store.enqueueGpx(
+        roomId: "room-b", fileName: "b.gpx", gpxXml: "<gpx/>",
+        raceStartAt: "2026-09-15T12:00:00.000Z", plannedPaceSecondsPerKm: 360, role: "athlete"
+    )
+    let log = SendLog()
+    let throttled = OutboxPolicy.resolve(ClientHTTPError(status: 429, message: "Too many requests"))
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    // Room A's 429 holds room B's upload in the same flush: it would hit the same limit.
+    let first = try await store.flush({ operation in
+        await log.add(operation.id)
+        return throttled
+    }, now: start)
+    #expect(await log.ids == [roomA.id])
+    #expect(Set(first.pending) == [roomA.id, roomB.id])
+
+    // Inside the two minutes, neither race's upload goes.
+    let during = try await store.flush({ operation in
+        await log.add(operation.id)
+        return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Route uploaded.")
+    }, now: start.addingTimeInterval(90))
+    #expect(Set(during.pending) == [roomA.id, roomB.id])
+    #expect(await log.ids == [roomA.id])
+
+    // After it, both go.
+    let after = try await store.flush({ operation in
+        await log.add(operation.id)
+        return OutboxFailureResolution(status: "accepted", retryable: false, feedback: "Route uploaded.")
+    }, now: start.addingTimeInterval(121))
+    #expect(Set(after.accepted) == [roomA.id, roomB.id])
+    #expect(try await store.operations().isEmpty)
+    try store.wipe()
+}
+
 @Test func flushOutboxBacksOffAQueuedCourseUploadTheServerThrottled() async throws {
     let store = try OutboxStore(userId: "athlete-throttle-api", directory: setupDirectory())
     _ = try await store.enqueueGpx(
@@ -225,6 +265,28 @@ private actor SendLog {
     #expect(comparison.withoutHistory.id == "est-cold")
     let line = comparison.line(timeZone: TimeZone(identifier: "UTC")!, locale: Locale(identifier: "en_US"))
     #expect(line?.replacingOccurrences(of: "\u{202F}", with: " ") == "Finish 9:42 AM instead of 10:15 AM")
+}
+
+@Test func skippingHistoryAttachesAColdStartEvenWhenRunsWereImported() async throws {
+    let server = SetupServer([
+        "POST /pacing-estimates": [
+            (200, estimateJSON("est-cold", finish: "2026-08-15T10:15:00.000Z")),
+            (200, estimateJSON("est-cold-2", finish: "2026-08-15T10:16:00.000Z"))
+        ],
+        "PUT /race-rooms/room/pacing-estimate": [
+            (400, #"{"error":"The estimate was computed for a different course length","code":"course_mismatch"}"#),
+            (200, #"{"roomId":"room","pacingEstimateId":"est-cold-2","estimate":\#(estimateJSON("est-cold-2", finish: "2026-08-15T10:16:00.000Z"))}"#)
+        ]
+    ])
+    let attached = try await PlanOfRecord.recomputeWithoutHistory(graph: setupGraph(server), roomId: "room", role: "athlete")
+    #expect(attached.id == "est-cold-2")
+    // Both computes, the course_mismatch retry included, use no history at all.
+    let computes = await server.bodies("POST /pacing-estimates")
+    #expect(computes.count == 2)
+    #expect(computes.allSatisfy { $0.contains(#""historyRefIds":[]"#) && $0.contains(#""trigger":"auto""#) })
+    await #expect(throws: PlanAuthorityError.self) {
+        _ = try await PlanOfRecord.recomputeWithoutHistory(graph: setupGraph(SetupServer([:])), roomId: "room", role: "crew_member")
+    }
 }
 
 @Test func historyComparisonLineIsNilWhenHistoryChangesNothingVisible() {
@@ -401,7 +463,8 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
         OnboardingCopy.startLabel, OnboardingCopy.timeZoneLabel, OnboardingCopy.timeZoneSearch,
         OnboardingCopy.importPastRun, OnboardingCopy.skipHistory, OnboardingCopy.finishLabel,
         OnboardingCopy.coursePreviewLabel, OnboardingCopy.elevationProfileLabel, OnboardingCopy.loading,
-        OnboardingCopy.back, OnboardingCopy.paywallNotNow,
+        OnboardingCopy.back, OnboardingCopy.paywallNotNow, OnboardingCopy.tryAgain,
+        OnboardingCopy.accountMenu, OnboardingCopy.signOut, OnboardingCopy.switchRace,
         OnboardingCopy.lockedAidRow, OnboardingCopy.lockedAidExplanation
     ]
     for text in strings {
@@ -414,5 +477,9 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
     #expect(copy["skipHistory"] as? String == OnboardingCopy.skipHistory)
     #expect(copy["continueLabel"] as? String == OnboardingCopy.continueLabel)
     #expect(copy["paywallNotNow"] as? String == OnboardingCopy.paywallNotNow)
+    #expect(copy["tryAgain"] as? String == OnboardingCopy.tryAgain)
+    #expect(copy["signOut"] as? String == OnboardingCopy.signOut)
+    #expect(copy["switchRace"] as? String == OnboardingCopy.switchRace)
+    #expect(copy["accountMenu"] as? String == OnboardingCopy.accountMenu)
     #expect(OnboardingCopy.courseSummary(lengthMeters: 1609.344, checkpoints: 1) == "1.0 mi · 1 checkpoint")
 }

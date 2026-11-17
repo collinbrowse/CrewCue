@@ -30,6 +30,12 @@ public enum OnboardingCopy {
     public static let elevationProfileLabel = "Elevation profile"
     public static let loading = "Loading"
     public static let back = "Back"
+    /// A step whose load failed (the teaser): load it again.
+    public static let tryAgain = "Try again"
+    /// The way out of setup once a race exists: sign out, or open another of the person's races.
+    public static let accountMenu = "Account"
+    public static let signOut = "Sign out"
+    public static let switchRace = "Switch race"
     /// Leaves the paywall for the tab bar; the race stays unpaid behind an Unlock race banner.
     public static let paywallNotNow = "Not now"
     /// A locked aid station row on an unpaid race, and what it means.
@@ -150,7 +156,8 @@ public enum OnboardingCopy {
             "timeZoneLabel": timeZoneLabel, "timeZoneSearch": timeZoneSearch,
             "importPastRun": importPastRun, "skipHistory": skipHistory, "finishLabel": finishLabel,
             "coursePreviewLabel": coursePreviewLabel, "elevationProfileLabel": elevationProfileLabel,
-            "loading": loading, "back": back, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
+            "loading": loading, "back": back, "tryAgain": tryAgain, "accountMenu": accountMenu,
+            "signOut": signOut, "switchRace": switchRace, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
             "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
             "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
             "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,

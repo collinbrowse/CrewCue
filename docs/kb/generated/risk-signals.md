@@ -45,9 +45,9 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1208 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 881 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 878 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 876 |
-| [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 805 |
+| [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
 ## In-process timers (API)
 
@@ -121,7 +121,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-navigate` | v1 | fail | pass |
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
-| `onboarding-runner-setup` | v1 | pass | fail |
+| `onboarding-runner-setup` | v1 | fail | fail |
 | `onboarding-race-preview` | v1 | fail | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.

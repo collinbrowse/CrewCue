@@ -62,6 +62,11 @@ final class ShellModel {
 
     var isSignedIn: Bool { signedInUserId != nil }
 
+    /// The person's races other than the active one: the way out of setup opens one of them.
+    var otherRaces: [RaceSummary] {
+        roster.races.filter { $0.id != signedInRoomId }
+    }
+
     init(
         client: AppClient,
         route: Route,
@@ -96,7 +101,7 @@ final class ShellModel {
             clock: client.graph.clock,
             logger: client.graph.logger
         )
-        self.runnerSetup = RunnerSetupModel(client: client, activityImport: activityImportModel)
+        self.runnerSetup = RunnerSetupModel(client: client, activityImport: activityImportModel, auth: authModel)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -435,6 +440,8 @@ final class ShellModel {
     }
 
     func signOut() {
+        // Runs after every model below has let go of the user.
+        defer { verifyUserDataWiped() }
         do {
             try client.graph.session?.signOut()
         } catch {
@@ -475,6 +482,19 @@ final class ShellModel {
         route = Route(featureId: "app-shell", state: .success)
         screen = client.graph.featureScreen(for: route)
         path = []
+    }
+
+    /// Nothing outlives the account. Every model above has let go of the user by now; a user
+    /// directory still on disk means one of them wrote after the wipe, so it is logged and wiped.
+    private func verifyUserDataWiped() {
+        guard let storage = try? AppDirectories.userStorage(),
+              let left = try? storage.userIds(), !left.isEmpty else { return }
+        client.graph.logger.log("user data outlived sign-out")
+        do {
+            try storage.wipeAll()
+        } catch {
+            client.graph.logger.log("user data wipe after sign-out failed")
+        }
     }
 
     private func selectTab(_ tab: ShellTab) {

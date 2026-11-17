@@ -2,51 +2,105 @@ import SwiftUI
 import UniformTypeIdentifiers
 import CrewCueClientCore
 
-/// Runner setup, phase 1 (`crewcue.onboarding-runner-setup`). Compact width: one step per screen,
-/// its preview under the form. Regular width (iPhone Duo's inner display, a wide Split View): the
-/// form beside a live preview (the course map, or the teaser). Every value lives in the model,
-/// so a fold, a display switch or Split View keeps the step and what was typed or picked. One
-/// layout switches between a column and a row, so the form and the preview keep their identity
-/// (and the keyboard focus and scroll position) across the change and only move.
+/// Runner setup, phase 1 (`crewcue.onboarding-runner-setup`).
+///
+/// Compact width: one pane, one step per screen, its preview under the form. Regular width
+/// (iPhone Duo's inner display, a wide Split View): an `ArrangementView` puts the step form beside
+/// a live preview (the course map, or the teaser), each pane with its own scroll, so a long form
+/// never carries the preview off screen. The form pane is the arrangement's primary view at every
+/// width, so its scroll position and keyboard focus survive a fold or a display switch; only the
+/// preview moves between panes. Every value lives in the model, and both panes keep their
+/// controls out of reserved regions (the fold).
 struct RunnerSetupView: View {
     @Bindable var model: RunnerSetupModel
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.crew) private var theme
 
     var body: some View {
-        let layout = sizeClass == .regular
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: CrewSpace.stackLg))
-            : AnyLayout(VStackLayout(alignment: .leading, spacing: CrewSpace.margin))
-        ScrollView {
-            layout {
-                form
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                preview
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+        arrangement
+            .animation(.snappy(duration: 0.3), value: sizeClass)
+            .animation(.snappy(duration: 0.25), value: model.step)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(CrewBackground())
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("crewcue.onboarding-runner-setup")
+            .accessibilityLabel(OnboardingCopy.title(for: model.step) ?? "")
+            .sheet(isPresented: $model.showsZonePicker) {
+                TimeZonePicker(model: model)
             }
-            .padding(.horizontal, CrewSpace.margin)
-            .padding(.vertical, CrewSpace.margin)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .animation(.snappy(duration: 0.3), value: sizeClass)
-        .animation(.snappy(duration: 0.25), value: model.step)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(CrewBackground())
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("crewcue.onboarding-runner-setup")
-        .accessibilityLabel(OnboardingCopy.title(for: model.step) ?? "")
-        .sheet(isPresented: $model.showsZonePicker) {
-            TimeZonePicker(model: model)
-        }
-        .task(id: teaserKey) {
-            if model.step == .projectionTeaser {
+            .task(id: teaserKey) {
+                guard model.step == .projectionTeaser else { return }
                 await model.loadTeaser()
+                // A teaser that failed offline loads again as soon as the network is back.
+                await model.retryTeaserWhenOnline()
             }
-        }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    Task { await model.retryTeaserIfNeeded() }
+                }
+            }
     }
 
     private var teaserKey: String {
         "\(model.step.rawValue)|\(model.roomId ?? "")"
+    }
+
+    /// The preview has its own pane only on a regular width.
+    private var splitsPreview: Bool { sizeClass == .regular }
+
+    @ViewBuilder
+    private var arrangement: some View {
+        if #available(iOS 27.1, *) {
+            ArrangementView {
+                formPane
+            } secondary: {
+                if splitsPreview {
+                    previewPane
+                }
+            }
+            .arrangementViewStyle(.split.axes(.horizontal))
+        } else {
+            // Before ArrangementView: the same two panes in a row.
+            HStack(alignment: .top, spacing: 0) {
+                formPane
+                if splitsPreview {
+                    previewPane
+                }
+            }
+        }
+    }
+
+    /// The step form, and on a compact width the preview under it.
+    private var formPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: CrewSpace.margin) {
+                form
+                if !splitsPreview {
+                    preview
+                        .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, CrewSpace.margin)
+            .padding(.vertical, CrewSpace.margin)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .avoidsReservedRegions()
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .accessibilityIdentifier("crewcue.onboarding.form-pane")
+    }
+
+    /// Regular width: the live preview beside the form, scrolling on its own.
+    private var previewPane: some View {
+        ScrollView {
+            preview
+                .padding(.horizontal, CrewSpace.margin)
+                .padding(.vertical, CrewSpace.margin)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .avoidsReservedRegions()
+        }
+        .transition(.opacity)
+        .accessibilityIdentifier("crewcue.onboarding.preview-pane")
     }
 
     // MARK: Form
@@ -71,7 +125,7 @@ struct RunnerSetupView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("crewcue.onboarding.step.\(model.step.rawValue)")
-            if let failure = model.failure {
+            if let failure = model.shownFailure {
                 Text(failure.message)
                     .font(CrewFont.body)
                     .foregroundStyle(failure == .offline ? theme.body : theme.danger)
@@ -89,7 +143,7 @@ struct RunnerSetupView: View {
         switch model.step {
         case .projectionTeaser:
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
-                TeaserTimeline(rows: model.teaserRows)
+                TeaserTimeline(rows: model.teaserRows, timeZone: model.raceTimeZone)
                 if let course = model.coursePreview {
                     CoursePreviewPanel(preview: course, summary: model.courseSummary)
                 }
@@ -97,14 +151,71 @@ struct RunnerSetupView: View {
         case .course, .startTime, .history:
             if let course = model.coursePreview {
                 CoursePreviewPanel(preview: course, summary: model.courseSummary)
-            } else if sizeClass == .regular {
+            } else if splitsPreview {
                 SetupIllustration()
             }
         default:
-            if sizeClass == .regular {
+            if splitsPreview {
                 SetupIllustration()
             }
         }
+    }
+}
+
+// MARK: Reserved regions
+
+private extension View {
+    /// Keeps the content's controls off a reserved region (the fold) that runs through it.
+    func avoidsReservedRegions() -> some View {
+        modifier(ReservedRegionInsets())
+    }
+}
+
+/// Insets content away from any active division region (a fold) crossing it: the side of the
+/// pane the region is on gets padded up to the region's far edge, margins included. Displays
+/// without one, and systems before reserved regions, leave the content as it is. The insets are
+/// read from the padded view's own frame, which the padding doesn't move, so they settle at once.
+private struct ReservedRegionInsets: ViewModifier {
+    @State private var insets = EdgeInsets()
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content
+                .padding(insets)
+                .onGeometryChange(for: EdgeInsets.self) { proxy in
+                    Self.insets(
+                        for: proxy.reservedRegions(kind: .division).map { region in
+                            // The region plus the clearance it asks for around it.
+                            CGRect(
+                                x: region.frame.minX - region.margins.leading,
+                                y: region.frame.minY - region.margins.top,
+                                width: region.frame.width + region.margins.leading + region.margins.trailing,
+                                height: region.frame.height + region.margins.top + region.margins.bottom
+                            )
+                        },
+                        width: proxy.size.width
+                    )
+                } action: { next in
+                    insets = next
+                }
+        } else {
+            content
+        }
+    }
+
+    /// Leading or trailing padding for each region that crosses the content's width. A region
+    /// left of the middle pushes the content past its trailing edge; one right of it stops the
+    /// content before its leading edge.
+    nonisolated static func insets(for regions: [CGRect], width: CGFloat) -> EdgeInsets {
+        var insets = EdgeInsets()
+        for frame in regions where frame.maxX > 0 && frame.minX < width && frame.height >= frame.width {
+            if frame.midX < width / 2 {
+                insets.leading = max(insets.leading, min(frame.maxX, width))
+            } else {
+                insets.trailing = max(insets.trailing, min(width - frame.minX, width))
+            }
+        }
+        return insets
     }
 }
 
@@ -163,11 +274,16 @@ private struct AccountStep: View {
                     .disabled(!model.canSaveName)
                     .accessibilityIdentifier("crewcue.onboarding.continue")
             } else {
+                // Auth0 is open: the button that started it shows busy, and neither starts another.
                 Button(OnboardingCopy.createAccount, action: model.signUp)
                     .buttonStyle(.crewPrimary)
+                    .crewBusy(model.authWorking && model.authSigningUp)
+                    .disabled(model.authWorking)
                     .accessibilityIdentifier("crewcue.onboarding.create-account")
                 Button(OnboardingCopy.signIn, action: model.signIn)
                     .buttonStyle(.crewGhost)
+                    .crewBusy(model.authWorking && !model.authSigningUp)
+                    .disabled(model.authWorking)
                     .accessibilityIdentifier("crewcue.onboarding.sign-in")
             }
         }
@@ -335,9 +451,16 @@ private struct TeaserStep: View {
                 Text(OnboardingCopy.finishLabel)
                     .crewKicker()
                     .foregroundStyle(theme.body)
-                Text(CrewClock.short(model.teaser?.finishAt) ?? "—")
+                // In the race's zone, like the start the runner picked.
+                Text(verbatim: CrewClock.short(model.teaser?.finishAt, timeZone: model.raceTimeZone) ?? "—")
                     .font(CrewFont.metricLarge)
                     .foregroundStyle(theme.primary)
+                if let zone = model.raceTimeZoneLabel {
+                    Text(verbatim: zone)
+                        .font(CrewFont.label)
+                        .foregroundStyle(theme.body)
+                        .accessibilityIdentifier("crewcue.onboarding.teaser-zone")
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("crewcue.onboarding.teaser-finish")
@@ -348,11 +471,20 @@ private struct TeaserStep: View {
                 .font(CrewFont.body)
                 .foregroundStyle(theme.body)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(OnboardingCopy.continueLabel, action: model.continueTeaser)
+            if model.teaserNeedsRetry {
+                // The load failed or came back without a finish: nothing else on this step moves on.
+                Button(OnboardingCopy.tryAgain) {
+                    Task { await model.loadTeaser() }
+                }
                 .buttonStyle(.crewPrimary)
-                .disabled(!model.canContinueTeaser)
-                .crewBusy(model.busy)
-                .accessibilityIdentifier("crewcue.onboarding.continue")
+                .accessibilityIdentifier("crewcue.onboarding.retry")
+            } else {
+                Button(OnboardingCopy.continueLabel, action: model.continueTeaser)
+                    .buttonStyle(.crewPrimary)
+                    .disabled(!model.canContinueTeaser)
+                    .crewBusy(model.busy)
+                    .accessibilityIdentifier("crewcue.onboarding.continue")
+            }
         }
     }
 }
@@ -363,11 +495,13 @@ private struct TeaserStep: View {
 /// between them locked.
 struct TeaserTimeline: View {
     let rows: [CheckpointTimelineRow]
+    /// The race's zone: the start and finish read in it.
+    var timeZone: TimeZone = DeviceTimeZone.current
 
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.base) {
             ForEach(rows) { row in
-                TeaserTimelineRow(row: row)
+                TeaserTimelineRow(row: row, timeZone: timeZone)
             }
         }
         .accessibilityElement(children: .contain)
@@ -377,8 +511,11 @@ struct TeaserTimeline: View {
 
 private struct TeaserTimelineRow: View {
     let row: CheckpointTimelineRow
+    let timeZone: TimeZone
     @Environment(\.crew) private var theme
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The icon column grows with the text, so the glyph never runs into the title.
+    @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 28
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
@@ -389,7 +526,7 @@ private struct TeaserTimelineRow: View {
                 Image(systemName: row.isFinish ? "flag.checkered" : (row.locked ? "lock" : "circle"))
                     .font(.system(.body, weight: .semibold))
                     .foregroundStyle(row.locked ? theme.body : theme.primary)
-                    .frame(width: 28)
+                    .frame(minWidth: iconWidth)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: row.kicker)
@@ -407,7 +544,7 @@ private struct TeaserTimelineRow: View {
                     .font(CrewFont.label)
                     .foregroundStyle(theme.body)
             } else {
-                Text(verbatim: CrewClock.short(row.clockArrivalAt) ?? "—")
+                Text(verbatim: CrewClock.short(row.clockArrivalAt, timeZone: timeZone) ?? "—")
                     .font(CrewFont.metric)
                     .foregroundStyle(row.isFinish ? theme.primary : theme.ink)
             }
@@ -419,7 +556,7 @@ private struct TeaserTimelineRow: View {
         .opacity(row.locked ? 0.8 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.title)
-        .accessibilityValue(row.locked ? OnboardingCopy.lockedAidExplanation : (CrewClock.short(row.clockArrivalAt) ?? ""))
+        .accessibilityValue(row.locked ? OnboardingCopy.lockedAidExplanation : (CrewClock.short(row.clockArrivalAt, timeZone: timeZone) ?? ""))
         .accessibilityIdentifier(row.locked ? "crewcue.onboarding.locked-row.\(row.checkpointId)" : "crewcue.onboarding.teaser-row.\(row.checkpointId)")
     }
 }

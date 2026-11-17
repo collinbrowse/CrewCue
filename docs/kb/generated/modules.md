@@ -188,7 +188,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 50 | 11667 |
+| `CrewCueClientCore` | 50 | 11705 |
 | `CrewCueClientCore/Generated` | 50 | 974 |
 
 ### iOS app (SwiftUI)
@@ -198,13 +198,13 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 95 |
-| `App` | 13 | 1459 |
+| `App` | 13 | 1479 |
 | `Brand` | 1 | 184 |
-| `Design` | 2 | 679 |
+| `Design` | 2 | 685 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
-| `Screens/Auth` | 2 | 175 |
+| `Screens/Auth` | 2 | 182 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
 | `Screens/Chat` | 4 | 929 |
@@ -212,12 +212,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 4 | 1831 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 7 | 1568 |
-| `Screens/Pace` | 2 | 1754 |
+| `Screens/Onboarding` | 7 | 1778 |
+| `Screens/Pace` | 2 | 1759 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 568 |
+| `Screens/Shell` | 4 | 624 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)

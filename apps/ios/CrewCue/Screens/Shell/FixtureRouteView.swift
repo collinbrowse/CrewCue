@@ -148,7 +148,28 @@ struct OnboardingGate: View {
                 ProductShellView(model: model)
             }
         }
+        .toolbar {
+            if showsAccountMenu {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    OnboardingAccountMenu(
+                        races: model.otherRaces,
+                        onSelectRace: { model.selectRace($0) },
+                        onSignOut: { model.signOut() }
+                    )
+                }
+            }
+        }
         .animation(.snappy(duration: 0.3), value: model.onboarding.entry)
+    }
+
+    /// Signed in, onboarding replaces the tab bar (and its settings) on these screens. The menu
+    /// is the way out: sign out, or open another of the person's races.
+    private var showsAccountMenu: Bool {
+        guard model.isSignedIn else { return false }
+        switch model.onboarding.entry {
+        case .chooser, .runnerSetup, .crewJoin: return true
+        default: return false
+        }
     }
 
     private func choose(_ choice: OnboardingChoice) {
@@ -159,6 +180,41 @@ struct OnboardingGate: View {
     private func back() {
         model.onboarding.clearChoice()
         model.syncOnboarding()
+    }
+}
+
+/// The setup screens' toolbar menu: every other race the person has, then Sign out.
+struct OnboardingAccountMenu: View {
+    let races: [RaceSummary]
+    var onSelectRace: (String) -> Void
+    var onSignOut: () -> Void
+
+    var body: some View {
+        Menu {
+            if !races.isEmpty {
+                Section(OnboardingCopy.switchRace) {
+                    ForEach(races, id: \.id) { race in
+                        Button {
+                            onSelectRace(race.id)
+                        } label: {
+                            Label {
+                                Text(verbatim: race.name)
+                            } icon: {
+                                Image(systemName: race.role == "athlete" ? "figure.run" : "person.2")
+                            }
+                        }
+                        .accessibilityIdentifier("crewcue.onboarding.switch-race.\(race.id)")
+                    }
+                }
+            }
+            Button(role: .destructive, action: onSignOut) {
+                Label(OnboardingCopy.signOut, systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .accessibilityIdentifier("crewcue.onboarding.sign-out")
+        } label: {
+            Label(OnboardingCopy.accountMenu, systemImage: "person.crop.circle")
+        }
+        .accessibilityIdentifier("crewcue.onboarding.account-menu")
     }
 }
 

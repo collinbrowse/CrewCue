@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import CrewCueClientCore
 
@@ -55,6 +56,8 @@ final class RunnerSetupModel {
     private(set) var teaser: OnboardingTeaser?
     private(set) var teaserRows: [CheckpointTimelineRow] = []
     private(set) var teaserCheckpoints: [AidStationCheckpoint] = []
+    /// A teaser load finished (with or without a finish), so a missing finish means "try again".
+    private var teaserAttempted = false
     private(set) var busy = false
     private(set) var failure: OnboardingSetupFailure?
 
@@ -74,10 +77,13 @@ final class RunnerSetupModel {
 
     /// Past runs go through the same import as Settings (`POST /activity-history/file`).
     let activityImport: ActivityImportModel
+    /// The Auth0 sign-in the account step starts, read for its busy state and failure.
+    private let auth: AuthSignInModel?
 
-    init(client: AppClient, activityImport: ActivityImportModel) {
+    init(client: AppClient, activityImport: ActivityImportModel, auth: AuthSignInModel? = nil) {
         self.client = client
         self.activityImport = activityImport
+        self.auth = auth
     }
 
     // MARK: Following the onboarding state
@@ -142,6 +148,18 @@ final class RunnerSetupModel {
 
     func signUp() { onSignUp() }
     func signIn() { onSignIn() }
+
+    /// Auth0 is open for Create account or Sign in.
+    var authWorking: Bool { !signedIn && (auth?.isWorking ?? false) }
+    /// Which of the two buttons started it.
+    var authSigningUp: Bool { auth?.signingUp ?? false }
+
+    /// What the step shows under it: the step's own failure, or signed out, how Auth0 ended
+    /// (offline keeps the checklist's Offline copy).
+    var shownFailure: OnboardingSetupFailure? {
+        if step == .account, !signedIn, !authWorking { return auth?.failure }
+        return failure
+    }
 
     func saveName() {
         guard canSaveName else { return }
@@ -240,6 +258,7 @@ final class RunnerSetupModel {
     private func ensureRoom(fileName: String) async throws -> String {
         if let roomId { return roomId }
         guard let userId else { throw ClientHTTPError(status: 401, message: "No session.") }
+        let ticket = generation
         let base = (fileName as NSString).deletingPathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = draft.displayName.isEmpty ? displayName : draft.displayName
         let room = try await RaceDayAPI.createRoom(
@@ -249,6 +268,8 @@ final class RunnerSetupModel {
             teamId: userId,
             creatorName: name.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+        // Signed out (or another account) meanwhile: nothing of this race goes into a draft.
+        guard ticket == generation else { throw CancellationError() }
         roomId = room.id
         role = "athlete"
         draft.roomId = room.id
@@ -271,6 +292,19 @@ final class RunnerSetupModel {
             minute: parts.minute ?? 0,
             timeZoneIdentifier: timeZoneIdentifier
         )
+    }
+
+    /// The zone the runner picked for the race. The teaser and the history comparison read their
+    /// times in it, like the start.
+    var raceTimeZone: TimeZone {
+        DeviceTimeZone.resolve(timeZoneIdentifier) ?? DeviceTimeZone.current
+    }
+
+    /// The race's zone when it isn't this phone's, to label the times shown in it.
+    var raceTimeZoneLabel: String? {
+        let zone = raceTimeZone
+        guard zone.identifier != DeviceTimeZone.current.identifier else { return nil }
+        return zone.localizedName(for: .generic, locale: .current) ?? zone.identifier
     }
 
     /// The daylight saving copy shows only for a skipped local time, never for other problems.
@@ -347,7 +381,7 @@ final class RunnerSetupModel {
             let comparison = try await PlanOfRecord.recomputeComparingHistory(graph: client.graph, roomId: roomId, role: role)
             guard ticket == generation else { return }
             historyAttached = true
-            historyLine = comparison.line()
+            historyLine = comparison.line(timeZone: raceTimeZone)
             draft.historyLine = historyLine
             persist()
         } catch {
@@ -356,7 +390,8 @@ final class RunnerSetupModel {
         }
     }
 
-    /// No history: a rough estimate (a cold start for someone without past runs).
+    /// No history: a rough estimate, a cold start computed with no past runs at all, even when
+    /// some were imported (`historyRefIds: []`).
     func skipHistory() async {
         await finishHistory(.skipped)
     }
@@ -368,11 +403,16 @@ final class RunnerSetupModel {
     private func finishHistory(_ outcome: OnboardingOutcome) async {
         guard let roomId, !busy else { return }
         let ticket = generation
+        // Continue keeps the estimate the comparison attached; Skip always attaches the cold start.
         if !historyAttached || outcome == .skipped {
             busy = true
             failure = nil
             do {
-                _ = try await PlanOfRecord.recompute(graph: client.graph, roomId: roomId, role: role, trigger: .auto, hasPlanOfRecord: false)
+                if outcome == .skipped {
+                    _ = try await PlanOfRecord.recomputeWithoutHistory(graph: client.graph, roomId: roomId, role: role)
+                } else {
+                    _ = try await PlanOfRecord.recompute(graph: client.graph, roomId: roomId, role: role, trigger: .auto, hasPlanOfRecord: false)
+                }
             } catch {
                 busy = false
                 guard ticket == generation else { return }
@@ -426,13 +466,39 @@ final class RunnerSetupModel {
                 // A relaunch without the draft: draw the saved checkpoints.
                 coursePreview = CoursePreview(courseFileName: room.courseFileName ?? "", checkpoints: course.checkpoints, plannedPaceSecondsPerKm: nil, route: [])
             }
+            teaserAttempted = true
         } catch {
             guard ticket == generation else { return }
+            teaserAttempted = true
             fail(error, courseSave: false)
         }
     }
 
-    var canContinueTeaser: Bool { teaser?.finishAt != nil && !busy }
+    var canContinueTeaser: Bool { teaser?.finishAt != nil && failure == nil && !busy }
+
+    /// The teaser load failed, or answered without a finish: the step offers Try again (and
+    /// tries by itself when the network returns or the app comes back to the foreground).
+    var teaserNeedsRetry: Bool {
+        step == .projectionTeaser && teaserAttempted && !busy && (failure != nil || teaser?.finishAt == nil)
+    }
+
+    func retryTeaserIfNeeded() async {
+        guard teaserNeedsRetry else { return }
+        await loadTeaser()
+    }
+
+    /// While the teaser step is on screen: each time the network comes back, a failed teaser
+    /// loads again. Ends with the calling task.
+    func retryTeaserWhenOnline() async {
+        var wasOnline = true
+        for await path in NWPathMonitor() {
+            let online = path.status == .satisfied
+            if online, !wasOnline {
+                await retryTeaserIfNeeded()
+            }
+            wasOnline = online
+        }
+    }
 
     func continueTeaser() {
         guard canContinueTeaser, let roomId else { return }
@@ -443,12 +509,12 @@ final class RunnerSetupModel {
 
     // MARK: Shared
 
+    /// Sign-out. The user's directory is already wiped, so nothing here may write to it again:
+    /// `reset()` lets go of the draft store before it touches a single field.
     func clear() {
         reset()
         signedIn = false
         userId = nil
-        draftStore = nil
-        draft = RunnerSetupDraft()
     }
 
     private func fail(_ error: any Error, courseSave: Bool) {
@@ -466,6 +532,7 @@ final class RunnerSetupModel {
         teaser = nil
         teaserRows = []
         teaserCheckpoints = []
+        teaserAttempted = false
         historyAttached = false
         historyImported = false
         localStep = nil
@@ -507,7 +574,12 @@ final class RunnerSetupModel {
         draftStore?.save(draft)
     }
 
+    /// Forgets the user and everything typed or picked. The draft store goes first: the start
+    /// fields' observers save the draft, and after sign-out (or for another account) that write
+    /// would put this user's draft back on disk.
     private func reset() {
+        draftStore = nil
+        draft = RunnerSetupDraft()
         generation += 1
         roomId = nil
         role = "athlete"
@@ -530,6 +602,7 @@ final class RunnerSetupModel {
         teaser = nil
         teaserRows = []
         teaserCheckpoints = []
+        teaserAttempted = false
         busy = false
         failure = nil
     }
