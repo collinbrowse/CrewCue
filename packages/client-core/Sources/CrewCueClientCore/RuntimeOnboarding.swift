@@ -3,8 +3,9 @@ import Foundation
 /// Android's onboarding ops. The state is decided here, so both apps follow one flow.
 ///
 /// - `readOnboarding`: `signedIn?` (default: a `userId` is set), `pendingInvite?` (the pending
-///   invite's token or code; `hasPendingInvite: true` alone is an invite that can't be confirmed
-///   signed out), `races?` (rows from `myRaces`: `id`, `role`, `entitlementStatus`,
+///   invite's token or code; left out, the saved pending join's code; `hasPendingInvite: true`
+///   with no code saved is an invite that can't be confirmed signed out), `races?` (rows from
+///   `myRaces`: `id`, `role`, `entitlementStatus`,
 ///   `raceStartAt?`, `activatedAt?`, `hasCourse`), `activeRoomId?`. Leave `races` out (or null)
 ///   while `myRaces` hasn't answered: the state then follows the list saved by the last read that
 ///   had one, or is `loading` when there is none. A signed-in read adopts the signed-out guest's
@@ -19,17 +20,39 @@ import Foundation
 ///   `reason`, `showsTabBar: true` and no tour.
 /// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`.
 ///
-/// Progress lives in `onboardingDir`, else `crewcue-onboarding` beside `storageDir`, which
-/// sign-out and `adoptUser` never touch. `deleteAccount` removes the user's file.
+/// The pending invite: one per device, for no account in particular (a code saved signed out is
+/// joined by whoever signs in next). It expires after 7 days. A `pendingJoin` answer is
+/// `{code, source, savedAt, expiresAt}` or null.
+/// - `readOnboarding` and `markOnboardingStep` take the saved code as the pending invite unless the
+///   request sends `pendingInvite` or `hasPendingInvite` (`false`: none; `true`: the saved code,
+///   else one that can't be confirmed). `readOnboarding` also answers `pendingJoin`.
+/// - `parseInviteLink`: `link` (the join page's https link, `crewcue://join/<code>`, or the Play
+///   install-referrer string) → `code` and `source` (link, referrer), both null for anything else.
+/// - `savePendingJoin`: `code` + `source?` (link, referrer, typed; default typed). Replaces any
+///   earlier code. A code that isn't 6 digits fails.
+/// - `readPendingJoin`, `clearPendingJoin`: answer `pendingJoin`.
+/// - `resolvePendingJoin`: joins the saved code as the request's user (`baseURL`, `token`) and
+///   answers `outcome` (joined, alreadyMember, raceFull, raceLocked, invalidCode, offline,
+///   signedOut, failed, nothingPending), `roomId`, `message`, `clearsCode` and `pendingJoin`.
+///   joined, alreadyMember and invalidCode clear the code; the rest keep it. A session the server
+///   refuses fails with `sessionExpired: true`, as every op does on a 401; the code stays.
+///
+/// Progress and the pending invite live in `onboardingDir`, else `crewcue-onboarding` beside
+/// `storageDir`, which sign-out and `adoptUser` never touch. `deleteAccount` removes the user's file.
 extension RuntimeCall {
     static func readOnboarding(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object)
-        let progress = try store.progress(
-            signedIn: onboardingSignedIn(object), userId: text(object, "userId"), races: onboardingRaces(object)
-        )
+        let read = try store.read(
+            signedIn: onboardingSignedIn(object),
+            userId: text(object, "userId"),
+            races: onboardingRaces(object),
+            activeRoomId: onboardingActiveRoom(object),
+            now: SystemClock().now()
+        ) { saved in onboardingInvite(object, saved: saved) }
         return [
-            "state": onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress))),
-            "progress": progress.jsonObject
+            "state": onboardingJSON(read.state),
+            "progress": read.progress.jsonObject,
+            "pendingJoin": pendingJoinJSON(read.pendingJoin)
         ] as [String: Any]
     }
 
@@ -66,9 +89,10 @@ extension RuntimeCall {
         if let userId, let races = onboardingRaces(object) {
             progress = try store.remember(races, userId: userId)
         }
+        let saved = store.pendingJoins.read(now: SystemClock().now())
         return [
             "progress": progress.jsonObject,
-            "state": onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress)))
+            "state": onboardingJSON(Onboarding.resolve(onboardingInput(object, progress: progress, saved: saved)))
         ] as [String: Any]
     }
 
@@ -77,6 +101,68 @@ extension RuntimeCall {
         let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
         try store.reset(userId: userId, roomId: text(object, "roomId"))
         return ["progress": store.load(userId: userId).jsonObject]
+    }
+
+    static func parseInviteLink(_ object: [String: Any]) -> Any {
+        guard let match = InviteLink.match(object["link"] as? String ?? "") else {
+            return ["code": NSNull(), "source": NSNull()] as [String: Any]
+        }
+        return ["code": match.code, "source": match.source.rawValue]
+    }
+
+    static func savePendingJoin(_ object: [String: Any]) throws -> Any {
+        let store = try onboardingStore(object).pendingJoins
+        let name = text(object, "source") ?? InviteSource.typed.rawValue
+        guard let source = InviteSource(rawValue: name) else {
+            throw ClientHTTPError(status: 400, message: "Unknown invite source \(name).")
+        }
+        do {
+            let saved = try store.save(code: object["code"] as? String ?? "", source: source, now: SystemClock().now())
+            return ["pendingJoin": pendingJoinJSON(saved)]
+        } catch let error as PendingJoinError {
+            throw ClientHTTPError(status: 400, message: error.message)
+        }
+    }
+
+    static func readPendingJoin(_ object: [String: Any]) throws -> Any {
+        let store = try onboardingStore(object).pendingJoins
+        return ["pendingJoin": pendingJoinJSON(store.read(now: SystemClock().now()))]
+    }
+
+    static func clearPendingJoin(_ object: [String: Any]) throws -> Any {
+        try onboardingStore(object).pendingJoins.clear()
+        return ["pendingJoin": NSNull()]
+    }
+
+    /// `resolve` runs each request under `Deadline`, so a dead connection never holds the bridge
+    /// thread for long and no URLSession task is cancelled.
+    static func resolvePendingJoin(_ object: [String: Any]) async throws -> Any {
+        // A replay's host answers for its scripted race, never for the invite's.
+        guard demoURL(object) == nil else { throw DemoRaceError.readOnly("the replay never joins a race") }
+        let store = try onboardingStore(object).pendingJoins
+        let outcome = await store.resolve(graph: try graph(object))
+        // With a token sent, `signedOut` is the server's 401: fail the way every op does on one,
+        // so the app ends the session. The code stays for whoever signs in.
+        if outcome == .signedOut, text(object, "token") != nil {
+            throw ClientHTTPError(status: 401, message: PendingJoinOutcome.signedOutMessage)
+        }
+        return [
+            "outcome": outcome.name,
+            "roomId": outcome.roomId ?? NSNull(),
+            "message": outcome.message ?? NSNull(),
+            "clearsCode": outcome.clearsCode,
+            "pendingJoin": pendingJoinJSON(store.read(now: SystemClock().now()))
+        ] as [String: Any]
+    }
+
+    static func pendingJoinJSON(_ pending: PendingJoin?) -> Any {
+        guard let pending else { return NSNull() }
+        return [
+            "code": pending.code,
+            "source": pending.source.rawValue,
+            "savedAt": RaceDayReadouts.iso8601(pending.savedAt),
+            "expiresAt": RaceDayReadouts.iso8601(pending.expiresAt)
+        ]
     }
 
     /// The real app-level directory, read from the request as sent: a demo runtime's storage
@@ -113,16 +199,31 @@ extension RuntimeCall {
         }
     }
 
-    private static func onboardingInput(_ object: [String: Any], progress: OnboardingProgress) -> OnboardingInput {
-        let named = text(object, "pendingInvite")
-        return OnboardingInput(
+    private static func onboardingInput(_ object: [String: Any], progress: OnboardingProgress, saved: PendingJoin?) -> OnboardingInput {
+        OnboardingInput(
             signedIn: onboardingSignedIn(object),
             userId: text(object, "userId"),
-            pendingInvite: named ?? (boolValue(object["hasPendingInvite"]) == true ? "" : nil),
+            pendingInvite: onboardingInvite(object, saved: saved),
             races: onboardingRaces(object),
-            activeRoomId: text(object, "activeRoomId") ?? text(object, "roomId"),
+            activeRoomId: onboardingActiveRoom(object),
             progress: progress
         )
+    }
+
+    private static func onboardingActiveRoom(_ object: [String: Any]) -> String? {
+        text(object, "activeRoomId") ?? text(object, "roomId")
+    }
+
+    /// The request's `pendingInvite` as named. Else `hasPendingInvite`: `false` is none, `true` the
+    /// saved code or, with none saved, an invite that can't be confirmed (""). Neither sent: the
+    /// saved code.
+    private static func onboardingInvite(_ object: [String: Any], saved: PendingJoin?) -> String? {
+        if let named = text(object, "pendingInvite") { return named }
+        switch boolValue(object["hasPendingInvite"]) {
+        case .some(true): return saved?.code ?? ""
+        case .some(false): return nil
+        case nil: return saved?.code
+        }
     }
 
     static func onboardingJSON(_ state: OnboardingState) -> [String: Any] {

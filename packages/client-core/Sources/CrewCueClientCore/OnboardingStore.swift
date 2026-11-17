@@ -202,7 +202,8 @@ public struct OnboardingProgress: Equatable, Sendable {
 ///
 /// Both apps wipe their storage root on sign-out (`UserStorage.wipeAll`, Android
 /// `SessionStore.clear`) and clear everything but `users/` on sign-in, so this directory sits
-/// beside that root, never inside it (`directory(besideStorageRoot:)`).
+/// beside that root, never inside it (`directory(besideStorageRoot:)`). The device's pending
+/// invite is saved here too (`pendingJoins`).
 public struct OnboardingStore: Sendable {
     public static let directoryName = "crewcue-onboarding"
     /// Percent-encoded user ids never contain `@` or `.`, so no account can be named this.
@@ -350,9 +351,67 @@ public struct OnboardingStore: Sendable {
     }
 }
 
-/// Serializes read-modify-write of the progress files in this process.
-private final class OnboardingFileLock: @unchecked Sendable {
+/// What `readOnboarding` answers: the state, the progress it was decided from, and the pending
+/// join it followed.
+public struct OnboardingRead: Equatable, Sendable {
+    public var state: OnboardingState
+    public var progress: OnboardingProgress
+    /// The saved pending join, nil when none is saved or it expired.
+    public var pendingJoin: PendingJoin?
+
+    public init(state: OnboardingState, progress: OnboardingProgress, pendingJoin: PendingJoin?) {
+        self.state = state
+        self.progress = progress
+        self.pendingJoin = pendingJoin
+    }
+}
+
+extension OnboardingStore {
+    /// The device's pending invite, saved beside the progress files.
+    public var pendingJoins: PendingJoinStore { PendingJoinStore(directory: directory) }
+
+    /// `readOnboarding` for iOS: `progress(signedIn:userId:races:)`, then the state. A
+    /// `pendingInvite` named here wins; otherwise the saved pending join's code is the pending
+    /// invite, so a link opened signed out (or before onboarding asked) starts the crew join, and
+    /// a signed-out confirmation of that code counts.
+    public func read(
+        signedIn: Bool,
+        userId: String?,
+        races: [OnboardingRace]? = nil,
+        activeRoomId: String? = nil,
+        pendingInvite: String? = nil,
+        now: Date
+    ) throws -> OnboardingRead {
+        try read(signedIn: signedIn, userId: userId, races: races, activeRoomId: activeRoomId, now: now) { saved in
+            pendingInvite ?? saved?.code
+        }
+    }
+
+    /// `invite` picks the state's pending invite, given the saved pending join.
+    func read(
+        signedIn: Bool,
+        userId: String?,
+        races: [OnboardingRace]?,
+        activeRoomId: String?,
+        now: Date,
+        invite: (PendingJoin?) -> String?
+    ) throws -> OnboardingRead {
+        let progress = try self.progress(signedIn: signedIn, userId: userId, races: races)
+        let saved = pendingJoins.read(now: now)
+        let state = Onboarding.resolve(OnboardingInput(
+            signedIn: signedIn, userId: userId, pendingInvite: invite(saved),
+            races: races, activeRoomId: activeRoomId, progress: progress
+        ))
+        return OnboardingRead(state: state, progress: progress, pendingJoin: saved)
+    }
+}
+
+/// Serializes read-modify-write of the progress files in this process. Not reentrant: a body
+/// never calls `run` on the same lock.
+final class OnboardingFileLock: @unchecked Sendable {
     static let shared = OnboardingFileLock()
+    /// The pending join file (`PendingJoinStore`).
+    static let pendingJoin = OnboardingFileLock()
     private let lock = NSLock()
 
     func run<T>(_ body: () throws -> T) rethrows -> T {
