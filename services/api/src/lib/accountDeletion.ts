@@ -14,17 +14,13 @@
 import { createHash } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import type { AccountDeletionResult } from "@crewcue/contracts";
-import {
-  deleteRaceRoomForAccountDeletion,
-  listRaceRoomsForAccount,
-  removeMemberForAccountDeletion
-} from "../routes/raceRooms.js";
+import { listRaceRoomsForAccount, removeMemberForAccountDeletion } from "../routes/raceRooms.js";
 import { resolveStravaClientConfig } from "../routes/stravaRoutes.js";
 import { deleteActivityHistoryForAthlete } from "./activityHistoryStore.js";
 import { deletePacingEstimatesForAthlete } from "./pacingEstimateStore.js";
-import { deleteFinishedEffortForRoom, deleteFinishedEffortsForAthlete } from "./finishedEffortStore.js";
-import { deleteChatDataForUser, deleteChatRoomData } from "./chatPersistence.js";
-import { deleteCrewCueRoomCourseHistory } from "./courseHistory/store.js";
+import { deleteFinishedEffortsForAthlete } from "./finishedEffortStore.js";
+import { deleteChatDataForUser } from "./chatPersistence.js";
+import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import {
   deleteOAuthPendingStatesForAthlete,
   deleteStravaConnection,
@@ -80,10 +76,8 @@ export async function deleteAccountData(
   let membershipsRemoved = 0;
   for (const room of rooms) {
     if (room.athleteId === sub) {
-      await deleteRaceRoomForAccountDeletion(room.id);
-      await deleteChatRoomData(room.id);
-      await deleteFinishedEffortForRoom(room.id);
-      await deleteCrewCueRoomCourseHistory(room.id);
+      // The same full delete the unpaid race sweeper uses (room, track, chat, effort, history).
+      await deleteRaceRoomAndData(room.id);
       ownedRoomIds.push(room.id);
     } else if (await removeMemberForAccountDeletion(room.id, sub, identity.email, log)) {
       membershipsRemoved += 1;

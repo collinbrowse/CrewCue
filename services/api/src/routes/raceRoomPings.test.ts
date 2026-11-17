@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import {
@@ -273,14 +274,16 @@ test("rejects implausible motion vs last accepted ping", async () => {
 test("returns 402 when entitlement unpaid", async () => {
   const app = buildApp();
   await app.ready();
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const owner = `owner-user-${randomUUID()}`;
+  const ownerToken = app.jwt.sign(buildClaims(owner));
 
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
     payload: {
       teamId: "team-1",
-      athleteId: "owner-user",
+      athleteId: owner,
       name: "Unpaid",
       creatorRole: "athlete"
     },
