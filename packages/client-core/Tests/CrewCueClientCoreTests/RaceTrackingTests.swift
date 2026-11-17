@@ -200,6 +200,24 @@ private func graph(_ transport: any HTTPTransport, outbox: OutboxStore? = nil) -
     #expect(track.cursor == iso(540))
 }
 
+@Test func runnerTrackReadsPastPreStartPointsWithoutDrawingThem() {
+    var track = RunnerTrack.empty
+    // Test pings from home and the drive in, then the race.
+    track.append(RaceRoomPingTrackResponse(roomId: "room", points: [
+        AthleteTrackPoint(recordedAt: iso(0), latitude: 37.77, longitude: -122.42, preStart: true),
+        AthleteTrackPoint(recordedAt: iso(180), latitude: 39.9, longitude: -105, preStart: true)
+    ]))
+    #expect(track.points.isEmpty, "a test ping is not the race's path")
+    #expect(track.cursor == iso(180), "the next page starts after the test pings")
+    track.append(RaceRoomPingTrackResponse(roomId: "room", points: [
+        AthleteTrackPoint(recordedAt: iso(180), latitude: 39.9, longitude: -105, preStart: true),
+        AthleteTrackPoint(recordedAt: iso(360), latitude: 40, longitude: -105),
+        AthleteTrackPoint(recordedAt: iso(540), latitude: 40.001, longitude: -105, preStart: false)
+    ]))
+    #expect(track.points.map(\.recordedAt) == [360, 540].map { base.addingTimeInterval($0) })
+    #expect(track.cursor == iso(540))
+}
+
 private actor TrackServer: HTTPTransport {
     private(set) var afters: [String?] = []
     private let all = (0..<5).map { iso(Double($0) * 180) }

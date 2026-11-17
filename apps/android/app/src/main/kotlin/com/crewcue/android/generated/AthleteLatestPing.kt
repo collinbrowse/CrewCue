@@ -6,5 +6,6 @@ data class AthleteLatestPing(
     val longitude: Double,
     val recordedAt: String,
     val receivedAt: String,
-    val progressMeters: Double? = null
+    val progressMeters: Double? = null,
+    val preStart: Boolean? = null
 )

@@ -370,7 +370,8 @@ test("finishAtCourseEnd reads the finish at the course length; by default it sta
   const nearEnd = full.estimate.aidEtas.find((eta) => eta.checkpointId === "aid-near-end");
   assert.ok(nearEnd && nearEnd.elapsedSeconds < full.estimate.expectedFinishElapsedSeconds - 60);
 
-  // Default (paid): the finish is read at the farthest checkpoint, the near-end aid's ETA.
+  // Default (room-less requests; every race's compute sets the option): the finish is read at the
+  // farthest checkpoint, the near-end aid's ETA.
   const atFarthest = estimatePacingMicroModelWithArtifacts({ ...shared, checkpoints: cut });
   assert.equal(atFarthest.estimate.expectedFinishElapsedSeconds, nearEnd.elapsedSeconds);
 
