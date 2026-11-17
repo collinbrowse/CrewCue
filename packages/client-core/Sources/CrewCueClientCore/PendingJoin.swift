@@ -1,7 +1,7 @@
 import Foundation
 
-/// One invite code waiting to be joined, with where it came from and when it was saved. It
-/// expires after `lifetime`.
+/// One invite code waiting to be joined, with where it came from, when it was saved and, once
+/// known, whose it is. It expires after `lifetime`.
 public struct PendingJoin: Equatable, Sendable {
     public static let lifetime: TimeInterval = 7 * 24 * 60 * 60
     static let version = 1
@@ -10,11 +10,15 @@ public struct PendingJoin: Equatable, Sendable {
     public var source: InviteSource
     /// Whole milliseconds, so a saved record reads back equal.
     public var savedAt: Date
+    /// The signed-in user the code belongs to: who saved it, or who first read it signed in when
+    /// it was saved signed out. Nil until then. Another user never sees it.
+    public var savedBy: String?
 
-    public init(code: String, source: InviteSource, savedAt: Date) {
+    public init(code: String, source: InviteSource, savedAt: Date, savedBy: String? = nil) {
         self.code = code
         self.source = source
         self.savedAt = Self.wholeMilliseconds(savedAt)
+        self.savedBy = Self.owner(savedBy)
     }
 
     public var expiresAt: Date { savedAt.addingTimeInterval(Self.lifetime) }
@@ -25,21 +29,36 @@ public struct PendingJoin: Equatable, Sendable {
         abs(now.timeIntervalSince(savedAt)) >= Self.lifetime
     }
 
+    /// The trimmed user id, nil for nil or blank (signed out).
+    static func owner(_ userId: String?) -> String? {
+        let trimmed = userId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     var jsonObject: [String: Any] {
-        [
+        var object: [String: Any] = [
             "version": Self.version,
             "code": code,
             "source": source.rawValue,
             "savedAtMs": Self.milliseconds(savedAt)
         ]
+        if let savedBy { object["savedBy"] = savedBy }
+        return object
     }
 
+    /// A `savedBy` that is there but isn't a user id makes the whole record unreadable: read as
+    /// nobody's, the code would go to whoever signs in.
     init?(jsonObject value: Any) {
         guard let object = value as? [String: Any],
               let code = object["code"] as? String, InviteLink.isCode(code),
               let source = (object["source"] as? String).flatMap(InviteSource.init(rawValue:)),
               let millis = (object["savedAtMs"] as? NSNumber)?.int64Value else { return nil }
-        self.init(code: code, source: source, savedAt: Date(timeIntervalSince1970: Double(millis) / 1000))
+        var savedBy: String?
+        if let raw = object["savedBy"] {
+            guard let owner = Self.owner(raw as? String) else { return nil }
+            savedBy = owner
+        }
+        self.init(code: code, source: source, savedAt: Date(timeIntervalSince1970: Double(millis) / 1000), savedBy: savedBy)
     }
 
     /// Nearest, not floor: a time already in whole milliseconds may come back a hair under.
@@ -72,11 +91,12 @@ public enum PendingJoinOutcome: Equatable, Sendable {
     case raceFull
     /// 402 `room_unpaid`: the runner hasn't paid for the race.
     case raceLocked
-    /// 404 (no race has this code) or 400 (the server refused the code's format).
+    /// 404 `Race room not found` (no race has this code) or 400 `Invalid room join payload` (the
+    /// server refused the code's format). Any other 404 or 400 is `failed`.
     case invalidCode
     /// No network, or no answer before the deadline.
     case offline
-    /// No session, or the server refused it (401).
+    /// No signed-in user or session, or the server refused the session (401).
     case signedOut
     /// Anything else: a 5xx, a rate limit, a body the app can't read.
     case failed
@@ -143,7 +163,10 @@ public enum PendingJoinOutcome: Equatable, Sendable {
         // Status 0: no HTTP answer at all (a non-HTTP response or no base URL), as other ops read it.
         case 0: return .offline
         case 401: return .signedOut
-        case 400, 404: return .invalidCode
+        // Only the route's own answers: a 404 from a proxy, an edge, or an API build without the
+        // route says nothing about the code, so it stays.
+        case 404 where http.bodyError == "Race room not found": return .invalidCode
+        case 400 where http.bodyError == "Invalid room join payload": return .invalidCode
         case 402 where http.reason == "room_unpaid" || http.decision == "room_unpaid": return .raceLocked
         case 409 where BillingErrors.isCrewLimit(http): return .raceFull
         default: return .failed
@@ -152,8 +175,13 @@ public enum PendingJoinOutcome: Equatable, Sendable {
 }
 
 /// The one pending invite on this device, in the onboarding directory beside the storage root
-/// (`OnboardingStore.pendingJoins`), so sign-out never wipes it. It belongs to no account: a code
-/// saved signed out is joined by whoever signs in next on this device.
+/// (`OnboardingStore.pendingJoins`), so sign-out never wipes it.
+///
+/// Whose it is (`PendingJoin.savedBy`): a code saved signed in is that user's. A code saved signed
+/// out is nobody's until the first signed-in read, which makes it that user's, so it goes to
+/// whoever signs in next on this device. A user's code is hidden while signed out (and kept for
+/// their next sign-in), and a different signed-in user's read removes it: one account's invite
+/// never reaches another.
 public struct PendingJoinStore: Sendable {
     /// `@` never appears in a percent-encoded user id, so no account's progress file has this name.
     public static let fileName = "@pending-join.json"
@@ -168,33 +196,59 @@ public struct PendingJoinStore: Sendable {
 
     public var file: URL { directory.appendingPathComponent(Self.fileName) }
 
-    /// Replaces any earlier pending code. Throws `PendingJoinError.invalidCode` unless `code`
-    /// (whitespace trimmed) is six ASCII digits.
+    /// Replaces any earlier pending code, as `userId`'s (nil or blank: saved signed out, nobody's
+    /// yet). Throws `PendingJoinError.invalidCode` unless `code` (whitespace trimmed) is six ASCII
+    /// digits.
     @discardableResult
-    public func save(code: String, source: InviteSource, now: Date) throws -> PendingJoin {
+    public func save(code: String, source: InviteSource, userId: String?, now: Date) throws -> PendingJoin {
         let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard InviteLink.isCode(code) else { throw PendingJoinError.invalidCode }
-        let pending = PendingJoin(code: code, source: source, savedAt: now)
-        try OnboardingFileLock.pendingJoin.run {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try JSONSerialization.data(withJSONObject: pending.jsonObject, options: [.sortedKeys])
-            try data.write(to: file, options: .atomic)
-        }
+        let pending = PendingJoin(code: code, source: source, savedAt: now, savedBy: userId)
+        try OnboardingFileLock.pendingJoin.run { try write(pending) }
         return pending
     }
 
-    /// The pending code, nil when there is none. An expired or unreadable file is removed.
-    public func read(now: Date) -> PendingJoin? {
-        OnboardingFileLock.pendingJoin.run {
-            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
-            guard let data = try? Data(contentsOf: file),
-                  let object = try? JSONSerialization.jsonObject(with: data),
+    /// The pending code for `userId` (nil or blank: signed out), nil when there is none for them.
+    ///
+    /// - Saved signed out: anyone's. A signed-in read makes it this user's (`savedBy`), and answers
+    ///   nil if that can't be saved, so the code never goes out unowned.
+    /// - Saved by this user: theirs. Saved by another: nil, and removed when the reader is signed in
+    ///   (kept while signed out, for its owner's next sign-in).
+    ///
+    /// A file read but expired or not a valid record is removed. A file that can't be read at all
+    /// (on iOS, a protected file before the first unlock after a reboot) is kept and answers nil.
+    public func read(userId: String?, now: Date) -> PendingJoin? {
+        let reader = PendingJoin.owner(userId)
+        return OnboardingFileLock.pendingJoin.run {
+            guard FileManager.default.fileExists(atPath: file.path),
+                  let data = try? Data(contentsOf: file) else { return nil }
+            guard let object = try? JSONSerialization.jsonObject(with: data),
                   let pending = PendingJoin(jsonObject: object),
                   !pending.isExpired(at: now) else {
                 try? FileManager.default.removeItem(at: file)
                 return nil
             }
-            return pending
+            switch (pending.savedBy, reader) {
+            case (nil, nil):
+                return pending
+            case (nil, let reader?):
+                var adopted = pending
+                adopted.savedBy = reader
+                do {
+                    try write(adopted)
+                    return adopted
+                } catch {
+                    return nil
+                }
+            case (_?, nil):
+                return nil
+            case (let owner?, let reader?):
+                guard owner == reader else {
+                    try? FileManager.default.removeItem(at: file)
+                    return nil
+                }
+                return pending
+            }
         }
     }
 
@@ -219,9 +273,17 @@ public struct PendingJoinStore: Sendable {
         }
     }
 
-    /// Joins the pending code as the graph's signed-in user (`POST /race-rooms/join-by-code`) and
-    /// clears it on `clearsCode`. No pending code answers `nothingPending` and no session
-    /// `signedOut`, both without a request.
+    /// Callers hold `OnboardingFileLock.pendingJoin`.
+    private func write(_ pending: PendingJoin) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: pending.jsonObject, options: [.sortedKeys])
+        try data.write(to: file, options: .atomic)
+    }
+
+    /// Joins `userId`'s pending code (`read(userId:now:)`) as the graph's signed-in session
+    /// (`POST /race-rooms/join-by-code`) and clears it on `clearsCode`. No pending code for this
+    /// user answers `nothingPending`, and no user id or no session `signedOut`, all without a
+    /// request. Pass the user the graph's token belongs to.
     ///
     /// The server answers a new member and an existing one alike, so the user's races
     /// (`GET /race-rooms/mine`) are read first: a race already in that list is `alreadyMember`.
@@ -230,8 +292,17 @@ public struct PendingJoinStore: Sendable {
     /// URLSession task deadlocks Foundation on Android), so a read past its deadline never goes
     /// on to send the join. A join still in flight at its deadline is `offline` and keeps the
     /// code; the server keeps the join if it lands, and the next resolve answers `alreadyMember`.
-    public func resolve(graph: ClientGraph, deadlineSeconds: Double = PendingJoinStore.deadlineSeconds) async -> PendingJoinOutcome {
-        guard let pending = read(now: graph.clock.now()) else { return .nothingPending }
+    public func resolve(
+        graph: ClientGraph,
+        userId: String?,
+        deadlineSeconds: Double = PendingJoinStore.deadlineSeconds
+    ) async -> PendingJoinOutcome {
+        let now = graph.clock.now()
+        guard let user = PendingJoin.owner(userId) else {
+            // Signed out: nothing joins. Only a code saved signed out is pending for this reader.
+            return read(userId: nil, now: now) == nil ? .nothingPending : .signedOut
+        }
+        guard let pending = read(userId: user, now: now) else { return .nothingPending }
         let token = await graph.tokenProvider?.accessToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !token.isEmpty else { return .signedOut }
         let outcome: PendingJoinOutcome

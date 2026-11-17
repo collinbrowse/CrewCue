@@ -106,23 +106,24 @@ private func graph(_ transport: any HTTPTransport, token: String? = "jwt", now: 
     )
 }
 
-/// Resolves `join` for a saved code and answers the outcome and what the store kept.
+/// Resolves `join` as Ada for a code Ada saved and answers the outcome and what the store kept
+/// for her.
 private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jwt") async throws -> (PendingJoinOutcome, PendingJoin?, JoinServer) {
     let (_, pending, _) = stores()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: "ada", now: t0)
     let server = JoinServer(mine: mine, join: join)
-    let outcome = await pending.resolve(graph: graph(server, token: token))
-    return (outcome, pending.read(now: t0.addingTimeInterval(120)), server)
+    let outcome = await pending.resolve(graph: graph(server, token: token), userId: "ada")
+    return (outcome, pending.read(userId: "ada", now: t0.addingTimeInterval(120)), server)
 }
 
 // MARK: - Store
 
 @Test func pendingJoinStoreSavesReadsAndReplacesOneCode() throws {
     let (onboarding, pending, _) = stores()
-    #expect(pending.read(now: t0) == nil)
-    let saved = try pending.save(code: " 123456 ", source: .link, now: t0)
+    #expect(pending.read(userId: nil, now: t0) == nil)
+    let saved = try pending.save(code: " 123456 ", source: .link, userId: nil, now: t0)
     #expect(saved.code == "123456" && saved.source == .link)
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == saved)
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == saved)
     #expect(saved.expiresAt == saved.savedAt.addingTimeInterval(7 * day))
     // Beside the progress files, under a name no user id can take.
     #expect(pending.file.deletingLastPathComponent().standardizedFileURL == onboarding.directory.standardizedFileURL)
@@ -132,54 +133,88 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     }
 
     // One pending code: a later save replaces it, source included.
-    let typed = try pending.save(code: "654321", source: .typed, now: t0.addingTimeInterval(10))
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == typed)
-    let referred = try pending.save(code: "111111", source: .referrer, now: t0.addingTimeInterval(20))
-    #expect(pending.read(now: t0.addingTimeInterval(60))?.source == .referrer)
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == referred)
+    let typed = try pending.save(code: "654321", source: .typed, userId: nil, now: t0.addingTimeInterval(10))
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == typed)
+    let referred = try pending.save(code: "111111", source: .referrer, userId: nil, now: t0.addingTimeInterval(20))
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60))?.source == .referrer)
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == referred)
 
     // A code that isn't six ASCII digits is refused and leaves the saved one alone.
     for bad in ["12345", "1234567", "abcdef", "１２３４５６", ""] {
-        #expect(throws: PendingJoinError.invalidCode) { try pending.save(code: bad, source: .typed, now: t0) }
+        #expect(throws: PendingJoinError.invalidCode) { try pending.save(code: bad, source: .typed, userId: nil, now: t0) }
     }
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == referred)
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == referred)
 }
 
 @Test func pendingJoinExpiresAfterSevenDays() throws {
     let (_, pending, _) = stores()
-    let saved = try pending.save(code: "123456", source: .link, now: t0)
-    #expect(pending.read(now: saved.savedAt.addingTimeInterval(7 * day - 1)) == saved)
-    #expect(pending.read(now: saved.savedAt.addingTimeInterval(7 * day)) == nil)
+    let saved = try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+    #expect(pending.read(userId: nil, now: saved.savedAt.addingTimeInterval(7 * day - 1)) == saved)
+    #expect(pending.read(userId: nil, now: saved.savedAt.addingTimeInterval(7 * day)) == nil)
     // Expired is gone, not hidden: an earlier clock doesn't bring it back.
     #expect(!FileManager.default.fileExists(atPath: pending.file.path))
-    #expect(pending.read(now: t0) == nil)
+    #expect(pending.read(userId: nil, now: t0) == nil)
 
     // A save stamped far ahead (the clock moved back since) expires as well.
-    let ahead = try pending.save(code: "123456", source: .link, now: t0)
-    #expect(pending.read(now: ahead.savedAt.addingTimeInterval(-7 * day + 1)) != nil)
-    #expect(pending.read(now: ahead.savedAt.addingTimeInterval(-7 * day)) == nil)
+    let ahead = try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+    #expect(pending.read(userId: nil, now: ahead.savedAt.addingTimeInterval(-7 * day + 1)) != nil)
+    #expect(pending.read(userId: nil, now: ahead.savedAt.addingTimeInterval(-7 * day)) == nil)
 }
 
 @Test func pendingJoinClearsAndDropsAnUnreadableFile() throws {
     let (_, pending, _) = stores()
     try pending.clear()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
     try pending.clear()
-    #expect(pending.read(now: t0) == nil)
+    #expect(pending.read(userId: nil, now: t0) == nil)
     #expect(!FileManager.default.fileExists(atPath: pending.file.path))
 
+    // Read but not a valid record: removed. An owner that isn't a user id makes it invalid, so a
+    // damaged owner never turns one account's code into anyone's.
+    let fresh = Int64(t0.timeIntervalSince1970 * 1000)
     for body in [Data("not json".utf8), json(["code": "12345", "source": "link", "savedAtMs": 1]),
-                 json(["code": "123456", "source": "email", "savedAtMs": 1]), json(["code": "123456", "source": "link"])] {
+                 json(["code": "123456", "source": "email", "savedAtMs": 1]), json(["code": "123456", "source": "link"]),
+                 json(["code": "123456", "source": "link", "savedAtMs": fresh, "savedBy": 7]),
+                 json(["code": "123456", "source": "link", "savedAtMs": fresh, "savedBy": " "]),
+                 json(["code": "123456", "source": "link", "savedAtMs": fresh, "savedBy": NSNull()])] {
         try FileManager.default.createDirectory(at: pending.directory, withIntermediateDirectories: true)
         try body.write(to: pending.file)
-        #expect(pending.read(now: t0) == nil)
+        #expect(pending.read(userId: nil, now: t0) == nil)
         #expect(!FileManager.default.fileExists(atPath: pending.file.path))
     }
+    // The same record with a real owner reads back as that owner's.
+    try json(["code": "123456", "source": "link", "savedAtMs": fresh, "savedBy": "ada"]).write(to: pending.file)
+    #expect(pending.read(userId: "ada", now: t0)?.savedBy == "ada")
+}
+
+@Test func pendingJoinKeepsAFileItCannotRead() throws {
+    let (_, pending, _) = stores()
+    let saved = try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+
+    // On iOS a protected file can't be read before the first unlock after a reboot. Unreadable is
+    // not invalid: the read answers nil and the invite waits.
+    let manager = FileManager.default
+    try manager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: pending.file.path)
+    defer { try? manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pending.file.path) }
+    if (try? Data(contentsOf: pending.file)) == nil {
+        #expect(pending.read(userId: nil, now: t0) == nil)
+        #expect(pending.read(userId: "ada", now: t0) == nil)
+        #expect(manager.fileExists(atPath: pending.file.path))
+    }
+    try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: pending.file.path)
+    #expect(pending.read(userId: nil, now: t0) == saved)
+
+    // The same for any read that fails outright (here the path is a directory).
+    try pending.clear()
+    try manager.createDirectory(at: pending.file, withIntermediateDirectories: true)
+    #expect(pending.read(userId: nil, now: t0) == nil)
+    var isDirectory: ObjCBool = false
+    #expect(manager.fileExists(atPath: pending.file.path, isDirectory: &isDirectory) && isDirectory.boolValue)
 }
 
 @Test func pendingJoinSurvivesSignOutAndSignIn() async throws {
     let (onboarding, pending, root) = stores()
-    let saved = try pending.save(code: "123456", source: .link, now: t0)
+    let saved = try pending.save(code: "123456", source: .link, userId: nil, now: t0)
     try Data("{}".utf8).write(to: try UserStorage(root: root).directory(userId: "ada").appendingPathComponent("outbox.json"))
 
     // iOS sign-out wipes every user; Android deletes the whole storage root.
@@ -189,18 +224,18 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     try FileManager.default.createDirectory(at: root.appendingPathComponent("stale"), withIntermediateDirectories: true)
     let adopted = await RuntimeCall.perform(#"{"op":"adoptUser","storageDir":"\#(root.path)","userId":"bo"}"#)
     #expect(adopted.contains(#""ok":true"#))
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == saved)
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == saved)
     // Resetting or deleting an account's progress never takes the device's pending code.
     try onboarding.reset(userId: "bo")
     try onboarding.reset(userId: nil)
     try onboarding.removeUser("bo")
     _ = try onboarding.adoptGuest(userId: "bo")
-    #expect(pending.read(now: t0.addingTimeInterval(60)) == saved)
+    #expect(pending.read(userId: nil, now: t0.addingTimeInterval(60)) == saved)
 }
 
 @Test func pendingJoinSavedSignedOutIsJoinedByWhoeverSignsInNext() async throws {
     let (onboarding, pending, _) = stores()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
 
     // Signed out: the crew join, and confirming it counts for this code.
     var read = try onboarding.read(signedIn: false, userId: nil, now: t0)
@@ -211,11 +246,13 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     #expect(read.state.step == .account)
     #expect(read.state.inviteConfirmed)
 
-    // Bo signs in on this device: the same code is Bo's to accept.
+    // Bo signs in on this device: the same code is Bo's to accept, and now Bo's alone.
     read = try onboarding.read(signedIn: true, userId: "bo", races: [], now: t0)
     #expect(read.state.flow == .crew && read.state.step == .join && read.state.status(.account)?.isComplete == true)
+    #expect(read.pendingJoin?.code == "123456" && read.pendingJoin?.savedBy == "bo")
+    #expect(pending.read(userId: nil, now: t0) == nil)
     let server = JoinServer(join: .joined("r9"))
-    #expect(await pending.resolve(graph: graph(server)) == .joined(roomId: "r9"))
+    #expect(await pending.resolve(graph: graph(server), userId: "bo") == .joined(roomId: "r9"))
     let sent = await server.sent
     #expect(sent.last?.authorization == "Bearer jwt")
     #expect(sent.last?.body == #"{"roomCode":"123456"}"#)
@@ -226,6 +263,57 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     #expect(read.pendingJoin == nil)
     #expect(read.state.flow == .crew && read.state.roomId == "r9" && read.state.phase == .tour)
     #expect(try onboarding.read(signedIn: true, userId: "cy", races: [], now: t0).state.flow == .chooser)
+}
+
+@Test func pendingJoinSavedSignedInNeverReachesTheNextUser() async throws {
+    let (onboarding, pending, _) = stores()
+    // Ada taps a runner's invite while signed in: the code is hers.
+    let saved = try pending.save(code: "123456", source: .link, userId: " ada ", now: t0)
+    #expect(saved.savedBy == "ada")
+    #expect(try onboarding.read(signedIn: true, userId: "ada", races: [], now: t0).state.step == .join)
+
+    // The race is full, so the code stays for a retry.
+    let full = JoinServer(join: .full)
+    #expect(await pending.resolve(graph: graph(full), userId: "ada") == .raceFull)
+    #expect(pending.read(userId: "ada", now: t0)?.code == "123456")
+
+    // Ada signs out (or the server ends her session). Signed out, there is no invite: the next
+    // person on this phone isn't sent into Ada's join, and a signed-out resolve sends nothing.
+    var read = try onboarding.read(signedIn: false, userId: nil, now: t0)
+    #expect(read.pendingJoin == nil && read.state.flow == .chooser)
+    #expect(try onboarding.read(signedIn: false, userId: "ada", now: t0).pendingJoin == nil)
+    let quiet = JoinServer(join: .joined("r9"))
+    #expect(await pending.resolve(graph: graph(quiet), userId: nil) == .nothingPending)
+    #expect(await pending.resolve(graph: graph(quiet), userId: "  ") == .nothingPending)
+    // Kept for Ada's next sign-in.
+    #expect(pending.read(userId: "ada", now: t0)?.code == "123456")
+
+    // Bo signs in on the same phone: no invite, no join sent with Bo's token, and Ada's code is gone.
+    let bo = JoinServer(join: .joined("r9"))
+    #expect(await pending.resolve(graph: graph(bo), userId: "bo") == .nothingPending)
+    #expect(await bo.sent.isEmpty)
+    #expect(await quiet.sent.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: pending.file.path))
+    #expect(pending.read(userId: "ada", now: t0) == nil)
+
+    // The same through onboarding: Bo's read shows no invite and drops Ada's code.
+    try pending.save(code: "123456", source: .link, userId: "ada", now: t0)
+    read = try onboarding.read(signedIn: true, userId: "bo", races: [], now: t0)
+    #expect(read.pendingJoin == nil && read.state.flow == .chooser)
+    #expect(pending.read(userId: "ada", now: t0) == nil)
+
+    // A code saved signed out becomes the first signed-in reader's: Bo's, then never Cy's.
+    try pending.save(code: "654321", source: .link, userId: nil, now: t0)
+    #expect(await pending.resolve(graph: graph(JoinServer(join: .full)), userId: "bo") == .raceFull)
+    #expect(pending.read(userId: "bo", now: t0)?.savedBy == "bo")
+    #expect(try onboarding.read(signedIn: true, userId: "cy", races: [], now: t0).pendingJoin == nil)
+
+    // Still joined by whoever signs in next when nobody has read it signed in yet.
+    try pending.save(code: "654321", source: .link, userId: nil, now: t0)
+    let joining = JoinServer(join: .joined("r9"))
+    #expect(await pending.resolve(graph: graph(joining), userId: "bo") == .joined(roomId: "r9"))
+    #expect(await joining.sent.last?.body == #"{"roomCode":"654321"}"#)
+    #expect(pending.read(userId: "bo", now: t0) == nil)
 }
 
 // MARK: - Resolve
@@ -254,6 +342,15 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     #expect(outcome == .invalidCode && kept == nil)
     (outcome, kept, _) = try await resolve(join: .badPayload)
     #expect(outcome == .invalidCode && kept == nil)
+    // A 404 or 400 that isn't the route's own answer says nothing about the code: an edge's page
+    // while the service is down, Fastify's route-not-found on an older API build.
+    for reply in [Reply.status(404, json(["error": "Application not found"])),
+                  .status(404, json(["message": "Route POST:/race-rooms/join-by-code not found", "error": "Not Found", "statusCode": 404])),
+                  .status(404, Data("<html>Not Found</html>".utf8)), .status(404, Data()),
+                  .status(400, json(["error": "Bad Request"])), .status(400, Data("bad".utf8))] {
+        (outcome, kept, _) = try await resolve(join: reply)
+        #expect(outcome == .failed && kept?.code == "123456")
+    }
 
     (outcome, kept, _) = try await resolve(join: .offline)
     #expect(outcome == .offline && kept?.code == "123456")
@@ -289,10 +386,15 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
 
     let (_, pending, _) = stores()
     let server = JoinServer(join: .joined("r9"))
-    #expect(await pending.resolve(graph: graph(server)) == .nothingPending)
+    #expect(await pending.resolve(graph: graph(server), userId: "ada") == .nothingPending)
+    // No user id, even with a token: signed out, so a code saved signed out waits and nothing is sent.
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
+    for userId in [nil, "", "  "] as [String?] {
+        #expect(await pending.resolve(graph: graph(server), userId: userId) == .signedOut)
+    }
+    #expect(pending.read(userId: nil, now: t0)?.savedBy == nil)
     // Expired by the graph's clock: forgotten, never sent.
-    try pending.save(code: "123456", source: .link, now: t0)
-    #expect(await pending.resolve(graph: graph(server, now: t0.addingTimeInterval(8 * day))) == .nothingPending)
+    #expect(await pending.resolve(graph: graph(server, now: t0.addingTimeInterval(8 * day)), userId: "ada") == .nothingPending)
     #expect(await server.sent.isEmpty)
     #expect(!FileManager.default.fileExists(atPath: pending.file.path))
 }
@@ -316,6 +418,10 @@ private func resolve(mine: Reply = .rooms([]), join: Reply, token: String? = "jw
     #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 402, message: "x", reason: "room_unpaid")) == .raceLocked)
     #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 409, message: "x", decision: "crew_limit_reached")) == .raceFull)
     #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 409, message: "x", reason: "room_unpaid")) == .failed)
+    #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 404, message: "x", bodyError: "Race room not found")) == .invalidCode)
+    #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 404, message: "Race room not found")) == .failed)
+    #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 400, message: "x", bodyError: "Invalid room join payload")) == .invalidCode)
+    #expect(PendingJoinOutcome.outcome(for: ClientHTTPError(status: 400, message: "x", bodyError: "Race room not found")) == .failed)
     #expect(PendingJoinOutcome.outcome(for: DemoRaceError.ended) == .failed)
 }
 
@@ -337,41 +443,41 @@ private actor Gate {
 
 @Test func pendingJoinResolveGivesUpAtTheDeadlineAndKeepsTheCode() async throws {
     let (_, pending, _) = stores()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
     let gate = Gate()
     let server = JoinServer(join: .wait({ await gate.wait() }, then: .joined("r9")))
-    let outcome = await pending.resolve(graph: graph(server), deadlineSeconds: 0.2)
+    let outcome = await pending.resolve(graph: graph(server), userId: "ada", deadlineSeconds: 0.2)
     #expect(outcome == .offline)
-    #expect(pending.read(now: t0)?.code == "123456")
+    #expect(pending.read(userId: "ada", now: t0)?.code == "123456")
     #expect(await server.paths == ["GET /race-rooms/mine", "POST /race-rooms/join-by-code"])
 
     // The abandoned join lands later: nothing clears the code behind the caller's back.
     await gate.release()
     try await Task.sleep(nanoseconds: 150_000_000)
-    #expect(pending.read(now: t0)?.code == "123456")
+    #expect(pending.read(userId: "ada", now: t0)?.code == "123456")
 }
 
 @Test func pendingJoinResolveNeverSendsTheJoinAfterTheRaceListTimedOut() async throws {
     let (_, pending, _) = stores()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
     let gate = Gate()
     let server = JoinServer(mine: .wait({ await gate.wait() }, then: .rooms([])), join: .joined("r9"))
-    #expect(await pending.resolve(graph: graph(server), deadlineSeconds: 0.2) == .offline)
+    #expect(await pending.resolve(graph: graph(server), userId: "ada", deadlineSeconds: 0.2) == .offline)
 
     // The abandoned read answers later; the caller already heard `offline`, so no join follows.
     await gate.release()
     try await Task.sleep(nanoseconds: 150_000_000)
     #expect(await server.paths == ["GET /race-rooms/mine"])
-    #expect(pending.read(now: t0)?.code == "123456")
+    #expect(pending.read(userId: "ada", now: t0)?.code == "123456")
 }
 
 @Test func pendingJoinResolveNeverClearsACodeSavedWhileItRan() async throws {
     let (_, pending, _) = stores()
-    try pending.save(code: "123456", source: .link, now: t0)
+    try pending.save(code: "123456", source: .link, userId: nil, now: t0)
     // A second link opens while the first join is in flight.
-    let server = JoinServer(join: .wait({ _ = try? pending.save(code: "654321", source: .link, now: t0.addingTimeInterval(5)) }, then: .joined("r9")))
-    #expect(await pending.resolve(graph: graph(server)) == .joined(roomId: "r9"))
-    #expect(pending.read(now: t0.addingTimeInterval(60))?.code == "654321")
+    let server = JoinServer(join: .wait({ _ = try? pending.save(code: "654321", source: .link, userId: nil, now: t0.addingTimeInterval(5)) }, then: .joined("r9")))
+    #expect(await pending.resolve(graph: graph(server), userId: "ada") == .joined(roomId: "r9"))
+    #expect(pending.read(userId: "ada", now: t0.addingTimeInterval(60))?.code == "654321")
 }
 
 // MARK: - Onboarding
@@ -379,15 +485,11 @@ private actor Gate {
 @Test func readOnboardingTakesThePendingInviteFromTheStore() throws {
     let (onboarding, pending, _) = stores()
     #expect(try onboarding.read(signedIn: false, userId: nil, now: t0).state == .chooser)
-    try pending.save(code: "123456", source: .referrer, now: t0)
+    try pending.save(code: "123456", source: .referrer, userId: nil, now: t0)
 
     var read = try onboarding.read(signedIn: false, userId: nil, now: t0.addingTimeInterval(60))
     #expect(read.state.flow == .crew && read.state.phase == .join && read.state.step == .join)
     #expect(read.pendingJoin?.code == "123456" && read.pendingJoin?.source == .referrer)
-    // A signed-in user's own race stays under the join.
-    let race = OnboardingRace(roomId: "r1", role: "athlete", entitlementStatus: "paid", hasCourse: true)
-    read = try onboarding.read(signedIn: true, userId: "ada", races: [race], activeRoomId: "r1", now: t0)
-    #expect(read.state.flow == .crew && read.state.step == .join && read.state.showsTabBar)
 
     // A named invite wins over the saved one: confirming the saved code doesn't confirm it.
     try onboarding.mark(.join, invite: "123456", userId: nil)
@@ -398,6 +500,20 @@ private actor Gate {
     // Expired: no invite.
     read = try onboarding.read(signedIn: false, userId: nil, now: t0.addingTimeInterval(8 * day))
     #expect(read.pendingJoin == nil && read.state.flow == .chooser)
+
+    // Signed in, the code becomes the reader's. A signed-in user's own race stays under the join.
+    try pending.save(code: "123456", source: .referrer, userId: nil, now: t0)
+    let race = OnboardingRace(roomId: "r1", role: "athlete", entitlementStatus: "paid", hasCourse: true)
+    read = try onboarding.read(signedIn: true, userId: "ada", races: [race], activeRoomId: "r1", now: t0)
+    #expect(read.state.flow == .crew && read.state.step == .join && read.state.showsTabBar)
+    #expect(read.pendingJoin?.savedBy == "ada")
+    // Ada's now: not the invite signed out (`signedIn: false` with her id is signed out too) or for Bo.
+    #expect(try onboarding.read(signedIn: false, userId: nil, now: t0).pendingJoin == nil)
+    #expect(try onboarding.read(signedIn: false, userId: "ada", now: t0).pendingJoin == nil)
+    #expect(try onboarding.read(signedIn: true, userId: "ada", now: t0).pendingJoin?.code == "123456")
+    read = try onboarding.read(signedIn: true, userId: "bo", races: [race], activeRoomId: "r1", now: t0)
+    // Bo's own runner race (an existing account, so its tours count as done), never Ada's join.
+    #expect(read.pendingJoin == nil && read.state.role == .runner && read.state.flow != .crew)
 }
 
 // MARK: - Runtime ops
@@ -440,7 +556,7 @@ private func result(_ root: [String: Any]) throws -> [String: Any] {
     #expect((read["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
     // The Swift store reads the op's file: one store for both apps.
     let swift = OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: URL(fileURLWithPath: storage, isDirectory: true)))
-    #expect(swift.pendingJoins.read(now: Date())?.code == "123456")
+    #expect(swift.pendingJoins.read(userId: nil, now: Date())?.code == "123456")
 
     let typed = try result(try await runtime(device.merging(["op": "savePendingJoin", "code": "654321"]) { $1 }))
     #expect((typed["pendingJoin"] as? [String: Any])?["source"] as? String == "typed")
@@ -448,16 +564,36 @@ private func result(_ root: [String: Any]) throws -> [String: Any] {
     #expect(bad["ok"] as? Bool == false && bad["message"] as? String == PendingJoinError.invalidCode.message)
     let unknown = try await runtime(device.merging(["op": "savePendingJoin", "code": "123456", "source": "email"]) { $1 })
     #expect(unknown["ok"] as? Bool == false)
-    #expect(swift.pendingJoins.read(now: Date())?.code == "654321")
+    #expect(swift.pendingJoins.read(userId: nil, now: Date())?.code == "654321")
 
     let cleared = try result(try await runtime(device.merging(["op": "clearPendingJoin"]) { $1 }))
     #expect(cleared["pendingJoin"] is NSNull)
     #expect(try result(try await runtime(device.merging(["op": "readPendingJoin"]) { $1 }))["pendingJoin"] is NSNull)
 
+    // Saved signed in: the user's own. Signed out it reads as none (and stays); another user's
+    // read removes it.
+    let ada = device.merging(["userId": "ada", "token": "jwt"]) { $1 }
+    _ = try result(try await runtime(ada.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
+    #expect(swift.pendingJoins.read(userId: "ada", now: Date())?.savedBy == "ada")
+    #expect(try result(try await runtime(device.merging(["op": "readPendingJoin"]) { $1 }))["pendingJoin"] is NSNull)
+    let notSignedIn = ada.merging(["op": "readPendingJoin", "signedIn": false]) { $1 }
+    #expect(try result(try await runtime(notSignedIn))["pendingJoin"] is NSNull)
+    let own = try result(try await runtime(ada.merging(["op": "readPendingJoin"]) { $1 }))
+    #expect((own["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
+    let other = try result(try await runtime(ada.merging(["op": "readPendingJoin", "userId": "bo"]) { $1 }))
+    #expect(other["pendingJoin"] is NSNull)
+    #expect(try result(try await runtime(ada.merging(["op": "readPendingJoin"]) { $1 }))["pendingJoin"] is NSNull)
+
+    // Saved signed out: the first signed-in read takes it.
+    _ = try result(try await runtime(device.merging(["op": "savePendingJoin", "code": "123456"]) { $1 }))
+    let taken = try result(try await runtime(ada.merging(["op": "readPendingJoin"]) { $1 }))
+    #expect((taken["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
+    #expect(swift.pendingJoins.read(userId: "ada", now: Date())?.savedBy == "ada")
+
     // An explicit onboardingDir wins over storageDir.
     let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("invite-rt-\(UUID().uuidString)", isDirectory: true)
     _ = try result(try await runtime(["op": "savePendingJoin", "code": "123456", "onboardingDir": elsewhere.path]))
-    #expect(PendingJoinStore(directory: elsewhere).read(now: Date())?.code == "123456")
+    #expect(PendingJoinStore(directory: elsewhere).read(userId: nil, now: Date())?.code == "123456")
 }
 
 private func isoDate(_ text: String) -> Date? {
@@ -485,27 +621,41 @@ private func isoDate(_ text: String) -> Date? {
     #expect(nothing["outcome"] as? String == "nothingPending" && nothing["clearsCode"] as? Bool == false)
     #expect(nothing["roomId"] is NSNull && nothing["message"] is NSNull)
 
-    _ = try result(try await runtime(ada.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
+    let signedOutDevice: [String: Any] = ["storageDir": storage, "userId": "", "token": ""]
+    _ = try result(try await runtime(signedOutDevice.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
     // Signed out on this device: kept, nothing sent.
-    let signedOut = try result(try await runtime([
-        "op": "resolvePendingJoin", "baseURL": joining, "storageDir": storage, "userId": "", "token": ""
-    ]))
+    let signedOut = try result(try await runtime(signedOutDevice.merging(["op": "resolvePendingJoin", "baseURL": joining]) { $1 }))
     #expect(signedOut["outcome"] as? String == "signedOut")
     #expect(signedOut["message"] as? String == PendingJoinOutcome.signedOutMessage)
     #expect((signedOut["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
+    // A token with no user id is signed out too, and never ends a session.
+    let noUser = try result(try await runtime(signedOutDevice.merging(["op": "resolvePendingJoin", "baseURL": expired, "token": "jwt"]) { $1 }))
+    #expect(noUser["outcome"] as? String == "signedOut")
 
-    // A full race: the message, and the code kept for a retry.
+    // A full race: the message, and the code kept for a retry, now Ada's.
     let refused = try result(try await runtime(ada.merging(["op": "resolvePendingJoin", "baseURL": full]) { $1 }))
     #expect(refused["outcome"] as? String == "raceFull" && refused["clearsCode"] as? Bool == false)
     #expect(refused["message"] as? String == PendingJoinOutcome.raceFullMessage)
     #expect((refused["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
+    #expect(try result(try await runtime(signedOutDevice.merging(["op": "readPendingJoin"]) { $1 }))["pendingJoin"] is NSNull)
 
-    // The server refusing the session fails like every op's 401, so the app signs out; the code stays.
+    // The server refusing the session fails like every op's 401, so the app signs out. The code
+    // stays for Ada's next sign-in.
     let rejected = try await runtime(ada.merging(["op": "resolvePendingJoin", "baseURL": expired]) { $1 })
     #expect(rejected["ok"] as? Bool == false && rejected["sessionExpired"] as? Bool == true)
     #expect(rejected["message"] as? String == PendingJoinOutcome.signedOutMessage)
+    let kept = try result(try await runtime(ada.merging(["op": "readPendingJoin"]) { $1 }))
+    #expect((kept["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
 
-    // A replay never joins: refused before any request, the code kept.
+    // Bo signs in next on this phone: nothing to join, nothing sent with Bo's token, Ada's code gone.
+    let bo = ada.merging(["userId": "bo", "token": "jwt-bo"]) { $1 }
+    let boResolve = try result(try await runtime(bo.merging(["op": "resolvePendingJoin", "baseURL": joining]) { $1 }))
+    #expect(boResolve["outcome"] as? String == "nothingPending" && boResolve["pendingJoin"] is NSNull)
+    #expect(await server.sent.isEmpty)
+    #expect(try result(try await runtime(ada.merging(["op": "readPendingJoin"]) { $1 }))["pendingJoin"] is NSNull)
+
+    // A replay never joins: refused before any request.
+    _ = try result(try await runtime(ada.merging(["op": "savePendingJoin", "code": "123456", "source": "link"]) { $1 }))
     let demo = try await runtime(ada.merging(["op": "resolvePendingJoin", "baseURL": "https://r1.\(DemoRace.host)"]) { $1 })
     #expect(demo["ok"] as? Bool == false)
     #expect(demo["message"] as? String == DemoRaceError.readOnly("the replay never joins a race").message)
@@ -543,9 +693,25 @@ private func isoDate(_ text: String) -> Date? {
     #expect(try await state(["op": "readOnboarding", "hasPendingInvite": true])["inviteConfirmed"] as? Bool == true)
     #expect(try await state(["op": "readOnboarding", "pendingInvite": "654321"])["inviteConfirmed"] as? Bool == false)
 
+    // Signed in, the saved code is the reader's: Ada's join, never Bo's.
+    let ada: [String: Any] = ["storageDir": storage, "userId": "ada", "token": "jwt", "races": [] as [Any]]
+    let adaRead = try result(try await runtime(ada.merging(["op": "readOnboarding"]) { $1 }))
+    #expect((adaRead["state"] as? [String: Any])?["step"] as? String == "join")
+    #expect((adaRead["pendingJoin"] as? [String: Any])?["code"] as? String == "123456")
+    let boRead = try result(try await runtime(ada.merging(["op": "readOnboarding", "userId": "bo"]) { $1 }))
+    #expect(boRead["pendingJoin"] is NSNull)
+    #expect((boRead["state"] as? [String: Any])?["flow"] as? String == "chooser")
+    // markOnboardingStep reads it the same way: Ada's code is her join over a runner pick, and
+    // never turns Bo's runner pick into a join.
+    _ = try result(try await runtime(ada.merging(["op": "savePendingJoin", "code": "123456"]) { $1 }))
+    let adaMark = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "choice": "runner"]) { $1 }))
+    #expect((adaMark["state"] as? [String: Any])?["flow"] as? String == "crew")
+    let boMark = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "userId": "bo", "choice": "runner"]) { $1 }))
+    #expect((boMark["state"] as? [String: Any])?["flow"] as? String == "runner")
+
     // Saved more than 7 days ago: expired, so no invite.
     let store = OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: URL(fileURLWithPath: storage, isDirectory: true)))
-    try store.pendingJoins.save(code: "123456", source: .link, now: Date().addingTimeInterval(-8 * day))
+    try store.pendingJoins.save(code: "123456", source: .link, userId: nil, now: Date().addingTimeInterval(-8 * day))
     let stale = try result(try await runtime(signedOut.merging(["op": "readOnboarding"]) { $1 }))
     #expect(stale["pendingJoin"] is NSNull)
     #expect((stale["state"] as? [String: Any])?["flow"] as? String == "chooser")

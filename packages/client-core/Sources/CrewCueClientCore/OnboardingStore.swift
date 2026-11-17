@@ -356,7 +356,7 @@ public struct OnboardingStore: Sendable {
 public struct OnboardingRead: Equatable, Sendable {
     public var state: OnboardingState
     public var progress: OnboardingProgress
-    /// The saved pending join, nil when none is saved or it expired.
+    /// The user's saved pending join, nil when none is saved for them or it expired.
     public var pendingJoin: PendingJoin?
 
     public init(state: OnboardingState, progress: OnboardingProgress, pendingJoin: PendingJoin?) {
@@ -373,7 +373,9 @@ extension OnboardingStore {
     /// `readOnboarding` for iOS: `progress(signedIn:userId:races:)`, then the state. A
     /// `pendingInvite` named here wins; otherwise the saved pending join's code is the pending
     /// invite, so a link opened signed out (or before onboarding asked) starts the crew join, and
-    /// a signed-out confirmation of that code counts.
+    /// a signed-out confirmation of that code counts. The pending join is read as this user's
+    /// (`PendingJoinStore.read(userId:now:)`, signed out when `signedIn` is false): a signed-in
+    /// read takes a code saved signed out, and another account's code is never the invite.
     public func read(
         signedIn: Bool,
         userId: String?,
@@ -397,7 +399,7 @@ extension OnboardingStore {
         invite: (PendingJoin?) -> String?
     ) throws -> OnboardingRead {
         let progress = try self.progress(signedIn: signedIn, userId: userId, races: races)
-        let saved = pendingJoins.read(now: now)
+        let saved = pendingJoins.read(userId: signedIn ? userId : nil, now: now)
         let state = Onboarding.resolve(OnboardingInput(
             signedIn: signedIn, userId: userId, pendingInvite: invite(saved),
             races: races, activeRoomId: activeRoomId, progress: progress
