@@ -96,7 +96,7 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     // Paid, the course and start time are checklist items, never setup steps.
     #expect(state.steps.map(\.step) == [.account, .history, .projectionTeaser] + OnboardingStep.runnerPreview + OnboardingStep.runnerTour)
     for step in OnboardingStep.runnerTour {
-        try progress.record(step, outcome: step == .location ? .deferred : .done, roomId: "r1")
+        try progress.record(step, outcome: step == .location ? .deferred : .done, roomId: "r1", role: .runner)
     }
     state = resolve(races: [race("r1", status: "paid")], progress: progress)
     #expect(state.flow == .done)
@@ -212,7 +212,7 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     // A crew member who finished the tour relaunches at an aid station with no service.
     var crew = OnboardingProgress(account: [.account: .done], knownRaces: [race("r2", role: "crew_member", status: "paid")])
     for step in OnboardingStep.crewTour {
-        try crew.record(step, outcome: .done, roomId: "r2")
+        try crew.record(step, outcome: .done, roomId: "r2", role: .crew)
     }
     var state = resolve(races: nil, active: "r2", progress: crew)
     #expect(state.flow == .done && state.role == .crew && state.roomId == "r2" && state.showsTabBar)
@@ -238,7 +238,7 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
 @Test func onboardingFlowFollowsTheActiveRaceAndRole() throws {
     var progress = OnboardingProgress(choice: .runner, account: [.account: .done, .history: .done])
     for step in OnboardingStep.runnerTour {
-        try progress.record(step, outcome: .done, roomId: "mine")
+        try progress.record(step, outcome: .done, roomId: "mine", role: .runner)
     }
     let races = [race("mine", status: "paid"), race("theirs", role: "crew_chief", status: "paid")]
     #expect(resolve(races: races, active: "mine", progress: progress).flow == .done)
@@ -251,14 +251,121 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     // Signed out, the server's races are unknown.
     #expect(resolve(signedIn: false, userId: nil, races: races, active: "theirs", progress: progress).flow == .runner)
 
-    // Crew tour progress is that race's: a second crew race starts its own tour.
+    // Crew tour progress is the user's, not the race's: a second crew race skips it.
     var crewProgress = progress
     for step in OnboardingStep.crewTour {
-        try crewProgress.record(step, outcome: .skipped, roomId: "theirs")
+        try crewProgress.record(step, outcome: .skipped, roomId: "theirs", role: .crew)
     }
     #expect(resolve(races: races, active: "theirs", progress: crewProgress).flow == .done)
     let other = races + [race("third", role: "crew_member", status: "paid")]
-    #expect(resolve(races: other, active: "third", progress: crewProgress).step == .runnerLocation)
+    #expect(resolve(races: other, active: "third", progress: crewProgress).flow == .done)
+}
+
+@Test func onboardingToursAreSavedOncePerUserPerRole() throws {
+    // The runner tour seen in one race is done in the next race where they run.
+    var progress = OnboardingProgress(choice: .runner, account: [.account: .done, .history: .done])
+    for step in OnboardingStep.runnerTour {
+        try progress.record(step, outcome: .done, roomId: "r1", role: .runner)
+    }
+    let races = [race("r1", status: "paid"), race("r2", status: "paid")]
+    #expect(resolve(races: races, active: "r2", progress: progress).flow == .done)
+    // Setup stays per race: an unpaid second race still goes through preview and the paywall.
+    let unpaidSecond = [race("r1", status: "paid"), race("r2")]
+    let second = resolve(races: unpaidSecond, active: "r2", progress: progress)
+    #expect(second.flow == .runner && second.phase == .setup && second.step == .projectionTeaser)
+    try progress.record(.projectionTeaser, outcome: .done, roomId: "r2")
+    try progress.record(.preview, outcome: .done, roomId: "r2")
+    #expect(resolve(races: unpaidSecond, active: "r2", progress: progress).step == .paywall)
+
+    // Mixed roles: the runner tour does not complete the crew tour, `notifications` is per role.
+    let mixed = [race("mine", status: "paid"), race("theirs", role: "crew_member", status: "paid")]
+    let crew = resolve(races: mixed, active: "theirs", progress: progress)
+    #expect(crew.flow == .crew && crew.step == .runnerLocation)
+    #expect(crew.status(.notifications)?.outcome == nil)
+    for step in OnboardingStep.crewTour {
+        try progress.record(step, outcome: .done, roomId: "theirs", role: .crew)
+    }
+    #expect(progress.tourOutcome(.notifications, role: .crew) == .done)
+    #expect(resolve(races: mixed, active: "theirs", progress: progress).flow == .done)
+    #expect(resolve(races: mixed, active: "mine", progress: progress).flow == .done)
+
+    // Crew first: the runner tour is still open for their own race.
+    var crewOnly = OnboardingProgress(account: [.account: .done, .history: .done])
+    for step in OnboardingStep.crewTour {
+        try crewOnly.record(step, outcome: .done, roomId: "theirs", role: .crew)
+    }
+    let runnerState = resolve(races: mixed, active: "mine", progress: crewOnly)
+    #expect(runnerState.flow == .runner && runnerState.phase == .tour && runnerState.step == .invites)
+
+    // `notifications` without a role or a known race can't be placed.
+    var bare = OnboardingProgress.empty
+    #expect(throws: OnboardingError.roleRequired(.notifications)) { try bare.record(.notifications, outcome: .done, roomId: "r1") }
+}
+
+@Test func onboardingToursSurviveAFileRoundTrip() throws {
+    let (onboarding, _) = store()
+    try onboarding.mark(.invites, roomId: "r1", userId: "ada")
+    try onboarding.mark(.notifications, roomId: "r2", role: .crew, userId: "ada")
+    let loaded = onboarding.load(userId: "ada")
+    #expect(loaded.tourOutcome(.invites, role: .runner) == .done)
+    #expect(loaded.tourOutcome(.notifications, role: .crew) == .done)
+    #expect(loaded.tourOutcome(.notifications, role: .runner) == nil)
+    #expect(loaded.races.isEmpty)
+}
+
+@Test func onboardingExistingAccountWithAPaidRaceSkipsTheTours() throws {
+    let (onboarding, _) = store()
+    let paid = race("r1", status: "paid")
+    let unpaid = race("r2")
+    // The list is unknown: no shortcut, and nothing is saved.
+    var progress = try onboarding.progress(signedIn: true, userId: "ada", races: nil)
+    #expect(progress == .empty)
+    #expect(resolve(races: nil, progress: progress).flow == .loading)
+
+    // No file, a loaded list with a paid race: straight to the tab bar, optional items open.
+    progress = try onboarding.progress(signedIn: true, userId: "ada", races: [paid])
+    var state = resolve(races: [paid], active: "r1", progress: progress)
+    #expect(state.flow == .done && state.showsTabBar && state.role == .runner)
+    let optional = state.checklist.filter { OnboardingStep.runnerChecklist.contains($0.step) }
+    #expect(optional.count == 2 && optional.allSatisfy { !$0.isComplete })
+    // Crew races of that account skip the crew tour too.
+    let crewPaid = race("r3", role: "crew_member", status: "paid")
+    #expect(resolve(races: [paid, crewPaid], active: "r3", progress: progress).flow == .done)
+    // It stays done on the next read, and after the user marks something.
+    try onboarding.mark(.etaEdits, roomId: "r1", userId: "ada")
+    progress = try onboarding.progress(signedIn: true, userId: "ada", races: [paid])
+    #expect(resolve(races: [paid], active: "r1", progress: progress).flow == .done)
+
+    // An unpaid race still goes through the normal flow (they have to pay).
+    let (second, _) = store()
+    progress = try second.progress(signedIn: true, userId: "bo", races: [unpaid])
+    state = resolve(races: [unpaid], active: "r2", progress: progress)
+    #expect(state.flow == .runner && state.phase == .setup)
+    // A later paid race on an account that has already seen a list is not an existing account.
+    progress = try second.progress(signedIn: true, userId: "bo", races: [unpaid, paid])
+    #expect(progress.tours.isEmpty)
+
+    // Any saved progress turns the shortcut off.
+    let (third, _) = store()
+    try third.choose(.runner, userId: "cy")
+    progress = try third.progress(signedIn: true, userId: "cy", races: [paid])
+    #expect(progress.tours.isEmpty)
+    #expect(resolve(races: [paid], active: "r1", progress: progress).flow == .runner)
+}
+
+@Test func onboardingCrewOnAnUnpaidRaceIsLocked() {
+    let races = [race("mine", status: "paid"), race("theirs", role: "crew_member", status: "unpaid")]
+    let locked = resolve(races: races, active: "theirs", progress: OnboardingProgress(account: [.account: .done]))
+    #expect(locked.flow == .raceLocked && locked.role == .crew && locked.roomId == "theirs")
+    #expect(locked.showsTabBar && locked.step == nil && locked.phase == nil && locked.steps.isEmpty)
+    #expect(locked.reason == "The runner hasn't unlocked this race yet.")
+    // Also from the saved list while the live one hasn't answered.
+    let saved = OnboardingProgress(knownRaces: races)
+    #expect(resolve(races: nil, active: "theirs", progress: saved).flow == .raceLocked)
+    // The runner on an unpaid race keeps the normal flow; a paid crew race tours; expired is done.
+    #expect(resolve(races: [race("mine")], active: "mine").flow == .runner)
+    #expect(resolve(races: [race("c", role: "crew_member", status: "paid")], active: "c").flow == .crew)
+    #expect(resolve(races: [race("c", role: "crew_member", status: "expired")], active: "c").flow == .done)
 }
 
 @Test func onboardingRefusesStepsTheServerDecidesAndBadOutcomes() {
@@ -334,9 +441,10 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     let (onboarding, _) = store()
     try onboarding.mark(.account, userId: "ada")
     try onboarding.mark(.invites, roomId: "r1", userId: "ada")
+    try onboarding.mark(.etaEdits, roomId: "r1", userId: "ada")
     try onboarding.choose(.crew, userId: "bo")
-    #expect(onboarding.load(userId: "ada").outcome(.invites, roomId: "r1") == .done)
-    #expect(onboarding.load(userId: "bo").outcome(.invites, roomId: "r1") == nil)
+    #expect(onboarding.load(userId: "ada").tourOutcome(.invites, role: .runner) == .done)
+    #expect(onboarding.load(userId: "bo").tourOutcome(.invites, role: .runner) == nil)
     #expect(onboarding.load(userId: "bo").outcome(.account, roomId: nil) == nil)
     #expect(onboarding.load(userId: "ada").choice == nil)
     #expect(onboarding.file(userId: "ada") != onboarding.file(userId: "bo"))
@@ -344,8 +452,10 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     #expect(onboarding.file(userId: "auth0|ada") != onboarding.file(userId: "auth0_ada"))
     #expect(onboarding.file(userId: "@signed-out") != onboarding.file(userId: nil))
 
+    // Resetting one race clears its steps, not the user's tours.
     try onboarding.reset(userId: "ada", roomId: "r1")
-    #expect(onboarding.load(userId: "ada").outcome(.invites, roomId: "r1") == nil)
+    #expect(onboarding.load(userId: "ada").outcome(.etaEdits, roomId: "r1") == nil)
+    #expect(onboarding.load(userId: "ada").tourOutcome(.invites, role: .runner) == .done)
     #expect(onboarding.load(userId: "ada").outcome(.account, roomId: nil) == .done)
     try onboarding.reset(userId: "ada")
     #expect(onboarding.load(userId: "ada") == .empty)

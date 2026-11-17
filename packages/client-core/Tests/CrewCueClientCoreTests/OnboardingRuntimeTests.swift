@@ -124,7 +124,8 @@ private struct MineServer: HTTPTransport {
     #expect(read["flow"] as? String == "loading")
     #expect(read["showsTabBar"] as? Bool == true)
 
-    // The list answers once: a paid crew race, mid-tour.
+    // The list answers once: a paid crew race, mid-tour (the account has saved progress already).
+    _ = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "step": "account"]) { $1 }))
     let crewRace: [String: Any] = ["id": "r2", "role": "crew_member", "entitlementStatus": "paid", "hasCourse": true]
     read = try state(try await runtime(ada.merging(["op": "readOnboarding", "races": [crewRace], "activeRoomId": "r2"]) { $1 }))
     #expect(read["flow"] as? String == "crew" && read["step"] as? String == "runnerLocation")
@@ -230,9 +231,51 @@ private struct DeleteMeServer: HTTPTransport {
     #expect(rows.compactMap { $0["activatedAt"] as? String } == ["2026-08-14T12:00:00.000Z"])
 
     // The rows go straight back to readOnboarding: the crew race is the crew flow.
+    _ = try result(try await runtime(["op": "markOnboardingStep", "step": "account", "storageDir": storage, "userId": "runner-1"]))
     let read = try state(try await runtime([
         "op": "readOnboarding", "storageDir": storage, "userId": "runner-1", "races": rows, "activeRoomId": "r2"
     ]))
     #expect(read["flow"] as? String == "crew")
     #expect(read["step"] as? String == "runnerLocation")
+}
+
+@Test func onboardingRuntimeSharesToursAcrossRacesAndLocksUnpaidCrew() async throws {
+    let storage = FileManager.default.temporaryDirectory
+        .appendingPathComponent("onboarding-rt-\(UUID().uuidString)/crewcue-user", isDirectory: true).path
+    let ada: [String: Any] = ["storageDir": storage, "userId": "ada", "token": "t"]
+    _ = try result(try await runtime(ada.merging(["op": "markOnboardingStep", "step": "account"]) { $1 }))
+    let first: [String: Any] = ["id": "c1", "role": "crew_member", "entitlementStatus": "paid", "hasCourse": true]
+    let second: [String: Any] = ["id": "c2", "role": "crew_member", "entitlementStatus": "paid", "hasCourse": true]
+    let races = [first, second]
+
+    // Finishing the crew tour in c1 finishes it in c2; `notifications` takes its role from the race.
+    for step in OnboardingStep.crewTour {
+        _ = try result(try await runtime(ada.merging([
+            "op": "markOnboardingStep", "step": step.rawValue, "roomId": "c1", "races": races, "activeRoomId": "c1"
+        ]) { $1 }))
+    }
+    let read = try state(try await runtime(ada.merging(["op": "readOnboarding", "races": races, "activeRoomId": "c2"]) { $1 }))
+    #expect(read["flow"] as? String == "done" && read["roomId"] as? String == "c2")
+    #expect(read["reason"] is NSNull)
+    let progress = try result(try await runtime(ada.merging(["op": "readOnboarding", "races": races]) { $1 }))["progress"] as? [String: Any]
+    let tours = try #require(progress?["tours"] as? [String: Any])
+    #expect((tours["crew"] as? [String: Any])?["notifications"] as? String == "done")
+    #expect(tours["runner"] == nil)
+
+    // A crew member whose race went unpaid: locked, tab bar, a reason.
+    var locked = second
+    locked["entitlementStatus"] = "unpaid"
+    let lockedRead = try state(try await runtime(ada.merging(["op": "readOnboarding", "races": [first, locked], "activeRoomId": "c2"]) { $1 }))
+    #expect(lockedRead["flow"] as? String == "raceLocked")
+    #expect(lockedRead["showsTabBar"] as? Bool == true)
+    #expect(lockedRead["step"] is NSNull)
+    #expect(lockedRead["reason"] as? String == "The runner hasn't unlocked this race yet.")
+
+    // An existing account: a first loaded list with a paid race, no progress, both tours done.
+    let existing: [String: Any] = ["storageDir": storage, "userId": "old", "token": "t"]
+    let paidRunner: [String: Any] = ["id": "r9", "role": "athlete", "entitlementStatus": "paid", "hasCourse": true]
+    let old = try state(try await runtime(existing.merging(["op": "readOnboarding", "races": [paidRunner]]) { $1 }))
+    #expect(old["flow"] as? String == "done" && old["showsTabBar"] as? Bool == true)
+    let unknown = try state(try await runtime(["storageDir": storage, "userId": "new", "token": "t", "op": "readOnboarding"]))
+    #expect(unknown["flow"] as? String == "loading")
 }

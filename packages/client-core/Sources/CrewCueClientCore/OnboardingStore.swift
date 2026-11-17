@@ -9,6 +9,8 @@ public struct OnboardingProgress: Equatable, Sendable {
 
     public var choice: OnboardingChoice?
     public var account: [OnboardingStep: OnboardingOutcome]
+    /// Tour steps, once per user per role: every race where they hold that role shares them.
+    public var tours: [OnboardingChoice: [OnboardingStep: OnboardingOutcome]]
     public var races: [String: [OnboardingStep: OnboardingOutcome]]
     /// The last `GET /race-rooms/mine` list resolved on this device, in server order. Nil until one
     /// is: a relaunch before the list answers then has nothing to resolve from.
@@ -20,20 +22,50 @@ public struct OnboardingProgress: Equatable, Sendable {
     public init(
         choice: OnboardingChoice? = nil,
         account: [OnboardingStep: OnboardingOutcome] = [:],
+        tours: [OnboardingChoice: [OnboardingStep: OnboardingOutcome]] = [:],
         races: [String: [OnboardingStep: OnboardingOutcome]] = [:],
         knownRaces: [OnboardingRace]? = nil,
         confirmedInvite: String? = nil
     ) {
         self.choice = choice
         self.account = account
+        self.tours = tours
         self.races = races
         self.knownRaces = knownRaces
         self.confirmedInvite = confirmedInvite
     }
 
+    /// True when nothing but the cached race list is saved: no chooser pick, account step, tour,
+    /// per-race step or confirmed invite.
+    var hasNoSavedSteps: Bool {
+        choice == nil && account.isEmpty && tours.values.allSatisfy(\.isEmpty)
+            && races.values.allSatisfy(\.isEmpty) && confirmedInvite == nil
+    }
+
+    /// How a tour step ended for a role.
+    public func tourOutcome(_ step: OnboardingStep, role: OnboardingChoice) -> OnboardingOutcome? {
+        tours[role]?[step]
+    }
+
+    /// An account that predates onboarding: nothing saved at all (not even a race list, so this
+    /// is the first list ever answered) and a paid race in it. Both tours are done and the paid
+    /// races skip setup (`Onboarding` already treats a paid race's setup as done). Unpaid races
+    /// keep the normal flow. Nil list: no shortcut.
+    func grandfathered(races list: [OnboardingRace]?) -> OnboardingProgress {
+        guard let list, knownRaces == nil, hasNoSavedSteps, list.contains(where: \.isPaid) else { return self }
+        var result = self
+        for role in [OnboardingChoice.runner, .crew] {
+            let steps = role == .runner ? OnboardingStep.runnerTour : OnboardingStep.crewTour
+            result.tours[role] = Dictionary(uniqueKeysWithValues: steps.map { ($0, OnboardingOutcome.done) })
+        }
+        return result
+    }
+
     /// How a saved step ended. Steps that follow the server are never saved, so they read nil.
     /// `join` reads done once any invite was confirmed; `inviteConfirmed(_:)` asks about one invite.
+    /// A tour step reads from its role's tour (nil for `notifications`, shared: use `tourOutcome`).
     public func outcome(_ step: OnboardingStep, roomId: String?) -> OnboardingOutcome? {
+        if step.isTour { return step.tourRole.flatMap { tourOutcome(step, role: $0) } }
         if step == .join { return confirmedInvite == nil ? nil : .done }
         if step.accountWide { return account[step] }
         guard let roomId = Self.room(roomId) else { return nil }
@@ -49,7 +81,13 @@ public struct OnboardingProgress: Equatable, Sendable {
     /// Saves how a step ended. Server steps, an outcome the step does not offer, a per-race step
     /// without a race, and `join` without its invite are refused. Confirming an invite replaces
     /// any earlier one.
-    public mutating func record(_ step: OnboardingStep, outcome: OnboardingOutcome, roomId: String?, invite: String? = nil) throws {
+    public mutating func record(
+        _ step: OnboardingStep,
+        outcome: OnboardingOutcome,
+        roomId: String?,
+        invite: String? = nil,
+        role: OnboardingChoice? = nil
+    ) throws {
         if step.followsServer { throw OnboardingError.followsServer(step) }
         guard step.allowedOutcomes.contains(outcome) else { throw OnboardingError.outcomeNotAllowed(step, outcome) }
         if step == .join {
@@ -59,6 +97,15 @@ public struct OnboardingProgress: Equatable, Sendable {
         }
         if step.accountWide {
             account[step] = outcome
+            return
+        }
+        if step.isTour {
+            // The role: as named, else the step's own, else the race's role from the saved list.
+            let known = Self.room(roomId).flatMap { id in knownRaces?.first { $0.roomId == id } }
+            guard let role = role ?? step.tourRole ?? known.map({ $0.isRunner ? .runner : .crew }) else {
+                throw OnboardingError.roleRequired(step)
+            }
+            tours[role, default: [:]][step] = outcome
             return
         }
         guard let roomId = Self.room(roomId) else { throw OnboardingError.roomRequired(step) }
@@ -73,6 +120,11 @@ public struct OnboardingProgress: Equatable, Sendable {
         merged.choice = guest.choice ?? choice
         for (step, outcome) in guest.account where step != .join && merged.account[step] == nil {
             merged.account[step] = outcome
+        }
+        for (role, steps) in guest.tours {
+            for (step, outcome) in steps where merged.tours[role]?[step] == nil {
+                merged.tours[role, default: [:]][step] = outcome
+            }
         }
         for (roomId, steps) in guest.races {
             for (step, outcome) in steps where merged.races[roomId]?[step] == nil {
@@ -99,6 +151,7 @@ public struct OnboardingProgress: Equatable, Sendable {
         var object: [String: Any] = [
             "version": Self.version,
             "account": Self.encode(account),
+            "tours": Dictionary(uniqueKeysWithValues: tours.map { ($0.key.rawValue, Self.encode($0.value)) }),
             "races": races.mapValues(Self.encode)
         ]
         if let choice { object["choice"] = choice.rawValue }
@@ -111,6 +164,11 @@ public struct OnboardingProgress: Equatable, Sendable {
         self.init(
             choice: (object["choice"] as? String).flatMap(OnboardingChoice.init(rawValue:)),
             account: Self.decode(object["account"]),
+            tours: ((object["tours"] as? [String: Any]) ?? [:]).reduce(into: [:]) { tours, entry in
+                guard let role = OnboardingChoice(rawValue: entry.key) else { return }
+                let steps = Self.decode(entry.value).filter { $0.key.isTour }
+                if !steps.isEmpty { tours[role] = steps }
+            },
             races: ((object["races"] as? [String: Any]) ?? [:]).reduce(into: [:]) { races, entry in
                 let steps = Self.decode(entry.value)
                 if !steps.isEmpty { races[entry.key] = steps }
@@ -197,17 +255,21 @@ public struct OnboardingStore: Sendable {
         guard signedIn, !trimmed.isEmpty else { return load(userId: nil) }
         let adopted = try adoptGuest(userId: trimmed)
         guard let races else { return adopted }
-        return try remember(races, userId: trimmed)
+        return try remember(races, userId: trimmed, grandfather: true)
     }
 
     /// Saves `races` as the user's last known list. Unchanged lists are not rewritten.
     @discardableResult
-    public func remember(_ races: [OnboardingRace], userId: String) throws -> OnboardingProgress {
+    public func remember(_ races: [OnboardingRace], userId: String, grandfather: Bool = false) throws -> OnboardingProgress {
         let trimmed = userId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return load(userId: nil) }
         return try OnboardingFileLock.shared.run {
             var progress = load(userId: trimmed)
-            guard progress.knownRaces != races else { return progress }
+            if grandfather { progress = progress.grandfathered(races: races) }
+            guard progress.knownRaces != races else {
+                if grandfather, progress != load(userId: trimmed) { try save(progress, userId: trimmed) }
+                return progress
+            }
             progress.knownRaces = races
             try save(progress, userId: trimmed)
             return progress
@@ -221,9 +283,10 @@ public struct OnboardingStore: Sendable {
         outcome: OnboardingOutcome = .done,
         roomId: String? = nil,
         invite: String? = nil,
+        role: OnboardingChoice? = nil,
         userId: String?
     ) throws -> OnboardingProgress {
-        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId, invite: invite) }
+        try update(userId: userId) { try $0.record(step, outcome: outcome, roomId: roomId, invite: invite, role: role) }
     }
 
     @discardableResult

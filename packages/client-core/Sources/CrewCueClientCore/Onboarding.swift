@@ -30,9 +30,21 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable {
         self == .course || self == .startTime || self == .paywall
     }
 
-    /// Saved once for the account, so every race shares it. Every other saved step is per race.
+    /// Saved once for the account, so every race shares it.
     public var accountWide: Bool {
         self == .account || self == .history || self == .join
+    }
+
+    /// A tour step: saved once per user per role, so the runner tour seen once is done for every
+    /// later race where they run, and the crew tour likewise. Every other saved step is per race.
+    public var isTour: Bool {
+        Self.runnerTour.contains(self) || Self.crewTour.contains(self)
+    }
+
+    /// The role whose tour holds this step, nil for `notifications`, which both tours share.
+    var tourRole: OnboardingChoice? {
+        let runner = Self.runnerTour.contains(self), crew = Self.crewTour.contains(self)
+        return runner == crew ? nil : (runner ? .runner : .crew)
     }
 
     /// How a step may end: history is imported or skipped to a cold start, the location test runs
@@ -64,6 +76,8 @@ public enum OnboardingError: Error, Equatable, Sendable {
     case followsServer(OnboardingStep)
     case outcomeNotAllowed(OnboardingStep, OnboardingOutcome)
     case roomRequired(OnboardingStep)
+    /// `notifications` sits in both tours; its role comes from the call or the race.
+    case roleRequired(OnboardingStep)
     /// `join` is confirmed for one invite, named by its token or code.
     case inviteRequired
 
@@ -72,6 +86,7 @@ public enum OnboardingError: Error, Equatable, Sendable {
         case .followsServer(let step): "\(step.rawValue) follows the race on the server."
         case .outcomeNotAllowed(let step, let outcome): "\(step.rawValue) can't be \(outcome.rawValue)."
         case .roomRequired(let step): "\(step.rawValue) needs a race."
+        case .roleRequired(let step): "\(step.rawValue) needs a role (runner or crew)."
         case .inviteRequired: "join needs the invite's token or code."
         }
     }
@@ -207,6 +222,9 @@ public struct OnboardingState: Equatable, Sendable {
     /// stays for a user with a stored active race.
     public enum Flow: String, Sendable {
         case runner, crew, chooser, done, loading
+        /// A crew member's race isn't unlocked: its crew features answer 402 `room_unpaid` (the
+        /// runner hasn't paid, or a refund took it back). No tour; `reason` says why.
+        case raceLocked
     }
 
     /// Runner: setup (before the tab bar), preview (replay and paywall), tour. Crew: join, tour.
@@ -232,6 +250,10 @@ public struct OnboardingState: Equatable, Sendable {
     /// Signed out with a pending invite the person already confirmed: sign in, then accept it.
     public var inviteConfirmed: Bool
     public var showsTabBar: Bool
+    /// Why the race is locked (`raceLocked` only), for the UI to show.
+    public var reason: String?
+
+    public static let raceLockedReason = "The runner hasn't unlocked this race yet."
 
     public static let chooser = OnboardingState(
         flow: .chooser, role: nil, roomId: nil, phase: nil, step: nil,
@@ -247,7 +269,8 @@ public struct OnboardingState: Equatable, Sendable {
         steps: [OnboardingStepStatus],
         checklist: [OnboardingStepStatus],
         inviteConfirmed: Bool,
-        showsTabBar: Bool
+        showsTabBar: Bool,
+        reason: String? = nil
     ) {
         self.flow = flow
         self.role = role
@@ -258,6 +281,7 @@ public struct OnboardingState: Equatable, Sendable {
         self.checklist = checklist
         self.inviteConfirmed = inviteConfirmed
         self.showsTabBar = showsTabBar
+        self.reason = reason
     }
 
     public func status(_ step: OnboardingStep) -> OnboardingStepStatus? {
@@ -283,7 +307,10 @@ public enum Onboarding {
             if race.isExpired {
                 return finished(role: race.isRunner ? .runner : .crew, race: race, input)
             }
-            return race.isRunner ? runner(race: race, input) : crew(race: race, input, showsTabBar: true)
+            if race.isRunner { return runner(race: race, input) }
+            // Crew features need a paid race; the runner keeps the normal flow to pay.
+            if !race.isPaid { return raceLocked(race) }
+            return crew(race: race, input, showsTabBar: true)
         }
         switch input.progress.choice {
         case .runner: return runner(race: nil, input)
@@ -295,6 +322,14 @@ public enum Onboarding {
     static func activeRace(_ races: [OnboardingRace], preferred: String?) -> OnboardingRace? {
         let preferred = room(preferred)
         return races.first { $0.roomId == preferred } ?? races.first
+    }
+
+    private static func raceLocked(_ race: OnboardingRace) -> OnboardingState {
+        OnboardingState(
+            flow: .raceLocked, role: .crew, roomId: race.roomId, phase: nil, step: nil,
+            steps: [], checklist: [], inviteConfirmed: false, showsTabBar: true,
+            reason: OnboardingState.raceLockedReason
+        )
     }
 
     /// The race list isn't known yet. Nothing to decide but the tab bar: a stored active race keeps it.
@@ -334,7 +369,9 @@ public enum Onboarding {
             OnboardingStepStatus(step: .preview, outcome: race == nil ? nil : saved(.preview) ?? done(paid)),
             OnboardingStepStatus(step: .paywall, outcome: done(paid))
         ]
-        let tour = OnboardingStep.runnerTour.map { OnboardingStepStatus(step: $0, outcome: race == nil ? nil : saved($0)) }
+        let tour = OnboardingStep.runnerTour.map {
+            OnboardingStepStatus(step: $0, outcome: race == nil ? nil : progress.tourOutcome($0, role: .runner))
+        }
         let checklist = (paid ? [course, startTime] : [])
             + OnboardingStep.runnerChecklist.map { OnboardingStepStatus(step: $0, outcome: race == nil ? nil : saved($0)) }
         let phases: [(OnboardingState.Phase, [OnboardingStepStatus])] = [(.setup, setup), (.preview, preview), (.tour, tour)]
@@ -364,7 +401,7 @@ public enum Onboarding {
             OnboardingStepStatus(step: .account, outcome: input.signedIn ? .done : nil)
         ]
         let tour = OnboardingStep.crewTour.map { step in
-            OnboardingStepStatus(step: step, outcome: seat.flatMap { input.progress.outcome(step, roomId: $0.roomId) })
+            OnboardingStepStatus(step: step, outcome: seat == nil ? nil : input.progress.tourOutcome(step, role: .crew))
         }
         let steps = join + tour
         guard let seat else {

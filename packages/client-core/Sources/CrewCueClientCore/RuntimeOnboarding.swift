@@ -12,6 +12,11 @@ import Foundation
 /// - `markOnboardingStep`: `step` + `outcome?` (done, skipped, deferred) + `roomId?` for a
 ///   per-race step (`invite` for `join`: the token or code confirmed), or `choice` (runner, crew)
 ///   for the chooser. Takes the same fields as `readOnboarding` and answers `progress` and `state`.
+///   Tour steps are saved once per user per role, not per race: send `role` (runner, crew) for
+///   `notifications`, which both tours share (else it follows the race's role in the list).
+///   Existing accounts: with no saved progress at all, the first loaded list that has a paid
+///   race marks both tours done. A crew member's unpaid race answers `flow: raceLocked` with a
+///   `reason`, `showsTabBar: true` and no tour.
 /// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`.
 ///
 /// Progress lives in `onboardingDir`, else `crewcue-onboarding` beside `storageDir`, which
@@ -32,6 +37,10 @@ extension RuntimeCall {
         let store = try onboardingStore(object)
         let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
         var progress: OnboardingProgress
+        // A first loaded list is read before the mark, so an existing account is recognised.
+        if onboardingSignedIn(object), let races = onboardingRaces(object) {
+            _ = try store.progress(signedIn: true, userId: userId, races: races)
+        }
         do {
             if let raw = text(object, "choice") {
                 guard let choice = OnboardingChoice(rawValue: raw) else {
@@ -47,7 +56,8 @@ extension RuntimeCall {
                     throw ClientHTTPError(status: 400, message: "Unknown onboarding outcome \(outcomeName).")
                 }
                 progress = try store.mark(
-                    step, outcome: outcome, roomId: text(object, "roomId"), invite: text(object, "invite"), userId: userId
+                    step, outcome: outcome, roomId: text(object, "roomId"), invite: text(object, "invite"),
+                    role: text(object, "role").flatMap(OnboardingChoice.init(rawValue:)), userId: userId
                 )
             }
         } catch let error as OnboardingError {
@@ -134,7 +144,8 @@ extension RuntimeCall {
             "steps": rows(state.steps),
             "checklist": rows(state.checklist),
             "inviteConfirmed": state.inviteConfirmed,
-            "showsTabBar": state.showsTabBar
+            "showsTabBar": state.showsTabBar,
+            "reason": state.reason ?? NSNull()
         ]
     }
 }
