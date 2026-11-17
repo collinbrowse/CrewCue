@@ -188,6 +188,8 @@ private struct ReservedRegionInsets: ViewModifier {
     @State private var insets = EdgeInsets()
 
     func body(content: Content) -> some View {
+        // Reserved regions are in the iOS 27 SDK (Swift 6.4); older Xcode builds skip the insets.
+        #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             content
                 .padding(insets)
@@ -210,6 +212,9 @@ private struct ReservedRegionInsets: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 
     /// Leading or trailing padding for each region that crosses the content's width. A region
