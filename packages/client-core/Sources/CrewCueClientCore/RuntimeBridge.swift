@@ -22,7 +22,8 @@ import Dispatch
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
-/// readOnboarding, markOnboardingStep, resetOnboarding (`RuntimeOnboarding.swift`),
+/// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
+/// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
@@ -280,6 +281,16 @@ enum RuntimeCall {
             return try markOnboardingStep(object)
         case "resetOnboarding":
             return try resetOnboarding(object)
+        case "parseInviteLink":
+            return parseInviteLink(object)
+        case "savePendingJoin":
+            return try savePendingJoin(object)
+        case "readPendingJoin":
+            return try readPendingJoin(object)
+        case "clearPendingJoin":
+            return try clearPendingJoin(object)
+        case "resolvePendingJoin":
+            return try await resolvePendingJoin(object)
         case "demoRaceCreate":
             return try await demoRaceCreate(object)
         case "demoRacePlay", "demoRacePause", "demoRaceTick", "demoRaceSkip":

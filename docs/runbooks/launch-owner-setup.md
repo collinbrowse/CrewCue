@@ -127,13 +127,32 @@ Free Developer plan. Create three projects: `crewcue-ios`, `crewcue-android`, `c
 
 ## 9. Domain, legal and support pages (1 hour, mostly reading)
 
-1. Buy a domain (for example `crewcue.app`). Point `api.` at Railway and the root at GitHub Pages.
+1. Buy a domain (for example `crewcue.app`). Point `api.` at Railway and the root at GitHub Pages, on a separate Pages repo, never `collinbrowse.github.io` (see [Invite links](#invite-links-github-pages)).
 2. Agents draft the privacy policy, terms, support page and account-deletion page (backlog item 9). **Read them and approve them yourself.** They are legal commitments. Paying a lawyer to review them or using a reputable generator is worth considering.
 3. Create a support email address, for example `support@crewcue.app`.
 
 ## 10. Store listings (2 hours)
 
 Name, subtitle, description, keywords, category (Health & Fitness), screenshots (6.9-inch iPhone and an Android phone; agents can capture them from simulators), a 512 px Play icon, a feature graphic, the support URL, the privacy URL, and the age rating and content rating questionnaires.
+
+## Invite links (GitHub Pages)
+
+Crew invites are links on your own GitHub Pages site (the `collinbrowse.github.io` repo), with no link vendor. That repo holds a static join page and the Apple and Android link files. The apps read the code from the link with `InviteLink` in client-core ([InviteLink.swift](../../packages/client-core/Sources/CrewCueClientCore/InviteLink.swift)).
+
+**Link format:** `https://collinbrowse.github.io/crewcue/join/?code=123456`, where `123456` is the race's 6-digit join code. The page shows the code and an **Open CrewCue** button that opens `crewcue://join/123456`. Later it also gets a Google Play link carrying `&referrer=crewcue_join%3D123456`, so an Android install from that link still finds the code. The share message carries the code as well, for anyone whose link does not open the app. The host and path live in one constant, `InviteLink.joinPage`.
+
+1. **Apple.** The identifier `com.crewcue.ios` needs the **Associated Domains** capability (done). The site's `/.well-known/apple-app-site-association` lists the app ID `84XX2W7G34.com.crewcue.ios` for the paths `/crewcue/join/*`. The app itself also needs `applinks:collinbrowse.github.io` in [CrewCue.entitlements](../../apps/ios/CrewCue.entitlements) before a link opens it on a device.
+2. **Android.** The site's `/.well-known/assetlinks.json` lists `com.crewcue.android` with only the debug signing certificate's SHA-256 until the first Play upload. After that upload, open **Play Console → Test and release → App integrity → App signing** and send the agents two SHA-256 fingerprints: the **app signing key** certificate and the **upload key** certificate. Both get added to the file. Play re-signs every build it delivers, so without the app-signing one, links never open the Play-installed app.
+3. **Check both files** from any terminal:
+
+   ```bash
+   curl -sI https://collinbrowse.github.io/.well-known/apple-app-site-association
+   curl -sI https://collinbrowse.github.io/.well-known/assetlinks.json
+   ```
+
+   Each must answer `HTTP/2 200` with no `location:` header. Apple and Android both refuse a file behind a redirect. A `404` usually means the site has no `.nojekyll` file, because Jekyll skips folders whose names start with a dot.
+4. **Apple's CDN.** iPhones fetch the Apple file through Apple's CDN, not from your site, when the app is installed or updated. A change reaches the CDN within about 24 hours. To see what it holds now, run `curl -s https://app-site-association.cdn-apple.com/a/v1/collinbrowse.github.io`.
+5. **A custom domain later** must go on a separate Pages repo, never on `collinbrowse.github.io`. A custom domain on a user site makes every `collinbrowse.github.io` URL redirect to it. That redirect breaks Universal Links for the link files and for every invite link already sent. To move, publish the join page and both files on the new domain, change `InviteLink.joinPage` (one line), add the new domain to the iOS entitlement and the Android intent filter, and keep the `collinbrowse.github.io` files so old links still work.
 
 ## Releasing
 
