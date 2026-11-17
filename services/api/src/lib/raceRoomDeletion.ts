@@ -39,6 +39,10 @@ async function deleteRaceRoomDataOutsideRecord(roomId: string): Promise<void> {
  * the sweeper that is a race never paid, which has no chat, pings or finished effort to lose).
  * Afterwards the outside data is deleted once more, for anything written in between (a chat
  * message sent meanwhile).
+ *
+ * A `kept` from the second ask comes back with chat, the finished effort and course history
+ * already deleted. Pass an `onlyIf` only for rooms that cannot have that data (the sweeper's
+ * unpaid races, which refuse chat and pings with 402).
  */
 export async function deleteRaceRoomAndData(
   roomId: string,
