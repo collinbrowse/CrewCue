@@ -22,7 +22,8 @@ interface RunnerSetupRuntime {
     /** An athlete's automatic recompute: `POST /pacing-estimates`, then attach it to the race. */
     fun computeEstimate(roomId: String): RuntimeResult
     fun importActivity(fileName: String, contentBase64: String): RuntimeResult
-    fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, timeZone: String): RuntimeResult
+    /** The two estimates' own finishes, and the race's finish for the plan with history ([planFinishAt]). */
+    fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, planFinishAt: String?, timeZone: String): RuntimeResult
     fun loadRoom(roomId: String): RuntimeResult
     fun loadSchedule(roomId: String): RuntimeResult
     /** Pace timeline rows from the schedule sheet and course. No runner: nobody has pinged yet. */
@@ -64,8 +65,8 @@ class BridgeRunnerSetupRuntime(
     override fun importActivity(fileName: String, contentBase64: String): RuntimeResult =
         raceDay.importActivityFile(fileName, contentBase64)
 
-    override fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, timeZone: String): RuntimeResult =
-        raceDay.onboardingHistoryComparison(withHistoryFinishAt, withoutHistoryFinishAt, timeZone)
+    override fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, planFinishAt: String?, timeZone: String): RuntimeResult =
+        raceDay.onboardingHistoryComparison(withHistoryFinishAt, withoutHistoryFinishAt, planFinishAt, timeZone)
 
     override fun loadRoom(roomId: String): RuntimeResult = raceDay.loadRoom(roomId)
 
@@ -90,9 +91,11 @@ data class RunnerSetupDraft(
     val start: RaceStartFields? = null,
     /** The `raceStartAt` the course last uploaded with, so a second tap doesn't upload it again. */
     val uploadedStartAt: String? = null,
-    /** The estimate's finish before and after the history import, for `onboardingHistoryComparison`. */
+    /** The estimates' own finishes before and after the history import, for `onboardingHistoryComparison`. */
     val withoutHistoryFinishAt: String? = null,
     val withHistoryFinishAt: String? = null,
+    /** The race's finish (the schedule's) for the plan the history made: the comparison's clock. */
+    val planFinishAt: String? = null,
     /** A history file went in on this phone, so the history step offers Continue, not Skip. */
     val historyImported: Boolean = false
 ) {
@@ -106,6 +109,7 @@ data class RunnerSetupDraft(
         .put("uploadedStartAt", uploadedStartAt ?: JSONObject.NULL)
         .put("withoutHistoryFinishAt", withoutHistoryFinishAt ?: JSONObject.NULL)
         .put("withHistoryFinishAt", withHistoryFinishAt ?: JSONObject.NULL)
+        .put("planFinishAt", planFinishAt ?: JSONObject.NULL)
         .put("historyImported", historyImported)
         .toString()
 
@@ -123,6 +127,7 @@ data class RunnerSetupDraft(
                 uploadedStartAt = json.optText("uploadedStartAt").ifBlank { null },
                 withoutHistoryFinishAt = json.optText("withoutHistoryFinishAt").ifBlank { null },
                 withHistoryFinishAt = json.optText("withHistoryFinishAt").ifBlank { null },
+                planFinishAt = json.optText("planFinishAt").ifBlank { null },
                 historyImported = json.optBoolean("historyImported")
             )
         }

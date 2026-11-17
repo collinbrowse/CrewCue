@@ -435,7 +435,8 @@ private fun CourseMapHost(
                 { settled = true; onStyleReady() },
                 { settled = true; onStyleFailed() },
                 { settled = true; onTilesUnavailable() },
-                recenterRequest
+                recenterRequest,
+                CourseFraming.Screen
             )
             if (!settled) {
                 CairnLoader(

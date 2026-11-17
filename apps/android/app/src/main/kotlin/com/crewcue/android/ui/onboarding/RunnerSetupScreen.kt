@@ -28,10 +28,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.Posture
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.AdaptStrategy
 import androidx.compose.material3.adaptive.layout.AnimatedPane
 import androidx.compose.material3.adaptive.layout.HingePolicy
 import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldDefaults
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldRole
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
@@ -79,7 +81,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun OnboardingScreen(shell: ShellViewModel) {
     val text = shell.onboardingText
-    val flow = shell.onboarding
+    val flow = OnboardingRouting.setupFlow(shell.onboarding, shell.teaserAgain)
     Box(
         Modifier
             .fillMaxSize()
@@ -183,9 +185,9 @@ private fun RunnerSetup(shell: ShellViewModel, flow: OnboardingFlow, text: Onboa
 /**
  * One layout at every size, so folding, unfolding or resizing keeps the form where it is in the
  * composition: its scroll position, fields and pickers stay, and the panes animate. Compact: one
- * step per screen. Medium and expanded: the step beside a live preview (`SupportingPaneScaffold`,
- * kept off any vertical hinge). Tabletop: one pane, the preview above the fold and the controls
- * below it.
+ * step per screen, the form and then its preview in one scroll ([form] draws both when told to).
+ * Medium and expanded: the step beside a live preview (`SupportingPaneScaffold`, kept off any
+ * vertical hinge). Tabletop: one pane, the preview above the fold and the controls below it.
  */
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
@@ -195,7 +197,12 @@ private fun AdaptiveSetupLayout(form: @Composable (inlinePreview: Boolean) -> Un
     val panes = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info, HingePolicy.AlwaysAvoid)
     // Compact gets one pane from the directive; tabletop asks for one and splits it at the fold.
     val directive = if (tabletop) panes.copy(maxHorizontalPartitions = 1) else panes
-    val navigator = rememberSupportingPaneScaffoldNavigator(scaffoldDirective = directive)
+    // With one pane the preview hides (the form draws it below itself, or tabletop puts it above
+    // the fold), never the scaffold's default reflow, which splits a tall phone into two halves.
+    val navigator = rememberSupportingPaneScaffoldNavigator(
+        scaffoldDirective = directive,
+        adaptStrategies = SupportingPaneScaffoldDefaults.adaptStrategies(supportingPaneAdaptStrategy = AdaptStrategy.Hide)
+    )
     val besidePreview = navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] != PaneAdaptedValue.Hidden
     SupportingPaneScaffold(
         directive = navigator.scaffoldDirective,
@@ -283,13 +290,16 @@ private fun StepForm(shell: ShellViewModel, model: RunnerSetupViewModel, step: S
             )
             when (shown) {
                 SetupSteps.ACCOUNT -> AccountStep(shell, model, text)
-                SetupSteps.COURSE -> CourseStep(model, text, inlinePreview)
+                SetupSteps.COURSE -> CourseStep(model, text)
                 SetupSteps.START_TIME -> StartTimeStep(model, text)
                 SetupSteps.HISTORY -> HistoryStep(model, text)
-                SetupSteps.TEASER -> TeaserStep(model, text, inlinePreview)
+                SetupSteps.TEASER -> TeaserStep(model, text)
             }
+            // Right under the step's buttons, before any preview, so it shows without scrolling.
             val context = LocalContext.current
             StatusLine(model.status, text) { model.retry(context.isOnline()) }
+            // Compact: the course below the form, in the same scroll.
+            if (inlinePreview) InlineCoursePreview(model, text)
         }
     }
 }
@@ -327,7 +337,7 @@ private fun AccountStep(shell: ShellViewModel, model: RunnerSetupViewModel, text
 }
 
 @Composable
-private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText, inlinePreview: Boolean) {
+private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -350,9 +360,7 @@ private fun CourseStep(model: RunnerSetupViewModel, text: OnboardingText, inline
             color = MaterialTheme.colorScheme.onSurface
         )
     }
-    val preview = model.preview
-    if (inlinePreview && preview != null) CourseMapPreview(preview, text)
-    if (preview == null) {
+    if (model.preview == null) {
         SetupPrimaryButton(text.label("chooseCourseFile"), setupTag("course.choose"), choose, busy = model.busy)
     } else {
         SetupPrimaryButton(text.label("continueStep"), setupTag("course.continue"), model::confirmCourse, enabled = !model.busy)
@@ -384,7 +392,7 @@ private fun StartTimeStep(model: RunnerSetupViewModel, text: OnboardingText) {
         enabled = model.startInstant != null,
         busy = model.busy
     )
-    SetupSecondaryButton(text.label("chooseAnotherFile"), setupTag("start.back"), model::backToCourse, enabled = !model.busy)
+    // System Back returns to the course step (see RunnerSetup); its file buttons stay on that step.
 }
 
 /** The date, time and zone pickers, whichever the ViewModel has open. */
@@ -439,7 +447,7 @@ private fun HistoryStep(model: RunnerSetupViewModel, text: OnboardingText) {
 }
 
 @Composable
-private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText, inlinePreview: Boolean) {
+private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText) {
     val teaser = model.teaser
     if (teaser == null) {
         if (model.busy) SetupLoader(setupTag("teaser.loading"))
@@ -458,12 +466,23 @@ private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText, inline
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    // Compact has no preview pane: the course and its elevation (from the route) show here.
-    if (inlinePreview) model.preview?.let { CourseMapPreview(it, text) }
     Column(Modifier.testTag(setupTag("teaser.timeline")), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         teaser.rows.forEach { row -> TeaserRowCard(row, text) }
     }
     SetupPrimaryButton(text.label("continueStep"), setupTag("teaser.continue"), model::finishTeaser, busy = model.busy)
+}
+
+/**
+ * Compact's preview, below the form: the course on the map with its elevation (from the route).
+ * The rest of the two-pane preview (start, finish, comparison) is already in the form.
+ */
+@Composable
+private fun InlineCoursePreview(model: RunnerSetupViewModel, text: OnboardingText) {
+    val course = model.preview?.takeIf { !it.isEmpty } ?: return
+    Column(Modifier.padding(top = 8.dp).testTag(setupTag("preview.inline")), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Kicker(text.label("coursePreview"))
+        CourseMapPreview(course, text)
+    }
 }
 
 /** The supporting pane: the course on the map with its elevation, and what the runner picked so far. */

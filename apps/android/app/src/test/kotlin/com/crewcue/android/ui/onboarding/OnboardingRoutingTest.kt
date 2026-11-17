@@ -192,6 +192,36 @@ class OnboardingRoutingTest {
     }
 
     @Test
+    fun backOnThePaywallAfterTheTeaserReturnsToTheTeaserUntilTheRunnerIsPastOnboarding() {
+        assertTrue(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = preview))
+        // Opened from the banner or a gated action: Back is the system's.
+        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = false, flow = preview))
+        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = false, afterTeaser = true, flow = preview))
+        // Past onboarding (paid, or the tours): no teaser to go back to.
+        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = done))
+        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = null))
+    }
+
+    @Test
+    fun theTeaserAgainIsTheSetupsLastStepSoItsContinueOpensThePaywallAgain() {
+        val again = OnboardingRouting.setupFlow(preview, teaserAgain = true)!!
+        assertTrue(again.isRunnerSetup)
+        assertEquals(SetupSteps.TEASER, again.step)
+        assertEquals("r1", again.roomId)
+        assertFalse(again.showsTabBar)
+        assertEquals(OnboardingContent.RunnerSetup, OnboardingRouting.content(again))
+        // Marking it answers phase 2 again: the paywall follows, as after the first teaser.
+        assertEquals(
+            OnboardingDestination.Shell(openPaywall = true),
+            OnboardingRouting.destination(preview, previous = again, signedIn = true, hasActiveRoom = true)
+        )
+        // Only phase 2 goes back: any other state draws as it is.
+        assertEquals(preview, OnboardingRouting.setupFlow(preview, teaserAgain = false))
+        assertEquals(done, OnboardingRouting.setupFlow(done, teaserAgain = true))
+        assertNull(OnboardingRouting.setupFlow(null, teaserAgain = true))
+    }
+
+    @Test
     fun theStateGoesBackToClientCoreAsReadOnboardingAnsweredIt() {
         val json = locked.toJson()
         assertEquals(locked, OnboardingFlow.from(json))

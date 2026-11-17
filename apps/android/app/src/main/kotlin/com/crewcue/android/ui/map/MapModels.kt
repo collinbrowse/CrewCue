@@ -101,6 +101,23 @@ data class CoursePoint(
     val longitude: Double
 )
 
+/**
+ * How the camera fits the course line and its checkpoints: the room left on each side, in dp (cut
+ * down when the map is too small for it), and whether every resize fits them again.
+ */
+data class CourseFraming(val left: Int, val top: Int, val right: Int, val bottom: Int, val refitOnResize: Boolean) {
+    companion object {
+        /** The Map screen: room for the top bar and chips above and the aid sheet below. Fitted once, so a pan stays. */
+        val Screen = CourseFraming(left = 48, top = 200, right = 96, bottom = 360, refitOnResize = false)
+
+        /**
+         * A course preview card: room on every side, more below for the title under the lowest
+         * marker. Fitted again after a fold, unfold or resize.
+         */
+        val Preview = CourseFraming(left = 24, top = 24, right = 24, bottom = 44, refitOnResize = true)
+    }
+}
+
 interface CourseMapRenderer {
     @androidx.compose.runtime.Composable
     fun Render(
@@ -113,7 +130,8 @@ interface CourseMapRenderer {
         onStyleReady: () -> Unit,
         onStyleFailed: () -> Unit,
         onTilesUnavailable: () -> Unit,
-        recenterRequest: Int
+        recenterRequest: Int,
+        framing: CourseFraming
     )
 }
 

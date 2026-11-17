@@ -2,6 +2,7 @@ package com.crewcue.android.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -110,6 +111,9 @@ private fun AppShell(viewModel: ShellViewModel) {
             .semantics { contentDescription = "CrewCue" }
     ) {
         val paywallRoom = roomId?.takeIf { gate.showsPaywall }
+        // Back on the paywall that followed the teaser shows the teaser again (predictive back:
+        // the system animates it, since nothing here overrides the activity's back).
+        BackHandler(enabled = paywallRoom != null && viewModel.paywallBackToTeaser) { viewModel.backToTeaser() }
         val lockedReason = gate.lockedReason
         val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
         Column(

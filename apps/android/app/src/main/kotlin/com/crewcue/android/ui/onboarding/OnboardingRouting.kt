@@ -76,6 +76,26 @@ object OnboardingRouting {
     }
 
     /**
+     * The state the setup route draws. Back from the paywall that followed the teaser
+     * ([teaserAgain]) shows the teaser again while the runner is still in phase 2: as the setup's
+     * last step, so its Continue marks it and moves on to the paywall as the first time.
+     */
+    fun setupFlow(flow: OnboardingFlow?, teaserAgain: Boolean): OnboardingFlow? =
+        if (teaserAgain && flow?.isRunnerPreview == true) {
+            flow.copy(phase = "setup", step = SetupSteps.TEASER, showsTabBar = false)
+        } else {
+            flow
+        }
+
+    /**
+     * System Back on the paywall returns to the teaser: the paywall opened right after the teaser
+     * ([afterTeaser]) and the runner is still in phase 2, not past onboarding. Otherwise Back is
+     * the system's.
+     */
+    fun paywallBackToTeaser(paywallOpen: Boolean, afterTeaser: Boolean, flow: OnboardingFlow?): Boolean =
+        paywallOpen && afterTeaser && flow?.isRunnerPreview == true
+
+    /**
      * The paywall opens over a race tab: the one on show, or Map when Profile is. A screen outside
      * the shell (the setup route, the teaser) opens the shell first.
      */

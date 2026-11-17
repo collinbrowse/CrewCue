@@ -55,6 +55,13 @@ private fun Context.isDarkMode(): Boolean =
 private const val LINE_SOURCE = "crewcue-course"
 private const val LINE_LAYER = "crewcue-course-line"
 private const val POINT_SOURCE = "crewcue-checkpoints"
+/**
+ * The checkpoint titles read their own copy of the points: a title whose glyphs fail to load (no
+ * network, the blank style) fails its source's tiles, and must not take the markers with it.
+ */
+private const val TITLE_SOURCE = "crewcue-checkpoint-titles"
+/** The font both OpenFreeMap styles serve; the default font stack 404s there. */
+private const val TITLE_FONT = "Noto Sans Regular"
 private const val CIRCLE_LAYER = "crewcue-checkpoint-circles"
 private const val TITLE_LAYER = "crewcue-checkpoint-titles"
 private const val TRACK_SOURCE = "crewcue-runner-track"
@@ -83,7 +90,8 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         onStyleReady: () -> Unit,
         onStyleFailed: () -> Unit,
         onTilesUnavailable: () -> Unit,
-        recenterRequest: Int
+        recenterRequest: Int,
+        framing: CourseFraming
     ) {
         val context = LocalContext.current
         val dark = context.isDarkMode()
@@ -97,6 +105,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
+        val framingState = rememberUpdatedState(framing)
         val framed = remember { booleanArrayOf(false) }
         val usingBlankStyle = remember { booleanArrayOf(false) }
         val mapView = remember(context) {
@@ -116,7 +125,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                         view.getMapAsync { map ->
                             // No ready.value(): the failure message stays up over the blank map.
                             map.setStyle(Style.Builder().fromJson(blankStyleJson(dark))) { style ->
-                                runCatching { draw(style, map, lineState.value, pointState.value, framed, paletteState.value) }
+                                runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
                                 runCatching { drawTrack(style, trackState.value, paletteState.value) }
                             }
                         }
@@ -138,8 +147,21 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                     map.uiSettings.attributionGravity = android.view.Gravity.TOP or android.view.Gravity.START
                     map.setStyle(Style.Builder().fromUri(styleUrl(dark))) { style ->
                         ready.value()
-                        runCatching { draw(style, map, lineState.value, pointState.value, framed, paletteState.value) }
+                        runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
                         runCatching { drawTrack(style, trackState.value, paletteState.value) }
+                    }
+                }
+                // A preview fits the course again after a fold, unfold or resize; the Map screen
+                // only until its first fit, so a crew member's pan stays.
+                view.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                    val resized = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
+                    if (!resized || (framed[0] && !framingState.value.refitOnResize)) return@addOnLayoutChangeListener
+                    view.post {
+                        if (view.isDestroyed) return@post
+                        view.getMapAsync { map ->
+                            if (map.style?.isFullyLoaded != true) return@getMapAsync
+                            if (fitCourse(map, view, lineState.value, pointState.value, framingState.value, animate = false)) framed[0] = true
+                        }
                     }
                 }
             }
@@ -169,7 +191,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             update = { view ->
                 view.getMapAsync { map ->
                     val style = map.style ?: return@getMapAsync
-                    runCatching { draw(style, map, line, points, framed, palette) }
+                    runCatching { draw(style, map, view, line, points, framed, framing, palette) }
                     runCatching { drawTrack(style, track, palette) }
                 }
             }
@@ -177,12 +199,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         LaunchedEffect(recenterRequest) {
             if (recenterRequest == 0) return@LaunchedEffect
             mapView.getMapAsync { map ->
-                val framePoints = if (lineState.value.size >= 2) {
-                    lineState.value
-                } else {
-                    pointState.value.map { CoursePoint(it.latitude, it.longitude) }
-                }
-                if (framePoints.isNotEmpty()) frame(map, framePoints, context)
+                fitCourse(map, mapView, lineState.value, pointState.value, framingState.value, animate = true)
             }
         }
     }
@@ -191,9 +208,11 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
 private fun draw(
     style: Style,
     map: MapLibreMap,
+    view: MapView,
     line: List<CoursePoint>,
     points: List<MapCheckpoint>,
     framed: BooleanArray,
+    framing: CourseFraming,
     palette: CoursePalette
 ) {
     if (line.size >= 2) {
@@ -218,6 +237,7 @@ private fun draw(
         val existing = style.getSource(POINT_SOURCE) as? GeoJsonSource
         if (existing == null) {
             style.addSource(GeoJsonSource(POINT_SOURCE, geoJson))
+            style.addSource(GeoJsonSource(TITLE_SOURCE, geoJson))
             style.addLayer(
                 CircleLayer(CIRCLE_LAYER, POINT_SOURCE).withProperties(
                     PropertyFactory.circleRadius(7f),
@@ -227,8 +247,9 @@ private fun draw(
                 )
             )
             style.addLayer(
-                SymbolLayer(TITLE_LAYER, POINT_SOURCE).withProperties(
+                SymbolLayer(TITLE_LAYER, TITLE_SOURCE).withProperties(
                     PropertyFactory.textField(Expression.get("title")),
+                    PropertyFactory.textFont(arrayOf(TITLE_FONT)),
                     PropertyFactory.textSize(12f),
                     PropertyFactory.textOffset(arrayOf(0f, 1.4f)),
                     PropertyFactory.textColor(palette.label),
@@ -238,13 +259,11 @@ private fun draw(
             )
         } else {
             existing.setGeoJson(geoJson)
+            (style.getSource(TITLE_SOURCE) as? GeoJsonSource)?.setGeoJson(geoJson)
         }
     }
-    val framePoints = if (line.size >= 2) line else points.map { CoursePoint(it.latitude, it.longitude) }
-    if (!framed[0] && framePoints.isNotEmpty()) {
-        frame(map, framePoints, null)
-        framed[0] = true
-    }
+    // Not laid out yet, or nothing to fit: the layout listener fits it once the map has a size.
+    if (!framed[0] && fitCourse(map, view, line, points, framing, animate = false)) framed[0] = true
 }
 
 /**
@@ -305,7 +324,33 @@ private class CoursePalette(dark: Boolean) {
     val halo = Color.parseColor(if (dark) "#14140F" else "#FFFFFF")
 }
 
-private fun frame(map: MapLibreMap, points: List<CoursePoint>, context: Context?) {
+/**
+ * Fits the camera to the course line and its checkpoints with [framing]'s room around them. False
+ * when there is nothing to fit or the map has no size yet (a camera fitted then is the whole world).
+ */
+private fun fitCourse(
+    map: MapLibreMap,
+    view: MapView,
+    line: List<CoursePoint>,
+    points: List<MapCheckpoint>,
+    framing: CourseFraming,
+    animate: Boolean
+): Boolean {
+    val all = line + points.map { CoursePoint(it.latitude, it.longitude) }
+    if (all.isEmpty() || view.width <= 0 || view.height <= 0) return false
+    frame(map, all, framing, view.resources.displayMetrics.density, view.width, view.height, animate)
+    return true
+}
+
+private fun frame(
+    map: MapLibreMap,
+    points: List<CoursePoint>,
+    framing: CourseFraming,
+    density: Float,
+    width: Int,
+    height: Int,
+    animate: Boolean
+) {
     val first = points.first()
     val same = points.all { it.latitude == first.latitude && it.longitude == first.longitude }
     if (points.size == 1 || same) {
@@ -315,17 +360,23 @@ private fun frame(map: MapLibreMap, points: List<CoursePoint>, context: Context?
     val bounds = LatLngBounds.Builder()
         .includes(points.map { LatLng(it.latitude, it.longitude) })
         .build()
-    // Leave room for the top bar and chips above and the aid sheet below.
-    val density = context?.resources?.displayMetrics?.density ?: 2.75f
-    val update = CameraUpdateFactory.newLatLngBounds(
-        bounds,
-        (48 * density).toInt(),
-        (200 * density).toInt(),
-        (96 * density).toInt(),
-        (360 * density).toInt()
-    )
-    if (context != null) map.animateCamera(update) else map.moveCamera(update)
+    val (left, right) = room(framing.left * density, framing.right * density, width)
+    val (top, bottom) = room(framing.top * density, framing.bottom * density, height)
+    val update = CameraUpdateFactory.newLatLngBounds(bounds, left, top, right, bottom)
+    if (animate) map.animateCamera(update) else map.moveCamera(update)
 }
+
+/**
+ * The room on two opposite sides, in px, cut down in proportion when it would leave the course less
+ * than [MIN_COURSE_SHARE] of [size]: padding wider than the map makes MapLibre show the whole world.
+ */
+private fun room(lead: Float, trail: Float, size: Int): Pair<Int, Int> {
+    val most = size * (1 - MIN_COURSE_SHARE)
+    val scale = if (lead + trail > most) most / (lead + trail) else 1f
+    return (lead * scale).toInt() to (trail * scale).toInt()
+}
+
+private const val MIN_COURSE_SHARE = 0.4f
 
 private fun lineGeoJson(line: List<CoursePoint>): String {
     val coordinates = JSONArray()

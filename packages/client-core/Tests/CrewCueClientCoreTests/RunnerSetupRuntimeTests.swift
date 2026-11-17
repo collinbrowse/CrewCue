@@ -40,6 +40,13 @@ private final class ScriptedServer: HTTPTransport, @unchecked Sendable {
     var sent: [(method: String, path: String, body: [String: Any])] { lock.withLock { requests } }
 }
 
+/// No network: every request fails the way an offline phone's does.
+private struct ScriptedOffline: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        throw URLError(.notConnectedToInternet)
+    }
+}
+
 // MARK: raceStartInput
 
 @Test func raceStartInputOpConvertsTheTypedFieldsInClientCore() async throws {
@@ -214,6 +221,105 @@ private let estimateJSON = #"{"id":"e1","coldStart":true,"expectedFinishAt":"202
     let clock = try #require(attached["finishClock"] as? String)
     #expect(clock == ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z"))
     #expect((attached["summary"] as? String)?.hasSuffix(clock) == true)
+}
+
+/// The estimate above with its planned stops: 8 minutes before the finish, the finish row 22:18.
+private let plannedSheetJSON = """
+{"roomId":"r1","raceStartAt":"2026-08-15T12:00:00.000Z","stops":[
+ {"id":"s1","checkpointId":"start","elapsedSeconds":0,"plannedStoppageSeconds":120,"clockArrivalAt":"2026-08-15T12:00:00.000Z"},
+ {"id":"s2","checkpointId":"finish","elapsedSeconds":37080,"plannedStoppageSeconds":0,"clockArrivalAt":"2026-08-15T22:18:00.000Z"}],
+ "locked":{"checkpointIds":["aid-1"]}}
+"""
+
+@Test func theEstimatePayloadShowsTheSchedulesFinishNotTheEstimatesOwn() async throws {
+    let base = "https://estimate-plan-finish.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")],
+        "GET /race-rooms/r1/schedule": [(200, plannedSheetJSON)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let storage = FileManager.default.temporaryDirectory.appendingPathComponent("estimate-\(UUID().uuidString)").path
+    let attached = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "America/Denver",
+        "storageDir": storage, "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]))
+    let zone = try #require(TimeZone(identifier: "America/Denver"))
+    // The estimate's own finish stays for the history comparison; every readout shows the plan's.
+    #expect(attached["expectedFinishAt"] as? String == "2026-08-15T22:10:00.000Z")
+    #expect(attached["finishAt"] as? String == "2026-08-15T22:18:00.000Z")
+    let clock = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: zone)
+    #expect(attached["finishClock"] as? String == clock)
+    // One space each side of the separator, never two in a row.
+    #expect(attached["summary"] as? String == "No history yet.\nFinish 10:18:00 · \(clock)")
+    #expect(server.sent.map { "\($0.method) \($0.path)" }.last == "GET /race-rooms/r1/schedule")
+
+    // Offline: the race's sheet this device read last.
+    RuntimeCall.setTransportForTests(ScriptedOffline(), baseURL: base)
+    let cached = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "America/Denver",
+        "storageDir": storage, "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]))
+    #expect(cached["offline"] as? Bool == true)
+    #expect(cached["finishAt"] as? String == "2026-08-15T22:18:00.000Z")
+    #expect(cached["finishClock"] as? String == clock)
+}
+
+@Test func withoutASchedulesFinishTheEstimatePayloadKeepsTheEstimatesOwn() async throws {
+    let base = "https://estimate-no-schedule.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")],
+        // A crew member's unpaid race, or no schedule yet.
+        "GET /race-rooms/r1/schedule": [(402, #"{"error":"Race not unlocked","code":"room_unpaid"}"#)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let attached = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "UTC",
+        "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]))
+    #expect(attached["finishAt"] as? String == "2026-08-15T22:10:00.000Z")
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    #expect(attached["summary"] as? String == "No history yet.\nFinish 10:10:00 · \(ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z", timeZone: utc))")
+}
+
+@Test func thePlanFinishIsTheSchedulesFinishRow() throws {
+    let sheet = try JSONDecoder().decode(CrewScheduleSheet.self, from: Data(plannedSheetJSON.utf8))
+    #expect(PlanFinish.row(in: sheet)?.clockArrivalAt == "2026-08-15T22:18:00.000Z")
+    // Only the start: no finish to read.
+    #expect(PlanFinish.row(in: CrewScheduleSheet(roomId: "r1", raceStartAt: sheet.raceStartAt, stops: [sheet.stops[0]])) == nil)
+    #expect(PlanFinish.row(in: nil) == nil)
+}
+
+@Test func theHistoryComparisonReadsThePlansClockOnBothSides() async throws {
+    // Estimates: 21:42 with history, 22:10 without. The plan with history finishes at 21:50
+    // (8 minutes of planned stops), so without history it would have finished at 22:18.
+    let planned = try #require(PlanFinish.historyComparison(
+        planFinishAt: "2026-08-15T21:50:00.000Z",
+        withHistoryEstimateAt: "2026-08-15T21:42:00.000Z",
+        withoutHistoryEstimateAt: "2026-08-15T22:10:00.000Z"
+    ))
+    #expect(planned.withHistory == "2026-08-15T21:50:00.000Z")
+    #expect(ScheduleFormat.parseISO8601(planned.withoutHistory) == ScheduleFormat.parseISO8601("2026-08-15T22:18:00.000Z"))
+    #expect(PlanFinish.historyComparison(planFinishAt: "nope", withHistoryEstimateAt: "2026-08-15T21:42:00Z", withoutHistoryEstimateAt: "2026-08-15T22:10:00Z") == nil)
+
+    let line = try result(try await runtime([
+        "op": "onboardingHistoryComparison", "timeZone": "UTC", "planFinishAt": "2026-08-15T21:50:00.000Z",
+        "withHistoryFinishAt": "2026-08-15T21:42:00.000Z", "withoutHistoryFinishAt": "2026-08-15T22:10:00.000Z"
+    ]))
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    let with = ScheduleFormat.formatScheduleClock("2026-08-15T21:50:00.000Z", timeZone: utc)
+    let without = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: utc)
+    #expect(line["text"] as? String == "Finish \(with) instead of \(without)")
+    // No plan finish: the two estimates as they are.
+    let plain = try result(try await runtime([
+        "op": "onboardingHistoryComparison", "timeZone": "UTC",
+        "withHistoryFinishAt": "2026-08-15T21:42:00.000Z", "withoutHistoryFinishAt": "2026-08-15T22:10:00.000Z"
+    ]))
+    let estimateWith = ScheduleFormat.formatScheduleClock("2026-08-15T21:42:00.000Z", timeZone: utc)
+    #expect((plain["text"] as? String)?.hasPrefix("Finish \(estimateWith) instead of") == true)
 }
 
 @Test func timelineRowsCarryThePlanClockLabel() async throws {

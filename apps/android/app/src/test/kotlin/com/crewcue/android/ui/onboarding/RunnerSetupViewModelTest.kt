@@ -51,6 +51,7 @@ private class FakeRuntime : RunnerSetupRuntime {
     val calls = mutableListOf<String>()
     val marks = mutableListOf<Triple<String, String?, String?>>()
     val imports = mutableListOf<List<Any?>>()
+    val comparisons = mutableListOf<List<String?>>()
     var created: Triple<String, String, String?>? = null
     val answers = mutableMapOf<String, ArrayDeque<RuntimeResult>>()
 
@@ -90,17 +91,25 @@ private class FakeRuntime : RunnerSetupRuntime {
     override fun loadEstimate(roomId: String): RuntimeResult =
         next(
             "loadEstimate",
-            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","summary":"Finish 9:40:00  4:10 PM","finishClock":"4:10 PM","offline":false}""")
+            ok(
+                """{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:02:00.000Z","finishAt":"2026-08-15T22:10:00.000Z",
+                "summary":"Finish 9:40:00 · 4:10 PM","finishClock":"4:10 PM","offline":false}"""
+            )
         )
 
     override fun computeEstimate(roomId: String): RuntimeResult =
-        next("computeEstimate", ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","offline":false}"""))
+        next(
+            "computeEstimate",
+            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","finishAt":"2026-08-15T22:18:00.000Z","offline":false}""")
+        )
 
     override fun importActivity(fileName: String, contentBase64: String): RuntimeResult =
         next("importActivity", ok("""{"status":"saved","message":"Imported FIT · 8.0 km"}"""))
 
-    override fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, timeZone: String): RuntimeResult =
-        next("historyComparison", ok("""{"text":"Finish 3:42 PM instead of 4:10 PM"}"""))
+    override fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, planFinishAt: String?, timeZone: String): RuntimeResult {
+        comparisons += listOf(withHistoryFinishAt, withoutHistoryFinishAt, planFinishAt, timeZone)
+        return next("historyComparison", ok("""{"text":"Finish 3:42 PM instead of 4:10 PM"}"""))
+    }
 
     override fun loadRoom(roomId: String): RuntimeResult = next("loadRoom", ok(PREVIEW))
 
@@ -431,7 +440,10 @@ class RunnerSetupViewModelTest {
     @Test
     fun historyShowsTheComparisonAndHidesItWhenClientCoreSaysNull() = runTest(dispatcher) {
         drafts.save("ada", RunnerSetupDraft(roomId = "room-1", withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z"))
-        runtime.answer("computeEstimate", ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T21:42:00.000Z"}"""))
+        runtime.answer(
+            "computeEstimate",
+            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T21:42:00.000Z","finishAt":"2026-08-15T21:50:00.000Z"}""")
+        )
         val model = model()
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
         assertFalse(model.historyImported)
@@ -439,6 +451,12 @@ class RunnerSetupViewModelTest {
         assertEquals("Imported FIT · 8.0 km", model.historyMessage)
         assertEquals("Finish 3:42 PM instead of 4:10 PM", model.comparison)
         assertTrue(model.historyImported)
+        // The estimates' own finishes, put on the race's clock by the plan's finish (the schedule's).
+        assertEquals(
+            listOf("2026-08-15T21:42:00.000Z", "2026-08-15T22:10:00.000Z", "2026-08-15T21:50:00.000Z", "America/Denver"),
+            runtime.comparisons.last()
+        )
+        assertEquals("2026-08-15T21:50:00.000Z", model.draft.planFinishAt)
 
         runtime.answer("historyComparison", ok("""{"text":null}"""))
         model.importHistory("run2.fit", "AAAA", online = true)
@@ -451,7 +469,8 @@ class RunnerSetupViewModelTest {
             "ada",
             RunnerSetupDraft(
                 roomId = "room-1", historyImported = true,
-                withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z", withHistoryFinishAt = "2026-08-15T21:42:00.000Z"
+                withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z", withHistoryFinishAt = "2026-08-15T21:42:00.000Z",
+                planFinishAt = "2026-08-15T21:50:00.000Z"
             )
         )
         // A new launch: nothing in SavedStateHandle, only the draft on disk.
@@ -459,6 +478,7 @@ class RunnerSetupViewModelTest {
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
         assertTrue(model.historyImported)
         assertEquals("Finish 3:42 PM instead of 4:10 PM", model.comparison)
+        assertEquals("2026-08-15T21:50:00.000Z", runtime.comparisons.last()[2])
         // Continue (done), never Skip, for history that went in.
         model.finishHistory()
         assertEquals(Triple(SetupSteps.HISTORY, "done", null as String?), runtime.marks.last())
@@ -481,7 +501,8 @@ class RunnerSetupViewModelTest {
         drafts.save("ada", RunnerSetupDraft(roomId = "room-1"))
         val model = model()
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
-        assertEquals("2026-08-15T22:10:00.000Z", model.draft.withoutHistoryFinishAt)
+        // The estimate's own finish: the comparison op puts both estimates on the plan's clock.
+        assertEquals("2026-08-15T22:02:00.000Z", model.draft.withoutHistoryFinishAt)
     }
 
     @Test
@@ -544,6 +565,8 @@ class RunnerSetupViewModelTest {
         val model = model()
         model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
         assertEquals("4:10 PM", model.teaser?.finishClock)
+        // The race's finish (the schedule's), never the estimate's own moving-time finish.
+        assertEquals("2026-08-15T22:10:00.000Z", model.teaser?.finishAt)
     }
 
     @Test

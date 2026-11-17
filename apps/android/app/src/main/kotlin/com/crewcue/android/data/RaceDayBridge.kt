@@ -396,11 +396,21 @@ class RaceDayBridge(
     /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
     fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
 
-    /** `{text}`: "Finish 9:42 AM instead of 10:15 AM", or null when the line should be hidden. */
-    fun onboardingHistoryComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, timeZone: String): RuntimeResult =
+    /**
+     * `{text}`: "Finish 9:42 AM instead of 10:15 AM", or null when the line should be hidden. The
+     * two finishes are the estimates' own (`expectedFinishAt`); [planFinishAt], the estimate
+     * payload's `finishAt` for the plan with history, puts both on the race's clock.
+     */
+    fun onboardingHistoryComparison(
+        withHistoryFinishAt: String,
+        withoutHistoryFinishAt: String,
+        planFinishAt: String?,
+        timeZone: String
+    ): RuntimeResult =
         call("onboardingHistoryComparison") {
             put("withHistoryFinishAt", withHistoryFinishAt)
             put("withoutHistoryFinishAt", withoutHistoryFinishAt)
+            if (!planFinishAt.isNullOrBlank()) put("planFinishAt", planFinishAt)
             put("timeZone", timeZone)
         }
 

@@ -148,6 +148,11 @@ class ShellViewModel(
     /** The shell shows the paywall in place of Map, Pace, and Chat until a tab is picked. */
     var paywallOpen by mutableStateOf(false)
         private set
+    /** The paywall on show opened right after the teaser, so Back returns to the teaser. */
+    private var paywallAfterTeaser by mutableStateOf(false)
+    /** The teaser is on show again: Back from the paywall that followed it. */
+    var teaserAgain by mutableStateOf(false)
+        private set
     /** client-core's onboarding state for this user and active race; null until the first read. */
     var onboarding by mutableStateOf<OnboardingFlow?>(null)
         private set
@@ -381,7 +386,21 @@ class ShellViewModel(
         val roomId = session?.roomId ?: return
         billing = billing.unpaid(roomId)
         paywallOpen = true
+        paywallAfterTeaser = false
         if (!showAppShell) showShell(OnboardingRouting.paywallTab(selectedTab))
+    }
+
+    /** System Back on the paywall returns to the teaser ([OnboardingRouting.paywallBackToTeaser]). */
+    val paywallBackToTeaser: Boolean
+        get() = OnboardingRouting.paywallBackToTeaser(paywallOpen, paywallAfterTeaser, onboarding)
+
+    /** Back from the paywall that followed the teaser: the teaser again, which leads back to the paywall. */
+    fun backToTeaser() {
+        if (!paywallBackToTeaser) return
+        paywallOpen = false
+        paywallAfterTeaser = false
+        teaserAgain = true
+        showFixture("crewcue://dev/$SETUP_FEATURE")
     }
 
     /**
@@ -390,8 +409,11 @@ class ShellViewModel(
      * showing unless [force].
      */
     private fun applyOnboarding(next: OnboardingFlow?, force: Boolean) {
-        val previous = onboarding
+        // The teaser on show again stands for the setup's last step, so marking it opens the paywall.
+        val previous = OnboardingRouting.setupFlow(onboarding, teaserAgain)
         onboarding = next
+        // A state read in the background leaves the teaser on show; the runner's Continue moves on.
+        if (teaserAgain && !force && next?.isRunnerPreview == true) return
         val owns = OnboardingRouting.ownsScreen(
             showAppShell,
             stateOverlay,
@@ -406,6 +428,7 @@ class ShellViewModel(
             signedIn = session != null,
             hasActiveRoom = !session?.roomId.isNullOrBlank()
         )
+        teaserAgain = false
         when (destination) {
             OnboardingDestination.SignedOut -> showSignedOut()
             OnboardingDestination.Onboarding -> showOnboarding()
@@ -417,6 +440,7 @@ class ShellViewModel(
                 if (destination.openPaywall) {
                     (next?.roomId ?: session?.roomId)?.let { billing = billing.unpaid(it) }
                     paywallOpen = true
+                    paywallAfterTeaser = true
                 }
                 showShellIfHidden()
             }
@@ -503,6 +527,7 @@ class ShellViewModel(
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         paywallOpen = false
+        paywallAfterTeaser = false
         showShell(tab)
     }
 
@@ -600,6 +625,7 @@ class ShellViewModel(
     fun noteUnlocked(roomId: String) {
         billing = billing.unlocked(roomId)
         paywallOpen = false
+        paywallAfterTeaser = false
         showShell(ShellTab.Map)
         loadRaces()
     }
@@ -646,6 +672,8 @@ class ShellViewModel(
         onboarding = null
         onboardingTicket++
         paywallOpen = false
+        paywallAfterTeaser = false
+        teaserAgain = false
         billing = RaceBilling()
         accessCache = null
         pendingJoin = false

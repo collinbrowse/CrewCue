@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.brand.CairnShakeLoader
+import com.crewcue.android.ui.map.CourseFraming
 import com.crewcue.android.ui.map.CourseMaps
 import com.crewcue.android.ui.map.CoursePoint
 import com.crewcue.android.ui.theme.CrewTextField
@@ -324,7 +325,9 @@ fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modi
                     {},
                     { mapFailed = true },
                     { mapFailed = true },
-                    0
+                    0,
+                    // The whole course and its checkpoints, fitted again after every resize.
+                    CourseFraming.Preview
                 )
             } else {
                 RouteSketch(course.line, Modifier.fillMaxSize().padding(16.dp))

@@ -43,12 +43,15 @@ sealed interface RunnerSetupEffect {
     data object OpenPaywall : RunnerSetupEffect
 }
 
-/** The projection teaser: the finish only, every aid station locked. */
+/**
+ * The projection teaser: the finish only, every aid station locked. One finish throughout: the
+ * schedule's finish row, which the estimate payload's `finishAt` and summary also read.
+ */
 data class TeaserModel(
     val finishAt: String?,
     /** client-core's clock for [finishAt], the same one [summary] writes. */
     val finishClock: String?,
-    /** client-core's estimate summary ("Finish 10:42:00  9:42 AM"). */
+    /** client-core's estimate summary: the explanation, then "Finish 10:42:00 · 9:42 AM". */
     val summary: String?,
     val rows: List<TeaserRow>
 )
@@ -310,7 +313,7 @@ class RunnerSetupViewModel(
                 is RuntimeResult.Success -> when (result.result.optText("status")) {
                     "saved" -> {
                         writeDraft(draft.copy(uploadedStartAt = startAt))
-                        estimateFinish(room)?.let { writeDraft(draft.copy(withoutHistoryFinishAt = it)) }
+                        estimateFinish(room)?.let { writeDraft(draft.copy(withoutHistoryFinishAt = it.estimate)) }
                         effectQueue.trySend(RunnerSetupEffect.RacesChanged)
                     }
                     // Lost the connection mid-upload: the outbox sends it later. The step stays.
@@ -345,7 +348,7 @@ class RunnerSetupViewModel(
                     writeDraft(draft.copy(historyImported = true))
                     val room = roomId ?: return@work
                     val finish = estimateFinish(room) ?: return@work
-                    writeDraft(draft.copy(withHistoryFinishAt = finish))
+                    writeDraft(draft.copy(withHistoryFinishAt = finish.estimate, planFinishAt = finish.plan))
                     refreshComparison()
                 }
             }
@@ -395,9 +398,10 @@ class RunnerSetupViewModel(
             }
             val rows = parseTimeline((projected as? RuntimeResult.Success)?.result?.optJSONArray("timeline"))
             val titles = (course ?: preview)?.checkpoints?.associate { it.id to it.title }.orEmpty()
+            // The schedule's finish row; client-core's plan finish (the same row) when the timeline has none.
             val finishRow = rows.lastOrNull { it.isFinish && it.clockArrivalAt != null }
             teaser = TeaserModel(
-                finishAt = finishRow?.clockArrivalAt ?: plan.optText("expectedFinishAt").ifBlank { null },
+                finishAt = finishRow?.clockArrivalAt ?: plan.optText("finishAt").ifBlank { null },
                 finishClock = finishRow?.clockLabel ?: plan.optText("finishClock").ifBlank { null },
                 summary = plan.optText("summary").ifBlank { null },
                 rows = TeaserRow.build(rows, TeaserRow.lockedIds(schedule), titles)
@@ -504,7 +508,7 @@ class RunnerSetupViewModel(
         }
     }
 
-    /** The plan before any history, read once the history step opens without one. */
+    /** The plan's estimate before any history, read once the history step opens without one. */
     private fun rememberFinishWithoutHistory() {
         val room = roomId ?: return
         if (draft.withoutHistoryFinishAt != null || busy) return
@@ -522,24 +526,29 @@ class RunnerSetupViewModel(
             keepComparison(null)
             return
         }
-        val result = withContext(io) { runtime.historyComparison(with, without, deviceZone) }
+        val result = withContext(io) { runtime.historyComparison(with, without, draft.planFinishAt, deviceZone) }
         // Null text: history changed nothing the runner can see, so the line is hidden.
         keepComparison((result as? RuntimeResult.Success)?.result?.optText("text")?.ifBlank { null })
     }
 
+    /** A plan's two finishes: the estimate's own (moving time) and the race's (the schedule's, stops included). */
+    private data class PlanFinishes(val estimate: String, val plan: String?)
+
     /**
-     * Computes and attaches a plan after a step saved, returning its finish instant. Only an unpaid
+     * Computes and attaches a plan after a step saved, returning its finishes. Only an unpaid
      * race's 402 shows (the paywall); any other failure, the estimator limit included, leaves the
      * saved step as is, and the teaser computes again and says so there.
      */
-    private suspend fun estimateFinish(room: String): String? {
+    private suspend fun estimateFinish(room: String): PlanFinishes? {
         val result = withContext(io) { computeWithRetry(room) }
         return when (result) {
             is RuntimeResult.Failure -> {
                 if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)
                 null
             }
-            is RuntimeResult.Success -> result.result.optText("expectedFinishAt").ifBlank { null }
+            is RuntimeResult.Success -> result.result.optText("expectedFinishAt").ifBlank { null }?.let { estimate ->
+                PlanFinishes(estimate, result.result.optText("finishAt").ifBlank { null })
+            }
         }
     }
 

@@ -607,9 +607,9 @@ enum RuntimeCall {
         let role = object["role"] as? String ?? ""
         let directory = directory(object)
         let record = EstimateRecordFile.load(directory)
+        let roomId = object["roomId"] as? String ?? ""
         do {
             let graph = try graph(object)
-            let roomId = object["roomId"] as? String ?? ""
             let envelope = try await RaceDayAPI.loadRoom(graph: graph, roomId: roomId)
             let estimate = envelope.room.pacingEstimate
             if let estimate, let directory {
@@ -632,7 +632,8 @@ enum RuntimeCall {
                 reason: decision.reason.rawValue,
                 usableHistoryCount: input.usableHistoryCount,
                 historyFingerprint: input.historyFingerprint,
-                timeZone: requestTimeZone(object)
+                timeZone: requestTimeZone(object),
+                planFinish: estimate == nil ? nil : await scheduledFinish(graph: graph, roomId: roomId, directory: directory)
             )
             payload["raceStartAt"] = envelope.room.raceStartAt ?? ""
             payload["plannedPaceSecondsPerKm"] = envelope.room.plannedPaceSecondsPerKm ?? 0
@@ -648,11 +649,27 @@ enum RuntimeCall {
                     reason: EstimateRecomputeReason.none.rawValue,
                     usableHistoryCount: 0,
                     historyFingerprint: nil,
-                    timeZone: requestTimeZone(object)
+                    timeZone: requestTimeZone(object),
+                    planFinish: cachedFinish(roomId: roomId, directory: directory)
                 )
             }
             throw error
         }
+    }
+
+    /// The schedule's finish row for an estimate payload (`PlanFinish`), read after the plan it
+    /// belongs to. A read that fails (no schedule yet, a crew member's 402) leaves the estimate's
+    /// own finish; offline, the sheet on this device.
+    private static func scheduledFinish(graph: ClientGraph, roomId: String, directory: URL?) async -> ScheduleStop? {
+        guard let loaded = try? await RaceDayAPI.loadScheduleResult(graph: graph, roomId: roomId, cacheDirectory: directory),
+              loaded.sheet.roomId == roomId else { return nil }
+        return PlanFinish.row(in: loaded.sheet)
+    }
+
+    /// The finish row of the sheet on this device, when it is this race's.
+    private static func cachedFinish(roomId: String, directory: URL?) -> ScheduleStop? {
+        guard let directory, let sheet = try? ScheduleCache.load(directory: directory), sheet.roomId == roomId else { return nil }
+        return PlanFinish.row(in: sheet)
     }
 
     private static func decideEstimate(_ object: [String: Any]) -> [String: Any] {
@@ -682,11 +699,12 @@ enum RuntimeCall {
             throw PlanAuthorityError.notAllowed
         }
         let directory = directory(object)
+        let roomId = object["roomId"] as? String ?? ""
         do {
             let graph = try graph(object)
             let attached = try await PlanOfRecord.recompute(
                 graph: graph,
-                roomId: object["roomId"] as? String ?? "",
+                roomId: roomId,
                 role: role,
                 trigger: trigger,
                 hasPlanOfRecord: hasPlanOfRecord
@@ -710,7 +728,9 @@ enum RuntimeCall {
                 reason: EstimateRecomputeReason.none.rawValue,
                 usableHistoryCount: count,
                 historyFingerprint: fingerprint,
-                timeZone: requestTimeZone(object)
+                timeZone: requestTimeZone(object),
+                // The schedule now plans from the estimate just attached.
+                planFinish: await scheduledFinish(graph: graph, roomId: roomId, directory: directory)
             )
         } catch {
             if TransportFailure.isOffline(error) {
@@ -722,7 +742,9 @@ enum RuntimeCall {
                     recompute: false,
                     reason: EstimateRecomputeReason.none.rawValue,
                     usableHistoryCount: intValue(object["usableHistoryCount"]) ?? 0,
-                    historyFingerprint: text(object, "historyFingerprint")
+                    historyFingerprint: text(object, "historyFingerprint"),
+                    timeZone: requestTimeZone(object),
+                    planFinish: cachedFinish(roomId: roomId, directory: directory)
                 )
             }
             throw error
@@ -892,17 +914,23 @@ enum RuntimeCall {
         reason: String,
         usableHistoryCount: Int,
         historyFingerprint: String?,
-        timeZone: TimeZone = DeviceTimeZone.current
+        timeZone: TimeZone = DeviceTimeZone.current,
+        planFinish: ScheduleStop? = nil
     ) -> [String: Any] {
-        [
+        let finish = estimate.map { finishOf($0, plan: planFinish) }
+        return [
             "hasEstimate": estimate != nil,
             "coldStart": estimate?.coldStart ?? false,
             "estimateId": estimate?.id ?? "",
-            // The finish instant (API ISO-8601) for `onboardingHistoryComparison`; "" without one.
+            // The estimate's own finish (API ISO-8601): moving time only, no planned stops. The
+            // estimate sides of `onboardingHistoryComparison`; never shown as the finish. "" without one.
             "expectedFinishAt": estimate?.expectedFinishAt ?? "",
-            "summary": estimate.map { estimateSummary($0, timeZone: timeZone) } ?? "",
+            // The race's finish (API ISO-8601), the one every screen shows: the schedule's finish row
+            // (`PlanFinish`), else the estimate's own. "" without an estimate.
+            "finishAt": finish?.at ?? "",
+            "summary": finish.map { estimateSummary(explanation: estimate?.explanation ?? "", finish: $0, timeZone: timeZone) } ?? "",
             // The finish clock as the summary writes it, so a big finish readout matches it; "" without one.
-            "finishClock": estimate.map { ScheduleFormat.formatScheduleClock($0.expectedFinishAt, timeZone: timeZone) } ?? "",
+            "finishClock": finish.map { ScheduleFormat.formatScheduleClock($0.at, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
             "reason": reason,
@@ -913,12 +941,19 @@ enum RuntimeCall {
         ]
     }
 
-    private static func estimateSummary(_ estimate: PacingEstimate, timeZone: TimeZone) -> String {
-        let elapsed = ScheduleFormat.formatDurationSeconds(estimate.expectedFinishElapsedSeconds)
-        let clock = ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt, timeZone: timeZone)
-        let finish = "Finish \(elapsed)  \(clock)"
-        if estimate.explanation.isEmpty { return finish }
-        return "\(estimate.explanation)\n\(finish)"
+    /// The finish an estimate payload shows: the schedule's finish row, else the estimate's own.
+    private static func finishOf(_ estimate: PacingEstimate, plan: ScheduleStop?) -> (at: String, elapsedSeconds: Double) {
+        if let plan { return (plan.clockArrivalAt, plan.elapsedSeconds) }
+        return (estimate.expectedFinishAt, estimate.expectedFinishElapsedSeconds)
+    }
+
+    /// The estimate's explanation, then "Finish 4:59:59 · 7:29 AM" for `finish`.
+    private static func estimateSummary(explanation: String, finish: (at: String, elapsedSeconds: Double), timeZone: TimeZone) -> String {
+        let elapsed = ScheduleFormat.formatDurationSeconds(finish.elapsedSeconds)
+        let clock = ScheduleFormat.formatScheduleClock(finish.at, timeZone: timeZone)
+        let line = "Finish \(elapsed) · \(clock)"
+        if explanation.isEmpty { return line }
+        return "\(explanation)\n\(line)"
     }
 
     private static func recomputeInput(
@@ -1516,11 +1551,18 @@ enum RuntimeCall {
     /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
     /// the app's session-expired path runs. A confirmed delete also removes the user's onboarding
     /// progress, which sign-out keeps.
-    /// `onboardingHistoryComparison`: withHistoryFinishAt, withoutHistoryFinishAt, optional timeZone (IANA id).
-    /// Result `{"text": String?}`; text is null when the line should be hidden.
+    /// `onboardingHistoryComparison`: withHistoryFinishAt, withoutHistoryFinishAt (the two
+    /// estimates' own finishes), optional planFinishAt (the race's finish for the plan with history,
+    /// the estimate payload's `finishAt`), optional timeZone (IANA id). With planFinishAt the line
+    /// reads the plan's clock on both sides (`PlanFinish.historyComparison`), so its first finish is
+    /// the one the teaser shows. Result `{"text": String?}`; text is null when the line should be hidden.
     private static func onboardingHistoryComparison(_ object: [String: Any]) throws -> Any {
-        guard let with = text(object, "withHistoryFinishAt"), let without = text(object, "withoutHistoryFinishAt") else {
+        guard var with = text(object, "withHistoryFinishAt"), var without = text(object, "withoutHistoryFinishAt") else {
             throw ClientHTTPError(status: 400, message: "withHistoryFinishAt and withoutHistoryFinishAt are required.")
+        }
+        if let plan = text(object, "planFinishAt"),
+           let planned = PlanFinish.historyComparison(planFinishAt: plan, withHistoryEstimateAt: with, withoutHistoryEstimateAt: without) {
+            (with, without) = (planned.withHistory, planned.withoutHistory)
         }
         let zone = text(object, "timeZone").flatMap(DeviceTimeZone.resolve) ?? DeviceTimeZone.current
         let line = OnboardingCopy.historyComparison(withHistoryFinishAt: with, withoutHistoryFinishAt: without, timeZone: zone)
