@@ -247,6 +247,10 @@ final class RunnerSetupModel {
 
     var canContinueCourse: Bool { coursePreview != nil && !busy }
 
+    /// The picked file's preview failed (offline, or a file the server can't read): the step's
+    /// main button previews the same file again, so it offers Try again rather than Continue.
+    var courseNeedsRetry: Bool { courseFileName != nil && coursePreview == nil && failure != nil && !busy }
+
     func continueCourse() {
         guard canContinueCourse else { return }
         draft.courseConfirmed = true

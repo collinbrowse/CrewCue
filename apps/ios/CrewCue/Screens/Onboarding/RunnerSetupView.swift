@@ -317,7 +317,14 @@ private struct CourseStep: View {
             .crewBusy(model.busy && model.coursePreview == nil && model.courseFileName != nil)
             .disabled(model.busy)
             .accessibilityIdentifier("crewcue.onboarding.choose-course")
-            if model.courseFileName != nil {
+            if model.courseNeedsRetry {
+                // The preview failed: this previews the same file again, it doesn't move on.
+                Button(OnboardingCopy.tryAgain) {
+                    Task { await model.previewCourse() }
+                }
+                .buttonStyle(.crewPrimary)
+                .accessibilityIdentifier("crewcue.onboarding.retry")
+            } else if model.courseFileName != nil {
                 Button(OnboardingCopy.continueLabel) {
                     if model.coursePreview == nil {
                         Task { await model.previewCourse() }

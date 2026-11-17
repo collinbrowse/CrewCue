@@ -30,7 +30,7 @@ public enum OnboardingCopy {
     public static let elevationProfileLabel = "Elevation profile"
     public static let loading = "Loading"
     public static let back = "Back"
-    /// A step whose load failed (the teaser): load it again.
+    /// A step whose load failed (the teaser, a course preview): load it again.
     public static let tryAgain = "Try again"
     /// The way out of setup once a race exists: sign out, or open another of the person's races.
     public static let accountMenu = "Account"

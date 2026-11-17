@@ -440,8 +440,9 @@ final class ShellModel {
     }
 
     func signOut() {
-        // Runs after every model below has let go of the user.
-        defer { verifyUserDataWiped() }
+        // The account signing out. Its directory is checked once every model below has let go of it.
+        let signedOutUserId = signedInUserId ?? client.graph.session?.session?.userId
+        defer { verifyUserDataWiped(userId: signedOutUserId) }
         do {
             try client.graph.session?.signOut()
         } catch {
@@ -484,14 +485,18 @@ final class ShellModel {
         path = []
     }
 
-    /// Nothing outlives the account. Every model above has let go of the user by now; a user
-    /// directory still on disk means one of them wrote after the wipe, so it is logged and wiped.
-    private func verifyUserDataWiped() {
-        guard let storage = try? AppDirectories.userStorage(),
-              let left = try? storage.userIds(), !left.isEmpty else { return }
+    /// Nothing outlives the account. Every model above has let go of the user by now; the
+    /// signed-out user's directory still on disk means one of them wrote after the wipe, so it is
+    /// logged and wiped. Only that one directory: never the storage root, another account's
+    /// directory, or the onboarding folder beside the root, which outlives sign-out. It runs
+    /// synchronously inside `signOut()` on the main actor, so no new sign-in can come between.
+    private func verifyUserDataWiped(userId: String?) {
+        guard let userId = userId?.trimmingCharacters(in: .whitespacesAndNewlines), !userId.isEmpty,
+              let storage = try? AppDirectories.userStorage(),
+              let left = try? storage.userIds(), left.contains(userId) else { return }
         client.graph.logger.log("user data outlived sign-out")
         do {
-            try storage.wipeAll()
+            try storage.wipe(userId: userId)
         } catch {
             client.graph.logger.log("user data wipe after sign-out failed")
         }
