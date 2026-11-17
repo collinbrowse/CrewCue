@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
@@ -53,7 +54,8 @@ test("returns 401 when authorization is missing or JWT is invalid", async () => 
   });
   assert.equal(badJwtCreate.statusCode, 401);
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
@@ -91,7 +93,8 @@ test("returns 403 when caller is not a room member", async () => {
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const strangerToken = app.jwt.sign(buildClaims("stranger-user"));
 
   const createResponse = await app.inject({

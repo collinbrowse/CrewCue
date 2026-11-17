@@ -3,7 +3,7 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**20 tables** from 20 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**20 tables** from 21 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
 
 ## `billing_grants`
 
@@ -26,7 +26,7 @@ Primary key: `transaction_id`.
 
 Indexes: `billing_grants_by_room`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
 
 ## `billing_webhook_events`
 
@@ -232,7 +232,7 @@ Created in [services/api/db/migrations/0001_ws1_room_invite_json.sql](../../../s
 
 Primary key: `id`.
 
-Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`.
+Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 

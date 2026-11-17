@@ -451,6 +451,17 @@ export interface RoomUnpaidError {
   code: "room_unpaid";
 }
 
+/**
+ * 409 body from `POST /race-rooms` when the caller already created `limit` races that are still
+ * `unpaid`. Paid and expired races, and races the caller only crews, do not count.
+ */
+export interface UnpaidRaceLimitError {
+  error: string;
+  code: "unpaid_race_limit";
+  /** Unpaid races one account may have created at once. */
+  limit: number;
+}
+
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
 
 export interface RaceRoomInvite {

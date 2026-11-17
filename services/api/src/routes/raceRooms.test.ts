@@ -312,7 +312,8 @@ test("rejects invalid invite token", async () => {
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const inviteeToken = app.jwt.sign(buildClaims("invitee-user"));
 
   const createResponse = await app.inject({
@@ -1001,7 +1002,8 @@ test("returns anonymous join preview with allowlisted room details", async () =>
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
