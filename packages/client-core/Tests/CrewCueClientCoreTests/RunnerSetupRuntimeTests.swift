@@ -291,6 +291,136 @@ private let plannedSheetJSON = """
     #expect(PlanFinish.row(in: nil) == nil)
 }
 
+/// A paid sheet for `estimateJSON` (e1, 36600 s moving): the start, an aid station, then `last`.
+private func paidSheet(planFrom estimateId: String?, last: String) -> CrewScheduleSheet {
+    let plan = estimateId.map { #","pacingEstimateId":"\#($0)""# } ?? ""
+    let json = """
+    {"roomId":"r1","raceStartAt":"2026-08-15T12:00:00.000Z"\(plan),"stops":[
+     {"id":"s1","checkpointId":"start","elapsedSeconds":0,"movingElapsedSeconds":0,"plannedStoppageSeconds":300,"clockArrivalAt":"2026-08-15T12:00:00.000Z"},
+     {"id":"s2","checkpointId":"aid-1","elapsedSeconds":18300,"movingElapsedSeconds":18000,"plannedStoppageSeconds":180,"clockArrivalAt":"2026-08-15T17:05:00.000Z"},
+     \(last)]}
+    """
+    return try! JSONDecoder().decode(CrewScheduleSheet.self, from: Data(json.utf8))
+}
+
+/// The finish row: moving time is the estimate's finish, 8 minutes of planned stops before it.
+private let paidFinishStop = #"{"id":"s3","checkpointId":"cp-9","elapsedSeconds":37080,"movingElapsedSeconds":36600,"plannedStoppageSeconds":0,"clockArrivalAt":"2026-08-15T22:18:00.000Z"}"#
+/// A course with no finish waypoint ends at an aid station, which keeps its own ETA.
+private let paidLastAidStop = #"{"id":"s3","checkpointId":"aid-2","elapsedSeconds":34680,"movingElapsedSeconds":34200,"plannedStoppageSeconds":300,"clockArrivalAt":"2026-08-15T21:38:00.000Z"}"#
+
+@Test func aPaidSheetsFinishRowIsTheOneCarryingThePlansFinish() throws {
+    let estimate = try JSONDecoder().decode(PacingEstimate.self, from: Data(estimateJSON.utf8))
+    #expect(PlanFinish.row(in: paidSheet(planFrom: "e1", last: paidFinishStop), for: estimate)?.clockArrivalAt == "2026-08-15T22:18:00.000Z")
+    // No finish waypoint: the last row is an aid arrival, never shown as the finish.
+    #expect(PlanFinish.row(in: paidSheet(planFrom: "e1", last: paidLastAidStop), for: estimate) == nil)
+    // Without the estimate a paid sheet can't say which row is the finish.
+    #expect(PlanFinish.row(in: paidSheet(planFrom: "e1", last: paidFinishStop)) == nil)
+}
+
+@Test func anUnpaidSheetsStandInFinishIsStillTheFinish() throws {
+    let estimate = try JSONDecoder().decode(PacingEstimate.self, from: Data(estimateJSON.utf8))
+    // No finish waypoint on an unpaid race: the farthest stop stands in for the finish, after its own stop.
+    let json = """
+    {"roomId":"r1","raceStartAt":"2026-08-15T12:00:00.000Z","pacingEstimateId":"e1","stops":[
+     {"id":"s1","checkpointId":"start","elapsedSeconds":0,"movingElapsedSeconds":0,"plannedStoppageSeconds":300,"clockArrivalAt":"2026-08-15T12:00:00.000Z"},
+     {"id":"s2","checkpointId":"aid-2","elapsedSeconds":37200,"movingElapsedSeconds":36600,"plannedStoppageSeconds":300,"clockArrivalAt":"2026-08-15T22:20:00.000Z"}],
+     "locked":{"checkpointIds":["aid-1"]}}
+    """
+    let sheet = try JSONDecoder().decode(CrewScheduleSheet.self, from: Data(json.utf8))
+    #expect(PlanFinish.row(in: sheet, for: estimate)?.clockArrivalAt == "2026-08-15T22:20:00.000Z")
+    #expect(PlanFinish.row(in: sheet)?.clockArrivalAt == "2026-08-15T22:20:00.000Z")
+}
+
+@Test func aSheetPlannedFromAnotherEstimateFallsBackToTheEstimatesOwnFinish() async throws {
+    let estimate = try JSONDecoder().decode(PacingEstimate.self, from: Data(estimateJSON.utf8))
+    let stale = paidSheet(planFrom: "e0", last: paidFinishStop)
+    #expect(PlanFinish.row(in: stale, for: estimate) == nil)
+    var unpaid = try JSONDecoder().decode(CrewScheduleSheet.self, from: Data(plannedSheetJSON.utf8))
+    unpaid.pacingEstimateId = "e0"
+    #expect(PlanFinish.row(in: unpaid, for: estimate) == nil)
+    unpaid.pacingEstimateId = "e1"
+    #expect(PlanFinish.row(in: unpaid, for: estimate) != nil)
+
+    // The attach landed after the schedule was planned: the attached estimate's own finish, online and offline.
+    let base = "https://estimate-stale-sheet.test"
+    let sheetBody = String(decoding: try JSONEncoder().encode(stale), as: UTF8.self)
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")],
+        "GET /race-rooms/r1/schedule": [(200, sheetBody)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let storage = FileManager.default.temporaryDirectory.appendingPathComponent("estimate-\(UUID().uuidString)").path
+    let request: [String: Any] = [
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "UTC",
+        "storageDir": storage, "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    let own = ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z", timeZone: utc)
+    let attached = try result(try await runtime(request))
+    #expect(attached["finishAt"] as? String == "2026-08-15T22:10:00.000Z")
+    #expect(attached["summary"] as? String == "No history yet.\nFinish 10:10:00 · \(own)")
+    RuntimeCall.setTransportForTests(ScriptedOffline(), baseURL: base)
+    let cached = try result(try await runtime(request))
+    #expect(cached["offline"] as? Bool == true)
+    #expect(cached["estimateId"] as? String == "e1")
+    #expect(cached["finishAt"] as? String == "2026-08-15T22:10:00.000Z")
+    #expect(cached["finishClock"] as? String == own)
+}
+
+@Test func aPaidCourseWithoutAFinishWaypointShowsTheEstimatesOwnFinish() async throws {
+    let base = "https://estimate-no-finish-waypoint.test"
+    let sheetBody = String(decoding: try JSONEncoder().encode(paidSheet(planFrom: "e1", last: paidLastAidStop)), as: UTF8.self)
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")],
+        "GET /race-rooms/r1/schedule": [(200, sheetBody)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let attached = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "UTC",
+        "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]))
+    let utc = try #require(TimeZone(identifier: "UTC"))
+    #expect(attached["finishAt"] as? String == "2026-08-15T22:10:00.000Z")
+    #expect(attached["finishClock"] as? String == ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z", timeZone: utc))
+}
+
+@Test func theComparePathCachesTheSheetAndOfflineAnswersTheCachedPlanWithNoComparison() async throws {
+    let withHistory = #"{"id":"e2","coldStart":false,"expectedFinishAt":"2026-08-15T21:42:00.000Z","expectedFinishElapsedSeconds":34920,"aidEtas":[],"explanation":"History."}"#
+    let sheet = plannedSheetJSON.replacingOccurrences(of: "\"elapsedSeconds\":37080", with: "\"elapsedSeconds\":35400")
+        .replacingOccurrences(of: "2026-08-15T22:18:00.000Z", with: "2026-08-15T21:50:00.000Z")
+        .replacingOccurrences(of: #""stops":"#, with: #""pacingEstimateId":"e2","stops":"#)
+    let base = "https://estimate-compare-offline.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON), (201, withHistory)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(withHistory)}")],
+        "GET /race-rooms/r1/schedule": [(200, sheet)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let storage = FileManager.default.temporaryDirectory.appendingPathComponent("estimate-\(UUID().uuidString)").path
+    let request: [String: Any] = [
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "UTC",
+        "storageDir": storage, "roomId": "r1", "historyMode": "compare"
+    ]
+    let compared = try result(try await runtime(request))
+    #expect(compared["offline"] as? Bool == false)
+    #expect(compared["comparison"] is String)
+    #expect(compared["finishAt"] as? String == "2026-08-15T21:50:00.000Z")
+
+    // Offline: nothing computed or attached. The plan this phone cached, on the sheet the compare
+    // cached, and no comparison: the app keeps the step instead of reading this as attached.
+    RuntimeCall.setTransportForTests(ScriptedOffline(), baseURL: base)
+    let offline = try result(try await runtime(request))
+    #expect(offline["offline"] as? Bool == true)
+    #expect(offline["comparison"] == nil)
+    #expect(offline["estimateId"] as? String == "e2")
+    #expect(offline["finishAt"] as? String == "2026-08-15T21:50:00.000Z")
+}
+
 @Test func theHistoryComparisonReadsThePlansClockOnBothSides() async throws {
     // Estimates: 21:42 with history, 22:10 without. The plan with history finishes at 21:50
     // (8 minutes of planned stops), so without history it would have finished at 22:18.

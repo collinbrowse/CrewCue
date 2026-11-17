@@ -102,21 +102,56 @@ data class CoursePoint(
 )
 
 /**
- * How the camera fits the course line and its checkpoints: the room left on each side, in dp (cut
- * down when the map is too small for it), and whether every resize fits them again.
+ * How the camera fits the course line and its checkpoints: the room left on each side, in dp,
+ * whether every resize fits them again, and whether the room is cut down when the map is too small
+ * for it ([shrinkToFit]).
  */
-data class CourseFraming(val left: Int, val top: Int, val right: Int, val bottom: Int, val refitOnResize: Boolean) {
+data class CourseFraming(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val refitOnResize: Boolean,
+    val shrinkToFit: Boolean = false
+) {
+    /**
+     * The room in px around the course on a [width] x [height] px map. With [shrinkToFit], two
+     * opposite sides are cut down in proportion when they would leave the course less than
+     * [MIN_COURSE_SHARE] of the map: room wider than the map makes MapLibre show the whole world.
+     * Without it, the room as it is.
+     */
+    fun paddingPx(density: Float, width: Int, height: Int): CoursePadding {
+        val across = room(left * density, right * density, width)
+        val down = room(top * density, bottom * density, height)
+        return CoursePadding(left = across.first, top = down.first, right = across.second, bottom = down.second)
+    }
+
+    private fun room(lead: Float, trail: Float, size: Int): Pair<Int, Int> {
+        val most = size * (1 - MIN_COURSE_SHARE)
+        val scale = if (shrinkToFit && lead + trail > most) most / (lead + trail) else 1f
+        return (lead * scale).toInt() to (trail * scale).toInt()
+    }
+
     companion object {
-        /** The Map screen: room for the top bar and chips above and the aid sheet below. Fitted once, so a pan stays. */
+        /**
+         * The Map screen: room for the top bar and chips above and the aid sheet below, never cut
+         * down, so the course stays clear of the sheet. Fitted once, so a pan stays.
+         */
         val Screen = CourseFraming(left = 48, top = 200, right = 96, bottom = 360, refitOnResize = false)
 
         /**
          * A course preview card: room on every side, more below for the title under the lowest
-         * marker. Fitted again after a fold, unfold or resize.
+         * marker, cut down on a small card. Fitted again after a fold, unfold or resize.
          */
-        val Preview = CourseFraming(left = 24, top = 24, right = 24, bottom = 44, refitOnResize = true)
+        val Preview = CourseFraming(left = 24, top = 24, right = 24, bottom = 44, refitOnResize = true, shrinkToFit = true)
+
+        /** The least of a [shrinkToFit] map's width or height the course keeps. */
+        const val MIN_COURSE_SHARE = 0.4f
     }
 }
+
+/** Camera padding in px. */
+data class CoursePadding(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
 interface CourseMapRenderer {
     @androidx.compose.runtime.Composable

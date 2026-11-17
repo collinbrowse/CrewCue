@@ -519,6 +519,62 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun anOfflineComparisonKeepsTheStepAndContinueAttachesFirst() = runTest(dispatcher) {
+        drafts.save("ada", RunnerSetupDraft(roomId = "room-1"))
+        // The import went in, then the network dropped: client-core answers ok with the plan this
+        // phone cached and no comparison. Nothing was attached.
+        runtime.answer("computeEstimate", ok("""{"hasEstimate":true,"finishAt":"2026-08-15T22:18:00.000Z","offline":true}"""))
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        model.importHistory("run.fit", "AAAA", online = true)
+        assertTrue(model.historyImported)
+        assertFalse(model.draft.historyAttached)
+        assertNull(model.draft.historyLine)
+        assertNull(model.comparison)
+        assertEquals(text.setupOffline, (model.status as SetupStatus.Offline).failure.message)
+        // Continue attaches the plan with all history first; still offline, the step stays unmarked.
+        model.finishHistory()
+        assertEquals(listOf(HISTORY_COMPARE, null), runtime.historyModes)
+        assertTrue(runtime.marks.isEmpty())
+        assertTrue(model.status is SetupStatus.Offline)
+        // Back online: attached, then marked.
+        runtime.answer("computeEstimate", ok("""{"hasEstimate":true,"finishAt":"2026-08-15T22:18:00.000Z","offline":false}"""))
+        model.finishHistory()
+        assertEquals(listOf(Triple(SetupSteps.HISTORY, "done", null as String?)), runtime.marks)
+    }
+
+    @Test
+    fun anOfflineSkipStaysOnTheStepWithoutTheColdStart() = runTest(dispatcher) {
+        runtime.answer("computeEstimate", ok("""{"hasEstimate":true,"finishAt":"2026-08-15T22:18:00.000Z","offline":true}"""))
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        model.skipHistory()
+        assertEquals(listOf<String?>(HISTORY_NONE), runtime.historyModes)
+        assertTrue(runtime.marks.isEmpty())
+        assertEquals(text.setupOffline, (model.status as SetupStatus.Offline).failure.message)
+    }
+
+    @Test
+    fun aSecondImportWhoseComparisonFailsClearsTheFirstLine() = runTest(dispatcher) {
+        drafts.save("ada", RunnerSetupDraft(roomId = "room-1"))
+        runtime.answer(
+            "computeEstimate",
+            ok("""{"hasEstimate":true,"finishAt":"2026-08-15T21:50:00.000Z","comparison":"Finish 3:50 PM instead of 4:18 PM","offline":false}"""),
+            RuntimeResult.Failure("Couldn't compute the estimate.", offline = false, status = 500)
+        )
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        model.importHistory("run.fit", "AAAA", online = true)
+        assertEquals("Finish 3:50 PM instead of 4:18 PM", model.comparison)
+        assertTrue(model.draft.historyAttached)
+        model.importHistory("run2.fit", "AAAA", online = true)
+        // The first file's line described a plan this import replaced.
+        assertNull(model.comparison)
+        assertNull(model.draft.historyLine)
+        assertFalse(model.draft.historyAttached)
+    }
+
+    @Test
     fun theTeaserShowsTheFinishWithEveryAidStationLocked() = runTest(dispatcher) {
         val model = model()
         val effects = effectsOf(model)

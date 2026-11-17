@@ -56,18 +56,20 @@ public enum PlanOfRecord {
     /// The history step's two estimates: one from no history at all (`historyRefIds: []`, a cold
     /// start) and one from all of the athlete's history, which is attached as the plan. Athlete
     /// only, like every `auto` estimate. The schedule's finish for the attached plan is read too,
-    /// so the comparison line shows the finish the teaser shows (`PlanFinish`).
+    /// so the comparison line shows the finish the teaser shows (`PlanFinish`); with
+    /// `cacheDirectory`, the sheet read is cached there (`ScheduleCache`), as every schedule read is.
     public static func recomputeComparingHistory(
         graph: ClientGraph,
         roomId: String,
-        role: String
+        role: String,
+        cacheDirectory: URL? = nil
     ) async throws -> HistoryComparison {
         guard PlanAuthority.allows(role: role, trigger: .auto, hasPlanOfRecord: true) else {
             throw PlanAuthorityError.notAllowed
         }
         let withoutHistory = try await compute(graph: graph, roomId: roomId, trigger: .auto, historyRefIds: [])
         let attached = try await computeAndAttach(graph: graph, roomId: roomId, trigger: .auto)
-        let planFinish = await PlanFinish.scheduled(graph: graph, roomId: roomId)
+        let planFinish = await PlanFinish.scheduled(graph: graph, roomId: roomId, for: attached, cacheDirectory: cacheDirectory)
         return HistoryComparison(withoutHistory: withoutHistory, attached: attached, planFinish: planFinish)
     }
 

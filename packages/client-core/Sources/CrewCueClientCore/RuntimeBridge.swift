@@ -624,6 +624,11 @@ enum RuntimeCall {
             if !decision.recompute {
                 EstimateRecordFile.save(decision.nextRecord, directory)
             }
+            let planFinish: ScheduleStop? = if let estimate {
+                await PlanFinish.scheduled(graph: graph, roomId: roomId, for: estimate, cacheDirectory: directory)
+            } else {
+                nil
+            }
             var payload = estimatePayload(
                 estimate,
                 role: role,
@@ -633,7 +638,7 @@ enum RuntimeCall {
                 usableHistoryCount: input.usableHistoryCount,
                 historyFingerprint: input.historyFingerprint,
                 timeZone: requestTimeZone(object),
-                planFinish: estimate == nil ? nil : await PlanFinish.scheduled(graph: graph, roomId: roomId, cacheDirectory: directory)
+                planFinish: planFinish
             )
             payload["raceStartAt"] = envelope.room.raceStartAt ?? ""
             payload["plannedPaceSecondsPerKm"] = envelope.room.plannedPaceSecondsPerKm ?? 0
@@ -650,17 +655,19 @@ enum RuntimeCall {
                     usableHistoryCount: 0,
                     historyFingerprint: nil,
                     timeZone: requestTimeZone(object),
-                    planFinish: cachedFinish(roomId: roomId, directory: directory)
+                    planFinish: cachedFinish(roomId: roomId, directory: directory, estimate: cached)
                 )
             }
             throw error
         }
     }
 
-    /// The finish row of the race's sheet on this device (`PlanFinish`), for an offline payload.
-    private static func cachedFinish(roomId: String, directory: URL?) -> ScheduleStop? {
-        guard let directory, let sheet = try? ScheduleCache.load(directory: directory), sheet.roomId == roomId else { return nil }
-        return PlanFinish.row(in: sheet)
+    /// The finish row of the race's sheet on this device for `estimate`, the cached plan an offline
+    /// payload shows (`PlanFinish`): nil when that sheet was planned from another estimate.
+    private static func cachedFinish(roomId: String, directory: URL?, estimate: PacingEstimate?) -> ScheduleStop? {
+        guard let estimate, let directory, let sheet = try? ScheduleCache.load(directory: directory),
+              sheet.roomId == roomId else { return nil }
+        return PlanFinish.row(in: sheet, for: estimate)
     }
 
     private static func decideEstimate(_ object: [String: Any]) -> [String: Any] {
@@ -704,7 +711,12 @@ enum RuntimeCall {
             case "none":
                 attached = try await PlanOfRecord.recomputeWithoutHistory(graph: graph, roomId: roomId, role: role)
             case "compare":
-                let compared = try await PlanOfRecord.recomputeComparingHistory(graph: graph, roomId: roomId, role: role)
+                let compared = try await PlanOfRecord.recomputeComparingHistory(
+                    graph: graph,
+                    roomId: roomId,
+                    role: role,
+                    cacheDirectory: directory
+                )
                 attached = compared.attached
                 comparison = compared
             default:
@@ -728,9 +740,9 @@ enum RuntimeCall {
             }
             let count = intValue(object["usableHistoryCount"]) ?? 0
             let zone = requestTimeZone(object)
-            // The schedule now plans from the estimate just attached.
+            // The schedule now plans from the estimate just attached; a sheet planned from another is not read.
             let planFinish = if let comparison { comparison.planFinish } else {
-                await PlanFinish.scheduled(graph: graph, roomId: roomId, cacheDirectory: directory)
+                await PlanFinish.scheduled(graph: graph, roomId: roomId, for: attached, cacheDirectory: directory)
             }
             var payload = estimatePayload(
                 attached,
@@ -759,7 +771,7 @@ enum RuntimeCall {
                     usableHistoryCount: intValue(object["usableHistoryCount"]) ?? 0,
                     historyFingerprint: text(object, "historyFingerprint"),
                     timeZone: requestTimeZone(object),
-                    planFinish: cachedFinish(roomId: roomId, directory: directory)
+                    planFinish: cachedFinish(roomId: roomId, directory: directory, estimate: cached)
                 )
             }
             throw error

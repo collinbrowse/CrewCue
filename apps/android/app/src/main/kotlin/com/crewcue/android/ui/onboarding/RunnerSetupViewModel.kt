@@ -342,7 +342,9 @@ class RunnerSetupViewModel(
                     // client-core's message for every status, server refusals included.
                     keepHistoryMessage(result.result.optText("message").ifBlank { null })
                     if (result.result.optText("status") !in setOf("saved", "duplicate")) return@work
-                    writeDraft(draft.copy(historyImported = true, historyAttached = false))
+                    // A new import: the last comparison no longer describes the plan until this one answers.
+                    writeDraft(draft.copy(historyImported = true, historyAttached = false, historyLine = null))
+                    keepComparison(null)
                     val room = roomId ?: return@work
                     // client-core's comparison (as on iOS): an estimate with no history, then the
                     // plan with all of it, attached; the line reads the race's finish.
@@ -374,10 +376,16 @@ class RunnerSetupViewModel(
         val room = roomId
         work {
             if (attachFirst && room != null) {
-                val result = withContext(io) { runtime.computeEstimate(room, historyMode) }
-                if (result is RuntimeResult.Failure) {
-                    fail(result)
-                    return@work
+                when (val result = withContext(io) { runtime.computeEstimate(room, historyMode) }) {
+                    is RuntimeResult.Failure -> {
+                        fail(result)
+                        return@work
+                    }
+                    // Offline, client-core answers the plan this phone cached: nothing was attached.
+                    is RuntimeResult.Success -> if (result.result.optBoolean("offline")) {
+                        status = offline()
+                        return@work
+                    }
                 }
             }
             onState(withContext(io) { runtime.markStep(SetupSteps.HISTORY, outcome, null) })
@@ -524,9 +532,11 @@ class RunnerSetupViewModel(
 
     /**
      * Computes and attaches a plan after a step saved (client-core retries a `course_mismatch`
-     * once, silently), returning its estimate payload. Only an unpaid race's 402 shows (the
-     * paywall); any other failure, the estimator limit included, leaves the saved step as is, and
-     * the teaser computes again and says so there.
+     * once, silently), returning its estimate payload. Only an unpaid race's 402 (the paywall) and
+     * no network (the offline copy) show; any other failure, the estimator limit included, leaves
+     * the saved step as is, and the teaser computes again and says so there. Offline, client-core
+     * answers ok with the plan this phone cached (`offline`), which was not attached: null, as iOS
+     * throws there.
      */
     private suspend fun attachPlan(room: String, historyMode: String? = null): JSONObject? =
         when (val result = withContext(io) { runtime.computeEstimate(room, historyMode) }) {
@@ -534,7 +544,12 @@ class RunnerSetupViewModel(
                 if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)
                 null
             }
-            is RuntimeResult.Success -> result.result
+            is RuntimeResult.Success -> if (result.result.optBoolean("offline")) {
+                status = offline()
+                null
+            } else {
+                result.result
+            }
         }
 
     private fun validateStart() {

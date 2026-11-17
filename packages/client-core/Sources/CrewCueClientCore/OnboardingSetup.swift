@@ -111,7 +111,7 @@ public struct OnboardingTeaser: Equatable, Sendable {
     public var lockedCheckpointIds: [String]
 
     public init(sheet: CrewScheduleSheet?, projection: RaceRoomProjectionCore?, estimate: PacingEstimate?) {
-        let candidates = [PlanFinish.row(in: sheet)?.clockArrivalAt, projection?.etaFinishPlanIso, estimate?.expectedFinishAt]
+        let candidates = [PlanFinish.row(in: sheet, for: estimate)?.clockArrivalAt, projection?.etaFinishPlanIso, estimate?.expectedFinishAt]
         finishAt = candidates.compactMap { value -> String? in
             guard let value, ScheduleFormat.parseISO8601(value) != nil else { return nil }
             return value

@@ -360,23 +360,10 @@ private fun frame(
     val bounds = LatLngBounds.Builder()
         .includes(points.map { LatLng(it.latitude, it.longitude) })
         .build()
-    val (left, right) = room(framing.left * density, framing.right * density, width)
-    val (top, bottom) = room(framing.top * density, framing.bottom * density, height)
-    val update = CameraUpdateFactory.newLatLngBounds(bounds, left, top, right, bottom)
+    val room = framing.paddingPx(density, width, height)
+    val update = CameraUpdateFactory.newLatLngBounds(bounds, room.left, room.top, room.right, room.bottom)
     if (animate) map.animateCamera(update) else map.moveCamera(update)
 }
-
-/**
- * The room on two opposite sides, in px, cut down in proportion when it would leave the course less
- * than [MIN_COURSE_SHARE] of [size]: padding wider than the map makes MapLibre show the whole world.
- */
-private fun room(lead: Float, trail: Float, size: Int): Pair<Int, Int> {
-    val most = size * (1 - MIN_COURSE_SHARE)
-    val scale = if (lead + trail > most) most / (lead + trail) else 1f
-    return (lead * scale).toInt() to (trail * scale).toInt()
-}
-
-private const val MIN_COURSE_SHARE = 0.4f
 
 private fun lineGeoJson(line: List<CoursePoint>): String {
     val coordinates = JSONArray()
