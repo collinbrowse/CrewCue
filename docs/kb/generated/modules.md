@@ -93,6 +93,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift) | `CourseUploadSuperseded`, `CourseUploadGate`, `CourseUploadBox` |
 | [packages/client-core/Sources/CrewCueClientCore/Deadline.swift](../../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) | `Deadline`, `ResumeOnce` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift) | `DemoRaceSnapshot`, `DemoRacePlayer`, `DemoRaceSession`, `DemoRace`, `LiveDemoDirectories` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift) | `DemoRaceError`, `DemoRaceCoordinate`, `DemoRaceCourse`, `DemoRaceBeat`, `DemoRacePing`, `DemoRaceChatMessage`, `DemoRaceStep`, `DemoRaceScript` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift) | `DemoRaceWorld`, `DemoRaceClock`, `DemoRaceTransport` |
 | [packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift](../../../packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift) | `DeviceTimeZone` |
 | [packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift](../../../packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift) | `ActivityHistoryRef`, `EstimateRecomputeReason`, `EstimateHistoryRecord`, `EstimateRecomputeInput`, `EstimateRecomputeDecision`, `PlanAuthority`, `EstimateRecompute` |
 | [packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift](../../../packages/client-core/Sources/CrewCueClientCore/FeatureScreens.swift) | `FeatureState`, `FeatureScreen`, `CrewCueClientCore`, `FeatureCopy` |
@@ -149,6 +152,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Idempotency.swift](../../../packages/client-core/Sources/CrewCueClientCore/Idempotency.swift) | `IdempotencyKey` |
 | [packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/LocationUploadGate.swift) | `LocationUploadGate` |
 | [packages/client-core/Sources/CrewCueClientCore/Logging.swift](../../../packages/client-core/Sources/CrewCueClientCore/Logging.swift) | `Logger` |
+| [packages/client-core/Sources/CrewCueClientCore/Onboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/Onboarding.swift) | `OnboardingStep`, `OnboardingOutcome`, `OnboardingChoice`, `OnboardingError`, `OnboardingRace`, `OnboardingInput`, `OnboardingStepStatus`, `OnboardingState`, `Onboarding` |
+| [packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift) | `OnboardingProgress`, `OnboardingStore`, `OnboardingFileLock` |
 | [packages/client-core/Sources/CrewCueClientCore/Outbox.swift](../../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) | `OutboxOperation`, `OutboxFailureResolution`, `ClientHTTPError`, `OutboxPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | `StoredOperation`, `CheckInEnqueue`, `PingEnqueue`, `FlushReport`, `OutboxStoreError`, `OutboxStore`, `PingPolicy`, `OutboxFile`, `SharedOutboxStores` |
 | [packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift](../../../packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift) | `PlanTrigger`, `PlanAuthorityError`, `PlanOfRecord` |
@@ -162,6 +167,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift) | `DemoRuntimes` |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeOnboarding.swift) |  |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFixture.swift) | `ScheduleStopFixture`, `ScheduleFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
 | [packages/client-core/Sources/CrewCueClientCore/Session.swift](../../../packages/client-core/Sources/CrewCueClientCore/Session.swift) | `ClientSession`, `UserDataStore`, `SessionController`, `SessionFile` |
@@ -173,11 +180,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-89 files under `packages/client-core/Sources/`.
+96 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 39 | 8242 |
+| `CrewCueClientCore` | 46 | 10396 |
 | `CrewCueClientCore/Generated` | 50 | 974 |
 
 ### iOS app (SwiftUI)
@@ -187,7 +194,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 93 |
-| `App` | 13 | 1366 |
+| `App` | 13 | 1371 |
 | `Brand` | 1 | 184 |
 | `Design` | 2 | 675 |
 | `Logging` | 2 | 18 |
@@ -204,7 +211,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Pace` | 2 | 1745 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
-| `Screens/Settings` | 2 | 362 |
+| `Screens/Settings` | 2 | 363 |
 | `Screens/Shell` | 4 | 499 |
 | `Screens/Strava` | 2 | 193 |
 

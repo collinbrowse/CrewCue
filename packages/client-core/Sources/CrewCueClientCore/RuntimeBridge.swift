@@ -21,10 +21,13 @@ import Dispatch
 /// completeOutbox, wipeUserData, adoptUser, updateDisplayName, removeMember,
 /// incidents, createIncident, stravaStart, stravaConnection, stravaDisconnect, deleteAccount, accountDeletionCopy, pingTrack,
 /// liveProjection, trackingSettings, setTrackingSettings, trackingSession, startTrackingSession,
-/// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile.
+/// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
+/// readOnboarding, markOnboardingStep, resetOnboarding (`RuntimeOnboarding.swift`),
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
+/// A `baseURL` from `demoRaceCreate` runs the same ops against that race-day replay instead.
 enum RuntimeCall {
     private final class TransportBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -62,6 +65,9 @@ enum RuntimeCall {
               let op = object["op"] as? String else {
             return #"{"ok":false,"message":"Invalid runtime request."}"#
         }
+        // A replay op that began before the replay ended can write after it: sweep once it returns.
+        let demo = demoRace(object)
+        defer { sweepDemo(demo) }
         do {
             let value = try await dispatch(op, object)
             let encoded = try JSONSerialization.data(withJSONObject: ["ok": true, "result": value])
@@ -75,6 +81,8 @@ enum RuntimeCall {
         let message: String
         if let authority = error as? PlanAuthorityError {
             message = authority.message
+        } else if let demo = error as? DemoRaceError {
+            message = demo.message
         } else {
             message = (error as? ClientHTTPError)?.message ?? "\(error)"
         }
@@ -250,19 +258,34 @@ enum RuntimeCall {
             guard let session = TrackingSession.load(userDirectory: directory) else { return ["active": false] }
             return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
         case "startTrackingSession":
+            guard demoURL(object) == nil else {
+                throw DemoRaceError.readOnly("the replay never tracks location")
+            }
             let directory = try requiredUserDirectory(object)
             guard PingPolicy.mayUpload(role: object["role"] as? String ?? "") else {
                 throw ClientHTTPError(status: 400, message: "Only the athlete shares location.")
             }
             let session = TrackingSession(
                 roomId: object["roomId"] as? String ?? "",
-                startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(Date())
+                startedAt: object["startedAt"] as? String ?? RaceDayReadouts.iso8601(clock(object).now())
             )
             try session.save(userDirectory: directory)
             return ["active": true, "roomId": session.roomId, "startedAt": session.startedAt]
         case "stopTrackingSession":
             try TrackingSession.clear(userDirectory: try requiredUserDirectory(object))
             return ["active": false]
+        case "readOnboarding":
+            return try readOnboarding(object)
+        case "markOnboardingStep":
+            return try markOnboardingStep(object)
+        case "resetOnboarding":
+            return try resetOnboarding(object)
+        case "demoRaceCreate":
+            return try await demoRaceCreate(object)
+        case "demoRacePlay", "demoRacePause", "demoRaceTick", "demoRaceSkip":
+            return try demoRaceControl(op, object)
+        case "demoRaceCleanup":
+            return try demoRaceCleanup(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }
@@ -376,8 +399,9 @@ enum RuntimeCall {
         requestRunner(request).progressMeters(checkpoints: checkpoints)
     }
 
+    /// The caller's `nowMs`, else the request's graph clock (a replay's scripted time).
     private static func requestNow(_ request: [String: Any]) -> Date {
-        requestNumber(request["nowMs"]).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+        requestNumber(request["nowMs"]).map { Date(timeIntervalSince1970: $0 / 1000) } ?? clock(request).now()
     }
 
     private static func elevationProfile(_ value: Any?) -> ElevationProfile? {
@@ -772,7 +796,7 @@ enum RuntimeCall {
                 timeZone: zone
             )
         }
-        let text = ScheduleFormat.crewSheetText(roomId: sheet.roomId, capturedAtIso: isoNow(), stopLines: lines, timeZone: zone)
+        let text = ScheduleFormat.crewSheetText(roomId: sheet.roomId, capturedAtIso: isoNow(object), stopLines: lines, timeZone: zone)
         return ["empty": false, "text": text]
     }
 
@@ -928,15 +952,24 @@ enum RuntimeCall {
     }
 
     /// The user's races plus the one every tab follows. `roomId` is the preferred active room.
+    /// Each row also carries `entitlementStatus`, `hasCourse` and the legacy `activatedAt` (the
+    /// race clock's start when `raceStartAt` is unset), so it can go back to `readOnboarding`.
     private static func myRaces(_ object: [String: Any]) async throws -> Any {
         let graph = try graph(object)
         let userId = object["userId"] as? String ?? ""
-        let races = try await RaceDayAPI.myRaces(graph: graph, userId: userId)
+        let rooms = try await RaceDayAPI.myRaceRooms(graph: graph)
+        let races = rooms.map { RaceSummary(room: $0, userId: userId) }
         let roster = RaceRoster.reconciled(races: races, preferred: text(object, "roomId"))
         return [
-            "races": try races.map { race -> Any in
+            "races": try zip(races, rooms).map { race, room -> Any in
                 var row = try jsonValue(race) as? [String: Any] ?? [:]
+                let onboarding = OnboardingRace(room: room, userId: userId)
                 row["roleLabel"] = race.roleLabel
+                row["entitlementStatus"] = onboarding.entitlementStatus
+                row["hasCourse"] = onboarding.hasCourse
+                if let activatedAt = room.activatedAt?.trimmingCharacters(in: .whitespacesAndNewlines), !activatedAt.isEmpty {
+                    row["activatedAt"] = activatedAt
+                }
                 return row
             },
             "activeRoomId": roster.activeRoomId ?? NSNull()
@@ -1442,13 +1475,14 @@ enum RuntimeCall {
     }
 
     /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
-    /// the app's session-expired path runs.
+    /// the app's session-expired path runs. A confirmed delete also removes the user's onboarding
+    /// progress, which sign-out keeps.
     private static func deleteAccount(_ object: [String: Any]) async throws -> Any {
-        try await deleteAccount(graph: try graph(object))
+        try await deleteAccount(graph: try graph(object), onboarding: try? onboardingStore(object), userId: text(object, "userId"))
     }
 
-    static func deleteAccount(graph: ClientGraph) async throws -> [String: Any] {
-        switch await AccountDeletion.run(graph: graph) {
+    static func deleteAccount(graph: ClientGraph, onboarding: OnboardingStore? = nil, userId: String? = nil) async throws -> [String: Any] {
+        switch await AccountDeletion.run(graph: graph, onboarding: onboarding, userId: userId) {
         case let .deleted(identityProvider):
             return ["deleted": true, "identityProvider": identityProvider]
         case let .failed(message, retryable):
@@ -1498,15 +1532,25 @@ enum RuntimeCall {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
     }
 
+    /// A replay's requests read and write its temporary directory, never the app's storage; a
+    /// retired replay has none.
     private static func storageRoot(_ object: [String: Any]) -> URL? {
+        if demoURL(object) != nil {
+            return demoRace(object)?.cacheDirectory
+        }
         guard let path = object["storageDir"] as? String, !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
 
     /// The signed-in user's directory under the storage root. The outbox keys rows by room itself.
+    /// A replay's is under its temporary directory, and none once the replay ended.
     private static func userDirectory(_ object: [String: Any]) -> URL? {
+        let userId = object["userId"] as? String ?? ""
+        if demoURL(object) != nil {
+            return try? demoRace(object)?.userDirectory(userId: userId)
+        }
         guard let root = storageRoot(object) else { return nil }
-        return try? UserStorage(root: root).directory(userId: object["userId"] as? String ?? "")
+        return try? UserStorage(root: root).directory(userId: userId)
     }
 
     /// Per-room caches and drafts. Nil without a room, so one race never reads another's files.
@@ -1516,6 +1560,9 @@ enum RuntimeCall {
     }
 
     static func store(_ object: [String: Any]) throws -> OutboxStore {
+        guard demoURL(object) == nil else {
+            throw DemoRaceError.readOnly("the replay has no outbox")
+        }
         guard let directory = userDirectory(object) else {
             throw ClientHTTPError(status: 0, message: "storageDir is required.")
         }
@@ -1525,6 +1572,10 @@ enum RuntimeCall {
     static func graph(_ object: [String: Any]) throws -> ClientGraph {
         guard let base = object["baseURL"] as? String, let baseURL = URL(string: base) else {
             throw ClientHTTPError(status: 0, message: "baseURL is required.")
+        }
+        if DemoRace.isDemo(baseURL) {
+            guard let demo = DemoRuntimes.shared.session(for: baseURL) else { throw DemoRaceError.ended }
+            return demo.graph
         }
         let token = object["token"] as? String
         let outbox = try? store(object)
@@ -1536,6 +1587,11 @@ enum RuntimeCall {
             tokenProvider: StaticTokenProvider(token: token),
             outbox: outbox
         )
+    }
+
+    /// The clock readouts use: a replay's scripted clock, else the system clock.
+    static func clock(_ object: [String: Any]) -> any Clock {
+        demoRace(object)?.graph.clock ?? SystemClock()
     }
 
     static func text(_ object: [String: Any], _ key: String) -> String? {
@@ -1563,10 +1619,10 @@ enum RuntimeCall {
         return nil
     }
 
-    private static func isoNow() -> String {
+    private static func isoNow(_ object: [String: Any]) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Date())
+        return formatter.string(from: clock(object).now())
     }
 }
 
@@ -1597,7 +1653,7 @@ private enum EstimateRecordFile {
     }
 }
 
-private struct SilentRuntimeLogger: Logger {
+struct SilentRuntimeLogger: Logger {
     func log(_ message: String) {}
 }
 
