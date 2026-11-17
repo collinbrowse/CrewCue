@@ -123,6 +123,11 @@ public enum OnboardingCopy {
         "\(beat.number) of \(DemoRaceBeat.allCases.count)"
     }
 
+    /// The compact replay's strip, one per view it plays in: the tab bar's own names.
+    public static let replayMapTitle = "Map"
+    public static let replayPaceTitle = "Pace"
+    public static let replayChatTitle = "Chat"
+
     // MARK: Paywall
 
     public static let paywallRunnerPlusOneTitle = "You + 1 crew"
@@ -133,6 +138,16 @@ public enum OnboardingCopy {
     public static let paywallFullCrewProduct = BillingProduct.racePassFullCrew.title
     public static let paywallFullCrewPrice = BillingProduct.racePassFullCrew.fallbackPrice
     public static let paywallPitch = "Give your crew this on race day."
+    /// The buy button's spoken label, filled with `product` and `price` (`paywallBuyLabel`).
+    public static let paywallBuyLabelTemplate = "Buy {product}, {price}"
+
+    /// "Buy Race Pass, $14.99": a paywall buy button's spoken label, with the store's localized
+    /// price (or the `BillingProduct` fallback until the store answers).
+    public static func paywallBuyLabel(product: BillingProduct, price: String) -> String {
+        paywallBuyLabelTemplate
+            .replacingOccurrences(of: "{product}", with: product.title)
+            .replacingOccurrences(of: "{price}", with: price)
+    }
 
     // MARK: Unpaid banner
 
@@ -148,7 +163,8 @@ public enum OnboardingCopy {
 
     // MARK: Runtime (Android)
 
-    /// Every static string plus step titles, explanations and beat captions, for runtime op `onboardingCopy`.
+    /// Every static string (the buy label as its `{product}`, `{price}` template) plus step titles,
+    /// explanations and beat captions, for runtime op `onboardingCopy`.
     static var runtimeCopy: [String: Any] {
         var titles: [String: String] = [:]
         var explanations: [String: String] = [:]
@@ -179,6 +195,8 @@ public enum OnboardingCopy {
             "paywallFullCrewTitle": paywallFullCrewTitle,
             "paywallFullCrewProduct": paywallFullCrewProduct,
             "paywallFullCrewPrice": paywallFullCrewPrice,
+            "paywallBuyLabelTemplate": paywallBuyLabelTemplate,
+            "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
             "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
             "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
             "labels": runtimeLabels

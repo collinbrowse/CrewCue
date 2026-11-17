@@ -7,6 +7,17 @@ extension View {
     func avoidsReservedRegions() -> some View {
         modifier(ReservedRegionInsets())
     }
+
+    /// `avoidsReservedRegions()` only when `enabled`: a view the replay shares with a screen that
+    /// keeps its own layout (the race Map tab's overlays).
+    @ViewBuilder
+    func avoidsReservedRegions(when enabled: Bool) -> some View {
+        if enabled {
+            avoidsReservedRegions()
+        } else {
+            self
+        }
+    }
 }
 
 /// Insets content away from any active division region (a fold) crossing it: the side of the

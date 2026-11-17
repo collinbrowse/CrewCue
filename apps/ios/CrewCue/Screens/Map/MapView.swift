@@ -74,9 +74,13 @@ struct MapView: View {
             }
             MapAidSheet(model: model, tool: $tool, onUnlock: onUnlock)
                 .padding(.horizontal, 8)
+                // The replay's Map is a pane a fold can run through: its sheet and chips stay off
+                // the fold while the canvas under them stays full-bleed.
+                .avoidsReservedRegions(when: readOnly)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {}, readOnly: readOnly)
+                .avoidsReservedRegions(when: readOnly)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -468,7 +472,8 @@ struct MapCanvas: View {
             lineColor: UIColor(theme.primary),
             trackColor: UIColor(theme.secondary),
             fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
-            refitOnResize: replay
+            refitOnResize: replay,
+            shrinksPaddingToFit: replay
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")

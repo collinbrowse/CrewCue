@@ -329,7 +329,7 @@ struct RacePreviewPanelPicker: View {
     var body: some View {
         Picker(selection: $selection) {
             ForEach(RacePreviewModel.Panel.allCases) { panel in
-                Text(panel.tab.title).tag(panel)
+                Text(verbatim: panel.title).tag(panel)
             }
         } label: {
             Text(OnboardingCopy.title(for: .preview) ?? "")

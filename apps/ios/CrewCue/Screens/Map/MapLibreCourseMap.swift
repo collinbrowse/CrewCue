@@ -27,6 +27,10 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// Frame the course again whenever the map changes size (a small preview laid out late, or a
     /// fold). The race map keeps the camera where the person panned it, so it leaves this off.
     var refitOnResize = false
+    /// A map in a pane (the onboarding replay, the setup course preview): `fitPadding` shrinks
+    /// when it would leave the course under a quarter of the map. The race map leaves this off
+    /// and always frames with its full padding, clear of its chips and sheet.
+    var shrinksPaddingToFit = false
 
     /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
     /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
@@ -87,6 +91,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.trackColor = trackColor
         context.coordinator.route = route
         context.coordinator.fitPadding = fitPadding
+        context.coordinator.shrinksPaddingToFit = shrinksPaddingToFit
         let dark = context.environment.colorScheme == .dark
         if context.coordinator.dark != dark {
             context.coordinator.dark = dark
@@ -128,6 +133,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var track: [CLLocationCoordinate2D] = []
         var route: [CLLocationCoordinate2D] = []
         var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+        var shrinksPaddingToFit = false
         private var drawnPoints: [MapCoursePoint] = []
         private var drawnRoute: [CLLocationCoordinate2D] = []
         private var drawnTrack: [CLLocationCoordinate2D] = []
@@ -203,13 +209,13 @@ struct MapLibreCourseMap: UIViewRepresentable {
             guard let mapView, let all = mapView.annotations else { return }
             let annotations = all.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) }
             guard annotations.isEmpty == false else { return }
-            let padding = Self.padding(fitPadding, in: mapView.bounds.size)
+            let padding = shrinksPaddingToFit ? Self.padding(fitPadding, in: mapView.bounds.size) : fitPadding
             mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
         }
 
         /// `padding`, shrunk evenly when it would leave the course less than a quarter of the map
-        /// (a map in a pane, or a short landscape screen), where the camera could only zoom out
-        /// to the whole world. A full-screen map keeps its padding as it is.
+        /// (a map in a short pane), where the camera could only zoom out to the whole world. A
+        /// tall enough pane keeps its padding as it is. Only maps that set `shrinksPaddingToFit`.
         nonisolated static func padding(_ padding: UIEdgeInsets, in size: CGSize) -> UIEdgeInsets {
             func fit(_ lead: CGFloat, _ trail: CGFloat, _ length: CGFloat) -> (CGFloat, CGFloat) {
                 let room = max(0, length) * 0.75

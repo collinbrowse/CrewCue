@@ -176,7 +176,7 @@ struct PaywallOptionCard: View {
             .buttonStyle(.crewPrimary)
             .disabled(!enabled)
             .crewBusy(busy)
-            .accessibilityLabel(Text(verbatim: "Buy \(product.title), \(price)"))
+            .accessibilityLabel(Text(verbatim: OnboardingCopy.paywallBuyLabel(product: product, price: price)))
             .accessibilityIdentifier("\(identifier).buy")
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)

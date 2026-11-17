@@ -12,6 +12,8 @@ final class OnboardingRacePreviewTests: XCTestCase {
     private let deadZone = "With no signal, your crew sees Last update 18 min ago."
     private let crewChat = "Your crew can message you, and you see it in the race chat."
     private let crewMessage = "Saw your pings come back in. We'll be ready at the next aid."
+    // `OnboardingCopy.lockedAidExplanation`: what a locked aid row says to VoiceOver.
+    private let lockedAid = "Aid station times stay locked until you unlock the race."
 
     override func setUp() {
         continueAfterFailure = false
@@ -34,6 +36,19 @@ final class OnboardingRacePreviewTests: XCTestCase {
         let caption = element(app, "crewcue.onboarding-race-preview.caption")
         let reads = NSPredicate(format: "label CONTAINS %@", text)
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: reads, object: caption)], timeout: timeout) == .completed
+    }
+
+    /// Polls as fast as the accessibility snapshot allows: some readouts hold for about a second.
+    private func poll(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+        } while Date() < deadline
+        return false
+    }
+
+    private func anyElement(_ app: XCUIApplication, labelContains text: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
     func testSkipOpensThePaywallBackReplaysAndNotNowLeaves() {
@@ -80,19 +95,46 @@ final class OnboardingRacePreviewTests: XCTestCase {
         XCTAssertTrue(entries.contains { element(app, $0).waitForExistence(timeout: 5) }, "Not now leaves the replay flow")
     }
 
-    func testTheReplayPlaysEachBeatInItsViewThenOpensThePaywall() {
+    func testTheReplayPlaysEachBeatInItsViewThenOpensThePaywall() throws {
         let app = launch()
         XCTAssertTrue(waitForCaption(app, following, timeout: 10))
         XCTAssertTrue(element(app, "crewcue.runner-track").waitForExistence(timeout: 5), "the runner's path chip on the Map")
 
+        // Beat 1, on Pace from the strip: the finish the runner's pings give so far.
+        element(app, "crewcue.onboarding-race-preview.panel").buttons["Pace"].tap()
+        let eta = element(app, "crewcue.live-eta")
+        XCTAssertTrue(eta.waitForExistence(timeout: 5), "Pace shows the live finish ETA at beat 1")
+        // The progress header reads as one element: "…, Finish ETA 12:50 PM".
+        let firstFinish = try XCTUnwrap(eta.label.range(of: "Finish ETA").map { String(eta.label[$0.lowerBound...]) }, eta.label)
+
+        // Unpaid: every aid row on Pace is locked and shows no ETA; only the finish has a time.
+        let schedule = element(app, "crewcue.schedule-sheet")
+        XCTAssertTrue(schedule.waitForExistence(timeout: 5), "Pace lists the checkpoints")
+        for title in ["Aid 1", "Aid 2", "Aid 3"] {
+            let row = schedule.otherElements.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch
+            XCTAssertTrue(row.exists, "Pace lists \(title)")
+            XCTAssertEqual(row.value as? String, lockedAid, "\(title) is locked")
+            XCTAssertTrue(row.staticTexts.matching(NSPredicate(format: "label == %@", lockedAid)).firstMatch.exists, "\(title) reads Locked")
+            let times = row.staticTexts.matching(NSPredicate(format: "label CONTAINS 'ETA' OR label CONTAINS[c] 'arrival' OR label MATCHES %@", ".*[0-9]:[0-9][0-9].*"))
+            XCTAssertEqual(times.count, 0, "\(title) shows no aid ETA in the replay")
+        }
+
         // Beat 2 at 10 s: the finish time slips, on Pace.
         XCTAssertTrue(waitForCaption(app, fallingBehind, timeout: 15), "second beat caption missing")
         XCTAssertTrue(element(app, "crewcue.schedule-sheet").waitForExistence(timeout: 5), "Pace shows the finish moving")
-        XCTAssertTrue(element(app, "crewcue.live-eta").waitForExistence(timeout: 5), "Pace shows the live finish ETA")
+        XCTAssertTrue(eta.waitForExistence(timeout: 5), "Pace shows the live finish ETA")
+        let slipped = NSPredicate(format: "NOT (label CONTAINS %@)", firstFinish)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: slipped, object: eta)], timeout: 4), .completed,
+            "the finish moves later at beat 2 (was \(firstFinish))"
+        )
         XCTAssertFalse(app.buttons["Race tools"].exists, "the replay never writes")
-
-        // Beat 3 at 14 s: the dead zone, back on the Map.
+        // Beat 3 at 14 s: the dead zone, back on the Map, until Last update reads 18 min ago.
         XCTAssertTrue(waitForCaption(app, deadZone, timeout: 10), "third beat caption missing")
+        XCTAssertTrue(
+            poll(timeout: 7) { anyElement(app, labelContains: "18 min ago").exists },
+            "Last update reaches 18 min ago in the dead zone"
+        )
 
         // Beat 4 at 20 s: the crew message, in Chat, with no way to send.
         XCTAssertTrue(waitForCaption(app, crewChat, timeout: 10), "fourth beat caption missing")
@@ -100,10 +142,26 @@ final class OnboardingRacePreviewTests: XCTestCase {
         let message = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", crewMessage)).firstMatch
         XCTAssertTrue(message.waitForExistence(timeout: 6), "the crew message arrives")
         XCTAssertFalse(element(app, "crewcue.chat-attach").exists, "no photo picker in the replay")
-        XCTAssertFalse(app.textFields["Message"].exists, "no send control in the replay")
+        XCTAssertFalse(element(app, "crewcue.chat-message").exists, "no message field in the replay")
+        XCTAssertFalse(element(app, "crewcue.chat-send").exists, "no send button in the replay")
 
         // Played to the end (25 s): the paywall follows.
         XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 10), "the replay ends on the paywall")
+    }
+
+    func testBackFromAPaywallSkippedLateReplaysFromTheFirstBeat() {
+        let app = launch()
+        XCTAssertTrue(waitForCaption(app, following, timeout: 10))
+        XCTAssertTrue(waitForCaption(app, fallingBehind, timeout: 15), "second beat caption missing")
+        XCTAssertTrue(waitForCaption(app, "2 of 4", timeout: 2))
+
+        element(app, "crewcue.onboarding-race-preview.skip").tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 5), "Skip opens the paywall")
+        element(app, "crewcue.onboarding-paywall.back").tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 5), "Back returns to the replay")
+        XCTAssertTrue(waitForCaption(app, "1 of 4", timeout: 5), "Back replays from the first beat")
+        XCTAssertTrue(waitForCaption(app, following, timeout: 2))
+        XCTAssertTrue(element(app, "crewcue.map").exists, "the first beat is on the Map")
     }
 
     /// Empty, Error and Offline (no race saved) on the real screen: the checklist copy, and Skip.

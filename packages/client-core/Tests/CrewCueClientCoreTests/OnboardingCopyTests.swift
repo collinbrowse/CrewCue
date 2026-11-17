@@ -74,7 +74,9 @@ private func plain(_ text: String?) -> String? {
         OnboardingCopy.replayPause, OnboardingCopy.replayPlay, OnboardingCopy.replayEmpty,
         OnboardingCopy.replayError, OnboardingCopy.replayOffline,
         OnboardingCopy.paywallRunnerPlusOneTitle, OnboardingCopy.paywallFullCrewTitle, OnboardingCopy.paywallPitch,
-        OnboardingCopy.unpaidBanner, OnboardingCopy.courseSaveLimit, OnboardingCopy.startTimeDstGap
+        OnboardingCopy.unpaidBanner, OnboardingCopy.courseSaveLimit, OnboardingCopy.startTimeDstGap,
+        OnboardingCopy.replayMapTitle, OnboardingCopy.replayPaceTitle, OnboardingCopy.replayChatTitle,
+        OnboardingCopy.paywallBuyLabel(product: .racePass, price: BillingProduct.racePass.fallbackPrice)
     ]
     for step in OnboardingStep.allCases {
         all += [OnboardingCopy.title(for: step), OnboardingCopy.explanation(for: step)].compactMap { $0 }
@@ -137,6 +139,29 @@ private func plain(_ text: String?) -> String? {
     #expect(copy["replayOffline"] as? String == OnboardingCopy.replayOffline)
     #expect(copy["replayPause"] as? String == OnboardingCopy.replayPause)
     #expect(copy["replayPlay"] as? String == OnboardingCopy.replayPlay)
+}
+
+@Test func paywallBuyLabelNamesTheProductAndItsPrice() {
+    #expect(OnboardingCopy.paywallBuyLabel(product: .racePass, price: "$14.99") == "Buy Race Pass, $14.99")
+    #expect(OnboardingCopy.paywallBuyLabel(product: .racePassFullCrew, price: "19,99 €") == "Buy Race Pass + Full Crew, 19,99 €")
+    // The store's localized price, not the fallback, when it has one.
+    #expect(OnboardingCopy.paywallBuyLabel(product: .racePass, price: "£12.99").hasSuffix("£12.99"))
+}
+
+@Test func replayStripTitlesAreTheTabBarNames() {
+    #expect([OnboardingCopy.replayMapTitle, OnboardingCopy.replayPaceTitle, OnboardingCopy.replayChatTitle] == ["Map", "Pace", "Chat"])
+}
+
+@Test func onboardingCopyRuntimeOpGivesAndroidTheBuyLabelAndStripTitles() async throws {
+    let copy = try await runtimeResult(["op": "onboardingCopy"])
+    let template = try #require(copy["paywallBuyLabelTemplate"] as? String)
+    let filled = template
+        .replacingOccurrences(of: "{product}", with: BillingProduct.racePassFullCrew.title)
+        .replacingOccurrences(of: "{price}", with: "$19.99")
+    #expect(filled == OnboardingCopy.paywallBuyLabel(product: .racePassFullCrew, price: "$19.99"))
+    #expect(copy["replayMapTitle"] as? String == OnboardingCopy.replayMapTitle)
+    #expect(copy["replayPaceTitle"] as? String == OnboardingCopy.replayPaceTitle)
+    #expect(copy["replayChatTitle"] as? String == OnboardingCopy.replayChatTitle)
 }
 
 @Test func paywallPricesAreTheBillingFallbacks() {

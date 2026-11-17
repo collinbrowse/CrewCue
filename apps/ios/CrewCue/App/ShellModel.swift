@@ -151,6 +151,27 @@ final class ShellModel {
             displayName: signedInDisplayName,
             race: onboarding.race(onboarding.state.roomId)
         )
+        syncRacePreview()
+    }
+
+    /// The replay follows the gate: another race on its step starts over, and leaving the step
+    /// any other way than Not now or a purchase (the race paid elsewhere, another race made
+    /// active) ends its flow, so the room saved for it goes too.
+    private func syncRacePreview() {
+        switch onboarding.entry {
+        case .racePreview:
+            if let source = racePreviewSource {
+                racePreview.follow(source)
+            }
+        case .runnerSetup, .loading:
+            // Before the replay step, or the race list isn't known yet: nothing is decided.
+            break
+        default:
+            // Signed out, `clear()` already ran. A tab bar shown only because the list is unknown
+            // decides nothing either.
+            guard isSignedIn, onboarding.state.flow != .loading else { return }
+            racePreview.leave()
+        }
     }
 
     /// The runner left the paywall that ends the replay (Not now): the race stays unpaid behind
@@ -196,6 +217,10 @@ final class ShellModel {
         }
         runnerSetup.onServerStepSaved = { [weak self] in
             await self?.loadRaces()
+        }
+        runnerSetup.onRoomLoaded = { [weak self] roomId, data in
+            guard let self, let userId = signedInUserId else { return }
+            racePreview.seed(roomData: data, userId: userId, roomId: roomId)
         }
         runnerSetup.onMark = { [weak self] step, outcome, roomId in
             self?.onboarding.mark(step, outcome: outcome, roomId: roomId)

@@ -66,12 +66,12 @@ final class RacePreviewModel {
 
         var id: String { rawValue }
 
-        /// The tab bar's own names.
-        var tab: ShellTab {
+        /// The compact strip's title: the tab bar's own names, from client-core.
+        var title: String {
             switch self {
-            case .map: .map
-            case .pace: .pace
-            case .chat: .chat
+            case .map: OnboardingCopy.replayMapTitle
+            case .pace: OnboardingCopy.replayPaceTitle
+            case .chat: OnboardingCopy.replayChatTitle
             }
         }
     }
@@ -110,13 +110,18 @@ final class RacePreviewModel {
     private let client: AppClient
     /// The room body, read once per source. Back from the paywall replays it without a new read.
     private var roomData: Data?
+    /// The room body runner setup's teaser just read (`seed`): the replay right after setup plays
+    /// from it, online or not.
+    private var seeded: (userId: String, roomId: String, data: Data)?
     private var session: DemoRaceSession?
     private var loop: Task<Void, Never>?
     private var starting: Task<Void, Never>?
     private var pendingCleanup: Task<Void, Never>?
     private var generation = 0
     private var sceneActive = true
-    private var viewVisible = false
+    /// The views on screen. A late disappearance from an old one (a rebuilt window, a second
+    /// window) leaves the replay playing while another still shows it.
+    private var audience = DemoRaceAudience()
 
     init(client: AppClient) {
         self.client = client
@@ -129,9 +134,9 @@ final class RacePreviewModel {
     /// The flow is on screen for `source`. The same source carries on where it was (the paywall
     /// stays, a playing replay keeps its moment); another source starts over.
     func show(_ source: RacePreviewSource) {
-        viewAppeared()
         if source.key != self.source?.key {
-            reset()
+            // Another race (or the dev fixture): the last one's saved room goes with its flow.
+            reset(removingSaved: true)
             self.source = source
         } else if stage == .paywall || session != nil || starting != nil {
             return
@@ -139,17 +144,18 @@ final class RacePreviewModel {
         begin()
     }
 
+    /// A view showed the flow: it plays, and a pending cleanup is called off.
     func viewAppeared() {
+        audience.appeared()
         pendingCleanup?.cancel()
         pendingCleanup = nil
-        guard !viewVisible else { return }
-        viewVisible = true
         applyPlayback()
     }
 
-    /// Paused at once; the replay ends if the view doesn't come back within the grace period.
+    /// A view went away. Only when it was the last one: paused at once, and the replay ends if no
+    /// view comes back within the grace period.
     func viewDisappeared() {
-        viewVisible = false
+        guard audience.disappeared() else { return }
         applyPlayback()
         pendingCleanup?.cancel()
         pendingCleanup = Task { [weak self] in
@@ -186,18 +192,53 @@ final class RacePreviewModel {
         begin()
     }
 
-    /// The flow is over (Not now, a purchase, or leaving the dev route): the next race starts fresh.
+    /// The flow is over (Not now, a purchase, or leaving the dev route): the next race starts
+    /// fresh, and the room saved for it goes.
     func finish() {
-        if case .race(let userId, let roomId, _) = source,
-           let directory = try? AppDirectories.roomDirectory(userId: userId, roomId: roomId) {
-            try? FileManager.default.removeItem(at: directory.appendingPathComponent(Self.savedRoomFileName))
-        }
-        reset()
+        reset(removingSaved: true)
+        removeSeed()
     }
 
     /// Sign-out. The user's directory is already wiped, so nothing here touches the disk.
     func clear() {
-        reset()
+        reset(removingSaved: false)
+        seeded = nil
+    }
+
+    /// Runner setup's teaser just read this race's room body (`GET /race-rooms/:roomId`). The
+    /// replay plays from it with no second read, and it's saved now, so the replay can play
+    /// offline right after setup.
+    func seed(roomData: Data, userId: String, roomId: String) {
+        if let old = seeded, old.userId != userId || old.roomId != roomId {
+            removeSavedRoom(userId: old.userId, roomId: old.roomId)
+        }
+        seeded = (userId, roomId, roomData)
+        if let url = savedRoomURL(userId: userId, roomId: roomId) {
+            try? roomData.write(to: url, options: .atomic)
+        }
+    }
+
+    /// The onboarding gate is on the replay step for `source`. A race other than the one this
+    /// model holds (the active race switched) ends that race's flow and deletes its saved room;
+    /// the view then starts `source` (`show`).
+    func follow(_ source: RacePreviewSource) {
+        guard case .race(let userId, let roomId, _) = source else { return }
+        if case .race = self.source, self.source?.key != source.key {
+            reset(removingSaved: true)
+        }
+        if let seeded, seeded.userId != userId || seeded.roomId != roomId {
+            removeSeed()
+        }
+    }
+
+    /// The gate left the replay step other than by Not now or a purchase here (the race paid
+    /// elsewhere, another race made active, no race): the flow is over and its saved room goes.
+    /// The dev route's fixture replay isn't the gate's, so it carries on.
+    func leave() {
+        if case .race = source {
+            reset(removingSaved: true)
+        }
+        removeSeed()
     }
 
     // MARK: Replay
@@ -272,6 +313,10 @@ final class RacePreviewModel {
     /// else offline the one saved on this phone.
     private func room(userId: String, roomId: String, ticket: Int) async -> Data? {
         if let roomData { return roomData }
+        if let seeded, seeded.userId == userId, seeded.roomId == roomId {
+            roomData = seeded.data
+            return seeded.data
+        }
         do {
             let data = try await RaceDayAPI.loadRoomData(graph: client.graph, roomId: roomId)
             guard ticket == generation else { return nil }
@@ -295,6 +340,18 @@ final class RacePreviewModel {
 
     private func savedRoomURL(userId: String, roomId: String) -> URL? {
         (try? AppDirectories.roomDirectory(userId: userId, roomId: roomId))?.appendingPathComponent(Self.savedRoomFileName)
+    }
+
+    private func removeSavedRoom(userId: String, roomId: String) {
+        guard let url = savedRoomURL(userId: userId, roomId: roomId) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Drops the teaser's room body and the copy saved from it.
+    private func removeSeed() {
+        guard let seeded else { return }
+        self.seeded = nil
+        removeSavedRoom(userId: seeded.userId, roomId: seeded.roomId)
     }
 
     /// Ticks the player to the end, refreshing the Map model at every step (instead of its 30 s
@@ -329,7 +386,7 @@ final class RacePreviewModel {
     /// Plays unless the person paused, the app is in the background, or the view is away.
     private func applyPlayback() {
         guard let player = session?.player, status == .playing else { return }
-        let snapshot = pausedByUser || !sceneActive || !viewVisible ? player.pause() : player.play()
+        let snapshot = pausedByUser || !sceneActive || !audience.isWatched ? player.pause() : player.play()
         isPlaying = snapshot.isPlaying
     }
 
@@ -361,7 +418,12 @@ final class RacePreviewModel {
         }
     }
 
-    private func reset() {
+    /// Back to nothing shown. `removingSaved`: this source's room saved on the phone goes too
+    /// (its flow is over); sign-out passes false, the user's directory being wiped already.
+    private func reset(removingSaved: Bool) {
+        if removingSaved, case .race(let userId, let roomId, _) = source {
+            removeSavedRoom(userId: userId, roomId: roomId)
+        }
         endSession()
         stage = .replay
         status = .loading

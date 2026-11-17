@@ -364,6 +364,7 @@ struct ChatComposer: View {
                     .lineLimit(1...4)
                     .padding(.vertical, 12)
                     .accessibilityLabel("Message")
+                    .accessibilityIdentifier("crewcue.chat-message")
                 Button {
                     Task { await onSend() }
                 } label: {
@@ -377,6 +378,7 @@ struct ChatComposer: View {
                 .disabled(cannotSend)
                 .opacity(cannotSend ? 0.45 : 1)
                 .accessibilityLabel("Send")
+                .accessibilityIdentifier("crewcue.chat-send")
             }
             .padding(6)
             .crewGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
