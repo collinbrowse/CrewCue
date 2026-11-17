@@ -41,6 +41,10 @@ final class ShellModel {
     let billingModel: BillingPurchaseModel
     /// Full Crew upgrade on Room members (#649).
     let upgradeModel: CrewUpgradeModel
+    /// Which flow the entry shows: chooser, runner setup, paywall, join, or the tab bar.
+    let onboarding: OnboardingModel
+    /// Runner setup, phase 1.
+    let runnerSetup: RunnerSetupModel
 
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
@@ -57,6 +61,11 @@ final class ShellModel {
     private var didRegisterSessionWipe = false
 
     var isSignedIn: Bool { signedInUserId != nil }
+
+    /// The person's races other than the active one: the way out of setup opens one of them.
+    var otherRaces: [RaceSummary] {
+        roster.races.filter { $0.id != signedInRoomId }
+    }
 
     init(
         client: AppClient,
@@ -87,6 +96,12 @@ final class ShellModel {
         self.pushModel = PushRegistrationModel(client: client)
         self.billingModel = BillingPurchaseModel(client: client, purchaser: purchaser)
         self.upgradeModel = CrewUpgradeModel(client: client, purchaser: purchaser)
+        self.onboarding = OnboardingModel(
+            store: try? AppDirectories.onboardingStore(),
+            clock: client.graph.clock,
+            logger: client.graph.logger
+        )
+        self.runnerSetup = RunnerSetupModel(client: client, activityImport: activityImportModel, auth: authModel)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -101,6 +116,75 @@ final class ShellModel {
         }
         PushRouter.shared.handler = { [weak self] roomId in
             self?.openChat(roomId: roomId)
+        }
+        bindRunnerSetup()
+        syncOnboarding()
+    }
+
+    // MARK: Onboarding
+
+    /// The active race is the runner's own and not unlocked: Map, Pace and Chat show "Unlock race",
+    /// and tracking and chat send open the paywall instead of failing.
+    var isUnpaidRunnerRace: Bool {
+        isSignedIn && onboarding.isUnpaidRunnerRace(signedInRoomId)
+    }
+
+    /// The banner Map, Pace and Chat show, if any.
+    var raceAccess: RaceAccess? {
+        if isUnpaidRunnerRace { return .unlock }
+        if onboarding.state.flow == .raceLocked, let reason = onboarding.state.reason {
+            return .locked(reason: reason)
+        }
+        return nil
+    }
+
+    /// Re-reads the onboarding state. `races` is the race list when one just answered.
+    func syncOnboarding(races: [OnboardingRace]? = nil) {
+        onboarding.refresh(signedIn: isSignedIn, userId: signedInUserId, races: races, activeRoomId: signedInRoomId)
+        runnerSetup.follow(
+            state: onboarding.state,
+            signedIn: isSignedIn,
+            userId: signedInUserId,
+            displayName: signedInDisplayName,
+            race: onboarding.race(onboarding.state.roomId)
+        )
+    }
+
+    /// The runner left the paywall that follows the teaser: the race stays unpaid behind the
+    /// Unlock race banner, and the next launch opens the tab bar.
+    func leaveOnboardingPaywall() {
+        onboarding.mark(.preview, outcome: .skipped, roomId: onboarding.state.roomId)
+        syncOnboarding()
+    }
+
+    private func bindRunnerSetup() {
+        runnerSetup.onRaceCreated = { [weak self] roomId in
+            self?.noteJoined(roomId: roomId, role: "athlete")
+        }
+        runnerSetup.onServerStepSaved = { [weak self] in
+            await self?.loadRaces()
+        }
+        runnerSetup.onMark = { [weak self] step, outcome, roomId in
+            self?.onboarding.mark(step, outcome: outcome, roomId: roomId)
+            self?.syncOnboarding()
+        }
+        runnerSetup.onDisplayName = { [weak self] name in
+            self?.updateDisplayName(name)
+        }
+        runnerSetup.onSignUp = { [weak self] in
+            self?.authModel.signingUp = true
+            self?.authModel.signIn()
+        }
+        runnerSetup.onSignIn = { [weak self] in
+            self?.authModel.signingUp = false
+            self?.authModel.signIn()
+        }
+        runnerSetup.onPaywall = { [weak self] in
+            self?.showBilling()
+        }
+        runnerSetup.onBack = { [weak self] in
+            self?.onboarding.clearChoice()
+            self?.syncOnboarding()
         }
     }
 
@@ -223,6 +307,7 @@ final class ShellModel {
             athleteModel.displayName = name
         }
         roster = RaceRoster(activeRoomId: session.roomId)
+        syncOnboarding()
         enterShellIfNeeded()
         Task { await loadRaces() }
         // Tokens rotate; re-register silently when notifications are already allowed.
@@ -244,7 +329,8 @@ final class ShellModel {
         racesLoading = true
         defer { if ticket == racesGeneration { racesLoading = false } }
         do {
-            let races = try await RaceDayAPI.myRaces(graph: client.graph, userId: userId)
+            let rooms = try await RaceDayAPI.myRaceRooms(graph: client.graph)
+            let races = rooms.map { RaceSummary(room: $0, userId: userId) }
             guard ticket == racesGeneration, signedInUserId == userId else { return }
             let next = RaceRoster.reconciled(races: races, preferred: signedInRoomId)
             roster = next
@@ -262,9 +348,12 @@ final class ShellModel {
             } else if signedInRoomId != nil {
                 clearActiveRoom()
             }
+            syncOnboarding(races: rooms.map { OnboardingRace(room: $0, userId: userId) })
         } catch {
             guard ticket == racesGeneration else { return }
             racesMessage = APIFailure.isOffline(error) ? "Offline. Showing your last race." : "Couldn't load your races."
+            onboarding.noteRacesFailed()
+            syncOnboarding()
         }
     }
 
@@ -273,6 +362,7 @@ final class ShellModel {
         guard roomId != signedInRoomId, let race = roster.races.first(where: { $0.id == roomId }) else { return }
         roster.select(roomId)
         apply(race)
+        syncOnboarding()
     }
 
     private func apply(_ race: RaceSummary) {
@@ -310,6 +400,7 @@ final class ShellModel {
             persist(session)
         }
         roster.adopt(RaceSummary(id: roomId, name: roster.races.first { $0.id == roomId }?.name ?? "New race", role: signedInRole ?? "crew_member"))
+        syncOnboarding()
         Task { await loadRaces() }
         // Join is a full-screen route. Return to Profile, where the joined race is now active.
         if route.featureId == "join-crew" {
@@ -349,6 +440,9 @@ final class ShellModel {
     }
 
     func signOut() {
+        // The account signing out. Its directory is checked once every model below has let go of it.
+        let signedOutUserId = signedInUserId ?? client.graph.session?.session?.userId
+        defer { verifyUserDataWiped(userId: signedOutUserId) }
         do {
             try client.graph.session?.signOut()
         } catch {
@@ -378,6 +472,8 @@ final class ShellModel {
         pushModel.clear()
         billingModel.clear()
         upgradeModel.clear()
+        runnerSetup.clear()
+        syncOnboarding()
         showsSettings = false
         settingsFocus = nil
         fixtureOverlay = false
@@ -387,6 +483,23 @@ final class ShellModel {
         route = Route(featureId: "app-shell", state: .success)
         screen = client.graph.featureScreen(for: route)
         path = []
+    }
+
+    /// Nothing outlives the account. Every model above has let go of the user by now; the
+    /// signed-out user's directory still on disk means one of them wrote after the wipe, so it is
+    /// logged and wiped. Only that one directory: never the storage root, another account's
+    /// directory, or the onboarding folder beside the root, which outlives sign-out. It runs
+    /// synchronously inside `signOut()` on the main actor, so no new sign-in can come between.
+    private func verifyUserDataWiped(userId: String?) {
+        guard let userId = userId?.trimmingCharacters(in: .whitespacesAndNewlines), !userId.isEmpty,
+              let storage = try? AppDirectories.userStorage(),
+              let left = try? storage.userIds(), left.contains(userId) else { return }
+        client.graph.logger.log("user data outlived sign-out")
+        do {
+            try storage.wipe(userId: userId)
+        } catch {
+            client.graph.logger.log("user data wipe after sign-out failed")
+        }
     }
 
     private func selectTab(_ tab: ShellTab) {

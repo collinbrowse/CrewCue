@@ -7,6 +7,46 @@ public enum OnboardingCopy {
 
     public static let chooserRunner = "I'm running a race"
     public static let chooserCrew = "I'm crewing for someone"
+    public static let chooserTitle = "How will you use CrewCue?"
+    public static let chooserRunnerDetail = "Set up your course and start time, then share your race with your crew."
+    public static let chooserCrewDetail = "Join your runner's race with the link or code they sent you."
+    public static let chooserSignIn = "I already have an account"
+
+    // MARK: Setup controls
+
+    public static let createAccount = "Create account"
+    public static let signIn = "Sign in"
+    public static let displayName = "Display name"
+    public static let continueLabel = "Continue"
+    public static let chooseCourseFile = "Choose course file"
+    public static let chooseAnotherCourseFile = "Choose another file"
+    public static let startLabel = "Start"
+    public static let timeZoneLabel = "Time zone"
+    public static let timeZoneSearch = "Search time zones"
+    public static let importPastRun = "Import a past run"
+    public static let skipHistory = "Skip for a rough estimate"
+    public static let finishLabel = "Estimated finish"
+    public static let coursePreviewLabel = "Course preview"
+    public static let elevationProfileLabel = "Elevation profile"
+    public static let loading = "Loading"
+    public static let back = "Back"
+    /// A step whose load failed (the teaser, a course preview): load it again.
+    public static let tryAgain = "Try again"
+    /// The way out of setup once a race exists: sign out, or open another of the person's races.
+    public static let accountMenu = "Account"
+    public static let signOut = "Sign out"
+    public static let switchRace = "Switch race"
+    /// Leaves the paywall for the tab bar; the race stays unpaid behind an Unlock race banner.
+    public static let paywallNotNow = "Not now"
+    /// A locked aid station row on an unpaid race, and what it means.
+    public static let lockedAidRow = "Locked"
+    public static let lockedAidExplanation = "Aid station times stay locked until you unlock the race."
+
+    /// "31.1 mi · 6 checkpoints" for the course preview.
+    public static func courseSummary(lengthMeters: Double, checkpoints: Int) -> String {
+        let miles = lengthMeters.isFinite && lengthMeters > 0 ? PortableFormat.oneDecimal(lengthMeters / 1609.344) : "0.0"
+        return "\(miles) mi · \(checkpoints) \(checkpoints == 1 ? "checkpoint" : "checkpoints")"
+    }
 
     // MARK: Steps
 
@@ -108,6 +148,16 @@ public enum OnboardingCopy {
         for beat in DemoRaceBeat.allCases { captions[beat.rawValue] = replayCaption(beat) }
         return [
             "chooserRunner": chooserRunner, "chooserCrew": chooserCrew,
+            "chooserTitle": chooserTitle, "chooserRunnerDetail": chooserRunnerDetail,
+            "chooserCrewDetail": chooserCrewDetail, "chooserSignIn": chooserSignIn,
+            "createAccount": createAccount, "signIn": signIn, "displayName": displayName,
+            "continueLabel": continueLabel, "chooseCourseFile": chooseCourseFile,
+            "chooseAnotherCourseFile": chooseAnotherCourseFile, "startLabel": startLabel,
+            "timeZoneLabel": timeZoneLabel, "timeZoneSearch": timeZoneSearch,
+            "importPastRun": importPastRun, "skipHistory": skipHistory, "finishLabel": finishLabel,
+            "coursePreviewLabel": coursePreviewLabel, "elevationProfileLabel": elevationProfileLabel,
+            "loading": loading, "back": back, "tryAgain": tryAgain, "accountMenu": accountMenu,
+            "signOut": signOut, "switchRace": switchRace, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
             "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
             "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
             "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,

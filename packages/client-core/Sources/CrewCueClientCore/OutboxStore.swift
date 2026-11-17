@@ -87,6 +87,11 @@ public actor OutboxStore: UserDataStore {
     public nonisolated let courseUploads = CourseUploadGate()
     private nonisolated let file: OutboxFile
     private var inFlight: Set<String> = []
+    /// Course uploads the server throttled (429). The server counts unpaid course saves per user
+    /// across all their races, and this store is one user's, so one backoff holds every queued
+    /// upload, whatever its room: none is sent again before `until`. Memory only, like
+    /// `inFlight`: a relaunch tries once more.
+    private var courseUploadBackoff: (until: Date, failures: Int)?
     /// `maxPendingPingsPerRoom`, smaller in tests.
     private let pendingPingCap: Int
 
@@ -409,12 +414,23 @@ public actor OutboxStore: UserDataStore {
     /// With `pingBatch`, a room's pending pings go out oldest first in batches of up to
     /// `maxPingsPerBatch`, and each sample settles from its own result. The closure returns one
     /// resolution per sample, in order; a whole-request failure repeats the same one for all.
+    ///
+    /// A queued course upload the server answered 429 waits out
+    /// `OutboxPolicy.courseUploadBackoffSeconds` (counted from `now`) and stays pending meanwhile,
+    /// so frequent flushes (chat, tracking) don't resend it into the limit. The limit is the
+    /// user's, so every other race's queued course upload waits too, from the same flush on.
     public func flush(
         _ sender: @Sendable (StoredOperation) async -> OutboxFailureResolution,
-        pingBatch: (@Sendable (_ roomId: String, _ pings: [StoredOperation]) async -> [OutboxFailureResolution])? = nil
+        pingBatch: (@Sendable (_ roomId: String, _ pings: [StoredOperation]) async -> [OutboxFailureResolution])? = nil,
+        now: Date = Date()
     ) async throws -> FlushReport {
         var report = FlushReport()
         let all = try load()
+        let backingOff = Set(all.filter { operation in
+            operation.type == "gpx" && operation.status == "pending" && !inFlight.contains(operation.id)
+                && courseUploadsBackingOff(now)
+        }.map(\.id))
+        report.pending.append(contentsOf: all.filter { backingOff.contains($0.id) }.map(\.id))
         // The server drops any sample at or before the room's last accepted one. While another
         // flush is still sending a room's older samples, a newer one sent here could land first
         // and turn that whole backlog stale, so it waits for the next flush.
@@ -424,7 +440,8 @@ public actor OutboxStore: UserDataStore {
         }
         report.pending.append(contentsOf: waiting.map(\.id))
         let pending = all.filter {
-            $0.status == "pending" && !inFlight.contains($0.id) && !($0.type == "ping" && busyPingRooms.contains($0.roomId))
+            $0.status == "pending" && !inFlight.contains($0.id) && !backingOff.contains($0.id)
+                && !($0.type == "ping" && busyPingRooms.contains($0.roomId))
         }
         let snapshot = pending
         let ids = Set(snapshot.map(\.id))
@@ -456,6 +473,11 @@ public actor OutboxStore: UserDataStore {
                 }
             }
             for operation in snapshot where pingBatch == nil || operation.type != "ping" {
+                if operation.type == "gpx", courseUploadsBackingOff(now) {
+                    // Another race's upload was just throttled: this one would count against the same limit.
+                    report.pending.append(operation.id)
+                    continue
+                }
                 let resolution: OutboxFailureResolution
                 if operation.type == "ping" && !PingPolicy.mayUpload(role: operation.role) {
                     resolution = OutboxFailureResolution(status: "dropped", retryable: false, feedback: "Only the athlete uploads location.")
@@ -466,12 +488,29 @@ public actor OutboxStore: UserDataStore {
                     report.sessionExpired = true
                     break
                 }
+                if operation.type == "gpx" {
+                    noteCourseUpload(resolution, now: now)
+                }
                 try settle(operation, resolution, into: &report)
             }
         } catch OutboxStoreError.closed {
             return report
         }
         return report
+    }
+
+    private func courseUploadsBackingOff(_ now: Date) -> Bool {
+        courseUploadBackoff.map { now < $0.until } ?? false
+    }
+
+    /// A 429 starts or lengthens the user's course upload backoff; any other answer ends it.
+    private func noteCourseUpload(_ resolution: OutboxFailureResolution, now: Date) {
+        guard resolution.throttled else {
+            courseUploadBackoff = nil
+            return
+        }
+        let failures = (courseUploadBackoff?.failures ?? 0) + 1
+        courseUploadBackoff = (now.addingTimeInterval(OutboxPolicy.courseUploadBackoffSeconds(failures: failures)), failures)
     }
 
     private func settle(_ operation: StoredOperation, _ resolution: OutboxFailureResolution, into report: inout FlushReport) throws {

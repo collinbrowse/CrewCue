@@ -8,6 +8,7 @@ struct BillingPurchaseView: View {
     var roomId: String?
     var onContinue: () -> Void = {}
     var onLeave: (() -> Void)?
+    var leaveLabel = "Back to Profile"
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -39,8 +40,9 @@ struct BillingPurchaseView: View {
                     )
                 }
                 if let onLeave {
-                    Button("Back to Profile", action: onLeave)
+                    Button(leaveLabel, action: onLeave)
                         .buttonStyle(.crewSecondary)
+                        .accessibilityIdentifier("crewcue.billing-purchase.leave")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
