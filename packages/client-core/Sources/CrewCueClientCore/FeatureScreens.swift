@@ -170,6 +170,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.billing-upgrade", title: "Full Crew", body: billingUpgradeBody(state))
         case "billing-redeem":
             return FeatureCopy(accessibilityIdentifier: "crewcue.billing-redeem", title: "Redeem code", body: billingRedeemBody(state))
+        case "onboarding-runner-setup":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-runner-setup", title: "Set up your race", body: onboardingRunnerSetupBody(state))
+        case "onboarding-race-preview":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-race-preview", title: "Race day preview", body: onboardingRacePreviewBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -500,5 +504,25 @@ private func billingRedeemBody(_ state: FeatureState) -> String {
     case .empty: "Have a code? Redeem it with the App Store or Google Play."
     case .error: "Couldn't open code redemption."
     case .offline: "Offline. Redeeming a code needs the network."
+    }
+}
+
+/// Copy for clients/behavior/onboarding-runner-setup.md.
+private func onboardingRunnerSetupBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: "Your finish time is ready. Aid station times unlock with your race."
+    case .empty: "Add your course file to start. Training history is optional."
+    case .error: "Couldn't save this step."
+    case .offline: "Offline. Setup needs the network. Your answers stay on this phone until you reconnect."
+    }
+}
+
+/// Copy for clients/behavior/onboarding-race-preview.md.
+private func onboardingRacePreviewBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: OnboardingCopy.replayCaption(.following)
+    case .empty: "Add your course to see the replay on your own route."
+    case .error: "Couldn't play the replay. Skip to unlock your race."
+    case .offline: "Offline. The replay plays from the race saved on this phone."
     }
 }

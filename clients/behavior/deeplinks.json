@@ -309,6 +309,24 @@
       "scope": "v1",
       "ios": "pass",
       "android": "pass"
+    },
+    {
+      "id": "onboarding-runner-setup",
+      "entry": "crewcue://dev/onboarding-runner-setup",
+      "label": "crewcue.onboarding-runner-setup",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
+      "id": "onboarding-race-preview",
+      "entry": "crewcue://dev/onboarding-race-preview",
+      "label": "crewcue.onboarding-race-preview",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "fail",
+      "android": "fail"
     }
   ]
 }
