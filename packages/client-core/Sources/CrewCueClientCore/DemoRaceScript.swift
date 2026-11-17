@@ -161,14 +161,8 @@ public enum DemoRaceBeat: String, CaseIterable, Sendable {
         (Self.allCases.firstIndex(of: self) ?? 0) + 1
     }
 
-    public var caption: String {
-        switch self {
-        case .following: "Each ping from your phone moves you on your crew's map and resets Last update."
-        case .fallingBehind: "You slow down, and your finish ETA moves later on every crew phone."
-        case .deadZone: "No signal. Crew see how long ago your last ping was, then your saved pings arrive together."
-        case .crewChat: "Your crew can message you in the race chat."
-        }
-    }
+    /// One source for the replay captions: `OnboardingCopy`, so iOS and Android show the same text.
+    public var caption: String { OnboardingCopy.replayCaption(self) }
 }
 
 public struct DemoRacePing: Equatable, Sendable {
