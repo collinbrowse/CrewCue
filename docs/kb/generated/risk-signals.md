@@ -7,7 +7,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | --- | --- |
 | Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
-| Source files ≥ 800 lines | 8 |
+| Source files ≥ 800 lines | 9 |
 | In-process timers in the API | 2 |
 | API lib modules with no same-named test | 41 |
 | Native features not passing on both platforms | 15 |
@@ -25,7 +25,7 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2939](../../../services/api/src/routes/raceRooms.ts#L2939) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2946](../../../services/api/src/routes/raceRooms.ts#L2946) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -40,14 +40,15 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5369 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5376 |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1892 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1232 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1048 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 881 |
+| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 878 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
-| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 871 |
+| [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
 ## In-process timers (API)
 
@@ -123,7 +124,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 | `tracking-reminder` | v1 | fail | fail |
-| `onboarding-runner-setup` | v1 | fail | fail |
+| `onboarding-runner-setup` | v1 | pass | fail |
 | `onboarding-race-preview` | v1 | fail | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.

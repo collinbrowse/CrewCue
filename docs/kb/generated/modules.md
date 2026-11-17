@@ -44,7 +44,7 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5369 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 15 | 5376 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 14 | 1048 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -155,11 +155,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/Logging.swift](../../../packages/client-core/Sources/CrewCueClientCore/Logging.swift) | `Logger` |
 | [packages/client-core/Sources/CrewCueClientCore/Onboarding.swift](../../../packages/client-core/Sources/CrewCueClientCore/Onboarding.swift) | `OnboardingStep`, `OnboardingOutcome`, `OnboardingChoice`, `OnboardingError`, `OnboardingRace`, `OnboardingInput`, `OnboardingStepStatus`, `OnboardingState`, `Onboarding` |
 | [packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingCopy.swift) | `OnboardingCopy` |
+| [packages/client-core/Sources/CrewCueClientCore/OnboardingSetup.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingSetup.swift) | `CourseRoutePoint`, `CoursePreview`, `Geodesy`, `OnboardingTeaser`, `OnboardingSetupFailure` |
 | [packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OnboardingStore.swift) | `OnboardingProgress`, `OnboardingStore`, `OnboardingRead`, `OnboardingFileLock` |
 | [packages/client-core/Sources/CrewCueClientCore/Outbox.swift](../../../packages/client-core/Sources/CrewCueClientCore/Outbox.swift) | `OutboxOperation`, `OutboxFailureResolution`, `ClientHTTPError`, `OutboxPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | `StoredOperation`, `CheckInEnqueue`, `PingEnqueue`, `FlushReport`, `OutboxStoreError`, `OutboxStore`, `PingPolicy`, `OutboxFile`, `SharedOutboxStores` |
 | [packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift](../../../packages/client-core/Sources/CrewCueClientCore/PendingJoin.swift) | `PendingJoin`, `PendingJoinError`, `PendingJoinOutcome`, `PendingJoinStore` |
-| [packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift](../../../packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift) | `PlanTrigger`, `PlanAuthorityError`, `PlanOfRecord` |
+| [packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift](../../../packages/client-core/Sources/CrewCueClientCore/PlanOfRecord.swift) | `PlanTrigger`, `PlanAuthorityError`, `PlanOfRecord`, `HistoryComparison` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift) | `PortableFormat`, `JSONNumber` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift) | `PortableSHA256` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | `JoinPreviewEnvelope`, `RoomEnvelope`, `AttachEnvelope`, `IncidentEnvelope`, `IncidentListEnvelope`, `StravaStart`, `StravaConnection`, `ChatPreference`, `TransportFailure`, `ScheduleLoadResult`, `ScheduleCache`, `EstimateCache` +3 |
@@ -183,39 +184,40 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-99 files under `packages/client-core/Sources/`.
+100 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 49 | 11297 |
+| `CrewCueClientCore` | 50 | 11723 |
 | `CrewCueClientCore/Generated` | 50 | 978 |
 
 ### iOS app (SwiftUI)
 
-58 files under `apps/ios/CrewCue/`.
+65 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `.` | 3 | 93 |
-| `App` | 13 | 1371 |
+| `.` | 3 | 95 |
+| `App` | 13 | 1484 |
 | `Brand` | 1 | 184 |
-| `Design` | 2 | 675 |
+| `Design` | 2 | 685 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 2 | 135 |
+| `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
-| `Screens/Auth` | 2 | 175 |
-| `Screens/Billing` | 2 | 455 |
+| `Screens/Auth` | 2 | 182 |
+| `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 909 |
+| `Screens/Chat` | 4 | 929 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1787 |
+| `Screens/Map` | 4 | 1831 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Pace` | 2 | 1745 |
+| `Screens/Onboarding` | 7 | 1789 |
+| `Screens/Pace` | 2 | 1759 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 499 |
+| `Screens/Shell` | 4 | 624 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
