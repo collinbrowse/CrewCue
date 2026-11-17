@@ -423,3 +423,44 @@ test("a backlog upload that waited for the room lock is projected on the course 
     await app.close();
   }
 });
+
+test("a crew_member's course-detail edit keeps the runner's pings; map-workspace replace is refused", async () => {
+  const app = buildApp();
+  await app.ready();
+  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  const crewToken = app.jwt.sign(buildClaims("crew-user"));
+  const roomId = await createPaidActiveRoom(app, ownerToken);
+  await addCrewMember(app, roomId, ownerToken, crewToken);
+  const crewAuth = { authorization: `Bearer ${crewToken}` };
+
+  const points = backlog(10, 10 * 60 * 1000);
+  const posted = await postBatch(app, roomId, ownerToken, { points, uploadIntervalSeconds: 180 });
+  assert.equal(posted.statusCode, 200);
+  const latestUrl = `/race-rooms/${roomId}/pings/latest`;
+  const lastPing = points[points.length - 1]!.recordedAt;
+
+  const edit = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${roomId}/checkpoints/cp1`,
+    payload: { tags: ["aid"] },
+    headers: crewAuth
+  });
+  assert.equal(edit.statusCode, 200, edit.body);
+
+  const workspaceRead = await app.inject({ method: "GET", url: `/race-rooms/${roomId}/map-workspace`, headers: crewAuth });
+  assert.equal(workspaceRead.statusCode, 200);
+  const replace = await app.inject({
+    method: "PUT",
+    url: `/race-rooms/${roomId}/map-workspace`,
+    payload: workspaceRead.json(),
+    headers: crewAuth
+  });
+  assert.equal(replace.statusCode, 403, replace.body);
+  assert.equal((replace.json() as { error: string }).error, "Insufficient permissions");
+
+  const latest = await app.inject({ method: "GET", url: latestUrl, headers: crewAuth });
+  assert.equal((latest.json() as { ping?: { recordedAt: string } }).ping?.recordedAt, lastPing);
+  const track = (await readTrack(app, roomId, crewToken)).json() as RaceRoomPingTrackResponse;
+  assert.equal(track.points.length, 10);
+  await app.close();
+});

@@ -264,6 +264,10 @@ test("EC3 unauthorized and wrong-role callers cannot mutate waypoints", async ()
     const headers = { authorization: `Bearer ${token}` };
     const putDenied = await put50kCourse(app, roomId, token, checkpoints);
     assert.equal(putDenied.statusCode, 403);
+    if (token === crewToken) {
+      // Replacing the whole course is race setup: a crew member may edit course details, not this.
+      continue;
+    }
     const patchDenied = await app.inject({
       method: "PATCH",
       url: `/race-rooms/${roomId}/checkpoints/aid-1`,
@@ -285,6 +289,29 @@ test("EC3 unauthorized and wrong-role callers cannot mutate waypoints", async ()
     });
     assert.equal(deleteDenied.statusCode, 403);
   }
+
+  // A crew member may edit course details: patch, add and delete a checkpoint.
+  const crewHeaders = { authorization: `Bearer ${crewToken}` };
+  const crewPatch = await app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${roomId}/checkpoints/aid-1`,
+    payload: patchBody,
+    headers: crewHeaders
+  });
+  assert.equal(crewPatch.statusCode, 200, crewPatch.body);
+  const crewPost = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/checkpoints`,
+    payload: postBody,
+    headers: crewHeaders
+  });
+  assert.equal(crewPost.statusCode, 201, crewPost.body);
+  const crewDelete = await app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${roomId}/checkpoints/aid-2`,
+    headers: crewHeaders
+  });
+  assert.equal(crewDelete.statusCode, 200, crewDelete.body);
 
   await app.close();
 });
