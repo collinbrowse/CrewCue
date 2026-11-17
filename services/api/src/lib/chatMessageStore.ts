@@ -259,6 +259,19 @@ export async function latestChatMessageSeq(roomId: string): Promise<number | und
   return seq ? Number(seq) : undefined;
 }
 
+/** The room's message photo keys, read without deleting anything (photos go before their rows). */
+export async function listChatPhotoKeysForRoom(roomId: string): Promise<string[]> {
+  if (!pool) {
+    return memoryMessages.flatMap((m) => (m.roomId === roomId && m.photoKey ? [m.photoKey] : []));
+  }
+  await initChatMessageStore();
+  const result = await pool.query<{ photo_key: string }>(
+    "SELECT photo_key FROM chat_messages WHERE room_id = $1 AND photo_key IS NOT NULL",
+    [roomId]
+  );
+  return result.rows.map((r) => r.photo_key);
+}
+
 /** Deletes every message in the room. Returns the deleted messages' photo keys. */
 export async function deleteChatMessagesForRoom(
   roomId: string

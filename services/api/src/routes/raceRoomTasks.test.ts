@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { deleteTaskBoardSnapshot } from "../lib/roomPersistence.js";
@@ -154,7 +155,8 @@ test("returns 403 when non-member tries to read task board", async () => {
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const strangerToken = app.jwt.sign(buildClaims("stranger-user"));
 
   const createResponse = await app.inject({
