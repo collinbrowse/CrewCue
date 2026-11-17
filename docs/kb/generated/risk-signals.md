@@ -10,7 +10,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Source files ≥ 800 lines | 8 |
 | In-process timers in the API | 1 |
 | API lib modules with no same-named test | 41 |
-| Native features not passing on both platforms | 12 |
+| Native features not passing on both platforms | 14 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -41,13 +41,13 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5334 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1866 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1892 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1232 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 872 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 871 |
-| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 856 |
 
 ## In-process timers (API)
 
@@ -121,6 +121,8 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-navigate` | v1 | fail | pass |
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
+| `onboarding-runner-setup` | v1 | fail | fail |
+| `onboarding-race-preview` | v1 | fail | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 
