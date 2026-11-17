@@ -79,6 +79,7 @@ import {
   listPersistedRaceRoomsByTeamId,
   listPersistedRaceRoomsForAthlete,
   listPersistedRaceRoomsForMember,
+  listPersistedRaceRoomsStartingBetween,
   isJoinCodeTakenInDb,
   listPersistedRoomsForRetention,
   loadRoomIdByJoinCode,
@@ -98,7 +99,14 @@ import {
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
-import { crewLimitError, isCrewMembership, isRunnerSeat, roomUnpaidError } from "../lib/billingEntitlement.js";
+import {
+  crewLimitError,
+  isCrewMembership,
+  isRoomPaid,
+  isRunnerSeat,
+  roomUnpaidError
+} from "../lib/billingEntitlement.js";
+import { forgetTrackingRemindersForRoom } from "../lib/trackingReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
@@ -1841,7 +1849,7 @@ export function evaluateEntitlement(
     entitlementStatus: room.entitlement.status
   };
 
-  if (room.entitlement.status === "paid") {
+  if (isRoomPaid(room)) {
     app.log.info({ entitlement: { ...decision, allowed: true } }, "entitlement_decision");
     return { allowed: true };
   }
@@ -1901,6 +1909,29 @@ export async function listRaceRoomsForRetention(): Promise<
   return listPersistedRoomsForRetention();
 }
 
+/**
+ * Rooms whose `raceStartAt` is after `fromMs` and at most `toMs`: the tracking reminder
+ * scheduler's candidates. Memory mode scans the in-process rooms. Postgres reads the stored rows,
+ * not this instance's cache, so every instance sees the same rooms (R1): an indexed text range
+ * on `raceStartAt`, a minute wider on each side, then the parsed time decides.
+ */
+export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number): Promise<RaceRoom[]> {
+  const startsInRange = (room: RaceRoom) => {
+    const startMs = Date.parse(room.raceStartAt ?? "");
+    return Number.isFinite(startMs) && startMs > fromMs && startMs <= toMs;
+  };
+  if (!isRoomPersistenceEnabled()) {
+    return [...raceRooms.values()].filter(startsInRange);
+  }
+  // Stored starts are ISO-8601 UTC (`z.iso.datetime()`), which sort by time to the second; the
+  // fractional part can differ, so the prefilter is widened and the parse is exact.
+  const persisted = await listPersistedRaceRoomsStartingBetween(
+    new Date(fromMs - 60_000).toISOString(),
+    new Date(toMs + 60_000).toISOString()
+  );
+  return persisted.filter(startsInRange);
+}
+
 /** Account deletion: every room the user is on, plus rooms where they are the runner. */
 export async function listRaceRoomsForAccount(userId: string): Promise<RaceRoom[]> {
   const byId = new Map<string, RaceRoom>();
@@ -1934,6 +1965,8 @@ export async function deleteRaceRoomForAccountDeletion(roomId: string): Promise<
   await discardWs4RoomState(roomId);
   const { discardWs5RoomState } = await import("./ws5SyncRoutes.js");
   await discardWs5RoomState(roomId);
+  // Postgres reminder claims went with the room row (ON DELETE CASCADE); this drops memory mode's.
+  forgetTrackingRemindersForRoom(roomId);
   roomPingState.delete(roomId);
   roomProjectionState.delete(roomId);
 }

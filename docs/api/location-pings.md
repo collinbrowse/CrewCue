@@ -82,6 +82,25 @@ The latest **accepted** ping for the room. Crew phones drive race progress (mile
 
 Rejected pings never replace `ping`.
 
+## Tracking reminders (push)
+
+When the runner hasn't started tracking, the API pushes them a reminder 45 minutes before `raceStartAt` and another 5 minutes before ([trackingReminderScheduler.ts](../../services/api/src/lib/trackingReminderScheduler.ts), started in `server.ts`, stopped on `app.close()`).
+
+| Rule | Value |
+| --- | --- |
+| Tick | every 60 s, rooms whose start is in the next 45 minutes (Postgres: an indexed range on `payload->>'raceStartAt'`) |
+| Windows | `t45` while now is in [start − 45 min, start − 40 min); `t5` in [start − 5 min, start). A tick outside a window never sends it: an API down through T-45 skips `t45` and still sends `t5`. Nothing after the start. |
+| Who | the runner (`athleteId`) only, every device registered with `POST /chat/push/tokens`, and only while they are on the room's roster (a runner who hasn't joined can't send pings, and the room's creator sets `athleteId`). Crew never get it. |
+| Paid | `entitlement.status` `paid` only; `unpaid` and `expired` get nothing. The room must be `active` (pings to any other room are refused). |
+| Tracking | an accepted ping recorded at or after start − 60 min suppresses the reminder. Pre-start (test) pings count; they are accepted and stored, only kept out of the projection. |
+| Once | an instance inserts a claim row in `tracking_reminders_sent` (key: room, slot, race start) before sending and sends only if its insert won; memory mode keeps the key in process. A crash between the claim and the send skips that reminder, never sends it twice. A runner with no device is not claimed, so a device registered later in the window still gets it. |
+| Start moved | the start is in the key, so both reminders re-arm for the new start. |
+| Cleanup | claim rows go with the room (`ON DELETE CASCADE`); rows older than 3 days are deleted hourly. |
+
+The push goes through the chat push path (`dispatchChatPush`) with `type: "tracking"` and `roomId`. Title `Start tracking`; body `Your race starts in 45 minutes. Start tracking so your crew can follow you.` (or 5 minutes). The minutes are the whole minutes left when it is sent, rounded up; never a clock time.
+
+Logs: `tracking_reminder_sent` (`roomId`, `slot`, `delivered`, `attempts`, `failures`; never tokens), `tracking_reminder_pass` when a tick had rooms in a window, warnings `tracking_reminder_dispatch_failed`, `tracking_reminder_check_failed`, `tracking_reminder_pass_failed`.
+
 ## Logging
 
 Accepted and rejected ingest paths emit structured log lines with message **`ping_decision`** and payload `ping_decision: { roomId, actor, decision, reason?, pingId? }`.

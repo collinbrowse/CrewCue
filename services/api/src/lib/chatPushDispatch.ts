@@ -29,8 +29,11 @@ export type ChatPushDeliveryTarget = {
 };
 
 export type ChatPushDispatchInput = {
-  /** "chat" opens the room's thread on tap; "schedule" opens the race. */
-  kind?: "chat" | "schedule";
+  /**
+   * Sent as the payload's `type`. "chat" opens the room's thread on tap; "schedule" opens the race;
+   * "tracking" is the runner's start-tracking reminder (trackingReminderScheduler.ts).
+   */
+  kind?: "chat" | "schedule" | "tracking";
   roomId: string;
   messageId?: string;
   /** Notification title (race name). */

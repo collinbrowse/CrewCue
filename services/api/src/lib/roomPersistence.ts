@@ -98,6 +98,22 @@ const COURSE_HISTORY_DDL = `
   CREATE INDEX IF NOT EXISTS course_history_events_by_usage ON course_history_events (usage);
 `;
 
+/**
+ * Mirrors db/migrations/0020_tracking_reminders_sent.sql (see trackingReminderScheduler.ts).
+ * Runs after race_rooms_json exists: the claim rows reference it.
+ */
+const TRACKING_REMINDERS_DDL = `
+  CREATE TABLE IF NOT EXISTS tracking_reminders_sent (
+    room_id TEXT NOT NULL REFERENCES race_rooms_json (id) ON DELETE CASCADE,
+    slot TEXT NOT NULL CHECK (slot IN ('t45', 't5')),
+    race_start_at TIMESTAMPTZ NOT NULL,
+    sent_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (room_id, slot, race_start_at)
+  );
+  CREATE INDEX IF NOT EXISTS race_rooms_json_race_start_at
+    ON race_rooms_json ((payload->>'raceStartAt') COLLATE "C");
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -233,6 +249,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(ROOM_ATHLETE_PINGS_DDL);
     await client.query(FINISHED_EFFORTS_DDL);
     await client.query(COURSE_HISTORY_DDL);
+    await client.query(TRACKING_REMINDERS_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -256,7 +273,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "task_board_snapshots",
           "room_athlete_pings",
           "finished_efforts",
-          "course_history_events"
+          "course_history_events",
+          "tracking_reminders_sent"
         ]
       }
     },
@@ -374,6 +392,27 @@ export async function listPersistedRoomsForRetention(): Promise<
   return result.rows
     .filter((r) => typeof r.ends_at === "string" && r.ends_at.length > 0)
     .map((r) => ({ id: r.id, eventEndsAt: r.ends_at, status: r.status }));
+}
+
+/**
+ * Rooms whose stored `raceStartAt` string is after `fromIso` and at most `toIso`, compared as
+ * bytes (`COLLATE "C"`, the `race_rooms_json_race_start_at` index). A prefilter: ISO-8601 UTC
+ * strings sort by time to the second, so callers widen the range and check the parsed time.
+ */
+export async function listPersistedRaceRoomsStartingBetween(fromIso: string, toIso: string): Promise<RaceRoom[]> {
+  if (!pool) {
+    return [];
+  }
+  const result = await pool.query<{ payload: RaceRoom }>(
+    `
+      SELECT payload
+      FROM race_rooms_json
+      WHERE payload->>'raceStartAt' > $1::text COLLATE "C"
+        AND payload->>'raceStartAt' <= $2::text COLLATE "C"
+    `,
+    [fromIso, toIso]
+  );
+  return result.rows.map((r) => r.payload);
 }
 
 export async function isJoinCodeTakenInDb(joinCode: string): Promise<boolean> {

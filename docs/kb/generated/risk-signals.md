@@ -8,9 +8,9 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 9 |
-| In-process timers in the API | 1 |
+| In-process timers in the API | 2 |
 | API lib modules with no same-named test | 41 |
-| Native features not passing on both platforms | 14 |
+| Native features not passing on both platforms | 15 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -25,7 +25,7 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2911](../../../services/api/src/routes/raceRooms.ts#L2911) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2944](../../../services/api/src/routes/raceRooms.ts#L2944) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -40,11 +40,11 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5341 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5374 |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1892 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1232 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 975 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1014 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 881 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 878 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
@@ -57,6 +57,7 @@ Timers run per instance. With more than one API replica each one fires.
 | Kind | Source |
 | --- | --- |
 | `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
+| `setInterval` | [services/api/src/lib/trackingReminderScheduler.ts:419](../../../services/api/src/lib/trackingReminderScheduler.ts#L419) |
 
 ## API lib modules with no same-named test
 
@@ -122,6 +123,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-navigate` | v1 | fail | pass |
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
+| `tracking-reminder` | v1 | fail | fail |
 | `onboarding-runner-setup` | v1 | pass | fail |
 | `onboarding-race-preview` | v1 | fail | fail |
 

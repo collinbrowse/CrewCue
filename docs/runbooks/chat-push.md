@@ -7,7 +7,7 @@ Chat push goes straight from the API to APNs (iOS) and FCM (Android). See [ADR 0
 1. Each app registers its token with `POST /chat/push/tokens` (through the outbox): `deviceId` (stable per install), `platform`, `token`, and on iOS `apnsEnvironment` (`development` for debug builds, `production` for TestFlight and App Store).
 2. When a message is stored, the API pushes to every other room member whose preference allows it: `all`, or `mentions` when the text has `@TheirName`. `none` gets nothing. The sender never gets their own push.
 3. Title is the race name; body is `Sender: text` (140 characters at most) or `Sender sent a photo`. The payload carries `type: "chat"` and `roomId`; tapping it opens that room's chat.
-4. Check-in ETA alerts use the same path with `type: "schedule"`.
+4. Check-in ETA alerts use the same path with `type: "schedule"`. Tracking reminders (the runner only, 45 and 5 minutes before the start of a paid race when they aren't tracking yet) use it with `type: "tracking"`; rules in [location-pings.md](../api/location-pings.md#tracking-reminders-push). Neither app routes a `tracking` tap yet ([tracking-reminder.md](../../clients/behavior/tracking-reminder.md)).
 5. A 410/`BadDeviceToken`/`Unregistered` (APNs) or `UNREGISTERED`/404 (FCM) deletes that device row. 429 and 5xx retry twice with backoff.
 
 With nothing configured the API logs `chat_push_dispatch` and sends nothing.
@@ -47,6 +47,7 @@ Use Railway variable references to the bucket service. Without a bucket, product
 3. Tap it: the app opens that race's chat.
 4. Set alerts to `none` and send again: nothing arrives. Set `mentions`: only `@Name` messages arrive.
 5. API logs `chat_push_dispatched` with `delivered`, `failures` and `pruned` counts (never message text or tokens).
+6. Tracking reminder: set a paid race's start about 50 minutes out (`PATCH /race-rooms/:roomId/race-start`) and don't track. At T-45 the runner's phone shows "Start tracking / Your race starts in 45 minutes. …" and the API logs `tracking_reminder_sent`; a crew phone gets nothing. `SELECT slot, race_start_at, sent_at FROM tracking_reminders_sent WHERE room_id = '<id>'` shows one row per reminder sent. A sent reminder is never retried; to test again, move the start, which re-arms both for the new start.
 
 Simulators can't receive real APNs/FCM pushes from this path, so step 2–3 needs a real device.
 
