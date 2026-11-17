@@ -462,20 +462,36 @@ export function recomputeRaceProjection(params: {
   }
 
   if (previousPing !== null && previousPing !== undefined && intervalSeconds > 0) {
-    for (const cp of course.checkpoints) {
+    for (const [checkpointIndex, cp] of course.checkpoints.entries()) {
       const checkpointId = cp.id;
       const visits = visitStates[checkpointId] ?? [];
       const metadata = visitMeta[checkpointId] ?? [];
+      const checkpointDistanceMeters = cumAt[checkpointIndex] ?? 0;
+      // A checkpoint the course reaches again later (the way-back checkpoint at an out-and-back
+      // aid station, a loop finish at the start line) is inside the radius long before the runner
+      // gets there along the course. Its first visit waits until their progress is within reach.
+      const reachMeters = 2 * checkpointRadiusMeters(cp);
+      const reachedNow = progressMeters + reachMeters >= checkpointDistanceMeters;
+      const reachedBefore = prevProgress + reachMeters >= checkpointDistanceMeters;
       const prevInRadius = isPingInsideRadius(origin, previousPing, cp);
       const currInRadius = isPingInsideRadius(origin, ping, cp);
       let currentVisit = visits.length > 0 ? visits[visits.length - 1] : undefined;
 
-      if (!prevInRadius && currInRadius) {
+      if (!currentVisit && currInRadius && reachedNow && !(prevInRadius && reachedBefore)) {
+        currentVisit = {
+          arrivalRecordedAt: ping.recordedAt,
+          departureRecordedAt: null,
+          firstSlowedAt: null,
+          accumulatedStopSeconds: 0
+        };
+        visits.push(currentVisit);
+        metadata.push({
+          visitIndex: visits.length,
+          resolvedSource: "auto"
+        });
+      } else if (!prevInRadius && currInRadius) {
         let shouldPushVisit = false;
-        if (!currentVisit) {
-          shouldPushVisit = true;
-        } else if (currentVisit.departureRecordedAt) {
-          const checkpointDistanceMeters = cumAt[course.checkpoints.findIndex((x) => x.id === checkpointId)] ?? 0;
+        if (currentVisit?.departureRecordedAt) {
           const isBackwardReturn = progressMeters <= checkpointDistanceMeters + EPS_M;
           shouldPushVisit = isBackwardReturn;
         }
