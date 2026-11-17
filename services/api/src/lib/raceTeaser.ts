@@ -88,51 +88,42 @@ export function finishOnlyEstimate(estimate: PacingEstimate): PacingEstimate {
 }
 
 /**
- * Projection teaser: the finish ETA (`etaFinishPlanIso`, `etaFinishWindow`) and course-level
- * fields stay; `checkpointSplits` and `remainingCheckpointEtas` carry no checkpoint rows.
+ * Projection teaser: the finish ETA (`etaFinishPlanIso`) and course-level fields stay;
+ * `checkpointSplits` and `remainingCheckpointEtas` carry no checkpoint rows.
  *
- * `preRace`: no ping from the runner has been accepted, so the projection is the bootstrap, which
- * places the runner at the first listed checkpoint and anchors the finish on the first split.
- * The runner picks both by editing the course, and the finish from a mid-course stop is the finish
- * minus that stop's ETA. A pre-race teaser shows the finish from the start line instead
- * (`startLineFinishIso`), and no window, which is centred on the same origin.
+ * The finish is always the finish from the start line (`startLineFinishIso`), with no window,
+ * never the projection's own. The projection measures the finish from where it places the runner:
+ * the first listed checkpoint before any accepted ping (the bootstrap), the last ping after. The
+ * runner picks both, by editing the course or by where they ping from, and the finish from a
+ * mid-course point is the finish minus that point's ETA. The window is centred on the same origin.
  */
-export function teaserProjection(
-  projection: RaceRoomProjection,
-  room: RaceRoom,
-  options: { preRace?: boolean } = {}
-): RaceRoomProjection {
+export function teaserProjection(projection: RaceRoomProjection, room: RaceRoom): RaceRoomProjection {
   const shaped: RaceRoomProjection = {
     ...projection,
     checkpointSplits: [],
     ...(projection.remainingCheckpointEtas ? { remainingCheckpointEtas: [] } : {}),
-    locked: { checkpointIds: teaserCheckpointsOf(room).lockedCheckpointIds }
+    locked: { checkpointIds: teaserCheckpointsOf(room).lockedCheckpointIds },
+    etaFinishPlanIso: startLineFinishIso(projection, room)
   };
-  if (options.preRace) {
-    shaped.etaFinishPlanIso = startLineFinishIso(projection, room);
-    delete shaped.etaFinishWindow;
-  }
+  delete shaped.etaFinishWindow;
   return shaped;
 }
 
 /**
  * A projection as a route returns it to the runner: the teaser on an unpaid race (see
  * `teaserProjection`), else as is. The ping routes reply through this, so a ping to an unpaid
- * race (402 today) could never carry more than the teaser if that gate opened.
+ * race (402 today) could never carry more than the teaser if that gate opened: its finish does not
+ * move with the ping's position.
  */
-export function projectionForRoom(
-  projection: RaceRoomProjection,
-  room: RaceRoom,
-  options: { preRace?: boolean } = {}
-): RaceRoomProjection {
-  return isTeaserRoom(room) ? teaserProjection(projection, room, options) : projection;
+export function projectionForRoom(projection: RaceRoomProjection, room: RaceRoom): RaceRoomProjection {
+  return isTeaserRoom(room) ? teaserProjection(projection, room) : projection;
 }
 
 /**
- * The pre-race finish from the start line, as the projection computes it for a runner standing at
- * the start: the plan curve to the course length plus every planned stop, never earlier than when
- * the projection was taken; without a usable plan curve, planned pace over the course from then.
- * It reads only the course length, so no checkpoint edit moves it.
+ * The finish from the start line, as the projection computes it for a runner standing at the
+ * start: the plan curve to the course length plus every planned stop, never earlier than when the
+ * projection was taken; without a usable plan curve, planned pace over the course from then. It
+ * reads only the course length, so no checkpoint edit or ping position moves it.
  */
 function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): string {
   const recordedAtMs = Date.parse(projection.asOfRecordedAt);
@@ -163,9 +154,9 @@ function startLineFinishIso(projection: RaceRoomProjection, room: RaceRoom): str
 
 /**
  * Schedule teaser: the start and finish stops only. Build `sheet` from `teaserScheduleRoom(room)`
- * (the finish-only plan, the plan curve collapsed to its finish), so the two rows it keeps read
- * the finish ETA alone: a course re-saved so a priced stop is its first or last row would
- * otherwise carry that stop's ETA.
+ * (the finish-only plan, the finish at the course length, the plan curve collapsed to its finish),
+ * so the two rows it keeps read the finish ETA alone: a course re-saved so a priced stop is its
+ * first or last row would otherwise carry that stop's ETA.
  */
 export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): CrewScheduleSheet {
   const { startCheckpointId, finishCheckpointId, lockedCheckpointIds } = teaserCheckpointsOf(room);
@@ -178,17 +169,30 @@ export function teaserScheduleSheet(sheet: CrewScheduleSheet, room: RaceRoom): C
 }
 
 /**
- * The room an unpaid race's schedule is built from: `teaserRoom` (the finish-only plan), with the
- * plan curve collapsed to two points, 0 m at 0 s and `courseLengthMeters` at the curve's value
- * there, instead of dropped. With no plan attached, the start and finish rows then read the same
- * finish as the paid schedule and the teaser projection (not planned pace over the distance),
- * and nothing between them reads more than a straight line to that finish. The sheet never
- * carries the curve. Without a usable curve the room is `teaserRoom` as it is.
+ * The room an unpaid race's schedule is built from: `teaserRoom` (the finish-only plan), with
+ * the finish checkpoint placed at `courseLengthMeters` and the plan curve collapsed to two points,
+ * 0 m at 0 s and `courseLengthMeters` at the curve's value there, instead of dropped. The finish
+ * row then reads the race's finish at the course end (the attached plan's, else the curve's value
+ * there, as the teaser projection reads it), never a priced stop's ETA, also when the checkpoints
+ * stop short of the route's end. Nothing between the start and the finish reads more than a
+ * straight line to that finish. The sheet never carries the curve. Without a usable curve it is
+ * dropped, as in `teaserRoom`.
  */
 export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): RaceRoom {
   const shaped = teaserRoom(room);
+  if (!shaped.course || !(courseLengthMeters > 0)) {
+    return shaped;
+  }
+  const { finishCheckpointId } = teaserCheckpointsOf(room);
+  const checkpoints = shaped.course.checkpoints.map((checkpoint) => {
+    const distance = finiteDistance(checkpoint);
+    return checkpoint.id === finishCheckpointId && distance !== undefined && distance < courseLengthMeters
+      ? { ...checkpoint, distanceMetersFromStart: courseLengthMeters }
+      : checkpoint;
+  });
+  shaped.course = { ...shaped.course, checkpoints };
   const curve = room.course?.baselineTrack;
-  if (!shaped.course || !(courseLengthMeters > 0) || !hasUsableBaselineTrack(curve, courseLengthMeters)) {
+  if (!hasUsableBaselineTrack(curve, courseLengthMeters)) {
     return shaped;
   }
   const finishSeconds = plannedElapsedSecondsForDistance({
@@ -204,7 +208,7 @@ export function teaserScheduleRoom(room: RaceRoom, courseLengthMeters: number): 
     ]
   };
   if (hasUsableBaselineTrack(collapsed, courseLengthMeters)) {
-    shaped.course = { ...shaped.course, baselineTrack: collapsed };
+    shaped.course.baselineTrack = collapsed;
   }
   return shaped;
 }
@@ -303,6 +307,34 @@ export function courseLengthsMatch(estimateMeters: number | undefined, courseMet
   const tolerance = Math.max(COURSE_LENGTH_TOLERANCE_METERS, courseMeters * COURSE_LENGTH_TOLERANCE_RATIO);
   return Math.abs(estimateMeters - courseMeters) <= tolerance;
 }
+
+/**
+ * Where the micro-model reads a race's finish: the farthest checkpoint's distance (m). Undefined
+ * when no checkpoint has one.
+ */
+export function farthestCheckpointMeters(room: RaceRoom): number | undefined {
+  const distances = (room.course?.checkpoints ?? [])
+    .map((checkpoint) => finiteDistance(checkpoint))
+    .filter((distance): distance is number => distance !== undefined);
+  return distances.length > 0 ? Math.max(...distances) : undefined;
+}
+
+/**
+ * Whether a race's course ends at its farthest checkpoint, within `courseLengthsMatch`. The
+ * micro-model simulates the whole route and reads the finish at the farthest checkpoint, so a
+ * course whose checkpoints stop short of the route's end (the route kept, a priced stop the last
+ * checkpoint) prices its "finish" at that stop's full-race ETA. An unpaid race takes a plan, by
+ * compute or attach, only for a course that ends at a checkpoint.
+ */
+export function courseEndsAtFarthestCheckpoint(room: RaceRoom): boolean {
+  return courseLengthsMatch(farthestCheckpointMeters(room), courseLengthOf(room));
+}
+
+/** 400 for an unpaid race whose course does not end at a checkpoint (`courseEndsAtFarthestCheckpoint`). */
+export const COURSE_END_MISMATCH_BODY = {
+  error: "The course must end at its last checkpoint; add a finish at the end of the route",
+  code: "course_mismatch"
+} as const;
 
 function isPositive(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;

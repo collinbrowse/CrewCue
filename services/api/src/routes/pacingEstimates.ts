@@ -33,7 +33,12 @@ import {
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import { finishOnlyEstimate, isTeaserRoom } from "../lib/raceTeaser.js";
+import {
+  COURSE_END_MISMATCH_BODY,
+  courseEndsAtFarthestCheckpoint,
+  finishOnlyEstimate,
+  isTeaserRoom
+} from "../lib/raceTeaser.js";
 import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
@@ -183,6 +188,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
           error: "Room course route geometry is required for micro-model pacing",
           code: "course_incomplete"
         });
+      }
+      // The model simulates the whole route and reads the finish at the farthest checkpoint. An
+      // unpaid race whose checkpoints stop short of the route's end would get that stop's
+      // full-race ETA as its finish, so it gets no plan until its course ends at a checkpoint.
+      if (isTeaserRoom(room) && !courseEndsAtFarthestCheckpoint(room)) {
+        return reply.code(400).send(COURSE_END_MISMATCH_BODY);
       }
     }
 

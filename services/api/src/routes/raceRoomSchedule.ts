@@ -25,6 +25,8 @@ import { roomUnpaidError } from "../lib/billingEntitlement.js";
 import { decidePlanAuthority, isRoomAthlete, planTriggerSchema } from "../lib/planAuthority.js";
 import {
   attachBlockedBy,
+  COURSE_END_MISMATCH_BODY,
+  courseEndsAtFarthestCheckpoint,
   courseLengthOf,
   courseLengthsMatch,
   estimateCourseLengthMeters,
@@ -434,8 +436,14 @@ const COURSE_MISMATCH_BODY = {
   code: "course_mismatch"
 } as const;
 
+type CourseMismatchBody = typeof COURSE_MISMATCH_BODY | typeof COURSE_END_MISMATCH_BODY;
+
 /** Thrown inside the attach commit when the room's course changed under it (see the attach route). */
-class CourseMismatchError extends Error {}
+class CourseMismatchError extends Error {
+  constructor(readonly body: CourseMismatchBody) {
+    super(body.code);
+  }
+}
 
 /** The rooms an estimate's provenance names that still exist. */
 async function loadProvenanceRooms(stored: StoredPacingEstimate, targetRoomId: string): Promise<RaceRoom[]> {
@@ -499,7 +507,8 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
    *
    * An unpaid race takes only `pacingEstimateId` of an estimate the server computed (an inline
    * `estimate` body is 402 `room_unpaid`), only when it was computed for the race's current course
-   * length (`courseLengthsMatch`, else 400 `course_mismatch`), and answers it finish-only.
+   * length (`courseLengthsMatch`) and the course ends at its farthest checkpoint
+   * (`courseEndsAtFarthestCheckpoint`), else 400 `course_mismatch`, and answers it finish-only.
    *
    * Attaching adds the room to the stored estimate's `roomIds`. An estimate whose `roomIds` names
    * another race that is unpaid now, and neither this race nor a paid race of the caller's, is
@@ -596,11 +605,17 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     // An unpaid race takes a plan only for the course length it was computed for. A stored plan
     // re-attached to a shortened course would read its curve at the new finish: a mid-course split.
+    // Nor does it take one while its checkpoints stop short of the route's end, as a compute there
+    // is refused: the finish row would sit on a priced stop. Paid races take any plan.
     const estimateLengthMeters = storedRow ? estimateCourseLengthMeters(storedRow) : courseLengthOf(room);
-    const fitsCourse = (target: RaceRoom) =>
-      !isTeaserRoom(target) || courseLengthsMatch(estimateLengthMeters, courseLengthOf(target));
-    if (!fitsCourse(room)) {
-      return reply.code(400).send(COURSE_MISMATCH_BODY);
+    const courseMismatch = (target: RaceRoom): CourseMismatchBody | undefined => {
+      if (!isTeaserRoom(target)) return undefined;
+      if (!courseLengthsMatch(estimateLengthMeters, courseLengthOf(target))) return COURSE_MISMATCH_BODY;
+      return courseEndsAtFarthestCheckpoint(target) ? undefined : COURSE_END_MISMATCH_BODY;
+    };
+    const mismatch = courseMismatch(room);
+    if (mismatch) {
+      return reply.code(400).send(mismatch);
     }
 
     // Idempotent: same id already plan of record → return current snapshot without rewrite churn.
@@ -622,8 +637,9 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
     try {
       updated = await commitRaceRoomUpdate(roomId, (latest) => {
         // A course save (or refund) that committed meanwhile decides: check the live room again.
-        if (!fitsCourse(latest)) {
-          throw new CourseMismatchError();
+        const latestMismatch = courseMismatch(latest);
+        if (latestMismatch) {
+          throw new CourseMismatchError(latestMismatch);
         }
         const derivedPlannedPace = derivePlannedPaceSecondsPerKm(estimate, storedBaseline, latest);
         return {
@@ -644,7 +660,7 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
       });
     } catch (error) {
       if (error instanceof CourseMismatchError) {
-        return reply.code(400).send(COURSE_MISMATCH_BODY);
+        return reply.code(400).send(error.body);
       }
       throw error;
     }
@@ -700,9 +716,10 @@ export async function raceRoomScheduleRoutes(app: FastifyInstance): Promise<void
 
     try {
       const teaser = isTeaserRoom(room);
-      // A teaser sheet is built from the finish-only plan and the plan curve collapsed to its
-      // finish, so the start and finish rows it keeps read the finish alone, the same finish the
-      // paid sheet shows (see `teaserScheduleRoom`, `teaserScheduleSheet`).
+      // A teaser sheet is built from the finish-only plan, the finish at the course length and the
+      // plan curve collapsed to its finish, so the start and finish rows it keeps read the finish
+      // alone, the same finish the teaser projection shows (see `teaserScheduleRoom`,
+      // `teaserScheduleSheet`).
       const source = teaser
         ? teaserScheduleRoom(room, resolveCourseLengthMeters(room, room.course.checkpoints))
         : room;

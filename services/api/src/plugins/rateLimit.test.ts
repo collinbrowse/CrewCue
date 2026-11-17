@@ -94,3 +94,45 @@ test("pacing estimates: computing and attaching are each capped at 20 an hour pe
   assert.equal((await attach("user-b", 0)).statusCode, 404);
   await app.close();
 });
+
+test("enforceRateLimit: a check that does not count refuses only a spent budget, after beforeReply", async () => {
+  const app = buildApp();
+  let released = 0;
+  app.post("/__test/conditional-limit", async (request, reply) => {
+    const count = (request.body as { count?: boolean } | undefined)?.count ?? true;
+    const allowed = await app.enforceRateLimit(request, reply, "unpaidCourseSave", {
+      count,
+      beforeReply: async () => {
+        released += 1;
+      }
+    });
+    return allowed ? reply.send({ ok: true }) : reply;
+  });
+  await app.ready();
+  const tokenFor = (sub: string) => app.jwt.sign({ sub, teamIds: ["team-1"], roomRoles: {} });
+  const call = (sub: string, count: boolean) =>
+    app.inject({
+      method: "POST",
+      url: "/__test/conditional-limit",
+      headers: { authorization: `Bearer ${tokenFor(sub)}` },
+      payload: { count }
+    });
+
+  // Checks alone never spend the budget (10 an hour).
+  for (let i = 0; i < 15; i += 1) {
+    assert.equal((await call("user-a", false)).statusCode, 200);
+  }
+  for (let i = 0; i < 10; i += 1) {
+    assert.equal((await call("user-a", true)).statusCode, 200);
+  }
+  assert.equal(released, 0);
+  const checked = await call("user-a", false);
+  assert.equal(checked.statusCode, 429);
+  assert.deepEqual(checked.json(), { error: "Too many requests" });
+  assert.ok(Number(checked.headers["retry-after"]) > 60 * 59);
+  assert.equal(released, 1, "beforeReply ran before the 429");
+  assert.equal((await call("user-a", true)).statusCode, 429);
+  assert.equal(released, 2);
+  assert.equal((await call("user-b", false)).statusCode, 200);
+  await app.close();
+});

@@ -11,10 +11,12 @@ import type {
 import { isRunnerSeat, roomUnpaidError } from "./billingEntitlement.js";
 import {
   attachBlockedBy,
+  courseEndsAtFarthestCheckpoint,
   courseLengthOf,
   courseLengthsMatch,
   estimateCourseLengthMeters,
   exportedEstimate,
+  farthestCheckpointMeters,
   finishOnlyEstimate,
   isTeaserRoom,
   lockedRoom,
@@ -138,9 +140,12 @@ test("no course: nothing to show or lock", () => {
 test("projection teaser keeps the finish ETA and course-level fields, and no checkpoint rows", () => {
   const projection = {
     roomId: "room-1",
+    asOfPingId: "ping-1",
+    asOfRecordedAt: "2026-08-01T00:00:00.000Z",
+    progressMeters: 0,
+    plannedPaceSecondsPerKm: 360,
     etaFinishPlanIso: "2026-08-15T21:20:00.000Z",
     courseLengthMeters: 30_000,
-    etaFinishWindow: { earliestIso: "2026-08-15T21:00:00.000Z", latestIso: "2026-08-15T22:00:00.000Z" },
     checkpointSplits: COURSE.map((checkpoint) => split(checkpoint.id, checkpoint.distanceMetersFromStart!)),
     remainingCheckpointEtas: ["aid-a", "aid-b", "finish"].map((checkpointId) => ({
       checkpointId,
@@ -149,22 +154,25 @@ test("projection teaser keeps the finish ETA and course-level fields, and no che
       deltaSecondsVsFrozenPlan: 0
     }))
   } as RaceRoomProjection;
-  const shaped = teaserProjection(projection, room(COURSE));
+  const started = { ...room(COURSE), raceStartAt: "2026-08-15T13:00:00.000Z" };
+  const shaped = teaserProjection(projection, started);
   assert.deepEqual(shaped.checkpointSplits, []);
   assert.deepEqual(shaped.remainingCheckpointEtas, []);
-  assert.equal(shaped.etaFinishPlanIso, projection.etaFinishPlanIso);
-  assert.deepEqual(shaped.etaFinishWindow, projection.etaFinishWindow);
+  // The plan curve to the course length (18 000 s) from the race start.
+  assert.equal(shaped.etaFinishPlanIso, "2026-08-15T18:00:00.000Z");
   assert.equal(shaped.courseLengthMeters, 30_000);
+  assert.equal(shaped.progressMeters, 0);
   assert.deepEqual(shaped.locked, { checkpointIds: MID_COURSE });
   assert.equal(projection.checkpointSplits.length, 5, "input is not mutated");
+  assert.equal(projection.etaFinishPlanIso, "2026-08-15T21:20:00.000Z", "input is not mutated");
 
   const { remainingCheckpointEtas: _absent, ...withoutRemaining } = projection;
-  const noRemaining = teaserProjection(withoutRemaining as RaceRoomProjection, room(COURSE));
+  const noRemaining = teaserProjection(withoutRemaining as RaceRoomProjection, started);
   assert.equal(noRemaining.remainingCheckpointEtas, undefined);
   assert.deepEqual(noRemaining.locked, { checkpointIds: MID_COURSE });
 });
 
-test("pre-race projection teaser: the finish from the start line, whatever checkpoint is listed first", () => {
+test("projection teaser: the finish from the start line, whatever checkpoint is listed first or the runner pings from", () => {
   const withStops: RaceRoom = {
     ...room(COURSE.map((checkpoint) => ({ ...checkpoint, plannedStopSeconds: 60 }))),
     raceStartAt: "2026-08-15T13:00:00.000Z"
@@ -182,23 +190,31 @@ test("pre-race projection teaser: the finish from the start line, whatever check
     checkpointSplits: [split("aid-b", 20_000), split("finish", 30_000)]
   } as RaceRoomProjection;
 
-  const preRace = teaserProjection(bootstrap, withStops, { preRace: true });
+  const shaped = teaserProjection(bootstrap, withStops);
   // The plan curve to the course length (18 000 s) plus five 60 s stops, from the race start.
-  assert.equal(preRace.etaFinishPlanIso, "2026-08-15T18:05:00.000Z");
-  assert.equal(Object.hasOwn(preRace, "etaFinishWindow"), false, "the window is centred on the same origin");
-  assert.deepEqual(preRace.checkpointSplits, []);
+  assert.equal(shaped.etaFinishPlanIso, "2026-08-15T18:05:00.000Z");
+  assert.equal(Object.hasOwn(shaped, "etaFinishWindow"), false, "the window is centred on the same origin");
+  assert.deepEqual(shaped.checkpointSplits, []);
+
+  // A live projection from a ping at aid-b (the runner chooses where they ping from): the finish
+  // from there would be the finish minus aid-b's ETA. The teaser's finish does not move.
+  const fromPing = {
+    ...bootstrap,
+    asOfPingId: "ping-at-aid-b",
+    asOfRecordedAt: "2026-08-15T14:00:00.000Z",
+    etaFinishPlanIso: "2026-08-15T17:00:00.000Z"
+  } as RaceRoomProjection;
+  const live = teaserProjection(fromPing, withStops);
+  assert.equal(live.etaFinishPlanIso, "2026-08-15T18:05:00.000Z");
+  assert.equal(Object.hasOwn(live, "etaFinishWindow"), false);
+  assert.equal(teaserProjection({ ...fromPing, progressMeters: 10_000 }, withStops).etaFinishPlanIso, live.etaFinishPlanIso);
 
   // Without a usable plan curve: planned pace over the course from when the projection was taken.
   const noCurve: RaceRoom = { ...withStops, course: { checkpoints: withStops.course!.checkpoints } };
-  assert.equal(teaserProjection(bootstrap, noCurve, { preRace: true }).etaFinishPlanIso, "2026-08-01T03:05:00.000Z");
+  assert.equal(teaserProjection(bootstrap, noCurve).etaFinishPlanIso, "2026-08-01T03:05:00.000Z");
   // Never earlier than the projection was taken.
   const late = { ...bootstrap, asOfRecordedAt: "2026-09-01T00:00:00.000Z" };
-  assert.equal(teaserProjection(late, withStops, { preRace: true }).etaFinishPlanIso, "2026-09-01T00:00:00.000Z");
-
-  // After the runner's own pings, the finish from where they are stays.
-  const live = teaserProjection(bootstrap, withStops);
-  assert.equal(live.etaFinishPlanIso, bootstrap.etaFinishPlanIso);
-  assert.deepEqual(live.etaFinishWindow, bootstrap.etaFinishWindow);
+  assert.equal(teaserProjection(late, withStops).etaFinishPlanIso, "2026-09-01T00:00:00.000Z");
 });
 
 test("ping replies: an unpaid race's projection is the teaser, a paid race's goes out as is", () => {
@@ -209,18 +225,19 @@ test("ping replies: an unpaid race's projection is the teaser, a paid race's goe
     progressMeters: 12_000,
     courseLengthMeters: 30_000,
     plannedPaceSecondsPerKm: 360,
-    etaFinishPlanIso: "2026-08-15T18:00:00.000Z",
+    // The finish from the ping at 12 km.
+    etaFinishPlanIso: "2026-08-15T17:10:00.000Z",
+    etaFinishWindow: { earliestIso: "2026-08-15T16:40:00.000Z", latestIso: "2026-08-15T17:40:00.000Z" },
     checkpointSplits: COURSE.map((checkpoint) => split(checkpoint.id, checkpoint.distanceMetersFromStart!)),
     remainingCheckpointEtas: [{ checkpointId: "aid-b", liveProjectedElapsedSeconds: 1, frozenPlanElapsedSeconds: 1, deltaSecondsVsFrozenPlan: 0 }]
   } as RaceRoomProjection;
-  const unpaid = room(COURSE, "unpaid");
+  const unpaid = { ...room(COURSE, "unpaid"), raceStartAt: "2026-08-15T13:00:00.000Z" };
   assert.deepEqual(projectionForRoom(projection, unpaid), teaserProjection(projection, unpaid));
   assert.deepEqual(projectionForRoom(projection, unpaid).checkpointSplits, []);
   assert.deepEqual(projectionForRoom(projection, unpaid).remainingCheckpointEtas, []);
-  assert.deepEqual(
-    projectionForRoom(projection, unpaid, { preRace: true }),
-    teaserProjection(projection, unpaid, { preRace: true })
-  );
+  // Accepted pings or not, the finish is the one from the start line, with no window.
+  assert.equal(projectionForRoom(projection, unpaid).etaFinishPlanIso, "2026-08-15T18:00:00.000Z");
+  assert.equal(Object.hasOwn(projectionForRoom(projection, unpaid), "etaFinishWindow"), false);
   const paid = room(COURSE, "paid");
   assert.equal(projectionForRoom(projection, paid), projection);
   assert.equal(projectionForRoom(projection, room(COURSE, "expired")), projection);
@@ -484,4 +501,61 @@ test("schedule teaser room: the plan curve collapses to the start and the finish
   // With a plan attached it is finish-only, as in `teaserRoom`.
   const withPlan = { ...original, pacingEstimateId: "est-1", pacingEstimate: estimate(MID_COURSE) };
   assert.deepEqual(teaserScheduleRoom(withPlan, 30_000).pacingEstimate?.aidEtas, []);
+});
+
+test("schedule teaser room: a course whose checkpoints stop short of its end puts its finish at the course end", () => {
+  // The route runs 30 km; the checkpoints stop at aid-b (20 km), so aid-b is the teaser's finish.
+  const cut = COURSE.slice(0, 4);
+  const original: RaceRoom = { ...room(cut), plannedPaceSecondsPerKm: 360 };
+  const before = structuredClone(original);
+  const shaped = teaserScheduleRoom(original, 30_000);
+  assert.deepEqual(
+    shaped.course?.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint.distanceMetersFromStart]),
+    [
+      ["start", 0],
+      ["water-1", 5_000],
+      ["aid-a", 10_000],
+      ["aid-b", 30_000]
+    ]
+  );
+  // The curve still collapses to the finish at the course length, so the finish row reads 18 000 s.
+  assert.deepEqual(shaped.course?.baselineTrack?.points.at(-1), { distanceMetersFromStart: 30_000, referenceElapsedSeconds: 18_000 });
+  assert.deepEqual(original, before, "input is not mutated");
+  // A finish at the course end, or past it, stays where it is.
+  assert.deepEqual(teaserScheduleRoom(room(COURSE), 30_000).course?.checkpoints, COURSE);
+  // Without a usable curve the finish still moves (planned pace over the whole course).
+  const noCurve = teaserScheduleRoom({ ...original, course: { checkpoints: cut } }, 30_000);
+  assert.equal(noCurve.course?.baselineTrack, undefined);
+  assert.equal(noCurve.course?.checkpoints.at(-1)?.distanceMetersFromStart, 30_000);
+});
+
+test("course end: an unpaid race takes a plan only when its farthest checkpoint is at the course end", () => {
+  const withLength = (checkpoints: RaceCourseCheckpoint[], canonicalDistanceMeters: number): RaceRoom => ({
+    ...room(checkpoints),
+    course: {
+      checkpoints,
+      derivedMetrics: {
+        canonicalDistanceMeters,
+        elevationGainMeters: 0,
+        elevationLossMeters: 0,
+        elevationSource: "none",
+        metricsVersion: 1
+      }
+    }
+  });
+  assert.equal(farthestCheckpointMeters(room(COURSE)), 30_000);
+  // The farthest checkpoint, not the last listed.
+  assert.equal(farthestCheckpointMeters(room([COURSE[4]!, COURSE[0]!, COURSE[2]!])), 30_000);
+  assert.equal(farthestCheckpointMeters(room([cp("a", undefined), cp("b", undefined)])), undefined);
+
+  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_000)), true);
+  // Within 1% or 100 m (whichever is larger) of the course end.
+  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_300)), true);
+  assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE, 30_310)), false);
+  // Checkpoints that stop at a priced stop, on the whole route: the finish would be that stop's ETA.
+  for (const last of [1, 2, 3]) {
+    assert.equal(courseEndsAtFarthestCheckpoint(withLength(COURSE.slice(0, last + 1), 30_000)), false, COURSE[last]!.id);
+  }
+  // No checkpoint distance: nothing to read the finish at.
+  assert.equal(courseEndsAtFarthestCheckpoint(withLength([cp("a", undefined), cp("b", undefined)], 30_000)), false);
 });

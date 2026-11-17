@@ -2745,12 +2745,6 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!entitlement.allowed) {
       return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
     }
-    // Saves on an unpaid race are capped per user (429 past it); paid saves are not. The route
-    // limits cannot see entitlement, so the handler counts it with the same counters.
-    if (isTeaserRoom(room) && !(await app.enforceRateLimit(request, reply, "unpaidCourseSave"))) {
-      return reply;
-    }
-
     const parsed = updateRaceCourseInput.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Invalid course payload" });
@@ -2772,11 +2766,26 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     // Release the key before replying. Releasing in `finally` ran after the 400 was already
     // sent, so a client that fixed its payload and retried at once got a 409 for a request
     // that never wrote anything.
-    const rejectBeforeWrite = async (body: { error: string }) => {
+    const releaseBeforeReply = async () => {
       idemCourseFinished = true;
       await releaseIdempotentMutation(request, parsed.data);
+    };
+    const rejectBeforeWrite = async (body: { error: string }) => {
+      await releaseBeforeReply();
       return reply.code(400).send(body);
     };
+    // Saves on an unpaid race are capped per user (429 past it); paid saves are not. The route
+    // limits cannot see entitlement, so the handler applies it with the same counters. Only a save
+    // that writes counts: not a rejected payload, an idempotent replay, or a save refused before
+    // the write. A spent budget is refused here, before the course is recomputed; the save is
+    // counted just before it writes.
+    const unpaidSave = isTeaserRoom(room);
+    const overUnpaidSaveLimit = async (count: boolean) =>
+      unpaidSave &&
+      !(await app.enforceRateLimit(request, reply, "unpaidCourseSave", { count, beforeReply: releaseBeforeReply }));
+    if (await overUnpaidSaveLimit(false)) {
+      return reply;
+    }
     try {
     await loadWs2RuntimeIfNeeded(roomId);
     const prevProjection = roomProjectionState.get(roomId);
@@ -2813,6 +2822,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         course: parsed.data.course,
         plannedPaceSecondsPerKm: parsed.data.plannedPaceSecondsPerKm
       });
+    }
+
+    if (await overUnpaidSaveLimit(true)) {
+      return reply;
     }
 
     let shouldResetCourseDependentState = false;
@@ -3974,8 +3987,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     await saveWs2RuntimeSnapshot(roomId);
 
-    // Pings to an unpaid race are 402 above; were that gate opened, the reply is still the teaser.
-    const shown = projection ? projectionForRoom(projection, latestRoom, { preRace: pingState.lastAccepted === null }) : undefined;
+    // Pings to an unpaid race are 402 above; were that gate opened, the reply is still the teaser,
+    // whose finish is from the start line, not from this ping's position.
+    const shown = projection ? projectionForRoom(projection, latestRoom) : undefined;
     return reply.code(201).send({
       decision: "accepted" as const,
       pingId,
@@ -4179,7 +4193,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       app.log.info({ ping_batch_decision: { roomId, actor: actorUserId, ...counts } }, "ping_batch_decision");
 
       // As in the single ping: on an unpaid race (402 above today) the reply is the teaser.
-      const shown = projection ? projectionForRoom(projection, latestRoom, { preRace: pingState.lastAccepted === null }) : undefined;
+      const shown = projection ? projectionForRoom(projection, latestRoom) : undefined;
       const response: AthletePingBatchResponse = {
         roomId,
         receivedAt,
@@ -4267,8 +4281,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       Date.now(),
       pingState.lastUploadIntervalSeconds
     );
-    // Before the runner's first accepted ping the projection is the bootstrap (see `teaserProjection`).
-    return reply.send(entitlement.teaser ? teaserProjection(view, room, { preRace: pingState.lastAccepted === null }) : view);
+    // The teaser's finish is from the start line, wherever the projection places the runner
+    // (see `teaserProjection`).
+    return reply.send(entitlement.teaser ? teaserProjection(view, room) : view);
   });
 
   /**

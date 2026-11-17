@@ -898,14 +898,21 @@ test("join preview: an unpaid race sends no plan curve; a paid race is unchanged
 type CourseCheckpoints = ReturnType<typeof taggedCourse>["checkpoints"];
 
 /** PUT course with no route overlay: a re-save, so the attached plan of record is kept. */
-function resaveCourse(app: App, roomId: string, user: string, checkpoints: CourseCheckpoints, idempotencyKey?: string) {
+function resaveCourse(
+  app: App,
+  roomId: string,
+  user: string,
+  checkpoints: CourseCheckpoints,
+  idempotencyKey?: string,
+  raceStartAt = RACE_START_AT
+) {
   return app.inject({
     method: "PUT",
     url: `/race-rooms/${roomId}/course`,
     payload: {
       plannedPaceSecondsPerKm: taggedCourse().plannedPaceSecondsPerKm,
       course: { checkpoints },
-      raceStartAt: RACE_START_AT
+      raceStartAt
     },
     headers: { ...auth(app, user), ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }
   });
@@ -958,17 +965,18 @@ test("unpaid race: re-tagging, deleting or moving checkpoints never reveals a mi
     // Every edit a runner can make to pick out one stop: the `aid` tag on each stop in turn, no
     // tags, a stop deleted, a stop moved onto another's spot, the real start or finish dropped
     // so a priced stop becomes the first or last row, and the full course back.
-    const variants: Array<{ label: string; checkpoints: CourseCheckpoints; stops: string[] }> = [
+    const variants: Array<{ label: string; checkpoints: CourseCheckpoints; stops: string[]; endsShort?: true }> = [
       { label: "aid tag on aid-1", checkpoints: retag({ "aid-1": ["aid"], "aid-2": ["water"], "aid-3": ["water"] }), stops: ["start", "finish"] },
       { label: "aid tag on aid-3", checkpoints: retag({ "aid-1": ["water"], "aid-2": ["water"], "aid-3": ["aid"] }), stops: ["start", "finish"] },
       { label: "no tags", checkpoints: retag({ "aid-1": [], "aid-2": [], "aid-3": [] }), stops: ["start", "finish"] },
       { label: "aid-2 deleted", checkpoints: without("aid-2"), stops: ["start", "finish"] },
       { label: "aid-2 moved onto aid-3", checkpoints: onto("aid-2", "aid-3"), stops: ["start", "finish"] },
       { label: "start dropped", checkpoints: without("start"), stops: ["aid-1", "finish"] },
-      { label: "finish dropped", checkpoints: without("finish"), stops: ["start", "aid-3"] },
+      { label: "finish dropped", checkpoints: without("finish"), stops: ["start", "aid-3"], endsShort: true },
       { label: "full course", checkpoints: fixture, stops: ["start", "finish"] }
     ];
     const computedIds = new Set<string>();
+    let attachedId = `teaser-estimate-${room.id}`;
     for (const variant of variants) {
       const label = variant.label;
       const saved = await resaveCourse(app, room.id, runner, variant.checkpoints);
@@ -983,14 +991,28 @@ test("unpaid race: re-tagging, deleting or moving checkpoints never reveals a mi
         locked: MID_COURSE.filter((id) => midCourse.has(id))
       });
 
-      // A recompute on the edited course, and attaching it: still the finish only.
+      // A recompute on the edited course, and attaching it: still the finish only. Checkpoints that
+      // stop short of the route's end get no plan at all (the model would read its finish at the
+      // last stop): the recompute and a re-attach of the plan already attached are 400
+      // course_mismatch, and that plan stays.
       const computed = await computeForRoom(app, room.id, runner);
-      assert.equal(computed.statusCode, 200, `${label}: ${computed.body}`);
       assertNoPaidPlan(computed.json(), `${label}: POST /pacing-estimates`, "runner", midCourse);
-      computedIds.add((computed.json() as PacingEstimate).id);
-      const attach = await attachById(app, room.id, runner, (computed.json() as PacingEstimate).id);
-      assert.equal(attach.statusCode, 200, `${label}: ${attach.body}`);
-      assertNoPaidPlan(attach.json(), `${label}: PUT pacing-estimate`, "runner", midCourse);
+      if (variant.endsShort) {
+        assert.equal(computed.statusCode, 400, `${label}: ${computed.body}`);
+        assert.equal((computed.json() as { code: string }).code, "course_mismatch");
+        const reattach = await attachById(app, room.id, runner, attachedId);
+        assert.equal(reattach.statusCode, 400, `${label}: ${reattach.body}`);
+        assert.equal((reattach.json() as { code: string }).code, "course_mismatch");
+        assertNoPaidPlan(reattach.json(), `${label}: PUT pacing-estimate`, "runner", midCourse);
+        assert.equal((await getRaceRoom(room.id))?.pacingEstimateId, attachedId, `${label}: the plan stays`);
+      } else {
+        assert.equal(computed.statusCode, 200, `${label}: ${computed.body}`);
+        attachedId = (computed.json() as PacingEstimate).id;
+        computedIds.add(attachedId);
+        const attach = await attachById(app, room.id, runner, attachedId);
+        assert.equal(attach.statusCode, 200, `${label}: ${attach.body}`);
+        assertNoPaidPlan(attach.json(), `${label}: PUT pacing-estimate`, "runner", midCourse);
+      }
       assert.deepEqual(await readTeaser(app, room.id, runner, `${label}, recomputed`, midCourse), {
         aidEtas: [],
         splits: [],
@@ -1590,5 +1612,175 @@ test("unpaid race: course saves are capped at 10 an hour per user; paid course s
       assert.equal((await resaveCourse(app, first.id, runner, checkpoints)).statusCode, 200, `paid save ${i + 1}`);
     }
     assert.equal((await resaveCourse(app, second.id, runner, checkpoints)).statusCode, 429);
+  });
+});
+
+/** Keys that carry a time: every ETA key, and the finish and band fields of estimates and projections. */
+const TIME_KEYS = new Set([
+  ...ETA_KEYS,
+  "expectedFinishAt",
+  "expectedFinishElapsedSeconds",
+  "finishAt",
+  "finishElapsedSeconds",
+  "etaFinishPlanIso",
+  "earliestIso",
+  "latestIso"
+]);
+
+/** Fails if any time anywhere in `body` (an ETA, a finish, a band, a window) is one of `values`. */
+function assertNoTimeIn(body: unknown, values: ReadonlySet<unknown>, label: string): void {
+  const walk = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, `${path}[${index}]`));
+      return;
+    }
+    if (value === null || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (TIME_KEYS.has(key)) assert.equal(values.has(child), false, `${label}: ${path}.${key} is a real aid ETA (${String(child)})`);
+      walk(child, `${path}.${key}`);
+    }
+  };
+  walk(body, "$");
+}
+
+test("unpaid race: checkpoints cut short at a priced stop on the whole route get no plan, and nothing shows that stop's real ETA", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-cut-checkpoints";
+    const raceStartAt = futureStart();
+    const checkpoints = taggedCourse().checkpoints;
+    // Rounding to whole seconds on the schedule's side.
+    const near = (a: number, b: number, what: string) => assert.ok(Math.abs(a - b) <= 1, `${what}: ${a} vs ${b}`);
+
+    // The paid twin: the same course and start, so the model's real aid ETAs for this race.
+    const twin = await raceWithCourse(app, runner, "Paid twin", { raceStartAt });
+    await pay(app, twin, runner);
+    const twinPlan = await computeForRoom(app, twin, runner);
+    assert.equal(twinPlan.statusCode, 200, twinPlan.body);
+    const real = (twinPlan.json() as PacingEstimate).aidEtas;
+    assert.deepEqual(real.map((eta) => eta.checkpointId), MID_COURSE);
+    const realValues = new Set<unknown>(real.flatMap((eta) => [eta.elapsedSeconds, eta.clockArrivalAt]));
+
+    for (const withPlan of [false, true]) {
+      const race = withPlan ? "plan attached" : "no plan";
+      const roomId = await raceWithCourse(app, runner, `Cut short, ${race}`, { raceStartAt });
+      let plan: PacingEstimate | undefined;
+      if (withPlan) {
+        const computed = await computeForRoom(app, roomId, runner);
+        assert.equal(computed.statusCode, 200, computed.body);
+        plan = computed.json() as PacingEstimate;
+        assertNoTimeIn(plan, realValues, `${race}: POST /pacing-estimates on the whole course`);
+        assert.equal((await attachById(app, roomId, runner, plan.id)).statusCode, 200);
+      }
+      const planRooms = plan ? (await getPacingEstimateById(plan.id))?.roomIds : undefined;
+
+      // Each priced stop in turn as the last checkpoint, the route kept (no overlay): the model
+      // would read its finish there, which is that stop's full-race ETA.
+      for (const stop of MID_COURSE) {
+        const label = `${race}, checkpoints to ${stop}`;
+        const cut = checkpoints.slice(0, checkpoints.findIndex((checkpoint) => checkpoint.id === stop) + 1);
+        const midCourse = new Set(cut.map((checkpoint) => checkpoint.id).filter((id) => id !== "start" && id !== stop));
+        const saved = await resaveCourse(app, roomId, runner, cut, undefined, raceStartAt);
+        assert.equal(saved.statusCode, 200, `${label}: ${saved.body}`);
+        assertNoPaidPlan(saved.json(), `${label}: PUT course`, "runner", midCourse);
+        assertNoTimeIn(saved.json(), realValues, `${label}: PUT course`);
+
+        const computed = await computeForRoom(app, roomId, runner);
+        assertNoTimeIn(computed.json(), realValues, `${label}: POST /pacing-estimates`);
+        assert.equal(computed.statusCode, 400, `${label}: ${computed.body}`);
+        assert.equal((computed.json() as { code: string }).code, "course_mismatch");
+        if (plan) {
+          // Not even the plan already attached (the idempotent path): it stays, its set unchanged.
+          const again = await attachById(app, roomId, runner, plan.id);
+          assert.equal(again.statusCode, 400, `${label}: ${again.body}`);
+          assert.equal((again.json() as { code: string }).code, "course_mismatch");
+          assert.equal((await getRaceRoom(roomId))?.pacingEstimateId, plan.id, `${label}: the plan stays`);
+          assert.deepEqual((await getPacingEstimateById(plan.id))?.roomIds, planRooms, `${label}: provenance unchanged`);
+        }
+
+        const reads = {
+          room: await get(app, `/race-rooms/${roomId}`, runner),
+          projection: await get(app, `/race-rooms/${roomId}/projection`, runner),
+          schedule: await get(app, `/race-rooms/${roomId}/schedule`, runner)
+        };
+        for (const [name, response] of Object.entries(reads)) {
+          assert.equal(response.statusCode, 200, `${label}: GET ${name}: ${response.body}`);
+          assertNoPaidPlan(response.json(), `${label}: GET ${name}`, "runner", midCourse);
+          assertNoTimeIn(response.json(), realValues, `${label}: GET ${name}`);
+        }
+        const schedule = parseCrewScheduleSheet(reads.schedule.json());
+        assert.deepEqual(schedule.stops.map((row) => row.checkpointId), ["start", stop]);
+        const finishRow = schedule.stops[1]!;
+        if (plan) {
+          // The finish row is the attached plan's finish, the race's, not the stop's.
+          assert.equal(finishRow.movingElapsedSeconds, plan.expectedFinishElapsedSeconds, label);
+        } else {
+          // The projection's finish counts the finish row's own planned stop; the row is the arrival.
+          const projection = reads.projection.json() as RaceRoomProjection;
+          near(
+            (Date.parse(finishRow.clockArrivalAt) - Date.parse(raceStartAt)) / 1000 + finishRow.plannedStoppageSeconds,
+            (Date.parse(projection.etaFinishPlanIso) - Date.parse(raceStartAt)) / 1000,
+            `${label}: unpaid schedule finish vs unpaid projection finish`
+          );
+        }
+      }
+    }
+
+    // No estimate the runner holds, but the paid twin's, carries one of those ETAs as a finish or band.
+    const exported = await get(app, "/me/export", runner);
+    assert.equal(exported.statusCode, 200, exported.body);
+    const twinId = (twinPlan.json() as PacingEstimate).id;
+    for (const estimate of (exported.json() as { pacingEstimates: PacingEstimate[] }).pacingEstimates) {
+      if (estimate.id === twinId) continue;
+      assertNoTimeIn(estimate, realValues, `GET /me/export ${estimate.id}`);
+    }
+  });
+});
+
+test("unpaid race: only a course save that writes counts toward the limit; replays and rejected saves do not", async () => {
+  await withApp(async (app) => {
+    const runner = "runner-teaser-course-limit-writes";
+    const created = await app.inject({
+      method: "POST",
+      url: "/race-rooms",
+      payload: { teamId: "team-1", athleteId: runner, name: "Limit writes", creatorRole: "athlete" },
+      headers: auth(app, runner)
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const roomId = (created.json() as RaceRoom).id;
+    const checkpoints = taggedCourse().checkpoints;
+
+    // Refused before any write, more times than the limit: none counts.
+    for (let i = 0; i < 12; i += 1) {
+      const invalid = await app.inject({
+        method: "PUT",
+        url: `/race-rooms/${roomId}/course`,
+        payload: { course: { checkpoints } },
+        headers: auth(app, runner)
+      });
+      assert.equal(invalid.statusCode, 400, invalid.body);
+      // No route yet and none sent: refused before the write.
+      const noRoute = await resaveCourse(app, roomId, runner, checkpoints);
+      assert.equal(noRoute.statusCode, 400, noRoute.body);
+    }
+
+    // Ten saves that write: the first with the route, then a keyed one, then eight more.
+    assert.equal((await saveCourseOn(app, roomId, runner)).statusCode, 200);
+    const keyed = await resaveCourse(app, roomId, runner, checkpoints, "limit-writes-key");
+    assert.equal(keyed.statusCode, 200, keyed.body);
+    for (let i = 0; i < 8; i += 1) {
+      assert.equal((await resaveCourse(app, roomId, runner, checkpoints)).statusCode, 200, `save ${i + 3}`);
+    }
+    const limited = await resaveCourse(app, roomId, runner, checkpoints, "limit-writes-fresh-key");
+    assert.equal(limited.statusCode, 429, limited.body);
+    assert.deepEqual(limited.json(), { error: "Too many requests" });
+    assert.ok(Number(limited.headers["retry-after"]) > 60 * 59);
+    // The refused key was released, not left in progress: the same request is 429 again, not 409.
+    assert.equal((await resaveCourse(app, roomId, runner, checkpoints, "limit-writes-fresh-key")).statusCode, 429);
+
+    // A retry of a save that already committed is its replay, past the limit too.
+    const replay = await resaveCourse(app, roomId, runner, checkpoints, "limit-writes-key");
+    assert.equal(replay.statusCode, 200, replay.body);
+    assertNoPaidPlan(replay.json(), "replay past the limit", "runner");
+    assert.equal((replay.json() as RaceRoom).id, roomId);
   });
 });

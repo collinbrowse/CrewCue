@@ -33,13 +33,25 @@ export const RATE_LIMITED_ROUTES: Readonly<Record<string, Limit>> = {
 export const CONDITIONAL_RATE_LIMITS = {
   /**
    * `PUT /race-rooms/:roomId/course` on an unpaid race, per user across all their races. Every
-   * save recomputes the course and its projection, and the runner can save before paying. Paid
-   * course saves are not limited.
+   * save recomputes the course and its projection, and the runner can save before paying. Only a
+   * save that writes counts (not a rejected payload or an idempotent replay). Paid course saves are
+   * not limited.
    */
   unpaidCourseSave: { max: 10, windowMs: HOUR }
 } as const satisfies Record<string, Limit>;
 
 export type ConditionalRateLimit = keyof typeof CONDITIONAL_RATE_LIMITS;
+
+export type EnforceRateLimitOptions = {
+  /**
+   * False checks the budget without spending it: refused only when it is already spent. Lets a
+   * handler refuse a spent budget before costly work and count the request only once it is sure
+   * to go ahead. Default true.
+   */
+  count?: boolean;
+  /** Runs before the 429 is sent (for example to release an idempotency key). */
+  beforeReply?: () => Promise<void>;
+};
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -48,7 +60,12 @@ declare module "fastify" {
      * (client IP when unauthenticated). Past the limit it sends 429 with `retry-after`, as the
      * route limits do, and returns false; the handler must then return.
      */
-    enforceRateLimit(request: FastifyRequest, reply: FastifyReply, name: ConditionalRateLimit): Promise<boolean>;
+    enforceRateLimit(
+      request: FastifyRequest,
+      reply: FastifyReply,
+      name: ConditionalRateLimit,
+      options?: EnforceRateLimitOptions
+    ): Promise<boolean>;
   }
 }
 
@@ -56,12 +73,16 @@ declare module "fastify" {
 export const rateLimitPlugin = fp(async (app) => {
   const windows = new Map<string, { resetAt: number; count: number }>();
 
-  /** Counts one request in each bucket; sends 429 and returns false when one is over its max. */
+  /**
+   * Counts one request in each bucket (only checks, with `count: false`); sends 429 and returns
+   * false when one is over its max.
+   */
   const consume = async (
     request: FastifyRequest,
     reply: FastifyReply,
     name: string,
-    limit: Limit
+    limit: Limit,
+    options: EnforceRateLimitOptions = {}
   ): Promise<boolean> => {
     const now = Date.now();
     if (windows.size > 10_000) {
@@ -75,14 +96,17 @@ export const rateLimitPlugin = fp(async (app) => {
     if (limit.perIpMax !== undefined) {
       buckets.push({ key: `${name}|ip|${request.ip}`, max: limit.perIpMax });
     }
+    const count = options.count ?? true;
     for (const bucket of buckets) {
       let w = windows.get(bucket.key);
       if (!w || w.resetAt <= now) {
+        if (!count) continue;
         w = { resetAt: now + limit.windowMs, count: 0 };
         windows.set(bucket.key, w);
       }
-      w.count += 1;
-      if (w.count > bucket.max) {
+      if (count) w.count += 1;
+      if (count ? w.count > bucket.max : w.count >= bucket.max) {
+        await options.beforeReply?.();
         reply.header("retry-after", String(Math.max(1, Math.ceil((w.resetAt - now) / 1000))));
         await reply.code(429).send({ error: "Too many requests" });
         return false;
@@ -91,8 +115,10 @@ export const rateLimitPlugin = fp(async (app) => {
     return true;
   };
 
-  app.decorate("enforceRateLimit", async (request: FastifyRequest, reply: FastifyReply, name: ConditionalRateLimit) =>
-    consume(request, reply, `conditional|${name}`, CONDITIONAL_RATE_LIMITS[name])
+  app.decorate(
+    "enforceRateLimit",
+    async (request: FastifyRequest, reply: FastifyReply, name: ConditionalRateLimit, options?: EnforceRateLimitOptions) =>
+      consume(request, reply, `conditional|${name}`, CONDITIONAL_RATE_LIMITS[name], options)
   );
 
   app.addHook("preHandler", async (request, reply) => {
