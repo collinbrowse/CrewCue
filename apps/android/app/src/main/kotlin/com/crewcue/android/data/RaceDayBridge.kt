@@ -108,7 +108,12 @@ class RaceDayBridge(
         historyFingerprint: String?,
         usableHistoryCount: Int,
         trigger: String,
-        hasPlanOfRecord: Boolean
+        hasPlanOfRecord: Boolean,
+        /**
+         * The runner's history step: `none` (Skip, a cold start even after an import) or `compare`
+         * (after an import; the result also carries `comparison`, the line to show). Null: all history.
+         */
+        historyMode: String? = null
     ): RuntimeResult =
         call("computeEstimate") {
             put("roomId", roomId)
@@ -116,6 +121,7 @@ class RaceDayBridge(
             put("trigger", trigger)
             put("hasPlanOfRecord", hasPlanOfRecord)
             if (!historyFingerprint.isNullOrBlank()) put("historyFingerprint", historyFingerprint)
+            if (historyMode != null) put("historyMode", historyMode)
         }
 
     fun importGpx(
@@ -395,24 +401,6 @@ class RaceDayBridge(
 
     /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
     fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
-
-    /**
-     * `{text}`: "Finish 9:42 AM instead of 10:15 AM", or null when the line should be hidden. The
-     * two finishes are the estimates' own (`expectedFinishAt`); [planFinishAt], the estimate
-     * payload's `finishAt` for the plan with history, puts both on the race's clock.
-     */
-    fun onboardingHistoryComparison(
-        withHistoryFinishAt: String,
-        withoutHistoryFinishAt: String,
-        planFinishAt: String?,
-        timeZone: String
-    ): RuntimeResult =
-        call("onboardingHistoryComparison") {
-            put("withHistoryFinishAt", withHistoryFinishAt)
-            put("withoutHistoryFinishAt", withoutHistoryFinishAt)
-            if (!planFinishAt.isNullOrBlank()) put("planFinishAt", planFinishAt)
-            put("timeZone", timeZone)
-        }
 
     /** client-core `RaceStartInput`: the typed fields in [timeZone] → `raceStartAt` or a `problem`. */
     fun raceStartInput(year: Int, month: Int, day: Int, hour: Int, minute: Int, timeZone: String): RuntimeResult =

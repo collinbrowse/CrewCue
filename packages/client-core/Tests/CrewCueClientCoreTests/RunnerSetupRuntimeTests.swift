@@ -194,7 +194,7 @@ private let previewJSON = """
 
 private let estimateJSON = #"{"id":"e1","coldStart":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","expectedFinishElapsedSeconds":36600,"aidEtas":[],"explanation":"No history yet."}"#
 
-@Test func computeEstimateGivesTheFinishInstantAndSurfacesCourseMismatch() async throws {
+@Test func computeEstimateRetriesACourseMismatchInClientCore() async throws {
     let base = "https://estimate-finish.test"
     let server = ScriptedServer([
         "POST /pacing-estimates": [(201, estimateJSON)],
@@ -210,11 +210,9 @@ private let estimateJSON = #"{"id":"e1","coldStart":true,"expectedFinishAt":"202
         "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete",
         "storageDir": storage, "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
     ]
-    let mismatch = try await runtime(request)
-    #expect(mismatch["ok"] as? Bool == false)
-    #expect(mismatch["status"] as? Int == 400)
-    #expect(mismatch["code"] as? String == "course_mismatch")
+    // `PlanOfRecord` computes and attaches once more, as on iOS: the app sees the attached plan.
     let attached = try result(try await runtime(request))
+    #expect(server.sent.filter { $0.path == "/pacing-estimates" }.count == 2)
     #expect(attached["expectedFinishAt"] as? String == "2026-08-15T22:10:00.000Z")
     #expect(attached["estimateId"] as? String == "e1")
     // The big finish readout uses the summary's clock, never a Kotlin formatter.
@@ -305,21 +303,56 @@ private let plannedSheetJSON = """
     #expect(ScheduleFormat.parseISO8601(planned.withoutHistory) == ScheduleFormat.parseISO8601("2026-08-15T22:18:00.000Z"))
     #expect(PlanFinish.historyComparison(planFinishAt: "nope", withHistoryEstimateAt: "2026-08-15T21:42:00Z", withoutHistoryEstimateAt: "2026-08-15T22:10:00Z") == nil)
 
-    let line = try result(try await runtime([
-        "op": "onboardingHistoryComparison", "timeZone": "UTC", "planFinishAt": "2026-08-15T21:50:00.000Z",
-        "withHistoryFinishAt": "2026-08-15T21:42:00.000Z", "withoutHistoryFinishAt": "2026-08-15T22:10:00.000Z"
+    // The shared path iOS and Android both take: the line reads the schedule's finish.
+    let withHistory = #"{"id":"e2","coldStart":false,"expectedFinishAt":"2026-08-15T21:42:00.000Z","expectedFinishElapsedSeconds":34920,"aidEtas":[],"explanation":"History."}"#
+    let sheet = plannedSheetJSON.replacingOccurrences(of: "\"elapsedSeconds\":37080", with: "\"elapsedSeconds\":35400")
+        .replacingOccurrences(of: "2026-08-15T22:18:00.000Z", with: "2026-08-15T21:50:00.000Z")
+    let base = "https://estimate-compare.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON), (201, withHistory)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(withHistory)}")],
+        "GET /race-rooms/r1/schedule": [(200, sheet)]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let compared = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "UTC",
+        "roomId": "r1", "historyMode": "compare"
     ]))
     let utc = try #require(TimeZone(identifier: "UTC"))
     let with = ScheduleFormat.formatScheduleClock("2026-08-15T21:50:00.000Z", timeZone: utc)
     let without = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: utc)
-    #expect(line["text"] as? String == "Finish \(with) instead of \(without)")
-    // No plan finish: the two estimates as they are.
-    let plain = try result(try await runtime([
-        "op": "onboardingHistoryComparison", "timeZone": "UTC",
-        "withHistoryFinishAt": "2026-08-15T21:42:00.000Z", "withoutHistoryFinishAt": "2026-08-15T22:10:00.000Z"
+    #expect(compared["comparison"] as? String == "Finish \(with) instead of \(without)")
+    #expect(compared["finishAt"] as? String == "2026-08-15T21:50:00.000Z")
+    #expect(compared["summary"] as? String == "History.\nFinish 9:50:00 · \(with)")
+    let computes = server.sent.filter { $0.path == "/pacing-estimates" }
+    #expect(computes.first?.body["historyRefIds"] as? [Any] != nil)
+    #expect(computes.last?.body["historyRefIds"] == nil)
+
+    // Without the plan's finish (no schedule yet): the two estimates as they are.
+    let line = HistoryComparison(
+        withoutHistory: PacingEstimate(id: "a", coldStart: true, expectedFinishAt: "2026-08-15T22:10:00.000Z", expectedFinishElapsedSeconds: 1, aidEtas: [], explanation: ""),
+        attached: PacingEstimate(id: "b", coldStart: false, expectedFinishAt: "2026-08-15T21:42:00.000Z", expectedFinishElapsedSeconds: 1, aidEtas: [], explanation: "")
+    ).line(timeZone: utc)
+    #expect(line == "Finish \(ScheduleFormat.formatScheduleClock("2026-08-15T21:42:00.000Z", timeZone: utc)) instead of \(ScheduleFormat.formatScheduleClock("2026-08-15T22:10:00.000Z", timeZone: utc))")
+}
+
+@Test func skipAttachesAColdStartThroughTheSharedPath() async throws {
+    let base = "https://estimate-skip.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let skipped = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete",
+        "roomId": "r1", "historyMode": "none"
     ]))
-    let estimateWith = ScheduleFormat.formatScheduleClock("2026-08-15T21:42:00.000Z", timeZone: utc)
-    #expect((plain["text"] as? String)?.hasPrefix("Finish \(estimateWith) instead of") == true)
+    #expect(skipped["estimateId"] as? String == "e1")
+    #expect(skipped["comparison"] == nil)
+    let compute = try #require(server.sent.first { $0.path == "/pacing-estimates" })
+    #expect((compute.body["historyRefIds"] as? [Any])?.isEmpty == true)
 }
 
 @Test func timelineRowsCarryThePlanClockLabel() async throws {

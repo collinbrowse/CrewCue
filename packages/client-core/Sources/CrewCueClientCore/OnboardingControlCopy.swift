@@ -1,10 +1,19 @@
 import Foundation
 
-/// Button, field and row labels for the onboarding chooser and the runner's setup steps, so
-/// neither app writes its own. Plain wording, like the rest of `OnboardingCopy`.
+/// The control labels Android's onboarding screens read by key (the `labels` map of the
+/// `onboardingCopy` op). One set of strings: every key reads the `OnboardingCopy` property iOS
+/// shows, so neither app writes its own.
 extension OnboardingCopy {
+    // MARK: Android's start-time pickers
+
+    /// Android picks the start's date and time in two fields, each opening its own picker.
+    public static let raceDateLabel = "Date"
+    public static let raceTimeLabel = "Time"
+    public static let pickerDone = "Done"
+    public static let pickerCancel = "Cancel"
+
     public enum Label: String, CaseIterable, Sendable {
-        case chooserTitle
+        case chooserTitle, chooserSignIn
         case createAccount, signIn, displayName
         case chooseCourseFile, chooseAnotherFile
         case raceDate, raceTime, raceTimeZone, done, cancel
@@ -15,25 +24,26 @@ extension OnboardingCopy {
 
     public static func label(_ label: Label) -> String {
         switch label {
-        case .chooserTitle: "How are you using CrewCue?"
-        case .createAccount: "Create account"
-        case .signIn: "I already have an account"
-        case .displayName: "Your name"
-        case .chooseCourseFile: "Choose course file"
-        case .chooseAnotherFile: "Choose another file"
-        case .raceDate: "Date"
-        case .raceTime: "Time"
-        case .raceTimeZone: "Time zone"
-        case .done: "Done"
-        case .cancel: "Cancel"
-        case .importHistory: "Import a file"
-        case .skipHistory: "Skip"
-        case .finish: "Finish"
-        case .locked: "Locked"
-        case .elevation: "Elevation"
-        case .coursePreview: "Course preview"
-        case .continueStep: "Continue"
-        case .tryAgain: "Try again"
+        case .chooserTitle: chooserTitle
+        case .chooserSignIn: chooserSignIn
+        case .createAccount: createAccount
+        case .signIn: signIn
+        case .displayName: displayName
+        case .chooseCourseFile: chooseCourseFile
+        case .chooseAnotherFile: chooseAnotherCourseFile
+        case .raceDate: raceDateLabel
+        case .raceTime: raceTimeLabel
+        case .raceTimeZone: timeZoneLabel
+        case .done: pickerDone
+        case .cancel: pickerCancel
+        case .importHistory: importPastRun
+        case .skipHistory: skipHistory
+        case .finish: finishLabel
+        case .locked: lockedAidRow
+        case .elevation: elevationProfileLabel
+        case .coursePreview: coursePreviewLabel
+        case .continueStep: continueLabel
+        case .tryAgain: tryAgain
         }
     }
 

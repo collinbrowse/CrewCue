@@ -70,7 +70,7 @@ class RunnerSetupViewModel(
     private val userId: String?,
     private val sessionName: String?,
     private val text: OnboardingText,
-    /** The device's IANA zone, the start time's default and the comparison's zone. */
+    /** The device's IANA zone, the start time's default. */
     private val deviceZone: String,
     private val today: LocalDate,
     /** The onboarding state on show when the screen opened, so a resume draws its step at once. */
@@ -182,11 +182,8 @@ class RunnerSetupViewModel(
         if (step != SetupSteps.START_TIME && dialog != null) closeDialog()
         when (step) {
             SetupSteps.COURSE, SetupSteps.START_TIME -> previewSavedCourse()
-            SetupSteps.HISTORY -> {
-                rememberFinishWithoutHistory()
-                // After a relaunch the line comes back from the saved finish instants.
-                if (draft.historyImported && comparison == null) viewModelScope.launch { refreshComparison() }
-            }
+            // After a relaunch the line comes back from the draft.
+            SetupSteps.HISTORY -> if (comparison == null && draft.historyLine != null) keepComparison(draft.historyLine)
             SetupSteps.TEASER -> if (teaser == null) loadTeaser()
         }
     }
@@ -313,7 +310,7 @@ class RunnerSetupViewModel(
                 is RuntimeResult.Success -> when (result.result.optText("status")) {
                     "saved" -> {
                         writeDraft(draft.copy(uploadedStartAt = startAt))
-                        estimateFinish(room)?.let { writeDraft(draft.copy(withoutHistoryFinishAt = it.estimate)) }
+                        attachPlan(room)
                         effectQueue.trySend(RunnerSetupEffect.RacesChanged)
                     }
                     // Lost the connection mid-upload: the outbox sends it later. The step stays.
@@ -345,19 +342,25 @@ class RunnerSetupViewModel(
                     // client-core's message for every status, server refusals included.
                     keepHistoryMessage(result.result.optText("message").ifBlank { null })
                     if (result.result.optText("status") !in setOf("saved", "duplicate")) return@work
-                    writeDraft(draft.copy(historyImported = true))
+                    writeDraft(draft.copy(historyImported = true, historyAttached = false))
                     val room = roomId ?: return@work
-                    val finish = estimateFinish(room) ?: return@work
-                    writeDraft(draft.copy(withHistoryFinishAt = finish.estimate, planFinishAt = finish.plan))
-                    refreshComparison()
+                    // client-core's comparison (as on iOS): an estimate with no history, then the
+                    // plan with all of it, attached; the line reads the race's finish.
+                    val compared = attachPlan(room, HISTORY_COMPARE) ?: return@work
+                    // Null: history changed nothing the runner can see, so the line is hidden.
+                    val line = compared.optText("comparison").ifBlank { null }
+                    writeDraft(draft.copy(historyAttached = true, historyLine = line))
+                    keepComparison(line)
                 }
             }
         }
     }
 
-    fun finishHistory() = markHistory("done")
+    /** Continue keeps the plan the comparison attached; without one, the plan with all history first. */
+    fun finishHistory() = markHistory("done", attachFirst = !draft.historyAttached)
 
-    fun skipHistory() = markHistory("skipped")
+    /** A rough estimate: a cold start with no history at all, even after an import (as on iOS). */
+    fun skipHistory() = markHistory("skipped", attachFirst = true, historyMode = HISTORY_NONE)
 
     /**
      * A history file went in (saved or already there), so Continue (done) replaces Skip. Kept in
@@ -365,9 +368,20 @@ class RunnerSetupViewModel(
      */
     val historyImported: Boolean get() = draft.historyImported
 
-    private fun markHistory(outcome: String) {
+    /** [attachFirst]: attach the plan for [historyMode] before marking; a failure keeps the step. */
+    private fun markHistory(outcome: String, attachFirst: Boolean, historyMode: String? = null) {
         if (busy) return
-        work { onState(withContext(io) { runtime.markStep(SetupSteps.HISTORY, outcome, null) }) }
+        val room = roomId
+        work {
+            if (attachFirst && room != null) {
+                val result = withContext(io) { runtime.computeEstimate(room, historyMode) }
+                if (result is RuntimeResult.Failure) {
+                    fail(result)
+                    return@work
+                }
+            }
+            onState(withContext(io) { runtime.markStep(SetupSteps.HISTORY, outcome, null) })
+        }
     }
 
     // MARK: projection teaser
@@ -379,7 +393,7 @@ class RunnerSetupViewModel(
             var estimate = withContext(io) { runtime.loadEstimate(room) }
             val loaded = (estimate as? RuntimeResult.Success)?.result
             if (loaded != null && !loaded.optBoolean("hasEstimate") && !loaded.optBoolean("offline")) {
-                estimate = withContext(io) { computeWithRetry(room) }
+                estimate = withContext(io) { runtime.computeEstimate(room) }
             }
             val plan = when (estimate) {
                 is RuntimeResult.Failure -> {
@@ -508,60 +522,20 @@ class RunnerSetupViewModel(
         }
     }
 
-    /** The plan's estimate before any history, read once the history step opens without one. */
-    private fun rememberFinishWithoutHistory() {
-        val room = roomId ?: return
-        if (draft.withoutHistoryFinishAt != null || busy) return
-        viewModelScope.launch {
-            val loaded = (withContext(io) { runtime.loadEstimate(room) } as? RuntimeResult.Success)?.result ?: return@launch
-            val finish = loaded.optText("expectedFinishAt").ifBlank { null } ?: return@launch
-            if (draft.withoutHistoryFinishAt == null) writeDraft(draft.copy(withoutHistoryFinishAt = finish))
-        }
-    }
-
-    private suspend fun refreshComparison() {
-        val with = draft.withHistoryFinishAt
-        val without = draft.withoutHistoryFinishAt
-        if (with == null || without == null) {
-            keepComparison(null)
-            return
-        }
-        val result = withContext(io) { runtime.historyComparison(with, without, draft.planFinishAt, deviceZone) }
-        // Null text: history changed nothing the runner can see, so the line is hidden.
-        keepComparison((result as? RuntimeResult.Success)?.result?.optText("text")?.ifBlank { null })
-    }
-
-    /** A plan's two finishes: the estimate's own (moving time) and the race's (the schedule's, stops included). */
-    private data class PlanFinishes(val estimate: String, val plan: String?)
-
     /**
-     * Computes and attaches a plan after a step saved, returning its finishes. Only an unpaid
-     * race's 402 shows (the paywall); any other failure, the estimator limit included, leaves the
-     * saved step as is, and the teaser computes again and says so there.
+     * Computes and attaches a plan after a step saved (client-core retries a `course_mismatch`
+     * once, silently), returning its estimate payload. Only an unpaid race's 402 shows (the
+     * paywall); any other failure, the estimator limit included, leaves the saved step as is, and
+     * the teaser computes again and says so there.
      */
-    private suspend fun estimateFinish(room: String): PlanFinishes? {
-        val result = withContext(io) { computeWithRetry(room) }
-        return when (result) {
+    private suspend fun attachPlan(room: String, historyMode: String? = null): JSONObject? =
+        when (val result = withContext(io) { runtime.computeEstimate(room, historyMode) }) {
             is RuntimeResult.Failure -> {
                 if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)
                 null
             }
-            is RuntimeResult.Success -> result.result.optText("expectedFinishAt").ifBlank { null }?.let { estimate ->
-                PlanFinishes(estimate, result.result.optText("finishAt").ifBlank { null })
-            }
+            is RuntimeResult.Success -> result.result
         }
-    }
-
-    /** 400 `course_mismatch`: the course changed under the estimate. Recompute and attach again, silently. */
-    private fun computeWithRetry(room: String): RuntimeResult {
-        var result = runtime.computeEstimate(room)
-        var retries = 0
-        while (result is RuntimeResult.Failure && result.code == COURSE_MISMATCH && retries < MISMATCH_RETRIES) {
-            retries++
-            result = runtime.computeEstimate(room)
-        }
-        return result
-    }
 
     private fun validateStart() {
         val fields = start
@@ -660,9 +634,7 @@ class RunnerSetupViewModel(
     }
 
     companion object {
-        const val COURSE_MISMATCH = "course_mismatch"
         const val ROOM_UNPAID = "room_unpaid"
-        const val MISMATCH_RETRIES = 2
         const val DEFAULT_START_HOUR = 6
         private const val KEY_DRAFT = "runner-setup.draft"
         private const val KEY_HISTORY_MESSAGE = "runner-setup.history-message"

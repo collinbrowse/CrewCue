@@ -633,7 +633,7 @@ enum RuntimeCall {
                 usableHistoryCount: input.usableHistoryCount,
                 historyFingerprint: input.historyFingerprint,
                 timeZone: requestTimeZone(object),
-                planFinish: estimate == nil ? nil : await scheduledFinish(graph: graph, roomId: roomId, directory: directory)
+                planFinish: estimate == nil ? nil : await PlanFinish.scheduled(graph: graph, roomId: roomId, cacheDirectory: directory)
             )
             payload["raceStartAt"] = envelope.room.raceStartAt ?? ""
             payload["plannedPaceSecondsPerKm"] = envelope.room.plannedPaceSecondsPerKm ?? 0
@@ -657,16 +657,7 @@ enum RuntimeCall {
         }
     }
 
-    /// The schedule's finish row for an estimate payload (`PlanFinish`), read after the plan it
-    /// belongs to. A read that fails (no schedule yet, a crew member's 402) leaves the estimate's
-    /// own finish; offline, the sheet on this device.
-    private static func scheduledFinish(graph: ClientGraph, roomId: String, directory: URL?) async -> ScheduleStop? {
-        guard let loaded = try? await RaceDayAPI.loadScheduleResult(graph: graph, roomId: roomId, cacheDirectory: directory),
-              loaded.sheet.roomId == roomId else { return nil }
-        return PlanFinish.row(in: loaded.sheet)
-    }
-
-    /// The finish row of the sheet on this device, when it is this race's.
+    /// The finish row of the race's sheet on this device (`PlanFinish`), for an offline payload.
     private static func cachedFinish(roomId: String, directory: URL?) -> ScheduleStop? {
         guard let directory, let sheet = try? ScheduleCache.load(directory: directory), sheet.roomId == roomId else { return nil }
         return PlanFinish.row(in: sheet)
@@ -690,6 +681,9 @@ enum RuntimeCall {
         ]
     }
 
+    /// `computeEstimate`: roomId, role, trigger?, hasPlanOfRecord?, historyFingerprint?,
+    /// usableHistoryCount?, historyMode? (`none`: Skip's cold start; `compare`: also answers
+    /// `comparison`, the history step's line). Answers the estimate payload of the attached plan.
     private static func computeEstimate(_ object: [String: Any]) async throws -> Any {
         let role = object["role"] as? String ?? ""
         // Without a trigger the request is an automatic recompute, which only the athlete may make.
@@ -702,13 +696,26 @@ enum RuntimeCall {
         let roomId = object["roomId"] as? String ?? ""
         do {
             let graph = try graph(object)
-            let attached = try await PlanOfRecord.recompute(
-                graph: graph,
-                roomId: roomId,
-                role: role,
-                trigger: trigger,
-                hasPlanOfRecord: hasPlanOfRecord
-            )
+            // The history step's two paths, the ones iOS takes (`PlanOfRecord`): `none` (Skip, a
+            // cold start even after an import) and `compare` (after an import: the comparison line).
+            let attached: PacingEstimate
+            var comparison: HistoryComparison?
+            switch text(object, "historyMode") {
+            case "none":
+                attached = try await PlanOfRecord.recomputeWithoutHistory(graph: graph, roomId: roomId, role: role)
+            case "compare":
+                let compared = try await PlanOfRecord.recomputeComparingHistory(graph: graph, roomId: roomId, role: role)
+                attached = compared.attached
+                comparison = compared
+            default:
+                attached = try await PlanOfRecord.recompute(
+                    graph: graph,
+                    roomId: roomId,
+                    role: role,
+                    trigger: trigger,
+                    hasPlanOfRecord: hasPlanOfRecord
+                )
+            }
             if let directory {
                 try? EstimateCache.save(attached, directory: directory)
             }
@@ -720,7 +727,12 @@ enum RuntimeCall {
                 )
             }
             let count = intValue(object["usableHistoryCount"]) ?? 0
-            return estimatePayload(
+            let zone = requestTimeZone(object)
+            // The schedule now plans from the estimate just attached.
+            let planFinish = if let comparison { comparison.planFinish } else {
+                await PlanFinish.scheduled(graph: graph, roomId: roomId, cacheDirectory: directory)
+            }
+            var payload = estimatePayload(
                 attached,
                 role: role,
                 offline: false,
@@ -728,10 +740,13 @@ enum RuntimeCall {
                 reason: EstimateRecomputeReason.none.rawValue,
                 usableHistoryCount: count,
                 historyFingerprint: fingerprint,
-                timeZone: requestTimeZone(object),
-                // The schedule now plans from the estimate just attached.
-                planFinish: await scheduledFinish(graph: graph, roomId: roomId, directory: directory)
+                timeZone: zone,
+                planFinish: planFinish
             )
+            // `compare`: "Finish 9:42 AM instead of 10:15 AM" on the plan's clock, or null when
+            // history changed nothing the runner can see.
+            if let comparison { payload["comparison"] = comparison.line(timeZone: zone) ?? NSNull() }
+            return payload
         } catch {
             if TransportFailure.isOffline(error) {
                 let cached = directory.flatMap { try? EstimateCache.load(directory: $0) }
@@ -917,20 +932,20 @@ enum RuntimeCall {
         timeZone: TimeZone = DeviceTimeZone.current,
         planFinish: ScheduleStop? = nil
     ) -> [String: Any] {
-        let finish = estimate.map { finishOf($0, plan: planFinish) }
+        let finishAt = planFinish?.clockArrivalAt ?? estimate?.expectedFinishAt
         return [
             "hasEstimate": estimate != nil,
             "coldStart": estimate?.coldStart ?? false,
             "estimateId": estimate?.id ?? "",
-            // The estimate's own finish (API ISO-8601): moving time only, no planned stops. The
-            // estimate sides of `onboardingHistoryComparison`; never shown as the finish. "" without one.
+            // The estimate's own finish (API ISO-8601): moving time only, no planned stops. Never
+            // shown as the finish. "" without one.
             "expectedFinishAt": estimate?.expectedFinishAt ?? "",
             // The race's finish (API ISO-8601), the one every screen shows: the schedule's finish row
             // (`PlanFinish`), else the estimate's own. "" without an estimate.
-            "finishAt": finish?.at ?? "",
-            "summary": finish.map { estimateSummary(explanation: estimate?.explanation ?? "", finish: $0, timeZone: timeZone) } ?? "",
+            "finishAt": estimate == nil ? "" : finishAt ?? "",
+            "summary": estimate.map { PlanFinish.estimateSummary($0, plan: planFinish, timeZone: timeZone) } ?? "",
             // The finish clock as the summary writes it, so a big finish readout matches it; "" without one.
-            "finishClock": finish.map { ScheduleFormat.formatScheduleClock($0.at, timeZone: timeZone) } ?? "",
+            "finishClock": estimate == nil ? "" : finishAt.map { ScheduleFormat.formatScheduleClock($0, timeZone: timeZone) } ?? "",
             "offline": offline,
             "recompute": recompute,
             "reason": reason,
@@ -939,21 +954,6 @@ enum RuntimeCall {
             "mayRecalculate": PlanAuthority.mayExplicitRecalculate(role: role),
             "mayAutoRecompute": PlanAuthority.mayAutoRecompute(role: role)
         ]
-    }
-
-    /// The finish an estimate payload shows: the schedule's finish row, else the estimate's own.
-    private static func finishOf(_ estimate: PacingEstimate, plan: ScheduleStop?) -> (at: String, elapsedSeconds: Double) {
-        if let plan { return (plan.clockArrivalAt, plan.elapsedSeconds) }
-        return (estimate.expectedFinishAt, estimate.expectedFinishElapsedSeconds)
-    }
-
-    /// The estimate's explanation, then "Finish 4:59:59 · 7:29 AM" for `finish`.
-    private static func estimateSummary(explanation: String, finish: (at: String, elapsedSeconds: Double), timeZone: TimeZone) -> String {
-        let elapsed = ScheduleFormat.formatDurationSeconds(finish.elapsedSeconds)
-        let clock = ScheduleFormat.formatScheduleClock(finish.at, timeZone: timeZone)
-        let line = "Finish \(elapsed) · \(clock)"
-        if explanation.isEmpty { return line }
-        return "\(explanation)\n\(line)"
     }
 
     private static func recomputeInput(
@@ -1551,18 +1551,11 @@ enum RuntimeCall {
     /// `deleted: true` only when the server confirmed; the app then signs out. A 401 still throws so
     /// the app's session-expired path runs. A confirmed delete also removes the user's onboarding
     /// progress, which sign-out keeps.
-    /// `onboardingHistoryComparison`: withHistoryFinishAt, withoutHistoryFinishAt (the two
-    /// estimates' own finishes), optional planFinishAt (the race's finish for the plan with history,
-    /// the estimate payload's `finishAt`), optional timeZone (IANA id). With planFinishAt the line
-    /// reads the plan's clock on both sides (`PlanFinish.historyComparison`), so its first finish is
-    /// the one the teaser shows. Result `{"text": String?}`; text is null when the line should be hidden.
+    /// `onboardingHistoryComparison`: withHistoryFinishAt, withoutHistoryFinishAt, optional timeZone (IANA id).
+    /// Result `{"text": String?}`; text is null when the line should be hidden.
     private static func onboardingHistoryComparison(_ object: [String: Any]) throws -> Any {
-        guard var with = text(object, "withHistoryFinishAt"), var without = text(object, "withoutHistoryFinishAt") else {
+        guard let with = text(object, "withHistoryFinishAt"), let without = text(object, "withoutHistoryFinishAt") else {
             throw ClientHTTPError(status: 400, message: "withHistoryFinishAt and withoutHistoryFinishAt are required.")
-        }
-        if let plan = text(object, "planFinishAt"),
-           let planned = PlanFinish.historyComparison(planFinishAt: plan, withHistoryEstimateAt: with, withoutHistoryEstimateAt: without) {
-            (with, without) = (planned.withHistory, planned.withoutHistory)
         }
         let zone = text(object, "timeZone").flatMap(DeviceTimeZone.resolve) ?? DeviceTimeZone.current
         let line = OnboardingCopy.historyComparison(withHistoryFinishAt: with, withoutHistoryFinishAt: without, timeZone: zone)

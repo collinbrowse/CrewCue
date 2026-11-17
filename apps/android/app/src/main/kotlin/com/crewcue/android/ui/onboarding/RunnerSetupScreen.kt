@@ -133,7 +133,7 @@ private fun OnboardingChooser(shell: ShellViewModel, text: OnboardingText) {
                 SetupPrimaryButton(text.chooserRunner, setupTag("chooser.runner"), { shell.chooseOnboarding("runner") })
                 SetupSecondaryButton(text.chooserCrew, setupTag("chooser.crew"), { shell.chooseOnboarding("crew") })
                 if (shell.session == null) {
-                    SetupSecondaryButton(text.label("signIn"), setupTag("chooser.sign-in"), shell::openSignedOut)
+                    SetupSecondaryButton(text.label("chooserSignIn"), setupTag("chooser.sign-in"), shell::openSignedOut)
                 }
             }
         },

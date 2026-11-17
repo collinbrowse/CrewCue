@@ -15,6 +15,28 @@ public enum PlanFinish {
         return last
     }
 
+    /// The schedule's finish row for the room's plan of record, read from the server (offline, the
+    /// sheet in `cacheDirectory`). Nil when the read fails: no schedule yet, a crew member's 402.
+    public static func scheduled(graph: ClientGraph, roomId: String, cacheDirectory: URL? = nil) async -> ScheduleStop? {
+        guard let loaded = try? await RaceDayAPI.loadScheduleResult(graph: graph, roomId: roomId, cacheDirectory: cacheDirectory),
+              loaded.sheet.roomId == roomId else { return nil }
+        return row(in: loaded.sheet)
+    }
+
+    /// The estimate's explanation, then "Finish 4:59:59 · 7:29 AM" for the race's finish: `plan`
+    /// (the schedule's finish row) when there is one, else the estimate's own finish.
+    public static func estimateSummary(
+        _ estimate: PacingEstimate,
+        plan: ScheduleStop?,
+        timeZone: TimeZone = DeviceTimeZone.current,
+        locale: Locale = .current
+    ) -> String {
+        let elapsed = ScheduleFormat.formatDurationSeconds(plan?.elapsedSeconds ?? estimate.expectedFinishElapsedSeconds)
+        let clock = ScheduleFormat.formatScheduleClock(plan?.clockArrivalAt ?? estimate.expectedFinishAt, timeZone: timeZone, locale: locale)
+        let line = "Finish \(elapsed) · \(clock)"
+        return estimate.explanation.isEmpty ? line : "\(estimate.explanation)\n\(line)"
+    }
+
     /// The history step's two finishes on the plan's clock. With history: `planFinishAt`, the
     /// server's finish for the plan the history made. Without: the same finish moved by as much as
     /// the estimate without history differs from the one with it, so both sides carry the same

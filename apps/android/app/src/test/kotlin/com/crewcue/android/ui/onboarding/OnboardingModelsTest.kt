@@ -89,7 +89,7 @@ class OnboardingModelsTest {
         val draft = RunnerSetupDraft(
             roomId = "r1", displayName = "Ada", courseFileName = "route.gpx", courseConfirmed = true,
             plannedPaceSecondsPerKm = 420.0, start = RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"),
-            uploadedStartAt = "2026-08-15T12:30:00.000Z", withoutHistoryFinishAt = "a", withHistoryFinishAt = "b"
+            uploadedStartAt = "2026-08-15T12:30:00.000Z", historyLine = "Finish 9:42 AM instead of 10:15 AM", historyAttached = true
         )
         assertEquals(draft, RunnerSetupDraft.from(draft.toJson()))
         assertEquals(RunnerSetupDraft(), RunnerSetupDraft.from(RunnerSetupDraft().toJson()))

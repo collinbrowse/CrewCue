@@ -51,7 +51,7 @@ private class FakeRuntime : RunnerSetupRuntime {
     val calls = mutableListOf<String>()
     val marks = mutableListOf<Triple<String, String?, String?>>()
     val imports = mutableListOf<List<Any?>>()
-    val comparisons = mutableListOf<List<String?>>()
+    val historyModes = mutableListOf<String?>()
     var created: Triple<String, String, String?>? = null
     val answers = mutableMapOf<String, ArrayDeque<RuntimeResult>>()
 
@@ -97,19 +97,16 @@ private class FakeRuntime : RunnerSetupRuntime {
             )
         )
 
-    override fun computeEstimate(roomId: String): RuntimeResult =
-        next(
+    override fun computeEstimate(roomId: String, historyMode: String?): RuntimeResult {
+        historyModes += historyMode
+        return next(
             "computeEstimate",
             ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","finishAt":"2026-08-15T22:18:00.000Z","offline":false}""")
         )
+    }
 
     override fun importActivity(fileName: String, contentBase64: String): RuntimeResult =
         next("importActivity", ok("""{"status":"saved","message":"Imported FIT · 8.0 km"}"""))
-
-    override fun historyComparison(withHistoryFinishAt: String, withoutHistoryFinishAt: String, planFinishAt: String?, timeZone: String): RuntimeResult {
-        comparisons += listOf(withHistoryFinishAt, withoutHistoryFinishAt, planFinishAt, timeZone)
-        return next("historyComparison", ok("""{"text":"Finish 3:42 PM instead of 4:10 PM"}"""))
-    }
 
     override fun loadRoom(roomId: String): RuntimeResult = next("loadRoom", ok(PREVIEW))
 
@@ -360,7 +357,8 @@ class RunnerSetupViewModelTest {
         val effects = effectsOf(model)
         model.saveStart(online = true)
         assertEquals(listOf(listOf<Any?>("room-1", "route.gpx", "<gpx/>", "2026-08-15T12:30:00.000Z", 420.0)), runtime.imports)
-        assertEquals("2026-08-15T22:10:00.000Z", model.draft.withoutHistoryFinishAt)
+        // The first plan, with all history, attached for the teaser.
+        assertEquals(listOf<String?>(null), runtime.historyModes)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
         // A second tap with the same start only asks for the race list again.
         model.saveStart(online = true)
@@ -409,21 +407,21 @@ class RunnerSetupViewModelTest {
         // The course and start saved; the teaser computes the plan again later.
         assertEquals(SetupStatus.Ready, model.status)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
-        assertNull(model.draft.withoutHistoryFinishAt)
     }
 
     @Test
-    fun courseMismatchRecomputesSilently() = runTest(dispatcher) {
+    fun aCourseMismatchClientCoreCouldNotRecoverFromStaysSilent() = runTest(dispatcher) {
+        // client-core already computed and attached once more (PlanOfRecord); the app doesn't loop.
         runtime.answer(
             "computeEstimate",
-            RuntimeResult.Failure("The estimate was computed for another course.", offline = false, status = 400, code = "course_mismatch"),
-            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T21:00:00.000Z"}""")
+            RuntimeResult.Failure("The estimate was computed for another course.", offline = false, status = 400, code = "course_mismatch")
         )
         val model = startTimeModel()
+        val effects = effectsOf(model)
         model.saveStart(online = true)
-        assertEquals(2, runtime.calls.count { it == "computeEstimate" })
+        assertEquals(1, runtime.calls.count { it == "computeEstimate" })
         assertEquals(SetupStatus.Ready, model.status)
-        assertEquals("2026-08-15T21:00:00.000Z", model.draft.withoutHistoryFinishAt)
+        assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
     }
 
     @Test
@@ -439,28 +437,29 @@ class RunnerSetupViewModelTest {
 
     @Test
     fun historyShowsTheComparisonAndHidesItWhenClientCoreSaysNull() = runTest(dispatcher) {
-        drafts.save("ada", RunnerSetupDraft(roomId = "room-1", withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z"))
+        drafts.save("ada", RunnerSetupDraft(roomId = "room-1"))
         runtime.answer(
             "computeEstimate",
-            ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T21:42:00.000Z","finishAt":"2026-08-15T21:50:00.000Z"}""")
+            ok("""{"hasEstimate":true,"finishAt":"2026-08-15T21:50:00.000Z","comparison":"Finish 3:50 PM instead of 4:18 PM"}"""),
+            ok("""{"hasEstimate":true,"finishAt":"2026-08-15T21:50:00.000Z","comparison":null}""")
         )
         val model = model()
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
         assertFalse(model.historyImported)
         model.importHistory("run.fit", "AAAA", online = true)
         assertEquals("Imported FIT · 8.0 km", model.historyMessage)
-        assertEquals("Finish 3:42 PM instead of 4:10 PM", model.comparison)
+        // client-core's line, on the race's clock (the shared comparison iOS shows too).
+        assertEquals("Finish 3:50 PM instead of 4:18 PM", model.comparison)
+        assertEquals(listOf<String?>(HISTORY_COMPARE), runtime.historyModes)
         assertTrue(model.historyImported)
-        // The estimates' own finishes, put on the race's clock by the plan's finish (the schedule's).
-        assertEquals(
-            listOf("2026-08-15T21:42:00.000Z", "2026-08-15T22:10:00.000Z", "2026-08-15T21:50:00.000Z", "America/Denver"),
-            runtime.comparisons.last()
-        )
-        assertEquals("2026-08-15T21:50:00.000Z", model.draft.planFinishAt)
+        assertTrue(model.draft.historyAttached)
 
-        runtime.answer("historyComparison", ok("""{"text":null}"""))
         model.importHistory("run2.fit", "AAAA", online = true)
         assertNull(model.comparison)
+        // Continue keeps the plan the comparison attached.
+        model.finishHistory()
+        assertEquals(2, runtime.historyModes.size)
+        assertEquals(Triple(SetupSteps.HISTORY, "done", null as String?), runtime.marks.last())
     }
 
     @Test
@@ -468,17 +467,16 @@ class RunnerSetupViewModelTest {
         drafts.save(
             "ada",
             RunnerSetupDraft(
-                roomId = "room-1", historyImported = true,
-                withoutHistoryFinishAt = "2026-08-15T22:10:00.000Z", withHistoryFinishAt = "2026-08-15T21:42:00.000Z",
-                planFinishAt = "2026-08-15T21:50:00.000Z"
+                roomId = "room-1", historyImported = true, historyAttached = true,
+                historyLine = "Finish 3:50 PM instead of 4:18 PM"
             )
         )
         // A new launch: nothing in SavedStateHandle, only the draft on disk.
         val model = model()
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
         assertTrue(model.historyImported)
-        assertEquals("Finish 3:42 PM instead of 4:10 PM", model.comparison)
-        assertEquals("2026-08-15T21:50:00.000Z", runtime.comparisons.last()[2])
+        assertEquals("Finish 3:50 PM instead of 4:18 PM", model.comparison)
+        assertTrue(runtime.historyModes.isEmpty())
         // Continue (done), never Skip, for history that went in.
         model.finishHistory()
         assertEquals(Triple(SetupSteps.HISTORY, "done", null as String?), runtime.marks.last())
@@ -497,24 +495,27 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun historyWithoutAPlanBeforeReadsTheCurrentOne() = runTest(dispatcher) {
-        drafts.save("ada", RunnerSetupDraft(roomId = "room-1"))
-        val model = model()
-        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
-        // The estimate's own finish: the comparison op puts both estimates on the plan's clock.
-        assertEquals("2026-08-15T22:02:00.000Z", model.draft.withoutHistoryFinishAt)
-    }
-
-    @Test
-    fun skipAndContinueMarkHistory() = runTest(dispatcher) {
+    fun skipAttachesAColdStartAndContinueThePlanWithHistoryThenEachMarks() = runTest(dispatcher) {
         val model = model()
         model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
         model.skipHistory()
         model.finishHistory()
+        // Skip: no history at all, even after an import. Continue with nothing attached yet: all of it.
+        assertEquals(listOf(HISTORY_NONE, null), runtime.historyModes)
         assertEquals(
             listOf(Triple(SetupSteps.HISTORY, "skipped", null as String?), Triple(SetupSteps.HISTORY, "done", null as String?)),
             runtime.marks
         )
+    }
+
+    @Test
+    fun aSkipWhoseColdStartFailsStaysOnTheStep() = runTest(dispatcher) {
+        runtime.answer("computeEstimate", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        model.skipHistory()
+        assertTrue(runtime.marks.isEmpty())
+        assertEquals(text.setupError, (model.status as SetupStatus.Failed).failure.message)
     }
 
     @Test
