@@ -1,0 +1,19 @@
+{
+  "id": "onboarding-runner-setup",
+  "platform": "ios",
+  "entry": "crewcue://dev/onboarding-runner-setup",
+  "device": "iPhone 18 Pro simulator (CrewCue wf_2f4eb32f-732-1, 7B254403), iOS 27.0, Debug build; iPhone Duo simulator (CrewCue wf_2f4eb32f-732-1 Duo, 4E9FD19A) outer display, iOS 27.2; iPhone 18 Pro Max simulator (CrewCue wf_2f4eb32f-732-1 Max, 6D003073) landscape for regular width",
+  "date": "2026-11-17",
+  "commit": "claude/onboarding-9a-ios-runner-setup on c0ea2c2 (the PR 9a commit)",
+  "session": "Dev session (HS256 dev JWT) against the local memory API on 127.0.0.1:3109, launched through crewcue://dev/app-shell, which opens runner setup when the onboarding state is in setup. The course file was placed in the setup draft (the picker is the same .fileImporter Pace uses), so the preview, race creation and course save ran through the app. Offline: --api-base-url pointed at a closed port. Course save limit: the user's 10 unpaid saves spent on another race first. Signed-out account step (Create account, Sign in) shown by OnboardingEntryTests; Auth0 sign-up itself needs Auth0 credentials and was not run. iPhone Duo inner display: blocked, the simulator's fold is not scriptable from simctl; regular width shown on the Pro Max in landscape.",
+  "action": "Chooser, I'm running a race, display name, course file previewed on the map with its elevation profile (race created with the display name as creatorName), start time refused on a daylight saving gap (2027-03-14 02:30 America/Denver) then saved in Asia/Tokyo, history skipped for a rough estimate, teaser with the finish ETA and every aid station locked, a relaunch resumed on the teaser, Continue opened the Race Pass paywall, Not now opened the tab bar with Unlock race on Map, Pace (locked rows) and Chat; the banner opened the paywall; a relaunch stayed on the tab bar.",
+  "checked": {
+    "Success": "Teaser: 'Estimated finish 3:50 PM' and 'Your finish time is ready. Aid station times unlock with your race.', Start 10:30 AM, Aid 1 to Aid 3 'Locked', Finish 3:50 PM.",
+    "Empty": "Course step before a file: 'Add your course file to start. Training history is optional.' with Choose course file.",
+    "Error": "A file the server can't read: 'Couldn't save this step.' under the course step, the file kept. Daylight saving gap: 'That time doesn't exist on that date because of daylight saving. Pick another time.' with Continue disabled. Course save limit (429): 'You've changed the course a lot this hour. Try again in a bit.' and the step kept.",
+    "Offline": "API unreachable on the course step: 'Offline. Setup needs the network. Your answers stay on this phone until you reconnect.' with the picked file still there.",
+    "Accessibility labels": "crewcue.onboarding-runner-setup, crewcue.onboarding-chooser, crewcue.onboarding.step.<step>, crewcue.onboarding.display-name, crewcue.onboarding.continue, crewcue.onboarding.choose-course, crewcue.onboarding.course-preview, crewcue.onboarding.start-picker, crewcue.onboarding.time-zone, crewcue.onboarding.dst-gap, crewcue.onboarding.skip-history, crewcue.onboarding.teaser-timeline, crewcue.onboarding.locked-row.<id>, crewcue.onboarding.error, crewcue.unlock-race-banner",
+    "Adaptive": "Compact (iPhone 18 Pro, Duo outer display): one step per screen. Regular (Pro Max landscape): form beside the course map and elevation profile. Rotating mid-step kept the typed name, the keyboard focus, the step and the preview. Accessibility XXXL text wraps without clipping."
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

@@ -706,7 +706,9 @@ final class PaceModel {
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
             progressMeters: runner.progressMeters(checkpoints: aidCheckpoints),
-            live: live
+            live: live,
+            // An unpaid race lists its locked aid stations too, shown locked.
+            showLocked: true
         )
     }
 

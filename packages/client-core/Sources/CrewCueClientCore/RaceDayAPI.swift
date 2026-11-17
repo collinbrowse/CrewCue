@@ -504,6 +504,7 @@ public enum RaceDayAPI {
 
     /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
     /// with `uploadIntervalSeconds` so the server can judge staleness from the runner's setting.
+    /// A queued course upload answered 429 backs off (`OutboxStore.flush`), timed by `graph.clock`.
     public static func flushOutbox(graph: ClientGraph, uploadIntervalSeconds: Int? = nil) async throws -> FlushReport {
         guard let outbox = graph.outbox, let baseURL = graph.baseURL else {
             throw ClientHTTPError(status: 0, message: "Outbox is not configured.")
@@ -561,7 +562,7 @@ public enum RaceDayAPI {
             } catch {
                 return OutboxPolicy.resolve(error)
             }
-        }, pingBatch: pingBatch)
+        }, pingBatch: pingBatch, now: graph.clock.now())
     }
 
     static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {

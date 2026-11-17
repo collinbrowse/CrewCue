@@ -222,7 +222,7 @@ struct PaceCheckpointCard: View {
 
     var body: some View {
         Group {
-            if row.state == .current {
+            if row.state == .current && !row.locked {
                 current
             } else {
                 compact
@@ -230,7 +230,7 @@ struct PaceCheckpointCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(stop?.line ?? row.title)
-        .accessibilityValue(liveAccessibility)
+        .accessibilityValue(row.locked ? OnboardingCopy.lockedAidExplanation : liveAccessibility)
     }
 
     /// Live arrival from the server's projection, when the room has one.
@@ -268,14 +268,21 @@ struct PaceCheckpointCard: View {
                     .minimumScaleFactor(0.8)
             }
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(verbatim: liveClock.map { "ETA \($0)" } ?? CrewClock.short(row.clockArrivalAt) ?? "—")
-                    .font(CrewFont.metric)
-                    .foregroundStyle(row.isFinish ? theme.primary : (row.state == .done ? theme.body : theme.ink))
-                Text(verbatim: caption)
-                    .font(CrewFont.kicker)
-                    .tracking(0.6)
+            if row.locked {
+                Label(OnboardingCopy.lockedAidRow, systemImage: "lock.fill")
+                    .font(CrewFont.label)
                     .foregroundStyle(theme.body)
+                    .accessibilityLabel(OnboardingCopy.lockedAidExplanation)
+            } else {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(verbatim: liveClock.map { "ETA \($0)" } ?? CrewClock.short(row.clockArrivalAt) ?? "—")
+                        .font(CrewFont.metric)
+                        .foregroundStyle(row.isFinish ? theme.primary : (row.state == .done ? theme.body : theme.ink))
+                    Text(verbatim: caption)
+                        .font(CrewFont.kicker)
+                        .tracking(0.6)
+                        .foregroundStyle(theme.body)
+                }
             }
         }
         .padding(.horizontal, CrewSpace.margin - 4)
