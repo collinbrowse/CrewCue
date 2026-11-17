@@ -71,6 +71,8 @@ private func plain(_ text: String?) -> String? {
 @Test func onboardingCopyIsPlain() {
     var all: [String] = [
         OnboardingCopy.chooserRunner, OnboardingCopy.chooserCrew, OnboardingCopy.replaySkip,
+        OnboardingCopy.replayPause, OnboardingCopy.replayPlay, OnboardingCopy.replayEmpty,
+        OnboardingCopy.replayError, OnboardingCopy.replayOffline,
         OnboardingCopy.paywallRunnerPlusOneTitle, OnboardingCopy.paywallFullCrewTitle, OnboardingCopy.paywallPitch,
         OnboardingCopy.unpaidBanner, OnboardingCopy.courseSaveLimit, OnboardingCopy.startTimeDstGap
     ]
@@ -108,6 +110,33 @@ private func plain(_ text: String?) -> String? {
 
 @Test func replayCaptionsHaveOneSourceInClientCore() {
     #expect(DemoRaceBeat.allCases.allSatisfy { $0.caption == OnboardingCopy.replayCaption($0) })
+}
+
+@Test func replayStateCopyIsTheChecklistsAndTheFeatureScreensToo() {
+    // clients/behavior/onboarding-race-preview.md, Empty / Error / Offline.
+    #expect(OnboardingCopy.replayEmpty == "Add your course to see the replay on your own route.")
+    #expect(OnboardingCopy.replayError == "Couldn't play the replay. Skip to unlock your race.")
+    #expect(OnboardingCopy.replayOffline == "Offline. The replay plays from the race saved on this phone.")
+    let screen = { (state: FeatureState) in CrewCueClientCore.featureScreen(id: "onboarding-race-preview", state: state).body }
+    #expect(screen(.empty) == OnboardingCopy.replayEmpty)
+    #expect(screen(.error) == OnboardingCopy.replayError)
+    #expect(screen(.offline) == OnboardingCopy.replayOffline)
+    #expect(screen(.success) == OnboardingCopy.replayCaption(.following))
+    #expect(OnboardingCopy.replayPause == "Pause")
+    #expect(OnboardingCopy.replayPlay == "Play")
+}
+
+@Test func replayBeatCountNamesTheBeatOutOfFour() {
+    #expect(DemoRaceBeat.allCases.map(OnboardingCopy.replayBeatCount) == ["1 of 4", "2 of 4", "3 of 4", "4 of 4"])
+}
+
+@Test func onboardingCopyRuntimeOpGivesAndroidTheReplayStrings() async throws {
+    let copy = try await runtimeResult(["op": "onboardingCopy"])
+    #expect(copy["replayEmpty"] as? String == OnboardingCopy.replayEmpty)
+    #expect(copy["replayError"] as? String == OnboardingCopy.replayError)
+    #expect(copy["replayOffline"] as? String == OnboardingCopy.replayOffline)
+    #expect(copy["replayPause"] as? String == OnboardingCopy.replayPause)
+    #expect(copy["replayPlay"] as? String == OnboardingCopy.replayPlay)
 }
 
 @Test func paywallPricesAreTheBillingFallbacks() {

@@ -110,6 +110,18 @@ public enum OnboardingCopy {
     }
 
     public static let replaySkip = "Skip"
+    public static let replayPause = "Pause"
+    public static let replayPlay = "Play"
+    /// The replay's states (clients/behavior/onboarding-race-preview.md). The checklist screen's
+    /// copy (`featureScreen(id: "onboarding-race-preview")`) reads these too.
+    public static let replayEmpty = "Add your course to see the replay on your own route."
+    public static let replayError = "Couldn't play the replay. Skip to unlock your race."
+    public static let replayOffline = "Offline. The replay plays from the race saved on this phone."
+
+    /// "2 of 4": which beat is on screen.
+    public static func replayBeatCount(_ beat: DemoRaceBeat) -> String {
+        "\(beat.number) of \(DemoRaceBeat.allCases.count)"
+    }
 
     // MARK: Paywall
 
@@ -159,6 +171,8 @@ public enum OnboardingCopy {
             "loading": loading, "back": back, "tryAgain": tryAgain, "accountMenu": accountMenu,
             "signOut": signOut, "switchRace": switchRace, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
             "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
+            "replayPause": replayPause, "replayPlay": replayPlay, "replayEmpty": replayEmpty,
+            "replayError": replayError, "replayOffline": replayOffline,
             "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
             "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,
             "paywallRunnerPlusOnePrice": paywallRunnerPlusOnePrice,

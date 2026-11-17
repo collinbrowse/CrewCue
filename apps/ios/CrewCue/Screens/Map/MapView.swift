@@ -36,6 +36,9 @@ struct MapView: View {
     var access: RaceAccess? = nil
     /// The runner's unpaid race: the banner and Start tracking open the paywall instead.
     var onUnlock: (() -> Void)? = nil
+    /// The onboarding replay: the course, the runner and the aid sheet only. No top bar and no map
+    /// tools (placing a checkpoint, navigating, tracking), since the replay never writes.
+    var readOnly = false
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -47,6 +50,7 @@ struct MapView: View {
                 points: model.points,
                 track: model.trackCoordinates,
                 recenterRequest: model.recenterRequest,
+                replay: readOnly,
                 onTap: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
@@ -72,7 +76,7 @@ struct MapView: View {
                 .padding(.horizontal, 8)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {})
+            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {}, readOnly: readOnly)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -91,13 +95,16 @@ private struct MapOverlayControls: View {
     var onSettings: () -> Void
     var access: RaceAccess?
     var onUnlock: () -> Void
+    var readOnly = false
     @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(spacing: CrewSpace.stackSm) {
-            CrewTopBar(onSettings: onSettings)
-                .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
-                .padding(.horizontal, 8)
+            if !readOnly {
+                CrewTopBar(onSettings: onSettings)
+                    .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+                    .padding(.horizontal, 8)
+            }
             if let access {
                 RaceAccessBanner(access: access, onUnlock: onUnlock)
                     .padding(.horizontal, CrewSpace.gutter)
@@ -117,25 +124,32 @@ private struct MapOverlayControls: View {
                     CircleIconButton(systemImage: "scope", label: "Fit course") {
                         model.recenter()
                     }
-                    Menu {
-                        Picker("Map tool", selection: $tool) {
-                            Label("Aid stations", systemImage: "flag").tag(MapTool.none)
-                            Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
-                            Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
-                            Label("Tracking", systemImage: "location").tag(MapTool.location)
-                        }
-                    } label: {
-                        Image(systemName: "square.3.layers.3d")
-                            .font(.system(size: 21, weight: .semibold))
-                            .frame(width: 52, height: 52)
-                            .foregroundStyle(theme.primary)
+                    if !readOnly {
+                        mapTools
                     }
-                    .crewGlass(in: Circle(), interactive: true)
-                    .accessibilityLabel("Map tools")
                 }
             }
             .padding(.horizontal, CrewSpace.gutter)
         }
+    }
+
+    /// Place checkpoint, navigate and tracking. Not in the replay.
+    private var mapTools: some View {
+        Menu {
+            Picker("Map tool", selection: $tool) {
+                Label("Aid stations", systemImage: "flag").tag(MapTool.none)
+                Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
+                Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
+                Label("Tracking", systemImage: "location").tag(MapTool.location)
+            }
+        } label: {
+            Image(systemName: "square.3.layers.3d")
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: 52, height: 52)
+                .foregroundStyle(theme.primary)
+        }
+        .crewGlass(in: Circle(), interactive: true)
+        .accessibilityLabel("Map tools")
     }
 
     /// The runner's path drawn on the map, from the API.
@@ -434,6 +448,9 @@ struct MapCanvas: View {
     let points: [MapCoursePoint]
     var track: [CLLocationCoordinate2D] = []
     var recenterRequest = 0
+    /// The onboarding replay: no top bar to clear, and a pane that a fold or a size change
+    /// resizes, so the course is framed again when it does.
+    var replay = false
     @Environment(\.crew) private var theme
     let onTap: (Double, Double) -> Void
     let onStyleFailure: (Bool) -> Void
@@ -449,7 +466,9 @@ struct MapCanvas: View {
             onStyleLoaded: onStyleLoaded,
             recenterRequest: recenterRequest,
             lineColor: UIColor(theme.primary),
-            trackColor: UIColor(theme.secondary)
+            trackColor: UIColor(theme.secondary),
+            fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
+            refitOnResize: replay
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")

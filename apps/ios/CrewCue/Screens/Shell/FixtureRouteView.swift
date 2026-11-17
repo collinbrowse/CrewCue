@@ -4,6 +4,9 @@ import CrewCueClientCore
 struct FixtureRouteView: View {
     let route: Route
     let screen: FeatureScreen
+    /// Set for the top-level route: screens with a model of their own (the race-day replay) show
+    /// a `?state=` on the real screen instead of its copy alone.
+    var shell: ShellModel? = nil
 
     var body: some View {
         switch route.featureId {
@@ -19,9 +22,31 @@ struct FixtureRouteView: View {
             BillingRedeemView(fixture: screen)
         case "billing-upgrade":
             CrewUpgradeView(fixture: screen)
+        case "onboarding-race-preview":
+            if let shell {
+                RacePreviewDevRoute(shell: shell, state: route.state)
+            } else {
+                RacePreviewFixtureScreen(screen: screen)
+            }
         default:
             FeatureScreenView(screen: screen)
         }
+    }
+}
+
+/// `crewcue://dev/onboarding-race-preview[?state=…]`: the real replay and paywall on
+/// `DemoRaceFixture` (no API, signed in or out), or the real screen in that state with Skip.
+struct RacePreviewDevRoute: View {
+    var shell: ShellModel
+    var state: FeatureState
+
+    var body: some View {
+        RacePreviewFlowView(
+            model: shell.racePreview,
+            source: .fixture(state: state),
+            onNotNow: { shell.leaveRacePreviewDevRoute() },
+            onPurchased: {}
+        )
     }
 }
 
@@ -64,6 +89,8 @@ struct ProductRouteView: View {
             NotificationPermissionScreen()
         case "onboarding-runner-setup":
             RunnerSetupView(model: model.runnerSetup)
+        case "onboarding-race-preview":
+            RacePreviewDevRoute(shell: model, state: model.route.state)
         case "auth-sign-in":
             AuthOrShell(model: model)
         case "billing-purchase", "billing-redeem", "billing-upgrade":
@@ -110,8 +137,8 @@ struct ShellOrSignedOut: View {
 }
 
 /// Picks the screen from the onboarding state (`OnboardingStore.read`): the chooser, runner
-/// setup, the paywall after the teaser, crew join, a neutral loader while the first race list
-/// loads, or the tab bar.
+/// setup, the race-day replay and its paywall after the teaser, crew join, a neutral loader while
+/// the first race list loads, or the tab bar.
 struct OnboardingGate: View {
     @Bindable var model: ShellModel
 
@@ -128,14 +155,19 @@ struct OnboardingGate: View {
                 )
             case .runnerSetup:
                 RunnerSetupView(model: model.runnerSetup)
-            case .paywall:
-                BillingPurchaseView(
-                    model: model.billingModel,
-                    roomId: model.onboarding.state.roomId,
-                    onContinue: { Task { await model.loadRaces() } },
-                    onLeave: { model.leaveOnboardingPaywall() },
-                    leaveLabel: OnboardingCopy.paywallNotNow
-                )
+            case .racePreview:
+                if let source = model.racePreviewSource {
+                    RacePreviewFlowView(
+                        model: model.racePreview,
+                        source: source,
+                        billing: model.billingModel,
+                        roomId: model.onboarding.state.roomId,
+                        onNotNow: { model.leaveOnboardingPaywall() },
+                        onPurchased: { Task { await model.completeOnboardingPurchase() } }
+                    )
+                } else {
+                    OnboardingLoadingView()
+                }
             case .crewJoin:
                 JoinCrewView(model: model.joinModel, onBack: { back() })
             case .signIn:

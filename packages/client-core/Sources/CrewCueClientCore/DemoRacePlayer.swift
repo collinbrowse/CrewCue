@@ -290,6 +290,16 @@ public enum DemoRace {
         return removed
     }
 
+    /// The checklist state a replay that can't start shows (clients/behavior/onboarding-race-preview.md):
+    /// no network is Offline, a race without a course to run on is Empty ("Add your course"), and
+    /// anything else (a room that won't read, no start time, a server error) is Error. Skip stays
+    /// available in each.
+    public static func unavailableState(_ error: any Error) -> FeatureState {
+        if TransportFailure.isOffline(error) { return .offline }
+        if let reason = error as? DemoRaceError, reason == .noCourse { return .empty }
+        return .error
+    }
+
     static func removeDirectory(_ directory: URL) {
         LiveDemoDirectories.shared.remove(directory)
         if FileManager.default.fileExists(atPath: directory.path) {

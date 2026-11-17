@@ -15,6 +15,8 @@ struct MapCoursePoint: Codable, Equatable, Identifiable, Sendable {
 @Observable
 final class MapModel {
     private let client: AppClient
+    /// The app's storage, or the onboarding replay's temporary directory.
+    private let storage: ModelStorage
     private let locator = RaceTrackingLocator()
     /// Flushes the backlog the moment the phone gets service back.
     private var pathMonitor: NWPathMonitor?
@@ -63,8 +65,9 @@ final class MapModel {
     private(set) var navigateBusy = false
     private(set) var locationMessage = "No location sample yet."
 
-    init(client: AppClient) {
+    init(client: AppClient, storage: ModelStorage = .app) {
         self.client = client
+        self.storage = storage
         locator.onSample = { [weak self] latitude, longitude, accuracy, time in
             self?.receive(latitude: latitude, longitude: longitude, accuracy: accuracy, at: time)
         }
@@ -215,7 +218,7 @@ final class MapModel {
 
     private func userDirectory() -> URL? {
         guard let userId else { return nil }
-        return try? AppDirectories.userDirectory(userId: userId)
+        return try? storage.userDirectory(userId)
     }
 
     static func intervalText(_ seconds: Int) -> String {
@@ -641,7 +644,7 @@ final class MapModel {
 
     private func cacheDirectory() -> URL? {
         guard let userId, let roomId else { return nil }
-        return try? AppDirectories.roomDirectory(userId: userId, roomId: roomId)
+        return try? storage.roomDirectory(userId, roomId)
     }
 
     private func cacheURL() -> URL? {

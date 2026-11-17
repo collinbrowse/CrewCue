@@ -45,6 +45,8 @@ final class ShellModel {
     let onboarding: OnboardingModel
     /// Runner setup, phase 1.
     let runnerSetup: RunnerSetupModel
+    /// Runner phase 2: the race-day replay and the paywall after it.
+    let racePreview: RacePreviewModel
 
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
@@ -102,6 +104,7 @@ final class ShellModel {
             logger: client.graph.logger
         )
         self.runnerSetup = RunnerSetupModel(client: client, activityImport: activityImportModel, auth: authModel)
+        self.racePreview = RacePreviewModel(client: client)
         self.authModel.bindSession { [weak self] session in
             self?.adopt(session)
         }
@@ -150,11 +153,41 @@ final class ShellModel {
         )
     }
 
-    /// The runner left the paywall that follows the teaser: the race stays unpaid behind the
-    /// Unlock race banner, and the next launch opens the tab bar.
+    /// The runner left the paywall that ends the replay (Not now): the race stays unpaid behind
+    /// the Unlock race banner, and the next launch opens the tab bar.
     func leaveOnboardingPaywall() {
         onboarding.mark(.preview, outcome: .skipped, roomId: onboarding.state.roomId)
+        racePreview.finish()
         syncOnboarding()
+    }
+
+    /// The paywall after the replay unlocked the race. The race list is read again first, so the
+    /// tab bar opens on the paid race with no Unlock race banner; the step is marked either way,
+    /// so a list that can't load (offline) still leaves the paywall.
+    func completeOnboardingPurchase() async {
+        let roomId = onboarding.state.roomId
+        await loadRaces()
+        onboarding.mark(.preview, outcome: .done, roomId: roomId)
+        racePreview.finish()
+        syncOnboarding()
+    }
+
+    /// The replay the onboarding gate shows: the runner's own race, starting from the finish the
+    /// teaser showed when this session has it.
+    var racePreviewSource: RacePreviewSource? {
+        guard let userId = signedInUserId, let roomId = onboarding.state.roomId else { return nil }
+        let teaserFinish = runnerSetup.roomId == roomId
+            ? runnerSetup.teaser?.finishAt.flatMap(CrewClock.parse)
+            : nil
+        return .race(userId: userId, roomId: roomId, finishEtaAt: teaserFinish)
+    }
+
+    /// Leaves `crewcue://dev/onboarding-race-preview` (Not now) for the app's own launch.
+    func leaveRacePreviewDevRoute() {
+        racePreview.finish()
+        fixtureOverlay = false
+        show(Route(featureId: "app-shell", state: .success))
+        enterShellIfNeeded()
     }
 
     private func bindRunnerSetup() {
@@ -473,6 +506,7 @@ final class ShellModel {
         billingModel.clear()
         upgradeModel.clear()
         runnerSetup.clear()
+        racePreview.clear()
         syncOnboarding()
         showsSettings = false
         settingsFocus = nil

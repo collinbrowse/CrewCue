@@ -26,6 +26,8 @@ struct PaceStop: Identifiable, Equatable {
 @Observable
 final class PaceModel {
     private let client: AppClient
+    /// The app's storage, or the onboarding replay's temporary directory.
+    private let storage: ModelStorage
     private var generation = 0
     private var userId: String?
     private var roomId: String?
@@ -107,8 +109,9 @@ final class PaceModel {
         showColdStart && PlanAuthority.maySeedColdStart(role: role)
     }
 
-    init(client: AppClient) {
+    init(client: AppClient, storage: ModelStorage = .app) {
         self.client = client
+        self.storage = storage
     }
 
     func activate(userId: String?, roomId: String?, role: String?) async {
@@ -796,7 +799,7 @@ final class PaceModel {
 
     private func userDirectory() -> URL? {
         guard let userId, let roomId else { return nil }
-        return try? AppDirectories.roomDirectory(userId: userId, roomId: roomId)
+        return try? storage.roomDirectory(userId, roomId)
     }
 
     private func probeOffline() async -> Bool {

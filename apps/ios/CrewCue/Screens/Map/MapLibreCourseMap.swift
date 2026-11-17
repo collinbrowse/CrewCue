@@ -18,7 +18,12 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// The course line from the server's GPX read (setup preview). Empty: the line joins the checkpoints.
     var route: [CLLocationCoordinate2D] = []
     /// Room kept clear when the course is framed. The race map leaves space for its chips and sheet.
-    var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+    var fitPadding = MapLibreCourseMap.raceFitPadding
+    static let raceFitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+    /// The onboarding replay's map: a shorter pane under the replay's caption, with the same aid
+    /// sheet and chips but no top bar. The course sits above the sheet, clear of the first chip
+    /// row and of the chip column on the right.
+    static let replayFitPadding = UIEdgeInsets(top: 60, left: 40, bottom: 340, right: 90)
     /// Frame the course again whenever the map changes size (a small preview laid out late, or a
     /// fold). The race map keeps the camera where the person panned it, so it leaves this off.
     var refitOnResize = false
@@ -198,7 +203,23 @@ struct MapLibreCourseMap: UIViewRepresentable {
             guard let mapView, let all = mapView.annotations else { return }
             let annotations = all.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) }
             guard annotations.isEmpty == false else { return }
-            mapView.showAnnotations(annotations, edgePadding: fitPadding, animated: animated, completionHandler: nil)
+            let padding = Self.padding(fitPadding, in: mapView.bounds.size)
+            mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
+        }
+
+        /// `padding`, shrunk evenly when it would leave the course less than a quarter of the map
+        /// (a map in a pane, or a short landscape screen), where the camera could only zoom out
+        /// to the whole world. A full-screen map keeps its padding as it is.
+        nonisolated static func padding(_ padding: UIEdgeInsets, in size: CGSize) -> UIEdgeInsets {
+            func fit(_ lead: CGFloat, _ trail: CGFloat, _ length: CGFloat) -> (CGFloat, CGFloat) {
+                let room = max(0, length) * 0.75
+                guard lead + trail > room, lead + trail > 0 else { return (lead, trail) }
+                let scale = room / (lead + trail)
+                return (lead * scale, trail * scale)
+            }
+            let (top, bottom) = fit(padding.top, padding.bottom, size.height)
+            let (left, right) = fit(padding.left, padding.right, size.width)
+            return UIEdgeInsets(top: top, left: left, bottom: bottom, right: right)
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {

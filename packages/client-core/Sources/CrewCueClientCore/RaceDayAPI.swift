@@ -178,6 +178,12 @@ public enum RaceDayAPI {
         try await get(graph, "/race-rooms/\(roomId)")
     }
 
+    /// `GET /race-rooms/:roomId` exactly as the server sent it, for `DemoRace.session(roomData:)`.
+    /// Decoding to `RoomEnvelope` drops the map workspace the replay draws its course line from.
+    public static func loadRoomData(graph: ClientGraph, roomId: String) async throws -> Data {
+        try await sendData(graph, "/race-rooms/\(roomId)", method: .get, body: nil)
+    }
+
     /// The signed-in athlete's activity history, used to decide whether the estimate needs a recompute.
     public static func activityHistory(graph: ClientGraph) async throws -> [ActivityHistoryRef] {
         let payload: ActivityHistoryList = try await get(graph, "/activity-history")
