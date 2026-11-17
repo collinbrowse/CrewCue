@@ -51,7 +51,9 @@ struct RunnerSetupView: View {
 
     @ViewBuilder
     private var arrangement: some View {
-        // ArrangementView is in the iOS 27 SDK (Swift 6.4); older Xcode builds use the row.
+        // ArrangementView and reserved regions ship in the iOS 27.1 SDK. CI still builds with
+        // Xcode 26 (Swift 6.2), so they are compiled only by a Swift 6.4 (Xcode 27) toolchain;
+        // older toolchains build the HStack below. Drop the `#if` once CI's Xcode has that SDK.
         #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             ArrangementView {
@@ -63,15 +65,15 @@ struct RunnerSetupView: View {
             }
             .arrangementViewStyle(.split.axes(.horizontal))
         } else {
-            paneRow
+            rowOfPanes
         }
         #else
-        paneRow
+        rowOfPanes
         #endif
     }
 
     /// Before ArrangementView: the same two panes in a row.
-    private var paneRow: some View {
+    private var rowOfPanes: some View {
         HStack(alignment: .top, spacing: 0) {
             formPane
             if splitsPreview {
@@ -187,8 +189,9 @@ private extension View {
 private struct ReservedRegionInsets: ViewModifier {
     @State private var insets = EdgeInsets()
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        // Reserved regions are in the iOS 27 SDK (Swift 6.4); older Xcode builds skip the insets.
+        // See `RunnerSetupView.arrangement`: reserved regions need the iOS 27.1 SDK.
         #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             content

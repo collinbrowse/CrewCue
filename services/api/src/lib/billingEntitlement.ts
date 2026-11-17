@@ -24,6 +24,15 @@ export function isBillingProductId(value: unknown): value is BillingProductId {
 }
 
 /**
+ * Whether the race is unlocked: `paid` only. `unpaid` and `expired` are not. The API's
+ * entitlement gate (`evaluateEntitlement` in raceRooms.ts) and the tracking reminder scheduler
+ * both read it.
+ */
+export function isRoomPaid(room: Pick<RaceRoom, "entitlement">): boolean {
+  return room.entitlement.status === "paid";
+}
+
+/**
  * Rooms stored before billing have no tier. They were paid by hand during beta,
  * so they keep unlimited crew. New rooms are created with `one`.
  */

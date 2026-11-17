@@ -3,7 +3,7 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**19 tables** from 19 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**20 tables** from 20 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
 
 ## `billing_grants`
 
@@ -232,7 +232,7 @@ Created in [services/api/db/migrations/0001_ws1_room_invite_json.sql](../../../s
 
 Primary key: `id`.
 
-Indexes: `idx_race_rooms_json_team_id`.
+Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
@@ -338,3 +338,18 @@ Created in [services/api/db/migrations/0006_team_command_metric_configs_json.sql
 Primary key: `team_id`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+
+## `tracking_reminders_sent`
+
+Created in [services/api/db/migrations/0020_tracking_reminders_sent.sql](../../../services/api/db/migrations/0020_tracking_reminders_sent.sql).
+
+| Column | Type |
+| --- | --- |
+| `room_id` | TEXT NOT NULL REFERENCES race_rooms_json (id) ON DELETE CASCADE |
+| `slot` | TEXT NOT NULL CHECK (slot IN ('t45', 't5')) |
+| `race_start_at` | TIMESTAMPTZ NOT NULL |
+| `sent_at` | TIMESTAMPTZ NOT NULL |
+
+Primary key: `room_id, slot, race_start_at`.
+
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/trackingReminderScheduler.ts](../../../services/api/src/lib/trackingReminderScheduler.ts).
