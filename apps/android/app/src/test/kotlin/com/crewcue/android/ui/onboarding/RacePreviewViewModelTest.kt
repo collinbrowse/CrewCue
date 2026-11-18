@@ -577,6 +577,32 @@ class RacePreviewViewModelTest {
     }
 
     @Test
+    fun aReplayThatCouldntPlayKeepsItsStateWhenTheRouteIsShownAgain() = replayTest {
+        for ((state, offline) in listOf("empty" to false, "error" to false, "offline" to true)) {
+            rooms.clear()
+            runtime.creates.clear()
+            runtime.readFails = RuntimeResult.Failure("no replay", offline = offline, state = state)
+            val model = playing(model(store = ViewModelStore()))
+            val settled = RacePreviewStatus.of(state)
+            assertEquals(settled, model.status)
+            // The arriving entry after a create that failed fast, or a fold recreating the activity:
+            // the same race shows again, with no second room read and no loader in between.
+            model.show(race)
+            assertEquals(settled, model.status)
+            runCurrent()
+            assertEquals(settled, model.status)
+            assertEquals(listOf<ReplayRoom>(ReplayRoom.Read("room-1")), runtime.creates)
+            // Skip, then Back from the paywall, plays it again.
+            runtime.readFails = null
+            model.skip()
+            model.replayFromStart()
+            runCurrent()
+            assertEquals(RacePreviewStatus.Playing, model.status)
+            assertEquals(listOf<ReplayRoom>(ReplayRoom.Read("room-1"), ReplayRoom.Read("room-1")), runtime.creates)
+        }
+    }
+
+    @Test
     fun processDeathBringsBackTheStageTheMomentTheBeatAndThePause() = replayTest {
         val saved = SavedStateHandle()
         val first = playing(model(saved))

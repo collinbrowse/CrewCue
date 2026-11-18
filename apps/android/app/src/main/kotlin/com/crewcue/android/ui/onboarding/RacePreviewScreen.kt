@@ -128,7 +128,8 @@ fun RacePreviewRoute(shell: ShellViewModel) {
     }
     val model = rememberRacePreviewModel(shell)
     // While the route changes, the entry leaving and the one arriving both run these on the same
-    // model: the same source is a no-op the second time.
+    // model, as does a fold or rotation recreating the activity: the same source is a no-op after
+    // the first, whatever the replay shows (playing, loading, or a state that couldn't play).
     LaunchedEffect(model, source.key) { model.show(source) }
     LaunchedEffect(model) { model.effects.collect(shell::onRacePreviewEffect) }
     // It plays only while on screen and in the foreground; a fold or rotation pauses it only for
@@ -550,10 +551,11 @@ private fun ReplayLoading(text: OnboardingText) {
  * on the tab bar behind Unlock race; Back (the button, system or predictive back) replays from the
  * start. The dev route's fixture has no race to buy, so it shows the fallback prices only.
  *
- * Flat: one column, the options side by side on a medium or expanded width (stacked on compact and
- * at large text sizes). Across a vertical hinge (half-open like a book, or a two-screen device):
- * the copy on one side and the options with their actions on the other, split off the hinge.
- * Tabletop: the copy above the fold, the options and Not now below it.
+ * With no hinge: one column, the options side by side on a medium or expanded width (stacked on
+ * compact and at large text sizes). Across any vertical hinge, flat or half-open like a book (a
+ * foldable opened out, or a two-screen device): Back and the copy on one side and the options with
+ * their actions on the other, neither on the hinge. Tabletop: the title, explanation and pitch
+ * above the fold; Back, the options and their actions below it.
  */
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
@@ -562,7 +564,8 @@ private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel
     val billing = roomId?.let { rememberOnboardingBilling(shell, it) }
     val context = LocalContext.current
     val activity = context.findActivity()
-    LaunchedEffect(billing) { billing?.load(context.isOnline()) }
+    // Read once for the flow: a fold, a rotation or Back then the replay again keeps what it shows.
+    LaunchedEffect(billing) { billing?.open(context.isOnline()) }
     val unlocked = billing != null && ((billing.state as? BillingUiState.Success)?.unlocked == true || billing.billing?.isPaid == true)
     LaunchedEffect(unlocked) { if (unlocked) model.purchased() }
     val busy = billing?.busy == true || model.finishing
@@ -570,7 +573,8 @@ private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel
     val info = currentWindowAdaptiveInfo()
     val tabletop = info.windowPosture.isTabletop
     val besideHinge = !tabletop && info.windowPosture.allVerticalHingeBounds.isNotEmpty()
-    // Two panes only to split off a vertical hinge; flat, one column at every width.
+    // Two panes only around a vertical hinge, flat or half-open, so nothing sits on it; with no
+    // hinge, one column at every width.
     val directive = calculatePaneScaffoldDirective(info, HingePolicy.AlwaysAvoid)
         .copy(maxHorizontalPartitions = if (besideHinge) 2 else 1)
     val navigator = rememberSupportingPaneScaffoldNavigator(
@@ -581,7 +585,8 @@ private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel
     val sideBySide = !split &&
         info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND) &&
         LocalDensity.current.fontScale < LARGE_FONT_SCALE
-    val copy: @Composable () -> Unit = { PaywallCopy(model, text, busy) }
+    val back: @Composable () -> Unit = { PaywallBack(model, text, busy) }
+    val copy: @Composable () -> Unit = { PaywallCopy(text) }
     val options: @Composable () -> Unit = {
         PaywallOptions(model, text, billing, activity, sideBySide = sideBySide, busy = busy, unlocked = unlocked)
     }
@@ -598,9 +603,11 @@ private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel
                 AnimatedPane(Modifier.testTag(onboardingPaywallTag("pane.main"))) {
                     FoldSplit(
                         posture = info.windowPosture.takeIf { tabletop },
+                        // Tabletop: only the copy above the fold; Back stays below it with the options.
                         top = { PaywallColumn { copy() } },
                         bottom = {
                             PaywallColumn {
+                                back()
                                 if (!tabletop) copy()
                                 if (!split) options()
                             }
@@ -632,16 +639,21 @@ private fun PaywallColumn(content: @Composable () -> Unit) {
     }
 }
 
-/** Back, the title and the pitch. */
+/** Back: the replay again from its start. */
 @Composable
-private fun PaywallCopy(model: RacePreviewViewModel, text: OnboardingText, busy: Boolean) {
+private fun PaywallBack(model: RacePreviewViewModel, text: OnboardingText, busy: Boolean) {
+    TextButton(
+        onClick = model::replayFromStart,
+        enabled = !busy,
+        modifier = Modifier.testTag(onboardingPaywallTag("back")).semantics { contentDescription = text.replay.back }
+    ) { Text(text.replay.back, style = MaterialTheme.typography.labelLarge) }
+}
+
+/** The title, the explanation and the pitch. */
+@Composable
+private fun PaywallCopy(text: OnboardingText) {
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        TextButton(
-            onClick = model::replayFromStart,
-            enabled = !busy,
-            modifier = Modifier.testTag(onboardingPaywallTag("back")).semantics { contentDescription = text.replay.back }
-        ) { Text(text.replay.back, style = MaterialTheme.typography.labelLarge) }
         Text(
             text.title(PAYWALL_STEP),
             modifier = Modifier.semantics { heading() },

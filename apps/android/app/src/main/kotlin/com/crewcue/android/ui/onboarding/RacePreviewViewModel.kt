@@ -316,17 +316,14 @@ class RacePreviewViewModel(
     // MARK: Showing
 
     /**
-     * The flow is on screen for [next]. The same source carries on where it was (the paywall stays,
-     * a playing replay keeps its moment); another source starts over. After process death the saved
-     * stage, moment and pause come back for the same source.
+     * The flow is on screen for [next]. The same source carries on where it was and starts nothing:
+     * the paywall stays, a replay playing or starting keeps its moment, and one that couldn't play
+     * keeps its Empty, Error or Offline state (Skip, then Back, plays it again). Another source
+     * starts over. After process death the saved stage, moment and pause come back for the same source.
      */
     fun show(next: RacePreviewSource) {
         val current = source
-        if (current?.key == next.key) {
-            if (stage == RacePreviewStage.Paywall || replay != null || starting?.isActive == true || finishing) return
-            begin(atSeconds = devStart()?.atSeconds, paused = devStart()?.paused == true)
-            return
-        }
+        if (current?.key == next.key) return
         val restoring = current == null && savedState.get<String>(KEY_SOURCE) == next.key
         if (current != null) {
             reset()
