@@ -9,7 +9,13 @@ import {
   startChatRetentionScheduler,
   stopChatRetentionScheduler
 } from "./lib/chatRetentionScheduler.js";
-import { listRaceRoomsForRetention } from "./routes/raceRooms.js";
+import { attachTrackingReminderScheduler } from "./lib/trackingReminderScheduler.js";
+import { UNPAID_RACE_EXPIRY_ENABLED, createUnpaidRaceExpiryScheduler } from "./lib/unpaidRaceExpiryScheduler.js";
+import {
+  listRaceRoomsForRetention,
+  listRaceRoomsStartingBetween,
+  listUnpaidRaceRoomsCreatedBefore
+} from "./routes/raceRooms.js";
 import { captureError, flushErrorReporting, initErrorReporting, installProcessHandlers } from "./lib/errorReporting.js";
 
 /** Load monorepo-root `.env` when present (Node 20.12+). Does not override existing process.env keys. */
@@ -29,12 +35,21 @@ async function start() {
   validateAuthEnv();
   await startTelemetry();
   const app = buildApp();
+  // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().
+  attachTrackingReminderScheduler(app, { listRooms: listRaceRoomsStartingBetween });
+  // Unpaid races 30 days old are deleted: ticks hourly once the server listens, stops on shutdown.
+  // Off until the runner is warned first (UNPAID_RACE_EXPIRY_ENABLED, R32).
+  const unpaidRaceExpiry = UNPAID_RACE_EXPIRY_ENABLED
+    ? createUnpaidRaceExpiryScheduler({ listRooms: listUnpaidRaceRoomsCreatedBefore, log: app.log })
+    : undefined;
   await app.listen({ port, host });
 
   startChatRetentionScheduler(listRaceRoomsForRetention, app.log);
+  unpaidRaceExpiry?.start();
 
   const shutdown = async () => {
     stopChatRetentionScheduler();
+    await unpaidRaceExpiry?.stop();
     await app.close();
     await stopTelemetry();
     await flushErrorReporting();

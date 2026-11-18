@@ -13,7 +13,8 @@ struct ChatTabPage: View {
             roomId: model.signedInRoomId,
             role: model.signedInRole,
             raceName: model.roster.races.first { $0.id == model.signedInRoomId }?.name ?? "",
-            status: ChatRaceStatus(map: model.mapModel)
+            status: ChatRaceStatus(map: model.mapModel),
+            onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil
         )
     }
 }
@@ -46,6 +47,11 @@ struct ChatView: View {
     var role: String?
     var raceName: String
     var status: ChatRaceStatus
+    /// The runner's unpaid race: sending opens the paywall instead of queueing a message the
+    /// server refuses (402). The draft stays.
+    var onUnlock: (() -> Void)? = nil
+    /// The onboarding replay: the messages only, with no send control or photo picker.
+    var readOnly = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -83,16 +89,18 @@ struct ChatView: View {
             }
             ChatStatusText(message: model.statusMessage)
                 .padding(.horizontal, CrewSpace.margin)
-            ChatComposer(
-                draft: $model.draft,
-                names: model.mentionNames,
-                isSending: model.isSending,
-                isUploadingPhoto: model.isUploadingPhoto,
-                onSend: model.send,
-                onPhoto: model.sendPhoto
-            )
-                .padding(.horizontal, CrewSpace.gutter)
-                .padding(.bottom, CrewSpace.base)
+            if !readOnly {
+                ChatComposer(
+                    draft: $model.draft,
+                    names: model.mentionNames,
+                    isSending: model.isSending,
+                    isUploadingPhoto: model.isUploadingPhoto,
+                    onSend: { await send() },
+                    onPhoto: { data, type in await sendPhoto(data, type) }
+                )
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .padding(.bottom, CrewSpace.base)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityIdentifier("crewcue.chat")
@@ -106,6 +114,22 @@ struct ChatView: View {
 
     private var activationID: String {
         "\(userId ?? "")|\(roomId ?? "")|\(role ?? "")"
+    }
+
+    private func send() async {
+        if let onUnlock {
+            onUnlock()
+            return
+        }
+        await model.send()
+    }
+
+    private func sendPhoto(_ data: Data, _ type: String) async {
+        if let onUnlock {
+            onUnlock()
+            return
+        }
+        await model.sendPhoto(data: data, contentType: type)
     }
 }
 
@@ -340,6 +364,7 @@ struct ChatComposer: View {
                     .lineLimit(1...4)
                     .padding(.vertical, 12)
                     .accessibilityLabel("Message")
+                    .accessibilityIdentifier("crewcue.chat-message")
                 Button {
                     Task { await onSend() }
                 } label: {
@@ -353,6 +378,7 @@ struct ChatComposer: View {
                 .disabled(cannotSend)
                 .opacity(cannotSend ? 0.45 : 1)
                 .accessibilityLabel("Send")
+                .accessibilityIdentifier("crewcue.chat-send")
             }
             .padding(6)
             .crewGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))

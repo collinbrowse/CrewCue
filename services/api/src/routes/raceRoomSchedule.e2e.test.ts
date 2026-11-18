@@ -184,7 +184,7 @@ test("W1-I EC2 invalid delay returns 400 and leaves schedule unchanged", async (
   await app.close();
 });
 
-test("W1-I EC3 unauthorized write leaves schedule unchanged", async () => {
+test("W1-I EC3 unauthorized write leaves schedule unchanged; a crew member may write", async () => {
   const app = buildApp();
   await app.ready();
   const ownerToken = app.jwt.sign(buildClaims("owner-w1i-ec3"));
@@ -221,11 +221,14 @@ test("W1-I EC3 unauthorized write leaves schedule unchanged", async () => {
   const stranger = await putStopPlan(app, roomId, "aid-1", strangerToken, payload);
   assert.equal(stranger.statusCode, 403);
 
-  const crew = await putStopPlan(app, roomId, "aid-1", crewToken, payload);
-  assert.equal(crew.statusCode, 403);
-
   const after = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
   assert.deepEqual(after, baseline);
+
+  // A crew member is a course editor: their stop-plan write lands and moves the schedule.
+  const crew = await putStopPlan(app, roomId, "aid-1", crewToken, payload);
+  assert.equal(crew.statusCode, 200, crew.body);
+  const afterCrew = parseCrewScheduleSheet((await getSchedule(app, roomId, ownerToken)).json());
+  assert.notDeepEqual(afterCrew, baseline);
 
   await app.close();
 });

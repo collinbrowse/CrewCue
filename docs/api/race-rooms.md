@@ -29,7 +29,8 @@ Effective permissions for a member:
 | Activate room (`POST .../activate`) | `athlete`, `crew_chief`, `team_manager` |
 | Issue invite (`POST .../invites`) | `athlete`, `crew_chief`, `team_manager` |
 | Update entitlement (`POST .../entitlement`) | `athlete`, `crew_chief`, `team_manager` |
-| Edit the course or the start (`PUT .../course`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` |
+| Replace the course or move the start (`PUT .../course`, `PUT .../map-workspace`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
+| Edit course details: checkpoints, planned stops, stop plans (`POST`/`PATCH`/`DELETE .../checkpoints`, `PATCH .../checkpoint-stops`, `PUT`/`PATCH`/`DELETE .../stop-plans/:checkpointId`) | `athlete`, `crew_member`, `crew_chief`, `team_manager` (`canEditCourse`) |
 
 Non-members receive **403 Forbidden** for those operations (except invite acceptance; see below).
 
@@ -81,6 +82,30 @@ Ping ingest (`POST .../pings` and `POST .../pings/batch`) is **402** on an unpai
 
 On an unpaid race these are refused first with **402** `room_unpaid` (above), not as a full cap. Joining by code, accepting an invite, or issuing a non-athlete invite past the cap returns **409** with a `CrewLimitReachedError` body (`code: "crew_limit_reached"`, `crewLimit`, `crewCount`, `upgradeProductId: "crew_upgrade"`). The check runs under the room lock, so two joins at once cannot both take the last seat. A lowered tier never removes members. Purchases and the billing view are in [billing.md](billing.md).
 
+### Unpaid races: at most 3, deleted after 30 days
+
+An unpaid race costs the server work (GPX parsing, estimator runs) before anyone pays, so unpaid races are limited ([billingEntitlement.ts](../../services/api/src/lib/billingEntitlement.ts) `UNPAID_RACE_LIMIT`, [unpaidRaceExpiryScheduler.ts](../../services/api/src/lib/unpaidRaceExpiryScheduler.ts)).
+
+**At most 3 at once.** An account may have created at most 3 races whose entitlement is `unpaid`. `POST /race-rooms` past that answers **409** with an `UnpaidRaceLimitError` body:
+
+```json
+{ "error": "You have 3 races that aren't unlocked yet. Unlock or delete one to add another.", "code": "unpaid_race_limit", "limit": 3 }
+```
+
+- A race counts toward its creator (`createdByUserId`, from the token; the first member on a room stored before #649), not toward `athleteId`: the client sets `athleteId` (risk R17), so counting it would let anyone fill another runner's limit. A race someone else created naming you the runner, and a race you only crew, don't count toward yours.
+- `paid` and `expired` races don't count, and neither does a race that was ever paid: one with any billing grant, active or revoked. A refund (RevenueCat `CANCELLATION`, or `EXPIRATION`) revokes the grant and puts the race back to `unpaid`, but it was paid once, so it doesn't count again. (Setting a race back to `unpaid` through the dev and staging entitlement route records no grant, so that race counts.)
+- The count reads the store every instance shares (the stored rows in Postgres, through a partial index of unpaid rooms by creator), not an instance's cache. Creates by one account are counted and saved one at a time per instance, so two at once cannot both take the last slot; creates that reach two instances at the same moment can each pass (R1), one race over per extra instance.
+- The refused create is not stored against its `Idempotency-Key`: the same key works once a race is unlocked or expires. A retry of a create that already succeeded still answers its room.
+
+**Deleted after 30 days (not yet switched on).** The sweeper below is built and tested but does not run: `UNPAID_RACE_EXPIRY_ENABLED` is off until the unpaid-race reminders ship, so no runner loses a race without a warning. When it runs, a race still `unpaid` 30 days after its `createdAt`, and never paid, is deleted, with everything keyed by it: the room (course, schedule, stop plans), invites, task board, pings and track, projection, crew chat, tracking reminder claims, the finished effort and the course-history record. It is the same delete as account deletion's ([raceRoomDeletion.ts](../../services/api/src/lib/raceRoomDeletion.ts)). Afterwards every route for the race answers **404**, by id and by join code.
+
+- A sweeper checks every hour, deleting the oldest expired races first, at most 100 a tick. Before deleting anything, and again as it deletes the room row, it re-reads the race under its room lock (Postgres: the stored row, locked until the delete commits, with the grants read in the same transaction) and keeps it unless it is still `unpaid`, still 30 days old, and has no billing grant (a webhook purchase still waiting to be applied counts). A purchase that lands during the sweep wins.
+- `paid` and `expired` races are never deleted this way, and neither is a race that was ever paid (any grant, a refunded one included): a race paid, raced and then refunded keeps its track and crew chat. A race with no parsable `createdAt` is kept.
+- The room row is deleted after chat, the finished effort and the course history, so a delete that fails or is cut off partway (a deploy's shutdown waits 5 s for a tick) leaves the race listed, and the next tick runs the whole delete again. Chat photos are deleted before their messages for the same reason.
+- Billing grants for a deleted race stay, as for account deletion (refunds and store reconciliation).
+- Nothing warns the runner before the delete, and the apps have no copy for `unpaid_race_limit` yet.
+- The 409 says "Unlock or delete one", but there is no route yet for a runner to delete one race (only account deletion deletes races). Until there is, a runner at the limit can unlock a race or wait for one to expire.
+
 ## Endpoints
 
 ### `POST /race-rooms`
@@ -103,6 +128,7 @@ Creates a draft room; creator becomes the first member with `creatorRole`.
 | 201 | Returns the full `RaceRoom` resource |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
+| 409 | `unpaid_race_limit`: the caller already created 3 races that are still unpaid ([above](#unpaid-races-at-most-3-deleted-after-30-days)); or `Idempotency-Key` reused by another account, with another body, or still in progress |
 
 ### `GET /race-rooms/:roomId`
 
@@ -141,7 +167,7 @@ Activates the room (`status: "active"`) and sets `eventEndsAt`.
 
 ### `PATCH /race-rooms/:roomId/race-start`
 
-Sets or changes the race start without re-sending the course (onboarding: the runner sets it, also before paying, and changes it on race morning). Same gates as `PUT .../course`: a course editor (`athlete`, `crew_chief`, `team_manager`); on an unpaid race only the runner, answered with the teaser. `raceStartAt` and the legacy `activatedAt` move together, as on a course save. Nothing else on the room changes (course, crew state) but the plan of record's clocks (below).
+Sets or changes the race start without re-sending the course (onboarding: the runner sets it, also before paying, and changes it on race morning). Same gates as `PUT .../course`: race setup rights (`athlete`, `crew_chief`, `team_manager`; a `crew_member` gets 403); on an unpaid race only the runner, answered with the teaser. `raceStartAt` and the legacy `activatedAt` move together, as on a course save. Nothing else on the room changes (course, crew state) but the plan of record's clocks (below).
 
 Pings are judged against the new start (see [Pings before the race start](#pings-before-the-race-start)). With no race ping yet (a delayed start can make every ping pre-start), the projection is re-seeded at the new start with only the crew's check-ins kept: no position, crossing, auto visit or stop from a ping that is pre-start now, so it is the projection and schedule of a room that had the new start from the outset. Its finish is the new start plus the plan. With race pings, it is recomputed over the last one, without the auto visits pre-start pings made, and with the start crossing moved to the new start. A `PUT .../course` that moves the start does the same, so the start split and the finish move with it either way. `GET .../schedule` reads the start on every request, so every row moves with it.
 
@@ -163,7 +189,7 @@ Send `Idempotency-Key` to retry safely: a replay answers the room as it is now, 
 | 400 | `{ "error": "Invalid race start payload" }` (missing, not a datetime, or an offset) |
 | 401 | Missing/invalid JWT or malformed claims |
 | 402 | Entitlement unpaid (anyone but the runner) |
-| 403 | Not a member, not a course editor, or entitlement expired |
+| 403 | Not a member, no race setup rights, or entitlement expired |
 | 404 | Unknown `roomId` |
 | 409 | `Idempotency-Key` reused with another body, or still in progress |
 | 429 | Unpaid race: the course-save limit is spent |
@@ -261,7 +287,7 @@ Unlike `PUT /race-rooms/:roomId/course`, this does **not** reset course-dependen
 | 200 | Returns the updated race room |
 | 400 | Invalid payload |
 | 401 | Missing/invalid JWT or malformed claims |
-| 403 | Not a member, not a course editor (athlete, crew chief, team manager), or entitlement |
+| 403 | Not a member (every member role may edit course details), or entitlement |
 | 404 | Unknown room, no course, or unknown checkpoint ids (`checkpointIds` lists them; nothing is saved) |
 
 ## Notes for consumers

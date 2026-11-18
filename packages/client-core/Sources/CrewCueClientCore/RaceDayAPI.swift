@@ -178,6 +178,12 @@ public enum RaceDayAPI {
         try await get(graph, "/race-rooms/\(roomId)")
     }
 
+    /// `GET /race-rooms/:roomId` exactly as the server sent it, for `DemoRace.session(roomData:)`.
+    /// Decoding to `RoomEnvelope` drops the map workspace the replay draws its course line from.
+    public static func loadRoomData(graph: ClientGraph, roomId: String) async throws -> Data {
+        try await sendData(graph, "/race-rooms/\(roomId)", method: .get, body: nil)
+    }
+
     /// The signed-in athlete's activity history, used to decide whether the estimate needs a recompute.
     public static func activityHistory(graph: ClientGraph) async throws -> [ActivityHistoryRef] {
         let payload: ActivityHistoryList = try await get(graph, "/activity-history")
@@ -504,6 +510,7 @@ public enum RaceDayAPI {
 
     /// Sends the outbox. Location samples go to `POST /pings/batch`, one request per room per 500,
     /// with `uploadIntervalSeconds` so the server can judge staleness from the runner's setting.
+    /// A queued course upload answered 429 backs off (`OutboxStore.flush`), timed by `graph.clock`.
     public static func flushOutbox(graph: ClientGraph, uploadIntervalSeconds: Int? = nil) async throws -> FlushReport {
         guard let outbox = graph.outbox, let baseURL = graph.baseURL else {
             throw ClientHTTPError(status: 0, message: "Outbox is not configured.")
@@ -561,7 +568,7 @@ public enum RaceDayAPI {
             } catch {
                 return OutboxPolicy.resolve(error)
             }
-        }, pingBatch: pingBatch)
+        }, pingBatch: pingBatch, now: graph.clock.now())
     }
 
     static func get<T: Decodable>(_ graph: ClientGraph, _ path: String, token: Bool = true) async throws -> T {
@@ -696,6 +703,13 @@ public enum RaceDayAPI {
         return try await gate.perform(roomId: operation.roomId, ticket: ticket, upload)
     }
 
+    /// `POST /race-rooms/:roomId/course/gpx-preview`: the server's parse of a GPX file (`course`,
+    /// `plannedPaceSecondsPerKm`, `routeOverlayLayer`, `courseFileName`). Saves nothing.
+    public static func previewCourse(graph: ClientGraph, roomId: String, fileName: String, gpxXml: String) async throws -> Data {
+        let body: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
+        return try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: body)
+    }
+
     private static func uploadCourse(
         graph: ClientGraph,
         roomId: String,
@@ -705,8 +719,7 @@ public enum RaceDayAPI {
         plannedPaceSecondsPerKm: Double,
         idempotencyKey: String?
     ) async throws -> Data {
-        let previewBody: [String: Any] = ["gpxXml": gpxXml, "courseFileName": fileName]
-        let preview = try await sendJSON(graph, "/race-rooms/\(roomId)/course/gpx-preview", method: .post, object: previewBody)
+        let preview = try await previewCourse(graph: graph, roomId: roomId, fileName: fileName, gpxXml: gpxXml)
         guard var object = try JSONSerialization.jsonObject(with: preview) as? [String: Any] else {
             throw ClientHTTPError(status: 0, message: "Couldn't read the route file.")
         }

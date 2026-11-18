@@ -1,0 +1,26 @@
+{
+  "id": "onboarding-runner-setup",
+  "platform": "android",
+  "entry": "crewcue://dev/onboarding-runner-setup",
+  "device": "crewcue_api_35 phone emulator (API 35, 1080x2400, host GPU), plus a pixel_9_pro_fold AVD (API 35) folded 1080x2424 and unfolded 2076x2152, created for this proof and deleted afterwards; debug APK. The earlier run (0466809) also used a resizable AVD at 2560x1600.",
+  "date": "2026-11-17",
+  "commit": "02b7033 on main 8c76bb0 (claude/onboarding-10a-android-runner-setup, rebased onto the iOS setup #744); earlier run 0466809",
+  "session": "Debug dev session (intent extras devSession/userId/role/token) as brand-new runners with no race, against the local memory API (HS256 dev JWT) on the rebased services/api. The debug APK was built with crewcue_api_base_url=http://localhost:3000 and reached the API through adb reverse and a pass-through proxy (the emulator could not reach 10.0.2.2:3000 from this sandbox). Offline via `cmd connectivity airplane-mode enable`. The host was heavily loaded by other work during this run (load average up to ~360): the system_server ANR'd twice and one emulator had to be restarted, which lost the app's local progress; the runner then resumed on the history step from the server's race and imported the same file again (Already in pacing history).",
+  "action": "Phone: chooser (How will you use CrewCue?), I'm running a race, display name, course-50k-with-aids.gpx (preview below the form, the map fitted to the route and its five checkpoints), start 18 Nov 2026 6:00 AM America/Denver, Continue in airplane mode (Offline under Continue, preview below), back online Continue, history: imported activity-long-trail.gpx (comparison line), Continue, teaser, Continue to the paywall, system Back (teaser again), Continue (paywall again), Pace tab. Foldable: unfolded chooser and account step two-pane, typed the name, adb emu fold on the account step (same step, name kept), continued folded to the course step and picked the course (compact, preview below), adb emu unfold on the course step (same step and file, two-pane with the map fitted again to the course).",
+  "checked": {
+    "Success": "Teaser: 'Your finish time is ready. Aid station times unlock with your race.' Estimated finish 10:59 AM; the summary under it 'Finish 4:59:59 · 10:59 AM' (one space each side, no double space); START 6:00 AM; AID 1 to AID 3 'Locked'; FINISH 10:59 AM. One finish everywhere: the history line 'Finish 10:59 AM instead of 11:20 AM' and Pace's estimate card 'Finish 4:59:59 · 10:59 AM' read the same 10:59 AM (the schedule's finish, planned stops included); before this fix the summary, Pace and the comparison read the estimate's moving-time finish, 8 minutes earlier.",
+    "Empty": "'Add your course file so CrewCue can estimate your finish.' and 'Add your course file to start. Training history is optional.'",
+    "Error": "Proxy 500 on the course step: 'Couldn't save this step.' with Try again; after the proxy recovered, Try again showed the course preview. (earlier run, 0466809)",
+    "Offline": "Airplane mode on the start time step, Continue: 'Offline. Setup needs the network. Your answers stay on this phone until you reconnect.' with Try again, right under Continue and above the course preview, visible without scrolling; the date, time and zone stayed and Continue worked once back online.",
+    "DST gap": "2:30 AM on 14 Mar 2027 in America/Denver: 'That time doesn't exist on that date because of daylight saving. Pick another time.'; changing the date to 15 Mar 2027 cleared it. (earlier run, 0466809)",
+    "Process death": "On the start step with 15 Mar 2027, 2:30 AM, America/Denver: Home, `adb shell am kill`, process gone, relaunched from the launcher: back on Start time with the same date, time and zone. (earlier run, 0466809)",
+    "Compact layout": "Phone: one step per screen. The form fills the screen and the course preview (COURSE PREVIEW, map, Elevation profile) follows it in the same scroll; no split screen, no clipped buttons under Continue on the start time or teaser steps, and the start time step shows only its own fields and Continue.",
+    "Course map": "The preview map fits the route and the START, AID 1 to AID 3 and FINISH markers with their titles, on the phone, the folded and the unfolded foldable, and again after the unfold resized it (before: the whole world).",
+    "Back from paywall": "Paywall after the teaser's Continue, system Back: the teaser again (same finish and rows), its Continue: the paywall again; the Pace tab then opened Pace with Unlock race.",
+    "Unlock race": "After the teaser Continue (paywall with Buy Race Pass), relaunch showed the Unlock race banner on Map, Pace and Chat.",
+    "Fold and unfold": "Foldable: name typed on the unfolded account step, adb emu fold: same step, name kept, one pane. Course picked folded, adb emu unfold: same step and file, form beside the live preview, map fitted to the course. Earlier run (0466809): start step date edited unfolded, fold kept it; teaser kept across an unfold.",
+    "Expanded window": "Resizable AVD at 2560x1600: chooser, account, course, start time, history and teaser, form beside the live preview. (earlier run, 0466809)",
+    "Accessibility labels": "crewcue.onboarding-runner-setup"
+  },
+  "screenshots": "Attached to the PR, not committed."
+}

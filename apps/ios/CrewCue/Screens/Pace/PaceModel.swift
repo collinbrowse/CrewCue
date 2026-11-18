@@ -26,6 +26,8 @@ struct PaceStop: Identifiable, Equatable {
 @Observable
 final class PaceModel {
     private let client: AppClient
+    /// The app's storage, or the onboarding replay's temporary directory.
+    private let storage: ModelStorage
     private var generation = 0
     private var userId: String?
     private var roomId: String?
@@ -72,7 +74,23 @@ final class PaceModel {
     private(set) var outboxMessage = "Outbox is empty."
 
     private var loadedStops: [ScheduleStop] = []
+    /// The aid stations an unpaid race withholds (`locked` on the schedule), shown locked on the timeline.
+    private var loadedLocked: TeaserLockedCheckpoints?
     private var loadedEstimate: PacingEstimate?
+    /// The schedule as the server sent it (offline, the cached one): its finish row is the race's
+    /// finish the estimate summary prints (`PlanFinish`).
+    private var scheduleSheet: CrewScheduleSheet?
+    /// The estimate card shows the summary (not an error or the cold start), so a schedule read
+    /// moves its finish to the plan's finish row.
+    private var showsEstimateSummary = false
+    /// Bumped each time an estimate loads or attaches. Its summary waits for a schedule read that
+    /// started at this revision, so the card prints one finish: the plan's (planned stops
+    /// included), or the estimate's own when that read fails. Until then the card keeps what it
+    /// showed.
+    private var estimateRevision = 0
+    /// The `estimateRevision` the latest finished schedule read started at.
+    private var scheduleRevision = 0
+    private var summaryAwaitsSchedule: Bool { scheduleRevision < estimateRevision }
     private var courseCheckpoints: [RaceCourseCheckpoint] = []
     private var raceStartAt: String?
     private var scheduleRaceStart: String?
@@ -105,8 +123,9 @@ final class PaceModel {
         showColdStart && PlanAuthority.maySeedColdStart(role: role)
     }
 
-    init(client: AppClient) {
+    init(client: AppClient, storage: ModelStorage = .app) {
         self.client = client
+        self.storage = storage
     }
 
     func activate(userId: String?, roomId: String?, role: String?) async {
@@ -349,7 +368,14 @@ final class PaceModel {
     }
 
     private func loadScheduleSection(ticket: Int) async {
-        guard ticket == generation, let roomId, let directory = userDirectory() else { return }
+        guard ticket == generation else { return }
+        let revision = estimateRevision
+        guard let roomId, let directory = userDirectory() else {
+            // No schedule to read: a held summary prints the estimate's own finish.
+            finishScheduleRead(revision)
+            refreshEstimateSummary()
+            return
+        }
         let file = ScheduleCache.file(directory: directory)
         let before = modificationDate(file)
         do {
@@ -364,14 +390,26 @@ final class PaceModel {
             if servedFromCache {
                 let offline = await probeOffline()
                 guard ticket == generation else { return }
+                finishScheduleRead(revision)
                 applySheet(sheet, offline: offline, failed: offline == false)
             } else {
+                finishScheduleRead(revision)
                 applySheet(sheet, offline: false, failed: false)
             }
         } catch {
             guard ticket == generation else { return }
+            let held = summaryAwaitsSchedule
+            finishScheduleRead(revision)
             applyScheduleFailure(error)
+            // The read failed: a held summary prints the estimate's own finish, once.
+            if held { refreshEstimateSummary() }
         }
+    }
+
+    /// A schedule read that started at `revision` finished; an older read finishing late never
+    /// holds the summary again.
+    private func finishScheduleRead(_ revision: Int) {
+        scheduleRevision = max(scheduleRevision, revision)
     }
 
     private func loadCourseAndEstimate(ticket: Int, autoRecompute: Bool) async {
@@ -388,6 +426,7 @@ final class PaceModel {
             guard ticket == generation else { return }
             courseOffline = APIFailure.isTransport(error)
             showColdStart = false
+            showsEstimateSummary = false
             estimateMessage = courseOffline
                 ? "Offline. Estimate not updated."
                 : "Couldn't load the pace estimate."
@@ -401,6 +440,7 @@ final class PaceModel {
         raceStartAt = room.raceStartAt
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
+        estimateRevision += 1
         planOfRecordId = room.pacingEstimateId ?? room.pacingEstimate?.id
         await loadHistoryIfNeeded(ticket: ticket)
         guard ticket == generation else { return }
@@ -459,6 +499,7 @@ final class PaceModel {
             )
             guard ticket == generation else { return }
             loadedEstimate = attached
+            estimateRevision += 1
             planOfRecordId = attached.id
             if let usableFingerprint {
                 historyRecord = EstimateHistoryRecord(estimateId: attached.id, fingerprint: usableFingerprint)
@@ -469,6 +510,7 @@ final class PaceModel {
         } catch {
             guard ticket == generation else { return }
             showColdStart = false
+            showsEstimateSummary = false
             estimateMessage = APIFailure.isTransport(error)
                 ? "Offline. Estimate not updated."
                 : "Couldn't load the pace estimate."
@@ -524,7 +566,9 @@ final class PaceModel {
     }
 
     private func applySheet(_ sheet: CrewScheduleSheet, offline: Bool, failed: Bool) {
+        scheduleSheet = sheet
         loadedStops = sheet.stops
+        loadedLocked = sheet.locked
         scheduleRaceStart = sheet.raceStartAt
         if checkpointId.isEmpty, let first = sheet.stops.first?.checkpointId, first.isEmpty == false {
             checkpointId = first
@@ -543,6 +587,7 @@ final class PaceModel {
             scheduleMessage = ""
         }
         applyExport(roomId: sheet.roomId, offline: offline, failed: failed)
+        refreshEstimateSummary()
     }
 
     /// Display rows for schedule stops (server sheet, or the draft projection while editing).
@@ -581,7 +626,9 @@ final class PaceModel {
     }
 
     private func applyScheduleFailure(_ error: Error) {
+        scheduleSheet = nil
         loadedStops = []
+        loadedLocked = nil
         stopLines = []
         stops = []
         let offline = APIFailure.isTransport(error)
@@ -614,11 +661,21 @@ final class PaceModel {
     private func applyEstimatePresentation() {
         if let loadedEstimate, loadedEstimate.coldStart == false, historyEmpty == false {
             showColdStart = false
-            let duration = ScheduleFormat.formatDurationSeconds(loadedEstimate.expectedFinishElapsedSeconds)
-            let clock = ScheduleFormat.formatScheduleClock(loadedEstimate.expectedFinishAt)
-            estimateMessage = "\(loadedEstimate.explanation) \(duration) \(clock)"
+            showsEstimateSummary = true
+            // Printed once this estimate's schedule read is in, so the finish never moves from the
+            // estimate's own to the plan's.
+            guard summaryAwaitsSchedule == false else { return }
+            // The race's one finish: the loaded schedule's finish row (planned stops included)
+            // when that sheet is this estimate's plan, as the teaser and Android Pace show it;
+            // else the estimate's own finish.
+            estimateMessage = PlanFinish.estimateSummary(
+                loadedEstimate,
+                plan: PlanFinish.row(in: scheduleSheet, for: loadedEstimate),
+                timeZone: DeviceTimeZone.current
+            )
             return
         }
+        showsEstimateSummary = false
         if loadedEstimate == nil, historyEmpty == false {
             showColdStart = false
             estimateMessage = "No estimate yet."
@@ -626,6 +683,12 @@ final class PaceModel {
         }
         showColdStart = true
         estimateMessage = "Cold start: no history yet. Coarse estimate only."
+    }
+
+    /// The schedule changed under a summary already on show: print its finish again.
+    private func refreshEstimateSummary() {
+        guard showsEstimateSummary else { return }
+        applyEstimatePresentation()
     }
 
     private func refreshCourseReadout() {
@@ -706,7 +769,9 @@ final class PaceModel {
             sheet: loadedSheet,
             checkpoints: aidCheckpoints,
             progressMeters: runner.progressMeters(checkpoints: aidCheckpoints),
-            live: live
+            live: live,
+            // An unpaid race lists its locked aid stations too, shown locked.
+            showLocked: true
         )
     }
 
@@ -726,7 +791,7 @@ final class PaceModel {
     private var loadedSheet: CrewScheduleSheet? {
         guard loadedStops.isEmpty == false else { return nil }
         let stops = stopDraft?.projectedStops(loadedStops) ?? loadedStops
-        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops)
+        return CrewScheduleSheet(roomId: roomId ?? "", raceStartAt: raceAnchor ?? "", stops: stops, locked: loadedLocked)
     }
 
     private var aidCheckpoints: [AidStationCheckpoint] {
@@ -790,7 +855,7 @@ final class PaceModel {
 
     private func userDirectory() -> URL? {
         guard let userId, let roomId else { return nil }
-        return try? AppDirectories.roomDirectory(userId: userId, roomId: roomId)
+        return try? storage.roomDirectory(userId, roomId)
     }
 
     private func probeOffline() async -> Bool {
@@ -830,6 +895,9 @@ final class PaceModel {
         scheduleMessage = ""
         scheduleOffline = false
         loadedStops = []
+        loadedLocked = nil
+        scheduleSheet = nil
+        showsEstimateSummary = false
         estimateMessage = "No estimate yet."
         showColdStart = false
         loadedEstimate = nil

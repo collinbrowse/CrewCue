@@ -114,6 +114,22 @@ export async function listTrackPoints(
   }));
 }
 
+/**
+ * Whether the room has an accepted point recorded at or after `sinceMs`. Pre-start (test) pings
+ * count: they are stored here like race pings. The tracking reminder scheduler reads it.
+ */
+export async function hasTrackPointSince(roomId: string, sinceMs: number): Promise<boolean> {
+  const pool = getPersistencePool();
+  if (!pool) {
+    return (memoryTracks.get(roomId) ?? []).some((p) => p.recordedAtMs >= sinceMs);
+  }
+  const result = await pool.query(
+    `SELECT 1 FROM room_athlete_pings WHERE room_id = $1 AND recorded_at >= $2::timestamptz LIMIT 1`,
+    [roomId, new Date(sinceMs).toISOString()]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 /** Forget a room's path (course replaced, so old progress no longer applies). */
 export async function deleteTrack(roomId: string): Promise<void> {
   const pool = getPersistencePool();

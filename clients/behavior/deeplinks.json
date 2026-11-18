@@ -230,6 +230,16 @@
       "android": "fail"
     },
     {
+      "id": "tracking-reminder",
+      "entry": "crewcue://dev/location-heartbeat",
+      "label": "crewcue.location-heartbeat",
+      "sdk": "push",
+      "scope": "v1",
+      "proof": "physical",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
       "id": "profile",
       "entry": "crewcue://dev/profile",
       "label": "crewcue.profile",
@@ -316,8 +326,8 @@
       "label": "crewcue.onboarding-runner-setup",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
-      "android": "fail"
+      "ios": "pass",
+      "android": "pass"
     },
     {
       "id": "onboarding-race-preview",
@@ -325,7 +335,7 @@
       "label": "crewcue.onboarding-race-preview",
       "sdk": "maplibre",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     }
   ]

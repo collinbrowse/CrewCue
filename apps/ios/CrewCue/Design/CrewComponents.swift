@@ -332,6 +332,12 @@ enum CrewClock {
         return date.formatted(date: .omitted, time: .shortened)
     }
 
+    /// The clock in a given zone (a race's own zone rather than this phone's).
+    static func short(_ iso: String?, timeZone: TimeZone) -> String? {
+        guard let iso, let date = parse(iso) else { return nil }
+        return date.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+    }
+
     static func parse(_ iso: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

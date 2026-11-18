@@ -259,6 +259,7 @@ private struct CrewButtonLabel: View {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.crewBusy) private var isBusy
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: CrewSpace.base) {
@@ -269,10 +270,13 @@ private struct CrewButtonLabel: View {
             configuration.label
         }
             .font(CrewFont.button)
-            .lineLimit(1)
+            // At accessibility sizes a long label wraps instead of being cut off.
+            .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
+            .multilineTextAlignment(.center)
             .minimumScaleFactor(0.8)
             .foregroundStyle(foreground)
             .padding(.horizontal, 20)
+            .padding(.vertical, typeSize.isAccessibilitySize ? 10 : 0)
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(fill, in: Capsule())
             .overlay {
