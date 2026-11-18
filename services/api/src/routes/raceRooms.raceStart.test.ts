@@ -1085,20 +1085,34 @@ test(
     });
 
     const earlierAt = iso(now - 30 * MINUTE);
-    const [roomRes, latestRes, projectionRes, scheduleRes, trackRes, patchRes, latestAfterRes, projectionAfterRes] =
-      inFreshProcess([
-        { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
-        { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
-        { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew },
-        { method: "GET", url: `/race-rooms/${roomId}/schedule`, user: crew },
-        { method: "GET", url: `/race-rooms/${roomId}/pings/track`, user: crew },
-        // The start goes back before the ping: it counts for the race again.
-        { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: earlierAt } },
-        { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
-        { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew }
-      ]);
+    const [roomRes, latestRes, projectionRes, scheduleRes, trackRes, patchRes] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/schedule`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/track`, user: crew },
+      // The start goes back before the ping: it counts for the race again.
+      { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: earlierAt } }
+    ]);
+    // A third process, so the moved-back start can only come from Postgres, not the second
+    // process's memory.
+    const [roomAfterRes, latestAfterRes, projectionAfterRes] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew }
+    ]);
 
-    for (const [label, res] of Object.entries({ roomRes, latestRes, projectionRes, scheduleRes, trackRes, patchRes })) {
+    for (const [label, res] of Object.entries({
+      roomRes,
+      latestRes,
+      projectionRes,
+      scheduleRes,
+      trackRes,
+      patchRes,
+      roomAfterRes,
+      latestAfterRes,
+      projectionAfterRes
+    })) {
       assert.equal(res!.status, 200, `${label}: ${JSON.stringify(res!.body)}`);
     }
     // After the restart the delayed start is still the start, and the crew's phones show the ping
@@ -1116,7 +1130,8 @@ test(
       [true]
     );
 
-    // Moving the start back re-counts the stored ping, read back from Postgres.
+    // Moving the start back is saved, and a later process re-counts the stored ping from Postgres.
+    assert.equal((roomAfterRes!.body as { room: RaceRoom }).room.raceStartAt, earlierAt);
     const after = (latestAfterRes!.body as RaceRoomLatestPingResponse).ping;
     assert.equal(after?.preStart, undefined);
     assert.equal(after?.progressMeters, racingProgress);
