@@ -11,7 +11,8 @@ import XCTest
 /// and it checks nothing that depends on when a beat lands. A paused moment doesn't change, so a
 /// check on it gets the full wait too. A predicate wait first reads about 1 s in, and a read that
 /// ends after the timeout is a miss even when the caption matches: a 2 s wait gets one snapshot,
-/// and one takes over 1 s on CI.
+/// and one takes over 1 s on CI (up to 4 s seen). So every wait for something to appear or go is
+/// 10 s; only the checks that expect nothing to change (paused, the replay holds) wait 4 s.
 @MainActor
 final class OnboardingRacePreviewTests: XCTestCase {
     private let route = "crewcue://dev/onboarding-race-preview"
@@ -67,7 +68,7 @@ final class OnboardingRacePreviewTests: XCTestCase {
 
         skip.tap()
         let paywall = element(app, "crewcue.onboarding-paywall")
-        XCTAssertTrue(paywall.waitForExistence(timeout: 5), "Skip opens the paywall")
+        XCTAssertTrue(paywall.waitForExistence(timeout: 10), "Skip opens the paywall")
         XCTAssertFalse(element(app, "crewcue.onboarding-race-preview").exists)
         let plusOne = element(app, "crewcue.onboarding-paywall.runner-plus-one")
         let fullCrew = element(app, "crewcue.onboarding-paywall.full-crew")
@@ -85,20 +86,20 @@ final class OnboardingRacePreviewTests: XCTestCase {
 
         // Back replays from the start; it never leaves onboarding.
         element(app, "crewcue.onboarding-paywall.back").tap()
-        XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 5), "Back returns to the replay")
-        XCTAssertTrue(waitForCaption(app, following, timeout: 5))
+        XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 10), "Back returns to the replay")
+        XCTAssertTrue(waitForCaption(app, following, timeout: 10))
 
         element(app, "crewcue.onboarding-race-preview.skip").tap()
-        XCTAssertTrue(paywall.waitForExistence(timeout: 5))
+        XCTAssertTrue(paywall.waitForExistence(timeout: 10))
         let notNow = element(app, "crewcue.onboarding-paywall.not-now")
         XCTAssertEqual(notNow.label, "Not now")
         notNow.tap()
         // The dev route leaves for the app's own launch: signed out, onboarding's entry.
         let gone = NSPredicate(format: "exists == false")
-        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: paywall)], timeout: 5), .completed)
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: paywall)], timeout: 10), .completed)
         XCTAssertFalse(element(app, "crewcue.onboarding-race-preview").exists)
         let entries = ["crewcue.onboarding-chooser", "crewcue.onboarding-runner-setup", "crewcue.join-crew"]
-        XCTAssertTrue(entries.contains { element(app, $0).waitForExistence(timeout: 5) }, "Not now leaves the replay flow")
+        XCTAssertTrue(entries.contains { element(app, $0).waitForExistence(timeout: 10) }, "Not now leaves the replay flow")
     }
 
     /// Beat 1 on Pace from the strip, then beat 2, where the compact width shows Pace itself: the
@@ -107,7 +108,7 @@ final class OnboardingRacePreviewTests: XCTestCase {
         let app = launch(at: 5)
         XCTAssertTrue(waitForCaption(app, following, timeout: 10), "first beat caption missing")
         XCTAssertTrue(waitForCaption(app, "1 of 4", timeout: 10), "the paused beat reads 1 of 4")
-        XCTAssertTrue(element(app, "crewcue.runner-track").waitForExistence(timeout: 5), "the runner's path chip on the Map")
+        XCTAssertTrue(element(app, "crewcue.runner-track").waitForExistence(timeout: 10), "the runner's path chip on the Map")
         element(app, "crewcue.onboarding-race-preview.panel").buttons["Pace"].tap()
         let firstFinish = try paceFinish(app)
 
@@ -128,7 +129,7 @@ final class OnboardingRacePreviewTests: XCTestCase {
         XCTAssertTrue(schedule.waitForExistence(timeout: 10), "Pace lists the checkpoints")
         for title in ["Aid 1", "Aid 2", "Aid 3"] {
             let row = schedule.otherElements.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch
-            XCTAssertTrue(row.waitForExistence(timeout: 5), "Pace lists \(title)")
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "Pace lists \(title)")
             XCTAssertEqual(row.value as? String, lockedAid, "\(title) is locked")
             XCTAssertTrue(row.staticTexts.matching(NSPredicate(format: "label == %@", lockedAid)).firstMatch.exists, "\(title) reads Locked")
             let times = row.staticTexts.matching(NSPredicate(format: "label CONTAINS 'ETA' OR label CONTAINS[c] 'arrival' OR label MATCHES %@", ".*[0-9]:[0-9][0-9].*"))
@@ -231,9 +232,9 @@ final class OnboardingRacePreviewTests: XCTestCase {
         XCTAssertTrue(waitForCaption(app, "2 of 4", timeout: 10), "the paused beat reads 2 of 4")
 
         element(app, "crewcue.onboarding-race-preview.skip").tap()
-        XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 5), "Skip opens the paywall")
+        XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 10), "Skip opens the paywall")
         element(app, "crewcue.onboarding-paywall.back").tap()
-        XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 5), "Back returns to the replay")
+        XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 10), "Back returns to the replay")
         // The dev route's paused start stays paused, at the start.
         XCTAssertTrue(waitForCaption(app, "1 of 4", timeout: 10), "Back replays from the first beat")
         XCTAssertTrue(waitForCaption(app, following, timeout: 10), "the paused beat reads the first caption")
@@ -254,12 +255,12 @@ final class OnboardingRacePreviewTests: XCTestCase {
                 app.launch()
                 XCTAssertTrue(element(app, "crewcue.onboarding-race-preview").waitForExistence(timeout: 10), "\(state): replay screen")
                 let message = element(app, "crewcue.onboarding-race-preview.status")
-                XCTAssertTrue(message.waitForExistence(timeout: 5), "\(state): message")
+                XCTAssertTrue(message.waitForExistence(timeout: 10), "\(state): message")
                 XCTAssertEqual(message.label, copy)
                 XCTAssertFalse(element(app, "crewcue.map").exists, "\(state): nothing to play")
                 XCTAssertFalse(element(app, "crewcue.onboarding-race-preview.play-pause").exists, "\(state): nothing to pause")
                 element(app, "crewcue.onboarding-race-preview.skip").tap()
-                XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 5), "\(state): Skip opens the paywall")
+                XCTAssertTrue(element(app, "crewcue.onboarding-paywall").waitForExistence(timeout: 10), "\(state): Skip opens the paywall")
             }
         }
     }
@@ -270,7 +271,7 @@ final class OnboardingRacePreviewTests: XCTestCase {
         let app = launch(at: 9)
         XCTAssertTrue(waitForCaption(app, following, timeout: 10))
         let control = element(app, "crewcue.onboarding-race-preview.play-pause")
-        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        XCTAssertTrue(control.waitForExistence(timeout: 10))
         XCTAssertEqual(control.label, "Play")
         XCTAssertFalse(waitForCaption(app, fallingBehind, timeout: 4), "paused, the replay holds its moment")
         control.tap()
