@@ -169,6 +169,16 @@ private func plain(_ text: String?) -> String? {
     #expect(OnboardingCopy.paywallFullCrewProduct == BillingProduct.racePassFullCrew.title)
 }
 
+@Test func paywallOptionDetailsAreTheProductsOwnAndReachAndroid() async throws {
+    #expect(OnboardingCopy.paywallRunnerPlusOneDetail == BillingProduct.racePass.detail)
+    #expect(OnboardingCopy.paywallFullCrewDetail == BillingProduct.racePassFullCrew.detail)
+    let copy = try await runtimeResult(["op": "onboardingCopy"])
+    #expect(copy["paywallRunnerPlusOneDetail"] as? String == BillingProduct.racePass.detail)
+    #expect(copy["paywallFullCrewDetail"] as? String == BillingProduct.racePassFullCrew.detail)
+    #expect(copy["paywallRunnerPlusOnePrice"] as? String == BillingProduct.racePass.fallbackPrice)
+    #expect(copy["paywallFullCrewPrice"] as? String == BillingProduct.racePassFullCrew.fallbackPrice)
+}
+
 @Test func onboardingCopyRuntimeOpGivesAndroidTheSharedStrings() async throws {
     let copy = try await runtimeResult(["op": "onboardingCopy"])
     #expect(copy["chooserRunner"] as? String == OnboardingCopy.chooserRunner)
