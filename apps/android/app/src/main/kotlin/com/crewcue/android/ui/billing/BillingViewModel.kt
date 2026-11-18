@@ -17,6 +17,7 @@ import com.crewcue.android.billing.fallbackPrice
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.ui.UserFacingError
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,11 +64,28 @@ sealed interface BillingUiState {
 /** Which checklist a purchase speaks for: the paywall / upgrade, or code redemption. */
 enum class BillingFlowKind { Purchase, Redeem }
 
+/** The billing reads [BillingViewModel] makes: [RaceDayBridge]'s in the app. Each blocks. */
+interface BillingRuntime {
+    /** The room's billing (client-core `billing`). */
+    fun billing(roomId: String): RuntimeResult
+
+    /** After the store took [product]: reads the room's billing until the server unlocks it (`completePurchase`). */
+    fun completePurchase(roomId: String, product: String, pollAttempts: Int?): RuntimeResult
+}
+
+private class BridgeBillingRuntime(private val raceDay: RaceDayBridge) : BillingRuntime {
+    override fun billing(roomId: String): RuntimeResult = raceDay.billing(roomId)
+
+    override fun completePurchase(roomId: String, product: String, pollAttempts: Int?): RuntimeResult =
+        raceDay.completePurchase(roomId, product, "purchased", pollAttempts = pollAttempts)
+}
+
 class BillingViewModel(
-    private val raceDay: RaceDayBridge,
+    private val runtime: BillingRuntime,
     private val purchaser: StorePurchaser,
     private val roomId: String,
-    private val copy: BillingCopy
+    private val copy: BillingCopy,
+    private val io: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     var state by mutableStateOf<BillingUiState>(BillingUiState.Loading)
         private set
@@ -82,10 +100,24 @@ class BillingViewModel(
     private var lastProduct: String? = null
     private var lastKind = BillingFlowKind.Purchase
     private var generation = 0
+    /** [open] has read billing once. */
+    private var opened = false
 
     val busy: Boolean get() = busyProduct != null
 
     fun price(product: String): String = prices[product] ?: fallbackPrice(product)
+
+    /**
+     * The screen is showing: billing is read the first time only, while there is nothing to show
+     * yet. Another composition of the same screen (a fold or rotation recreating the activity, or
+     * the onboarding paywall again after Back and the replay) keeps what it shows, so a payment
+     * still settling keeps Check again and both buy buttons off. Check again and Try again read again.
+     */
+    fun open(online: Boolean) {
+        if (opened) return
+        opened = true
+        load(online)
+    }
 
     fun load(online: Boolean) {
         if (busy) return
@@ -97,7 +129,7 @@ class BillingViewModel(
             }
         }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { raceDay.billing(roomId) }
+            val result = withContext(io) { runtime.billing(roomId) }
             if (ticket != generation) return@launch
             when (result) {
                 is RuntimeResult.Failure -> state = if (result.offline || !online) {
@@ -178,8 +210,8 @@ class BillingViewModel(
         }
     }
 
-    private suspend fun poll(product: String, attempts: Int?): PurchaseOutcome = withContext(Dispatchers.IO) {
-        PurchaseOutcome.from(raceDay.completePurchase(roomId, product, "purchased", pollAttempts = attempts))
+    private suspend fun poll(product: String, attempts: Int?): PurchaseOutcome = withContext(io) {
+        PurchaseOutcome.from(runtime.completePurchase(roomId, product, pollAttempts = attempts))
     }
 
     private fun apply(outcome: PurchaseOutcome, kind: BillingFlowKind, pollPending: Boolean) {
@@ -220,5 +252,5 @@ class BillingViewModelFactory(
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
-        BillingViewModel(raceDay, purchaser, roomId, copy) as T
+        BillingViewModel(BridgeBillingRuntime(raceDay), purchaser, roomId, copy) as T
 }

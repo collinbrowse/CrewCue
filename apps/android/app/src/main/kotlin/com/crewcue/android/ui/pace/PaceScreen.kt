@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.EditCalendar
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.map.MapViewModel
 import com.crewcue.android.ui.map.RaceReadout
 import com.crewcue.android.ui.map.TimelineRow
+import com.crewcue.android.ui.onboarding.TeaserRow
 import com.crewcue.android.ui.theme.ChipStyle
 import com.crewcue.android.ui.theme.CrewClock
 import com.crewcue.android.ui.theme.CrewProgressBar
@@ -94,11 +96,37 @@ fun PaceScreen(
         key = "pace-$roomId",
         factory = PaceViewModelFactory(shell.container.raceDay, roomId)
     )
+    PaceContent(model, roomId, modifier, focus, race)
+}
+
+/**
+ * What a [PaceViewModel.readOnly] Pace (the onboarding replay) shows for the aid stations an unpaid
+ * race withholds: each row [row] (client-core's "Locked"), under [explanation].
+ */
+data class LockedRowText(val row: String, val explanation: String)
+
+/**
+ * Pace on a given [model]: the shell's race, or (a [PaceViewModel.readOnly] model) the onboarding
+ * replay's, which shows the progress, the estimate and the timeline only, every withheld aid
+ * station [locked], and no race tools, check-in or stop edits. Progress and the live finish come
+ * from [race], the runner's pings.
+ */
+@Composable
+fun PaceContent(
+    model: PaceViewModel,
+    roomId: String,
+    modifier: Modifier = Modifier,
+    focus: String = "schedule-sheet",
+    race: MapViewModel? = null,
+    locked: LockedRowText? = null
+) {
     LaunchedEffect(roomId) { model.load() }
+    val readOnly = model.readOnly
     var showsTools by remember { mutableStateOf(false) }
     val liveRows = race?.timeline.orEmpty()
     val passedIds = liveRows.filter { it.state == "done" }.map { it.checkpointId }.toSet()
     LaunchedEffect(focus, model.scheduleStops) {
+        if (readOnly) return@LaunchedEffect
         if (focus == "check-in") model.scheduleStops.firstOrNull()?.let { model.openCheckIn(it.id) }
         if (focus in TOOL_FOCUSES) showsTools = true
     }
@@ -109,18 +137,19 @@ fun PaceScreen(
     val readout = race?.readout ?: RaceReadout()
     // While editing planned stops the timeline renders from the draft, so arrivals preview the change.
     val rows = model.stopTimeline ?: liveRows
+    val titles = race?.checkpoints?.associate { it.id to it.title }.orEmpty()
     Box(modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(top = 12.dp, bottom = 96.dp),
+                .padding(top = 12.dp, bottom = if (readOnly) 16.dp else 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             PaceHeader(race?.raceName.orEmpty(), readout)
             EstimateCard(model)
-            if (model.mayEditStops || model.stopMessage != null) {
+            if (!readOnly && (model.mayEditStops || model.stopMessage != null)) {
                 StopEditBar(model, onBegin = { model.beginStopEdit(passedIds) })
             }
             PaceTimeline(
@@ -135,23 +164,27 @@ fun PaceScreen(
                     model.openCheckIn(id)
                     showsTools = true
                 },
-                onImport = { showsTools = true }
+                onImport = { showsTools = true },
+                showsActions = !readOnly,
+                locked = locked?.let { LockedRows(model.lockedIds, titles, it) }
             )
         }
-        FloatingActionButton(
-            onClick = { showsTools = true },
-            shape = CircleShape,
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp)
-                .semantics { contentDescription = "Race tools" }
-        ) {
-            Icon(Icons.Outlined.EditCalendar, contentDescription = null)
+        if (!readOnly) {
+            FloatingActionButton(
+                onClick = { showsTools = true },
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+                    .semantics { contentDescription = "Race tools" }
+            ) {
+                Icon(Icons.Outlined.EditCalendar, contentDescription = null)
+            }
         }
     }
-    if (showsTools) {
+    if (showsTools && !readOnly) {
         ToolSheet(title = "Race tools", onDismiss = { showsTools = false }) {
             PaceTools(model, focus)
         }
@@ -250,7 +283,11 @@ private fun PaceTimeline(
     onStopMinutes: (String, String) -> Unit = { _, _ -> },
     onStepStop: (String, Int) -> Unit = { _, _ -> },
     onCheckIn: (String) -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    /** Off in the onboarding replay: no Check in and no Import a course. */
+    showsActions: Boolean = true,
+    /** Set in the onboarding replay: the withheld aid stations show as locked rows. */
+    locked: LockedRows? = null
 ) {
     Column(
         Modifier
@@ -275,16 +312,35 @@ private fun PaceTimeline(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                PrimaryButton("Import a course", onClick = onImport, modifier = Modifier.padding(top = 12.dp))
+                if (showsActions) {
+                    PrimaryButton("Import a course", onClick = onImport, modifier = Modifier.padding(top = 12.dp))
+                }
             }
         } else {
-            rows.forEach { row ->
+            val shown = locked?.takeIf { it.ids.isNotEmpty() }?.let { TeaserRow.build(rows, it.ids, it.titles) }
+                ?: rows.map { TeaserRow.Open(it) }
+            if (locked != null && shown.any { it is TeaserRow.Locked } && locked.text.explanation.isNotBlank()) {
+                Text(
+                    locked.text.explanation,
+                    modifier = Modifier.testTag("crewcue.pace.locked-note"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            shown.forEach { entry ->
+                val row = when (entry) {
+                    is TeaserRow.Open -> entry.row
+                    is TeaserRow.Locked -> {
+                        LockedCheckpoint(entry, locked?.text?.row.orEmpty())
+                        return@forEach
+                    }
+                }
                 val edit = editRows.firstOrNull { it.checkpointId == row.checkpointId }
                 // While editing, the dwell rail shows the draft stop, like the arrivals above it.
                 val stop = stops.firstOrNull { it.id == row.checkpointId }
                     ?.let { live -> edit?.let { live.copy(stopLabel = it.stopLabel) } ?: live }
                 if (row.state == "current") {
-                    CurrentCheckpoint(row, stop, liveStale) { onCheckIn(stop?.id ?: row.checkpointId) }
+                    CurrentCheckpoint(row, stop, liveStale, onCheckIn = if (showsActions) ({ onCheckIn(stop?.id ?: row.checkpointId) }) else null)
                 } else {
                     CompactCheckpoint(row, stop, liveStale)
                 }
@@ -357,7 +413,7 @@ private fun CompactCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
 }
 
 @Composable
-private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Boolean = false, onCheckIn: () -> Unit) {
+private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Boolean = false, onCheckIn: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
     val liveClock = CrewClock.short(row.liveArrivalAt)
     Surface(
@@ -411,7 +467,40 @@ private fun CurrentCheckpoint(row: TimelineRow, stop: PaceStop?, liveStale: Bool
                     color = colors.onSurfaceVariant
                 )
             }
-            SecondaryButton("Check in", onClick = onCheckIn, modifier = Modifier.padding(top = 12.dp))
+            if (onCheckIn != null) SecondaryButton("Check in", onClick = onCheckIn, modifier = Modifier.padding(top = 12.dp))
+        }
+    }
+}
+
+/** The withheld aid stations ([ids], in course order, `sheet.locked`) with their course [titles]. */
+class LockedRows(val ids: List<String>, val titles: Map<String, String>, val text: LockedRowText)
+
+/** An aid station an unpaid race withholds: its name and "Locked", no time. */
+@Composable
+private fun LockedCheckpoint(row: TeaserRow.Locked, label: String) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("crewcue.pace.locked.${row.checkpointId}")
+            .semantics(mergeDescendants = true) { contentDescription = "${row.title}, $label" },
+        shape = MaterialTheme.shapes.large,
+        color = colors.surfaceContainerLowest,
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        Row(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Lock, contentDescription = null, tint = colors.onSurfaceVariant)
+            }
+            Text(
+                row.title,
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
         }
     }
 }

@@ -147,18 +147,42 @@ fun ChatScreen(
         key = "chat-$roomId",
         factory = ChatViewModelFactory(shell.container.raceDay, roomId)
     )
+    ChatContent(
+        model,
+        roomId,
+        raceName = shell.races.firstOrNull { it.id == roomId }?.name.orEmpty(),
+        modifier = modifier,
+        race = race,
+        onLocked = onLocked,
+        onUnread = shell::noteChatUnread
+    )
+}
+
+/**
+ * The race chat on a given [model]: the shell's, or with [readOnly] (the onboarding replay) the
+ * messages only, with no message field, send button or photo picker.
+ */
+@Composable
+fun ChatContent(
+    model: ChatViewModel,
+    roomId: String,
+    raceName: String,
+    modifier: Modifier = Modifier,
+    race: MapViewModel? = null,
+    /** Set on an unpaid race: sending opens the paywall instead. */
+    onLocked: (() -> Unit)? = null,
+    readOnly: Boolean = false,
+    onUnread: (Int) -> Unit = {}
+) {
     val context = LocalContext.current
     // An unpaid race's chat answers 402: show the banner and the composer, and poll nothing until
     // the race is unlocked (the effect starts the loop then).
     val locked = onLocked != null
     LaunchedEffect(roomId, locked) { if (!locked) model.load(context.applicationContext) }
-    LaunchedEffect(model.unread) { shell.noteChatUnread(model.unread) }
+    LaunchedEffect(model.unread) { onUnread(model.unread) }
     DisposableEffect(model) {
         model.setVisible(true)
         onDispose { model.setVisible(false) }
-    }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) model.sendPhoto(context.applicationContext, uri)
     }
     val listState = rememberLazyListState()
     // Follow the newest message. Keyed on its id, so loading older messages doesn't jump down.
@@ -172,7 +196,7 @@ fun ChatScreen(
             .semantics { contentDescription = "Chat" }
             .imePadding()
     ) {
-        ChatStatusHeader(race, shell.races.firstOrNull { it.id == roomId }?.name.orEmpty())
+        ChatStatusHeader(race, raceName)
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             LazyColumn(
                 state = listState,
@@ -213,17 +237,27 @@ fun ChatScreen(
                 color = MaterialTheme.colorScheme.primary
             )
         }
-        ChatComposer(
-            draft = model.draft,
-            onDraft = model::updateDraft,
-            sending = model.sending,
-            uploadingPhoto = model.uploadingPhoto,
-            onPhoto = {
-                if (onLocked != null) onLocked() else picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
-            onSend = { if (onLocked != null) onLocked() else model.send(context.applicationContext) }
-        )
+        if (!readOnly) ChatSendBar(model, onLocked)
     }
+}
+
+/** The message field, send button and photo picker. Never in the onboarding replay. */
+@Composable
+private fun ChatSendBar(model: ChatViewModel, onLocked: (() -> Unit)?) {
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) model.sendPhoto(context.applicationContext, uri)
+    }
+    ChatComposer(
+        draft = model.draft,
+        onDraft = model::updateDraft,
+        sending = model.sending,
+        uploadingPhoto = model.uploadingPhoto,
+        onPhoto = {
+            if (onLocked != null) onLocked() else picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        onSend = { if (onLocked != null) onLocked() else model.send(context.applicationContext) }
+    )
 }
 
 /** Live race line: current mile, track status, and next aid ETA. */
@@ -391,12 +425,12 @@ private fun ChatComposer(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 ),
-                modifier = Modifier.weight(1f).semantics { contentDescription = "Message" }
+                modifier = Modifier.weight(1f).testTag("crewcue.chat-message").semantics { contentDescription = "Message" }
             )
             FilledIconButton(
                 onClick = onSend,
                 enabled = !disabled,
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" },
+                modifier = Modifier.size(48.dp).testTag("crewcue.chat-send").semantics { contentDescription = "Send" },
                 colors = IconButtonDefaults.filledIconButtonColors(
                     containerColor = colors.primary,
                     contentColor = colors.onPrimary,

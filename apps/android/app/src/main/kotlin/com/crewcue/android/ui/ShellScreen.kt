@@ -2,7 +2,6 @@ package com.crewcue.android.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -78,6 +77,8 @@ import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.SecondaryButton
 import com.crewcue.android.ui.settings.ShellSettingsSheet
 import com.crewcue.android.ui.onboarding.OnboardingScreen
+import com.crewcue.android.ui.onboarding.RACE_PREVIEW_FEATURE
+import com.crewcue.android.ui.onboarding.RacePreviewRoute
 import com.crewcue.android.ui.onboarding.RaceGate
 import com.crewcue.android.ui.onboarding.RaceLockedPane
 import com.crewcue.android.ui.onboarding.UnlockRaceBanner
@@ -111,9 +112,6 @@ private fun AppShell(viewModel: ShellViewModel) {
             .semantics { contentDescription = "CrewCue" }
     ) {
         val paywallRoom = roomId?.takeIf { gate.showsPaywall }
-        // Back on the paywall that followed the teaser shows the teaser again (predictive back:
-        // the system animates it, since nothing here overrides the activity's back).
-        BackHandler(enabled = paywallRoom != null && viewModel.paywallBackToTeaser) { viewModel.backToTeaser() }
         val lockedReason = gate.lockedReason
         val onMap = viewModel.selectedTab == ShellTab.Map && race != null && paywallRoom == null && lockedReason == null
         Column(
@@ -301,6 +299,9 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
         "onboarding-runner-setup" -> {
             if (viewModel.stateOverlay) FeatureScreen(viewModel.uiState) else OnboardingScreen(viewModel)
         }
+        // Runner phase 2: the race-day replay and its paywall. The dev route plays DemoRaceFixture,
+        // its `?state=` shown on the real screen with Skip.
+        RACE_PREVIEW_FEATURE -> RacePreviewRoute(viewModel)
         "billing-purchase", "billing-redeem" -> {
             val roomId = viewModel.session?.roomId
             when {
