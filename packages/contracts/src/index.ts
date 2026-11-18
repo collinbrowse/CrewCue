@@ -1,4 +1,10 @@
-import type { ActivityHistoryRef, PacingEstimate, RaceRoomStopPlan, WaypointTag } from "./pacingSchedule.js";
+import type {
+  ActivityHistoryRef,
+  PacingEstimate,
+  RaceRoomStopPlan,
+  TeaserLockedCheckpoints,
+  WaypointTag
+} from "./pacingSchedule.js";
 
 export type Role = "athlete" | "crew_member" | "crew_chief" | "team_manager";
 
@@ -277,6 +283,12 @@ export interface RaceRoomProjectionCore {
   remainingCheckpointEtas?: RemainingCheckpointEta[];
   /** 10th–90th percentile finish. Absent where the window isn't calibrated. */
   etaFinishWindow?: ArrivalWindowClock;
+  /**
+   * Set only on a teaser read (an unpaid race, read by its runner). `checkpointSplits` and
+   * `remainingCheckpointEtas` are then empty: the finish ETA alone shows. Never stored; absent
+   * once paid.
+   */
+  locked?: TeaserLockedCheckpoints;
 }
 
 export type ProjectionConfidence = "fresh" | "degraded";
@@ -430,6 +442,26 @@ export interface CrewLimitReachedError {
   upgradeProductId: "crew_upgrade";
 }
 
+/**
+ * 402 body when crew chat, an invite, an invite accept, or a join-by-code hits a race the
+ * runner has not paid for. The runner's own seat and setup are not refused this way.
+ */
+export interface RoomUnpaidError {
+  error: "Race not unlocked";
+  code: "room_unpaid";
+}
+
+/**
+ * 409 body from `POST /race-rooms` when the caller already created `limit` races that are still
+ * `unpaid`. Paid and expired races, and races the caller only crews, do not count.
+ */
+export interface UnpaidRaceLimitError {
+  error: string;
+  code: "unpaid_race_limit";
+  /** Unpaid races one account may have created at once. */
+  limit: number;
+}
+
 export type RaceRoomInviteStatus = "pending" | "accepted" | "expired";
 
 export interface RaceRoomInvite {
@@ -470,8 +502,15 @@ export interface AthleteLatestPing {
   /**
    * Route-snapped course progress from the room projection for this exact ping.
    * Absent when the room has no projection for it (no planned pace, start time, or route line).
+   * 0 on a pre-start ping: the race has not begun, wherever the ping was taken.
    */
   progressMeters?: number;
+  /**
+   * Recorded before the race start (`raceStartAt`): a test ping. It shows the runner's dot only;
+   * progress (`progressMeters` is 0), ETAs, the on-track call, the schedule and projection
+   * freshness ignore it. Absent on a race ping.
+   */
+  preStart?: true;
 }
 
 /** `GET /race-rooms/:roomId/pings/latest` */
@@ -503,7 +542,10 @@ export interface AthletePingAcceptedResponse {
   latitude: number;
   longitude: number;
   horizontalAccuracyMeters?: number;
-  /** Recomputed room projection; absent when the room has no plan, start time, or route line. */
+  /**
+   * Recomputed room projection; absent when the room has no plan, start time, or route line, and
+   * for a ping recorded before the race start (it does not move the projection).
+   */
   projection?: RaceRoomProjection;
 }
 
@@ -549,6 +591,20 @@ export interface AthleteTrackPoint {
   recordedAt: string;
   latitude: number;
   longitude: number;
+  /**
+   * Recorded before the race start (`raceStartAt`), judged against the start as it is now. Not
+   * part of the race's path: clients do not draw it (a test ping from home would otherwise be a
+   * line from home to the start).
+   */
+  preStart?: true;
+}
+
+/**
+ * `PATCH /race-rooms/:roomId/race-start` — set or change the race start without re-sending the
+ * course. ISO-8601 UTC with a `Z` (no offset), as `PUT /course` takes it.
+ */
+export interface RaceRoomRaceStartPayload {
+  raceStartAt: string;
 }
 
 /** `GET /race-rooms/:roomId/pings/track?after=<iso>&limit=<n>` — accepted points, oldest first. */
@@ -876,6 +932,7 @@ export {
   type ScheduleStopNotesRef,
   type RaceRoomStopPlan,
   type StopPlanNote,
+  type TeaserLockedCheckpoints,
   type WaypointTag
 } from "./pacingSchedule.js";
 

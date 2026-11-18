@@ -3,6 +3,8 @@ import CrewCueClientCore
 
 @MainActor
 enum AppDirectories {
+    private static let rootName = "crewcue"
+
     static func root() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -10,7 +12,7 @@ enum AppDirectories {
             appropriateFor: nil,
             create: true
         )
-        let directory = base.appendingPathComponent("crewcue", isDirectory: true)
+        let directory = base.appendingPathComponent(rootName, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
@@ -43,6 +45,19 @@ enum AppDirectories {
         let directory = RoomStorage.directory(userDirectory: try userDirectory(userId: userId), roomId: roomId)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    /// Where `roomDirectory` keeps one race's files, built without creating any directory, so
+    /// removing a file there never brings back a user's directory a wipe already took.
+    static func roomLocation(userId: String, roomId: String) -> URL? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let storage = UserStorage(root: base.appendingPathComponent(rootName, isDirectory: true))
+        return RoomStorage.directory(userDirectory: storage.location(userId: userId), roomId: roomId)
+    }
+
+    /// Onboarding progress, beside the root so sign-out's wipe never reaches it.
+    static func onboardingStore() throws -> OnboardingStore {
+        OnboardingStore(directory: OnboardingStore.directory(besideStorageRoot: try root()))
     }
 
     static func athleteDraftURL() throws -> URL {

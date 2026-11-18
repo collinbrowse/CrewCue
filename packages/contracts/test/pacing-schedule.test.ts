@@ -238,6 +238,16 @@ test("crew schedule sheet parses fixture-shaped JSON including optional delay an
   );
 });
 
+test("teaser sheet: optional locked checkpoint ids parse; absent stays absent; bad shapes throw", () => {
+  const base = { roomId: "room-1", raceStartAt: RACE_START, stops: [requiredStop()] };
+  const teaser = parseCrewScheduleSheet({ ...base, locked: { checkpointIds: ["aid-2", "aid-3"] } });
+  assert.deepEqual(teaser.locked, { checkpointIds: ["aid-2", "aid-3"] });
+  assert.deepEqual(parseCrewScheduleSheet({ ...base, locked: { checkpointIds: [] } }).locked, { checkpointIds: [] });
+  assert.equal("locked" in parseCrewScheduleSheet(base), false);
+  assert.throws(() => parseCrewScheduleSheet({ ...base, locked: ["aid-2"] }), /locked\.checkpointIds must be an array/);
+  assert.throws(() => parseCrewScheduleSheet({ ...base, locked: { checkpointIds: [""] } }), /locked\.checkpointIds\[0\]/);
+});
+
 test("W4-1: cutoffStatus + cutoffMarginSeconds are additive and parsed together", () => {
   const stop = parseScheduleStop({
     ...requiredStop(),

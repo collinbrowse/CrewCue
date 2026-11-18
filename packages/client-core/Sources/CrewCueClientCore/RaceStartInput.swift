@@ -78,9 +78,81 @@ public struct RaceStartInput: Equatable, Sendable {
         return date
     }
 
+    /// Why `instant` is nil, or nil when the fields name a real instant.
+    public enum Problem: Equatable, Sendable {
+        case unknownZone, invalidDate, daylightSavingGap
+    }
+
+    public var problem: Problem? {
+        guard let zone = DeviceTimeZone.resolve(timeZoneIdentifier) else { return .unknownZone }
+        if instant != nil { return nil }
+        // Noon exists on every valid date, so a round-trip failure there means the date itself is bad.
+        let calendar = Self.calendar(zone)
+        var noon = DateComponents()
+        noon.year = year
+        noon.month = month
+        noon.day = day
+        noon.hour = 12
+        let valid = (0...23).contains(hour) && (0...59).contains(minute) && calendar.date(from: noon).map {
+            let c = calendar.dateComponents([.year, .month, .day], from: $0)
+            return c.year == year && c.month == month && c.day == day
+        } == true
+        return valid ? .daylightSavingGap : .invalidDate
+    }
+
     /// UTC ISO-8601 with milliseconds and a `Z` suffix, the form the API's `raceStartAt` requires.
     public var raceStartAt: String? {
         instant.map(RaceDayReadouts.iso8601)
+    }
+
+    /// The picked calendar day, the way the locale writes a medium date ("Aug 15, 2026"). The
+    /// fields are already the race's local day, so nothing converts. An impossible date reads as
+    /// its numbers.
+    public func dateLabel(locale: Locale = .current) -> String {
+        var parts = DateComponents()
+        parts.year = year
+        parts.month = month
+        parts.day = day
+        parts.hour = 12
+        let calendar = Self.calendar(Self.labelZone)
+        if let date = calendar.date(from: parts) {
+            let back = calendar.dateComponents([.year, .month, .day], from: date)
+            if back.year == year, back.month == month, back.day == day {
+                return Self.labelFormatter(locale, date: .medium, time: .none).string(from: date)
+            }
+        }
+        return "\(year)-\(PortableFormat.zeroPadded(month, width: 2))-\(PortableFormat.zeroPadded(day, width: 2))"
+    }
+
+    /// The picked time of day, the way the locale writes a short time ("6:30 AM"). It reads the
+    /// same inside a daylight-saving gap, so the person sees what they picked next to the problem.
+    public func timeLabel(locale: Locale = .current) -> String {
+        guard (0...23).contains(hour), (0...59).contains(minute) else {
+            return "\(hour):\(PortableFormat.zeroPadded(minute, width: 2))"
+        }
+        var parts = DateComponents()
+        parts.year = 2000
+        parts.month = 1
+        parts.day = 1
+        parts.hour = hour
+        parts.minute = minute
+        guard let date = Self.calendar(Self.labelZone).date(from: parts) else {
+            return "\(hour):\(PortableFormat.zeroPadded(minute, width: 2))"
+        }
+        return Self.labelFormatter(locale, date: .none, time: .short).string(from: date)
+    }
+
+    /// Labels format wall-clock fields, so they work in a zone without daylight saving.
+    private static let labelZone = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
+
+    private static func labelFormatter(_ locale: Locale, date: DateFormatter.Style, time: DateFormatter.Style) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar(labelZone)
+        formatter.timeZone = labelZone
+        formatter.dateStyle = date
+        formatter.timeStyle = time
+        return formatter
     }
 
     private static func fieldsMatch(_ date: Date, _ calendar: Calendar, _ input: RaceStartInput) -> Bool {

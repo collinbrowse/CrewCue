@@ -1,7 +1,8 @@
 /**
  * POST /pacing-estimates — history + room course → micro-model PacingEstimate.
  * Prefer `roomId` (loads route geometry from the race room). Legacy checkpoint-only
- * bodies still work with a sparse polyline from checkpoint centers.
+ * bodies still work with a sparse polyline from checkpoint centers; no shipped client sends
+ * one (client-core always sends `roomId`), and they are answered finish-only, for everyone.
  */
 import { cohortForCourse } from "../lib/courseHistory/resolve.js";
 import { listFinishedEfforts, measuredPlanLogSigma } from "../lib/finishedEffortStore.js";
@@ -27,11 +28,13 @@ import {
 } from "../lib/pacingEstimate/index.js";
 import {
   initPacingEstimateStore,
-  savePacingEstimate
+  savePacingEstimate,
+  type PacingEstimateProvenance
 } from "../lib/pacingEstimateStore.js";
 import { decidePlanAuthority, planTriggerSchema } from "../lib/planAuthority.js";
 import type { RaceRoom } from "@crewcue/contracts";
-import { getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
+import { courseLengthOf, finishOnlyEstimate, isTeaserRoom } from "../lib/raceTeaser.js";
+import { evaluateEntitlement, getRaceRoom, resolveRouteMetricPointsFromRaceRoomExport } from "./raceRooms.js";
 
 const checkpointInput = z
   .object({
@@ -130,6 +133,8 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
     let checkpoints = parsedBody.data.checkpoints as RaceCourseCheckpoint[] | undefined;
     let routeMetricPoints: CourseMetricPoint[] | null = null;
     let courseLengthMeters: number | undefined;
+    /** Read the finish at the course length, not the farthest checkpoint (every race's compute). */
+    let finishAtCourseEnd = false;
     let linkedRoom: RaceRoom | undefined;
 
     if (parsedBody.data.roomId) {
@@ -141,6 +146,12 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
       const membership = room.memberships.find((m) => m.userId === callerUserId);
       if (!membership) {
         return reply.code(403).send({ error: "Forbidden" });
+      }
+      // Same gate as attaching the plan: crew on an unpaid race get 402, the runner sets up
+      // and is answered with the finish-only estimate below.
+      const entitlement = evaluateEntitlement(app, room, callerUserId, { allowUnpaidRunner: true });
+      if (!entitlement.allowed) {
+        return reply.code(entitlement.code ?? 403).send({ error: entitlement.error });
       }
       const authority = decidePlanAuthority({
         room,
@@ -167,14 +178,18 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         });
       }
       routeMetricPoints = resolveRouteMetricPointsFromRaceRoomExport(room);
-      courseLengthMeters =
-        room.course.derivedMetrics?.canonicalDistanceMeters ?? room.courseDistanceMeters;
       if (!routeMetricPoints) {
         return reply.code(400).send({
           error: "Room course route geometry is required for micro-model pacing",
           code: "course_incomplete"
         });
       }
+      // The model simulates the whole route. Read at the farthest checkpoint, the finish of a
+      // course whose checkpoints stop short of the route's end (no finish waypoint) would be that
+      // stop's ETA. So a race's compute, paid or unpaid, reads it at the course length, as the
+      // projection does (`courseLengthOf`): the stored length, else the route's own (a legacy room).
+      courseLengthMeters = courseLengthOf(room, routeMetricPoints);
+      finishAtCourseEnd = true;
     }
 
     if (!raceStartAt || !checkpoints) {
@@ -220,11 +235,23 @@ export async function pacingEstimateRoutes(app: FastifyInstance): Promise<void> 
         planLogSigmaByBranch,
         seed: parsedBody.data.seed ?? DEFAULT_PACING_ESTIMATE_SEED,
         routeMetricPoints,
-        courseLengthMeters
+        courseLengthMeters,
+        ...(finishAtCourseEnd ? { finishAtCourseEnd } : {})
       });
       const parsed = parsePacingEstimate(artifacts.estimate);
-      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack);
-      return reply.code(200).send(parsed);
+      // Finish only, no aid ETA, for an unpaid race and for every room-less request: any race's
+      // checkpoints can be posted without a room, an unpaid one's included.
+      const finishOnly = linkedRoom === undefined || isTeaserRoom(linkedRoom);
+      // The room is added to the rooms this estimate id already went to (never replacing one), and
+      // the course length goes with it, so an unpaid race takes it only for that course.
+      const provenance: PacingEstimateProvenance = {
+        ...(linkedRoom ? { roomId: linkedRoom.id } : {}),
+        courseLengthMeters: artifacts.courseLengthMeters
+      };
+      // Stored whole, so attaching it by id to a paid race (or paying for this one) unlocks the
+      // full plan. Its rooms go with it, so the export knows whether a paid race unlocked it.
+      await savePacingEstimate(athleteUserId, parsed, artifacts.baselineTrack, provenance);
+      return reply.code(200).send(finishOnly ? finishOnlyEstimate(parsed) : parsed);
     } catch (err) {
       if (err instanceof PacingEstimateCourseError) {
         return reply.code(400).send({ error: err.message, code: err.code });

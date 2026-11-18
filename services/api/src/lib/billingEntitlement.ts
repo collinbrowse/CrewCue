@@ -10,7 +10,9 @@ import type {
   RaceRoom,
   RaceRoomBilling,
   RaceRoomCrewTier,
-  RaceRoomEntitlement
+  RaceRoomEntitlement,
+  RoomUnpaidError,
+  UnpaidRaceLimitError
 } from "@crewcue/contracts";
 
 export const BILLING_PRODUCT_IDS: readonly BillingProductId[] = ["race_pass", "crew_upgrade", "race_pass_full_crew"];
@@ -20,6 +22,15 @@ export const BASE_CREW_LIMIT = 1;
 
 export function isBillingProductId(value: unknown): value is BillingProductId {
   return typeof value === "string" && (BILLING_PRODUCT_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * Whether the race is unlocked: `paid` only. `unpaid` and `expired` are not. The API's
+ * entitlement gate (`evaluateEntitlement` in raceRooms.ts) and the tracking reminder scheduler
+ * both read it.
+ */
+export function isRoomPaid(room: Pick<RaceRoom, "entitlement">): boolean {
+  return room.entitlement.status === "paid";
 }
 
 /**
@@ -41,13 +52,72 @@ export function crewLimitOf(room: RaceRoom): number | undefined {
  * Every other member counts against the crew cap.
  */
 export function isCrewMembership(room: RaceRoom, member: { userId: string; role: string }): boolean {
-  if (member.role === "athlete" || member.userId === room.athleteId) return false;
-  const creator = room.createdByUserId ?? room.memberships[0]?.userId;
-  return member.userId !== creator;
+  if (member.role === "athlete") return false;
+  return !isRunnerSeat(room, member.userId);
+}
+
+/**
+ * Whether `userId` holds the runner seat (the race athlete or the room's creator), by who they
+ * are, not by the role they hold or are being given. An unpaid race admits only this seat.
+ */
+export function isRunnerSeat(room: RaceRoom, userId: string): boolean {
+  if (userId === room.athleteId) return true;
+  return userId === raceCreatorOf(room);
+}
+
+/**
+ * Who created the room: `createdByUserId`, set from the caller's token. Rooms stored before
+ * #649 lack it; their first member is the creator.
+ */
+export function raceCreatorOf(room: Pick<RaceRoom, "createdByUserId" | "memberships">): string | undefined {
+  return room.createdByUserId ?? room.memberships[0]?.userId;
+}
+
+/**
+ * Unpaid races one account may have created at once. Each one costs GPX parsing and estimator
+ * runs before anyone pays, so `POST /race-rooms` refuses a fourth (see `unpaidRaceLimitError`).
+ */
+export const UNPAID_RACE_LIMIT = 3;
+
+/**
+ * Whether a room's own fields count it toward its creator's unpaid race limit: created by `userId`
+ * and still `unpaid`. Paid and expired races don't count, and neither do races the user only
+ * crews. The creator, not `athleteId`, is who counts: the creator comes from the token, while
+ * `athleteId` is whatever the client sent (risk R17), so counting it would let anyone fill another
+ * runner's limit. A race paid once and refunded (`unpaid` again, with a revoked grant) doesn't
+ * count either; that needs the grant ledger, so the store-level count checks it
+ * (raceRooms.ts `countUnpaidRaceRoomsCreatedBy`).
+ */
+export function countsTowardUnpaidRaceLimit(
+  room: Pick<RaceRoom, "createdByUserId" | "memberships" | "entitlement">,
+  userId: string
+): boolean {
+  return room.entitlement.status === "unpaid" && raceCreatorOf(room) === userId;
+}
+
+/** The 409 body for a create past the limit, or undefined while `unpaidCount` leaves room for one more. */
+export function unpaidRaceLimitError(unpaidCount: number, limit = UNPAID_RACE_LIMIT): UnpaidRaceLimitError | undefined {
+  if (unpaidCount < limit) return undefined;
+  return {
+    error: `You have ${limit} races that aren't unlocked yet. Unlock or delete one to add another.`,
+    code: "unpaid_race_limit",
+    limit
+  };
 }
 
 export function crewCountOf(room: RaceRoom): number {
   return room.memberships.filter((member) => isCrewMembership(room, member)).length;
+}
+
+/**
+ * Crew chat, invites, and any seat but the runner's need a paid race (402). Kept apart from the
+ * crew cap: an unpaid race is not "full", and offering `crew_upgrade` there would sell the wrong
+ * thing. Only `unpaid` is refused here; existing members stay, and the runner's own seat
+ * (`isRunnerSeat`) is the caller's to exempt.
+ */
+export function roomUnpaidError(room: RaceRoom): RoomUnpaidError | undefined {
+  if (room.entitlement.status !== "unpaid") return undefined;
+  return { error: "Race not unlocked", code: "room_unpaid" };
 }
 
 /**

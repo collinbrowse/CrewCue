@@ -91,10 +91,10 @@ public enum PlanAuthority {
         mayExplicitRecalculate(role: role)
     }
 
-    /// Course edits (planned stops included). Mirrors the API's `canEditRaceSetup`.
+    /// Course edits (planned stops included). Mirrors the API's `canEditCourse`: every role, crew members included.
     public static func mayEditCourse(role: String) -> Bool {
         switch role {
-        case "athlete", "crew_chief", "team_manager":
+        case "athlete", "crew_chief", "team_manager", "crew_member":
             true
         default:
             false

@@ -2,7 +2,7 @@
  * Billing grant ledger (#649). Memory for PERSISTENCE_MODE=memory; Postgres when postgres.
  * Mirrors db/migrations/0019_billing_grants.sql.
  */
-import { getPersistencePool } from "./roomPersistence.js";
+import { getPersistencePool, type PersistenceQueryable } from "./roomPersistence.js";
 import type { BillingGrant, BillingGrantSource } from "./billingEntitlement.js";
 
 const BILLING_DDL = `
@@ -57,6 +57,15 @@ function ensureReady(): Promise<void> {
     });
   }
   return ready;
+}
+
+/**
+ * Create the billing tables if they are missing (migration 0019 creates them on every deploy).
+ * Queries outside this module that read `billing_grants` (the unpaid race limit and sweeper in
+ * roomPersistence.ts) run this first, and the sweeper runs it before it takes any room lock.
+ */
+export function ensureBillingStoreReady(): Promise<void> {
+  return ensureReady();
 }
 
 type GrantRow = {
@@ -219,6 +228,40 @@ export async function listBillingGrantsForRoom(roomId: string): Promise<BillingG
     [roomId]
   );
   return result.rows.map(fromRow);
+}
+
+/**
+ * Which of `roomIds` have a grant, active or revoked: races that were paid once. A refund
+ * (CANCELLATION, EXPIRATION) revokes the grant and puts the race back to `unpaid`, but it is still
+ * a race someone paid for, so the unpaid race limit doesn't count it and the 30-day sweeper never
+ * deletes it. With `db`, the query runs on that connection (a transaction holding the room's row
+ * lock) and nothing else touches the pool, table setup included: the caller runs
+ * {@link ensureBillingStoreReady} before it takes the lock.
+ */
+export async function listRoomIdsWithBillingGrants(
+  roomIds: readonly string[],
+  db?: PersistenceQueryable
+): Promise<Set<string>> {
+  if (roomIds.length === 0) return new Set();
+  const pool = getPersistencePool();
+  if (!pool) {
+    const wanted = new Set(roomIds);
+    return new Set(
+      [...memoryGrants.values()].flatMap((grant) => (grant.roomId && wanted.has(grant.roomId) ? [grant.roomId] : []))
+    );
+  }
+  if (!db) await ensureReady();
+  const queryable: PersistenceQueryable = db ?? pool;
+  const result = await queryable.query<{ room_id: string }>(
+    `SELECT DISTINCT room_id FROM billing_grants WHERE room_id = ANY($1::text[])`,
+    [[...roomIds]]
+  );
+  return new Set(result.rows.map((row) => row.room_id));
+}
+
+/** Whether the room has any grant, active or revoked (see {@link listRoomIdsWithBillingGrants}). */
+export async function roomHasBillingGrants(roomId: string, db?: PersistenceQueryable): Promise<boolean> {
+  return (await listRoomIdsWithBillingGrants([roomId], db)).has(roomId);
 }
 
 export async function getBillingGrant(transactionId: string): Promise<BillingGrant | undefined> {

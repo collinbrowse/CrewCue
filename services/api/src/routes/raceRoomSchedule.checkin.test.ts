@@ -459,9 +459,12 @@ test("W2-1 EC3 unauthorized / unpaid write leaves schedule unchanged", async () 
   const unpaidWrite = await postManualStop(app, roomId, "aid-1", ownerToken, payload);
   assert.equal(unpaidWrite.statusCode, 402);
 
-  // Members still cannot GET schedule when unpaid (entitlement gate).
+  // Unpaid: the runner (owner is the athleteId here) gets the teaser; other members get 402.
   const unpaidGet = await getSchedule(app, roomId, ownerToken);
-  assert.equal(unpaidGet.statusCode, 402);
+  assert.equal(unpaidGet.statusCode, 200);
+  assert.ok(parseCrewScheduleSheet(unpaidGet.json()).locked, "unpaid schedule is the teaser");
+  const unpaidMemberGet = await getSchedule(app, roomId, athleteToken);
+  assert.equal(unpaidMemberGet.statusCode, 402);
 
   await app.close();
 });

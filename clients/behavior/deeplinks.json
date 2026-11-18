@@ -28,7 +28,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "cold-start",
@@ -55,7 +55,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     },
     {
       "id": "outbox-status",
@@ -230,6 +230,16 @@
       "android": "fail"
     },
     {
+      "id": "tracking-reminder",
+      "entry": "crewcue://dev/location-heartbeat",
+      "label": "crewcue.location-heartbeat",
+      "sdk": "push",
+      "scope": "v1",
+      "proof": "physical",
+      "ios": "fail",
+      "android": "fail"
+    },
+    {
       "id": "profile",
       "entry": "crewcue://dev/profile",
       "label": "crewcue.profile",
@@ -309,6 +319,24 @@
       "scope": "v1",
       "ios": "pass",
       "android": "pass"
+    },
+    {
+      "id": "onboarding-runner-setup",
+      "entry": "crewcue://dev/onboarding-runner-setup",
+      "label": "crewcue.onboarding-runner-setup",
+      "sdk": "none",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "pass"
+    },
+    {
+      "id": "onboarding-race-preview",
+      "entry": "crewcue://dev/onboarding-race-preview",
+      "label": "crewcue.onboarding-race-preview",
+      "sdk": "maplibre",
+      "scope": "v1",
+      "ios": "pass",
+      "android": "fail"
     }
   ]
 }

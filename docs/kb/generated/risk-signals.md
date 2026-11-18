@@ -5,11 +5,11 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 
 | Signal | Count |
 | --- | --- |
-| Routes with no auth guard detected | 8 |
+| Routes with no auth guard detected | 10 |
 | Room-scoped routes with no membership check detected | 0 |
-| Source files ≥ 800 lines | 7 |
-| In-process timers in the API | 1 |
-| API lib modules with no same-named test | 42 |
+| Source files ≥ 800 lines | 14 |
+| In-process timers in the API | 3 |
+| API lib modules with no same-named test | 46 |
 | Native features not passing on both platforms | 14 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -21,11 +21,13 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | --- | --- | --- |
 | POST | `/billing/revenuecat` | [services/api/src/routes/billingRoutes.ts:99](../../../services/api/src/routes/billingRoutes.ts#L99) |
 | POST | `/billing/admin/comp` | [services/api/src/routes/billingRoutes.ts:210](../../../services/api/src/routes/billingRoutes.ts#L210) |
-| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:406](../../../services/api/src/routes/chatRoutes.ts#L406) |
-| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:407](../../../services/api/src/routes/chatRoutes.ts#L407) |
+| POST | `/chat/devices` | [services/api/src/routes/chatRoutes.ts:420](../../../services/api/src/routes/chatRoutes.ts#L420) |
+| POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:2664](../../../services/api/src/routes/raceRooms.ts#L2664) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3146](../../../services/api/src/routes/raceRooms.ts#L3146) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3146](../../../services/api/src/routes/raceRooms.ts#L3146) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3146](../../../services/api/src/routes/raceRooms.ts#L3146) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -40,13 +42,20 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 4949 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 1810 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5605 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5605 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5605 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2021 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1186 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 988 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 874 |
-| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 871 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1259 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1259 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1259 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1243 |
+| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1065 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
+| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 900 |
+| [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
+| [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
 ## In-process timers (API)
 
@@ -55,11 +64,15 @@ Timers run per instance. With more than one API replica each one fires.
 | Kind | Source |
 | --- | --- |
 | `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
+| `setInterval` | [services/api/src/lib/trackingReminderScheduler.ts:465](../../../services/api/src/lib/trackingReminderScheduler.ts#L465) |
+| `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:199](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L199) |
 
 ## API lib modules with no same-named test
 
 May still be covered through route tests; check before relying on it.
 
+- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
+- [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
 - [services/api/src/lib/accountDeletion.ts](../../../services/api/src/lib/accountDeletion.ts)
 - [services/api/src/lib/activityFileHistory.ts](../../../services/api/src/lib/activityFileHistory.ts)
 - [services/api/src/lib/activityHistoryStore.ts](../../../services/api/src/lib/activityHistoryStore.ts)
@@ -99,6 +112,8 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/planAuthority.ts](../../../services/api/src/lib/planAuthority.ts)
 - [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts)
 - [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
+- [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
+- [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
 - [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts)
 - [services/api/src/lib/slowdownShrinkage.ts](../../../services/api/src/lib/slowdownShrinkage.ts)
 - [services/api/src/lib/testCourseRouteLayer.ts](../../../services/api/src/lib/testCourseRouteLayer.ts)
@@ -109,8 +124,6 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 
 | Feature | Scope | iOS | Android |
 | --- | --- | --- | --- |
-| `schedule-sheet` | v1 | pass | fail |
-| `crew-sheet-export` | v1 | pass | fail |
 | `outbox-status` | v1 | fail | fail |
 | `auth-sign-in` | v1 | fail | fail |
 | `athlete-setup` | v1 | fail | fail |
@@ -123,6 +136,8 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `map-navigate` | v1 | fail | pass |
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
+| `tracking-reminder` | v1 | fail | fail |
+| `onboarding-race-preview` | v1 | pass | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 

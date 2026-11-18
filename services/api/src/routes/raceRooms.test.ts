@@ -31,6 +31,17 @@ function buildClaims(sub: string) {
   };
 }
 
+/** Crew invites, accepts and joins need a paid race (402 `room_unpaid`). Same grant path as a store purchase. */
+async function payForRoom(app: ReturnType<typeof buildApp>, roomId: string, memberToken: string): Promise<void> {
+  const response = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${roomId}/billing/dev-purchase`,
+    payload: { productId: "race_pass" },
+    headers: { authorization: `Bearer ${memberToken}` }
+  });
+  assert.equal(response.statusCode, 200);
+}
+
 test("race room creation replays idempotent retries and rejects conflicting reuse", async () => {
   const app = buildApp();
   await app.ready();
@@ -244,6 +255,19 @@ test("issues and accepts invite with role assignment", async () => {
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string };
 
+  // Crew join only a paid race.
+  const entitlementResponse = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: {
+      status: "paid"
+    },
+    headers: {
+      authorization: `Bearer ${ownerToken}`
+    }
+  });
+  assert.equal(entitlementResponse.statusCode, 200);
+
   const issueResponse = await app.inject({
     method: "POST",
     url: `/race-rooms/${room.id}/invites`,
@@ -272,18 +296,6 @@ test("issues and accepts invite with role assignment", async () => {
   const accepted = acceptResponse.json() as { assignedRole: string };
   assert.equal(accepted.assignedRole, "crew_member");
 
-  const entitlementResponse = await app.inject({
-    method: "POST",
-    url: `/race-rooms/${room.id}/entitlement`,
-    payload: {
-      status: "paid"
-    },
-    headers: {
-      authorization: `Bearer ${ownerToken}`
-    }
-  });
-  assert.equal(entitlementResponse.statusCode, 200);
-
   const getResponse = await app.inject({
     method: "GET",
     url: `/race-rooms/${room.id}`,
@@ -300,7 +312,8 @@ test("rejects invalid invite token", async () => {
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const inviteeToken = app.jwt.sign(buildClaims("invitee-user"));
 
   const createResponse = await app.inject({
@@ -356,6 +369,7 @@ test("rejects expired invite token", async () => {
     }
   });
   const room = createResponse.json() as { id: string };
+  await payForRoom(app, room.id, ownerToken);
 
   const issueResponse = await app.inject({
     method: "POST",
@@ -410,6 +424,7 @@ test("stale invite hydrate does not reopen an accepted invite", async () => {
   });
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string };
+  await payForRoom(app, room.id, ownerToken);
 
   const issueResponse = await app.inject({
     method: "POST",
@@ -640,6 +655,7 @@ test("lists room invites with current statuses", async () => {
   });
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string };
+  await payForRoom(app, room.id, ownerToken);
 
   const inviteResponse = await app.inject({
     method: "POST",
@@ -686,6 +702,7 @@ test("lists pending invites after an API restart", async (t) => {
     headers
   });
   const room = created.json() as { id: string };
+  await payForRoom(app, room.id, ownerToken);
   const issued = await app.inject({
     method: "POST",
     url: `/race-rooms/${room.id}/invites`,
@@ -727,6 +744,7 @@ test("joins room by room code and creates membership", async () => {
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string; joinCode?: string };
   assert.ok(room.joinCode && /^\d{6}$/.test(room.joinCode), "create assigns 6-digit joinCode");
+  await payForRoom(app, room.id, ownerToken);
 
   const joinResponse = await app.inject({
     method: "POST",
@@ -767,6 +785,7 @@ test("member can PATCH own displayName and owner syncs creatorName when athlete 
   });
   assert.equal(createResponse.statusCode, 201);
   const room = createResponse.json() as { id: string; joinCode?: string };
+  await payForRoom(app, room.id, ownerToken);
 
   const joinResponse = await app.inject({
     method: "POST",
@@ -985,7 +1004,8 @@ test("returns anonymous join preview with allowlisted room details", async () =>
   const app = buildApp();
   await app.ready();
 
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const createResponse = await app.inject({
     method: "POST",
     url: "/race-rooms",
@@ -1518,6 +1538,7 @@ test("join-by-code does not keep ghost membership when room persist fails", asyn
     assert.equal(createResponse.statusCode, 201);
     const room = createResponse.json() as { id: string; joinCode?: string };
     assert.ok(room.joinCode);
+    await payForRoom(app, room.id, ownerToken);
 
     setPersistRaceRoomFailureForTests(true);
     const failingJoin = await app.inject({
@@ -1775,6 +1796,8 @@ test("display-name save queued behind a join does not drop the joiner", async ()
     assert.equal(createResponse.statusCode, 201);
     const created = createResponse.json() as { id: string; joinCode?: string };
     assert.ok(created.joinCode);
+    // Pay before taking the snapshot the slow save writes back, so the join sees a paid race.
+    await payForRoom(app, created.id, ownerToken);
     const live = await getRaceRoom(created.id);
     assert.ok(live);
 

@@ -46,6 +46,8 @@ class MainActivity : ComponentActivity() {
         // The theme paints the launch colour until the first frame; screens draw on white.
         window.setBackgroundDrawableResource(android.R.color.white)
         installMapLibre()
+        // A demo replay killed mid-play leaves its folder in the cache directory; sweep it at launch.
+        lifecycleScope.launch(Dispatchers.IO) { container.cleanDemoRacesOnce() }
         CrewPush.ensureChannel(applicationContext)
         CrewPush.chatRoomFrom(intent)?.let { shellModel.openChat(it) }
         if (container.sessionStore.current() != null) {

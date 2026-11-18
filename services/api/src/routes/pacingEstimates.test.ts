@@ -390,7 +390,7 @@ test("EC5 API: duplicate requests return identical bodies", async () => {
   });
 });
 
-test("fixture history + course returns parseable PacingEstimate with aid ETAs", async () => {
+test("fixture history + course returns a parseable PacingEstimate, finish-only, stored with aid ETAs", async () => {
   await withApp(async ({ app, tokenFor }) => {
     const token = tokenFor("athlete-1");
     const long = await ingestGpx(app, token, "activity-long-trail.gpx", "gpx:activity-long-trail");
@@ -410,8 +410,13 @@ test("fixture history + course returns parseable PacingEstimate with aid ETAs", 
     const estimate = parsePacingEstimate(response.json());
     assert.equal(estimate.coldStart, false);
     assert.deepEqual(estimate.historyRefIds, [long.id]);
-    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
-    assert.ok(estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
+    // Room-less: any race's checkpoints can be posted here, an unpaid one's included, so the
+    // response is finish-only for everyone. The stored estimate is whole.
+    assert.deepEqual(estimate.aidEtas, []);
+    assert.ok(estimate.expectedFinishAt);
+    const stored = await getPacingEstimateById(estimate.id);
+    assert.ok(stored?.estimate.aidEtas.some((eta) => eta.checkpointId === "aid-1"));
+    assert.ok(stored?.estimate.aidEtas.some((eta) => eta.checkpointId === "aid-3"));
     assert.match(estimate.explanation, /outside the window excluded|similarity window/i);
   });
 });

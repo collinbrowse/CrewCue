@@ -12,6 +12,10 @@ import com.crewcue.android.billing.StorePurchaser
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
+import com.crewcue.android.ui.onboarding.FileRunnerSetupDraftStore
+import com.crewcue.android.ui.onboarding.RunnerSetupDraftStore
+import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 class AppContainer(context: Context) {
@@ -21,6 +25,16 @@ class AppContainer(context: Context) {
     val authConfig = AuthConfig.load(appContext)
     val authGateway: AuthGateway = Auth0SdkGateway(authConfig)
     val raceDay = RaceDayBridge(authConfig.apiBaseUrl, sessionStore, logger)
+
+    /** The runner's half-typed setup and course file, outside the per-user storage root. */
+    val runnerSetupDrafts: RunnerSetupDraftStore =
+        FileRunnerSetupDraftStore(File(appContext.noBackupFilesDir, "runner-setup"))
+
+    /** Removes demo replay folders a killed process left in the cache directory. Once per process. */
+    fun cleanDemoRacesOnce() {
+        if (!demoCleanupDone.compareAndSet(false, true)) return
+        raceDay.demoRaceCleanup(appContext.cacheDir.absolutePath)
+    }
 
     /** Debug builds with no RevenueCat key buy through the API's fake purchaser; everything else uses RevenueCat. */
     val storePurchaser: StorePurchaser =
@@ -57,6 +71,8 @@ class AppContainer(context: Context) {
     }
 
     private companion object {
+        val demoCleanupDone = AtomicBoolean(false)
+
         const val FALLBACK_SCREEN =
             """{"featureId":"hello","accessibilityIdentifier":"crewcue.hello","title":"CrewCue","body":""}"""
     }

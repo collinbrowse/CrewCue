@@ -113,6 +113,8 @@ public struct RunnerTrack: Equatable, Sendable {
 
     /// Adds a page. Points with an unreadable time or position, or not newer than what's held, are
     /// skipped (the same rule as `RunnerProgress`), so a replayed page never duplicates the line.
+    /// A pre-start (test) point is not part of the race's path: it is read past (the cursor moves
+    /// on) but never drawn, so a test ping from home is not a line from home to the start.
     public mutating func append(_ page: RaceRoomPingTrackResponse) {
         var last = points.last?.recordedAt
         for wire in page.points {
@@ -124,7 +126,9 @@ public struct RunnerTrack: Equatable, Sendable {
             if let last, at <= last {
                 continue
             }
-            points.append(RunnerTrackPoint(recordedAt: at, latitude: wire.latitude, longitude: wire.longitude))
+            if wire.preStart != true {
+                points.append(RunnerTrackPoint(recordedAt: at, latitude: wire.latitude, longitude: wire.longitude))
+            }
             cursor = wire.recordedAt
             last = at
         }

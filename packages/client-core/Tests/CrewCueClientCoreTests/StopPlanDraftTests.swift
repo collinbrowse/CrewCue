@@ -133,7 +133,7 @@ private let stops = [
     #expect(PlanAuthority.mayEditCourse(role: "athlete"))
     #expect(PlanAuthority.mayEditCourse(role: "crew_chief"))
     #expect(PlanAuthority.mayEditCourse(role: "team_manager"))
-    #expect(PlanAuthority.mayEditCourse(role: "crew_member") == false)
+    #expect(PlanAuthority.mayEditCourse(role: "crew_member"))
     #expect(PlanAuthority.mayEditCourse(role: "") == false)
 }
 
@@ -235,6 +235,37 @@ private func bridge(_ fields: [String: Any]) async throws -> [String: Any] {
     #expect(projected[2]["clockArrivalAt"] as? String == "2026-08-15T16:21:00.000Z")
     let timeline = try #require(result["timeline"] as? [[String: Any]])
     #expect(timeline[2]["clockArrivalAt"] as? String == "2026-08-15T16:21:00.000Z")
+}
+
+private struct ScheduleServer: HTTPTransport {
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard request.url.path.hasSuffix("/schedule") else { return HTTPResponse(status: 404, body: Data("{}".utf8)) }
+        return HTTPResponse(
+            status: 200,
+            body: try JSONEncoder().encode(CrewScheduleSheet(roomId: "room-1", raceStartAt: "2026-08-15T12:00:00.000Z", stops: stops))
+        )
+    }
+}
+
+/// Android reads `mayEditCourse` (schedule) and `mayEdit` (stop plan draft) from the bridge, so the role must flow through both.
+@Test func runtimeOpsLetACrewMemberEditStopsAndRefuseAnUnknownRole() async throws {
+    let base = "https://schedule-\(UUID().uuidString.lowercased()).example.invalid"
+    RuntimeCall.setTransportForTests(ScheduleServer(), baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let storage = FileManager.default.temporaryDirectory.appendingPathComponent("sched-\(UUID().uuidString)/crewcue-user").path
+    let rows: [[String: Any]] = [
+        ["id": "start", "title": "Start", "distanceMetersFromStart": 0, "plannedStopSeconds": 0],
+        ["id": "aid-1", "title": "Creek", "distanceMetersFromStart": 10 * mile, "plannedStopSeconds": 120],
+        ["id": "finish", "title": "Finish", "distanceMetersFromStart": 30 * mile, "plannedStopSeconds": 0]
+    ]
+    for (role, allowed) in [("crew_member", true), ("", false), ("spectator", false)] {
+        let schedule = try await bridge([
+            "op": "loadSchedule", "baseURL": base, "token": "t", "roomId": "room-1", "storageDir": storage, "role": role
+        ])
+        #expect(schedule["mayEditCourse"] as? Bool == allowed, "schedule, role \(role)")
+        let draft = try await bridge(["op": "stopPlanDraft", "checkpoints": rows, "progressMeters": 0, "role": role])
+        #expect(draft["mayEdit"] as? Bool == allowed, "stopPlanDraft, role \(role)")
+    }
 }
 
 @Test func paceStopEditFixtureCopyMatchesTheChecklist() throws {

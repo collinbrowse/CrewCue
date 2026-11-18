@@ -5,7 +5,10 @@
  * - FCM HTTP v1: OAuth access token from a service account (JWT bearer grant), RS256.
  *
  * Both retry 429/5xx twice with backoff and report tokens the provider says are dead
- * (`invalidDeviceIds`) so the caller can delete them. Network calls are injectable for tests.
+ * (`invalidDeviceIds`) so the caller can delete them. Each provider request times out after
+ * PUSH_REQUEST_TIMEOUT_MS. A push with `expiresAtMs` tells the provider to drop it then
+ * (`apns-expiration`, FCM `android.ttl`), and no request for it starts at or after that time.
+ * Network calls are injectable for tests.
  */
 import http2 from "node:http2";
 import { SignJWT, importPKCS8 } from "jose";
@@ -17,12 +20,19 @@ import type {
 } from "./chatPushDispatch.js";
 
 const RETRY_DELAYS_MS = [200, 800];
+/** Per provider request, so a hung connection can't hold a send (or a scheduler pass) for minutes. */
+export const PUSH_REQUEST_TIMEOUT_MS = 10_000;
 
 type Sleep = (ms: number) => Promise<void>;
 const realSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function emptyResult(): ChatPushDispatchResult {
   return { delivered: 0, attempts: 0, failures: [], invalidDeviceIds: [] };
+}
+
+/** A push with `expiresAtMs` is not sent once that time has come, a retry included. */
+function isExpired(input: ChatPushDispatchInput, nowMs: number): boolean {
+  return input.expiresAtMs !== undefined && nowMs >= input.expiresAtMs;
 }
 
 function mergeResults(results: ChatPushDispatchResult[]): ChatPushDispatchResult {
@@ -101,7 +111,7 @@ export const http2ApnsRequest: ApnsRequest = ({ origin, path, headers, body }) =
     });
     req.on("end", () => resolve({ status, body: data }));
     req.on("error", reject);
-    req.setTimeout(10_000, () => req.close(http2.constants.NGHTTP2_CANCEL));
+    req.setTimeout(PUSH_REQUEST_TIMEOUT_MS, () => req.close(http2.constants.NGHTTP2_CANCEL));
     req.end(body);
   });
 
@@ -152,6 +162,10 @@ export function apnsTransport(
     });
     let refreshed = false;
     for (let attempt = 0; ; attempt += 1) {
+      if (isExpired(input, now())) {
+        result.failures.push({ deviceId: target.deviceId, reason: "expired" });
+        return result;
+      }
       result.attempts += 1;
       let response: ApnsResponse;
       try {
@@ -163,7 +177,11 @@ export function apnsTransport(
             "apns-topic": config.topic,
             "apns-push-type": "alert",
             "apns-priority": "10",
-            "apns-collapse-id": input.messageId ?? input.roomId,
+            "apns-collapse-id": input.collapseKey ?? input.messageId ?? input.roomId,
+            // Epoch seconds: APNs drops the push then instead of holding it for an offline phone.
+            ...(input.expiresAtMs !== undefined
+              ? { "apns-expiration": String(Math.floor(input.expiresAtMs / 1000)) }
+              : {}),
             "content-type": "application/json"
           },
           body
@@ -217,7 +235,7 @@ export type FcmServiceAccount = {
 
 export type FcmFetch = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string }
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }
 ) => Promise<{ status: number; text(): Promise<string> }>;
 
 export function readFcmServiceAccount(env: NodeJS.ProcessEnv = process.env): FcmServiceAccount | undefined {
@@ -278,7 +296,8 @@ export function fcmTransport(
       body: new URLSearchParams({
         grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
         assertion
-      }).toString()
+      }).toString(),
+      signal: AbortSignal.timeout(PUSH_REQUEST_TIMEOUT_MS)
     });
     const text = await res.text();
     if (res.status !== 200) throw new Error(`FCM OAuth token request failed with ${res.status}`);
@@ -290,27 +309,43 @@ export function fcmTransport(
   async function sendOne(input: ChatPushDispatchInput, target: ChatPushDeliveryTarget): Promise<ChatPushDispatchResult> {
     const result = emptyResult();
     const url = `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`;
-    const body = JSON.stringify({
-      message: {
-        token: target.token,
-        notification: { title: input.title, body: input.body },
-        data: { type: input.kind ?? "chat", roomId: input.roomId, ...(input.messageId ? { messageId: input.messageId } : {}) },
-        android: {
-          priority: "HIGH",
-          notification: { channel_id: FCM_CHAT_CHANNEL_ID, tag: input.roomId }
+    // Built per attempt: the TTL is what is left of `expiresAtMs` when the request goes out.
+    const body = (nowMs: number) =>
+      JSON.stringify({
+        message: {
+          token: target.token,
+          notification: { title: input.title, body: input.body },
+          data: {
+            type: input.kind ?? "chat",
+            roomId: input.roomId,
+            ...(input.messageId ? { messageId: input.messageId } : {})
+          },
+          android: {
+            priority: "HIGH",
+            // Whole seconds left, rounded down; "0s" is deliver now or never.
+            ...(input.expiresAtMs !== undefined
+              ? { ttl: `${Math.max(0, Math.floor((input.expiresAtMs - nowMs) / 1000))}s` }
+              : {}),
+            notification: { channel_id: FCM_CHAT_CHANNEL_ID, tag: input.collapseKey ?? input.roomId }
+          }
         }
-      }
-    });
+      });
     let refreshed = false;
     for (let attempt = 0; ; attempt += 1) {
+      if (isExpired(input, now())) {
+        result.failures.push({ deviceId: target.deviceId, reason: "expired" });
+        return result;
+      }
       result.attempts += 1;
       let status: number;
       let text: string;
       try {
+        const authorization = `Bearer ${await accessToken()}`;
         const res = await fetchImpl(url, {
           method: "POST",
-          headers: { authorization: `Bearer ${await accessToken()}`, "content-type": "application/json" },
-          body
+          headers: { authorization, "content-type": "application/json" },
+          body: body(now()),
+          signal: AbortSignal.timeout(PUSH_REQUEST_TIMEOUT_MS)
         });
         status = res.status;
         text = await res.text();

@@ -53,13 +53,24 @@ public struct RunnerPing: Equatable, Sendable {
     public var recordedAt: Date
     /// Route-snapped progress from the server projection for this ping. Nil when the room has none.
     public var progressMeters: Double?
+    /// Recorded before the race start: the runner's test ping. It shows the dot and the last-ping
+    /// age only; it puts the runner nowhere on the course and makes no on-track call.
+    public var preStart: Bool
 
-    public init(pingId: String, latitude: Double, longitude: Double, recordedAt: Date, progressMeters: Double? = nil) {
+    public init(
+        pingId: String,
+        latitude: Double,
+        longitude: Double,
+        recordedAt: Date,
+        progressMeters: Double? = nil,
+        preStart: Bool = false
+    ) {
         self.pingId = pingId
         self.latitude = latitude
         self.longitude = longitude
         self.recordedAt = recordedAt
         self.progressMeters = progressMeters
+        self.preStart = preStart
     }
 }
 
@@ -104,15 +115,17 @@ public struct RunnerProgress: Equatable, Sendable {
                 latitude: wire.latitude,
                 longitude: wire.longitude,
                 recordedAt: recordedAt,
-                progressMeters: wire.progressMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+                progressMeters: wire.progressMeters.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil },
+                preStart: wire.preStart == true
             )
         }
         self.init(ping: ping, stalenessThresholdSeconds: response.stalenessThresholdSeconds)
     }
 
     /// Server progress when the projection has it, else the ping snapped to the nearest checkpoint.
+    /// A pre-start ping is at the start whatever its position: the race has not begun.
     public func progressMeters(checkpoints: [AidStationCheckpoint]) -> Double {
-        guard let ping else { return 0 }
+        guard let ping, ping.preStart == false else { return 0 }
         if let meters = ping.progressMeters { return meters }
         return AidStationSheet.progressMeters(latitude: ping.latitude, longitude: ping.longitude, checkpoints: checkpoints)
     }
@@ -205,6 +218,8 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
     /// Earliest and latest likely arrival (ISO 8601 UTC). Nil where the server sends no window.
     public var arrivalWindowStartAt: String?
     public var arrivalWindowEndAt: String?
+    /// An unpaid race withholds this stop's ETA (`locked` on the schedule): no times, lock copy instead.
+    public var locked: Bool
 
     public var id: String { checkpointId }
 
@@ -220,7 +235,8 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
         isFinish: Bool,
         liveArrivalAt: String? = nil,
         arrivalWindowStartAt: String? = nil,
-        arrivalWindowEndAt: String? = nil
+        arrivalWindowEndAt: String? = nil,
+        locked: Bool = false
     ) {
         self.checkpointId = checkpointId
         self.state = state
@@ -234,6 +250,7 @@ public struct CheckpointTimelineRow: Equatable, Sendable, Identifiable {
         self.liveArrivalAt = liveArrivalAt
         self.arrivalWindowStartAt = arrivalWindowStartAt
         self.arrivalWindowEndAt = arrivalWindowEndAt
+        self.locked = locked
     }
 }
 
@@ -244,7 +261,8 @@ public enum RaceDayReadouts {
     public static let noPingLabel = "NO PING YET"
 
     /// Readouts from the athlete's latest ping. A stale ping keeps its position but drops the
-    /// on-track call, because the runner may have moved on since.
+    /// on-track call, because the runner may have moved on since. A pre-start (test) ping puts the
+    /// runner at the start and makes no on-track call: the race has not begun.
     public static func make(
         sheet: CrewScheduleSheet?,
         checkpoints: [AidStationCheckpoint],
@@ -260,7 +278,7 @@ public enum RaceDayReadouts {
             lastPingAt: runner.ping?.recordedAt
         )
         readout.pingState = state
-        if state != .live {
+        if state != .live || runner.ping?.preStart == true {
             readout.status = .unknown
             readout.statusLabel = ""
         }
@@ -302,16 +320,26 @@ public enum RaceDayReadouts {
     }
 
     /// Pace timeline: passed stops are done, the next stop is current, later stops are projected.
+    ///
+    /// `showLocked`: an unpaid race's sheet lists only the start and the finish and names every
+    /// checkpoint between them in `locked`. Those come back as rows too, in course order, marked
+    /// `locked` and with no times. Off, the timeline lists only the sheet's stops.
     public static func timeline(
         sheet: CrewScheduleSheet?,
         checkpoints: [AidStationCheckpoint],
         progressMeters: Double,
-        live: LiveProjection? = nil
+        live: LiveProjection? = nil,
+        showLocked: Bool = false
     ) -> [CheckpointTimelineRow] {
         let progress = progressMeters.isFinite ? max(0, progressMeters) : 0
         let byID = Dictionary(uniqueKeysWithValues: checkpoints.map { ($0.id, $0) })
         let stops = sheet?.stops ?? []
-        let ids = stops.isEmpty ? checkpoints.map(\.id) : stops.map(\.checkpointId)
+        let lockedIDs = showLocked ? (sheet?.locked?.checkpointIds ?? []) : []
+        var ids = stops.isEmpty ? checkpoints.map(\.id) : stops.map(\.checkpointId)
+        if !lockedIDs.isEmpty {
+            ids = withLocked(ids, locked: lockedIDs, course: checkpoints)
+        }
+        let lockedSet = Set(lockedIDs)
         let stopByID = Dictionary(stops.map { ($0.checkpointId, $0) }, uniquingKeysWith: { first, _ in first })
         var currentAssigned = false
         return ids.enumerated().map { offset, id in
@@ -329,6 +357,7 @@ public enum RaceDayReadouts {
             }
             let miles = distance.map { " — \(PortableFormat.oneDecimal($0 / metersPerMile)) MI" } ?? ""
             let label = offset == 0 && (distance ?? 0) <= 5 ? "CP\(offset + 1) — START" : "CP\(offset + 1)\(miles)"
+            let locked = lockedSet.contains(id) && stop == nil
             return CheckpointTimelineRow(
                 checkpointId: id,
                 state: state,
@@ -339,11 +368,39 @@ public enum RaceDayReadouts {
                 cutoffStatus: stop?.cutoffStatus,
                 distanceToLabel: ScheduleFormat.milesRemaining(progressMeters: progress, checkpointDistanceMeters: distance).uppercased(),
                 isFinish: offset == ids.count - 1 && ids.count > 1,
-                liveArrivalAt: state == .done ? nil : live?.arrivals[id].map(iso8601),
-                arrivalWindowStartAt: state == .done ? nil : live?.arrivalWindows[id].map { iso8601($0.lowerBound) },
-                arrivalWindowEndAt: state == .done ? nil : live?.arrivalWindows[id].map { iso8601($0.upperBound) }
+                liveArrivalAt: state == .done || locked ? nil : live?.arrivals[id].map(iso8601),
+                arrivalWindowStartAt: state == .done || locked ? nil : live?.arrivalWindows[id].map { iso8601($0.lowerBound) },
+                arrivalWindowEndAt: state == .done || locked ? nil : live?.arrivalWindows[id].map { iso8601($0.upperBound) },
+                locked: locked
             )
         }
+    }
+
+    /// The sheet's stops plus the locked checkpoints, in course order (by distance when every
+    /// checkpoint has one, else as listed, as the server orders them). Without the course, the
+    /// locked ones go after the first stop: the server locks everything between start and finish.
+    private static func withLocked(_ ids: [String], locked: [String], course: [AidStationCheckpoint]) -> [String] {
+        let wanted = Set(ids).union(locked)
+        let known = Set(course.map(\.id))
+        guard wanted.isSubset(of: known) else {
+            var merged = Array(ids.prefix(1))
+            for id in locked + ids.dropFirst() where !merged.contains(id) {
+                merged.append(id)
+            }
+            return merged
+        }
+        let measured = course.allSatisfy { $0.distanceMetersFromStart?.isFinite == true }
+        let ordered = measured
+            ? course.enumerated().sorted {
+                let a = $0.element.distanceMetersFromStart ?? 0, b = $1.element.distanceMetersFromStart ?? 0
+                return a == b ? $0.offset < $1.offset : a < b
+            }.map(\.element)
+            : course
+        var merged: [String] = []
+        for checkpoint in ordered where wanted.contains(checkpoint.id) && !merged.contains(checkpoint.id) {
+            merged.append(checkpoint.id)
+        }
+        return merged
     }
 
     /// Adds the server's live finish ETA (and window, when sent) to a readout.

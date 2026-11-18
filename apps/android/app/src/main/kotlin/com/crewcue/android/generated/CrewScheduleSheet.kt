@@ -4,5 +4,6 @@ data class CrewScheduleSheet(
     val roomId: String,
     val raceStartAt: String,
     val stops: List<ScheduleStop>,
-    val pacingEstimateId: String? = null
+    val pacingEstimateId: String? = null,
+    val locked: TeaserLockedCheckpoints? = null
 )

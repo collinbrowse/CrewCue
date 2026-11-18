@@ -10,6 +10,8 @@ struct ProductShellView: View {
             ForEach(ShellTab.allCases) { tab in
                 Tab(tab.title, systemImage: tab.systemImage, value: tab) {
                     ProductTabPage(tab: tab, model: model, onSettings: { model.openSettings() })
+                        // Contain the page, so its id doesn't replace the ids of its controls (the race banner).
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier(tab.accessibilityIdentifier)
                         .toolbar(.hidden, for: .tabBar)
                         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -73,10 +75,12 @@ struct ProductTabPage: View {
             MapView(
                 model: model.mapModel,
                 focus: ShellTab.isMapFeature(model.route.featureId) ? model.route.featureId : "map-track",
-                onSettings: onSettings
+                onSettings: onSettings,
+                access: model.raceAccess,
+                onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil
             )
         case .pace:
-            ShellPage(onSettings: onSettings) {
+            ShellPage(onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
                 PaceView(
                     model: model.paceModel,
                     userId: model.signedInUserId,
@@ -88,7 +92,7 @@ struct ProductTabPage: View {
                 )
             }
         case .chat:
-            ShellPage(onSettings: onSettings) {
+            ShellPage(onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
                 ChatTabPage(model: model)
             }
         case .profile:
@@ -127,8 +131,11 @@ struct NoRaceView: View {
 }
 
 /// Non-map tab chrome: tinted page ground with the floating glass top bar, matching the map tab.
+/// `access` adds the race's Unlock race (runner) or locked (crew) banner under the bar.
 struct ShellPage<Content: View>: View {
     var onSettings: () -> Void
+    var access: RaceAccess? = nil
+    var onUnlock: () -> Void = {}
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -136,9 +143,15 @@ struct ShellPage<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(CrewBackground())
             .safeAreaInset(edge: .top, spacing: 0) {
-                CrewTopBar(onSettings: onSettings)
-                    .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
-                    .padding(.horizontal, 8)
+                VStack(spacing: CrewSpace.base) {
+                    CrewTopBar(onSettings: onSettings)
+                        .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+                        .padding(.horizontal, 8)
+                    if let access {
+                        RaceAccessBanner(access: access, onUnlock: onUnlock)
+                            .padding(.horizontal, CrewSpace.gutter)
+                    }
+                }
             }
     }
 }

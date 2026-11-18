@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
@@ -32,7 +33,8 @@ async function createRoomWithOwner(app: ReturnType<typeof buildApp>, ownerToken:
 test("blocks room access when entitlement is unpaid", async () => {
   const app = buildApp();
   await app.ready();
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const roomId = await createRoomWithOwner(app, ownerToken);
 
   const getResponse = await app.inject({
@@ -51,7 +53,8 @@ test("blocks room access when entitlement is unpaid", async () => {
 test("blocks course and map workspace routes when entitlement is unpaid", async () => {
   const app = buildApp();
   await app.ready();
-  const ownerToken = app.jwt.sign(buildClaims("owner-user"));
+  // A fresh owner: the race stays unpaid, and Postgres runs share one database (unpaid race limit).
+  const ownerToken = app.jwt.sign(buildClaims(`owner-user-${randomUUID()}`));
   const roomId = await createRoomWithOwner(app, ownerToken);
   const routeOverlayLayer = lineStringRouteOverlayForCheckpoints([
     { latitude: 42.0, longitude: -70.0 },

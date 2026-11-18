@@ -9,6 +9,8 @@ final class ActivityImportModel {
     private(set) var message = ActivityImport.emptyMessage
     private(set) var items: [ActivityHistoryItem] = []
     private(set) var busy = false
+    /// The last import failed for want of a network.
+    private(set) var offline = false
 
     private let client: AppClient
     private var generation = 0
@@ -25,30 +27,35 @@ final class ActivityImportModel {
         generation += 1
         items = []
         busy = false
+        offline = false
         message = ActivityImport.emptyMessage
     }
 
-    /// The picker returned a file, or failed to.
-    func picked(_ result: Result<URL, any Error>) async {
+    /// The picker returned a file, or failed to. Answers how the import ended, nil when it didn't.
+    @discardableResult
+    func picked(_ result: Result<URL, any Error>) async -> ActivityImportStatus? {
         switch result {
         case .failure:
             message = ActivityImport.errorMessage
+            return nil
         case .success(let url):
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else {
                 message = ActivityImport.errorMessage
-                return
+                return nil
             }
-            await importFile(fileName: url.lastPathComponent, data: data)
+            return await importFile(fileName: url.lastPathComponent, data: data)
         }
     }
 
-    func importFile(fileName: String, data: Data) async {
-        guard !busy else { return }
+    @discardableResult
+    func importFile(fileName: String, data: Data) async -> ActivityImportStatus? {
+        guard !busy else { return nil }
+        offline = false
         if let problem = ActivityImport.localProblem(fileName: fileName, byteCount: data.count) {
             message = problem
-            return
+            return nil
         }
         busy = true
         message = "Importing \(fileName)…"
@@ -57,9 +64,12 @@ final class ActivityImportModel {
             let result = try await RaceDayAPI.importActivityFile(graph: client.graph, fileName: fileName, data: data)
             message = result.status == .saved ? ActivityImport.successMessage : ActivityImport.duplicateMessage
             await refresh()
+            return result.status
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return nil }
+            offline = APIFailure.isOffline(error)
             message = ActivityImport.message(for: error)
+            return nil
         }
     }
 

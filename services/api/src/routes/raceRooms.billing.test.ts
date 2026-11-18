@@ -114,12 +114,17 @@ async function getRoomStatus(app: App, roomId: string, user: string): Promise<nu
   return response.statusCode;
 }
 
-test("unpaid room is blocked, and its billing view offers the pass", async () => {
+test("unpaid room shows its runner the teaser, takes no crew, and its billing view offers the pass", async () => {
   const app = buildApp();
   await app.ready();
   const room = await createRunnerRoom(app, "runner-unpaid");
-  assert.equal(await getRoomStatus(app, room.id, "runner-unpaid"), 402);
+  // The runner sets up an unpaid race (teaser reads; raceRooms.teaser.test.ts covers the shape).
+  assert.equal(await getRoomStatus(app, room.id, "runner-unpaid"), 200);
+  const join = await joinByCode(app, room.joinCode, "crew-unpaid");
+  assert.equal(join.statusCode, 402);
+  assert.deepEqual(join.json(), { error: "Race not unlocked", code: "room_unpaid" });
   const view = await billing(app, room.id, "runner-unpaid");
+  assert.equal(view.crewCount, 0);
   assert.equal(view.entitlement.status, "unpaid");
   assert.deepEqual(view.offers, ["race_pass", "race_pass_full_crew"]);
   assert.equal(view.crewLimit, 1);
@@ -360,12 +365,17 @@ test("refund drops the tier: existing crew stay, new joins are refused", async (
   await webhook(app, rcEvent({ type: "REFUND_REVERSED", productId: "crew_upgrade", transactionId: "tx-r-up", roomId: room.id }));
   assert.equal((await billing(app, room.id, "runner-refund")).entitlement.crewTier, "unlimited");
 
-  // Refunding the pass itself locks the room again; nobody is removed.
+  // Refunding the pass itself locks the room again; nobody is removed. The runner is back on
+  // the teaser, crew are refused, and no new crew may join (that is the pass, not the cap).
   await webhook(app, rcEvent({ type: "CANCELLATION", productId: "race_pass", transactionId: "tx-r-pass", roomId: room.id }));
   const locked = await billing(app, room.id, "runner-refund");
   assert.equal(locked.entitlement.status, "unpaid");
   assert.equal(locked.crewCount, 3);
-  assert.equal(await getRoomStatus(app, room.id, "runner-refund"), 402);
+  assert.equal(await getRoomStatus(app, room.id, "runner-refund"), 200);
+  assert.equal(await getRoomStatus(app, room.id, "crew-r-1"), 402);
+  const lockedJoin = await joinByCode(app, room.joinCode, "crew-r-5");
+  assert.equal(lockedJoin.statusCode, 402);
+  assert.equal((lockedJoin.json() as { code: string }).code, "room_unpaid");
   await app.close();
 });
 

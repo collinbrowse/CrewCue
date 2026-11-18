@@ -4,7 +4,7 @@
 crewcue://dev/account-deletion
 
 ## Action
-In Settings → Account, tap Delete account. A confirm step explains what is deleted and that races where you are the runner close for your whole crew. Delete account calls the API; on success the app signs out and wipes the session, outbox and per-user caches. Cancel changes nothing. A link opens the web deletion page from build config.
+In Settings → Account, tap Delete account. A confirm step explains what is deleted and that races where you are the runner close for your whole crew. Delete account calls the API; on success the app removes the user's onboarding progress (which sign-out keeps), then signs out and wipes the session, outbox and per-user caches. Cancel changes nothing. A link opens the web deletion page from build config.
 
 ## API
 DELETE /me

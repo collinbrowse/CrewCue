@@ -139,14 +139,19 @@ fun ChatScreen(
     shell: ShellViewModel,
     roomId: String,
     modifier: Modifier = Modifier,
-    race: MapViewModel? = null
+    race: MapViewModel? = null,
+    /** Set on an unpaid race: sending opens the paywall instead. */
+    onLocked: (() -> Unit)? = null
 ) {
     val model: ChatViewModel = viewModel(
         key = "chat-$roomId",
         factory = ChatViewModelFactory(shell.container.raceDay, roomId)
     )
     val context = LocalContext.current
-    LaunchedEffect(roomId) { model.load(context.applicationContext) }
+    // An unpaid race's chat answers 402: show the banner and the composer, and poll nothing until
+    // the race is unlocked (the effect starts the loop then).
+    val locked = onLocked != null
+    LaunchedEffect(roomId, locked) { if (!locked) model.load(context.applicationContext) }
     LaunchedEffect(model.unread) { shell.noteChatUnread(model.unread) }
     DisposableEffect(model) {
         model.setVisible(true)
@@ -185,14 +190,14 @@ fun ChatScreen(
                 }
                 items(model.messages, key = { it.id }) { line -> ChatBubble(line, onDiscard = { model.discard(line) }) }
             }
-            if (model.opening && model.messages.isEmpty()) {
+            if (!locked && model.opening && model.messages.isEmpty()) {
                 CairnLoader(
                     modifier = Modifier.size(72.dp).testTag("crewcue.chat-loading"),
                     onLight = !LocalCrewExtras.current.dark
                 )
             }
         }
-        model.status?.let { line ->
+        model.status?.takeIf { !locked }?.let { line ->
             Text(
                 line,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp).semantics { contentDescription = line },
@@ -213,8 +218,10 @@ fun ChatScreen(
             onDraft = model::updateDraft,
             sending = model.sending,
             uploadingPhoto = model.uploadingPhoto,
-            onPhoto = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            onSend = { model.send(context.applicationContext) }
+            onPhoto = {
+                if (onLocked != null) onLocked() else picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onSend = { if (onLocked != null) onLocked() else model.send(context.applicationContext) }
         )
     }
 }

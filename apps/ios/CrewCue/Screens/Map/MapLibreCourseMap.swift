@@ -15,6 +15,22 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var recenterRequest = 0
     var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
     var trackColor = UIColor.systemOrange
+    /// The course line from the server's GPX read (setup preview). Empty: the line joins the checkpoints.
+    var route: [CLLocationCoordinate2D] = []
+    /// Room kept clear when the course is framed. The race map leaves space for its chips and sheet.
+    var fitPadding = MapLibreCourseMap.raceFitPadding
+    static let raceFitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+    /// The onboarding replay's map: a shorter pane under the replay's caption, with the same aid
+    /// sheet and chips but no top bar. The course sits above the sheet, clear of the first chip
+    /// row and of the chip column on the right.
+    static let replayFitPadding = UIEdgeInsets(top: 60, left: 40, bottom: 340, right: 90)
+    /// Frame the course again whenever the map changes size (a small preview laid out late, or a
+    /// fold). The race map keeps the camera where the person panned it, so it leaves this off.
+    var refitOnResize = false
+    /// A map in a pane (the onboarding replay, the setup course preview): `fitPadding` shrinks
+    /// when it would leave the course under a quarter of the map. The race map leaves this off
+    /// and always frames with its full padding, clear of its chips and sheet.
+    var shrinksPaddingToFit = false
 
     /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
     /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
@@ -43,7 +59,11 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MLNMapView {
         let dark = context.environment.colorScheme == .dark
-        let mapView = MLNMapView(frame: .zero, styleURL: Self.styleURL(dark: dark))
+        let mapView = ResizingMapView(frame: .zero, styleURL: Self.styleURL(dark: dark))
+        if refitOnResize {
+            let coordinator = context.coordinator
+            mapView.onResize = { [weak coordinator] in coordinator?.fitCourse(animated: false) }
+        }
         context.coordinator.dark = dark
         mapView.delegate = context.coordinator
         mapView.tintColor = lineColor
@@ -69,6 +89,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.track = track
         context.coordinator.lineColor = lineColor
         context.coordinator.trackColor = trackColor
+        context.coordinator.route = route
+        context.coordinator.fitPadding = fitPadding
+        context.coordinator.shrinksPaddingToFit = shrinksPaddingToFit
         let dark = context.environment.colorScheme == .dark
         if context.coordinator.dark != dark {
             context.coordinator.dark = dark
@@ -108,7 +131,11 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var lineColor = UIColor.systemPurple
         var trackColor = UIColor.systemOrange
         var track: [CLLocationCoordinate2D] = []
+        var route: [CLLocationCoordinate2D] = []
+        var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+        var shrinksPaddingToFit = false
         private var drawnPoints: [MapCoursePoint] = []
+        private var drawnRoute: [CLLocationCoordinate2D] = []
         private var drawnTrack: [CLLocationCoordinate2D] = []
         private var trackAnnotations: [MLNAnnotation] = []
 
@@ -124,12 +151,15 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
         func redraw(force: Bool) {
             guard let mapView, mapView.style != nil else { return }
-            if !force, points == drawnPoints { return }
+            if !force, points == drawnPoints, Self.same(route, drawnRoute) { return }
             if let existing = mapView.annotations {
                 mapView.removeAnnotations(existing.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) })
             }
             var annotations: [MLNAnnotation] = []
-            if points.count >= 2 {
+            if route.count >= 2 {
+                var coordinates = route
+                annotations.append(MLNPolyline(coordinates: &coordinates, count: UInt(coordinates.count)))
+            } else if points.count >= 2 {
                 var coordinates = points.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
                 let polyline = MLNPolyline(coordinates: &coordinates, count: UInt(coordinates.count))
                 annotations.append(polyline)
@@ -145,6 +175,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 fitCourse(animated: false)
             }
             drawnPoints = points
+            drawnRoute = route
         }
 
         /// Replaces the runner's path and position marker. Never moves the camera: a 30-second
@@ -178,8 +209,23 @@ struct MapLibreCourseMap: UIViewRepresentable {
             guard let mapView, let all = mapView.annotations else { return }
             let annotations = all.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) }
             guard annotations.isEmpty == false else { return }
-            let padding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
+            let padding = shrinksPaddingToFit ? Self.padding(fitPadding, in: mapView.bounds.size) : fitPadding
             mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
+        }
+
+        /// `padding`, shrunk evenly when it would leave the course less than a quarter of the map
+        /// (a map in a short pane), where the camera could only zoom out to the whole world. A
+        /// tall enough pane keeps its padding as it is. Only maps that set `shrinksPaddingToFit`.
+        nonisolated static func padding(_ padding: UIEdgeInsets, in size: CGSize) -> UIEdgeInsets {
+            func fit(_ lead: CGFloat, _ trail: CGFloat, _ length: CGFloat) -> (CGFloat, CGFloat) {
+                let room = max(0, length) * 0.75
+                guard lead + trail > room, lead + trail > 0 else { return (lead, trail) }
+                let scale = room / (lead + trail)
+                return (lead * scale, trail * scale)
+            }
+            let (top, bottom) = fit(padding.top, padding.bottom, size.height)
+            let (left, right) = fit(padding.left, padding.right, size.width)
+            return UIEdgeInsets(top: top, left: left, bottom: bottom, right: right)
         }
 
         nonisolated func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {
@@ -249,6 +295,19 @@ struct MapLibreCourseMap: UIViewRepresentable {
             let coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: nil)
             onTap(coordinate.latitude, coordinate.longitude)
         }
+    }
+}
+
+/// Reports size changes after layout, so a course can be framed in the map's real bounds.
+final class ResizingMapView: MLNMapView {
+    var onResize: (() -> Void)?
+    private var laidOutSize: CGSize = .zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != laidOutSize, bounds.width > 0, bounds.height > 0 else { return }
+        laidOutSize = bounds.size
+        onResize?()
     }
 }
 
