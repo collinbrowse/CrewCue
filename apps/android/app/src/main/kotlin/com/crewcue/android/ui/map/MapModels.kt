@@ -140,6 +140,13 @@ data class CourseFraming(
         val Screen = CourseFraming(left = 48, top = 200, right = 96, bottom = 360, refitOnResize = false)
 
         /**
+         * The onboarding replay's Map pane, below its caption: room for the chips above and the aid
+         * sheet below, cut down in a short pane, and fitted again when a fold, an unfold or a resize
+         * changes the pane.
+         */
+        val Replay = CourseFraming(left = 48, top = 150, right = 96, bottom = 280, refitOnResize = true, shrinkToFit = true)
+
+        /**
          * A course preview card: room on every side, more below for the title under the lowest
          * marker, cut down on a small card. Fitted again after a fold, unfold or resize.
          */

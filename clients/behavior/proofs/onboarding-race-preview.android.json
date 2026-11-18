@@ -1,0 +1,24 @@
+{
+  "id": "onboarding-race-preview",
+  "platform": "android",
+  "entry": "crewcue://dev/onboarding-race-preview",
+  "device": "crewcue_api_35 phone emulator (API 35, 1080x2400, host GPU); a pixel_9_pro_fold AVD (API 35, inner 2076x2152, outer 1080x2424) and a resizable AVD (API 35), both created for this proof and deleted afterwards; debug APK (assembleDebug).",
+  "date": "2026-11-18",
+  "commit": "claude/onboarding-10b-android-race-preview-fix1: 854549b",
+  "session": "The debug dev route crewcue://dev/onboarding-race-preview plays the real replay and paywall on DemoRaceFixture with no API (a debug build; no dev session or token needed). ?at=<s>&paused=1 opened a fixed moment (at=10 is beat 2, 2 of 4, Finish ETA 12:54 PM, path 11 points); the & must be quoted in adb shell. ?state=empty|error|offline shows that checklist state on the real screen. Folds: `cmd device_state state 0|1|2` and `adb emu sensor set hinge-angle0`; tabletop: hinge-angle0 100 with `wm user-rotation lock 1`; the expanded window was `wm size 2560x1600` + `wm density 280` on the resizable AVD, reset afterwards. Offline: `svc wifi disable` and `svc data disable`, re-enabled afterwards. Not run: the replay built from a real saved race room through the onboarding gate against the API (the dev route uses the fixture); that path is covered by RacePreviewViewModelTest only.",
+  "action": "Phone, played in full: 1 of 4 (Last ping 3 min ago, Next aid Finish 12:50 PM), 2 of 4 (Finish ETA 1:02 PM, up from 12:50), 3 of 4 (Last ping 17 then 18 min ago), 4 of 4 (crew message 'Saw your pings come back in. We'll be ready at the next aid.' in Chat), then the paywall at about 25 s. Skip at about 4 s opened the paywall; Back replayed from 1 of 4; at the end the paywall showed; Not now landed on the app shell (Map tab).",
+  "checked": {
+    "Success": "Phone: caption '1 of 4' to '4 of 4', Map/Pace/Chat strip, Last ping 3 min ago / 17-18 min ago, finish ETA 12:50 PM then 1:02 PM, chat message arrived with no message field. Paywall: 'You + 1 crew' (Race Pass $14.99) and 'Your whole crew' (Race Pass + Full Crew $19.99), Back, Not now. Purchase buttons are shown dimmed on the dev route (no race to buy for); not tapped.",
+    "Empty": "?state=empty: 'Add your course to see the replay on your own route.' with Skip; Skip opened the paywall.",
+    "Error": "?state=error: 'Couldn't play the replay. Skip to unlock your race.' with Skip.",
+    "Offline": "?state=offline with wifi and data off (svc wifi/data disable): 'Offline. The replay plays from the race saved on this phone.' with Skip. The plain dev link with the network off still played the whole fixture replay, as it uses local data only.",
+    "Accessibility labels": "crewcue.onboarding-race-preview, .play-pause, .skip, .caption, .beat, .panel(.map/.pace/.chat), .status, crewcue.onboarding-paywall, .back, .runner-plus-one(.buy), .full-crew(.buy), .not-now, .pane.main, .pane.options, crewcue.map, crewcue.runner-track.",
+    "Skip, end, Not now, Back": "Skip at 4 s opened the paywall. Back from the paywall replayed from 1 of 4. Played to the end, the paywall opened. Not now opened the app shell.",
+    "Compact layout": "Phone 1080x2400: one pane following the beats (Map, then Pace at 2 of 4, Map, Chat at 4 of 4); the strip picks another.",
+    "Fold and unfold": "pixel_9_pro_fold unfolded (2076x2152): Map pane beside the Pace pane, caption and controls over the Map pane. Paused at 2 of 4 (Finish ETA 12:54 PM, path 11 points): folded to the outer display gave one pane (Pace) at the same 2 of 4 and 12:54 PM; unfolded again, same moment, same 11 points. Folded and playing: the replay continued from 2 of 4 to 3 of 4 (Last ping 11 min ago) to 4 of 4 (crew message) and ended on the paywall; unfolding on the paywall kept the paywall.",
+    "Paywall hinge": "Half-open (hinge-angle0 100, HALF_OPENED, vertical hinge at x 1038): the paywall split into pane.main (Back, title, pitch) and pane.options (the two options and Not now) either side of the hinge, nothing under it. The same two panes showed at hinge angle 180 on this AVD, which reports the hinge feature when flat.",
+    "Tabletop": "Hinge 100 with the display rotated (2152x2076): paywall copy on the top half, the two options and Not now on the bottom half, only pane.main. Replay (?at=10&paused=1): the Pace content on the top half and the controls and caption on the bottom half, same 2 of 4 and 12:54 PM.",
+    "Expanded window": "resizable AVD: phone 1080x2400 paused at 2 of 4, resized to 2560x1600 (wm size, density 280): same 2 of 4, Last ping, path 11 points and Finish ETA 12:54 PM, Map beside Pace; back to 1080x2400: same moment. Playing at 2560x1600 reached 3 of 4 (Last ping 18 min ago caption, Map beside Pace) and the paywall in two panes."
+  },
+  "screenshots": "Saved under .agent-pr-evidence/pr10b, not committed."
+}

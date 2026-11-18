@@ -33,6 +33,48 @@ private func ok(_ root: [String: Any]) -> Bool {
     (root["ok"] as? Bool) == true
 }
 
+/// The runner's room and its unpaid schedule, whose finish row carries the 15 minutes of planned
+/// stops the estimate's own finish (20:00) leaves out. `offline` makes every request fail the way
+/// a phone with no network does.
+private final class PlanServer: HTTPTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOffline = false
+    private var planFrom = "est-1"
+    private var seen: [String] = []
+
+    var offline: Bool {
+        get { lock.withLock { isOffline } }
+        set { lock.withLock { isOffline = newValue } }
+    }
+
+    var paths: [String] { lock.withLock { seen } }
+
+    /// The estimate the sheet was planned from; another than the room's leaves no finish row.
+    func planned(from estimateId: String) {
+        lock.withLock { planFrom = estimateId }
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let (offline, estimateId) = lock.withLock { () -> (Bool, String) in
+            seen.append(request.url.path)
+            return (isOffline, planFrom)
+        }
+        if offline { throw URLError(.notConnectedToInternet) }
+        switch request.url.path {
+        case "/race-rooms/room-1":
+            return HTTPResponse(status: 200, body: try demoRoomData())
+        case "/race-rooms/room-1/schedule":
+            let stops = #"[{"id":"s0","checkpointId":"start","clockArrivalAt":"2026-08-15T12:00:00.000Z","elapsedSeconds":0,"plannedStoppageSeconds":0},"#
+                + #"{"id":"s3","checkpointId":"finish","clockArrivalAt":"2026-08-15T20:15:00.000Z","elapsedSeconds":29700,"movingElapsedSeconds":28800,"plannedStoppageSeconds":0}]"#
+            let body = #"{"roomId":"room-1","raceStartAt":"2026-08-15T12:00:00.000Z","pacingEstimateId":""#
+                + estimateId + #"","stops":"# + stops + #","locked":{"checkpointIds":["aid-1","aid-2"]}}"#
+            return HTTPResponse(status: 200, body: Data(body.utf8))
+        default:
+            return HTTPResponse(status: 404, body: Data(#"{"error":"Race room not found"}"#.utf8))
+        }
+    }
+}
+
 /// Every file under `directory`, or none when it doesn't exist.
 private func files(under directory: URL) -> [String] {
     guard let walker = FileManager.default.enumerator(atPath: directory.path) else { return [] }
@@ -180,6 +222,164 @@ struct DemoRaceRuntimeTests {
         #expect(!ok(try await runtime([
             "op": "demoRaceCreate", "baseURL": "https://nobody.demo.invalid", "roomId": "room-1", "tempDir": freshDirectory().path
         ])))
+    }
+
+    @Test func demoRaceCreateOnTheFixtureNeedsNoAPI() async throws {
+        let created = try result(try await runtime(["op": "demoRaceCreate", "fixture": true, "tempDir": freshDirectory().path]))
+        #expect(created["roomId"] as? String == DemoRaceFixture.roomId)
+        #expect(created["viewerUserId"] as? String == DemoRaceFixture.runnerUserId)
+        #expect(created["durationSeconds"] as? Double == DemoRaceScript.durationSeconds)
+        #expect(created["stepSeconds"] as? Double == DemoRaceScript.stepSeconds)
+        #expect(created["finishEtaAt"] as? String == DemoRaceFixture.finishAt)
+        // Nothing was read from an API, so there is no body to save.
+        #expect(created["room"] == nil)
+        let base = try #require(created["baseURL"] as? String)
+        let request: [String: Any] = [
+            "baseURL": base, "userId": DemoRaceFixture.runnerUserId, "storageDir": freshDirectory().path, "roomId": DemoRaceFixture.roomId
+        ]
+        let latest = try result(try await runtime(request.merging(["op": "latestPing"]) { $1 }))
+        #expect(latest["latest"] != nil)
+        _ = try await runtime(request.merging(["op": "demoRaceSkip"]) { $1 })
+    }
+
+    @Test func demoRaceCreateHandsBackTheRoomBodyItReadForAnOfflineReplay() async throws {
+        let real = realBase()
+        RuntimeCall.setTransportForTests(PlanServer(), baseURL: real)
+        defer { RuntimeCall.setTransportForTests(nil, baseURL: real) }
+        let read = try result(try await runtime([
+            "op": "demoRaceCreate", "baseURL": real, "token": "t", "userId": "runner-1", "roomId": "room-1",
+            "storageDir": freshDirectory().path, "tempDir": freshDirectory().path
+        ]))
+        #expect(read["viewerUserId"] as? String == "runner-1")
+        let room = try #require(read["room"] as? [String: Any])
+        let body = try #require(room["room"] as? [String: Any])
+        #expect(body["id"] as? String == "room-1")
+        // The raw body: the course line the replay runs along is still there.
+        #expect(body["mapWorkspace"] != nil)
+        // Played from that saved body (no read), it is the same race, and nothing is handed back.
+        let saved = try result(try await runtime([
+            "op": "demoRaceCreate", "userId": "runner-1", "room": room, "tempDir": freshDirectory().path
+        ]))
+        #expect(saved["roomId"] as? String == "room-1")
+        #expect(saved["room"] == nil)
+        _ = try await runtime(["op": "demoRaceSkip", "baseURL": try #require(saved["baseURL"] as? String)])
+    }
+
+    @Test func demoRaceCreateStartsFromThePlansFinishOnlineAndOffline() async throws {
+        let real = realBase()
+        let server = PlanServer()
+        RuntimeCall.setTransportForTests(server, baseURL: real)
+        defer { RuntimeCall.setTransportForTests(nil, baseURL: real) }
+        let storage = freshDirectory().path
+        let common: [String: Any] = [
+            "op": "demoRaceCreate", "baseURL": real, "token": "t", "userId": "runner-1", "roomId": "room-1", "storageDir": storage
+        ]
+        // Without the flag: the estimate's own moving-time finish, as before.
+        let own = try result(try await runtime(common.merging(["tempDir": freshDirectory().path]) { $1 }))
+        #expect(own["finishEtaAt"] as? String == "2026-08-15T20:00:00.000Z")
+        #expect(!server.paths.contains("/race-rooms/room-1/schedule"))
+        // The plan's finish, planned stops included: what the teaser shows.
+        let planned = try result(try await runtime(common.merging(["tempDir": freshDirectory().path, "planFinish": true]) { $1 }))
+        #expect(planned["finishEtaAt"] as? String == "2026-08-15T20:15:00.000Z")
+        #expect(server.paths.contains("/race-rooms/room-1/schedule"))
+        // The replay's readouts start from it.
+        let base = try #require(planned["baseURL"] as? String)
+        let request: [String: Any] = ["baseURL": base, "userId": "runner-1", "storageDir": freshDirectory().path, "roomId": "room-1"]
+        let latest = try result(try await runtime(request.merging(["op": "latestPing"]) { $1 }))
+        let live = try result(try await runtime(request.merging(["op": "liveProjection"]) { $1 }))
+        let sheet = try result(try await runtime(request.merging([
+            "op": "projectAidSheet", "runner": try #require(latest["latest"]), "live": try #require(live["live"]), "checkpoints": [Any]()
+        ]) { $1 }))
+        #expect((sheet["readout"] as? [String: Any])?["finishEtaAt"] as? String == "2026-08-15T20:15:00.000Z")
+
+        // Offline, from the saved room body: the sheet the read above cached for the race.
+        server.offline = true
+        let room = demoRoomObject()
+        let offline = try result(try await runtime(common.merging([
+            "tempDir": freshDirectory().path, "planFinish": true, "room": room
+        ]) { $1 }))
+        #expect(offline["finishEtaAt"] as? String == "2026-08-15T20:15:00.000Z")
+        // Offline with nothing cached: the estimate's own finish.
+        let uncached = try result(try await runtime(common.merging([
+            "tempDir": freshDirectory().path, "planFinish": true, "room": room, "storageDir": freshDirectory().path
+        ]) { $1 }))
+        #expect(uncached["finishEtaAt"] as? String == "2026-08-15T20:00:00.000Z")
+
+        // A sheet planned from another estimate has no finish row for this plan.
+        server.offline = false
+        server.planned(from: "est-old")
+        let stale = try result(try await runtime(common.merging([
+            "tempDir": freshDirectory().path, "planFinish": true, "storageDir": freshDirectory().path
+        ]) { $1 }))
+        #expect(stale["finishEtaAt"] as? String == "2026-08-15T20:00:00.000Z")
+        // The teaser's finish, when the app has it, wins.
+        let teaser = try result(try await runtime(common.merging([
+            "tempDir": freshDirectory().path, "planFinish": true, "finishEtaAt": "2026-08-15T19:30:00.000Z"
+        ]) { $1 }))
+        #expect(teaser["finishEtaAt"] as? String == "2026-08-15T19:30:00.000Z")
+        _ = try await runtime(["op": "demoRaceSkip", "baseURL": try #require(teaser["baseURL"] as? String)])
+    }
+
+    @Test func demoRaceSeekMovesTheReplayToAMomentAndKeepsItsPause() async throws {
+        let created = try result(try await runtime([
+            "op": "demoRaceCreate", "userId": "runner-1", "room": demoRoomObject(), "tempDir": freshDirectory().path
+        ]))
+        let first = try #require(created["snapshot"] as? [String: Any])
+        #expect(first["beatLabel"] as? String == "1 of 4")
+        let base = try #require(created["baseURL"] as? String)
+        let seeked = try result(try await runtime(["op": "demoRaceSeek", "baseURL": base, "seconds": 12]))
+        #expect(seeked["stepIndex"] as? Int == 24)
+        #expect(seeked["beat"] as? String == DemoRaceBeat.fallingBehind.rawValue)
+        #expect(seeked["beatLabel"] as? String == "2 of 4")
+        #expect(seeked["caption"] as? String == OnboardingCopy.replayCaption(.fallingBehind))
+        #expect(seeked["playing"] as? Bool == false)
+        #expect(seeked["changed"] as? Bool == true)
+        #expect(seeked["progress"] as? Double == 12 / DemoRaceScript.durationSeconds)
+        // Never backwards; a request without seconds is refused.
+        let back = try result(try await runtime(["op": "demoRaceSeek", "baseURL": base, "seconds": 3]))
+        #expect(back["stepIndex"] as? Int == 24)
+        #expect(back["changed"] as? Bool == false)
+        let missing = try await runtime(["op": "demoRaceSeek", "baseURL": base])
+        #expect(!ok(missing))
+        #expect(missing["message"] as? String == "seconds is required.")
+        _ = try await runtime(["op": "demoRaceSkip", "baseURL": base])
+        let ended = try await runtime(["op": "demoRaceSeek", "baseURL": base, "seconds": 20])
+        #expect(!ok(ended))
+        #expect(ended["message"] as? String == DemoRaceError.ended.message)
+    }
+
+    @Test func aReplayThatCantStartSaysWhichChecklistStateItShows() async throws {
+        // No course to run on: Empty.
+        var object = demoRoomObject()
+        var room = try #require(object["room"] as? [String: Any])
+        room["course"] = ["checkpoints": [["id": "start", "title": "Start", "latitude": 39.2, "longitude": -120.2, "distanceMetersFromStart": 0]]]
+        room["mapWorkspace"] = nil
+        object["room"] = room
+        let empty = try await runtime(["op": "demoRaceCreate", "userId": "runner-1", "room": object, "tempDir": freshDirectory().path])
+        #expect(!ok(empty))
+        #expect(empty["state"] as? String == FeatureState.empty.rawValue)
+        // No network: Offline.
+        let real = realBase()
+        let server = PlanServer()
+        server.offline = true
+        RuntimeCall.setTransportForTests(server, baseURL: real)
+        defer { RuntimeCall.setTransportForTests(nil, baseURL: real) }
+        let offline = try await runtime([
+            "op": "demoRaceCreate", "baseURL": real, "token": "t", "userId": "runner-1", "roomId": "room-1", "tempDir": freshDirectory().path
+        ])
+        #expect(offline["state"] as? String == FeatureState.offline.rawValue)
+        #expect(offline["offline"] as? Bool == true)
+        // A room that won't read: Error.
+        server.offline = false
+        let missing = try await runtime([
+            "op": "demoRaceCreate", "baseURL": real, "token": "t", "userId": "runner-1", "roomId": "room-9", "tempDir": freshDirectory().path
+        ])
+        #expect(missing["state"] as? String == FeatureState.error.rawValue)
+        #expect(missing["status"] as? Int == 404)
+        // Only a create says so: other failures carry no state.
+        let tick = try await runtime(["op": "demoRaceTick", "baseURL": "https://nobody.demo.invalid"])
+        #expect(!ok(tick))
+        #expect(tick["state"] == nil)
     }
 
     @Test func demoRuntimeCreateNeedsATempDirAndAValidFinish() async throws {

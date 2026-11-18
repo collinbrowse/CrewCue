@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,6 +87,27 @@ fun MapScreen(
         key = "map-$roomId-$role",
         factory = MapViewModelFactory(shell.container.raceDay, roomId, role)
     )
+    MapContent(model, roomId, focus, modifier, bottomInset = bottomInset, onLocked = onLocked)
+}
+
+/**
+ * The Map on a given [model]: the shell's race, or (a [MapViewModel.readOnly] model) the
+ * onboarding replay's, which shows the course, the runner's path and the aid sheet with no map
+ * tools, no tracking and nothing sent. [underTopBar]: the shell's floating top bar is above the
+ * map, so the chips start below it; the replay draws the map in its own pane instead, framing
+ * the course with [framing].
+ */
+@Composable
+fun MapContent(
+    model: MapViewModel,
+    roomId: String,
+    focus: String,
+    modifier: Modifier = Modifier,
+    bottomInset: Dp = 16.dp,
+    onLocked: (() -> Unit)? = null,
+    underTopBar: Boolean = true,
+    framing: CourseFraming = CourseFraming.Screen
+) {
     LaunchedEffect(roomId) { model.load() }
     // Back from the lock screen or another app: read the runner now, not at the next tick.
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -101,13 +122,14 @@ fun MapScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
     // A saved tracking session resumes when the app opens again (the service may have been killed).
+    // The replay never tracks.
     val context = LocalContext.current
     LaunchedEffect(model.trackingActive) {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
-        if (model.trackingActive && granted) RaceTrackingService.start(context)
+        if (model.trackingActive && granted && !model.readOnly) RaceTrackingService.start(context)
     }
-    var tool by remember(focus) { mutableStateOf(mapTool(focus)) }
+    var tool by remember(focus) { mutableStateOf(if (model.readOnly) "none" else mapTool(focus)) }
     val rootTag = when (focus) {
         "map-checkpoint-pick" -> "crewcue.map-checkpoint-pick"
         "map-navigate" -> "crewcue.map-navigate"
@@ -137,9 +159,10 @@ fun MapScreen(
                 onStyleFailed = model::onStyleFailed,
                 onTilesUnavailable = model::onTilesUnavailable,
                 recenterRequest = model.recenterRequest,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                framing = framing
             )
-            MapOverlay(model, onTool = { tool = it }, modifier = Modifier.align(Alignment.TopStart))
+            MapOverlay(model, onTool = { tool = it }, underTopBar = underTopBar, modifier = Modifier.align(Alignment.TopStart))
         }
         MapSheet(
             model = model,
@@ -156,15 +179,15 @@ fun MapScreen(
     }
 }
 
-/** Status chips and the round map controls under the shell top bar. */
+/** Status chips and the round map controls under the shell top bar (or the replay pane's top). */
 @Composable
-private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, underTopBar: Boolean, modifier: Modifier = Modifier) {
     var menu by remember { mutableStateOf(false) }
     Row(
         modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(top = 76.dp, start = 16.dp, end = 16.dp),
+            .then(if (underTopBar) Modifier.statusBarsPadding().padding(top = 76.dp) else Modifier.padding(top = 12.dp))
+            .padding(start = 16.dp, end = 16.dp),
         verticalAlignment = Alignment.Top
     ) {
         val readout = model.readout
@@ -184,7 +207,8 @@ private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, modifier: 
                     .semantics { contentDescription = if (count == 0) "No runner path yet" else "Runner path, $count points" }
             )
             CircleIconButton(Icons.Outlined.MyLocation, "Fit course", onClick = model::recenter)
-            Box {
+            // Placing checkpoints, routes and tracking all write: not in the replay.
+            if (!model.readOnly) Box {
                 CircleIconButton(Icons.Outlined.Layers, "Map tools", onClick = { menu = true })
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     listOf(
@@ -342,7 +366,10 @@ private fun mapTool(focus: String): String = when (focus) {
 @Composable
 private fun AidPager(model: MapViewModel) {
     val pages = model.aidPages
-    val pagerState = rememberPagerState(initialPage = model.aidIndex.coerceAtLeast(0)) { pages.size }
+    // The page comes from the model, which outlives a fold, a resize or the replay switching
+    // views. A saved pager page would come back stale after a recreation, and the report below
+    // would take it for a swipe: the sheet would stop following the next aid station.
+    val pagerState = remember(model) { PagerState(currentPage = model.aidIndex.coerceAtLeast(0)) { model.aidPages.size } }
     LaunchedEffect(model.aidIndex, pages.size) {
         if (pages.isEmpty()) return@LaunchedEffect
         val target = model.aidIndex.coerceIn(0, pages.lastIndex)
@@ -419,7 +446,8 @@ private fun CourseMapHost(
     onStyleFailed: () -> Unit,
     onTilesUnavailable: () -> Unit,
     recenterRequest: Int,
-    modifier: Modifier
+    modifier: Modifier,
+    framing: CourseFraming = CourseFraming.Screen
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
@@ -436,7 +464,7 @@ private fun CourseMapHost(
                 { settled = true; onStyleFailed() },
                 { settled = true; onTilesUnavailable() },
                 recenterRequest,
-                CourseFraming.Screen
+                framing
             )
             if (!settled) {
                 CairnLoader(

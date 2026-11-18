@@ -43,15 +43,23 @@ final class DemoRuntimes: @unchecked Sendable {
 }
 
 /// Ops: `demoRaceCreate` (`room`: a `GET /race-rooms/:roomId` body, or `roomId` to read it with
-/// the request's real `baseURL` and token; `tempDir`, required: the directory the replay's own
-/// directory goes in, Android `context.cacheDir`, since the runtime's default temporary directory
-/// is not writable there; `finishEtaAt?`: the finish ETA the teaser showed, ISO 8601, so the replay
-/// starts from the same time) answers the replay's `baseURL`. Creating a replay retires any earlier
-/// one (a recreated screen never leaves the old one live). `demoRacePlay`, `demoRacePause`,
-/// `demoRaceTick` and `demoRaceSkip` take that `baseURL` and answer a snapshot. Finishing or
-/// skipping deletes the directory and retires the base URL: later calls on it fail and never fall
-/// back to the network. `demoRaceCleanup` (`tempDir`) at app start removes directories an app kill
-/// left behind.
+/// the request's real `baseURL` and token, or `fixture: true` for `DemoRaceFixture` with no API;
+/// `tempDir`, required: the directory the replay's own directory goes in, Android
+/// `context.cacheDir`, since the runtime's default temporary directory is not writable there;
+/// `finishEtaAt?`: the finish ETA the teaser showed, ISO 8601, so the replay starts from the same
+/// time; `planFinish?: true` without one: start from the plan's finish the teaser shows, the
+/// schedule's finish row (`PlanFinish`, planned stops included), read with the request's real
+/// `baseURL`, or offline from the sheet cached for the race, instead of the estimate's own
+/// moving-time finish) answers the replay's `baseURL`, `viewerUserId` (the `userId` to send on the
+/// replay's ops), `durationSeconds`, `stepSeconds` and, when it read the room itself, `room`, the
+/// body as the server sent it, for the app to save for an offline replay. A replay that can't
+/// start fails with `state`, its checklist state (`DemoRace.unavailableState`). Creating a replay
+/// retires any earlier one (a recreated screen never leaves the old one live). `demoRacePlay`,
+/// `demoRacePause`, `demoRaceTick`, `demoRaceSkip` and `demoRaceSeek` (`seconds`: wall time
+/// played, `DemoRacePlayer.seek`) take that `baseURL` and answer a snapshot. Finishing or skipping
+/// deletes the directory and retires the base URL: later calls on it fail and never fall back to
+/// the network. `demoRaceCleanup` (`tempDir`) at app start removes directories an app kill left
+/// behind.
 extension RuntimeCall {
     static func demoRace(_ object: [String: Any]) -> DemoRaceSession? {
         guard let url = demoURL(object) else { return nil }
@@ -75,8 +83,13 @@ extension RuntimeCall {
             }
             finishEtaAt = parsed
         }
+        let fixture = boolValue(object["fixture"]) == true
         let roomData: Data
-        if let room = object["room"] as? [String: Any] {
+        /// The body read from the API here, handed back for the app to save.
+        var readRoom: Any?
+        if fixture {
+            roomData = DemoRaceFixture.roomData
+        } else if let room = object["room"] as? [String: Any] {
             roomData = try JSONSerialization.data(withJSONObject: room)
         } else {
             guard demoURL(object) == nil else { throw DemoRaceError.invalidRoom }
@@ -84,10 +97,15 @@ extension RuntimeCall {
                 throw ClientHTTPError(status: 400, message: "room or roomId is required.")
             }
             roomData = try await RaceDayAPI.sendData(try graph(object), "/race-rooms/\(roomId)", method: .get, body: nil)
+            readRoom = try? JSONSerialization.jsonObject(with: roomData)
         }
+        if finishEtaAt == nil, !fixture, boolValue(object["planFinish"]) == true {
+            finishEtaAt = await demoPlanFinish(object, roomData: roomData)
+        }
+        let viewer = fixture ? DemoRaceFixture.runnerUserId : text(object, "userId") ?? ""
         let session = try DemoRace.session(
             roomData: roomData,
-            viewerUserId: text(object, "userId") ?? "",
+            viewerUserId: viewer,
             finishEtaAt: finishEtaAt,
             logger: SilentRuntimeLogger(),
             temporaryRoot: URL(fileURLWithPath: tempDir, isDirectory: true)
@@ -103,15 +121,41 @@ extension RuntimeCall {
         }
         DemoRuntimes.shared.insert(session)
         let course = session.player.script.course
-        return [
+        var result: [String: Any] = [
             "baseURL": baseURL.absoluteString,
             "roomId": session.roomId,
+            "viewerUserId": viewer,
             "durationSeconds": DemoRaceScript.durationSeconds,
+            "stepSeconds": DemoRaceScript.stepSeconds,
             // The plan finish the replay starts from, before beat 2 moves it.
             "finishEtaAt": RaceDayReadouts.iso8601(course.raceStart.addingTimeInterval(course.plannedFinishSeconds)),
             "beats": DemoRaceBeat.allCases.map { ["beat": $0.rawValue, "number": $0.number, "caption": $0.caption] },
             "snapshot": demoSnapshotJSON(session.player.snapshot)
-        ] as [String: Any]
+        ]
+        if let readRoom {
+            result["room"] = readRoom
+        }
+        return result
+    }
+
+    /// The finish the teaser shows for the race in `roomData`: the schedule's finish row for the
+    /// room's plan of record (`PlanFinish.scheduled`), read with the request's real graph (offline,
+    /// the sheet cached for the race). Nil when the room has no plan, the read fails or the sheet
+    /// has no finish row: the replay then starts from the estimate's own finish.
+    static func demoPlanFinish(_ object: [String: Any], roomData: Data) async -> Date? {
+        guard demoURL(object) == nil,
+              let root = try? JSONSerialization.jsonObject(with: roomData) as? [String: Any] else { return nil }
+        let room = root["room"] as? [String: Any] ?? root
+        guard let roomId = room["id"] as? String, !roomId.isEmpty,
+              let plan = room["pacingEstimate"] as? [String: Any],
+              let planData = try? JSONSerialization.data(withJSONObject: plan),
+              let estimate = try? JSONDecoder().decode(PacingEstimate.self, from: planData),
+              let graph = try? graph(object) else { return nil }
+        let cache = userDirectory(object).map { RoomStorage.directory(userDirectory: $0, roomId: roomId) }
+        guard let row = await PlanFinish.scheduled(graph: graph, roomId: roomId, for: estimate, cacheDirectory: cache) else {
+            return nil
+        }
+        return ScheduleFormat.parseISO8601(row.clockArrivalAt)
     }
 
     static func demoRaceCleanup(_ object: [String: Any]) throws -> Any {
@@ -142,6 +186,16 @@ extension RuntimeCall {
         return demoSnapshotJSON(snapshot)
     }
 
+    /// Moves the replay forward to `seconds` of wall time played (a dev route's `?at=`, or the
+    /// moment a screen restored after process death had reached); play or pause stays.
+    static func demoRaceSeek(_ object: [String: Any]) throws -> Any {
+        guard let session = demoRace(object) else { throw DemoRaceError.ended }
+        guard let seconds = doubleValue(object["seconds"]), seconds.isFinite else {
+            throw ClientHTTPError(status: 400, message: "seconds is required.")
+        }
+        return demoSnapshotJSON(session.player.seek(toWallSeconds: seconds))
+    }
+
     static func demoChatPrefix(_ baseURL: URL) -> String {
         "demo|\(baseURL.host?.lowercased() ?? "")|"
     }
@@ -151,6 +205,8 @@ extension RuntimeCall {
             "progress": snapshot.progress,
             "beat": snapshot.beat.rawValue,
             "beatNumber": snapshot.beat.number,
+            // "2 of 4", shared copy.
+            "beatLabel": OnboardingCopy.replayBeatCount(snapshot.beat),
             "caption": snapshot.caption,
             "stepIndex": snapshot.stepIndex,
             "nowMs": (snapshot.now.timeIntervalSince1970 * 1000).rounded(),

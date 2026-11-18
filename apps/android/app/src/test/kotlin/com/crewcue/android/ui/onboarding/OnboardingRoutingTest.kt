@@ -49,48 +49,87 @@ class OnboardingRoutingTest {
     fun whileTheRaceListLoadsAStoredRaceKeepsTheShellAndANewUserSeesTheLoader() {
         assertEquals(
             OnboardingDestination.Onboarding,
-            OnboardingRouting.destination(loading, previous = chooser, signedIn = true, hasActiveRoom = false)
+            OnboardingRouting.destination(loading, signedIn = true, hasActiveRoom = false)
         )
         assertEquals(
-            OnboardingDestination.Shell(),
-            OnboardingRouting.destination(loadingWithRace, previous = null, signedIn = true, hasActiveRoom = true)
+            OnboardingDestination.Shell,
+            OnboardingRouting.destination(loadingWithRace, signedIn = true, hasActiveRoom = true)
         )
         // A stale tab-bar flag without a stored race still waits on the loader.
         assertEquals(
             OnboardingDestination.Onboarding,
-            OnboardingRouting.destination(loadingWithRace, previous = null, signedIn = true, hasActiveRoom = false)
+            OnboardingRouting.destination(loadingWithRace, signedIn = true, hasActiveRoom = false)
         )
     }
 
     @Test
     fun theChooserAndRunnerSetupShowTheOnboardingRouteAndCrewGoesToTheJoinScreen() {
-        assertEquals(OnboardingDestination.Onboarding, OnboardingRouting.destination(chooser, null, signedIn = false, hasActiveRoom = false))
-        assertEquals(OnboardingDestination.Onboarding, OnboardingRouting.destination(setup, chooser, signedIn = true, hasActiveRoom = true))
-        assertEquals(OnboardingDestination.JoinCrew, OnboardingRouting.destination(crewJoin, chooser, signedIn = true, hasActiveRoom = false))
+        assertEquals(OnboardingDestination.Onboarding, OnboardingRouting.destination(chooser, signedIn = false, hasActiveRoom = false))
+        assertEquals(OnboardingDestination.Onboarding, OnboardingRouting.destination(setup, signedIn = true, hasActiveRoom = true))
+        assertEquals(OnboardingDestination.JoinCrew, OnboardingRouting.destination(crewJoin, signedIn = true, hasActiveRoom = false))
     }
 
     @Test
-    fun theTeaserLeadsToThePaywallButARelaunchInThePaywallPhaseOpensTheShell() {
+    fun theTeaserLeadsToTheReplayUntilNotNowOrAPurchaseMarksIt() {
+        // The preview step: the replay and its paywall, after the teaser and after a relaunch.
+        assertTrue(preview.isRacePreviewStep)
+        assertEquals(OnboardingDestination.RacePreview, OnboardingRouting.destination(preview, signedIn = true, hasActiveRoom = true))
+        assertEquals(OnboardingDestination.RacePreview, OnboardingRouting.destination(preview, signedIn = true, hasActiveRoom = false))
+        // Marked (Not now, still unpaid): the paywall step is the tab bar behind Unlock race.
+        val unpaid = preview.copy(step = "paywall")
+        assertFalse(unpaid.isRacePreviewStep)
+        assertEquals(OnboardingDestination.Shell, OnboardingRouting.destination(unpaid, signedIn = true, hasActiveRoom = true))
+        // Paid: past phase 2.
+        assertEquals(OnboardingDestination.Shell, OnboardingRouting.destination(done, signedIn = true, hasActiveRoom = true))
+    }
+
+    @Test
+    fun theRacePreviewRoutePlaysTheRunnersRaceOrTheDevLinksFixture() {
         assertEquals(
-            OnboardingDestination.Shell(openPaywall = true),
-            OnboardingRouting.destination(preview, previous = setup, signedIn = true, hasActiveRoom = true)
+            RacePreviewSource.Race("ada", "r1"),
+            OnboardingRouting.racePreviewSource(false, "success", null, userId = "ada", flow = preview, activeRoomId = "r9")
+        )
+        // No flow on the step yet: the session's race.
+        assertEquals(
+            RacePreviewSource.Race("ada", "r9"),
+            OnboardingRouting.racePreviewSource(false, "success", null, userId = "ada", flow = null, activeRoomId = "r9")
+        )
+        // Signed out, or no race: nothing to play yet.
+        assertNull(OnboardingRouting.racePreviewSource(false, "success", null, userId = null, flow = preview, activeRoomId = "r1"))
+        assertNull(OnboardingRouting.racePreviewSource(false, "success", null, userId = "ada", flow = null, activeRoomId = null))
+        // The dev link plays the fixture, its state and moment, signed in or out.
+        val start = RacePreviewDevStart(4.0, paused = true)
+        assertEquals(
+            RacePreviewSource.Fixture("empty", start),
+            OnboardingRouting.racePreviewSource(true, "empty", start, userId = null, flow = null, activeRoomId = null)
         )
         assertEquals(
-            OnboardingDestination.Shell(openPaywall = false),
-            OnboardingRouting.destination(preview, previous = null, signedIn = true, hasActiveRoom = true)
+            RacePreviewSource.Fixture("success", null),
+            OnboardingRouting.racePreviewSource(true, "success", null, userId = "ada", flow = preview, activeRoomId = "r1")
         )
-        assertEquals(
-            OnboardingDestination.Shell(openPaywall = false),
-            OnboardingRouting.destination(preview, previous = preview, signedIn = true, hasActiveRoom = true)
-        )
+    }
+
+    @Test
+    fun theRoomSavedForAnOfflineReplayFollowsTheState() {
+        assertEquals(ReplayRoomUpdate.KeepOnly("ada", "r1"), OnboardingRouting.replayRoomUpdate(preview, "ada", "r9"))
+        assertEquals(ReplayRoomUpdate.KeepOnly("ada", "r9"), OnboardingRouting.replayRoomUpdate(preview.copy(roomId = null), "ada", "r9"))
+        // Past the step some other way: paid elsewhere, the paywall step, another state.
+        assertEquals(ReplayRoomUpdate.Clear, OnboardingRouting.replayRoomUpdate(done, "ada", "r1"))
+        assertEquals(ReplayRoomUpdate.Clear, OnboardingRouting.replayRoomUpdate(preview.copy(step = "paywall"), "ada", "r1"))
+        assertEquals(ReplayRoomUpdate.Clear, OnboardingRouting.replayRoomUpdate(chooser, "ada", null))
+        // Nothing decided: no answer, the race list loading, still in setup, or signed out.
+        assertEquals(ReplayRoomUpdate.Keep, OnboardingRouting.replayRoomUpdate(null, "ada", "r1"))
+        assertEquals(ReplayRoomUpdate.Keep, OnboardingRouting.replayRoomUpdate(loadingWithRace, "ada", "r1"))
+        assertEquals(ReplayRoomUpdate.Keep, OnboardingRouting.replayRoomUpdate(setup, "ada", "r1"))
+        assertEquals(ReplayRoomUpdate.Keep, OnboardingRouting.replayRoomUpdate(done, null, "r1"))
     }
 
     @Test
     fun raceLockedAndDoneShowTheShellAndNoStateFallsBackByTheSession() {
-        assertEquals(OnboardingDestination.Shell(), OnboardingRouting.destination(locked, null, signedIn = true, hasActiveRoom = true))
-        assertEquals(OnboardingDestination.Shell(), OnboardingRouting.destination(done, setup, signedIn = true, hasActiveRoom = true))
-        assertEquals(OnboardingDestination.Shell(), OnboardingRouting.destination(null, null, signedIn = true, hasActiveRoom = false))
-        assertEquals(OnboardingDestination.SignedOut, OnboardingRouting.destination(null, null, signedIn = false, hasActiveRoom = false))
+        assertEquals(OnboardingDestination.Shell, OnboardingRouting.destination(locked, signedIn = true, hasActiveRoom = true))
+        assertEquals(OnboardingDestination.Shell, OnboardingRouting.destination(done, signedIn = true, hasActiveRoom = true))
+        assertEquals(OnboardingDestination.Shell, OnboardingRouting.destination(null, signedIn = true, hasActiveRoom = false))
+        assertEquals(OnboardingDestination.SignedOut, OnboardingRouting.destination(null, signedIn = false, hasActiveRoom = false))
     }
 
     @Test
@@ -105,6 +144,10 @@ class OnboardingRoutingTest {
         assertFalse(OnboardingRouting.ownsScreen(false, stateOverlay = true, featureId = SETUP_FEATURE, joinOpenedByOnboarding = false))
         // The dev link to the setup route stays on it; a background state read doesn't bounce it.
         assertFalse(OnboardingRouting.ownsScreen(false, false, SETUP_FEATURE, false, setupOpenedByLink = true))
+        // The replay onboarding opened is onboarding's; the dev route's fixture replay isn't.
+        assertTrue(OnboardingRouting.ownsScreen(false, false, RACE_PREVIEW_FEATURE, false))
+        assertFalse(OnboardingRouting.ownsScreen(false, false, RACE_PREVIEW_FEATURE, false, racePreviewOpenedByLink = true))
+        assertFalse(OnboardingRouting.ownsScreen(false, stateOverlay = true, featureId = RACE_PREVIEW_FEATURE, joinOpenedByOnboarding = false))
     }
 
     // client-core decides the access (RaceAccessTests.swift); these cover only the pane it draws.
@@ -192,40 +235,19 @@ class OnboardingRoutingTest {
     }
 
     @Test
-    fun backOnThePaywallAfterTheTeaserReturnsToTheTeaserUntilTheRunnerIsPastOnboarding() {
-        assertTrue(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = preview))
-        // Opened from the banner or a gated action: Back is the system's.
-        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = false, flow = preview))
-        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = false, afterTeaser = true, flow = preview))
-        // Past onboarding (paid, or the tours): no teaser to go back to.
-        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = done))
-        assertFalse(OnboardingRouting.paywallBackToTeaser(paywallOpen = true, afterTeaser = true, flow = null))
-    }
-
-    @Test
-    fun theTeaserAgainIsTheSetupsLastStepSoItsContinueOpensThePaywallAgain() {
-        val again = OnboardingRouting.setupFlow(preview, teaserAgain = true)!!
-        assertTrue(again.isRunnerSetup)
-        assertEquals(SetupSteps.TEASER, again.step)
-        assertEquals("r1", again.roomId)
-        assertFalse(again.showsTabBar)
-        assertEquals(OnboardingContent.RunnerSetup, OnboardingRouting.content(again))
-        // Marking it answers phase 2 again: the paywall follows, as after the first teaser.
-        assertEquals(
-            OnboardingDestination.Shell(openPaywall = true),
-            OnboardingRouting.destination(preview, previous = again, signedIn = true, hasActiveRoom = true)
-        )
-        // Only phase 2 goes back: any other state draws as it is.
-        assertEquals(preview, OnboardingRouting.setupFlow(preview, teaserAgain = false))
-        assertEquals(done, OnboardingRouting.setupFlow(done, teaserAgain = true))
-        assertNull(OnboardingRouting.setupFlow(null, teaserAgain = true))
-    }
-
-    @Test
     fun theStateGoesBackToClientCoreAsReadOnboardingAnsweredIt() {
         val json = locked.toJson()
         assertEquals(locked, OnboardingFlow.from(json))
         assertEquals("raceLocked", json.getString("flow"))
         assertTrue(json.isNull("phase"))
+    }
+
+    @Test
+    fun onlyAnotherScreenLeavesTheRacePreviewFlow() {
+        // A dev link's state or the route again keeps the flow's one model, which starts over itself.
+        assertFalse(OnboardingRouting.leavesRacePreview(RACE_PREVIEW_FEATURE))
+        assertTrue(OnboardingRouting.leavesRacePreview(SETUP_FEATURE))
+        assertTrue(OnboardingRouting.leavesRacePreview("auth-sign-in"))
+        assertTrue(OnboardingRouting.leavesRacePreview(null))
     }
 }
