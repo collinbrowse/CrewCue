@@ -82,17 +82,20 @@ struct RunnerSetupView: View {
         }
     }
 
-    /// The step form, and on a compact width the preview under it.
+    /// The step form, and on a compact width the preview under it. Each row pads itself, so the
+    /// rows below a camera column (iPhone Duo's outer display) can run to the display's edge
+    /// while Back and the rows beside the column stay clear of it.
     private var formPane: some View {
-        ScrollView {
+        OcclusionScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.margin) {
                 form
                 if !splitsPreview {
                     preview
+                        .padding(.horizontal, CrewSpace.margin)
+                        .fullWidthClearOfOcclusions()
                         .transition(.opacity)
                 }
             }
-            .padding(.horizontal, CrewSpace.margin)
             .padding(.vertical, CrewSpace.margin)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .avoidsReservedRegions()
@@ -123,8 +126,11 @@ struct RunnerSetupView: View {
                     .font(CrewFont.bodyLarge)
                     .foregroundStyle(theme.primary)
                     .accessibilityIdentifier("crewcue.onboarding.back")
+                    .padding(.horizontal, CrewSpace.margin)
             }
             StepHeader(step: model.step, index: model.stepIndex, count: model.stepCount)
+                .padding(.horizontal, CrewSpace.margin)
+                .fullWidthClearOfOcclusions()
             Group {
                 switch model.step {
                 case .account: AccountStep(model: model)
@@ -136,12 +142,16 @@ struct RunnerSetupView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("crewcue.onboarding.step.\(model.step.rawValue)")
+            .padding(.horizontal, CrewSpace.margin)
+            .fullWidthClearOfOcclusions()
             if let failure = model.shownFailure {
                 Text(failure.message)
                     .font(CrewFont.body)
                     .foregroundStyle(failure == .offline ? theme.body : theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.error")
+                    .padding(.horizontal, CrewSpace.margin)
+                    .fullWidthClearOfOcclusions()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

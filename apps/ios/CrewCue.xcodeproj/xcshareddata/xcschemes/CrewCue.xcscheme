@@ -33,6 +33,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A10000000000000000000073"
+               BuildableName = "CrewCueTests.xctest"
+               BlueprintName = "CrewCueTests"
+               ReferencedContainer = "container:CrewCue.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "A10000000000000000000051"
                BuildableName = "CrewCueUITests.xctest"
                BlueprintName = "CrewCueUITests"
