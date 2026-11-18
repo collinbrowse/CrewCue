@@ -232,9 +232,9 @@ Created in [services/api/db/migrations/0001_ws1_room_invite_json.sql](../../../s
 
 Primary key: `id`.
 
-Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`.
+Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`, `race_rooms_json_unpaid_race_start_at`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_athlete_pings`
 
@@ -369,3 +369,17 @@ Created in [services/api/db/migrations/0020_tracking_reminders_sent.sql](../../.
 Primary key: `room_id, slot, race_start_at`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/trackingReminderScheduler.ts](../../../services/api/src/lib/trackingReminderScheduler.ts).
+
+## `unpaid_reminders_sent`
+
+Created in [services/api/db/migrations/0022_unpaid_reminders_sent.sql](../../../services/api/db/migrations/0022_unpaid_reminders_sent.sql).
+
+| Column | Type |
+| --- | --- |
+| `room_id` | TEXT NOT NULL REFERENCES race_rooms_json (id) ON DELETE CASCADE |
+| `slot` | TEXT NOT NULL CHECK (slot IN ('expiry_7d', 'expiry_1d', 'race_soon')) |
+| `claimed_at` | TIMESTAMPTZ NOT NULL |
+
+Primary key: `room_id, slot`.
+
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts).

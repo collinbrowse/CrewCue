@@ -2,8 +2,8 @@
  * The full delete of one race room, shared by account deletion (#560) and the unpaid race sweeper
  * (lib/unpaidRaceExpiryScheduler.ts), so both remove the same things: the room row and cache,
  * invites, task board, WS2 runtime (ping state, projection, track), WS4/WS5 state, schedule and
- * stop plans (on the room document), tracking reminder claims, the room's event log, crew chat
- * (messages, photos, prefs), the finished effort and the course-history record.
+ * stop plans (on the room document), tracking and unpaid-race reminder claims, the room's event
+ * log, crew chat (messages, photos, prefs), the finished effort and the course-history record.
  *
  * Every step is idempotent, so a repeat, or two deleters at once, end in the same state.
  */
@@ -19,9 +19,19 @@ import { deleteFinishedEffortForRoom } from "./finishedEffortStore.js";
 import { forgetPlatformEventsForRoom } from "./platformEventLog.js";
 import { deleteRoomRemovalsForRoom } from "./roomRemovalStore.js";
 
+export type RaceRoomDeletionOptions = {
+  /**
+   * Throw when the chat photo store deleted fewer photos than it was given (a 403 or 5xx from the
+   * bucket counts as not deleted). The first pass then stops before the message rows and the room
+   * row, so the race and the photo keys stay and a retry finds them. The unpaid race sweeper
+   * passes it; account deletion does not (it goes on past such a photo, as chat retention does).
+   */
+  requireEveryChatPhotoDeleted?: boolean;
+};
+
 /** The room's data kept outside the room's own tables: chat, the finished effort, course history, removed members, memory event log. */
-async function deleteRaceRoomDataOutsideRecord(roomId: string): Promise<void> {
-  await deleteChatRoomData(roomId);
+async function deleteRaceRoomDataOutsideRecord(roomId: string, options: RaceRoomDeletionOptions): Promise<void> {
+  await deleteChatRoomData(roomId, { throwIfPhotosLeft: options.requireEveryChatPhotoDeleted === true });
   await deleteFinishedEffortForRoom(roomId);
   await deleteCrewCueRoomCourseHistory(roomId);
   await deleteRoomRemovalsForRoom(roomId);
@@ -48,16 +58,17 @@ async function deleteRaceRoomDataOutsideRecord(roomId: string): Promise<void> {
  */
 export async function deleteRaceRoomAndData(
   roomId: string,
-  onlyIf?: RaceRoomDeleteCondition
+  onlyIf?: RaceRoomDeleteCondition,
+  options: RaceRoomDeletionOptions = {}
 ): Promise<RaceRoomDeletion> {
   if (onlyIf && (await checkRaceRoomDeleteCondition(roomId, onlyIf)) === "kept") {
     return "kept";
   }
-  await deleteRaceRoomDataOutsideRecord(roomId);
+  await deleteRaceRoomDataOutsideRecord(roomId, options);
   const result = await deleteRaceRoomRecord(roomId, onlyIf);
   if (result === "kept") {
     return result;
   }
-  await deleteRaceRoomDataOutsideRecord(roomId);
+  await deleteRaceRoomDataOutsideRecord(roomId, options);
   return result;
 }

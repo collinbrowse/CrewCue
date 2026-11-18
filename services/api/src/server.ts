@@ -11,10 +11,12 @@ import {
 } from "./lib/chatRetentionScheduler.js";
 import { attachTrackingReminderScheduler } from "./lib/trackingReminderScheduler.js";
 import { UNPAID_RACE_EXPIRY_ENABLED, createUnpaidRaceExpiryScheduler } from "./lib/unpaidRaceExpiryScheduler.js";
+import { createUnpaidRaceReminderScheduler } from "./lib/unpaidRaceReminderScheduler.js";
 import {
   listRaceRoomsForRetention,
   listRaceRoomsStartingBetween,
-  listUnpaidRaceRoomsCreatedBefore
+  listUnpaidRaceRoomsCreatedBefore,
+  listUnpaidRaceRoomsForReminders
 } from "./routes/raceRooms.js";
 import { captureError, flushErrorReporting, initErrorReporting, installProcessHandlers } from "./lib/errorReporting.js";
 
@@ -37,19 +39,25 @@ async function start() {
   const app = buildApp();
   // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().
   attachTrackingReminderScheduler(app, { listRooms: listRaceRoomsStartingBetween });
-  // Unpaid races 30 days old are deleted: ticks hourly once the server listens, stops on shutdown.
-  // Off until the runner is warned first (UNPAID_RACE_EXPIRY_ENABLED, R32).
+  // Unpaid races: reminder pushes to the runner every 15 minutes, and a sweeper that deletes a race
+  // 30 days old an hour at a time, a day after its last reminder at the soonest. Both start once the
+  // server listens and stop on shutdown, with no Fastify hooks (UNPAID_RACE_EXPIRY_ENABLED, R32).
+  const unpaidRaceReminders = UNPAID_RACE_EXPIRY_ENABLED
+    ? createUnpaidRaceReminderScheduler({ listRooms: listUnpaidRaceRoomsForReminders, log: app.log })
+    : undefined;
   const unpaidRaceExpiry = UNPAID_RACE_EXPIRY_ENABLED
     ? createUnpaidRaceExpiryScheduler({ listRooms: listUnpaidRaceRoomsCreatedBefore, log: app.log })
     : undefined;
   await app.listen({ port, host });
 
   startChatRetentionScheduler(listRaceRoomsForRetention, app.log);
+  unpaidRaceReminders?.start();
   unpaidRaceExpiry?.start();
 
   const shutdown = async () => {
     stopChatRetentionScheduler();
-    await unpaidRaceExpiry?.stop();
+    // Each ends its pass at a room boundary and waits 5 s at most; together, not one after the other.
+    await Promise.all([unpaidRaceReminders?.stop(), unpaidRaceExpiry?.stop()]);
     await app.close();
     await stopTelemetry();
     await flushErrorReporting();

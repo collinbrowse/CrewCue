@@ -3,19 +3,25 @@
  *
  * A runner can set up a race and see the finish-only teaser before paying. A race still `unpaid`
  * 30 days after it was created, and never paid, is deleted, with everything keyed by it, through
- * the same full delete account deletion uses (`deleteRaceRoomAndData`). Paid and expired races are
+ * the same full delete account deletion uses (`deleteRaceRoomAndData`), but never sooner than 24
+ * hours after its runner was warned: its `expiry_1d` reminder must have been claimed at least a
+ * day before (lib/unpaidRaceReminderScheduler.ts). A race created long ago gets that reminder on
+ * the first reminder tick and is deleted a day later at the soonest. Paid and expired races are
  * never touched, and neither is a race with any billing grant: a refund (or a store EXPIRATION)
  * revokes the grant and puts the race back to `unpaid`, but a race someone paid for, raced and
  * chatted in is not an abandoned teaser. A race whose payload has no parsable `createdAt` is kept:
  * it has no age.
  *
- * Every hour a tick lists the oldest never-paid unpaid races past the cutoff (a slim query: id,
- * entitlement status, creation time; never the payload with the course GPX), at most `batchSize`
- * of them, so a backlog drains over several ticks instead of one long pass. Each race is re-read
- * under its room lock before anything is deleted, and again as its row is deleted (Postgres: the
- * stored row, locked until the delete commits, with the grants read on that same transaction),
- * and deleted only if it is still unpaid, still past the cutoff, and still has no grant (one
- * recorded by a webhook still waiting for that lock): a purchase that lands during the tick wins.
+ * Every hour a tick lists the oldest never-paid unpaid races past the cutoff whose warning is a day
+ * old (a slim query: id, entitlement status, creation time; never the payload with the course
+ * GPX), at most `batchSize` of them, so a backlog drains over several ticks instead of one long
+ * pass. Each race is re-read under its room lock before anything is deleted, and again as its row
+ * is deleted (Postgres: the stored row, locked until the delete commits, with the grants and the
+ * warning read on that same transaction), and deleted only if it is still unpaid, still past the
+ * cutoff, still warned a day ago, and still has no grant. A grant write takes the room row's key
+ * share lock (billingStore.ts `upsertBillingGrant`), so a purchase either lands before the lock
+ * and keeps the race, or waits for the delete and finds the room gone; it never lands between the
+ * last check and the delete.
  *
  * Safe on several instances at once (risks R1, R20): the first to delete a race wins, and the
  * others find it gone, which is not an error. Each tick logs counts only, never ids or user data.
@@ -25,17 +31,26 @@ import type { RaceRoomDeleteCondition, RaceRoomDeletion } from "../routes/raceRo
 import { ensureBillingStoreReady, roomHasBillingGrants } from "./billingStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import type { RaceRoomExpiryFields } from "./roomPersistence.js";
+import {
+  isPastFinalReminderGrace,
+  UNPAID_FINAL_REMINDER_GRACE_MS,
+  UNPAID_RACE_TTL_MS,
+  unpaidFinalReminderClaimedAt
+} from "./unpaidRaceReminderScheduler.js";
 
 const HOUR_MS = 60 * 60_000;
 
 /**
- * Whether the API runs the sweeper. Off until the unpaid-race reminders (PR 2b) ship: a runner is
- * warned before the delete, and the sweeper waits for the last reminder. Turning it on before that
- * deletes every older unpaid race on the first tick with no warning (R32).
+ * Whether the API runs the sweeper and the unpaid-race reminders (server.ts starts both). The
+ * sweeper deletes only races whose runner was warned a day before (`expiry_1d`), so turning it on
+ * deletes no race on its first day: the first reminder tick warns every older unpaid race (R32).
  */
-export const UNPAID_RACE_EXPIRY_ENABLED = false;
-/** An unpaid race is deleted once it is this old. */
-export const UNPAID_RACE_TTL_MS = 30 * 24 * HOUR_MS;
+export const UNPAID_RACE_EXPIRY_ENABLED = true;
+/**
+ * The age past which an unpaid race is deleted (30 days), and how long after the 1-day warning
+ * (24 hours). Owned by lib/unpaidRaceReminderScheduler.ts, which times the warnings from them.
+ */
+export { UNPAID_FINAL_REMINDER_GRACE_MS, UNPAID_RACE_TTL_MS };
 /** How often the sweeper ticks. */
 export const UNPAID_RACE_EXPIRY_INTERVAL_MS = HOUR_MS;
 /** Most races one tick deletes; the rest wait for the next tick. */
@@ -60,25 +75,48 @@ export function isUnpaidRaceExpired(
 
 /**
  * The sweeper's question, asked of the room as stored, under its lock, right before anything is
- * deleted: still expired at `now()`, and no billing grant, active or revoked (a race paid once, or
- * a purchase recorded by a webhook still waiting for the room lock). The grants are read on the
- * locking transaction's client (`db`), never on a second pool connection.
+ * deleted: still expired at `now()`, its `expiry_1d` reminder claimed at least 24 hours before,
+ * and no billing grant, active or revoked (a race paid once, or a purchase recorded before the
+ * room lock was taken). The claim and the grants are read on the locking transaction's client
+ * (`db`), never on a second pool connection.
  */
 export function unpaidRaceDeleteCondition(now: () => number = Date.now): RaceRoomDeleteCondition {
-  return async (latest, db) => isUnpaidRaceExpired(latest, now()) && !(await roomHasBillingGrants(latest.id, db));
+  return async (latest, db) => {
+    const nowMs = now();
+    if (!isUnpaidRaceExpired(latest, nowMs)) {
+      return false;
+    }
+    if (!isPastFinalReminderGrace(await unpaidFinalReminderClaimedAt(latest.id, db), nowMs)) {
+      return false;
+    }
+    return !(await roomHasBillingGrants(latest.id, db));
+  };
 }
 
 /**
- * Unpaid races created at or before `createdBeforeMs`, oldest first, at most `limit`
- * (raceRooms.ts `listUnpaidRaceRoomsCreatedBefore`).
+ * Unpaid races created at or before `createdBeforeMs` whose `expiry_1d` reminder was claimed at or
+ * before `finalReminderClaimedBeforeMs`, oldest first, at most `limit` (raceRooms.ts
+ * `listUnpaidRaceRoomsCreatedBefore`).
  */
-export type UnpaidRaceExpiryListRooms = (createdBeforeMs: number, limit: number) => Promise<RaceRoomExpiryFields[]>;
+export type UnpaidRaceExpiryListRooms = (
+  createdBeforeMs: number,
+  limit: number,
+  finalReminderClaimedBeforeMs: number
+) => Promise<RaceRoomExpiryFields[]>;
 
 /** Deletes the room when `onlyIf` agrees (lib/raceRoomDeletion.ts `deleteRaceRoomAndData`). */
 export type UnpaidRaceExpiryDeleteRoom = (
   roomId: string,
   onlyIf: RaceRoomDeleteCondition
 ) => Promise<RaceRoomDeletion>;
+
+/**
+ * The sweeper's default delete: the full delete, failing (so the race stays listed and the next
+ * tick retries) when the photo store deleted fewer chat photos than it was given. Account
+ * deletion and chat retention keep going past such a photo.
+ */
+export const deleteUnpaidRaceRoom: UnpaidRaceExpiryDeleteRoom = (roomId, onlyIf) =>
+  deleteRaceRoomAndData(roomId, onlyIf, { requireEveryChatPhotoDeleted: true });
 
 export type UnpaidRaceExpiryResult =
   /** Deleted by this tick, with all its data. */
@@ -88,9 +126,10 @@ export type UnpaidRaceExpiryResult =
   /** Already deleted (another tick, instance or account deletion). */
   | "gone"
   /**
-   * The delete threw; logged. The room row is deleted last but one, so a throw before it leaves
-   * the race listed and the next tick runs the whole delete again. A throw after it (the final
-   * pass over chat, effort and history) can leave what was written in between.
+   * The delete threw; logged. The room row is deleted last but one, so a throw before it (a chat
+   * photo the store didn't delete included) leaves the race listed and the next tick runs the whole
+   * delete again. A throw after it (the final pass over chat, effort and history) can leave what
+   * was written in between.
    */
   | "error";
 
@@ -98,7 +137,7 @@ export type UnpaidRaceExpiryOutcome = { roomId: string; result: UnpaidRaceExpiry
 
 export type UnpaidRaceExpirySchedulerOptions = {
   listRooms: UnpaidRaceExpiryListRooms;
-  /** Default {@link deleteRaceRoomAndData}. */
+  /** Default {@link deleteUnpaidRaceRoom}. */
   deleteRoom?: UnpaidRaceExpiryDeleteRoom;
   log: Pick<FastifyBaseLogger, "info" | "warn">;
   /** Clock (ms). Default `Date.now`. */
@@ -118,7 +157,10 @@ export type UnpaidRaceExpiryScheduler = {
   tick(): Promise<UnpaidRaceExpiryOutcome[]>;
   /** Start the timer (idempotent). Ticks right away unless `skipFirstRun`. */
   start(): void;
-  /** Stop the timer and wait (up to `stopWaitMs`) for a tick it started. */
+  /**
+   * Stop the timer, end a tick in flight at the next room boundary (the race being deleted is
+   * finished, the next is not started), and wait (up to `stopWaitMs`) for a tick it started.
+   */
   stop(): Promise<void>;
   readonly running: boolean;
 };
@@ -128,10 +170,12 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
   const intervalMs = opts.intervalMs ?? UNPAID_RACE_EXPIRY_INTERVAL_MS;
   const batchSize = opts.batchSize ?? UNPAID_RACE_EXPIRY_BATCH_SIZE;
   const stopWaitMs = opts.stopWaitMs ?? DEFAULT_STOP_WAIT_MS;
-  const deleteRoom = opts.deleteRoom ?? deleteRaceRoomAndData;
+  const deleteRoom = opts.deleteRoom ?? deleteUnpaidRaceRoom;
   const log = opts.log;
   let handle: ReturnType<typeof setInterval> | undefined;
   let timerTick: Promise<unknown> | undefined;
+  /** Set by `stop()`: a tick in flight ends before its next room. */
+  let stopping = false;
 
   /** Asked under the room lock, of the room as stored right now. */
   const stillExpired = unpaidRaceDeleteCondition(now);
@@ -142,13 +186,17 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
     try {
       // The grant table first, so the condition never creates it while it holds a room lock.
       await ensureBillingStoreReady();
-      rooms = await opts.listRooms(nowMs - UNPAID_RACE_TTL_MS, batchSize);
+      rooms = await opts.listRooms(nowMs - UNPAID_RACE_TTL_MS, batchSize, nowMs - UNPAID_FINAL_REMINDER_GRACE_MS);
     } catch (err) {
       log.warn({ err, unpaidRaceExpiry: { phase: "list_rooms" } }, "unpaid_race_expiry_pass_failed");
       return [];
     }
     const outcomes: UnpaidRaceExpiryOutcome[] = [];
     for (const room of rooms.slice(0, batchSize)) {
+      // A deploy's shutdown ends the batch here, between two races, never inside a delete.
+      if (stopping) {
+        break;
+      }
       if (!isUnpaidRaceExpired(room, nowMs)) {
         continue;
       }
@@ -196,6 +244,7 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
       if (handle) {
         return;
       }
+      stopping = false;
       handle = setInterval(runFromTimer, intervalMs);
       // Don't keep the process alive solely for the timer.
       if (typeof handle.unref === "function") {
@@ -206,6 +255,7 @@ export function createUnpaidRaceExpiryScheduler(opts: UnpaidRaceExpirySchedulerO
       }
     },
     async stop() {
+      stopping = true;
       if (handle) {
         clearInterval(handle);
         handle = undefined;
