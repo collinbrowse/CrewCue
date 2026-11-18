@@ -3,7 +3,7 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**20 tables** from 21 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**22 tables** from 23 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
 
 ## `billing_grants`
 
@@ -26,7 +26,7 @@ Primary key: `transaction_id`.
 
 Indexes: `billing_grants_by_room`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
 
 ## `billing_webhook_events`
 
@@ -232,9 +232,9 @@ Created in [services/api/db/migrations/0001_ws1_room_invite_json.sql](../../../s
 
 Primary key: `id`.
 
-Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`.
+Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`, `race_rooms_json_unpaid_race_start_at`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts).
 
 ## `room_athlete_pings`
 
@@ -253,6 +253,22 @@ Created in [services/api/db/migrations/0015_room_athlete_pings.sql](../../../ser
 Primary key: `room_id, recorded_at`.
 
 Read/written by: [services/api/src/lib/athletePingTrack.ts](../../../services/api/src/lib/athletePingTrack.ts), [services/api/src/lib/courseHistory/sources/crewcueRoom.ts](../../../services/api/src/lib/courseHistory/sources/crewcueRoom.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+
+## `room_removed_members`
+
+Created in [services/api/db/migrations/0022_room_removed_members.sql](../../../services/api/db/migrations/0022_room_removed_members.sql).
+
+| Column | Type |
+| --- | --- |
+| `room_id` | TEXT NOT NULL |
+| `user_id` | TEXT NOT NULL |
+| `removed_at` | TIMESTAMPTZ NOT NULL |
+
+Primary key: `room_id, user_id`.
+
+Indexes: `room_removed_members_by_user`.
+
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts).
 
 ## `room_task_boards_json`
 
@@ -353,3 +369,17 @@ Created in [services/api/db/migrations/0020_tracking_reminders_sent.sql](../../.
 Primary key: `room_id, slot, race_start_at`.
 
 Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/trackingReminderScheduler.ts](../../../services/api/src/lib/trackingReminderScheduler.ts).
+
+## `unpaid_reminders_sent`
+
+Created in [services/api/db/migrations/0023_unpaid_reminders_sent.sql](../../../services/api/db/migrations/0023_unpaid_reminders_sent.sql).
+
+| Column | Type |
+| --- | --- |
+| `room_id` | TEXT NOT NULL REFERENCES race_rooms_json (id) ON DELETE CASCADE |
+| `slot` | TEXT NOT NULL CHECK (slot IN ('expiry_7d', 'expiry_1d', 'race_soon')) |
+| `claimed_at` | TIMESTAMPTZ NOT NULL |
+
+Primary key: `room_id, slot`.
+
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts).

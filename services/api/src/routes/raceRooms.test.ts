@@ -378,13 +378,15 @@ test("rejects expired invite token", async () => {
     payload: {
       email: "crew@example.com",
       role: "crew_member",
-      expiresAt: new Date(Date.now() - 60_000).toISOString()
+      expiresAt: new Date(Date.now() + 50).toISOString()
     },
     headers: {
       authorization: `Bearer ${ownerToken}`
     }
   });
+  assert.equal(issueResponse.statusCode, 201);
   const invite = issueResponse.json() as { token: string };
+  await new Promise((resolve) => setTimeout(resolve, 80));
 
   const acceptResponse = await app.inject({
     method: "POST",

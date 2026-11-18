@@ -8,7 +8,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 10 |
-| In-process timers in the API | 3 |
+| In-process timers in the API | 4 |
 | API lib modules with no same-named test | 42 |
 | Native features not passing on both platforms | 14 |
 | Files with TODO/FIXME/HACK | 0 |
@@ -25,7 +25,7 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3124](../../../services/api/src/routes/raceRooms.ts#L3124) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3269](../../../services/api/src/routes/raceRooms.ts#L3269) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -40,11 +40,11 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5554 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5729 |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2021 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1246 |
-| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1243 |
+| [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1251 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1065 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 900 |
@@ -59,7 +59,8 @@ Timers run per instance. With more than one API replica each one fires.
 | --- | --- |
 | `setInterval` | [services/api/src/lib/chatRetentionScheduler.ts:73](../../../services/api/src/lib/chatRetentionScheduler.ts#L73) |
 | `setInterval` | [services/api/src/lib/trackingReminderScheduler.ts:465](../../../services/api/src/lib/trackingReminderScheduler.ts#L465) |
-| `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:199](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L199) |
+| `setInterval` | [services/api/src/lib/unpaidRaceExpiryScheduler.ts:255](../../../services/api/src/lib/unpaidRaceExpiryScheduler.ts#L255) |
+| `setInterval` | [services/api/src/lib/unpaidRaceReminderScheduler.ts:657](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts#L657) |
 
 ## API lib modules with no same-named test
 
@@ -104,9 +105,9 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/planAuthority.ts](../../../services/api/src/lib/planAuthority.ts)
 - [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts)
 - [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
+- [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts)
 - [services/api/src/lib/slowdownShrinkage.ts](../../../services/api/src/lib/slowdownShrinkage.ts)
 - [services/api/src/lib/testCourseRouteLayer.ts](../../../services/api/src/lib/testCourseRouteLayer.ts)
-- [services/api/src/lib/testFreshProcess.ts](../../../services/api/src/lib/testFreshProcess.ts)
 
 ## Native parity gaps
 

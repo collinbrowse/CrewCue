@@ -83,9 +83,11 @@ import {
   listPersistedRaceRoomsForMember,
   listPersistedRaceRoomsStartingBetween,
   listPersistedUnpaidRaceRoomsCreatedBefore,
+  listPersistedUnpaidRaceRoomsForReminders,
   type PersistedRaceRoomDeletion,
   type PersistenceQueryable,
   type RaceRoomExpiryFields,
+  type RaceRoomReminderFields,
   type RaceRoomStartFields,
   isJoinCodeTakenInDb,
   listPersistedRoomsForRetention,
@@ -105,6 +107,7 @@ import {
 } from "../lib/roomPersistence.js";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
+import { clearRoomRemoval, recordRoomRemoval, roomRemovedAt } from "../lib/roomRemovalStore.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import {
   countsTowardUnpaidRaceLimit,
@@ -112,11 +115,22 @@ import {
   isCrewMembership,
   isRoomPaid,
   isRunnerSeat,
+  raceCreatorOf,
   roomUnpaidError,
   unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
-import { ensureBillingStoreReady, listRoomIdsWithBillingGrants } from "../lib/billingStore.js";
+import {
+  ensureBillingStoreReady,
+  listRoomIdsWithBillingGrants,
+  listUserIdsWithUnattachedBillingGrants
+} from "../lib/billingStore.js";
 import { forgetTrackingRemindersForRoom } from "../lib/trackingReminderScheduler.js";
+import {
+  forgetUnpaidRemindersForRoom,
+  listUnpaidFinalReminderClaimTimes,
+  memoryUnpaidReminderClaims,
+  unpaidRaceExpiresAtMs
+} from "../lib/unpaidRaceReminderScheduler.js";
 import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from "../lib/raceTeaser.js";
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 
@@ -1953,20 +1967,31 @@ export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number)
 }
 
 function expiryFieldsOf(room: RaceRoom): RaceRoomExpiryFields {
-  return { id: room.id, entitlementStatus: room.entitlement?.status, createdAt: room.createdAt };
+  const creatorId = raceCreatorOf(room);
+  return {
+    id: room.id,
+    entitlementStatus: room.entitlement?.status,
+    createdAt: room.createdAt,
+    ...(creatorId !== undefined ? { creatorId } : {})
+  };
 }
 
 /**
- * Unpaid rooms created at or before `createdBeforeMs` and never paid, oldest first, at most
+ * Unpaid rooms created at or before `createdBeforeMs`, never paid, and whose 1-day reminder
+ * (`expiry_1d`) was claimed at or before `finalReminderClaimedBeforeMs`, oldest first, at most
  * `limit`: the unpaid race sweeper's candidates. A room with a billing grant, a refunded one
- * included, was paid once and is never listed. Memory mode scans the in-process rooms (its store).
- * Postgres reads the stored rows, not this instance's cache (R1), through the unpaid partial index,
- * a day wider than asked (stored times are ISO-8601 UTC from `toISOString`; the margin covers any
- * other offset), then the parsed time decides. A room with no parsable `createdAt` is never listed.
+ * included, was paid once and is never listed, and neither is a room whose creator has an
+ * unattached grant (R25: maybe a paying runner whose purchase never reached the race), nor a room
+ * whose runner has not had a day since that warning (lib/unpaidRaceReminderScheduler.ts). Memory
+ * mode scans the in-process rooms (its store). Postgres reads the stored rows, not this instance's
+ * cache (R1), through the unpaid partial index, a day wider than asked (stored times are ISO-8601
+ * UTC from `toISOString`; the margin covers any other offset), then the parsed time decides. A
+ * room with no parsable `createdAt` is never listed.
  */
 export async function listUnpaidRaceRoomsCreatedBefore(
   createdBeforeMs: number,
-  limit: number
+  limit: number,
+  finalReminderClaimedBeforeMs: number
 ): Promise<RaceRoomExpiryFields[]> {
   const createdMs = (room: RaceRoomExpiryFields) => Date.parse(room.createdAt ?? "");
   const createdInRange = (room: RaceRoomExpiryFields) => {
@@ -1977,9 +2002,20 @@ export async function listUnpaidRaceRoomsCreatedBefore(
     const unpaid = [...raceRooms.values()]
       .map(expiryFieldsOf)
       .filter((room) => room.entitlementStatus === "unpaid" && createdInRange(room));
-    const paidOnce = await listRoomIdsWithBillingGrants(unpaid.map((room) => room.id));
+    const ids = unpaid.map((room) => room.id);
+    const paidOnce = await listRoomIdsWithBillingGrants(ids);
+    const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map((room) => room.creatorId));
+    const warned = await listUnpaidFinalReminderClaimTimes(ids);
     return unpaid
-      .filter((room) => !paidOnce.has(room.id))
+      .filter((room) => {
+        const claimedAtMs = warned.get(room.id);
+        return (
+          !paidOnce.has(room.id) &&
+          !(room.creatorId !== undefined && boughtUnattached.has(room.creatorId)) &&
+          claimedAtMs !== undefined &&
+          claimedAtMs <= finalReminderClaimedBeforeMs
+        );
+      })
       .sort((a, b) => createdMs(a) - createdMs(b))
       .slice(0, limit);
   }
@@ -1987,9 +2023,96 @@ export async function listUnpaidRaceRoomsCreatedBefore(
   await ensureBillingStoreReady();
   const persisted = await listPersistedUnpaidRaceRoomsCreatedBefore(
     new Date(createdBeforeMs + 24 * 60 * 60 * 1000).toISOString(),
-    limit
+    limit,
+    new Date(finalReminderClaimedBeforeMs).toISOString()
   );
   return persisted.filter(createdInRange);
+}
+
+/**
+ * The unpaid-race reminder scheduler's candidates: unpaid rooms never paid (no billing grant)
+ * whose creator has no unattached grant (R25), created at or before `createdBeforeMs` without an
+ * `expiry_1d` claim, or starting after
+ * `startsAfterMs` and at most `startsAtOrBeforeMs` without a `race_soon` claim. Each carries its
+ * claims so far. Memory mode scans the in-process rooms. Postgres reads the stored rows, not this
+ * instance's cache (R1), through the unpaid partial indexes on `createdAt` and `raceStartAt`, each
+ * range a little wider than asked (a day on `createdAt`, a minute on the start), and returns only
+ * the scheduler's fields, never the payload; the scheduler decides from the parsed times.
+ */
+export async function listUnpaidRaceRoomsForReminders(
+  createdBeforeMs: number,
+  startsAfterMs: number,
+  startsAtOrBeforeMs: number
+): Promise<RaceRoomReminderFields[]> {
+  if (!isRoomPersistenceEnabled()) {
+    const unpaid = [...raceRooms.values()].filter((room) => room.entitlement?.status === "unpaid");
+    const paidOnce = await listRoomIdsWithBillingGrants(unpaid.map((room) => room.id));
+    const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map(raceCreatorOf));
+    return unpaid
+      .filter((room) => {
+        const creatorId = raceCreatorOf(room);
+        return !paidOnce.has(room.id) && !(creatorId !== undefined && boughtUnattached.has(creatorId));
+      })
+      .map((room): RaceRoomReminderFields => {
+        const creatorId = raceCreatorOf(room);
+        return {
+          id: room.id,
+          entitlementStatus: room.entitlement.status,
+          createdAt: room.createdAt,
+          raceStartAt: room.raceStartAt,
+          creatorId,
+          creatorIsMember: creatorId !== undefined && room.memberships.some((member) => member.userId === creatorId),
+          name: room.name,
+          claims: memoryUnpaidReminderClaims(room.id)
+        };
+      })
+      .filter((room) => {
+        const createdMs = Date.parse(room.createdAt ?? "");
+        const startMs = Date.parse(room.raceStartAt ?? "");
+        const byCreation = Number.isFinite(createdMs) && createdMs <= createdBeforeMs && !room.claims.expiry_1d;
+        const byStart =
+          Number.isFinite(startMs) && startMs > startsAfterMs && startMs <= startsAtOrBeforeMs && !room.claims.race_soon;
+        return byCreation || byStart;
+      });
+  }
+  // The query reads billing_grants (migration 0019; created here too when missing).
+  await ensureBillingStoreReady();
+  return listPersistedUnpaidRaceRoomsForReminders(
+    new Date(createdBeforeMs + 24 * 60 * 60 * 1000).toISOString(),
+    new Date(startsAfterMs - 60_000).toISOString(),
+    new Date(startsAtOrBeforeMs + 60_000).toISOString()
+  );
+}
+
+/**
+ * `unpaidExpiresAt` on each unpaid, never-paid room: when the sweeper deletes it
+ * (`unpaidRaceExpiresAtMs`: the later of `createdAt` + 30 days and its 1-day reminder's claim +
+ * 24 hours). Computed for the response, never stored: returns copies, and `rooms` may be cached
+ * objects. Paid, expired and once-paid rooms, a room whose creator has an unattached grant (the
+ * sweeper keeps it: R25), and a room with no parsable `createdAt` go out without it.
+ * `GET /race-rooms/:roomId` and `GET /race-rooms/mine` send it.
+ */
+async function withUnpaidExpiresAt(rooms: readonly RaceRoom[]): Promise<RaceRoom[]> {
+  const unpaid = rooms.filter((room) => room.entitlement?.status === "unpaid");
+  if (unpaid.length === 0) {
+    return [...rooms];
+  }
+  const unpaidIds = unpaid.map((room) => room.id);
+  const paidOnce = await listRoomIdsWithBillingGrants(unpaidIds);
+  const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map(raceCreatorOf));
+  const warned = await listUnpaidFinalReminderClaimTimes(unpaidIds);
+  return rooms.map((room) => {
+    const creatorId = raceCreatorOf(room);
+    if (
+      room.entitlement?.status !== "unpaid" ||
+      paidOnce.has(room.id) ||
+      (creatorId !== undefined && boughtUnattached.has(creatorId))
+    ) {
+      return room;
+    }
+    const expiresAtMs = unpaidRaceExpiresAtMs(room.createdAt, warned.get(room.id));
+    return expiresAtMs === undefined ? room : { ...room, unpaidExpiresAt: new Date(expiresAtMs).toISOString() };
+  });
 }
 
 /**
@@ -2102,6 +2225,7 @@ export async function deleteRaceRoomRecord(
   await discardWs5RoomState(roomId);
   // Postgres reminder claims went with the room row (ON DELETE CASCADE); this drops memory mode's.
   forgetTrackingRemindersForRoom(roomId);
+  forgetUnpaidRemindersForRoom(roomId);
   roomPingState.delete(roomId);
   roomProjectionState.delete(roomId);
   return outcome;
@@ -2416,6 +2540,27 @@ export async function listActiveDemandCheckpointsForRoom(room: RaceRoom): Promis
 
 function isExpired(expiresAt: string): boolean {
   return Date.parse(expiresAt) <= Date.now();
+}
+
+/** Longest an invite may stay open. Also the default when the issuer sets none. */
+export const INVITE_MAX_LIFETIME_MS = 1000 * 60 * 60 * 24 * 7;
+const INVITE_DEFAULT_LIFETIME_MS = 1000 * 60 * 60 * 24;
+
+/** An invite counts only while the person who issued it could still issue it. */
+function inviterStillAllowed(room: RaceRoom, invite: RaceRoomInvite): boolean {
+  if (invite.invitedBy === room.athleteId) return true;
+  const inviter = room.memberships.find((member) => member.userId === invite.invitedBy);
+  return Boolean(inviter && getPermissions(inviter.role).canIssueInvite);
+}
+
+/**
+ * Someone the owner removed may come back only through an invite the owner issued after the
+ * removal. Returns false when the user is removed and this invite (or a code join) can't readmit them.
+ */
+function readmits(room: RaceRoom, removedAt: string | undefined, invite?: RaceRoomInvite): boolean {
+  if (removedAt === undefined) return true;
+  if (!invite || invite.invitedBy !== room.athleteId) return false;
+  return Date.parse(invite.invitedAt) > Date.parse(removedAt);
 }
 
 function recomputeProjectionStoppageSummary(core: RaceRoomProjectionCore, activatedAt: string): void {
@@ -3118,7 +3263,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
 
     const viewer = request.identity.sub;
     const rooms = await listRaceRoomsForMember(viewer);
-    return reply.send({ rooms: rooms.map((room) => roomForViewer(room, viewer)) });
+    return reply.send({ rooms: await withUnpaidExpiresAt(rooms.map((room) => roomForViewer(room, viewer))) });
   });
 
   app.get("/race-rooms/join-preview/:roomCode", async (request, reply) => {
@@ -3160,7 +3305,8 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const permissions = getPermissions(membership.role);
-    return reply.send({ room: roomForViewer(room, request.identity.sub), permissions });
+    const [shaped] = await withUnpaidExpiresAt([roomForViewer(room, request.identity.sub)]);
+    return reply.send({ room: shaped, permissions });
   });
 
   app.put("/race-rooms/:roomId/course", async (request, reply) => {
@@ -3758,14 +3904,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    const issuedAt = Date.now();
+    const requestedExpiry = parsed.data.expiresAt ? Date.parse(parsed.data.expiresAt) : undefined;
+    if (
+      requestedExpiry !== undefined &&
+      (requestedExpiry <= issuedAt || requestedExpiry > issuedAt + INVITE_MAX_LIFETIME_MS)
+    ) {
+      return reply.code(400).send({ error: "Invite expiry must be in the future and within 7 days" });
+    }
+
     const invite: RaceRoomInvite = {
       token: randomUUID(),
       roomId,
       email: parsed.data.email.toLowerCase(),
       role: parsed.data.role,
       invitedBy: request.identity.sub,
-      invitedAt: new Date().toISOString(),
-      expiresAt: parsed.data.expiresAt ?? new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+      invitedAt: new Date(issuedAt).toISOString(),
+      expiresAt: new Date(requestedExpiry ?? issuedAt + INVITE_DEFAULT_LIFETIME_MS).toISOString(),
       status: "pending"
     };
 
@@ -3859,7 +4014,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(410).send({ error: "Invite expired" });
       }
 
+      // Removed or demoted since issuing it: the invite lapses with their rights.
+      if (!inviterStillAllowed(room, invite)) {
+        await saveRaceRoomInvite({ ...invite, status: "expired" });
+        return reply.code(410).send({ error: "Invite expired" });
+      }
+
       const existing = room.memberships.find((member) => member.userId === userId);
+      const removedAt = existing ? undefined : await roomRemovedAt(room.id, userId);
+      if (!readmits(room, removedAt, invite)) {
+        return reply.code(403).send({ error: "Ask the race owner for a new invite" });
+      }
       // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
       // link the athlete just created must not take that role away either, and must
       // leave the invite pending for the person it was meant for.
@@ -3908,6 +4073,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       };
 
       await saveRaceRoom(updatedRoom);
+      if (removedAt !== undefined) {
+        await clearRoomRemoval(room.id, userId);
+      }
       await saveRaceRoomInvite({
         ...invite,
         status: "accepted",
@@ -3953,6 +4121,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await writeDelay();
       }
       const existingMembership = room.memberships.find((member) => member.userId === userId);
+      // Same answer as an unknown code, so the code stays a plain "not found" to the client.
+      if (!existingMembership && !readmits(room, await roomRemovedAt(room.id, userId))) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
       if (!existingMembership && !isRunnerSeat(room, userId)) {
         // Only a paid race takes someone new. The runner still joins their own.
         const unpaid = roomUnpaidError(room);
@@ -4120,6 +4292,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!hasMember) {
       return reply.code(404).send({ error: "Member not found" });
     }
+
+    // Recorded before the membership goes, so a failed write never leaves them out but able to rejoin.
+    await recordRoomRemoval(room.id, memberUserId, new Date().toISOString());
 
     let memberMissing = false;
     let ownerRemovalBlocked = false;
