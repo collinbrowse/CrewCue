@@ -36,6 +36,9 @@ struct MapView: View {
     var access: RaceAccess? = nil
     /// The runner's unpaid race: the banner and Start tracking open the paywall instead.
     var onUnlock: (() -> Void)? = nil
+    /// The onboarding replay: the course, the runner and the aid sheet only. No top bar and no map
+    /// tools (placing a checkpoint, navigating, tracking), since the replay never writes.
+    var readOnly = false
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -47,6 +50,7 @@ struct MapView: View {
                 points: model.points,
                 track: model.trackCoordinates,
                 recenterRequest: model.recenterRequest,
+                replay: readOnly,
                 onTap: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
@@ -70,9 +74,13 @@ struct MapView: View {
             }
             MapAidSheet(model: model, tool: $tool, onUnlock: onUnlock)
                 .padding(.horizontal, 8)
+                // The replay's Map is a pane a fold can run through: its sheet and chips stay off
+                // the fold while the canvas under them stays full-bleed.
+                .avoidsReservedRegions(when: readOnly)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {})
+            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {}, readOnly: readOnly)
+                .avoidsReservedRegions(when: readOnly)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -91,13 +99,16 @@ private struct MapOverlayControls: View {
     var onSettings: () -> Void
     var access: RaceAccess?
     var onUnlock: () -> Void
+    var readOnly = false
     @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(spacing: CrewSpace.stackSm) {
-            CrewTopBar(onSettings: onSettings)
-                .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
-                .padding(.horizontal, 8)
+            if !readOnly {
+                CrewTopBar(onSettings: onSettings)
+                    .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
+                    .padding(.horizontal, 8)
+            }
             if let access {
                 RaceAccessBanner(access: access, onUnlock: onUnlock)
                     .padding(.horizontal, CrewSpace.gutter)
@@ -117,25 +128,32 @@ private struct MapOverlayControls: View {
                     CircleIconButton(systemImage: "scope", label: "Fit course") {
                         model.recenter()
                     }
-                    Menu {
-                        Picker("Map tool", selection: $tool) {
-                            Label("Aid stations", systemImage: "flag").tag(MapTool.none)
-                            Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
-                            Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
-                            Label("Tracking", systemImage: "location").tag(MapTool.location)
-                        }
-                    } label: {
-                        Image(systemName: "square.3.layers.3d")
-                            .font(.system(size: 21, weight: .semibold))
-                            .frame(width: 52, height: 52)
-                            .foregroundStyle(theme.primary)
+                    if !readOnly {
+                        mapTools
                     }
-                    .crewGlass(in: Circle(), interactive: true)
-                    .accessibilityLabel("Map tools")
                 }
             }
             .padding(.horizontal, CrewSpace.gutter)
         }
+    }
+
+    /// Place checkpoint, navigate and tracking. Not in the replay.
+    private var mapTools: some View {
+        Menu {
+            Picker("Map tool", selection: $tool) {
+                Label("Aid stations", systemImage: "flag").tag(MapTool.none)
+                Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
+                Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
+                Label("Tracking", systemImage: "location").tag(MapTool.location)
+            }
+        } label: {
+            Image(systemName: "square.3.layers.3d")
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: 52, height: 52)
+                .foregroundStyle(theme.primary)
+        }
+        .crewGlass(in: Circle(), interactive: true)
+        .accessibilityLabel("Map tools")
     }
 
     /// The runner's path drawn on the map, from the API.
@@ -161,32 +179,91 @@ private struct MapOverlayControls: View {
 struct AidPager: View {
     @Bindable var model: MapModel
     @ScaledMetric private var height: CGFloat = 228
+    /// The page on show, kept on the model's aid. Only the person picks an aid: a drag, or
+    /// VoiceOver's scroll. A pager laid out again (built with its pages already there by a display
+    /// switch or a map tool closing, or at a new width after a rotation) lands on whatever page its
+    /// layout gives, often the first; it is put back on the model's aid, so it never selects Start
+    /// and stops the sheet following the next aid station.
+    @State private var position: Int?
+    /// The person is dragging the pager, or it is settling from their drag.
+    @State private var dragging = false
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(model.aidPages) { page in
-                    AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
-                        .containerRelativeFrame(.horizontal)
-                        .id(page.index)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(model.aidPages) { page in
+                        AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
+                            .containerRelativeFrame(.horizontal)
+                            .id(page.index)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $position)
+            .onScrollPhaseChange { _, phase in
+                switch phase {
+                case .interacting, .decelerating:
+                    dragging = true
+                case .idle:
+                    if dragging { select(position) }
+                    dragging = false
+                case .tracking, .animating:
+                    // A touch that hasn't moved yet, or a scroll that isn't the person's drag
+                    // (the pager's own, or a layout's): neither picks an aid.
+                    break
+                @unknown default:
+                    break
                 }
             }
-            .scrollTargetLayout()
+            .onChange(of: position) { _, value in
+                if dragging {
+                    select(value)
+                } else if value != shown {
+                    show(shown, proxy)
+                }
+            }
+            .onChange(of: shown, initial: true) { _, index in
+                if !dragging { show(index, proxy) }
+            }
+            // The pages laid out at a new width move under the pager without a report: back to
+            // the model's aid.
+            .onScrollGeometryChange(for: CGSize.self) { geometry in
+                CGSize(width: geometry.containerSize.width, height: geometry.contentSize.width)
+            } action: { _, _ in
+                if !dragging { show(shown, proxy) }
+            }
+            .accessibilityScrollAction { edge in
+                switch edge {
+                case .leading: step(-1)
+                case .trailing: step(1)
+                default: break
+                }
+            }
         }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: aidScroll)
         .frame(height: height)
     }
 
-    private var aidScroll: Binding<Int?> {
-        Binding(
-            get: { model.aidPages.isEmpty ? nil : model.aidIndex },
-            set: { value in
-                guard let value, value != model.aidIndex else { return }
-                model.showAid(index: value)
-            }
-        )
+    /// The model's aid: the next aid station while the sheet follows the runner.
+    private var shown: Int? { model.aidPages.isEmpty ? nil : model.aidIndex }
+
+    private func show(_ index: Int?, _ proxy: ScrollViewProxy) {
+        position = index
+        if let index { proxy.scrollTo(index, anchor: .leading) }
+    }
+
+    private func select(_ value: Int?) {
+        guard let value, value != model.aidIndex else { return }
+        model.showAid(index: value)
+    }
+
+    /// VoiceOver's three-finger scroll: the next or previous page.
+    private func step(_ delta: Int) {
+        let next = model.aidIndex + delta
+        guard model.aidPages.indices.contains(next) else { return }
+        model.showAid(index: next)
     }
 }
 
@@ -239,6 +316,9 @@ struct AidPeek: View {
         .padding(.horizontal, CrewSpace.margin)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(page.scheduleLine)
+        // The eyebrow ("Next aid station"), which the schedule line leaves out.
+        .accessibilityValue(Text(verbatim: kicker))
+        .accessibilityIdentifier("crewcue.aid-page")
     }
 
     private var kicker: String {
@@ -434,6 +514,9 @@ struct MapCanvas: View {
     let points: [MapCoursePoint]
     var track: [CLLocationCoordinate2D] = []
     var recenterRequest = 0
+    /// The onboarding replay: no top bar to clear, and a pane that a fold or a size change
+    /// resizes, so the course is framed again when it does.
+    var replay = false
     @Environment(\.crew) private var theme
     let onTap: (Double, Double) -> Void
     let onStyleFailure: (Bool) -> Void
@@ -449,7 +532,10 @@ struct MapCanvas: View {
             onStyleLoaded: onStyleLoaded,
             recenterRequest: recenterRequest,
             lineColor: UIColor(theme.primary),
-            trackColor: UIColor(theme.secondary)
+            trackColor: UIColor(theme.secondary),
+            fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
+            refitOnResize: replay,
+            shrinksPaddingToFit: replay
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")

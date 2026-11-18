@@ -50,6 +50,8 @@ struct ChatView: View {
     /// The runner's unpaid race: sending opens the paywall instead of queueing a message the
     /// server refuses (402). The draft stays.
     var onUnlock: (() -> Void)? = nil
+    /// The onboarding replay: the messages only, with no send control or photo picker.
+    var readOnly = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -87,16 +89,18 @@ struct ChatView: View {
             }
             ChatStatusText(message: model.statusMessage)
                 .padding(.horizontal, CrewSpace.margin)
-            ChatComposer(
-                draft: $model.draft,
-                names: model.mentionNames,
-                isSending: model.isSending,
-                isUploadingPhoto: model.isUploadingPhoto,
-                onSend: { await send() },
-                onPhoto: { data, type in await sendPhoto(data, type) }
-            )
-                .padding(.horizontal, CrewSpace.gutter)
-                .padding(.bottom, CrewSpace.base)
+            if !readOnly {
+                ChatComposer(
+                    draft: $model.draft,
+                    names: model.mentionNames,
+                    isSending: model.isSending,
+                    isUploadingPhoto: model.isUploadingPhoto,
+                    onSend: { await send() },
+                    onPhoto: { data, type in await sendPhoto(data, type) }
+                )
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .padding(.bottom, CrewSpace.base)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityIdentifier("crewcue.chat")
@@ -360,6 +364,7 @@ struct ChatComposer: View {
                     .lineLimit(1...4)
                     .padding(.vertical, 12)
                     .accessibilityLabel("Message")
+                    .accessibilityIdentifier("crewcue.chat-message")
                 Button {
                     Task { await onSend() }
                 } label: {
@@ -373,6 +378,7 @@ struct ChatComposer: View {
                 .disabled(cannotSend)
                 .opacity(cannotSend ? 0.45 : 1)
                 .accessibilityLabel("Send")
+                .accessibilityIdentifier("crewcue.chat-send")
             }
             .padding(6)
             .crewGlass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))

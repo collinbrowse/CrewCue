@@ -52,7 +52,9 @@ public struct UserStorage: Sendable {
         }
     }
 
-    private func location(userId: String) -> URL {
+    /// Where `directory(userId:)` puts the user's files, without creating anything: for removing
+    /// a file from a directory that may already be gone.
+    public func location(userId: String) -> URL {
         let trimmed = userId.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? "guest" : trimmed
         var allowed = CharacterSet.alphanumerics

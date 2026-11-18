@@ -30,7 +30,7 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `billingEntitlement.ts`, `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `trackingReminderScheduler.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `roomRemovalStore.ts`, `trackingReminderScheduler.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -44,8 +44,8 @@ High fan-in modules are where a change spreads furthest.
 
 | Module | Imported by | Lines |
 | --- | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5554 |
-| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 15 | 1246 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5605 |
+| [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 16 | 1259 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 7 | 328 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -70,6 +70,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
 | [services/api/src/lib/pacingEstimate/types.ts](../../../services/api/src/lib/pacingEstimate/types.ts) | 3 | 44 |
 | [services/api/src/lib/platformEventLog.ts](../../../services/api/src/lib/platformEventLog.ts) | 3 | 333 |
+| [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts) | 3 | 68 |
 | [services/api/src/lib/runnerSlowdown.ts](../../../services/api/src/lib/runnerSlowdown.ts) | 3 | 117 |
 | [services/api/src/lib/strava/stravaClient.ts](../../../services/api/src/lib/strava/stravaClient.ts) | 3 | 334 |
 | [services/api/src/lib/stravaConnectionStore.ts](../../../services/api/src/lib/stravaConnectionStore.ts) | 3 | 259 |
@@ -95,6 +96,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift) | `CourseUploadSuperseded`, `CourseUploadGate`, `CourseUploadBox` |
 | [packages/client-core/Sources/CrewCueClientCore/Deadline.swift](../../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) | `Deadline`, `ResumeOnce` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift) | `DemoRaceAudience` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift) | `DemoRaceFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift) | `DemoRaceSnapshot`, `DemoRacePlayer`, `DemoRaceSession`, `DemoRace`, `LiveDemoDirectories` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift) | `DemoRaceError`, `DemoRaceCoordinate`, `DemoRaceCourse`, `DemoRaceBeat`, `DemoRacePing`, `DemoRaceChatMessage`, `DemoRaceStep`, `DemoRaceScript` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift) | `DemoRaceWorld`, `DemoRaceClock`, `DemoRaceTransport` |
@@ -190,40 +193,40 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-104 files under `packages/client-core/Sources/`.
+106 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 54 | 12250 |
+| `CrewCueClientCore` | 56 | 12428 |
 | `CrewCueClientCore/Generated` | 50 | 978 |
 
 ### iOS app (SwiftUI)
 
-65 files under `apps/ios/CrewCue/`.
+70 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 95 |
-| `App` | 13 | 1484 |
+| `App` | 14 | 1592 |
 | `Brand` | 1 | 184 |
-| `Design` | 2 | 685 |
+| `Design` | 3 | 763 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 182 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 929 |
+| `Screens/Chat` | 4 | 935 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1831 |
+| `Screens/Map` | 4 | 1947 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 7 | 1806 |
-| `Screens/Pace` | 2 | 1759 |
+| `Screens/Onboarding` | 10 | 2858 |
+| `Screens/Pace` | 2 | 1842 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 624 |
+| `Screens/Shell` | 4 | 657 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)

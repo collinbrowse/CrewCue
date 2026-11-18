@@ -105,6 +105,7 @@ import {
 } from "../lib/roomPersistence.js";
 import { createLazyHydrator } from "../lib/lazyHydrate.js";
 import { publishChatRoom } from "../lib/chatLive.js";
+import { clearRoomRemoval, recordRoomRemoval, roomRemovedAt } from "../lib/roomRemovalStore.js";
 import { notifyEntitledMembersOfCheckInEtaShift } from "../lib/checkInEtaNotify.js";
 import {
   countsTowardUnpaidRaceLimit,
@@ -2418,6 +2419,27 @@ function isExpired(expiresAt: string): boolean {
   return Date.parse(expiresAt) <= Date.now();
 }
 
+/** Longest an invite may stay open. Also the default when the issuer sets none. */
+export const INVITE_MAX_LIFETIME_MS = 1000 * 60 * 60 * 24 * 7;
+const INVITE_DEFAULT_LIFETIME_MS = 1000 * 60 * 60 * 24;
+
+/** An invite counts only while the person who issued it could still issue it. */
+function inviterStillAllowed(room: RaceRoom, invite: RaceRoomInvite): boolean {
+  if (invite.invitedBy === room.athleteId) return true;
+  const inviter = room.memberships.find((member) => member.userId === invite.invitedBy);
+  return Boolean(inviter && getPermissions(inviter.role).canIssueInvite);
+}
+
+/**
+ * Someone the owner removed may come back only through an invite the owner issued after the
+ * removal. Returns false when the user is removed and this invite (or a code join) can't readmit them.
+ */
+function readmits(room: RaceRoom, removedAt: string | undefined, invite?: RaceRoomInvite): boolean {
+  if (removedAt === undefined) return true;
+  if (!invite || invite.invitedBy !== room.athleteId) return false;
+  return Date.parse(invite.invitedAt) > Date.parse(removedAt);
+}
+
 function recomputeProjectionStoppageSummary(core: RaceRoomProjectionCore, activatedAt: string): void {
   const asOfMs = Date.parse(core.asOfRecordedAt);
   const activatedAtMs = Date.parse(activatedAt);
@@ -3758,14 +3780,23 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    const issuedAt = Date.now();
+    const requestedExpiry = parsed.data.expiresAt ? Date.parse(parsed.data.expiresAt) : undefined;
+    if (
+      requestedExpiry !== undefined &&
+      (requestedExpiry <= issuedAt || requestedExpiry > issuedAt + INVITE_MAX_LIFETIME_MS)
+    ) {
+      return reply.code(400).send({ error: "Invite expiry must be in the future and within 7 days" });
+    }
+
     const invite: RaceRoomInvite = {
       token: randomUUID(),
       roomId,
       email: parsed.data.email.toLowerCase(),
       role: parsed.data.role,
       invitedBy: request.identity.sub,
-      invitedAt: new Date().toISOString(),
-      expiresAt: parsed.data.expiresAt ?? new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+      invitedAt: new Date(issuedAt).toISOString(),
+      expiresAt: new Date(requestedExpiry ?? issuedAt + INVITE_DEFAULT_LIFETIME_MS).toISOString(),
       status: "pending"
     };
 
@@ -3859,7 +3890,17 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(410).send({ error: "Invite expired" });
       }
 
+      // Removed or demoted since issuing it: the invite lapses with their rights.
+      if (!inviterStillAllowed(room, invite)) {
+        await saveRaceRoomInvite({ ...invite, status: "expired" });
+        return reply.code(410).send({ error: "Invite expired" });
+      }
+
       const existing = room.memberships.find((member) => member.userId === userId);
+      const removedAt = existing ? undefined : await roomRemovedAt(room.id, userId);
+      if (!readmits(room, removedAt, invite)) {
+        return reply.code(403).send({ error: "Ask the race owner for a new invite" });
+      }
       // PATCH /members refuses to move the race athlete off `athlete`. Accepting a
       // link the athlete just created must not take that role away either, and must
       // leave the invite pending for the person it was meant for.
@@ -3908,6 +3949,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
       };
 
       await saveRaceRoom(updatedRoom);
+      if (removedAt !== undefined) {
+        await clearRoomRemoval(room.id, userId);
+      }
       await saveRaceRoomInvite({
         ...invite,
         status: "accepted",
@@ -3953,6 +3997,10 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         await writeDelay();
       }
       const existingMembership = room.memberships.find((member) => member.userId === userId);
+      // Same answer as an unknown code, so the code stays a plain "not found" to the client.
+      if (!existingMembership && !readmits(room, await roomRemovedAt(room.id, userId))) {
+        return reply.code(404).send({ error: "Race room not found" });
+      }
       if (!existingMembership && !isRunnerSeat(room, userId)) {
         // Only a paid race takes someone new. The runner still joins their own.
         const unpaid = roomUnpaidError(room);
@@ -4120,6 +4168,9 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     if (!hasMember) {
       return reply.code(404).send({ error: "Member not found" });
     }
+
+    // Recorded before the membership goes, so a failed write never leaves them out but able to rejoin.
+    await recordRoomRemoval(room.id, memberUserId, new Date().toISOString());
 
     let memberMissing = false;
     let ownerRemovalBlocked = false;
