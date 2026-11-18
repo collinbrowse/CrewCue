@@ -36,10 +36,13 @@ struct OnboardingPaywallView: View {
     private var sideBySide: Bool { sizeClass == .regular && !typeSize.isAccessibilitySize }
 
     var body: some View {
-        ScrollView {
+        // Each row pads itself, so the options and the footer can run to the display's edge below
+        // a camera column (iPhone Duo's outer display). The header, with Back, stays clear of it.
+        OcclusionScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.margin) {
                 header
                     .avoidsReservedRegions()
+                    .padding(.horizontal, CrewSpace.margin)
                 let layout = sideBySide
                     ? AnyLayout(HStackLayout(alignment: .top, spacing: CrewSpace.gutter))
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: CrewSpace.gutter))
@@ -56,12 +59,18 @@ struct OnboardingPaywallView: View {
                             Task { await billing?.buy(option.product) }
                         }
                         .avoidsReservedRegions()
+                        // Stacked, each option pads itself and decides its own width: scrolled up
+                        // beside the column it keeps clear of it, while the one below runs on.
+                        .padding(.horizontal, sideBySide ? 0 : CrewSpace.margin)
+                        .fullWidthClearOfOcclusions()
                     }
                 }
+                .padding(.horizontal, sideBySide ? CrewSpace.margin : 0)
                 footer
                     .avoidsReservedRegions()
+                    .padding(.horizontal, CrewSpace.margin)
+                    .fullWidthClearOfOcclusions()
             }
-            .padding(.horizontal, CrewSpace.margin)
             .padding(.vertical, CrewSpace.margin)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

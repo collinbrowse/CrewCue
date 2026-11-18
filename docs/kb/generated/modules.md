@@ -203,31 +203,31 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### iOS app (SwiftUI)
 
-70 files under `apps/ios/CrewCue/`.
+72 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 14 | 1592 |
+| `App` | 14 | 1596 |
 | `Brand` | 1 | 184 |
-| `Design` | 3 | 763 |
+| `Design` | 5 | 1327 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 182 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 935 |
+| `Screens/Chat` | 4 | 944 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1947 |
+| `Screens/Map` | 4 | 1951 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 10 | 2858 |
-| `Screens/Pace` | 2 | 1842 |
-| `Screens/Profile` | 2 | 414 |
+| `Screens/Onboarding` | 10 | 2881 |
+| `Screens/Pace` | 2 | 1868 |
+| `Screens/Profile` | 2 | 427 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 657 |
+| `Screens/Shell` | 4 | 659 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
