@@ -69,23 +69,31 @@ struct ProfileView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        ScrollView {
+        // Each row pads itself, so the rows below a camera column (iPhone Duo's outer display)
+        // can run to the display's edge.
+        OcclusionScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 ProfileHero(
                     name: model.showsName ? model.displayName : "Profile",
                     role: role,
                     live: readout.pingState == .live
                 )
+                .padding(.horizontal, CrewSpace.gutter)
+                .fullWidthClearOfOcclusions()
                 if model.message.isEmpty == false {
                     Text(verbatim: model.message)
                         .font(CrewFont.body)
                         .foregroundStyle(theme.body)
+                        .padding(.horizontal, CrewSpace.gutter)
+                        .fullWidthClearOfOcclusions()
                 }
                 if hasRoom {
                     HStack(spacing: CrewSpace.stackSm) {
                         ProfileStatCard(label: "Current pace", value: readout.averagePaceLabel, caption: "Min / mile", accent: true)
                         ProfileStatCard(label: "Time elapsed", value: readout.elapsedLabel, caption: "HH:MM:SS", accent: false)
                     }
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .fullWidthClearOfOcclusions()
                     VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
                         HStack {
                             Text(verbatim: readout.progressLabel)
@@ -100,6 +108,8 @@ struct ProfileView: View {
                         CrewProgressBar(fraction: readout.progressFraction)
                     }
                     .crewGlassCard()
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .fullWidthClearOfOcclusions()
                     VStack(alignment: .leading, spacing: 4) {
                         CrewSectionHeader(title: "Race & crew")
                         CrewListRow(systemImage: "person.3", title: "Room members", detail: "Your crew for this race", action: onMembers)
@@ -109,6 +119,8 @@ struct ProfileView: View {
                         }
                     }
                     .crewGlassCard()
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .fullWidthClearOfOcclusions()
                 }
                 VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
                     CrewSectionHeader(title: "Your races")
@@ -147,8 +159,9 @@ struct ProfileView: View {
                         .buttonStyle(.crewSecondary)
                 }
                 .crewGlassCard()
+                .padding(.horizontal, CrewSpace.gutter)
+                .fullWidthClearOfOcclusions()
             }
-            .padding(.horizontal, CrewSpace.gutter)
             .padding(.top, CrewSpace.gutter)
             .padding(.bottom, CrewSpace.stackLg)
             .frame(maxWidth: .infinity, alignment: .topLeading)

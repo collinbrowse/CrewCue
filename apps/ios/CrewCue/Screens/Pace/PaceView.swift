@@ -23,12 +23,20 @@ struct PaceView: View {
     var body: some View {
         let rows = model.timeline(runner: runner, live: live)
         let readout = model.readout(runner: runner, live: live)
-        ScrollView {
+        // Each section pads itself, so the ones below a camera column (iPhone Duo's outer display)
+        // can run to the display's edge.
+        OcclusionScrollView {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .fullWidthClearOfOcclusions()
                 PaceEstimateSection(model: model)
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .fullWidthClearOfOcclusions()
                 if !readOnly, model.canEditStops || model.stopsMessage.isEmpty == false {
                     PaceStopEditBar(model: model)
+                        .padding(.horizontal, CrewSpace.gutter)
+                        .fullWidthClearOfOcclusions()
                 }
                 PaceTimeline(
                     rows: rows,
@@ -42,8 +50,9 @@ struct PaceView: View {
                     onImport: { openTools("gpx-import") },
                     showsActions: !readOnly
                 )
+                .padding(.horizontal, CrewSpace.gutter)
+                .fullWidthClearOfOcclusions()
             }
-            .padding(.horizontal, CrewSpace.gutter)
             .padding(.top, CrewSpace.gutter)
             .padding(.bottom, 96)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -51,7 +60,11 @@ struct PaceView: View {
         .scrollIndicators(.hidden)
         .overlay(alignment: .bottomTrailing) {
             if !readOnly {
+                // As wide as the page, so below a camera column it keeps to the edge the
+                // timeline runs to.
                 raceToolsButton
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .fullWidthClearOfOcclusions()
             }
         }
         .sheet(isPresented: $showsTools) {

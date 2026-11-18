@@ -87,8 +87,11 @@ struct ChatView: View {
                     withAnimation { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
+            // The status line and the composer sit at the bottom: below a camera column (iPhone
+            // Duo's outer display) they run to the display's edge.
             ChatStatusText(message: model.statusMessage)
                 .padding(.horizontal, CrewSpace.margin)
+                .fullWidthClearOfOcclusions()
             if !readOnly {
                 ChatComposer(
                     draft: $model.draft,
@@ -100,6 +103,7 @@ struct ChatView: View {
                 )
                     .padding(.horizontal, CrewSpace.gutter)
                     .padding(.bottom, CrewSpace.base)
+                    .fullWidthClearOfOcclusions()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

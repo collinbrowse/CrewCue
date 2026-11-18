@@ -77,6 +77,8 @@ struct MapView: View {
                 // The replay's Map is a pane a fold can run through: its sheet and chips stay off
                 // the fold while the canvas under them stays full-bleed.
                 .avoidsReservedRegions(when: readOnly)
+                // Below a camera column (iPhone Duo's outer display) the sheet runs to the edge.
+                .fullWidthClearOfOcclusions()
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {}, readOnly: readOnly)
