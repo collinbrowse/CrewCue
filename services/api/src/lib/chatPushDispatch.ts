@@ -31,9 +31,10 @@ export type ChatPushDeliveryTarget = {
 export type ChatPushDispatchInput = {
   /**
    * Sent as the payload's `type`. "chat" opens the room's thread on tap; "schedule" opens the race;
-   * "tracking" is the runner's start-tracking reminder (trackingReminderScheduler.ts).
+   * "tracking" is the runner's start-tracking reminder (trackingReminderScheduler.ts); "unlock" is
+   * the unpaid-race reminder to the race's creator (unpaidRaceReminderScheduler.ts).
    */
-  kind?: "chat" | "schedule" | "tracking";
+  kind?: "chat" | "schedule" | "tracking" | "unlock";
   roomId: string;
   messageId?: string;
   /**
