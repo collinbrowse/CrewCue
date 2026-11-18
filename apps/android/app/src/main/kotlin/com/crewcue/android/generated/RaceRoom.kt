@@ -25,5 +25,6 @@ data class RaceRoom(
     val courseFileName: String? = null,
     val plannedPaceSecondsPerKm: Double? = null,
     val pacingEstimateId: String? = null,
-    val pacingEstimate: PacingEstimate? = null
+    val pacingEstimate: PacingEstimate? = null,
+    val unpaidExpiresAt: String? = null
 )
