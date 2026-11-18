@@ -21,7 +21,7 @@
  *
  * The sweeper deletes a race only once its `expiry_1d` claim is at least 24 hours old, so nobody
  * loses a race without that warning a day before. The claim is what counts, not the delivery: a
- * runner with no push device, or a creator no longer on the roster, still gets the claim (the slot
+ * creator with no push device, or one no longer on the roster, still gets the claim (the slot
  * counts as passed), else the race would never expire.
  *
  * Sent once across instances (risks R1, R20): an instance first inserts a claim row in

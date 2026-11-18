@@ -39,7 +39,7 @@ async function start() {
   const app = buildApp();
   // Tracking reminder pushes: ticks every minute from when the app is ready, stops on app.close().
   attachTrackingReminderScheduler(app, { listRooms: listRaceRoomsStartingBetween });
-  // Unpaid races: reminder pushes to the runner every 15 minutes, and a sweeper that deletes a race
+  // Unpaid races: reminder pushes to the creator every 15 minutes, and a sweeper that deletes a race
   // 30 days old an hour at a time, a day after its last reminder at the soonest. Both start once the
   // server listens and stop on shutdown, with no Fastify hooks (UNPAID_RACE_EXPIRY_ENABLED, R32).
   const unpaidRaceReminders = UNPAID_RACE_EXPIRY_ENABLED

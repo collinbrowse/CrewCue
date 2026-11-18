@@ -26,7 +26,7 @@ Primary key: `transaction_id`.
 
 Indexes: `billing_grants_by_room`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
 
 ## `billing_webhook_events`
 
@@ -234,7 +234,7 @@ Primary key: `id`.
 
 Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`, `race_rooms_json_unpaid_race_start_at`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts).
 
 ## `room_athlete_pings`
 

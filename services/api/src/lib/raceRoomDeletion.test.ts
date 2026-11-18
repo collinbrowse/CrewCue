@@ -14,6 +14,7 @@ import { MemoryChatPhotoStore, setChatPhotoStoreForTests } from "./chatPhotoStor
 import { listFinishedEfforts, recordFinishedEffort } from "./finishedEffortStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import type { RaceRoomExpiryFields } from "./roomPersistence.js";
+import { recordRoomRemoval, roomRemovedAt } from "./roomRemovalStore.js";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -53,6 +54,8 @@ async function raceWithData(app: App, runner: string): Promise<RaceRoom> {
     actualFinishSeconds: 20_000,
     stops: []
   });
+  // Someone the runner removed (#723): kept outside the room row, with no foreign key.
+  await recordRoomRemoval(room.id, `removed-${runner}`, new Date().toISOString());
   return room;
 }
 
@@ -66,10 +69,11 @@ test("a condition that says no keeps the room and all its data; it is asked abou
       return false;
     });
     assert.equal(result, "kept");
-    assert.deepEqual(asked, [{ id: room.id, entitlementStatus: "unpaid", createdAt: room.createdAt }]);
+    assert.deepEqual(asked, [{ id: room.id, entitlementStatus: "unpaid", createdAt: room.createdAt, creatorId: runner }]);
     assert.ok(await getRaceRoom(room.id));
     assert.equal((await listTrackPoints(room.id, undefined, 100)).length, 1);
     assert.equal((await listFinishedEfforts({ athleteUserId: runner })).length, 1);
+    assert.ok(await roomRemovedAt(room.id, `removed-${runner}`), "the removal record stays");
     const read = await app.inject({ method: "GET", url: `/race-rooms/${room.id}`, headers: auth(app, runner) });
     assert.equal(read.statusCode, 200, read.body);
     await deleteRaceRoomAndData(room.id);
@@ -84,6 +88,7 @@ test("a condition that says yes deletes the room and its data; a repeat finds it
     assert.equal(await getRaceRoom(room.id), undefined);
     assert.deepEqual(await listTrackPoints(room.id, undefined, 100), []);
     assert.deepEqual(await listFinishedEfforts({ athleteUserId: runner }), []);
+    assert.equal(await roomRemovedAt(room.id, `removed-${runner}`), undefined, "the removal record went with it");
     const read = await app.inject({ method: "GET", url: `/race-rooms/${room.id}`, headers: auth(app, runner) });
     assert.equal(read.statusCode, 404, read.body);
     let asked = false;
