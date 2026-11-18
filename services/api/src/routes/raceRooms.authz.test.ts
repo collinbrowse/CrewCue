@@ -541,6 +541,177 @@ test("only the race owner can issue invites above crew_member", async () => {
   await app.close();
 });
 
+type RemovalFixture = {
+  app: ReturnType<typeof buildApp>;
+  roomId: string;
+  joinCode: string;
+  as: (sub: string) => { authorization: string };
+};
+
+/** Owner-run room on the Full Crew tier, so seat limits never decide these tests. */
+async function removalFixture(): Promise<RemovalFixture> {
+  const app = buildApp();
+  await app.ready();
+  const as = (sub: string) => ({ authorization: `Bearer ${app.jwt.sign(buildClaims(sub))}` });
+  const created = await app.inject({
+    method: "POST",
+    url: "/race-rooms",
+    payload: { teamId: "team-1", athleteId: "athlete-user", name: "Race Room", creatorRole: "athlete" },
+    headers: as("athlete-user")
+  });
+  assert.equal(created.statusCode, 201);
+  const room = created.json() as { id: string; joinCode: string };
+  const paid = await app.inject({
+    method: "POST",
+    url: `/race-rooms/${room.id}/entitlement`,
+    payload: { status: "paid", crewTier: "unlimited" },
+    headers: as("athlete-user")
+  });
+  assert.equal(paid.statusCode, 200);
+  return { app, roomId: room.id, joinCode: room.joinCode, as };
+}
+
+async function issueInvite(
+  f: RemovalFixture,
+  by: string,
+  role: string,
+  expiresAt?: string
+): Promise<{ statusCode: number; token: string }> {
+  const res = await f.app.inject({
+    method: "POST",
+    url: `/race-rooms/${f.roomId}/invites`,
+    payload: { email: `${role}-${by}@example.com`, role, ...(expiresAt ? { expiresAt } : {}) },
+    headers: f.as(by)
+  });
+  return { statusCode: res.statusCode, token: (res.json() as { token?: string }).token ?? "" };
+}
+
+async function acceptInvite(f: RemovalFixture, sub: string, token: string): Promise<number> {
+  const res = await f.app.inject({
+    method: "POST",
+    url: `/race-rooms/${f.roomId}/invites/accept`,
+    payload: { token },
+    headers: f.as(sub)
+  });
+  return res.statusCode;
+}
+
+async function joinByCode(f: RemovalFixture, sub: string): Promise<number> {
+  const res = await f.app.inject({
+    method: "POST",
+    url: "/race-rooms/join-by-code",
+    payload: { roomCode: f.joinCode },
+    headers: f.as(sub)
+  });
+  return res.statusCode;
+}
+
+async function removeMember(f: RemovalFixture, sub: string): Promise<void> {
+  const res = await f.app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${f.roomId}/members/${sub}`,
+    headers: f.as("athlete-user")
+  });
+  assert.equal(res.statusCode, 200);
+}
+
+async function canReadRoom(f: RemovalFixture, sub: string): Promise<boolean> {
+  const res = await f.app.inject({ method: "GET", url: `/race-rooms/${f.roomId}`, headers: f.as(sub) });
+  return res.statusCode === 200;
+}
+
+test("a member the owner removed stays out when they use the room code again", async () => {
+  const f = await removalFixture();
+  assert.equal(await joinByCode(f, "crew-user"), 200);
+  await removeMember(f, "crew-user");
+
+  assert.equal(await joinByCode(f, "crew-user"), 404);
+  assert.equal(await canReadRoom(f, "crew-user"), false);
+
+  // Everyone else can still join with the same code.
+  assert.equal(await joinByCode(f, "new-crew-user"), 200);
+  await f.app.close();
+});
+
+test("an invite stops working once its issuer can no longer invite", async () => {
+  const f = await removalFixture();
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+
+  const fromChief = await issueInvite(f, "chief-user", "crew_member");
+  const fromChiefForFriend = await issueInvite(f, "chief-user", "crew_member");
+  assert.equal(fromChief.statusCode, 201);
+  await removeMember(f, "chief-user");
+
+  assert.equal(await acceptInvite(f, "chief-user", fromChief.token), 410);
+  assert.equal(await acceptInvite(f, "friend-user", fromChiefForFriend.token), 410);
+  assert.equal(await canReadRoom(f, "chief-user"), false);
+  assert.equal(await canReadRoom(f, "friend-user"), false);
+  await f.app.close();
+});
+
+test("an invite from a demoted crew chief no longer admits anyone", async () => {
+  const f = await removalFixture();
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+  const fromChief = await issueInvite(f, "chief-user", "crew_member");
+
+  const demoted = await f.app.inject({
+    method: "PATCH",
+    url: `/race-rooms/${f.roomId}/members/chief-user`,
+    payload: { role: "crew_member" },
+    headers: f.as("athlete-user")
+  });
+  assert.equal(demoted.statusCode, 200);
+
+  assert.equal(await acceptInvite(f, "friend-user", fromChief.token), 410);
+  await f.app.close();
+});
+
+test("only a newer invite from the owner brings a removed member back", async () => {
+  const f = await removalFixture();
+  const olderOwnerInvite = await issueInvite(f, "athlete-user", "crew_member");
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+  assert.equal(await joinByCode(f, "crew-user"), 200);
+  await removeMember(f, "crew-user");
+
+  // An owner invite from before the removal, or one from crew, does not readmit them.
+  assert.equal(await acceptInvite(f, "crew-user", olderOwnerInvite.token), 403);
+  const fromChief = await issueInvite(f, "chief-user", "crew_member");
+  assert.equal(await acceptInvite(f, "crew-user", fromChief.token), 403);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const fresh = await issueInvite(f, "athlete-user", "crew_member");
+  assert.equal(await acceptInvite(f, "crew-user", fresh.token), 200);
+  assert.equal(await canReadRoom(f, "crew-user"), true);
+
+  // Removing them again blocks the room code again.
+  await removeMember(f, "crew-user");
+  assert.equal(await joinByCode(f, "crew-user"), 404);
+  await f.app.close();
+});
+
+test("invites stay open for at most seven days", async () => {
+  const f = await removalFixture();
+  const day = 24 * 60 * 60 * 1000;
+  const tooLong = await issueInvite(f, "athlete-user", "crew_member", new Date(Date.now() + 8 * day).toISOString());
+  assert.equal(tooLong.statusCode, 400);
+  const past = await issueInvite(f, "athlete-user", "crew_member", new Date(Date.now() - 1000).toISOString());
+  assert.equal(past.statusCode, 400);
+  const week = await issueInvite(f, "athlete-user", "crew_member", new Date(Date.now() + 7 * day - 60_000).toISOString());
+  assert.equal(week.statusCode, 201);
+  const defaulted = await f.app.inject({
+    method: "POST",
+    url: `/race-rooms/${f.roomId}/invites`,
+    payload: { email: "default@example.com", role: "crew_member" },
+    headers: f.as("athlete-user")
+  });
+  const expiresAt = Date.parse((defaulted.json() as { expiresAt: string }).expiresAt);
+  assert.ok(expiresAt <= Date.now() + day + 1000, "default invite lasts one day");
+  await f.app.close();
+});
+
 test("two roles: a crew_member edits course details but not race setup", async () => {
   const app = buildApp();
   await app.ready();
