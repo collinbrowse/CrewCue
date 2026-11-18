@@ -46,8 +46,8 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1246 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1243 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1065 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 881 |
-| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 878 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
+| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 900 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
@@ -126,7 +126,7 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 | `tracking-reminder` | v1 | fail | fail |
-| `onboarding-race-preview` | v1 | fail | fail |
+| `onboarding-race-preview` | v1 | pass | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 

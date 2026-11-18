@@ -95,6 +95,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift](../../../packages/client-core/Sources/CrewCueClientCore/ClientGraph.swift) | `Clock`, `SystemClock`, `ClientGraph` |
 | [packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift](../../../packages/client-core/Sources/CrewCueClientCore/CourseUploadGate.swift) | `CourseUploadSuperseded`, `CourseUploadGate`, `CourseUploadBox` |
 | [packages/client-core/Sources/CrewCueClientCore/Deadline.swift](../../../packages/client-core/Sources/CrewCueClientCore/Deadline.swift) | `Deadline`, `ResumeOnce` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift) | `DemoRaceAudience` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift) | `DemoRaceFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift) | `DemoRaceSnapshot`, `DemoRacePlayer`, `DemoRaceSession`, `DemoRace`, `LiveDemoDirectories` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift) | `DemoRaceError`, `DemoRaceCoordinate`, `DemoRaceCourse`, `DemoRaceBeat`, `DemoRacePing`, `DemoRaceChatMessage`, `DemoRaceStep`, `DemoRaceScript` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift) | `DemoRaceWorld`, `DemoRaceClock`, `DemoRaceTransport` |
@@ -190,40 +192,40 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-104 files under `packages/client-core/Sources/`.
+106 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 54 | 12250 |
+| `CrewCueClientCore` | 56 | 12428 |
 | `CrewCueClientCore/Generated` | 50 | 978 |
 
 ### iOS app (SwiftUI)
 
-65 files under `apps/ios/CrewCue/`.
+70 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 95 |
-| `App` | 13 | 1484 |
+| `App` | 14 | 1592 |
 | `Brand` | 1 | 184 |
-| `Design` | 2 | 685 |
+| `Design` | 3 | 763 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 182 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 929 |
+| `Screens/Chat` | 4 | 935 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1831 |
+| `Screens/Map` | 4 | 1947 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 7 | 1806 |
-| `Screens/Pace` | 2 | 1759 |
+| `Screens/Onboarding` | 10 | 2858 |
+| `Screens/Pace` | 2 | 1842 |
 | `Screens/Profile` | 2 | 414 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 624 |
+| `Screens/Shell` | 4 | 657 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)

@@ -60,7 +60,8 @@ private struct CoursePreviewMap: View {
             trackColor: UIColor(theme.secondary),
             route: preview.route.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) },
             fitPadding: UIEdgeInsets(top: 36, left: 36, bottom: 36, right: 36),
-            refitOnResize: true
+            refitOnResize: true,
+            shrinksPaddingToFit: true
         )
         #else
         EmptyView()

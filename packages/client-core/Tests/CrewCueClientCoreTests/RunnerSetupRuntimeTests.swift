@@ -317,6 +317,37 @@ private let paidLastAidStop = #"{"id":"s3","checkpointId":"aid-2","elapsedSecond
     #expect(PlanFinish.row(in: paidSheet(planFrom: "e1", last: paidFinishStop)) == nil)
 }
 
+/// iOS Pace prints `PlanFinish.estimateSummary` on the schedule sheet it loaded; Android Pace and
+/// the teaser print the runtime payload's `summary`. For the same paid plan both show the finish
+/// row, planned stops included, not the estimate's own finish.
+@Test func iosPaceSummaryOnTheLoadedSheetIsTheRuntimeSummary() async throws {
+    let estimate = try JSONDecoder().decode(PacingEstimate.self, from: Data(estimateJSON.utf8))
+    let sheet = paidSheet(planFrom: "e1", last: paidFinishStop)
+    let zone = try #require(TimeZone(identifier: "America/Denver"))
+    let ios = PlanFinish.estimateSummary(estimate, plan: PlanFinish.row(in: sheet, for: estimate), timeZone: zone)
+    let planClock = ScheduleFormat.formatScheduleClock("2026-08-15T22:18:00.000Z", timeZone: zone)
+    #expect(ios == "No history yet.\nFinish 10:18:00 · \(planClock)")
+    #expect(!ios.contains(ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt, timeZone: zone)))
+    // No sheet yet (or one planned from another estimate): the estimate's own finish.
+    let own = PlanFinish.estimateSummary(estimate, plan: PlanFinish.row(in: nil, for: estimate), timeZone: zone)
+    #expect(own == "No history yet.\nFinish 10:10:00 · \(ScheduleFormat.formatScheduleClock(estimate.expectedFinishAt, timeZone: zone))")
+
+    let base = "https://estimate-ios-parity.test"
+    let server = ScriptedServer([
+        "POST /pacing-estimates": [(201, estimateJSON)],
+        "PUT /race-rooms/r1/pacing-estimate": [(200, "{\"estimate\":\(estimateJSON)}")],
+        "GET /race-rooms/r1/schedule": [(200, String(decoding: try JSONEncoder().encode(sheet), as: UTF8.self))]
+    ])
+    RuntimeCall.setTransportForTests(server, baseURL: base)
+    defer { RuntimeCall.setTransportForTests(nil, baseURL: base) }
+    let storage = FileManager.default.temporaryDirectory.appendingPathComponent("estimate-\(UUID().uuidString)").path
+    let attached = try result(try await runtime([
+        "op": "computeEstimate", "baseURL": base, "token": "t", "userId": "ada", "role": "athlete", "timeZone": "America/Denver",
+        "storageDir": storage, "roomId": "r1", "trigger": "auto", "hasPlanOfRecord": false, "usableHistoryCount": 0
+    ]))
+    #expect(attached["summary"] as? String == ios)
+}
+
 @Test func anUnpaidSheetsStandInFinishIsStillTheFinish() throws {
     let estimate = try JSONDecoder().decode(PacingEstimate.self, from: Data(estimateJSON.utf8))
     // No finish waypoint on an unpaid race: the farthest stop stands in for the finish, after its own stop.

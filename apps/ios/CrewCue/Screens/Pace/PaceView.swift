@@ -13,6 +13,9 @@ struct PaceView: View {
     var focus: String = "schedule-sheet"
     var runner: RunnerProgress = .none
     var live: LiveProjection? = nil
+    /// The onboarding replay: the progress, the estimate and the timeline only. No race tools,
+    /// check-in or stop editing, since the replay never writes.
+    var readOnly = false
     @State private var showsTools = false
     @State private var toolFocus = "gpx-import"
     @Environment(\.crew) private var theme
@@ -24,7 +27,7 @@ struct PaceView: View {
             VStack(alignment: .leading, spacing: CrewSpace.gutter) {
                 PaceProgressHeader(raceName: model.raceName, readout: readout)
                 PaceEstimateSection(model: model)
-                if model.canEditStops || model.stopsMessage.isEmpty == false {
+                if !readOnly, model.canEditStops || model.stopsMessage.isEmpty == false {
                     PaceStopEditBar(model: model)
                 }
                 PaceTimeline(
@@ -36,7 +39,8 @@ struct PaceView: View {
                     onStopMinutes: model.setStopMinutes,
                     onStepStop: model.stepStop,
                     onCheckIn: openCheckIn,
-                    onImport: { openTools("gpx-import") }
+                    onImport: { openTools("gpx-import") },
+                    showsActions: !readOnly
                 )
             }
             .padding(.horizontal, CrewSpace.gutter)
@@ -46,20 +50,9 @@ struct PaceView: View {
         }
         .scrollIndicators(.hidden)
         .overlay(alignment: .bottomTrailing) {
-            Button {
-                openTools("gpx-import")
-            } label: {
-                Image(systemName: "calendar.badge.clock")
-                    .font(CrewFont.headline)
-                    .foregroundStyle(theme.onPrimary)
-                    .frame(width: 60, height: 60)
-                    .background(theme.primary, in: Circle())
-                    .shadow(color: theme.primary.opacity(0.35), radius: 14, y: 6)
+            if !readOnly {
+                raceToolsButton
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, CrewSpace.gutter)
-            .padding(.bottom, CrewSpace.gutter)
-            .accessibilityLabel("Race tools")
         }
         .sheet(isPresented: $showsTools) {
             PaceToolsSheet(model: model, focus: toolFocus)
@@ -72,6 +65,7 @@ struct PaceView: View {
                 model.openCheckIn(checkpointId: first.checkpointId)
             }
             await model.activate(userId: userId, roomId: roomId, role: role)
+            guard !readOnly else { return }
             if focus == "check-in", let first = model.stops.first {
                 model.openCheckIn(checkpointId: first.checkpointId)
             }
@@ -82,6 +76,24 @@ struct PaceView: View {
                 model.beginStopEdit()
             }
         }
+    }
+
+    /// GPX import, check-in, the crew sheet, course settings and the outbox. Not in the replay.
+    private var raceToolsButton: some View {
+        Button {
+            openTools("gpx-import")
+        } label: {
+            Image(systemName: "calendar.badge.clock")
+                .font(CrewFont.headline)
+                .foregroundStyle(theme.onPrimary)
+                .frame(width: 60, height: 60)
+                .background(theme.primary, in: Circle())
+                .shadow(color: theme.primary.opacity(0.35), radius: 14, y: 6)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, CrewSpace.gutter)
+        .padding(.bottom, CrewSpace.gutter)
+        .accessibilityLabel("Race tools")
     }
 
     private func openCheckIn(_ checkpointId: String) {
@@ -170,6 +182,8 @@ struct PaceTimeline: View {
     var onStepStop: (String, Int) -> Void = { _, _ in }
     let onCheckIn: (String) -> Void
     let onImport: () -> Void
+    /// Off in the onboarding replay: no Check in and no Import a course.
+    var showsActions = true
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -181,8 +195,10 @@ struct PaceTimeline: View {
                     Text(verbatim: message.isEmpty ? "Import a GPX course to build the schedule." : message)
                         .font(CrewFont.body)
                         .foregroundStyle(theme.body)
-                    Button("Import a course", action: onImport)
-                        .buttonStyle(.crewPrimary)
+                    if showsActions {
+                        Button("Import a course", action: onImport)
+                            .buttonStyle(.crewPrimary)
+                    }
                 }
                 .crewGlassCard()
             } else {
@@ -193,9 +209,12 @@ struct PaceTimeline: View {
                 }
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-                        PaceCheckpointCard(row: row, stop: stops.first { $0.checkpointId == row.checkpointId }, liveStale: liveStale) {
-                            onCheckIn(row.checkpointId)
-                        }
+                        PaceCheckpointCard(
+                            row: row,
+                            stop: stops.first { $0.checkpointId == row.checkpointId },
+                            liveStale: liveStale,
+                            onCheckIn: showsActions ? { onCheckIn(row.checkpointId) } : nil
+                        )
                         if let draftRow = draft?.row(row.checkpointId), draftRow.editable {
                             PaceStopEditor(
                                 row: draftRow,
@@ -217,7 +236,8 @@ struct PaceCheckpointCard: View {
     let row: CheckpointTimelineRow
     let stop: PaceStop?
     var liveStale = false
-    let onCheckIn: () -> Void
+    /// Nil hides Check in (the onboarding replay).
+    var onCheckIn: (() -> Void)?
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -342,8 +362,10 @@ struct PaceCheckpointCard: View {
                     .font(CrewFont.label)
                     .foregroundStyle(theme.body)
             }
-            Button("Check in", action: onCheckIn)
-                .buttonStyle(.crewSecondary)
+            if let onCheckIn {
+                Button("Check in", action: onCheckIn)
+                    .buttonStyle(.crewSecondary)
+            }
         }
         .padding(CrewSpace.margin)
         .frame(maxWidth: .infinity, alignment: .leading)
