@@ -34,14 +34,18 @@
  * is still `unpaid` with no billing grant for it and no unattached grant from its creator, in the
  * same statement. Memory mode checks the grants right before it claims (every purchase, comp and
  * fake purchase records a grant before it marks the room paid). A race paid in between gets
- * neither a claim nor a push ("paid").
+ * neither a claim nor a push ("paid"). A pass claims a room's slots one after the other and sends
+ * only once both are settled: when the second claim finds the race paid or gone, neither is sent,
+ * and the first claim stays (its slot counts as passed).
  *
  * The push goes through `dispatchChatPush` with type "unlock" and the roomId, on every device the
  * creator registered for chat push. Its collapse key is `unlock:<roomId>`, so a newer reminder
- * replaces an unread older one but never a chat, schedule or tracking push. When `expiry_1d` and
- * `race_soon` are both claimed in one pass, `race_soon` is sent first, so the deletion warning is
- * the one left on the phone. It expires (24 hours for `expiry_*`, the race start for `race_soon`),
- * so a phone offline for days never shows a stale one. The copy is in lib/unpaidRaceReminderCopy.ts.
+ * replaces an unread older one but never a chat, schedule or tracking push, and the phone keeps
+ * the last one it gets. When `expiry_1d` and `race_soon` are both claimed in one pass, `race_soon`
+ * is sent first, so the deletion warning is the one left on the phone. `expiry_7d` and `race_soon`
+ * go in claim order, so the race a few days off ("is in 2 days") is the one left. It expires (24
+ * hours for `expiry_*`, the race start for `race_soon`), so a phone offline for days never shows a
+ * stale one. The copy is in lib/unpaidRaceReminderCopy.ts.
  *
  * Every 15 minutes a tick lists the candidates through a slim query (Postgres: the unpaid partial
  * indexes on `createdAt` and `raceStartAt`, a few fields, never the payload with the course GPX).
@@ -371,10 +375,11 @@ export type UnpaidReminderResult =
   | "already_sent"
   /**
    * Paid (a billing grant, a status other than `unpaid`, or an unattached grant from its creator)
-   * after it was listed: nothing claimed, nothing sent.
+   * after it was listed: nothing sent. Nothing claimed either, unless this pass claimed the slot
+   * just before the room's next claim found the race paid (that claim stays).
    */
   | "paid"
-  /** The room was deleted after it was listed. */
+  /** The room was deleted after it was listed: nothing sent (as for "paid"). */
   | "room_gone"
   /** Reading devices or claiming threw; logged, and the next tick tries again. */
   | "error";
@@ -392,6 +397,11 @@ export type UnpaidReminderSchedulerOptions = {
   log: Pick<FastifyBaseLogger, "info" | "warn">;
   /** Clock (ms). Default `Date.now`. */
   now?: () => number;
+  /**
+   * Claims one reminder. Default {@link claimUnpaidReminder}; tests wrap it to change the race
+   * between two claims of one pass.
+   */
+  claim?: typeof claimUnpaidReminder;
   /** Tick interval (ms). Default {@link UNPAID_REMINDER_INTERVAL_MS}. */
   intervalMs?: number;
   /** Don't tick on start; the first tick waits one interval. */
@@ -415,6 +425,7 @@ export type UnpaidReminderScheduler = {
 
 export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerOptions): UnpaidReminderScheduler {
   const now = opts.now ?? Date.now;
+  const claimReminder = opts.claim ?? claimUnpaidReminder;
   const intervalMs = opts.intervalMs ?? UNPAID_REMINDER_INTERVAL_MS;
   const stopWaitMs = opts.stopWaitMs ?? DEFAULT_STOP_WAIT_MS;
   const log = opts.log;
@@ -443,7 +454,7 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
   ): Promise<UnpaidReminderOutcome | undefined> {
     let claim: UnpaidReminderClaim;
     try {
-      claim = await claimUnpaidReminder(room.id, slot, atMs, room.creatorId);
+      claim = await claimReminder(room.id, slot, atMs, room.creatorId);
     } catch (err) {
       log.warn({ err, unpaidReminder: { roomId: room.id, slot } }, "unpaid_reminder_check_failed");
       return outcomeOf(room, slot, "error");
@@ -559,9 +570,18 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
     if (unpaidRaceSoonReminderDue(current, soonAtMs)) {
       steps.push({ slot: "race_soon", atMs: soonAtMs, outcome: await claimOne(current, "race_soon", soonAtMs) });
     }
-    // Sent in the reverse of the claim order. Both share the collapse key, so a phone keeps the
-    // last one it gets: with `expiry_1d` and `race_soon` together, that is the deletion warning.
-    for (const step of [...steps].reverse()) {
+    // Paid or deleted after the expiry claim: nothing goes out, not even the slot this pass
+    // already claimed (that claim stays, and the slot counts as passed).
+    const stopped = steps.find((step) => step.outcome?.result === "paid" || step.outcome?.result === "room_gone");
+    if (stopped?.outcome) {
+      const { result } = stopped.outcome;
+      return steps.map((step) => step.outcome ?? outcomeOf(current, step.slot, result));
+    }
+    // Both share the collapse key, so a phone keeps the last one it gets. With `expiry_1d` and
+    // `race_soon`, `expiry_1d` goes last: the deletion warning is the one left. With `expiry_7d`
+    // and `race_soon`, they go in claim order: the race a few days off is the one left.
+    const sendOrder = steps[0]?.slot === "expiry_1d" ? [...steps].reverse() : steps;
+    for (const step of sendOrder) {
       step.outcome ??= await sendOne(current, step.slot, devices, step.atMs);
     }
     return steps.map((step) => step.outcome as UnpaidReminderOutcome);

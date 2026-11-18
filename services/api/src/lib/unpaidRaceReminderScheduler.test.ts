@@ -555,7 +555,12 @@ test("race_soon: only while the start is ahead and before the race's expiry; cat
     const both = await unpaidRace(app, uid("runner-both"), t0 - 29.5 * DAY, { startMs: t0 + 12 * HOUR, name: "Both" });
     // No creation time: never deleted, so race_soon applies.
     const undated = await unpaidRace(app, uid("runner-undated"), undefined, { startMs: t0 + DAY });
-    const ids = [inTwoDays, afterExpiry, started, later, catchUp, both, undated];
+    // Day 24, starting in 2 days (before day 30): the 7-day reminder and race_soon in one tick.
+    const sevenAndSoon = await unpaidRace(app, uid("runner-7d-and-soon"), t0 - 24 * DAY, {
+      startMs: t0 + 2 * DAY,
+      name: "Seven"
+    });
+    const ids = [inTwoDays, afterExpiry, started, later, catchUp, both, undated, sevenAndSoon];
     const clock = { now: t0 };
     const reminder = reminders(clock, ids);
 
@@ -567,12 +572,13 @@ test("race_soon: only while the start is ahead and before the race's expiry; cat
     assert.deepEqual(forRoom(outcomes, catchUp), ["race_soon:sent"]);
     assert.deepEqual(forRoom(outcomes, both), ["expiry_1d:sent", "race_soon:sent"]);
     assert.deepEqual(forRoom(outcomes, undated), ["race_soon:sent"]);
+    assert.deepEqual(forRoom(outcomes, sevenAndSoon), ["expiry_7d:sent", "race_soon:sent"]);
 
     clock.now = t0 + DAY;
     outcomes = await reminder.tick();
     assert.deepEqual(forRoom(outcomes, later), ["race_soon:sent"]);
     assert.deepEqual(forRoom(outcomes, afterExpiry), ["expiry_1d:sent"], "still no race_soon: deleted first");
-    for (const roomId of [inTwoDays, started, catchUp, both, undated]) {
+    for (const roomId of [inTwoDays, started, catchUp, both, undated, sevenAndSoon]) {
       assert.deepEqual(forRoom(outcomes, roomId), []);
     }
     clock.now = t0 + 2.4 * DAY;
@@ -601,7 +607,94 @@ test("race_soon: only while the start is ahead and before the race's expiry; cat
       "Your race Both will be deleted tomorrow. Unlock it to keep your course and plan.",
       "the deletion warning is the one left on the phone"
     );
+    // The 7-day reminder with race_soon: sent in claim order, so the race two days off is the one
+    // left on the phone (the delete is 6 days away, the race 2).
+    assert.deepEqual(
+      pushesFor(pushes, sevenAndSoon).map((p) => p.body.replace(/^Your race Seven /, "")),
+      [
+        "will be deleted in 6 days. Unlock it to keep your course and plan.",
+        "is in 2 days. Unlock it so your crew can follow you."
+      ],
+      "the 7-day reminder first, then race_soon, one collapse key"
+    );
+    assert.equal(new Set(pushesFor(pushes, sevenAndSoon).map((p) => p.collapseKey)).size, 1);
     assert.equal(pushesFor(pushes, started).length + pushesFor(pushes, afterExpiry).filter((p) => /is in/.test(p.body)).length, 0);
+  });
+});
+
+test("a race paid or deleted between its 1-day claim and its race_soon claim gets neither push; the 1-day claim stays", async () => {
+  await withApp(async (app) => {
+    const pushes = capturePushes();
+    const t0 = wholeSecond(Date.now());
+    // Day 29.5, starting in 12 hours: expiry_1d is claimed, then race_soon is due in the same pass.
+    const paysRunner = uid("runner-pays-between-claims");
+    const pays = await unpaidRace(app, paysRunner, t0 - 29.5 * DAY, { startMs: t0 + 12 * HOUR, name: "Pays" });
+    const goneRunner = uid("runner-gone-between-claims");
+    const gone = await unpaidRace(app, goneRunner, t0 - 29.5 * DAY, { startMs: t0 + 12 * HOUR, name: "Gone" });
+    const control = await unpaidRace(app, uid("runner-control-between-claims"), t0 - 29.5 * DAY, {
+      startMs: t0 + 12 * HOUR,
+      name: "Control"
+    });
+    const ids = [pays, gone, control];
+    const claimed: string[] = [];
+    const log = recordingLog();
+    const reminder = createUnpaidRaceReminderScheduler({
+      // In this order, so the claims below read in order.
+      listRooms: async (...range) =>
+        (await listUnpaidRaceRoomsForReminders(...range))
+          .filter((room) => ids.includes(room.id))
+          .sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)),
+      // The real claim; right after `expiry_1d` is won, the runner's purchase is applied to the
+      // race (`pays`), or the room is reported deleted before race_soon's claim (`gone`).
+      claim: async (roomId, slot, atMs, creatorId) => {
+        if (roomId === gone && slot === "race_soon") {
+          claimed.push(`${slot}:room_gone`);
+          return "room_gone";
+        }
+        const result = await claimUnpaidReminder(roomId, slot, atMs, creatorId);
+        if (roomId === pays && slot === "expiry_1d" && result === "claimed") {
+          await applyBillingGrant(
+            {
+              transactionId: uid("txn"),
+              roomId: pays,
+              productId: "race_pass",
+              appUserId: paysRunner,
+              source: "revenuecat",
+              status: "active"
+            },
+            app.log
+          );
+        }
+        if (roomId !== control) {
+          claimed.push(`${slot}:${result}`);
+        }
+        return result;
+      },
+      log,
+      now: () => t0,
+      skipFirstRun: true
+    });
+
+    const outcomes = await reminder.tick();
+    assert.deepEqual(claimed, ["expiry_1d:claimed", "race_soon:paid", "expiry_1d:claimed", "race_soon:room_gone"]);
+    assert.deepEqual(forRoom(outcomes, pays), ["expiry_1d:paid", "race_soon:paid"]);
+    assert.deepEqual(forRoom(outcomes, gone), ["expiry_1d:room_gone", "race_soon:room_gone"]);
+    assert.deepEqual(forRoom(outcomes, control), ["expiry_1d:sent", "race_soon:sent"], "an unpaid race still gets both");
+    for (const roomId of [pays, gone]) {
+      assert.equal(pushesFor(pushes, roomId).length, 0, "never told a race just paid will be deleted tomorrow");
+      assert.deepEqual(await claimsOf(roomId), [`expiry_1d@${iso(t0)}`], "the 1-day claim made still counts");
+    }
+    assert.equal(pushesFor(pushes, control).length, 2);
+    assert.equal((await getRaceRoom(pays))?.entitlement.status, "paid");
+    const pass = log.infos.find((line) => line.msg === "unpaid_reminder_pass")?.payload as {
+      unpaidReminders: { sent: number; paid: number };
+    };
+    assert.equal(pass.unpaidReminders.sent, 2);
+    assert.equal(pass.unpaidReminders.paid, 2);
+
+    // Nothing is retried later: the paid race is no longer a candidate, the other's claim stands.
+    assert.deepEqual(forRoom(await reminder.tick(), pays), []);
+    assert.equal(pushesFor(pushes, pays).length, 0);
   });
 });
 

@@ -144,7 +144,20 @@ test("the condition is asked again as the row is deleted; a no then keeps the ro
     assert.equal(asked, 2);
     assert.ok(await getRaceRoom(room.id));
     assert.equal((await listTrackPoints(room.id, undefined, 100)).length, 1, "the room's own tables are untouched");
-    await deleteRaceRoomAndData(room.id);
+    // The removal is what refuses the removed person's join by code: a kept race keeps it.
+    assert.ok(await roomRemovedAt(room.id, `removed-${runner}`), "the removal record stays with the kept race");
+    const rejoin = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: auth(app, `removed-${runner}`)
+    });
+    assert.equal(rejoin.statusCode, 404, `the removed person is still refused: ${rejoin.body}`);
+
+    // A yes both times: the race goes, and its removal record with it.
+    assert.equal(await deleteRaceRoomAndData(room.id, () => true), "deleted");
+    assert.equal(await getRaceRoom(room.id), undefined);
+    assert.equal(await roomRemovedAt(room.id, `removed-${runner}`), undefined, "the removal record went with the race");
   });
 });
 
