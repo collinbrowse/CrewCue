@@ -15,13 +15,25 @@ enum class OnboardingContent { Loading, Chooser, RunnerSetup }
 
 /** Where the shell goes for a new onboarding state. */
 sealed interface OnboardingDestination {
-    /** The tab bar. [openPaywall]: the runner just finished the teaser, so the paywall comes first. */
-    data class Shell(val openPaywall: Boolean = false) : OnboardingDestination
+    /** The tab bar. */
+    data object Shell : OnboardingDestination
     data object SignedOut : OnboardingDestination
     /** The onboarding route ([OnboardingContent] picks what it draws). */
     data object Onboarding : OnboardingDestination
     /** The existing join screen, for the crew choice. */
     data object JoinCrew : OnboardingDestination
+    /** Runner phase 2: the race-day replay on the runner's own course, then its paywall. */
+    data object RacePreview : OnboardingDestination
+}
+
+/** What the room body saved for an offline replay does when the onboarding state changes. */
+sealed interface ReplayRoomUpdate {
+    /** Nothing is decided yet (no answer, the race list loading, still in setup, signed out). */
+    data object Keep : ReplayRoomUpdate
+    /** The replay step is on for this race: a body saved for any other goes. */
+    data class KeepOnly(val userId: String, val roomId: String) : ReplayRoomUpdate
+    /** Past the replay step some other way (paid elsewhere, another race, no race): its flow is over. */
+    data object Clear : ReplayRoomUpdate
 }
 
 /**
@@ -42,26 +54,58 @@ object OnboardingRouting {
         else -> OnboardingContent.Loading
     }
 
-    /**
-     * [previous] is the state on show before [next]. [hasActiveRoom]: the session has a stored
-     * race, which keeps the tab bar while the race list loads.
-     */
+    /** [hasActiveRoom]: the session has a stored race, which keeps the tab bar while the race list loads. */
     fun destination(
         next: OnboardingFlow?,
-        previous: OnboardingFlow?,
         signedIn: Boolean,
         hasActiveRoom: Boolean
     ): OnboardingDestination = when {
         // client-core couldn't answer: the shell when signed in, as before onboarding.
-        next == null -> if (signedIn) OnboardingDestination.Shell() else OnboardingDestination.SignedOut
+        next == null -> if (signedIn) OnboardingDestination.Shell else OnboardingDestination.SignedOut
         next.isLoading ->
-            if (next.showsTabBar && hasActiveRoom) OnboardingDestination.Shell() else OnboardingDestination.Onboarding
+            if (next.showsTabBar && hasActiveRoom) OnboardingDestination.Shell else OnboardingDestination.Onboarding
         next.isChooser || next.isRunnerSetup -> OnboardingDestination.Onboarding
         next.isCrewJoin -> OnboardingDestination.JoinCrew
-        // Phase 2 (replay and paywall) comes later: the paywall follows the teaser.
-        next.isRunnerPreview -> OnboardingDestination.Shell(openPaywall = previous?.isRunnerSetup == true)
-        // done, raceLocked (the shell shows the reason), the tours.
-        else -> OnboardingDestination.Shell()
+        // Phase 2: the replay until Not now or a purchase marks its step; a relaunch replays it
+        // from the start. The paywall step after it (still unpaid) is the tab bar, behind Unlock race.
+        next.isRacePreviewStep -> OnboardingDestination.RacePreview
+        // done, raceLocked (the shell shows the reason), the paywall step, the tours.
+        else -> OnboardingDestination.Shell
+    }
+
+    /**
+     * The replay the race preview route plays: the dev route's `DemoRaceFixture` when a link opened
+     * it ([devState] its `?state=`, [devStart] its `?at=&paused=`), else the runner's own race on
+     * the replay step ([flow]'s race, or the session's). Null while that race isn't known.
+     */
+    fun racePreviewSource(
+        openedByLink: Boolean,
+        devState: String,
+        devStart: RacePreviewDevStart?,
+        userId: String?,
+        flow: OnboardingFlow?,
+        activeRoomId: String?
+    ): RacePreviewSource? {
+        if (openedByLink) return RacePreviewSource.Fixture(devState, devStart)
+        val user = userId?.takeIf { it.isNotBlank() } ?: return null
+        val room = (flow?.roomId ?: activeRoomId)?.takeIf { it.isNotBlank() } ?: return null
+        return RacePreviewSource.Race(user, room)
+    }
+
+    /**
+     * The room body saved for an offline replay follows the state: kept for the race on the replay
+     * step (any other race's goes), dropped once a signed-in runner is past that step any other way
+     * than Not now or a purchase (which clear it themselves). Nothing changes while the state is
+     * unknown or loading, during setup, or signed out (sign-out wipes it with the rest).
+     */
+    fun replayRoomUpdate(next: OnboardingFlow?, userId: String?, activeRoomId: String?): ReplayRoomUpdate {
+        val user = userId?.takeIf { it.isNotBlank() } ?: return ReplayRoomUpdate.Keep
+        if (next == null || next.isLoading || next.isRunnerSetup) return ReplayRoomUpdate.Keep
+        if (next.isRacePreviewStep) {
+            val room = (next.roomId ?: activeRoomId)?.takeIf { it.isNotBlank() } ?: return ReplayRoomUpdate.Keep
+            return ReplayRoomUpdate.KeepOnly(user, room)
+        }
+        return ReplayRoomUpdate.Clear
     }
 
     /**
@@ -74,26 +118,6 @@ object OnboardingRouting {
         onJoinScreen -> SignInNext.StayOnJoin
         else -> SignInNext.OnboardingLoader
     }
-
-    /**
-     * The state the setup route draws. Back from the paywall that followed the teaser
-     * ([teaserAgain]) shows the teaser again while the runner is still in phase 2: as the setup's
-     * last step, so its Continue marks it and moves on to the paywall as the first time.
-     */
-    fun setupFlow(flow: OnboardingFlow?, teaserAgain: Boolean): OnboardingFlow? =
-        if (teaserAgain && flow?.isRunnerPreview == true) {
-            flow.copy(phase = "setup", step = SetupSteps.TEASER, showsTabBar = false)
-        } else {
-            flow
-        }
-
-    /**
-     * System Back on the paywall returns to the teaser: the paywall opened right after the teaser
-     * ([afterTeaser]) and the runner is still in phase 2, not past onboarding. Otherwise Back is
-     * the system's.
-     */
-    fun paywallBackToTeaser(paywallOpen: Boolean, afterTeaser: Boolean, flow: OnboardingFlow?): Boolean =
-        paywallOpen && afterTeaser && flow?.isRunnerPreview == true
 
     /**
      * The paywall opens over a race tab: the one on show, or Map when Profile is. A screen outside
@@ -111,12 +135,15 @@ object OnboardingRouting {
         stateOverlay: Boolean,
         featureId: String?,
         joinOpenedByOnboarding: Boolean,
-        setupOpenedByLink: Boolean = false
+        setupOpenedByLink: Boolean = false,
+        racePreviewOpenedByLink: Boolean = false
     ): Boolean {
         if (showsShell) return true
         if (stateOverlay) return false
         return when (featureId) {
             SETUP_FEATURE -> !setupOpenedByLink
+            // The dev route's fixture replay isn't onboarding's: a state read never moves it.
+            RACE_PREVIEW_FEATURE -> !racePreviewOpenedByLink
             "auth-sign-in" -> true
             "join-crew" -> joinOpenedByOnboarding
             else -> false

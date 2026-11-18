@@ -75,9 +75,19 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
-/** Primary action. Unlike the shared button, the label wraps, so 200% font scale never clips it. */
+/**
+ * Primary action. Unlike the shared button, the label wraps, so 200% font scale never clips it.
+ * [spoken]: the label TalkBack reads, when it says more than the one on the button.
+ */
 @Composable
-fun SetupPrimaryButton(label: String, tag: String, onClick: () -> Unit, enabled: Boolean = true, busy: Boolean = false) {
+fun SetupPrimaryButton(
+    label: String,
+    tag: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    busy: Boolean = false,
+    spoken: String = label
+) {
     val colors = MaterialTheme.colorScheme
     Button(
         onClick = onClick,
@@ -86,7 +96,7 @@ fun SetupPrimaryButton(label: String, tag: String, onClick: () -> Unit, enabled:
             .fillMaxWidth()
             .heightIn(min = 52.dp)
             .testTag(tag)
-            .semantics { contentDescription = label },
+            .semantics { contentDescription = spoken },
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = colors.primary,

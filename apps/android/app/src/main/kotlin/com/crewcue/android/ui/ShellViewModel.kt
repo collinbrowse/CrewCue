@@ -24,6 +24,11 @@ import com.crewcue.android.ui.onboarding.OnboardingDestination
 import com.crewcue.android.ui.onboarding.OnboardingFlow
 import com.crewcue.android.ui.onboarding.OnboardingRouting
 import com.crewcue.android.ui.onboarding.OnboardingText
+import com.crewcue.android.ui.onboarding.RACE_PREVIEW_FEATURE
+import com.crewcue.android.ui.onboarding.RacePreviewDevStart
+import com.crewcue.android.ui.onboarding.RacePreviewEffect
+import com.crewcue.android.ui.onboarding.RacePreviewSource
+import com.crewcue.android.ui.onboarding.ReplayRoomUpdate
 import com.crewcue.android.ui.onboarding.RaceAccess
 import com.crewcue.android.ui.onboarding.RaceBilling
 import com.crewcue.android.ui.onboarding.RunnerSetupEffect
@@ -148,11 +153,15 @@ class ShellViewModel(
     /** The shell shows the paywall in place of Map, Pace, and Chat until a tab is picked. */
     var paywallOpen by mutableStateOf(false)
         private set
-    /** The paywall on show opened right after the teaser, so Back returns to the teaser. */
-    private var paywallAfterTeaser by mutableStateOf(false)
-    /** The teaser is on show again: Back from the paywall that followed it. */
-    var teaserAgain by mutableStateOf(false)
+    /**
+     * The race preview route on show was opened by a link (`crewcue://dev/onboarding-race-preview`,
+     * debug builds): it plays `DemoRaceFixture`, and a state read in the background never moves it.
+     */
+    var racePreviewFromLink by mutableStateOf(false)
         private set
+    /** That link's `?state=` and `?at=&paused=`; a second link while it shows starts that one. */
+    private var racePreviewDevState by mutableStateOf("success")
+    private var racePreviewDevStart by mutableStateOf<RacePreviewDevStart?>(null)
     /** client-core's onboarding state for this user and active race; null until the first read. */
     var onboarding by mutableStateOf<OnboardingFlow?>(null)
         private set
@@ -386,49 +395,31 @@ class ShellViewModel(
         val roomId = session?.roomId ?: return
         billing = billing.unpaid(roomId)
         paywallOpen = true
-        paywallAfterTeaser = false
         if (!showAppShell) showShell(OnboardingRouting.paywallTab(selectedTab))
     }
 
-    /** System Back on the paywall returns to the teaser ([OnboardingRouting.paywallBackToTeaser]). */
-    val paywallBackToTeaser: Boolean
-        get() = OnboardingRouting.paywallBackToTeaser(paywallOpen, paywallAfterTeaser, onboarding)
-
-    /** Back from the paywall that followed the teaser: the teaser again, which leads back to the paywall. */
-    fun backToTeaser() {
-        if (!paywallBackToTeaser) return
-        paywallOpen = false
-        paywallAfterTeaser = false
-        teaserAgain = true
-        showFixture("crewcue://dev/$SETUP_FEATURE")
-    }
-
     /**
-     * Routes by client-core's onboarding state. Onboarding owns the shell, its own route, the
+     * Routes by client-core's onboarding state. Onboarding owns the shell, its own routes, the
      * sign-in screen and a join screen it opened; any other screen (a dev fixture, a link) keeps
      * showing unless [force].
      */
     private fun applyOnboarding(next: OnboardingFlow?, force: Boolean) {
-        // The teaser on show again stands for the setup's last step, so marking it opens the paywall.
-        val previous = OnboardingRouting.setupFlow(onboarding, teaserAgain)
         onboarding = next
-        // A state read in the background leaves the teaser on show; the runner's Continue moves on.
-        if (teaserAgain && !force && next?.isRunnerPreview == true) return
+        syncReplayRoom(next)
         val owns = OnboardingRouting.ownsScreen(
             showAppShell,
             stateOverlay,
             uiState.screen.featureId,
             joinOpenedByOnboarding = joinFromOnboarding,
-            setupOpenedByLink = setupFromLink
+            setupOpenedByLink = setupFromLink,
+            racePreviewOpenedByLink = racePreviewFromLink
         )
         if (!force && !owns) return
         val destination = OnboardingRouting.destination(
             next,
-            previous,
             signedIn = session != null,
             hasActiveRoom = !session?.roomId.isNullOrBlank()
         )
-        teaserAgain = false
         when (destination) {
             OnboardingDestination.SignedOut -> showSignedOut()
             OnboardingDestination.Onboarding -> showOnboarding()
@@ -436,13 +427,20 @@ class ShellViewModel(
                 showFixture("crewcue://dev/join-crew")
                 joinFromOnboarding = true
             }
-            is OnboardingDestination.Shell -> {
-                if (destination.openPaywall) {
-                    (next?.roomId ?: session?.roomId)?.let { billing = billing.unpaid(it) }
-                    paywallOpen = true
-                    paywallAfterTeaser = true
-                }
-                showShellIfHidden()
+            OnboardingDestination.RacePreview -> showRacePreview()
+            OnboardingDestination.Shell -> showShellIfHidden()
+        }
+    }
+
+    /** The room body saved for an offline replay follows the state ([OnboardingRouting.replayRoomUpdate]). */
+    private fun syncReplayRoom(next: OnboardingFlow?) {
+        val update = OnboardingRouting.replayRoomUpdate(next, session?.userId, session?.roomId)
+        if (update == ReplayRoomUpdate.Keep) return
+        viewModelScope.launch(Dispatchers.IO) {
+            when (update) {
+                is ReplayRoomUpdate.KeepOnly -> container.replayRooms.keepOnly(update.userId, update.roomId)
+                ReplayRoomUpdate.Clear -> container.replayRooms.clear()
+                ReplayRoomUpdate.Keep -> Unit
             }
         }
     }
@@ -450,6 +448,48 @@ class ShellViewModel(
     private fun showOnboarding() {
         if (!showAppShell && uiState.screen.featureId == SETUP_FEATURE && !stateOverlay) return
         showFixture("crewcue://dev/$SETUP_FEATURE")
+    }
+
+    /** Runner phase 2: the replay on the runner's race, then its paywall (`RacePreviewRoute`). */
+    private fun showRacePreview() {
+        if (!showAppShell && uiState.screen.featureId == RACE_PREVIEW_FEATURE && !stateOverlay && !racePreviewFromLink) return
+        paywallOpen = false
+        showFixture("crewcue://dev/$RACE_PREVIEW_FEATURE")
+    }
+
+    /**
+     * The replay the race preview route plays: the dev link's fixture, or the runner's race on the
+     * replay step. Null while that race isn't known.
+     */
+    fun racePreviewSource(): RacePreviewSource? = OnboardingRouting.racePreviewSource(
+        openedByLink = racePreviewFromLink,
+        devState = racePreviewDevState,
+        devStart = racePreviewDevStart,
+        userId = session?.userId,
+        flow = onboarding?.takeIf { it.isRacePreviewStep },
+        activeRoomId = session?.roomId
+    )
+
+    /** What the replay's paywall asks for (see [RacePreviewEffect]). */
+    fun onRacePreviewEffect(effect: RacePreviewEffect) {
+        when (effect) {
+            is RacePreviewEffect.Finished -> {
+                effect.purchasedRoomId?.let { roomId ->
+                    // The server's billing read said paid: no Unlock race banner, whatever the
+                    // race list still says until it loads again.
+                    billing = billing.unlocked(roomId)
+                    paywallOpen = false
+                }
+                val state = effect.state
+                if (state != null) noteOnboardingState(state) else refreshOnboarding(force = true)
+                if (effect.purchasedRoomId != null) loadRaces(forceOnboarding = true)
+            }
+            RacePreviewEffect.LeftDevRoute -> {
+                // The dev route's Not now: the app's own launch.
+                racePreviewFromLink = false
+                routeEntry()
+            }
+        }
     }
 
     private fun showShellIfHidden() {
@@ -527,7 +567,6 @@ class ShellViewModel(
         if (tab == ShellTab.Profile) profilePane = "profile"
         if (tab == ShellTab.Pace) paceFocus = "schedule-sheet"
         paywallOpen = false
-        paywallAfterTeaser = false
         showShell(tab)
     }
 
@@ -625,7 +664,6 @@ class ShellViewModel(
     fun noteUnlocked(roomId: String) {
         billing = billing.unlocked(roomId)
         paywallOpen = false
-        paywallAfterTeaser = false
         showShell(ShellTab.Map)
         loadRaces()
     }
@@ -672,13 +710,14 @@ class ShellViewModel(
         onboarding = null
         onboardingTicket++
         paywallOpen = false
-        paywallAfterTeaser = false
-        teaserAgain = false
         billing = RaceBilling()
         accessCache = null
         pendingJoin = false
         // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
         viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
+        // The room saved for an offline replay lives outside the user's storage root: it goes too.
+        // The replay itself ends with its route ([RacePreviewViewModel.onCleared]).
+        viewModelScope.launch(Dispatchers.IO) { container.replayRooms.clear() }
         closeSettings()
         showSignedOut()
         if (authActivity != null) {
@@ -879,6 +918,13 @@ class ShellViewModel(
             setupFromLink = true
             refreshOnboarding()
         }
+        // The dev route plays the real replay on DemoRaceFixture, in the link's `?state=`; its
+        // `?at=&paused=` opens it at a fixed moment (debug builds only; links open no fixture otherwise).
+        if (feature == RACE_PREVIEW_FEATURE) {
+            racePreviewFromLink = true
+            racePreviewDevState = queryState(url)
+            racePreviewDevStart = if (BuildConfig.DEBUG) RacePreviewDevStart.parse(url) else null
+        }
     }
 
     private fun isPaceFeature(feature: String): Boolean {
@@ -903,6 +949,7 @@ class ShellViewModel(
         stateOverlay = false
         joinFromOnboarding = false
         setupFromLink = false
+        racePreviewFromLink = false
         showAppShell = true
         selectedTab = tab
         val screen = load(tab.url)
@@ -915,6 +962,7 @@ class ShellViewModel(
         stateOverlay = hasStateQuery(url)
         joinFromOnboarding = false
         setupFromLink = false
+        racePreviewFromLink = false
         inviteCode = ""
         joinPreviewName = null
         joinMembership = null

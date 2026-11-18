@@ -1,5 +1,7 @@
 package com.crewcue.android.ui.onboarding
 
+import com.crewcue.android.billing.PRODUCT_RACE_PASS
+import com.crewcue.android.billing.PRODUCT_RACE_PASS_FULL_CREW
 import com.crewcue.android.data.optText
 import com.crewcue.android.ui.map.CoursePoint
 import com.crewcue.android.ui.map.MapCheckpoint
@@ -40,8 +42,10 @@ data class OnboardingFlow(
     val isChooser: Boolean get() = flow == "chooser"
     val isRaceLocked: Boolean get() = flow == "raceLocked"
     val isRunnerSetup: Boolean get() = flow == "runner" && phase == "setup"
-    /** Runner phase 2 (replay and paywall). Not built yet: the shell's paywall stands in. */
+    /** Runner phase 2: the replay (`preview` step), then the paywall step. */
     val isRunnerPreview: Boolean get() = flow == "runner" && phase == "preview"
+    /** The replay and its paywall are on: Not now or a purchase marks this step. */
+    val isRacePreviewStep: Boolean get() = isRunnerPreview && step == PREVIEW_STEP
     val isCrewJoin: Boolean get() = flow == "crew" && phase == "join"
 
     /** The state back as `readOnboarding` answered it, for ops that read it (`raceAccess`). */
@@ -88,7 +92,9 @@ data class OnboardingText(
     val setupSuccess: String = "",
     val setupEmpty: String = "",
     val setupError: String = "",
-    val setupOffline: String = ""
+    val setupOffline: String = "",
+    /** The race-day replay and the paywall after it (onboarding-race-preview.md). */
+    val replay: ReplayText = ReplayText()
 ) {
     fun label(key: String): String = labels[key].orEmpty()
     fun title(step: String): String = stepTitles[step].orEmpty()
@@ -109,7 +115,8 @@ data class OnboardingText(
                 setupSuccess = success,
                 setupEmpty = empty,
                 setupError = error,
-                setupOffline = offline
+                setupOffline = offline,
+                replay = ReplayText.from(json)
             )
         }
 
@@ -117,6 +124,100 @@ data class OnboardingText(
             this ?: return emptyMap()
             return keys().asSequence().associateWith { optText(it) }
         }
+    }
+}
+
+/** One paywall option: who it covers, the store product behind it and its fallback price. */
+data class PaywallOption(
+    val title: String,
+    /** The store product id (`BillingProduct` raw value). */
+    val product: String,
+    val productTitle: String,
+    val detail: String,
+    /** `BillingProduct.fallbackPrice`, until the store answers. */
+    val fallbackPrice: String,
+    /** Stable test tag; the buy button adds `.buy`. */
+    val tag: String
+)
+
+/** client-core `OnboardingCopy` for the race-day replay and its paywall (the `onboardingCopy` op). */
+data class ReplayText(
+    val skip: String = "",
+    val play: String = "",
+    val pause: String = "",
+    /** onboarding-race-preview.md Empty / Error / Offline. */
+    val empty: String = "",
+    val error: String = "",
+    val offline: String = "",
+    val mapTitle: String = "",
+    val paceTitle: String = "",
+    val chatTitle: String = "",
+    val loading: String = "",
+    val back: String = "",
+    val notNow: String = "",
+    val pitch: String = "",
+    val lockedRow: String = "",
+    val lockedExplanation: String = "",
+    /** "Buy {product}, {price}", the buy button's spoken label. */
+    val buyLabelTemplate: String = "",
+    /** Every beat's caption, in beat order, so the caption card keeps the longest one's height. */
+    val captions: List<String> = emptyList(),
+    val options: List<PaywallOption> = emptyList()
+) {
+    fun panelTitle(panel: ReplayPanel): String = when (panel) {
+        ReplayPanel.Map -> mapTitle
+        ReplayPanel.Pace -> paceTitle
+        ReplayPanel.Chat -> chatTitle
+    }
+
+    /** "Buy Race Pass, $14.99", with the store's localized [price] or the fallback. */
+    fun buyLabel(option: PaywallOption, price: String): String =
+        buyLabelTemplate.replace("{product}", option.productTitle).replace("{price}", price)
+
+    companion object {
+        const val RUNNER_PLUS_ONE_TAG = "crewcue.onboarding-paywall.runner-plus-one"
+        const val FULL_CREW_TAG = "crewcue.onboarding-paywall.full-crew"
+
+        fun from(json: JSONObject): ReplayText = ReplayText(
+            skip = json.optText("replaySkip"),
+            play = json.optText("replayPlay"),
+            pause = json.optText("replayPause"),
+            empty = json.optText("replayEmpty"),
+            error = json.optText("replayError"),
+            offline = json.optText("replayOffline"),
+            mapTitle = json.optText("replayMapTitle"),
+            paceTitle = json.optText("replayPaceTitle"),
+            chatTitle = json.optText("replayChatTitle"),
+            loading = json.optText("loading"),
+            back = json.optText("back"),
+            notNow = json.optText("paywallNotNow"),
+            pitch = json.optText("paywallPitch"),
+            lockedRow = json.optText("lockedAidRow"),
+            lockedExplanation = json.optText("lockedAidExplanation"),
+            buyLabelTemplate = json.optText("paywallBuyLabelTemplate"),
+            captions = json.optJSONObject("beatCaptions").let { beats ->
+                listOf(ReplayBeats.FOLLOWING, ReplayBeats.FALLING_BEHIND, ReplayBeats.DEAD_ZONE, ReplayBeats.CREW_CHAT)
+                    .mapNotNull { beat -> beats?.optText(beat)?.ifBlank { null } }
+            },
+            options = listOf(
+                PaywallOption(
+                    title = json.optText("paywallRunnerPlusOneTitle"),
+                    product = PRODUCT_RACE_PASS,
+                    productTitle = json.optText("paywallRunnerPlusOneProduct"),
+                    detail = json.optText("paywallRunnerPlusOneDetail"),
+                    fallbackPrice = json.optText("paywallRunnerPlusOnePrice"),
+                    tag = RUNNER_PLUS_ONE_TAG
+                ),
+                PaywallOption(
+                    title = json.optText("paywallFullCrewTitle"),
+                    product = PRODUCT_RACE_PASS_FULL_CREW,
+                    productTitle = json.optText("paywallFullCrewProduct"),
+                    detail = json.optText("paywallFullCrewDetail"),
+                    fallbackPrice = json.optText("paywallFullCrewPrice"),
+                    tag = FULL_CREW_TAG
+                )
+            )
+        )
     }
 }
 
