@@ -17,12 +17,14 @@ import { deleteChatRoomData } from "./chatPersistence.js";
 import { deleteCrewCueRoomCourseHistory } from "./courseHistory/store.js";
 import { deleteFinishedEffortForRoom } from "./finishedEffortStore.js";
 import { forgetPlatformEventsForRoom } from "./platformEventLog.js";
+import { deleteRoomRemovalsForRoom } from "./roomRemovalStore.js";
 
-/** The room's data kept outside the room's own tables: chat, the finished effort, course history, memory event log. */
+/** The room's data kept outside the room's own tables: chat, the finished effort, course history, removed members, memory event log. */
 async function deleteRaceRoomDataOutsideRecord(roomId: string): Promise<void> {
   await deleteChatRoomData(roomId);
   await deleteFinishedEffortForRoom(roomId);
   await deleteCrewCueRoomCourseHistory(roomId);
+  await deleteRoomRemovalsForRoom(roomId);
   forgetPlatformEventsForRoom(roomId);
 }
 
