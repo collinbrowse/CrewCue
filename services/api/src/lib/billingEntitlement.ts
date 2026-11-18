@@ -11,7 +11,8 @@ import type {
   RaceRoomBilling,
   RaceRoomCrewTier,
   RaceRoomEntitlement,
-  RoomUnpaidError
+  RoomUnpaidError,
+  UnpaidRaceLimitError
 } from "@crewcue/contracts";
 
 export const BILLING_PRODUCT_IDS: readonly BillingProductId[] = ["race_pass", "crew_upgrade", "race_pass_full_crew"];
@@ -61,8 +62,47 @@ export function isCrewMembership(room: RaceRoom, member: { userId: string; role:
  */
 export function isRunnerSeat(room: RaceRoom, userId: string): boolean {
   if (userId === room.athleteId) return true;
-  const creator = room.createdByUserId ?? room.memberships[0]?.userId;
-  return userId === creator;
+  return userId === raceCreatorOf(room);
+}
+
+/**
+ * Who created the room: `createdByUserId`, set from the caller's token. Rooms stored before
+ * #649 lack it; their first member is the creator.
+ */
+export function raceCreatorOf(room: Pick<RaceRoom, "createdByUserId" | "memberships">): string | undefined {
+  return room.createdByUserId ?? room.memberships[0]?.userId;
+}
+
+/**
+ * Unpaid races one account may have created at once. Each one costs GPX parsing and estimator
+ * runs before anyone pays, so `POST /race-rooms` refuses a fourth (see `unpaidRaceLimitError`).
+ */
+export const UNPAID_RACE_LIMIT = 3;
+
+/**
+ * Whether a room's own fields count it toward its creator's unpaid race limit: created by `userId`
+ * and still `unpaid`. Paid and expired races don't count, and neither do races the user only
+ * crews. The creator, not `athleteId`, is who counts: the creator comes from the token, while
+ * `athleteId` is whatever the client sent (risk R17), so counting it would let anyone fill another
+ * runner's limit. A race paid once and refunded (`unpaid` again, with a revoked grant) doesn't
+ * count either; that needs the grant ledger, so the store-level count checks it
+ * (raceRooms.ts `countUnpaidRaceRoomsCreatedBy`).
+ */
+export function countsTowardUnpaidRaceLimit(
+  room: Pick<RaceRoom, "createdByUserId" | "memberships" | "entitlement">,
+  userId: string
+): boolean {
+  return room.entitlement.status === "unpaid" && raceCreatorOf(room) === userId;
+}
+
+/** The 409 body for a create past the limit, or undefined while `unpaidCount` leaves room for one more. */
+export function unpaidRaceLimitError(unpaidCount: number, limit = UNPAID_RACE_LIMIT): UnpaidRaceLimitError | undefined {
+  if (unpaidCount < limit) return undefined;
+  return {
+    error: `You have ${limit} races that aren't unlocked yet. Unlock or delete one to add another.`,
+    code: "unpaid_race_limit",
+    limit
+  };
 }
 
 export function crewCountOf(room: RaceRoom): number {
