@@ -120,6 +120,22 @@ class SessionStoreTest {
         assertNull(store(AesGcmSessionCipher { otherKey }).current())
         assertTrue(vault.all.isEmpty())
     }
+
+    @Test
+    fun aFailedDecryptClearsOnlyTheSealedValueAndKeepsTheUserFiles() {
+        val signedIn = store()
+        signedIn.save(ada)
+        val outbox = File(signedIn.storageDir(), "users/ada/outbox.json").apply {
+            parentFile?.mkdirs()
+            writeText("[]")
+        }
+        val otherKey = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
+
+        assertNull(store(AesGcmSessionCipher { otherKey }).current())
+        assertTrue(vault.all.isEmpty())
+        assertTrue(outbox.exists())
+        assertEquals("[]", outbox.readText())
+    }
 }
 
 /** SharedPreferences in memory, so the store runs on the JVM without a device. */

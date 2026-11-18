@@ -9,6 +9,17 @@ public protocol SessionVault: Sendable {
     func wipe() throws
 }
 
+/// A vault read failed for a reason that may pass on its own (the phone is still locked after a
+/// reboot, the Keychain is busy). The stored session is kept, not wiped. A vault throws any other
+/// error only when the stored value is unreadable for good.
+public struct SessionVaultUnavailable: Error, Equatable {
+    public let code: Int32
+
+    public init(code: Int32) {
+        self.code = code
+    }
+}
+
 /// A vault that forgets on relaunch. For tests and dev sessions.
 public final class InMemorySessionVault: SessionVault, @unchecked Sendable {
     private let lock = NSLock()
@@ -42,7 +53,8 @@ public final class InMemorySessionVault: SessionVault, @unchecked Sendable {
 /// 1. No install marker in the app's storage directory means a fresh install (or a reinstall: a
 ///    Keychain item outlives app deletion on iOS). The vault is wiped and the marker written.
 /// 2. A legacy `session.json` (`SessionFile`) is moved into the vault, then deleted.
-/// 3. The vault's session is returned.
+/// 3. The vault's session is returned. A `SessionVaultUnavailable` read keeps the stored session;
+///    any other read failure (an unreadable value) wipes it.
 public enum SessionVaultLaunch {
     public static let markerName = ".session-vault-installed"
 
@@ -57,6 +69,10 @@ public enum SessionVaultLaunch {
         }
         do {
             return try vault.load()
+        } catch let unavailable as SessionVaultUnavailable {
+            // Signed out for this launch only: the session is still there for the next one.
+            logger?.log("session vault unavailable (\(unavailable.code))")
+            return nil
         } catch {
             logger?.log("session vault unreadable")
             try? vault.wipe()

@@ -34,7 +34,10 @@ struct KeychainSessionVault: SessionVault {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw Failure(status: status) }
+        // A Keychain status (locked before first unlock, busy) says nothing about the item, so it
+        // is kept. Only data that does not decode is unreadable for good.
+        guard status == errSecSuccess else { throw SessionVaultUnavailable(code: status) }
+        guard let data = result as? Data else { throw Failure(status: status) }
         return try JSONDecoder().decode(ClientSession.self, from: data)
     }
 

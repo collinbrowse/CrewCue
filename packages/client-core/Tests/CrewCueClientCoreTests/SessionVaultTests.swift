@@ -25,6 +25,38 @@ private struct FailingVault: SessionVault {
     func wipe() throws {}
 }
 
+/// A vault holding `ada` whose `load` throws `loadError`, recording whether `wipe` ran.
+private final class ThrowingLoadVault: SessionVault, @unchecked Sendable {
+    let loadError: any Error
+    private(set) var wiped = false
+
+    init(loadError: any Error) {
+        self.loadError = loadError
+    }
+
+    func load() throws -> ClientSession? { throw loadError }
+    func save(_ session: ClientSession) throws {}
+    func wipe() throws { wiped = true }
+}
+
+@Test func anUnavailableVaultKeepsTheStoredSessionForTheNextLaunch() throws {
+    let directory = try tempDirectory()
+    try writeMarker(directory: directory)
+    let vault = ThrowingLoadVault(loadError: SessionVaultUnavailable(code: -25308))
+
+    #expect(SessionVaultLaunch.restore(vault: vault, directory: directory) == nil)
+    #expect(!vault.wiped)
+}
+
+@Test func anUnreadableVaultValueIsWiped() throws {
+    let directory = try tempDirectory()
+    try writeMarker(directory: directory)
+    let vault = ThrowingLoadVault(loadError: FailingVault.Failure())
+
+    #expect(SessionVaultLaunch.restore(vault: vault, directory: directory) == nil)
+    #expect(vault.wiped)
+}
+
 @Test func vaultSavesLoadsAndWipesASession() throws {
     let vault = InMemorySessionVault()
     #expect(try vault.load() == nil)

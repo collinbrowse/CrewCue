@@ -63,7 +63,10 @@ class SessionStore(
             .getOrNull()
         if (session == null) {
             // Unreadable (a lost key, a restore onto another device): the user signs in again.
-            clear()
+            // Only the sealed value goes; the per-user files under storageRoot are not touched.
+            vault.edit().remove(KEY_SEALED).commit()
+            cachedSealed = null
+            cached = null
             return null
         }
         cachedSealed = sealed
