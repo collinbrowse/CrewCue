@@ -26,7 +26,7 @@ Primary key: `transaction_id`.
 
 Indexes: `billing_grants_by_room`.
 
-Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
+Read/written by: [services/api/src/lib/billingStore.ts](../../../services/api/src/lib/billingStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts).
 
 ## `billing_webhook_events`
 
@@ -106,7 +106,7 @@ Primary key: `id`.
 
 Indexes: `course_history_events_by_usage`.
 
-Read/written by: [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/courseHistory/store.ts](../../../services/api/src/lib/courseHistory/store.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `finished_efforts`
 
@@ -123,7 +123,7 @@ Primary key: `room_id`.
 
 Indexes: `finished_efforts_by_athlete`.
 
-Read/written by: [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/finishedEffortStore.ts](../../../services/api/src/lib/finishedEffortStore.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `http_idempotency`
 
@@ -145,7 +145,7 @@ Primary key: `idempotency_key, method, path`.
 
 Indexes: `http_idempotency_expires_at_idx`.
 
-Read/written by: [services/api/src/lib/httpIdempotency.ts](../../../services/api/src/lib/httpIdempotency.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/httpIdempotency.ts](../../../services/api/src/lib/httpIdempotency.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `platform_aggregate_heads`
 
@@ -159,7 +159,7 @@ Created in [services/api/db/migrations/0007_platform_domain_events.sql](../../..
 
 Primary key: `aggregate_type, aggregate_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `platform_domain_events`
 
@@ -185,7 +185,7 @@ Primary key: `id`.
 
 Indexes: `platform_domain_events_by_aggregate`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `race_room_invites_json`
 
@@ -202,7 +202,7 @@ Primary key: `token`.
 
 Indexes: `idx_race_room_invites_json_room_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `race_room_snapshots`
 
@@ -217,7 +217,7 @@ Created in [services/api/db/migrations/0008_race_room_snapshots.sql](../../../se
 
 Primary key: `aggregate_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `race_rooms_json`
 
@@ -234,7 +234,7 @@ Primary key: `id`.
 
 Indexes: `idx_race_rooms_json_team_id`, `race_rooms_json_race_start_at`, `race_rooms_json_unpaid_created_at`, `race_rooms_json_unpaid_creator`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_athlete_pings`
 
@@ -252,7 +252,7 @@ Created in [services/api/db/migrations/0015_room_athlete_pings.sql](../../../ser
 
 Primary key: `room_id, recorded_at`.
 
-Read/written by: [services/api/src/lib/athletePingTrack.ts](../../../services/api/src/lib/athletePingTrack.ts), [services/api/src/lib/courseHistory/sources/crewcueRoom.ts](../../../services/api/src/lib/courseHistory/sources/crewcueRoom.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/athletePingTrack.ts](../../../services/api/src/lib/athletePingTrack.ts), [services/api/src/lib/courseHistory/sources/crewcueRoom.ts](../../../services/api/src/lib/courseHistory/sources/crewcueRoom.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_removed_members`
 
@@ -268,7 +268,7 @@ Primary key: `room_id, user_id`.
 
 Indexes: `room_removed_members_by_user`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomRemovalStore.ts](../../../services/api/src/lib/roomRemovalStore.ts).
 
 ## `room_task_boards_json`
 
@@ -282,7 +282,7 @@ Created in [services/api/db/migrations/0002_room_task_boards_json.sql](../../../
 
 Primary key: `room_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_ws2_runtime_json`
 
@@ -296,7 +296,7 @@ Created in [services/api/db/migrations/0003_room_ws2_runtime_json.sql](../../../
 
 Primary key: `room_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_ws4_adaptive_json`
 
@@ -310,7 +310,7 @@ Created in [services/api/db/migrations/0004_room_ws4_adaptive_json.sql](../../..
 
 Primary key: `room_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `room_ws5_sync_json`
 
@@ -324,7 +324,7 @@ Created in [services/api/db/migrations/0005_room_ws5_sync_json.sql](../../../ser
 
 Primary key: `room_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `task_board_snapshots`
 
@@ -339,7 +339,7 @@ Created in [services/api/db/migrations/0009_task_board_snapshots.sql](../../../s
 
 Primary key: `aggregate_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `team_command_metric_configs_json`
 
@@ -353,7 +353,7 @@ Created in [services/api/db/migrations/0006_team_command_metric_configs_json.sql
 
 Primary key: `team_id`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts).
 
 ## `tracking_reminders_sent`
 
@@ -368,4 +368,4 @@ Created in [services/api/db/migrations/0020_tracking_reminders_sent.sql](../../.
 
 Primary key: `room_id, slot, race_start_at`.
 
-Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/trackingReminderScheduler.ts](../../../services/api/src/lib/trackingReminderScheduler.ts).
+Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts), [services/api/src/lib/trackingReminderScheduler.ts](../../../services/api/src/lib/trackingReminderScheduler.ts).
