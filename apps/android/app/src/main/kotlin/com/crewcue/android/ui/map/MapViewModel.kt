@@ -13,6 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,7 +25,12 @@ import java.util.TimeZone
 class MapViewModel(
     private val raceDay: RaceDayBridge,
     private val roomId: String,
-    private val role: String
+    private val role: String,
+    /**
+     * The onboarding replay: the course, the runner and the aid sheet only. No tracking, no
+     * checkpoint placement or routes, and nothing is sent: this phone never uploads from here.
+     */
+    val readOnly: Boolean = false
 ) : ViewModel() {
     var checkpoints by mutableStateOf<List<MapCheckpoint>>(emptyList())
         private set
@@ -88,6 +95,7 @@ class MapViewModel(
     private var runner: JSONObject? = null
     private var runnerRefreshMs = DEFAULT_RUNNER_REFRESH_MS
     private var runnerJob: Job? = null
+    private val refreshGate = Mutex()
 
     private var lastRecordedMillis = 0L
     private var scheduleSheet: JSONObject? = null
@@ -115,8 +123,9 @@ class MapViewModel(
         loadTracking()
     }
 
-    /** Reads the saved interval and whether this race is being tracked. */
+    /** Reads the saved interval and whether this race is being tracked. Never in [readOnly]. */
     fun loadTracking() {
+        if (readOnly) return
         viewModelScope.launch {
             val settings = withContext(Dispatchers.IO) { runCatching { raceDay.trackingSettings() }.getOrNull() }
             (settings as? RuntimeResult.Success)?.result?.optInt("intervalSeconds", 0)
@@ -129,6 +138,7 @@ class MapViewModel(
 
     /** Saves the session; the screen then starts [RaceTrackingService] once permission is granted. */
     fun startTracking(onStarted: () -> Unit) {
+        if (readOnly) return
         if (!isAthlete) {
             locationMessage = TRACKING_CREW
             return
@@ -158,7 +168,10 @@ class MapViewModel(
         locationMessage = TRACKING_BACKGROUND_DENIED
     }
 
-    /** App came back to the foreground: read the runner now instead of waiting for the next tick. */
+    /**
+     * App came back to the foreground, or (the onboarding replay) its step moved: read the runner
+     * now instead of waiting for the next tick.
+     */
     fun refreshNow() {
         viewModelScope.launch { refreshRunner() }
         loadTracking()
@@ -175,8 +188,11 @@ class MapViewModel(
         }
     }
 
-    /** Offline or failed reads keep the last ping, which then ages into the stale state. */
-    private suspend fun refreshRunner() {
+    /**
+     * Offline or failed reads keep the last ping, which then ages into the stale state. One read
+     * at a time: two at once would both append the path points after the same cursor.
+     */
+    private suspend fun refreshRunner() = refreshGate.withLock {
         val result = try {
             withContext(Dispatchers.IO) { raceDay.latestPing(roomId) }
         } catch (_: Throwable) {
@@ -292,6 +308,7 @@ class MapViewModel(
     }
 
     fun saveCheckpoint() {
+        if (readOnly) return
         val latitude = pickLatitude.trim().toDoubleOrNull()
         val longitude = pickLongitude.trim().toDoubleOrNull()
         if (latitude == null || longitude == null) {
@@ -326,6 +343,7 @@ class MapViewModel(
     }
 
     fun startRoute(mode: String) {
+        if (readOnly) return
         val destination = destinationId
         if (destination.isNullOrBlank()) {
             navigateMessage = NAV_EMPTY
@@ -377,6 +395,7 @@ class MapViewModel(
      * [runner], so every crew member sees the same progress.
      */
     fun onSample(latitude: Double, longitude: Double, accuracy: Double?, online: Boolean) {
+        if (readOnly) return
         if (role != "athlete") {
             locationMessage = String.format(Locale.US, "%.6f, %.6f", latitude, longitude)
             return
@@ -627,10 +646,11 @@ class MapViewModel(
 class MapViewModelFactory(
     private val raceDay: RaceDayBridge,
     private val roomId: String,
-    private val role: String
+    private val role: String,
+    private val readOnly: Boolean = false
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MapViewModel(raceDay, roomId, role) as T
+        return MapViewModel(raceDay, roomId, role, readOnly) as T
     }
 }

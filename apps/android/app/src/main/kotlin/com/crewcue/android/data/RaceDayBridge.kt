@@ -11,25 +11,50 @@ sealed interface RuntimeResult {
     /**
      * [crewLimit]: a join or invite refused because the room's crew tier is full (409 `crew_limit_reached`).
      * [status] is the HTTP status (0 when the failure was not an HTTP answer) and [code] the body's
-     * code, for example 402 `room_unpaid` or 400 `course_mismatch`.
+     * code, for example 402 `room_unpaid` or 400 `course_mismatch`. [state]: a race-day replay that
+     * can't start (`demoRaceCreate`) names the checklist state it shows, `empty`, `error` or `offline`.
      */
     data class Failure(
         val message: String,
         val offline: Boolean,
         val crewLimit: Boolean = false,
         val status: Int = 0,
-        val code: String? = null
+        val code: String? = null,
+        val state: String? = null
     ) : RuntimeResult
 }
 
 /**
  * Race-day calls go through the Swift runtime JSON bridge. There is no second HTTP stack here.
  */
-class RaceDayBridge(
+class RaceDayBridge private constructor(
     private val baseUrl: String,
-    private val sessionStore: SessionStore,
+    private val identity: () -> Identity,
+    private val storageDir: () -> String,
     private val logger: AndroidLogger
 ) {
+    /** Who a runtime request speaks for: the session's token, user and role. */
+    private data class Identity(val token: String, val userId: String, val role: String)
+
+    constructor(baseUrl: String, sessionStore: SessionStore, logger: AndroidLogger) : this(
+        baseUrl,
+        {
+            val session = sessionStore.current()
+            Identity(session?.token.orEmpty(), session?.userId.orEmpty(), session?.role.orEmpty())
+        },
+        { sessionStore.storageDir().absolutePath },
+        logger
+    )
+
+    /**
+     * A second bridge on a race-day replay's [replayBaseUrl] (`demoRaceCreate`): the real Map,
+     * Pace and Chat models built on it read the replay, never the API. It carries no token and no
+     * role, so client-core offers it no edit and attempts no write; [viewerUserId] is the replay's
+     * `viewerUserId`. Its files live in the replay's own temporary directory, whatever storage
+     * root it sends.
+     */
+    fun replay(replayBaseUrl: String, viewerUserId: String): RaceDayBridge =
+        RaceDayBridge(replayBaseUrl, { Identity(token = "", userId = viewerUserId, role = "") }, storageDir, logger)
     /**
      * Called (on the calling thread) when an authorized runtime call came back 401. The argument is
      * the token that request carried, so a late reply for an old session can't end a newer one.
@@ -435,23 +460,60 @@ class RaceDayBridge(
     /** Removes demo replay folders a killed process left in [tempDir] (the app's cache directory). */
     fun demoRaceCleanup(tempDir: String): RuntimeResult = call("demoRaceCleanup") { put("tempDir", tempDir) }
 
+    /**
+     * Builds the onboarding race-day replay in [tempDir] (the app's cache directory): the runner's
+     * race [roomId] read once from `GET /race-rooms/:roomId` with this bridge's session, or [room],
+     * a body saved earlier, or with [fixture] `DemoRaceFixture` and no API. [planFinish]: start
+     * from the plan's finish (planned stops included, cached or fetched) the teaser shows;
+     * [finishEtaAt] (ISO 8601) starts from that finish instead. Answers
+     * the replay's `baseURL`, `viewerUserId`, `durationSeconds`, `stepSeconds`, a `snapshot` and,
+     * when it read the room, `room` to save. A failure names its checklist [RuntimeResult.Failure.state].
+     */
+    fun demoRaceCreate(
+        tempDir: String,
+        roomId: String? = null,
+        room: JSONObject? = null,
+        fixture: Boolean = false,
+        planFinish: Boolean = false,
+        finishEtaAt: String? = null
+    ): RuntimeResult = call("demoRaceCreate") {
+        put("tempDir", tempDir)
+        if (!roomId.isNullOrBlank()) put("roomId", roomId)
+        if (room != null) put("room", room)
+        if (fixture) put("fixture", true)
+        if (planFinish) put("planFinish", true)
+        if (!finishEtaAt.isNullOrBlank()) put("finishEtaAt", finishEtaAt)
+    }
+
+    /** On a [replay] bridge: play, pause, move to the step for the wall time played, or end the replay. */
+    fun demoRacePlay(): RuntimeResult = call("demoRacePlay")
+
+    fun demoRacePause(): RuntimeResult = call("demoRacePause")
+
+    fun demoRaceTick(): RuntimeResult = call("demoRaceTick")
+
+    fun demoRaceSkip(): RuntimeResult = call("demoRaceSkip")
+
+    /** On a [replay] bridge: forward to [seconds] of wall time played; play or pause stays. */
+    fun demoRaceSeek(seconds: Double): RuntimeResult = call("demoRaceSeek") { put("seconds", seconds) }
+
     private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
         if (races != null) put("races", races)
         if (!activeRoomId.isNullOrBlank()) put("activeRoomId", activeRoomId)
     }
 
     private fun call(op: String, fill: JSONObject.() -> Unit = {}): RuntimeResult {
-        val session = sessionStore.current()
+        val who = identity()
         val request = JSONObject()
             .put("op", op)
             .put("baseURL", baseUrl)
-            .put("token", session?.token.orEmpty())
-            .put("userId", session?.userId.orEmpty())
-            .put("role", session?.role.orEmpty())
-            .put("storageDir", sessionStore.storageDir().absolutePath)
+            .put("token", who.token)
+            .put("userId", who.userId)
+            .put("role", who.role)
+            .put("storageDir", storageDir())
         request.fill()
         val raw = ClientCoreBridge.runtimeJson(request.toString())
-        return parse(op, raw, session?.token.orEmpty())
+        return parse(op, raw, who.token)
     }
 
     private fun parse(op: String, raw: String, token: String): RuntimeResult {
@@ -471,7 +533,8 @@ class RaceDayBridge(
                 offline = obj.optBoolean("offline") || isOffline(message),
                 crewLimit = obj.optBoolean("crewLimit"),
                 status = obj.optInt("status", 0),
-                code = obj.optText("code").ifBlank { null }
+                code = obj.optText("code").ifBlank { null },
+                state = obj.optText("state").ifBlank { null }
             )
         }
         val result = obj.opt("result")

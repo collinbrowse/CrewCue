@@ -24,7 +24,7 @@ import Dispatch
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
-/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceCleanup (`RuntimeDemoRace.swift`),
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceCleanup (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
@@ -75,11 +75,14 @@ enum RuntimeCall {
             let encoded = try JSONSerialization.data(withJSONObject: ["ok": true, "result": value])
             return String(decoding: encoded, as: UTF8.self)
         } catch {
-            return failureJSON(error)
+            // A replay that can't start names the checklist state it shows instead.
+            return failureJSON(error, replayState: op == "demoRaceCreate")
         }
     }
 
-    static func failureJSON(_ error: any Error) -> String {
+    /// `replayState`: add `state`, the checklist state (`empty`, `error` or `offline`) a replay
+    /// that can't start shows (`DemoRace.unavailableState`), so Android never maps errors itself.
+    static func failureJSON(_ error: any Error, replayState: Bool = false) -> String {
         let message: String
         if let authority = error as? PlanAuthorityError {
             message = authority.message
@@ -103,6 +106,9 @@ enum RuntimeCall {
         ]
         if let code = http?.reason ?? http?.decision, !code.isEmpty {
             object["code"] = code
+        }
+        if replayState {
+            object["state"] = DemoRace.unavailableState(error).rawValue
         }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             return #"{"ok":false,"message":"Request failed."}"#
@@ -308,6 +314,8 @@ enum RuntimeCall {
             return try await demoRaceCreate(object)
         case "demoRacePlay", "demoRacePause", "demoRaceTick", "demoRaceSkip":
             return try demoRaceControl(op, object)
+        case "demoRaceSeek":
+            return try demoRaceSeek(object)
         case "demoRaceCleanup":
             return try demoRaceCleanup(object)
         case "raceStartInput":
@@ -1641,7 +1649,7 @@ enum RuntimeCall {
 
     /// The signed-in user's directory under the storage root. The outbox keys rows by room itself.
     /// A replay's is under its temporary directory, and none once the replay ended.
-    private static func userDirectory(_ object: [String: Any]) -> URL? {
+    static func userDirectory(_ object: [String: Any]) -> URL? {
         let userId = object["userId"] as? String ?? ""
         if demoURL(object) != nil {
             return try? demoRace(object)?.userDirectory(userId: userId)

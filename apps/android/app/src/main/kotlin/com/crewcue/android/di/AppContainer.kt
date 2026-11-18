@@ -12,10 +12,15 @@ import com.crewcue.android.billing.StorePurchaser
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
+import com.crewcue.android.ui.onboarding.FileReplayRoomStore
 import com.crewcue.android.ui.onboarding.FileRunnerSetupDraftStore
+import com.crewcue.android.ui.onboarding.ReplayRoomStore
 import com.crewcue.android.ui.onboarding.RunnerSetupDraftStore
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.json.JSONObject
 
 class AppContainer(context: Context) {
@@ -29,6 +34,15 @@ class AppContainer(context: Context) {
     /** The runner's half-typed setup and course file, outside the per-user storage root. */
     val runnerSetupDrafts: RunnerSetupDraftStore =
         FileRunnerSetupDraftStore(File(appContext.noBackupFilesDir, "runner-setup"))
+
+    /** The runner's room body, saved so the onboarding replay plays offline. Cleared on sign-out. */
+    val replayRooms: ReplayRoomStore = FileReplayRoomStore(File(appContext.noBackupFilesDir, "race-preview"))
+
+    /** Where client-core puts the onboarding replay's own folder (`demoRaceCreate` `tempDir`). */
+    val cacheDirPath: String get() = appContext.cacheDir.absolutePath
+
+    /** Work that outlives a screen's model, such as ending a replay from `onCleared`. Off Main. */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Removes demo replay folders a killed process left in the cache directory. Once per process. */
     fun cleanDemoRacesOnce() {

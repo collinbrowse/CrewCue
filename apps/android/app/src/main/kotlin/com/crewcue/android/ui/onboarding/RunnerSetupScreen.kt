@@ -81,7 +81,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun OnboardingScreen(shell: ShellViewModel) {
     val text = shell.onboardingText
-    val flow = OnboardingRouting.setupFlow(shell.onboarding, shell.teaserAgain)
+    val flow = shell.onboarding
     Box(
         Modifier
             .fillMaxSize()
@@ -226,7 +226,7 @@ private fun AdaptiveSetupLayout(form: @Composable (inlinePreview: Boolean) -> Un
  * first child, so opening or flattening the device only moves it and its state stays.
  */
 @Composable
-private fun FoldSplit(posture: Posture?, top: @Composable () -> Unit, bottom: @Composable () -> Unit) {
+internal fun FoldSplit(posture: Posture?, top: @Composable () -> Unit, bottom: @Composable () -> Unit) {
     var rootTop by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
     val hinge = posture?.hingeList?.firstOrNull { !it.isVertical }

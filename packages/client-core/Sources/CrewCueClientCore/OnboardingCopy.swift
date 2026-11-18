@@ -137,6 +137,9 @@ public enum OnboardingCopy {
     public static let paywallFullCrewTitle = "Your whole crew"
     public static let paywallFullCrewProduct = BillingProduct.racePassFullCrew.title
     public static let paywallFullCrewPrice = BillingProduct.racePassFullCrew.fallbackPrice
+    /// What each option covers, under its title: the products' own `detail`.
+    public static let paywallRunnerPlusOneDetail = BillingProduct.racePass.detail
+    public static let paywallFullCrewDetail = BillingProduct.racePassFullCrew.detail
     public static let paywallPitch = "Give your crew this on race day."
     /// The buy button's spoken label, filled with `product` and `price` (`paywallBuyLabel`).
     public static let paywallBuyLabelTemplate = "Buy {product}, {price}"
@@ -195,6 +198,8 @@ public enum OnboardingCopy {
             "paywallFullCrewTitle": paywallFullCrewTitle,
             "paywallFullCrewProduct": paywallFullCrewProduct,
             "paywallFullCrewPrice": paywallFullCrewPrice,
+            "paywallRunnerPlusOneDetail": paywallRunnerPlusOneDetail,
+            "paywallFullCrewDetail": paywallFullCrewDetail,
             "paywallBuyLabelTemplate": paywallBuyLabelTemplate,
             "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
             "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,

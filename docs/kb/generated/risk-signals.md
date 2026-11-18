@@ -10,7 +10,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Source files ≥ 800 lines | 10 |
 | In-process timers in the API | 4 |
 | API lib modules with no same-named test | 42 |
-| Native features not passing on both platforms | 14 |
+| Native features not passing on both platforms | 13 |
 | Files with TODO/FIXME/HACK | 0 |
 
 ## Routes with no auth guard detected
@@ -41,11 +41,11 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5729 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2021 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2029 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1251 |
-| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1065 |
+| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1125 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 900 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
@@ -128,7 +128,6 @@ From `clients/behavior/deeplinks.json`. `pass` requires a device proof file.
 | `location-heartbeat` | v1 | fail | fail |
 | `push-registration` | v1 | fail | fail |
 | `tracking-reminder` | v1 | fail | fail |
-| `onboarding-race-preview` | v1 | pass | fail |
 
 Deferred: `command-center`, `crew-tasks`, `protocol-notes`, `projection`, `stop-plan-api`, `activity-history`, `recommendations`, `sync-health`, `geocode-search`, `strava`.
 
