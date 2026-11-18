@@ -151,6 +151,23 @@ const ROOM_REMOVED_MEMBERS_DDL = `
   CREATE INDEX IF NOT EXISTS room_removed_members_by_user ON room_removed_members (user_id);
 `;
 
+/**
+ * Mirrors db/migrations/0023_unpaid_reminders_sent.sql (see unpaidRaceReminderScheduler.ts): the
+ * reminder claims, and a partial index of unpaid rooms by race start for the `race_soon` listing.
+ * Runs after race_rooms_json exists: the claim rows reference it.
+ */
+const UNPAID_REMINDERS_DDL = `
+  CREATE TABLE IF NOT EXISTS unpaid_reminders_sent (
+    room_id TEXT NOT NULL REFERENCES race_rooms_json (id) ON DELETE CASCADE,
+    slot TEXT NOT NULL CHECK (slot IN ('expiry_7d', 'expiry_1d', 'race_soon')),
+    claimed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (room_id, slot)
+  );
+  CREATE INDEX IF NOT EXISTS race_rooms_json_unpaid_race_start_at
+    ON race_rooms_json ((payload->>'raceStartAt') COLLATE "C")
+    WHERE payload->'entitlement'->>'status' = 'unpaid';
+`;
+
 export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void> {
   if (initPromise) {
     await initPromise;
@@ -289,6 +306,7 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
     await client.query(TRACKING_REMINDERS_DDL);
     await client.query(UNPAID_RACE_ROOMS_DDL);
     await client.query(ROOM_REMOVED_MEMBERS_DDL);
+    await client.query(UNPAID_REMINDERS_DDL);
   } finally {
     await client.query("SELECT pg_advisory_unlock(711001)");
     client.release();
@@ -314,7 +332,8 @@ export async function initRoomPersistence(log: FastifyBaseLogger): Promise<void>
           "finished_efforts",
           "course_history_events",
           "tracking_reminders_sent",
-          "room_removed_members"
+          "room_removed_members",
+          "unpaid_reminders_sent"
         ]
       }
     },
@@ -497,7 +516,34 @@ export type RaceRoomExpiryFields = {
   id: string;
   entitlementStatus: RaceRoomEntitlementStatus | undefined;
   createdAt: string | undefined;
+  /**
+   * The creator (`createdByUserId`, else the first member, as `raceCreatorOf` reads it). The
+   * stored room the delete condition is asked about always carries it when there is one; the
+   * sweeper keeps a race whose creator has an unattached billing grant (R25).
+   */
+  creatorId?: string;
 };
+
+/**
+ * SQL: the room's creator, as `raceCreatorOf` reads it (`createdByUserId`, else the first member),
+ * for a query over `race_rooms_json` aliased `room`.
+ */
+function creatorIdSql(room: string): string {
+  return `COALESCE(${room}.payload->>'createdByUserId', ${room}.payload->'memberships'->0->>'userId')`;
+}
+
+/**
+ * SQL: whether the room's creator bought a pass the webhook stored with no room (`billing_grants`
+ * with `room_id` NULL and the creator's `app_user_id`, active or revoked: risk R25, billingStore.ts
+ * `listUserIdsWithUnattachedBillingGrants`). The unpaid-race reminders and the sweeper leave such a
+ * creator's races alone. For a query over `race_rooms_json` aliased `room`.
+ */
+export function creatorHasUnattachedGrantSql(room: string): string {
+  return `EXISTS (
+    SELECT 1 FROM billing_grants unattached
+    WHERE unattached.room_id IS NULL AND unattached.app_user_id = ${creatorIdSql(room)}
+  )`;
+}
 
 /**
  * Unpaid rooms whose stored `createdAt` string is before `beforeIso`, compared as bytes, oldest
@@ -507,12 +553,17 @@ export type RaceRoomExpiryFields = {
  *
  * Rooms with a billing grant, active or revoked, are left out: they were paid once (a refund puts
  * a race back to `unpaid`), and the sweeper never deletes them, so listing them would let them
- * fill every batch ahead of the races it does delete. Needs the `billing_grants` table
- * (migration 0019; callers run the billing store's `ensureBillingStoreReady` first).
+ * fill every batch ahead of the races it does delete. So are rooms whose creator has an
+ * unattached grant (R25: a purchase the webhook could not attach, so maybe a paying runner), and
+ * rooms whose `expiry_1d` reminder was not claimed at or before `finalReminderClaimedBeforeIso`
+ * (`unpaid_reminders_sent`): the sweeper waits 24 hours after that warning, and those rooms would
+ * fill the batch the same way. Needs the `billing_grants` table (migration 0019; callers run the
+ * billing store's `ensureBillingStoreReady` first).
  */
 export async function listPersistedUnpaidRaceRoomsCreatedBefore(
   beforeIso: string,
-  limit: number
+  limit: number,
+  finalReminderClaimedBeforeIso: string
 ): Promise<RaceRoomExpiryFields[]> {
   if (!pool) {
     return [];
@@ -521,25 +572,172 @@ export async function listPersistedUnpaidRaceRoomsCreatedBefore(
     id: string;
     entitlement_status: RaceRoomEntitlementStatus | null;
     created_at: string | null;
+    creator_id: string | null;
   }>(
     `
       SELECT id,
              payload->'entitlement'->>'status' AS entitlement_status,
-             payload->>'createdAt' AS created_at
+             payload->>'createdAt' AS created_at,
+             ${creatorIdSql("race_rooms_json")} AS creator_id
       FROM race_rooms_json
       WHERE payload->'entitlement'->>'status' = 'unpaid'
         AND payload->>'createdAt' < $1::text COLLATE "C"
         AND NOT EXISTS (SELECT 1 FROM billing_grants WHERE billing_grants.room_id = race_rooms_json.id)
+        AND NOT ${creatorHasUnattachedGrantSql("race_rooms_json")}
+        AND EXISTS (
+          SELECT 1 FROM unpaid_reminders_sent
+          WHERE unpaid_reminders_sent.room_id = race_rooms_json.id
+            AND unpaid_reminders_sent.slot = 'expiry_1d'
+            AND unpaid_reminders_sent.claimed_at <= $3::timestamptz
+        )
       ORDER BY (payload->>'createdAt') COLLATE "C" ASC
       LIMIT $2
     `,
-    [beforeIso, limit]
+    [beforeIso, limit, finalReminderClaimedBeforeIso]
   );
   return result.rows.map((row) => ({
     id: row.id,
     entitlementStatus: row.entitlement_status ?? undefined,
-    createdAt: row.created_at ?? undefined
+    createdAt: row.created_at ?? undefined,
+    ...(row.creator_id !== null ? { creatorId: row.creator_id } : {})
   }));
+}
+
+/** Unpaid-race reminder slots (unpaidRaceReminderScheduler.ts), as `unpaid_reminders_sent.slot` stores them. */
+export type UnpaidReminderSlot = "expiry_7d" | "expiry_1d" | "race_soon";
+
+/**
+ * The room fields the unpaid-race reminder scheduler reads. Times and the name may be missing on
+ * a malformed payload; the scheduler then sends nothing that needs them.
+ */
+export type RaceRoomReminderFields = {
+  id: string;
+  entitlementStatus: RaceRoomEntitlementStatus | undefined;
+  createdAt: string | undefined;
+  raceStartAt: string | undefined;
+  /** Who gets the push: `createdByUserId`, else the first member (billingEntitlement.ts `raceCreatorOf`). */
+  creatorId: string | undefined;
+  /** Whether the creator is still on the roster. A creator who left gets the claim, not the push. */
+  creatorIsMember: boolean;
+  name: string | undefined;
+  /** The room's reminder claims so far (slot → ISO claim time), so a tick skips them without a write. */
+  claims: Partial<Record<UnpaidReminderSlot, string>>;
+};
+
+/**
+ * The reminder listing's columns: the scheduler's fields only, read from the payload once per row
+ * (`jsonb_to_record`), never the payload itself (it can carry the course GPX), and the room's
+ * claims. The creator is spelled as `raceCreatorOf` reads it.
+ */
+const REMINDER_FIELDS_SELECT = `
+  SELECT r.id,
+         f.entitlement->>'status' AS entitlement_status,
+         f."createdAt" AS created_at,
+         f."raceStartAt" AS race_start_at,
+         COALESCE(f."createdByUserId", f.memberships->0->>'userId') AS creator_id,
+         COALESCE(
+           jsonb_typeof(f.memberships) = 'array'
+             AND f.memberships @> jsonb_build_array(
+               jsonb_build_object('userId', COALESCE(f."createdByUserId", f.memberships->0->>'userId'))
+             ),
+           false
+         ) AS creator_is_member,
+         f."name" AS name,
+         (SELECT jsonb_object_agg(s.slot, s.claimed_at) FROM unpaid_reminders_sent s WHERE s.room_id = r.id) AS claims
+  FROM race_rooms_json r
+  CROSS JOIN LATERAL jsonb_to_record(r.payload) AS f(
+    "createdAt" text,
+    "raceStartAt" text,
+    "createdByUserId" text,
+    "name" text,
+    entitlement jsonb,
+    memberships jsonb
+  )
+`;
+
+type ReminderFieldsRow = {
+  id: string;
+  entitlement_status: RaceRoomEntitlementStatus | null;
+  created_at: string | null;
+  race_start_at: string | null;
+  creator_id: string | null;
+  creator_is_member: boolean;
+  name: string | null;
+  claims: Record<string, string> | null;
+};
+
+const UNPAID_REMINDER_SLOTS: readonly UnpaidReminderSlot[] = ["expiry_7d", "expiry_1d", "race_soon"];
+
+function reminderFieldsOf(row: ReminderFieldsRow): RaceRoomReminderFields {
+  const claims: Partial<Record<UnpaidReminderSlot, string>> = {};
+  for (const slot of UNPAID_REMINDER_SLOTS) {
+    const at = Date.parse(row.claims?.[slot] ?? "");
+    if (Number.isFinite(at)) {
+      claims[slot] = new Date(at).toISOString();
+    }
+  }
+  return {
+    id: row.id,
+    entitlementStatus: row.entitlement_status ?? undefined,
+    createdAt: row.created_at ?? undefined,
+    raceStartAt: row.race_start_at ?? undefined,
+    creatorId: row.creator_id ?? undefined,
+    creatorIsMember: row.creator_is_member === true,
+    name: row.name ?? undefined,
+    claims
+  };
+}
+
+/**
+ * The unpaid-race reminder scheduler's candidates, never paid (no billing grant, active or
+ * revoked) and whose creator has no unattached grant (R25), from two index ranges, each a prefilter on stored strings compared as bytes (callers
+ * widen them and check the parsed times):
+ *
+ * - created before `createdBeforeIso` (the `race_rooms_json_unpaid_created_at` partial index) and
+ *   without an `expiry_1d` claim (a room with one has no expiry reminder left), oldest first;
+ * - starting after `startsAfterIso` and at most `startsAtOrBeforeIso` (the
+ *   `race_rooms_json_unpaid_race_start_at` partial index) without a `race_soon` claim.
+ *
+ * A room in both comes back once. Both read unpaid rooms only, so no paid room's payload is read.
+ * Needs the `billing_grants` table (migration 0019; callers run `ensureBillingStoreReady` first).
+ */
+export async function listPersistedUnpaidRaceRoomsForReminders(
+  createdBeforeIso: string,
+  startsAfterIso: string,
+  startsAtOrBeforeIso: string
+): Promise<RaceRoomReminderFields[]> {
+  if (!pool) {
+    return [];
+  }
+  const byCreation = await pool.query<ReminderFieldsRow>(
+    `${REMINDER_FIELDS_SELECT}
+      WHERE r.payload->'entitlement'->>'status' = 'unpaid'
+        AND r.payload->>'createdAt' < $1::text COLLATE "C"
+        AND NOT EXISTS (SELECT 1 FROM billing_grants g WHERE g.room_id = r.id)
+        AND NOT ${creatorHasUnattachedGrantSql("r")}
+        AND NOT EXISTS (SELECT 1 FROM unpaid_reminders_sent s WHERE s.room_id = r.id AND s.slot = 'expiry_1d')
+      ORDER BY (r.payload->>'createdAt') COLLATE "C" ASC
+    `,
+    [createdBeforeIso]
+  );
+  const byStart = await pool.query<ReminderFieldsRow>(
+    `${REMINDER_FIELDS_SELECT}
+      WHERE r.payload->'entitlement'->>'status' = 'unpaid'
+        AND r.payload->>'raceStartAt' > $1::text COLLATE "C"
+        AND r.payload->>'raceStartAt' <= $2::text COLLATE "C"
+        AND NOT EXISTS (SELECT 1 FROM billing_grants g WHERE g.room_id = r.id)
+        AND NOT ${creatorHasUnattachedGrantSql("r")}
+        AND NOT EXISTS (SELECT 1 FROM unpaid_reminders_sent s WHERE s.room_id = r.id AND s.slot = 'race_soon')
+    `,
+    [startsAfterIso, startsAtOrBeforeIso]
+  );
+  const byId = new Map<string, RaceRoomReminderFields>();
+  for (const row of [...byCreation.rows, ...byStart.rows]) {
+    if (!byId.has(row.id)) {
+      byId.set(row.id, reminderFieldsOf(row));
+    }
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -1122,10 +1320,12 @@ async function lockRaceRoomExpiryFields(client: PoolClient, roomId: string): Pro
   const locked = await client.query<{
     entitlement_status: RaceRoomEntitlementStatus | null;
     created_at: string | null;
+    creator_id: string | null;
   }>(
     `
       SELECT payload->'entitlement'->>'status' AS entitlement_status,
-             payload->>'createdAt' AS created_at
+             payload->>'createdAt' AS created_at,
+             ${creatorIdSql("race_rooms_json")} AS creator_id
       FROM race_rooms_json
       WHERE id = $1
       FOR UPDATE
@@ -1136,7 +1336,12 @@ async function lockRaceRoomExpiryFields(client: PoolClient, roomId: string): Pro
   if (!row) {
     return undefined;
   }
-  return { id: roomId, entitlementStatus: row.entitlement_status ?? undefined, createdAt: row.created_at ?? undefined };
+  return {
+    id: roomId,
+    entitlementStatus: row.entitlement_status ?? undefined,
+    createdAt: row.created_at ?? undefined,
+    ...(row.creator_id !== null ? { creatorId: row.creator_id } : {})
+  };
 }
 
 /**
