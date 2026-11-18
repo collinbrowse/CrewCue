@@ -3,7 +3,7 @@
 
 Postgres schema rebuilt from `services/api/db/migrations` in order, and the API files that name each table. In `PERSISTENCE_MODE=memory` none of these tables exist; the same stores keep state in process.
 
-**21 tables** from 22 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
+**22 tables** from 23 migrations. Dropped: `chat_channel_envelopes`, `chat_device_keys`, `chat_identity_backup`, `chat_push_tokens`, `chat_room_crypto_state`, `chat_user_identity`.
 
 ## `billing_grants`
 
@@ -372,7 +372,7 @@ Read/written by: [services/api/src/lib/roomPersistence.ts](../../../services/api
 
 ## `unpaid_reminders_sent`
 
-Created in [services/api/db/migrations/0022_unpaid_reminders_sent.sql](../../../services/api/db/migrations/0022_unpaid_reminders_sent.sql).
+Created in [services/api/db/migrations/0023_unpaid_reminders_sent.sql](../../../services/api/db/migrations/0023_unpaid_reminders_sent.sql).
 
 | Column | Type |
 | --- | --- |
