@@ -28,7 +28,9 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -224,7 +226,7 @@ class RacePreviewViewModelTest {
 
     /**
      * [runTest] on the test clock. Each model's store is cleared when the body ends, as the route
-     * going away does: a replay left paused polls on Main, which `runTest` would otherwise run forever.
+     * going away does, so no replay a test left playing or waiting keeps work on Main.
      */
     private fun replayTest(body: suspend TestScope.() -> Unit) = runTest(dispatcher) {
         try {
@@ -248,6 +250,20 @@ class RacePreviewViewModelTest {
                 RacePreviewViewModel(runtime, rooms, saved, background, io = io) as T
         }
         return ViewModelProvider(store, factory)[RacePreviewViewModel::class.java]
+    }
+
+    /**
+     * The flow's one replay model as a NavHost entry asks for it (`rememberRacePreviewModel`): in
+     * the shell's [RacePreviewModels], its saved state the activity's [saved] across flows.
+     */
+    private fun TestScope.replayModel(flow: RacePreviewModels, saved: SavedStateHandle): RacePreviewViewModel {
+        stores += flow.viewModelStore
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                RacePreviewViewModel(runtime, rooms, saved, backgroundScope, io = dispatcher) as T
+        }
+        return ViewModelProvider(flow, factory)[RACE_PREVIEW_MODEL_KEY, RacePreviewViewModel::class.java]
     }
 
     private fun TestScope.effectsOf(model: RacePreviewViewModel): MutableList<RacePreviewEffect> {
@@ -392,6 +408,85 @@ class RacePreviewViewModelTest {
         model.setWatched(true)
         runCurrent()
         assertTrue(model.playing)
+    }
+
+    @Test
+    fun pausedOrUnseenTheReplayAsksNothingOfTheRuntimeUntilItPlaysAgain() = replayTest {
+        val model = playing(model())
+        advanceTimeBy(3_100)
+        model.togglePlay()
+        // The loop sees the pause at its next step, then waits for Play.
+        advanceTimeBy(1_000)
+        val paused = runtime.controls.size
+        advanceTimeBy(60_000)
+        assertEquals("nothing asked while paused", paused, runtime.controls.size)
+        model.togglePlay()
+        runCurrent()
+        assertTrue(model.playing)
+        advanceTimeBy(2_000)
+        assertTrue("the loop ticks again", runtime.controls.count { it.first == ReplayControl.Tick } > 0)
+        assertTrue(runtime.controls.size > paused + 2)
+        // Nobody sees it (the app in the background): the same.
+        model.setWatched(false)
+        advanceTimeBy(1_000)
+        val unseen = runtime.controls.size
+        advanceTimeBy(60_000)
+        assertEquals("nothing asked while unseen", unseen, runtime.controls.size)
+        model.setWatched(true)
+        runCurrent()
+        assertTrue(model.playing)
+        advanceTimeBy(1_000)
+        assertTrue(runtime.controls.size > unseen + 1)
+        assertEquals(RacePreviewStatus.Playing, model.status)
+    }
+
+    @Test
+    fun twoEntriesDrawingTheRouteShareOneReplayThatKeepsPlaying() = replayTest {
+        // The activity's saved state, which outlives every NavHost entry and every flow.
+        val saved = SavedStateHandle()
+        val flow = RacePreviewModels()
+        // The teaser's Continue: the entry leaving (for its last frames and the crossfade) and the
+        // entry arriving both draw the race preview route, each asking for the flow's model.
+        val leaving = replayModel(flow, saved)
+        val arriving = replayModel(flow, saved)
+        assertSame(leaving, arriving)
+        val leavingScreen = Any()
+        val arrivingScreen = Any()
+        leaving.setWatched(true, by = leavingScreen)
+        leaving.show(race)
+        arriving.setWatched(true, by = arrivingScreen)
+        arriving.show(race)
+        runCurrent()
+        // One room read, one replay: nothing retires the one on screen.
+        assertEquals(listOf<ReplayRoom>(ReplayRoom.Read("room-1")), runtime.creates)
+        assertEquals(RacePreviewStatus.Playing, arriving.status)
+        assertTrue(arriving.playing)
+        // The leaving entry stops and goes; the arriving one's replay plays on.
+        leaving.setWatched(false, by = leavingScreen)
+        runCurrent()
+        assertTrue(arriving.playing)
+        advanceTimeBy(12_100)
+        assertEquals(RacePreviewStatus.Playing, arriving.status)
+        assertEquals(ReplayBeats.FALLING_BEHIND, arriving.beat)
+        assertEquals(1, runtime.creates.size)
+        assertEquals(1, runtime.live.size)
+        // The shell leaves the route: the flow's replay ends with its views, and its moment goes.
+        val replay = assertNotNullAnd(arriving.replay)
+        val views = replay.models.probe()
+        flow.end()
+        runCurrent()
+        assertTrue(views.cleared)
+        assertTrue(runtime.controls.contains(ReplayControl.Skip to replay.baseUrl))
+        assertTrue(runtime.live.isEmpty())
+        assertTrue(saved.keys().none { it.startsWith("race-preview.") })
+        // The next flow on the same race starts from the top, not from the last flow's moment.
+        val next = replayModel(flow, saved)
+        assertNotSame(arriving, next)
+        playing(next)
+        assertEquals(RacePreviewStage.Replay, next.stage)
+        assertEquals(ReplayBeats.FOLLOWING, next.beat)
+        assertTrue(runtime.seeks.isEmpty())
+        assertEquals(RacePreviewStatus.Playing, next.status)
     }
 
     @Test

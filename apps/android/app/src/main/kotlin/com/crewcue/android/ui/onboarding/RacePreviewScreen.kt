@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.allVerticalHingeBounds
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.AdaptStrategy
 import androidx.compose.material3.adaptive.layout.AnimatedPane
@@ -48,6 +49,7 @@ import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldDefaults
 import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldRole
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth
 import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
 import androidx.compose.runtime.Composable
@@ -71,13 +73,19 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.SAVED_STATE_REGISTRY_OWNER_KEY
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.VIEW_MODEL_STORE_OWNER_KEY
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.savedstate.SavedStateRegistryOwner
 import androidx.window.core.layout.WindowSizeClass
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.billing.BillingUiState
@@ -118,36 +126,28 @@ fun RacePreviewRoute(shell: ShellViewModel) {
         }
         return
     }
-    val model: RacePreviewViewModel = viewModel(
-        key = "race-preview",
-        factory = viewModelFactory {
-            initializer {
-                RacePreviewViewModel(
-                    runtime = BridgeRacePreviewRuntime(shell.container.raceDay, shell.container.cacheDirPath, shell::onboardingRaceContext),
-                    rooms = shell.container.replayRooms,
-                    savedState = createSavedStateHandle(),
-                    background = shell.container.appScope
-                )
-            }
-        }
-    )
+    val model = rememberRacePreviewModel(shell)
+    // While the route changes, the entry leaving and the one arriving both run these on the same
+    // model: the same source is a no-op the second time.
     LaunchedEffect(model, source.key) { model.show(source) }
     LaunchedEffect(model) { model.effects.collect(shell::onRacePreviewEffect) }
     // It plays only while on screen and in the foreground; a fold or rotation pauses it only for
-    // the moment the activity is recreated.
+    // the moment the activity is recreated. Each composition watches as itself, so the entry
+    // fading out never pauses the replay the arriving one shows.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(model, lifecycle) {
+        val screen = Any()
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> model.setWatched(true)
-                Lifecycle.Event.ON_STOP -> model.setWatched(false)
+                Lifecycle.Event.ON_START -> model.setWatched(true, by = screen)
+                Lifecycle.Event.ON_STOP -> model.setWatched(false, by = screen)
                 else -> Unit
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
-            model.setWatched(false)
+            model.setWatched(false, by = screen)
         }
     }
     AnimatedContent(
@@ -159,6 +159,42 @@ fun RacePreviewRoute(shell: ShellViewModel) {
             RacePreviewStage.Replay -> ReplayScreen(model, shell, text)
             RacePreviewStage.Paywall -> OnboardingPaywall(model, shell, source, text)
         }
+    }
+}
+
+/**
+ * The flow's one replay model, in the shell's [RacePreviewModels] rather than this NavHost entry's
+ * store: AppRouter draws the shell's current screen in every entry, so during a route change two
+ * entries compose this route, and both must get the same replay. Its saved state is the
+ * activity's, which outlives both entries and comes back after process death.
+ */
+@Composable
+private fun rememberRacePreviewModel(shell: ShellViewModel): RacePreviewViewModel {
+    val activity = LocalContext.current.findActivity()
+    val extras = remember(activity) { savedStateExtras(activity) }
+    return viewModel(
+        viewModelStoreOwner = shell.racePreview,
+        key = RACE_PREVIEW_MODEL_KEY,
+        factory = viewModelFactory {
+            initializer {
+                RacePreviewViewModel(
+                    runtime = BridgeRacePreviewRuntime(shell.container.raceDay, shell.container.cacheDirPath, shell::onboardingRaceContext),
+                    rooms = shell.container.replayRooms,
+                    // No activity (a preview): nothing to restore from.
+                    savedState = if (this[SAVED_STATE_REGISTRY_OWNER_KEY] != null) createSavedStateHandle() else SavedStateHandle(),
+                    background = shell.container.appScope
+                )
+            }
+        },
+        extras = extras
+    )
+}
+
+/** The activity's saved-state registry, for a model held outside it. */
+private fun savedStateExtras(activity: android.app.Activity?): CreationExtras = MutableCreationExtras().apply {
+    if (activity is SavedStateRegistryOwner && activity is ViewModelStoreOwner) {
+        this[SAVED_STATE_REGISTRY_OWNER_KEY] = activity
+        this[VIEW_MODEL_STORE_OWNER_KEY] = activity
     }
 }
 
@@ -181,8 +217,11 @@ private fun ReplayScreen(model: RacePreviewViewModel, shell: ShellViewModel, tex
     val tabletop = info.windowPosture.isTabletop
     val panes = calculatePaneScaffoldDirectiveWithTwoPanesOnMediumWidth(info, HingePolicy.AlwaysAvoid)
     val playing = model.status == RacePreviewStatus.Playing && model.replay != null
-    // One pane while there is nothing to put beside the Map, or in tabletop (split at the fold instead).
-    val directive = if (tabletop || !playing) panes.copy(maxHorizontalPartitions = 1) else panes
+    // One pane while there is nothing to put beside the Map, or in tabletop (split at the fold
+    // instead). Across a vertical hinge the two panes stay even then, so the loader or the state's
+    // message sits on one side of it with the controls, never on the hinge.
+    val besideHinge = info.windowPosture.allVerticalHingeBounds.isNotEmpty()
+    val directive = if (tabletop || (!playing && !besideHinge)) panes.copy(maxHorizontalPartitions = 1) else panes
     val navigator = rememberSupportingPaneScaffoldNavigator(
         scaffoldDirective = directive,
         adaptStrategies = SupportingPaneScaffoldDefaults.adaptStrategies(supportingPaneAdaptStrategy = AdaptStrategy.Hide)
@@ -510,7 +549,13 @@ private fun ReplayLoading(text: OnboardingText) {
  * billing read unlocks the race, which then marks the step done. Not now skips the step and lands
  * on the tab bar behind Unlock race; Back (the button, system or predictive back) replays from the
  * start. The dev route's fixture has no race to buy, so it shows the fallback prices only.
+ *
+ * Flat: one column, the options side by side on a medium or expanded width (stacked on compact and
+ * at large text sizes). Across a vertical hinge (half-open like a book, or a two-screen device):
+ * the copy on one side and the options with their actions on the other, split off the hinge.
+ * Tabletop: the copy above the fold, the options and Not now below it.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel, source: RacePreviewSource, text: OnboardingText) {
     val roomId = (source as? RacePreviewSource.Race)?.roomId
@@ -522,65 +567,156 @@ private fun OnboardingPaywall(model: RacePreviewViewModel, shell: ShellViewModel
     LaunchedEffect(unlocked) { if (unlocked) model.purchased() }
     val busy = billing?.busy == true || model.finishing
     BackHandler(enabled = !busy) { model.replayFromStart() }
-    val windowClass = currentWindowAdaptiveInfo().windowSizeClass
-    val sideBySide = windowClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND) &&
+    val info = currentWindowAdaptiveInfo()
+    val tabletop = info.windowPosture.isTabletop
+    val besideHinge = !tabletop && info.windowPosture.allVerticalHingeBounds.isNotEmpty()
+    // Two panes only to split off a vertical hinge; flat, one column at every width.
+    val directive = calculatePaneScaffoldDirective(info, HingePolicy.AlwaysAvoid)
+        .copy(maxHorizontalPartitions = if (besideHinge) 2 else 1)
+    val navigator = rememberSupportingPaneScaffoldNavigator(
+        scaffoldDirective = directive,
+        adaptStrategies = SupportingPaneScaffoldDefaults.adaptStrategies(supportingPaneAdaptStrategy = AdaptStrategy.Hide)
+    )
+    val split = navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] != PaneAdaptedValue.Hidden
+    val sideBySide = !split &&
+        info.windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND) &&
         LocalDensity.current.fontScale < LARGE_FONT_SCALE
-    val colors = MaterialTheme.colorScheme
-    Column(
+    val copy: @Composable () -> Unit = { PaywallCopy(model, text, busy) }
+    val options: @Composable () -> Unit = {
+        PaywallOptions(model, text, billing, activity, sideBySide = sideBySide, busy = busy, unlocked = unlocked)
+    }
+    Box(
         Modifier
             .fillMaxSize()
             .testTag(ONBOARDING_PAYWALL_TAG)
             .semantics { contentDescription = text.title(PAYWALL_STEP) }
+    ) {
+        SupportingPaneScaffold(
+            directive = navigator.scaffoldDirective,
+            value = navigator.scaffoldValue,
+            mainPane = {
+                AnimatedPane(Modifier.testTag(onboardingPaywallTag("pane.main"))) {
+                    FoldSplit(
+                        posture = info.windowPosture.takeIf { tabletop },
+                        top = { PaywallColumn { copy() } },
+                        bottom = {
+                            PaywallColumn {
+                                if (!tabletop) copy()
+                                if (!split) options()
+                            }
+                        }
+                    )
+                }
+            },
+            supportingPane = {
+                AnimatedPane(Modifier.testTag(onboardingPaywallTag("pane.options"))) { PaywallColumn { options() } }
+            }
+        )
+    }
+}
+
+/** One scrolling column of the paywall, at a readable width. */
+@Composable
+private fun PaywallColumn(content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Column(Modifier.widthIn(max = 960.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            TextButton(
-                onClick = model::replayFromStart,
-                enabled = !busy,
-                modifier = Modifier.testTag(onboardingPaywallTag("back")).semantics { contentDescription = text.replay.back }
-            ) { Text(text.replay.back, style = MaterialTheme.typography.labelLarge) }
-            Text(
-                text.title(PAYWALL_STEP),
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.displaySmall,
-                color = colors.onSurface
-            )
-            text.explanation(PAYWALL_STEP).takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
-            }
-            Text(text.replay.pitch, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
-            val options = text.replay.options
-            if (sideBySide) {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    options.forEach { option ->
-                        PaywallOptionCard(option, text, billing, activity, Modifier.weight(1f).fillMaxHeight())
-                    }
-                }
-            } else {
-                options.forEach { option -> PaywallOptionCard(option, text, billing, activity, Modifier.fillMaxWidth()) }
-            }
-            billing?.state?.message?.takeIf { it.isNotBlank() }?.let { line ->
-                val error = billing.state is BillingUiState.Error || billing.state is BillingUiState.Offline
-                Text(
-                    line,
-                    modifier = Modifier.testTag(onboardingPaywallTag("status")).semantics { contentDescription = line },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (error) colors.error else colors.onSurface
-                )
-            }
-            if (billing != null) {
-                SetupSecondaryButton(
-                    REDEEM_CODE,
-                    onboardingPaywallTag("redeem"),
-                    onClick = { billing.redeem(activity, context.isOnline()) },
-                    enabled = !busy && !unlocked
-                )
-            }
-            SetupSecondaryButton(text.replay.notNow, onboardingPaywallTag("not-now"), onClick = model::notNow, enabled = !busy)
+            content()
         }
+    }
+}
+
+/** Back, the title and the pitch. */
+@Composable
+private fun PaywallCopy(model: RacePreviewViewModel, text: OnboardingText, busy: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        TextButton(
+            onClick = model::replayFromStart,
+            enabled = !busy,
+            modifier = Modifier.testTag(onboardingPaywallTag("back")).semantics { contentDescription = text.replay.back }
+        ) { Text(text.replay.back, style = MaterialTheme.typography.labelLarge) }
+        Text(
+            text.title(PAYWALL_STEP),
+            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.displaySmall,
+            color = colors.onSurface
+        )
+        text.explanation(PAYWALL_STEP).takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+        }
+        Text(text.replay.pitch, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface)
+    }
+}
+
+/**
+ * The two options, the purchase's status line, and the actions: Check again while a payment is
+ * settling (as the Race Pass screen offers), Try again after a failed read, Redeem code, Not now.
+ */
+@Composable
+private fun PaywallOptions(
+    model: RacePreviewViewModel,
+    text: OnboardingText,
+    billing: BillingViewModel?,
+    activity: android.app.Activity?,
+    sideBySide: Boolean,
+    busy: Boolean,
+    unlocked: Boolean
+) {
+    val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val options = text.replay.options
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (sideBySide) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                options.forEach { option ->
+                    PaywallOptionCard(option, text, billing, activity, Modifier.weight(1f).fillMaxHeight())
+                }
+            }
+        } else {
+            options.forEach { option -> PaywallOptionCard(option, text, billing, activity, Modifier.fillMaxWidth()) }
+        }
+        billing?.state?.message?.takeIf { it.isNotBlank() }?.let { line ->
+            val error = billing.state is BillingUiState.Error || billing.state is BillingUiState.Offline
+            Text(
+                line,
+                modifier = Modifier.testTag(onboardingPaywallTag("status")).semantics { contentDescription = line },
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (error) colors.error else colors.onSurface
+            )
+        }
+        if (billing != null) {
+            when (billing.state) {
+                // The store took the payment and the server hasn't unlocked the race yet: read it
+                // again, never buy a second time.
+                is BillingUiState.Pending -> SetupSecondaryButton(
+                    CHECK_AGAIN,
+                    onboardingPaywallTag("check-again"),
+                    onClick = billing::checkAgain,
+                    enabled = !busy
+                )
+                is BillingUiState.Error, is BillingUiState.Offline -> SetupSecondaryButton(
+                    text.label("tryAgain"),
+                    onboardingPaywallTag("try-again"),
+                    onClick = { billing.load(context.isOnline()) },
+                    enabled = !busy
+                )
+                else -> Unit
+            }
+            SetupSecondaryButton(
+                REDEEM_CODE,
+                onboardingPaywallTag("redeem"),
+                onClick = { billing.redeem(activity, context.isOnline()) },
+                enabled = !busy && !unlocked
+            )
+        }
+        SetupSecondaryButton(text.replay.notNow, onboardingPaywallTag("not-now"), onClick = model::notNow, enabled = !busy)
     }
 }
 
@@ -596,6 +732,8 @@ private fun PaywallOptionCard(
     val price = billing?.prices?.get(option.product) ?: option.fallbackPrice
     val forThisCard = billing?.busyProduct == option.product
     val paid = billing?.billing?.isPaid == true
+    // A payment still settling keeps both buy buttons off until it lands (Check again reads it).
+    val pending = billing?.state is BillingUiState.Pending
     ProductCard(
         modifier
             .testTag(option.tag)
@@ -613,7 +751,7 @@ private fun PaywallOptionCard(
                 "${option.productTitle} · $price",
                 "${option.tag}.buy",
                 onClick = { billing?.buy(activity, option.product, context.isOnline()) },
-                enabled = billing != null && !billing.busy && !paid,
+                enabled = billing != null && !billing.busy && !paid && !pending,
                 busy = forThisCard,
                 spoken = text.replay.buyLabel(option, price)
             )
@@ -621,11 +759,15 @@ private fun PaywallOptionCard(
     }
 }
 
-/** The existing purchase model (`BillingViewModel`), for this race, in this route's store. */
+/**
+ * The existing purchase model (`BillingViewModel`), for this race, with the flow's other models
+ * ([RacePreviewModels]): one billing read whichever NavHost entry draws the paywall.
+ */
 @Composable
 private fun rememberOnboardingBilling(shell: ShellViewModel, roomId: String): BillingViewModel {
     val copy = remember(shell) { shell.billingCopy() }
     return viewModel(
+        viewModelStoreOwner = shell.racePreview,
         key = "onboarding-paywall-$roomId",
         factory = BillingViewModelFactory(shell.container.raceDay, shell.container.storePurchaser, roomId, copy)
     )
@@ -635,6 +777,8 @@ private fun rememberOnboardingBilling(shell: ShellViewModel, roomId: String): Bi
 private const val PAYWALL_STEP = "paywall"
 /** The paywall's existing redeem action, as the Race Pass screen labels it. */
 private const val REDEEM_CODE = "Redeem code"
+/** The Race Pass screen's action while a payment settles. */
+private const val CHECK_AGAIN = "Check again"
 /** The caption card's most of the main pane, past which it scrolls. */
 private const val CAPTION_SHARE = 0.4f
 /** At or past this font scale the paywall stacks its options at any width. */

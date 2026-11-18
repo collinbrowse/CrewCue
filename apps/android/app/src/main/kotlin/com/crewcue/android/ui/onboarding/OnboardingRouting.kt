@@ -149,6 +149,13 @@ object OnboardingRouting {
             else -> false
         }
     }
+
+    /**
+     * Showing [nextFeatureId] leaves the race preview flow, so its replay ends
+     * ([RacePreviewModels.end]). Another race preview (a dev link's state, the dev route opened
+     * again) keeps the flow's one model, which starts that replay over itself.
+     */
+    fun leavesRacePreview(nextFeatureId: String?): Boolean = nextFeatureId != RACE_PREVIEW_FEATURE
 }
 
 /**

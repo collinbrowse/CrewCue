@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
@@ -22,6 +23,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -198,6 +201,24 @@ class RacePreviewReplay(
     }
 }
 
+/**
+ * The race preview flow's models: the one [RacePreviewViewModel] (key [RACE_PREVIEW_MODEL_KEY]) and
+ * its paywall's billing. The shell holds them, not a NavHost entry: AppRouter keeps an entry per
+ * route and each draws the shell's current screen, so while the route changes (the frame before it
+ * navigates, then the crossfade) two entries compose the race preview at once. Resolved here, both
+ * get the same replay: one room read, one `demoRaceCreate`, nothing retiring the replay on screen.
+ * The shell calls [end] where it leaves the route.
+ */
+class RacePreviewModels : ViewModelStoreOwner {
+    override val viewModelStore: ViewModelStore = ViewModelStore()
+
+    /** The flow is over: its replay ends (`RacePreviewViewModel.onCleared`); the next one starts fresh. */
+    fun end() = viewModelStore.clear()
+}
+
+/** The flow's replay model in [RacePreviewModels]. */
+const val RACE_PREVIEW_MODEL_KEY = "onboarding-race-preview.replay"
+
 /** What the replay asks the shell to do. The shell owns the session, the race list and the routes. */
 sealed interface RacePreviewEffect {
     /**
@@ -224,6 +245,7 @@ sealed interface RacePreviewEffect {
  * The clock (the runtime's player), the beat, the stage and the view live here, not in a composable,
  * so a fold, a resize or a rotation carries on from the same moment; [SavedStateHandle] keeps them
  * across process death, and a new runtime then seeks to that moment. A relaunch replays from the start.
+ * There is one per flow, in [RacePreviewModels], whichever NavHost entry draws the route.
  */
 class RacePreviewViewModel(
     private val runtime: RacePreviewRuntime,
@@ -277,8 +299,15 @@ class RacePreviewViewModel(
     private var generation = 0
     private var starting: Job? = null
     private var loop: Job? = null
-    /** On screen and in the foreground: it may play. */
-    private var watched = false
+    /**
+     * The screens showing the flow in the foreground ([setWatched]): it may play while there is one.
+     * During a route change two NavHost entries draw the route at once, so one leaving never
+     * pauses the other's.
+     */
+    private val watchers = mutableSetOf<Any>()
+    private val watched: Boolean get() = watchers.isNotEmpty()
+    /** Watched and not paused by the person: the paused loop waits on this instead of polling. */
+    private val wantsPlay = MutableStateFlow(false)
     /** One create at a time, so an older one can't retire (`demoRaceCreate`) a newer replay. */
     private val createGate = Mutex()
     /** Play, pause and ticks reach the runtime in the order they were asked for. */
@@ -315,11 +344,14 @@ class RacePreviewViewModel(
         begin(atSeconds = devStart()?.atSeconds, paused = devStart()?.paused == true)
     }
 
-    /** On screen and in the foreground ([value]), or not: the replay pauses while nobody sees it. */
-    fun setWatched(value: Boolean) {
-        if (watched == value) return
-        watched = value
-        applyPlayback()
+    /**
+     * The screen [by] shows the flow in the foreground ([value]), or no longer does: the replay
+     * pauses while nobody sees it. Each screen drawing the route passes its own [by].
+     */
+    fun setWatched(value: Boolean, by: Any = this) {
+        val was = watched
+        if (value) watchers += by else watchers -= by
+        if (watched != was) applyPlayback()
     }
 
     // MARK: Controls
@@ -372,11 +404,14 @@ class RacePreviewViewModel(
     }
 
     /**
-     * The route went away: the flow finished, the person signed out (the shell clears the saved
-     * room with the rest of the user's data), or the state moved on. The replay's runtime ends.
+     * The shell left the route ([RacePreviewModels.end]): the flow finished, the person signed out
+     * (the shell clears the saved room with the rest of the user's data), or the state moved on.
+     * The replay's runtime ends, and so does the saved moment: the next flow starts from the top.
+     * Process death never clears a model, so the saved moment is still there for a restore.
      */
     override fun onCleared() {
         endSession()
+        SAVED_KEYS.forEach { savedState.remove<Any>(it) }
     }
 
     // MARK: Replay
@@ -523,7 +558,14 @@ class RacePreviewViewModel(
                 skip()
                 return
             }
-            delay(if (snapshot.playing) millisToNextStep(snapshot.progress, current) else PAUSED_POLL_MILLIS)
+            when {
+                snapshot.playing -> delay(millisToNextStep(snapshot.progress, current))
+                // Paused by the person, or nobody sees it: nothing moves, so nothing is asked of
+                // the runtime until Play or the screen comes back.
+                !wantsPlay.value -> wantsPlay.first { it }
+                // Play is asked for and hasn't reached the runtime yet.
+                else -> delay(PLAY_PENDING_MILLIS)
+            }
         }
     }
 
@@ -542,9 +584,12 @@ class RacePreviewViewModel(
 
     /** Plays unless the person paused or nobody sees it. */
     private fun applyPlayback() {
-        val current = replay ?: return
-        if (status != RacePreviewStatus.Playing) return
         val play = watched && !pausedByUser
+        val current = replay
+        if (current == null || status != RacePreviewStatus.Playing) {
+            wantsPlay.value = play
+            return
+        }
         viewModelScope.launch {
             val result = controlGate.withLock {
                 withContext(io) { runtime.control(current.baseUrl, if (play) ReplayControl.Play else ReplayControl.Pause) }
@@ -552,6 +597,8 @@ class RacePreviewViewModel(
             if (replay !== current) return@launch
             ReplaySnapshot.from((result as? RuntimeResult.Success)?.result)?.let { playing = it.playing }
         }
+        // After the control is queued, so a loop that wakes for it ticks behind it.
+        wantsPlay.value = play
     }
 
     /**
@@ -630,14 +677,15 @@ class RacePreviewViewModel(
     companion object {
         const val OUTCOME_DONE = "done"
         const val OUTCOME_SKIPPED = "skipped"
-        /** While paused, how often the loop looks again. */
-        const val PAUSED_POLL_MILLIS = 250L
+        /** Play is asked for but the runtime still says paused: how soon the loop looks again. */
+        const val PLAY_PENDING_MILLIS = 250L
         private const val KEY_SOURCE = "race-preview.source"
         private const val KEY_STAGE = "race-preview.stage"
         private const val KEY_SECONDS = "race-preview.seconds"
         private const val KEY_PAUSED = "race-preview.paused"
         private const val KEY_PANEL = "race-preview.panel"
         private const val KEY_BEAT = "race-preview.beat"
+        private val SAVED_KEYS = listOf(KEY_SOURCE, KEY_STAGE, KEY_SECONDS, KEY_PAUSED, KEY_PANEL, KEY_BEAT)
 
         private fun stageOf(name: String): RacePreviewStage? = RacePreviewStage.entries.firstOrNull { it.name == name }
 

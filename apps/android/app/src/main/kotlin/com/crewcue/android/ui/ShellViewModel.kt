@@ -27,6 +27,7 @@ import com.crewcue.android.ui.onboarding.OnboardingText
 import com.crewcue.android.ui.onboarding.RACE_PREVIEW_FEATURE
 import com.crewcue.android.ui.onboarding.RacePreviewDevStart
 import com.crewcue.android.ui.onboarding.RacePreviewEffect
+import com.crewcue.android.ui.onboarding.RacePreviewModels
 import com.crewcue.android.ui.onboarding.RacePreviewSource
 import com.crewcue.android.ui.onboarding.ReplayRoomUpdate
 import com.crewcue.android.ui.onboarding.RaceAccess
@@ -162,6 +163,12 @@ class ShellViewModel(
     /** That link's `?state=` and `?at=&paused=`; a second link while it shows starts that one. */
     private var racePreviewDevState by mutableStateOf("success")
     private var racePreviewDevStart by mutableStateOf<RacePreviewDevStart?>(null)
+    /**
+     * The race preview route's models, one replay per flow whichever NavHost entry draws the route
+     * ([RacePreviewModels]). They end where the shell leaves the route: [showShell],
+     * [showSignedOut] (sign-out included) and [showFixture] for any other screen.
+     */
+    val racePreview = RacePreviewModels()
     /** client-core's onboarding state for this user and active race; null until the first read. */
     var onboarding by mutableStateOf<OnboardingFlow?>(null)
         private set
@@ -224,6 +231,7 @@ class ShellViewModel(
 
     override fun onCleared() {
         container.raceDay.onSessionExpired = null
+        racePreview.end()
         super.onCleared()
     }
 
@@ -716,7 +724,7 @@ class ShellViewModel(
         // Progress stays in client-core's onboarding store; this phone's half-typed setup goes.
         viewModelScope.launch(Dispatchers.IO) { container.runnerSetupDrafts.clear() }
         // The room saved for an offline replay lives outside the user's storage root: it goes too.
-        // The replay itself ends with its route ([RacePreviewViewModel.onCleared]).
+        // The replay itself ends with its route (showSignedOut ends [racePreview]).
         viewModelScope.launch(Dispatchers.IO) { container.replayRooms.clear() }
         closeSettings()
         showSignedOut()
@@ -944,6 +952,7 @@ class ShellViewModel(
 
     private fun showShell(tab: ShellTab) {
         previewJob?.cancel()
+        racePreview.end()
         joinBusy = false
         joining = false
         stateOverlay = false
@@ -971,6 +980,8 @@ class ShellViewModel(
         showAppShell = false
         val state = queryState(url)
         val screen = load(url)
+        // Another race preview (a dev link's state) carries on in the same models, which start it over.
+        if (OnboardingRouting.leavesRacePreview(screen.featureId)) racePreview.end()
         profilePane = profilePaneFor(screen.featureId)
         uiState = UiState.from(screen, state)
         routeId = "${screen.featureId}?state=$state"
@@ -986,6 +997,7 @@ class ShellViewModel(
         offline: Boolean = false
     ) {
         previewJob?.cancel()
+        racePreview.end()
         stateOverlay = false
         showAppShell = false
         profilePane = "profile"

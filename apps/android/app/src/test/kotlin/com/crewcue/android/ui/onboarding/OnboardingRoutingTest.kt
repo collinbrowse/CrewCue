@@ -241,4 +241,13 @@ class OnboardingRoutingTest {
         assertEquals("raceLocked", json.getString("flow"))
         assertTrue(json.isNull("phase"))
     }
+
+    @Test
+    fun onlyAnotherScreenLeavesTheRacePreviewFlow() {
+        // A dev link's state or the route again keeps the flow's one model, which starts over itself.
+        assertFalse(OnboardingRouting.leavesRacePreview(RACE_PREVIEW_FEATURE))
+        assertTrue(OnboardingRouting.leavesRacePreview(SETUP_FEATURE))
+        assertTrue(OnboardingRouting.leavesRacePreview("auth-sign-in"))
+        assertTrue(OnboardingRouting.leavesRacePreview(null))
+    }
 }
