@@ -98,7 +98,14 @@ export async function dispatchChatPush(input: ChatPushDispatchInput): Promise<Ch
     body: input.body.trim() || GENERIC_CHAT_PUSH_BODY
   });
   if (result.invalidDeviceIds.length) {
-    await deleteChatPushDevices(result.invalidDeviceIds);
+    // Delete by the token that was rejected, not the device id alone: the device may have
+    // re-registered a fresh token while this send was in flight.
+    const invalid = new Set(result.invalidDeviceIds);
+    await deleteChatPushDevices(
+      input.targets
+        .filter((t) => invalid.has(t.deviceId))
+        .map((t) => ({ deviceId: t.deviceId, token: t.token }))
+    );
   }
   return result;
 }

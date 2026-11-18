@@ -205,18 +205,30 @@ export async function upsertChatPushDevice(record: ChatPushDeviceRecord): Promis
   );
 }
 
-/** Deletes devices whose push token the provider rejected. */
-export async function deleteChatPushDevices(deviceIds: readonly string[]): Promise<number> {
-  if (deviceIds.length === 0) return 0;
+/**
+ * Deletes devices whose push token the provider rejected. A row goes only while it still holds
+ * that token: a device that re-registered a fresh token during the send keeps it.
+ */
+export async function deleteChatPushDevices(
+  rejected: ReadonlyArray<{ deviceId: string; token: string }>
+): Promise<number> {
+  if (rejected.length === 0) return 0;
   if (!pool) {
     let deleted = 0;
-    for (const id of deviceIds) if (memoryPushDevices.delete(id)) deleted += 1;
+    for (const { deviceId, token } of rejected) {
+      if (memoryPushDevices.get(deviceId)?.token !== token) continue;
+      memoryPushDevices.delete(deviceId);
+      deleted += 1;
+    }
     return deleted;
   }
   await ensureChatPersistenceReady();
-  const result = await pool.query("DELETE FROM chat_push_devices WHERE device_id = ANY($1::text[])", [
-    deviceIds
-  ]);
+  const result = await pool.query(
+    `DELETE FROM chat_push_devices d
+     USING unnest($1::text[], $2::text[]) AS r(device_id, token)
+     WHERE d.device_id = r.device_id AND d.token = r.token`,
+    [rejected.map((r) => r.deviceId), rejected.map((r) => r.token)]
+  );
   return result.rowCount ?? 0;
 }
 

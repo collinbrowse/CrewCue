@@ -96,3 +96,51 @@ test("transportFromEnv logs only when APNs and FCM are unconfigured", async () =
   assert.equal(result.delivered, 0);
   assert.deepEqual(result.invalidDeviceIds, []);
 });
+
+test("dispatchChatPush keeps a device that re-registered a fresh token while its old token was being rejected", async () => {
+  _resetChatPersistenceForTests();
+  const now = new Date().toISOString();
+  await upsertChatPushDevice({ deviceId: "pixel", userId: "crew-1", platform: "android", token: "old", registeredAt: now });
+  const targets = (await listChatPushDevicesForUsers(["crew-1"])).map((d) => ({
+    platform: d.platform,
+    token: d.token,
+    userId: d.userId,
+    deviceId: d.deviceId
+  }));
+  let releaseSend: () => void = () => undefined;
+  let sendStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => {
+    sendStarted = resolve;
+  });
+  // The provider holds the send (retries, a slow peer target), then says the old token is dead.
+  setChatPushTransport(
+    (input) =>
+      new Promise((resolve) => {
+        sendStarted();
+        releaseSend = () =>
+          resolve({
+            delivered: 0,
+            attempts: 1,
+            failures: [{ deviceId: "pixel", reason: "UNREGISTERED" }],
+            invalidDeviceIds: input.targets.map((t) => t.deviceId)
+          });
+      })
+  );
+  try {
+    const sending = dispatchChatPush({ roomId: "room-1", title: "Race", body: "Ada: at mile 40", targets });
+    await started;
+    // Meanwhile FCM rotated the token and the phone re-registered it (onNewToken).
+    await upsertChatPushDevice({ deviceId: "pixel", userId: "crew-1", platform: "android", token: "fresh", registeredAt: now });
+    releaseSend();
+    await sending;
+    const devices = await listChatPushDevicesForUsers(["crew-1"]);
+    assert.deepEqual(
+      devices.map((d) => [d.deviceId, d.token]),
+      [["pixel", "fresh"]],
+      "the fresh token must survive the old token's rejection"
+    );
+  } finally {
+    resetChatPushTransport();
+    _resetChatPersistenceForTests();
+  }
+});
