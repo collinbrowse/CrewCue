@@ -38,6 +38,7 @@
     "test": "npm run test --workspaces --if-present",
     "test:android": "node scripts/test-android.mjs",
     "test:ios": "node scripts/test-ios.mjs",
+    "test:ios:launch-loop": "node scripts/ios-launch-loop.mjs",
     "test:memory": "npm run test:memory -w @crewcue/api",
     "test:pg": "npm run test:pg -w @crewcue/api",
     "test:pg:fresh": "npm run test:pg:fresh -w @crewcue/api",
