@@ -366,6 +366,14 @@ export interface RaceRoom {
   pacingEstimateId?: string;
   /** Snapshot of the attached plan-of-record estimate (source of truth for schedule reads). */
   pacingEstimate?: PacingEstimate;
+  /**
+   * When an unpaid race that was never paid is deleted (ISO): 30 days after `createdAt`, and never
+   * sooner than 24 hours after its 1-day reminder push was sent. Computed on `GET /race-rooms/:roomId`
+   * and `GET /race-rooms/mine`, never stored. Absent on paid and expired races, on a race paid once
+   * (a refund puts it back to `unpaid`), on a race whose creator has a purchase stored with no room
+   * (the sweeper keeps it), on a race with no creation time, and on other routes.
+   */
+  unpaidExpiresAt?: string;
 }
 
 /** Anonymous-safe payload for join-by-code onboarding preview (GET /race-rooms/join-preview/:code). */

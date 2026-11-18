@@ -255,19 +255,45 @@ export async function listChatPushDevicesForUsers(
   }));
 }
 
+/** `deleteChatRoomData` with `throwIfPhotosLeft`: the photo store deleted fewer photos than it was given. */
+export class ChatPhotosNotDeletedError extends Error {
+  constructor(readonly notDeleted: number) {
+    super(`chat photo store left ${notDeleted} photo(s) undeleted`);
+    this.name = "ChatPhotosNotDeletedError";
+  }
+}
+
 /**
  * Deletes a room's chat: messages, their photos, and notification prefs. Photos go first, while
  * their message rows still hold the keys: a photo delete that throws leaves the rows, so a retry
  * finds the keys again instead of leaving photos nothing points to. A photo sent in between is
  * deleted after the rows.
+ *
+ * The bucket store counts a 403 or 5xx as not deleted without throwing. By default that photo is
+ * left behind once its message row is gone (chat retention, account deletion). With
+ * `throwIfPhotosLeft` it throws {@link ChatPhotosNotDeletedError} instead, before the message rows
+ * are deleted, so the rows keep the keys for a retry (the unpaid race sweeper). A short count for
+ * a photo sent in between throws too, after the rows are gone.
  */
-export async function deleteChatRoomData(roomId: string): Promise<ChatRetentionResult> {
+export async function deleteChatRoomData(
+  roomId: string,
+  options: { throwIfPhotosLeft?: boolean } = {}
+): Promise<ChatRetentionResult> {
   const store = chatPhotoStore();
   const keys = store ? await listChatPhotoKeysForRoom(roomId) : [];
   let photosPurged = store && keys.length ? await store.delete(keys) : 0;
+  if (options.throwIfPhotosLeft && photosPurged < keys.length) {
+    throw new ChatPhotosNotDeletedError(keys.length - photosPurged);
+  }
   const { messagesPurged, photoKeys } = await deleteChatMessagesForRoom(roomId);
   const sentMeanwhile = photoKeys.filter((key) => !keys.includes(key));
-  if (store && sentMeanwhile.length) photosPurged += await store.delete(sentMeanwhile);
+  if (store && sentMeanwhile.length) {
+    const purgedMeanwhile = await store.delete(sentMeanwhile);
+    photosPurged += purgedMeanwhile;
+    if (options.throwIfPhotosLeft && purgedMeanwhile < sentMeanwhile.length) {
+      throw new ChatPhotosNotDeletedError(sentMeanwhile.length - purgedMeanwhile);
+    }
+  }
   let prefsPurged = 0;
   if (!pool) {
     for (const key of Array.from(memoryPrefs.keys())) {
