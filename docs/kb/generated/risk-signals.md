@@ -9,7 +9,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | Room-scoped routes with no membership check detected | 0 |
 | Source files ≥ 800 lines | 10 |
 | In-process timers in the API | 3 |
-| API lib modules with no same-named test | 41 |
+| API lib modules with no same-named test | 42 |
 | Native features not passing on both platforms | 14 |
 | Files with TODO/FIXME/HACK | 0 |
 
@@ -106,6 +106,7 @@ May still be covered through route tests; check before relying on it.
 - [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts)
 - [services/api/src/lib/slowdownShrinkage.ts](../../../services/api/src/lib/slowdownShrinkage.ts)
 - [services/api/src/lib/testCourseRouteLayer.ts](../../../services/api/src/lib/testCourseRouteLayer.ts)
+- [services/api/src/lib/testFreshProcess.ts](../../../services/api/src/lib/testFreshProcess.ts)
 
 ## Native parity gaps
 
