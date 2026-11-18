@@ -186,17 +186,45 @@ async function unpaidRace(
 }
 
 /** A reminder scheduler at `clock` that lists only `roomIds` (other tests' rooms share the store). */
-function reminders(clock: { now: number }, roomIds: readonly string[], log = recordingLog()) {
+function reminders(
+  clock: { now: number },
+  roomIds: readonly string[],
+  log = recordingLog(),
+  afterListing: () => Promise<void> = async () => {}
+) {
   const ours = new Set(roomIds);
   return createUnpaidRaceReminderScheduler({
-    listRooms: async (createdBeforeMs, startsAfterMs, startsAtOrBeforeMs) =>
-      (await listUnpaidRaceRoomsForReminders(createdBeforeMs, startsAfterMs, startsAtOrBeforeMs)).filter((room) =>
-        ours.has(room.id)
-      ),
+    listRooms: async (createdBeforeMs, startsAfterMs, startsAtOrBeforeMs) => {
+      const rooms = (await listUnpaidRaceRoomsForReminders(createdBeforeMs, startsAfterMs, startsAtOrBeforeMs)).filter(
+        (room) => ours.has(room.id)
+      );
+      await afterListing();
+      return rooms;
+    },
     log,
     now: () => clock.now,
     skipFirstRun: true
   });
+}
+
+/**
+ * A gate that opens once `count` callers have reached it: each pass's listing waits for the others,
+ * so every pass lists the room before any of them claims it, as two instances listing at once do.
+ */
+function gate(count: () => number): () => Promise<void> {
+  let arrived = 0;
+  let open: () => void = () => {};
+  let opened = new Promise<void>((resolve) => (open = resolve));
+  return async () => {
+    arrived += 1;
+    const waitFor = opened;
+    if (arrived >= count()) {
+      arrived = 0;
+      open();
+      opened = new Promise<void>((resolve) => (open = resolve));
+    }
+    await waitFor;
+  };
 }
 
 /** `slot:result` for `roomId`'s outcomes, in order. */
@@ -762,12 +790,17 @@ test("two schedulers ticking at once against the same store send each reminder o
     const t0 = wholeSecond(Date.now());
     const roomId = await unpaidRace(app, uid("runner-two-instances"), t0 - 23 * DAY);
     const clock = { now: t0 };
-    const a = reminders(clock, [roomId]);
-    const b = reminders(clock, [roomId]);
+    // Every pass lists before any claims (on Postgres one could otherwise list after the other's
+    // claim and skip the slot quietly): the claim alone must pick the sender.
+    let passes = 2;
+    const listed = gate(() => passes);
+    const a = reminders(clock, [roomId], recordingLog(), listed);
+    const b = reminders(clock, [roomId], recordingLog(), listed);
 
     let both = (await Promise.all([a.tick(), b.tick()])).flat();
     assert.deepEqual(forRoom(both, roomId).sort(), ["expiry_7d:already_sent", "expiry_7d:sent"]);
     clock.now = t0 + 6 * DAY;
+    passes = 3;
     both = (await Promise.all([a.tick(), b.tick(), a.tick()])).flat();
     assert.deepEqual(forRoom(both, roomId).sort(), [
       "expiry_1d:already_sent",
