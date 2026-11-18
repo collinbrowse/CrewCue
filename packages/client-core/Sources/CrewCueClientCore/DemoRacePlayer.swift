@@ -119,6 +119,30 @@ public final class DemoRacePlayer: @unchecked Sendable {
         return snap
     }
 
+    /// Moves forward to `seconds` of wall time played, at the step for that moment, as if the
+    /// replay had played there; play or pause stays as it was. A dev route opens the replay at a
+    /// fixed moment with it, so a check reads one beat however slow the device is. A moment at or
+    /// past the end, or not after the one played so far, changes nothing.
+    @discardableResult
+    public func seek(toWallSeconds seconds: Double) -> DemoRaceSnapshot {
+        lock.lock()
+        guard !finished, seconds.isFinite, seconds > elapsedLocked(), seconds < DemoRaceScript.durationSeconds else {
+            let snap = snapshotLocked(changed: false)
+            lock.unlock()
+            return snap
+        }
+        banked = seconds
+        if since != nil {
+            since = wallClock.now()
+        }
+        let moved = world.advance(to: script.stepIndex(atWallSeconds: seconds))
+        let snap = snapshotLocked(changed: moved)
+        let hook = hook
+        lock.unlock()
+        if snap.changed { hook?(snap) }
+        return snap
+    }
+
     /// Ends the replay now.
     @discardableResult
     public func skip() -> DemoRaceSnapshot {
@@ -288,6 +312,16 @@ public enum DemoRace {
             }
         }
         return removed
+    }
+
+    /// The checklist state a replay that can't start shows (clients/behavior/onboarding-race-preview.md):
+    /// no network is Offline, a race without a course to run on is Empty ("Add your course"), and
+    /// anything else (a room that won't read, no start time, a server error) is Error. Skip stays
+    /// available in each.
+    public static func unavailableState(_ error: any Error) -> FeatureState {
+        if TransportFailure.isOffline(error) { return .offline }
+        if let reason = error as? DemoRaceError, reason == .noCourse { return .empty }
+        return .error
     }
 
     static func removeDirectory(_ directory: URL) {

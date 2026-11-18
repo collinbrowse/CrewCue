@@ -290,6 +290,23 @@ export async function resetPlatformEventStoreForTests(): Promise<void> {
 export const DELETED_ACCOUNT_ACTOR = "deleted-account";
 
 /**
+ * Room deletion (memory mode): drop the room's events and its sequence counter. Postgres rows go
+ * in roomPersistence's `deletePersistedRaceRoomRows`.
+ */
+export function forgetPlatformEventsForRoom(roomId: string): void {
+  for (let i = store.length - 1; i >= 0; i -= 1) {
+    const event = store[i]!;
+    if (event.aggregateId === roomId) {
+      store.splice(i, 1);
+      idempotencyIndex.delete(event.idempotencyKey);
+    }
+  }
+  for (const key of [...sequenceByAggregate.keys()]) {
+    if (key.slice(key.indexOf(":") + 1) === roomId) sequenceByAggregate.delete(key);
+  }
+}
+
+/**
  * Account deletion (memory mode): drop a deleted room's events, and re-attribute the
  * deleted user's events in rooms that survive. Postgres rows are handled in roomPersistence.
  */

@@ -439,6 +439,32 @@ private let planFinish = raceStart.addingTimeInterval(28_800)
     player.skip()
 }
 
+@Test func demoRacePlayerSeeksForwardToAMomentAndKeepsItsPause() async throws {
+    let clock = ManualWallClock()
+    let demo = try session(clock)
+    let player = demo.player
+    // Paused at 12 s: beat 2, the step the replay would have reached playing, and it holds.
+    let seeked = player.seek(toWallSeconds: 12)
+    #expect(seeked.stepIndex == 24 && seeked.beat == .fallingBehind && seeked.changed && !seeked.isPlaying)
+    #expect(seeked.progress == 12 / DemoRaceScript.durationSeconds)
+    let live = try #require(try await RaceDayAPI.liveProjection(graph: demo.graph, roomId: "room-1"))
+    #expect(live.finishEtaAt == planFinish.addingTimeInterval(720))
+    clock.advance(30)
+    let held = player.tick()
+    #expect(held.stepIndex == 24 && !held.changed && !held.isFinished)
+    // Never backwards, never to the end.
+    #expect(player.seek(toWallSeconds: 5).stepIndex == 24)
+    #expect(player.seek(toWallSeconds: DemoRaceScript.durationSeconds).stepIndex == 24)
+    #expect(!player.snapshot.isFinished)
+    // Playing from there carries on from the same moment.
+    player.play()
+    clock.advance(6.5)
+    #expect(player.tick().beat == .deadZone)
+    #expect(player.seek(toWallSeconds: 19).stepIndex == 38)
+    #expect(player.snapshot.isPlaying)
+    player.skip()
+}
+
 final class Counter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0

@@ -34,6 +34,7 @@ struct CompositionRoot {
             purchaser: purchaser
         )
         expiry.model = model
+        model.racePreviewDevStart = launch.racePreviewDevStart
         model.prepareStores()
         if let restored {
             model.adopt(restored)

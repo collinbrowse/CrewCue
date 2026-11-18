@@ -24,7 +24,7 @@ struct RouteScreen: View {
     var body: some View {
         Group {
             if model.fixtureOverlay {
-                FixtureRouteView(route: model.route, screen: model.screen)
+                FixtureRouteView(route: model.route, screen: model.screen, shell: model)
             } else {
                 ProductRouteView(model: model)
             }

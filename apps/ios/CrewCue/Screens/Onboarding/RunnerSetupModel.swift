@@ -67,6 +67,9 @@ final class RunnerSetupModel {
     var onRaceCreated: @MainActor (String) -> Void = { _ in }
     /// A server step saved: reload the race list so the onboarding state follows.
     var onServerStepSaved: @MainActor () async -> Void = {}
+    /// The teaser read the room body (`GET /race-rooms/:roomId`) as the server sent it: the
+    /// replay after setup plays from it.
+    var onRoomLoaded: @MainActor (_ roomId: String, _ body: Data) -> Void = { _, _ in }
     var onMark: @MainActor (OnboardingStep, OnboardingOutcome, String?) -> Void = { _, _, _ in }
     var onDisplayName: @MainActor (String) -> Void = { _ in }
     var onSignUp: @MainActor () -> Void = {}
@@ -440,10 +443,13 @@ final class RunnerSetupModel {
         failure = nil
         defer { busy = false }
         do {
-            let room = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId).room
+            // The raw body, so the replay after setup keeps the course line `RoomEnvelope` drops.
+            let body = try await RaceDayAPI.loadRoomData(graph: client.graph, roomId: roomId)
+            let room = try JSONDecoder().decode(RoomEnvelope.self, from: body).room
             let sheet = try await RaceDayAPI.loadScheduleResult(graph: client.graph, roomId: roomId, cacheDirectory: nil).sheet
             let projection = try? await RaceDayAPI.projectionCore(graph: client.graph, roomId: roomId)
             guard ticket == generation else { return }
+            onRoomLoaded(roomId, body)
             let teaser = OnboardingTeaser(sheet: sheet, projection: projection, estimate: room.pacingEstimate)
             var lockedSheet = sheet
             lockedSheet.locked = TeaserLockedCheckpoints(checkpointIds: teaser.lockedCheckpointIds)

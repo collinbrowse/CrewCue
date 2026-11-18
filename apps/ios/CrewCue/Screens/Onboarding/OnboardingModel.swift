@@ -8,8 +8,9 @@ enum OnboardingEntry: Equatable {
     case chooser
     /// Runner phase 1 (account, course, start time, history, teaser).
     case runnerSetup
-    /// Runner phase 2. The replay is PR 9b; until then the Race Pass paywall follows the teaser.
-    case paywall
+    /// Runner phase 2 (the `preview` step): the race-day replay, then the paywall
+    /// (`RacePreviewModel` keeps which one). Not now or a purchase marks the step.
+    case racePreview
     /// Crew: the existing join-crew screen (the full crew flow is a later PR).
     case crewJoin
     /// Crew, signed out, invite confirmed: sign in to accept it.
@@ -125,7 +126,8 @@ final class OnboardingModel {
         case .runner:
             switch state.phase {
             case .setup: return .runnerSetup
-            case .preview: return state.step == .preview ? .paywall : .shell
+            // The step is marked when the paywall ends; until then a relaunch replays from the start.
+            case .preview: return state.step == .preview ? .racePreview : .shell
             default: return .shell
             }
         case .crew:

@@ -110,6 +110,23 @@ public enum OnboardingCopy {
     }
 
     public static let replaySkip = "Skip"
+    public static let replayPause = "Pause"
+    public static let replayPlay = "Play"
+    /// The replay's states (clients/behavior/onboarding-race-preview.md). The checklist screen's
+    /// copy (`featureScreen(id: "onboarding-race-preview")`) reads these too.
+    public static let replayEmpty = "Add your course to see the replay on your own route."
+    public static let replayError = "Couldn't play the replay. Skip to unlock your race."
+    public static let replayOffline = "Offline. The replay plays from the race saved on this phone."
+
+    /// "2 of 4": which beat is on screen.
+    public static func replayBeatCount(_ beat: DemoRaceBeat) -> String {
+        "\(beat.number) of \(DemoRaceBeat.allCases.count)"
+    }
+
+    /// The compact replay's strip, one per view it plays in: the tab bar's own names.
+    public static let replayMapTitle = "Map"
+    public static let replayPaceTitle = "Pace"
+    public static let replayChatTitle = "Chat"
 
     // MARK: Paywall
 
@@ -121,6 +138,16 @@ public enum OnboardingCopy {
     public static let paywallFullCrewProduct = BillingProduct.racePassFullCrew.title
     public static let paywallFullCrewPrice = BillingProduct.racePassFullCrew.fallbackPrice
     public static let paywallPitch = "Give your crew this on race day."
+    /// The buy button's spoken label, filled with `product` and `price` (`paywallBuyLabel`).
+    public static let paywallBuyLabelTemplate = "Buy {product}, {price}"
+
+    /// "Buy Race Pass, $14.99": a paywall buy button's spoken label, with the store's localized
+    /// price (or the `BillingProduct` fallback until the store answers).
+    public static func paywallBuyLabel(product: BillingProduct, price: String) -> String {
+        paywallBuyLabelTemplate
+            .replacingOccurrences(of: "{product}", with: product.title)
+            .replacingOccurrences(of: "{price}", with: price)
+    }
 
     // MARK: Unpaid banner
 
@@ -136,7 +163,8 @@ public enum OnboardingCopy {
 
     // MARK: Runtime (Android)
 
-    /// Every static string plus step titles, explanations and beat captions, for runtime op `onboardingCopy`.
+    /// Every static string (the buy label as its `{product}`, `{price}` template) plus step titles,
+    /// explanations and beat captions, for runtime op `onboardingCopy`.
     static var runtimeCopy: [String: Any] {
         var titles: [String: String] = [:]
         var explanations: [String: String] = [:]
@@ -159,12 +187,16 @@ public enum OnboardingCopy {
             "loading": loading, "back": back, "tryAgain": tryAgain, "accountMenu": accountMenu,
             "signOut": signOut, "switchRace": switchRace, "paywallNotNow": paywallNotNow, "lockedAidRow": lockedAidRow, "lockedAidExplanation": lockedAidExplanation,
             "replaySkip": replaySkip, "paywallPitch": paywallPitch, "unpaidBanner": unpaidBanner,
+            "replayPause": replayPause, "replayPlay": replayPlay, "replayEmpty": replayEmpty,
+            "replayError": replayError, "replayOffline": replayOffline,
             "paywallRunnerPlusOneTitle": paywallRunnerPlusOneTitle,
             "paywallRunnerPlusOneProduct": paywallRunnerPlusOneProduct,
             "paywallRunnerPlusOnePrice": paywallRunnerPlusOnePrice,
             "paywallFullCrewTitle": paywallFullCrewTitle,
             "paywallFullCrewProduct": paywallFullCrewProduct,
             "paywallFullCrewPrice": paywallFullCrewPrice,
+            "paywallBuyLabelTemplate": paywallBuyLabelTemplate,
+            "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
             "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
             "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
             "labels": runtimeLabels
