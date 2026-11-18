@@ -516,7 +516,34 @@ export type RaceRoomExpiryFields = {
   id: string;
   entitlementStatus: RaceRoomEntitlementStatus | undefined;
   createdAt: string | undefined;
+  /**
+   * The creator (`createdByUserId`, else the first member, as `raceCreatorOf` reads it). The
+   * stored room the delete condition is asked about always carries it when there is one; the
+   * sweeper keeps a race whose creator has an unattached billing grant (R25).
+   */
+  creatorId?: string;
 };
+
+/**
+ * SQL: the room's creator, as `raceCreatorOf` reads it (`createdByUserId`, else the first member),
+ * for a query over `race_rooms_json` aliased `room`.
+ */
+function creatorIdSql(room: string): string {
+  return `COALESCE(${room}.payload->>'createdByUserId', ${room}.payload->'memberships'->0->>'userId')`;
+}
+
+/**
+ * SQL: whether the room's creator bought a pass the webhook stored with no room (`billing_grants`
+ * with `room_id` NULL and the creator's `app_user_id`, active or revoked: risk R25, billingStore.ts
+ * `listUserIdsWithUnattachedBillingGrants`). The unpaid-race reminders and the sweeper leave such a
+ * creator's races alone. For a query over `race_rooms_json` aliased `room`.
+ */
+export function creatorHasUnattachedGrantSql(room: string): string {
+  return `EXISTS (
+    SELECT 1 FROM billing_grants unattached
+    WHERE unattached.room_id IS NULL AND unattached.app_user_id = ${creatorIdSql(room)}
+  )`;
+}
 
 /**
  * Unpaid rooms whose stored `createdAt` string is before `beforeIso`, compared as bytes, oldest
@@ -526,11 +553,12 @@ export type RaceRoomExpiryFields = {
  *
  * Rooms with a billing grant, active or revoked, are left out: they were paid once (a refund puts
  * a race back to `unpaid`), and the sweeper never deletes them, so listing them would let them
- * fill every batch ahead of the races it does delete. So are rooms whose `expiry_1d` reminder was
- * not claimed at or before `finalReminderClaimedBeforeIso` (`unpaid_reminders_sent`): the sweeper
- * waits 24 hours after that warning, and those rooms would fill the batch the same way. Needs the
- * `billing_grants` table (migration 0019; callers run the billing store's `ensureBillingStoreReady`
- * first).
+ * fill every batch ahead of the races it does delete. So are rooms whose creator has an
+ * unattached grant (R25: a purchase the webhook could not attach, so maybe a paying runner), and
+ * rooms whose `expiry_1d` reminder was not claimed at or before `finalReminderClaimedBeforeIso`
+ * (`unpaid_reminders_sent`): the sweeper waits 24 hours after that warning, and those rooms would
+ * fill the batch the same way. Needs the `billing_grants` table (migration 0019; callers run the
+ * billing store's `ensureBillingStoreReady` first).
  */
 export async function listPersistedUnpaidRaceRoomsCreatedBefore(
   beforeIso: string,
@@ -544,15 +572,18 @@ export async function listPersistedUnpaidRaceRoomsCreatedBefore(
     id: string;
     entitlement_status: RaceRoomEntitlementStatus | null;
     created_at: string | null;
+    creator_id: string | null;
   }>(
     `
       SELECT id,
              payload->'entitlement'->>'status' AS entitlement_status,
-             payload->>'createdAt' AS created_at
+             payload->>'createdAt' AS created_at,
+             ${creatorIdSql("race_rooms_json")} AS creator_id
       FROM race_rooms_json
       WHERE payload->'entitlement'->>'status' = 'unpaid'
         AND payload->>'createdAt' < $1::text COLLATE "C"
         AND NOT EXISTS (SELECT 1 FROM billing_grants WHERE billing_grants.room_id = race_rooms_json.id)
+        AND NOT ${creatorHasUnattachedGrantSql("race_rooms_json")}
         AND EXISTS (
           SELECT 1 FROM unpaid_reminders_sent
           WHERE unpaid_reminders_sent.room_id = race_rooms_json.id
@@ -567,7 +598,8 @@ export async function listPersistedUnpaidRaceRoomsCreatedBefore(
   return result.rows.map((row) => ({
     id: row.id,
     entitlementStatus: row.entitlement_status ?? undefined,
-    createdAt: row.created_at ?? undefined
+    createdAt: row.created_at ?? undefined,
+    ...(row.creator_id !== null ? { creatorId: row.creator_id } : {})
   }));
 }
 
@@ -658,7 +690,7 @@ function reminderFieldsOf(row: ReminderFieldsRow): RaceRoomReminderFields {
 
 /**
  * The unpaid-race reminder scheduler's candidates, never paid (no billing grant, active or
- * revoked), from two index ranges, each a prefilter on stored strings compared as bytes (callers
+ * revoked) and whose creator has no unattached grant (R25), from two index ranges, each a prefilter on stored strings compared as bytes (callers
  * widen them and check the parsed times):
  *
  * - created before `createdBeforeIso` (the `race_rooms_json_unpaid_created_at` partial index) and
@@ -682,6 +714,7 @@ export async function listPersistedUnpaidRaceRoomsForReminders(
       WHERE r.payload->'entitlement'->>'status' = 'unpaid'
         AND r.payload->>'createdAt' < $1::text COLLATE "C"
         AND NOT EXISTS (SELECT 1 FROM billing_grants g WHERE g.room_id = r.id)
+        AND NOT ${creatorHasUnattachedGrantSql("r")}
         AND NOT EXISTS (SELECT 1 FROM unpaid_reminders_sent s WHERE s.room_id = r.id AND s.slot = 'expiry_1d')
       ORDER BY (r.payload->>'createdAt') COLLATE "C" ASC
     `,
@@ -693,6 +726,7 @@ export async function listPersistedUnpaidRaceRoomsForReminders(
         AND r.payload->>'raceStartAt' > $1::text COLLATE "C"
         AND r.payload->>'raceStartAt' <= $2::text COLLATE "C"
         AND NOT EXISTS (SELECT 1 FROM billing_grants g WHERE g.room_id = r.id)
+        AND NOT ${creatorHasUnattachedGrantSql("r")}
         AND NOT EXISTS (SELECT 1 FROM unpaid_reminders_sent s WHERE s.room_id = r.id AND s.slot = 'race_soon')
     `,
     [startsAfterIso, startsAtOrBeforeIso]
@@ -1286,10 +1320,12 @@ async function lockRaceRoomExpiryFields(client: PoolClient, roomId: string): Pro
   const locked = await client.query<{
     entitlement_status: RaceRoomEntitlementStatus | null;
     created_at: string | null;
+    creator_id: string | null;
   }>(
     `
       SELECT payload->'entitlement'->>'status' AS entitlement_status,
-             payload->>'createdAt' AS created_at
+             payload->>'createdAt' AS created_at,
+             ${creatorIdSql("race_rooms_json")} AS creator_id
       FROM race_rooms_json
       WHERE id = $1
       FOR UPDATE
@@ -1300,7 +1336,12 @@ async function lockRaceRoomExpiryFields(client: PoolClient, roomId: string): Pro
   if (!row) {
     return undefined;
   }
-  return { id: roomId, entitlementStatus: row.entitlement_status ?? undefined, createdAt: row.created_at ?? undefined };
+  return {
+    id: roomId,
+    entitlementStatus: row.entitlement_status ?? undefined,
+    createdAt: row.created_at ?? undefined,
+    ...(row.creator_id !== null ? { creatorId: row.creator_id } : {})
+  };
 }
 
 /**

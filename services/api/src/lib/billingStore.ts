@@ -295,6 +295,49 @@ export async function roomHasBillingGrants(roomId: string, db?: PersistenceQuery
   return (await listRoomIdsWithBillingGrants([roomId], db)).has(roomId);
 }
 
+/**
+ * Which of `userIds` bought a pass the webhook could not attach to a race (risk R25): a grant
+ * stored with no room (`room_id` NULL, the event had no `crewcue_room_id` or named an unknown
+ * room), active or revoked, whose `app_user_id` is the user. The apps sign RevenueCat in with the
+ * CrewCue user id (the token's `sub`, the id rooms store as `createdByUserId`) before they buy, so
+ * the webhook's `app_user_id` is that id. Until someone attaches such a grant, the buyer may be a
+ * paying runner whose race still reads `unpaid`: the unpaid-race reminders and the 30-day sweeper
+ * leave every race that buyer created alone. With `db`, the query runs on that connection (the
+ * sweeper's transaction holding the room's row lock) and nothing else touches the pool: the
+ * caller runs {@link ensureBillingStoreReady} first.
+ */
+export async function listUserIdsWithUnattachedBillingGrants(
+  userIds: readonly (string | undefined)[],
+  db?: PersistenceQueryable
+): Promise<Set<string>> {
+  const wanted = [...new Set(userIds.filter((id): id is string => typeof id === "string" && id.length > 0))];
+  if (wanted.length === 0) return new Set();
+  const pool = getPersistencePool();
+  if (!pool) {
+    const users = new Set(wanted);
+    return new Set(
+      [...memoryGrants.values()].flatMap((grant) =>
+        !grant.roomId && grant.appUserId && users.has(grant.appUserId) ? [grant.appUserId] : []
+      )
+    );
+  }
+  if (!db) await ensureReady();
+  const queryable: PersistenceQueryable = db ?? pool;
+  const result = await queryable.query<{ app_user_id: string }>(
+    `SELECT DISTINCT app_user_id FROM billing_grants WHERE room_id IS NULL AND app_user_id = ANY($1::text[])`,
+    [wanted]
+  );
+  return new Set(result.rows.map((row) => row.app_user_id));
+}
+
+/** Whether `userId` has an unattached grant (see {@link listUserIdsWithUnattachedBillingGrants}). */
+export async function userHasUnattachedBillingGrant(
+  userId: string | undefined,
+  db?: PersistenceQueryable
+): Promise<boolean> {
+  return userId !== undefined && (await listUserIdsWithUnattachedBillingGrants([userId], db)).has(userId);
+}
+
 export async function getBillingGrant(transactionId: string): Promise<BillingGrant | undefined> {
   await ensureReady();
   const pool = getPersistencePool();

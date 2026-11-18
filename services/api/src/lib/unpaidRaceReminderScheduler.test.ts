@@ -424,6 +424,101 @@ test("never for a paid, expired, once-paid or deleted race, and nothing more onc
   });
 });
 
+test("a race paid while the pass works through earlier rooms gets no reminder: the claim re-checks it", async () => {
+  await withApp(async (app) => {
+    const pushes: ChatPushDispatchInput[] = [];
+    const t0 = wholeSecond(Date.now());
+    const first = await unpaidRace(app, uid("runner-first"), t0 - 29.5 * DAY, { name: "First" });
+    const paysRunner = uid("runner-pays-mid-pass");
+    const pays = await unpaidRace(app, paysRunner, t0 - 29.5 * DAY, { name: "Pays" });
+    const buysRunner = uid("runner-buys-unattached-mid-pass");
+    const buys = await unpaidRace(app, buysRunner, t0 - 29.5 * DAY, { name: "Buys" });
+    // While the first room's push is out, one runner's purchase is applied to their race, and the
+    // other's is stored with no room (no crewcue_room_id attribute: R25).
+    setChatPushTransport(async (input) => {
+      pushes.push(input);
+      if (input.roomId === first) {
+        const purchase = { productId: "race_pass", source: "revenuecat" as const, status: "active" as const };
+        await applyBillingGrant({ ...purchase, transactionId: uid("txn"), roomId: pays, appUserId: paysRunner }, app.log);
+        await applyBillingGrant({ ...purchase, transactionId: uid("txn"), roomId: null, appUserId: buysRunner }, app.log);
+      }
+      return { delivered: input.targets.length, attempts: input.targets.length, failures: [], invalidDeviceIds: [] };
+    });
+    const log = recordingLog();
+    const order = [first, pays, buys];
+    const reminder = createUnpaidRaceReminderScheduler({
+      // All three listed unpaid, the first one first.
+      listRooms: async (...range) =>
+        (await listUnpaidRaceRoomsForReminders(...range))
+          .filter((room) => order.includes(room.id))
+          .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)),
+      log,
+      now: () => t0,
+      skipFirstRun: true
+    });
+
+    const outcomes = await reminder.tick();
+    assert.deepEqual(forRoom(outcomes, first), ["expiry_1d:sent"]);
+    assert.deepEqual(forRoom(outcomes, pays), ["expiry_1d:paid"], "paid after the listing: no claim");
+    assert.deepEqual(forRoom(outcomes, buys), ["expiry_1d:paid"], "bought with no room after the listing");
+    assert.equal((await getRaceRoom(pays))?.entitlement.status, "paid");
+    for (const roomId of [pays, buys]) {
+      assert.equal(pushesFor(pushes, roomId).length, 0, "never told a paid race will be deleted");
+      assert.deepEqual(await listUnpaidReminderClaims(roomId), []);
+    }
+    const pass = log.infos.find((line) => line.msg === "unpaid_reminder_pass")?.payload as {
+      unpaidReminders: { paid: number };
+    };
+    assert.equal(pass.unpaidReminders.paid, 2, "counted in the pass log");
+    // The claim itself, asked directly: refused for both.
+    assert.equal(await claimUnpaidReminder(pays, "race_soon", t0, paysRunner), "paid");
+    assert.equal(await claimUnpaidReminder(buys, "race_soon", t0, buysRunner), "paid");
+    assert.equal(await claimUnpaidReminder(first, "race_soon", t0), "claimed", "an unpaid race is still claimed");
+  });
+});
+
+test("a creator with a purchase stored with no room (R25) gets no reminder and no unpaidExpiresAt on any race they created", async () => {
+  await withApp(async (app) => {
+    const pushes = capturePushes();
+    const t0 = wholeSecond(Date.now());
+    const buyer = uid("runner-unattached");
+    const old = await unpaidRace(app, buyer, t0 - 29.5 * DAY, { name: "Bought" });
+    const soon = await unpaidRace(app, buyer, t0 - DAY, { startMs: t0 + 2 * DAY });
+    const otherRunner = uid("runner-not-the-buyer");
+    const other = await unpaidRace(app, otherRunner, t0 - 29.5 * DAY);
+    assert.ok((await readRoom(app, old, buyer)).unpaidExpiresAt, "a deletion time before the purchase");
+    // The store charged the runner, but the webhook found no room to apply it to.
+    await applyBillingGrant(
+      {
+        transactionId: uid("txn"),
+        roomId: null,
+        productId: "race_pass",
+        appUserId: buyer,
+        source: "revenuecat",
+        status: "active"
+      },
+      app.log
+    );
+    const ids = [old, soon, other];
+    const listed = (await listUnpaidRaceRoomsForReminders(t0 - 23 * DAY, t0, t0 + 3 * DAY)).filter((room) =>
+      ids.includes(room.id)
+    );
+    assert.deepEqual(listed.map((room) => room.id), [other], "neither of the buyer's races is a candidate");
+
+    const clock = { now: t0 };
+    const reminder = reminders(clock, ids);
+    const outcomes = await reminder.tick();
+    assert.deepEqual(forRoom(outcomes, other), ["expiry_1d:sent"]);
+    for (const roomId of [old, soon]) {
+      assert.deepEqual(forRoom(outcomes, roomId), []);
+      assert.equal(pushesFor(pushes, roomId).length, 0);
+      assert.equal((await readRoom(app, roomId, buyer)).unpaidExpiresAt, undefined, "the sweeper keeps it");
+    }
+    assert.equal((await mine(app, old, buyer))?.unpaidExpiresAt, undefined);
+    assert.equal((await readRoom(app, other, otherRunner)).unpaidExpiresAt, iso(t0 + DAY), "another runner's race still expires");
+  });
+});
+
 test("a race past day 29 gets the 1-day reminder only: the 7-day one is skipped", async () => {
   await withApp(async (app) => {
     const pushes = capturePushes();
@@ -490,15 +585,22 @@ test("race_soon: only while the start is ahead and before the race's expiry; cat
     assert.equal(pushesFor(pushes, inTwoDays)[0]?.expiresAtMs, t0 + 2 * DAY, "dropped at the start");
     assert.match(pushesFor(pushes, catchUp)[0]?.body ?? "", / is in 1 day\./);
     assert.match(pushesFor(pushes, later)[0]?.body ?? "", / is in 3 days\./);
+    // Claimed 1-day reminder first (the outcomes above), but sent last: both share one collapse
+    // key, so the phone keeps the last push, and that must be the deletion warning.
     assert.deepEqual(
       pushesFor(pushes, both).map((p) => p.body.replace(/^Your race Both /, "")),
       [
-        "will be deleted tomorrow. Unlock it to keep your course and plan.",
-        "is in 1 day. Unlock it so your crew can follow you."
+        "is in 1 day. Unlock it so your crew can follow you.",
+        "will be deleted tomorrow. Unlock it to keep your course and plan."
       ],
-      "the 1-day reminder first, then race_soon, one collapse key"
+      "race_soon first, then the 1-day reminder, one collapse key"
     );
     assert.equal(new Set(pushesFor(pushes, both).map((p) => p.collapseKey)).size, 1);
+    assert.equal(
+      pushesFor(pushes, both).at(-1)?.body,
+      "Your race Both will be deleted tomorrow. Unlock it to keep your course and plan.",
+      "the deletion warning is the one left on the phone"
+    );
     assert.equal(pushesFor(pushes, started).length + pushesFor(pushes, afterExpiry).filter((p) => /is in/.test(p.body)).length, 0);
   });
 });

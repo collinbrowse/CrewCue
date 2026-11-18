@@ -119,7 +119,11 @@ import {
   roomUnpaidError,
   unpaidRaceLimitError
 } from "../lib/billingEntitlement.js";
-import { ensureBillingStoreReady, listRoomIdsWithBillingGrants } from "../lib/billingStore.js";
+import {
+  ensureBillingStoreReady,
+  listRoomIdsWithBillingGrants,
+  listUserIdsWithUnattachedBillingGrants
+} from "../lib/billingStore.js";
 import { forgetTrackingRemindersForRoom } from "../lib/trackingReminderScheduler.js";
 import {
   forgetUnpaidRemindersForRoom,
@@ -1963,19 +1967,26 @@ export async function listRaceRoomsStartingBetween(fromMs: number, toMs: number)
 }
 
 function expiryFieldsOf(room: RaceRoom): RaceRoomExpiryFields {
-  return { id: room.id, entitlementStatus: room.entitlement?.status, createdAt: room.createdAt };
+  const creatorId = raceCreatorOf(room);
+  return {
+    id: room.id,
+    entitlementStatus: room.entitlement?.status,
+    createdAt: room.createdAt,
+    ...(creatorId !== undefined ? { creatorId } : {})
+  };
 }
 
 /**
  * Unpaid rooms created at or before `createdBeforeMs`, never paid, and whose 1-day reminder
  * (`expiry_1d`) was claimed at or before `finalReminderClaimedBeforeMs`, oldest first, at most
  * `limit`: the unpaid race sweeper's candidates. A room with a billing grant, a refunded one
- * included, was paid once and is never listed, and neither is a room whose runner has not had a
- * day since that warning (lib/unpaidRaceReminderScheduler.ts). Memory mode scans the in-process
- * rooms (its store). Postgres reads the stored rows, not this instance's cache (R1), through the
- * unpaid partial index, a day wider than asked (stored times are ISO-8601 UTC from `toISOString`;
- * the margin covers any other offset), then the parsed time decides. A room with no parsable
- * `createdAt` is never listed.
+ * included, was paid once and is never listed, and neither is a room whose creator has an
+ * unattached grant (R25: maybe a paying runner whose purchase never reached the race), nor a room
+ * whose runner has not had a day since that warning (lib/unpaidRaceReminderScheduler.ts). Memory
+ * mode scans the in-process rooms (its store). Postgres reads the stored rows, not this instance's
+ * cache (R1), through the unpaid partial index, a day wider than asked (stored times are ISO-8601
+ * UTC from `toISOString`; the margin covers any other offset), then the parsed time decides. A
+ * room with no parsable `createdAt` is never listed.
  */
 export async function listUnpaidRaceRoomsCreatedBefore(
   createdBeforeMs: number,
@@ -1993,11 +2004,17 @@ export async function listUnpaidRaceRoomsCreatedBefore(
       .filter((room) => room.entitlementStatus === "unpaid" && createdInRange(room));
     const ids = unpaid.map((room) => room.id);
     const paidOnce = await listRoomIdsWithBillingGrants(ids);
+    const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map((room) => room.creatorId));
     const warned = await listUnpaidFinalReminderClaimTimes(ids);
     return unpaid
       .filter((room) => {
         const claimedAtMs = warned.get(room.id);
-        return !paidOnce.has(room.id) && claimedAtMs !== undefined && claimedAtMs <= finalReminderClaimedBeforeMs;
+        return (
+          !paidOnce.has(room.id) &&
+          !(room.creatorId !== undefined && boughtUnattached.has(room.creatorId)) &&
+          claimedAtMs !== undefined &&
+          claimedAtMs <= finalReminderClaimedBeforeMs
+        );
       })
       .sort((a, b) => createdMs(a) - createdMs(b))
       .slice(0, limit);
@@ -2013,8 +2030,9 @@ export async function listUnpaidRaceRoomsCreatedBefore(
 }
 
 /**
- * The unpaid-race reminder scheduler's candidates: unpaid rooms never paid (no billing grant),
- * created at or before `createdBeforeMs` without an `expiry_1d` claim, or starting after
+ * The unpaid-race reminder scheduler's candidates: unpaid rooms never paid (no billing grant)
+ * whose creator has no unattached grant (R25), created at or before `createdBeforeMs` without an
+ * `expiry_1d` claim, or starting after
  * `startsAfterMs` and at most `startsAtOrBeforeMs` without a `race_soon` claim. Each carries its
  * claims so far. Memory mode scans the in-process rooms. Postgres reads the stored rows, not this
  * instance's cache (R1), through the unpaid partial indexes on `createdAt` and `raceStartAt`, each
@@ -2029,8 +2047,12 @@ export async function listUnpaidRaceRoomsForReminders(
   if (!isRoomPersistenceEnabled()) {
     const unpaid = [...raceRooms.values()].filter((room) => room.entitlement?.status === "unpaid");
     const paidOnce = await listRoomIdsWithBillingGrants(unpaid.map((room) => room.id));
+    const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map(raceCreatorOf));
     return unpaid
-      .filter((room) => !paidOnce.has(room.id))
+      .filter((room) => {
+        const creatorId = raceCreatorOf(room);
+        return !paidOnce.has(room.id) && !(creatorId !== undefined && boughtUnattached.has(creatorId));
+      })
       .map((room): RaceRoomReminderFields => {
         const creatorId = raceCreatorOf(room);
         return {
@@ -2066,18 +2088,26 @@ export async function listUnpaidRaceRoomsForReminders(
  * `unpaidExpiresAt` on each unpaid, never-paid room: when the sweeper deletes it
  * (`unpaidRaceExpiresAtMs`: the later of `createdAt` + 30 days and its 1-day reminder's claim +
  * 24 hours). Computed for the response, never stored: returns copies, and `rooms` may be cached
- * objects. Paid, expired and once-paid rooms, and a room with no parsable `createdAt`, go out
- * without it. `GET /race-rooms/:roomId` and `GET /race-rooms/mine` send it.
+ * objects. Paid, expired and once-paid rooms, a room whose creator has an unattached grant (the
+ * sweeper keeps it: R25), and a room with no parsable `createdAt` go out without it.
+ * `GET /race-rooms/:roomId` and `GET /race-rooms/mine` send it.
  */
 async function withUnpaidExpiresAt(rooms: readonly RaceRoom[]): Promise<RaceRoom[]> {
-  const unpaidIds = rooms.filter((room) => room.entitlement?.status === "unpaid").map((room) => room.id);
-  if (unpaidIds.length === 0) {
+  const unpaid = rooms.filter((room) => room.entitlement?.status === "unpaid");
+  if (unpaid.length === 0) {
     return [...rooms];
   }
+  const unpaidIds = unpaid.map((room) => room.id);
   const paidOnce = await listRoomIdsWithBillingGrants(unpaidIds);
+  const boughtUnattached = await listUserIdsWithUnattachedBillingGrants(unpaid.map(raceCreatorOf));
   const warned = await listUnpaidFinalReminderClaimTimes(unpaidIds);
   return rooms.map((room) => {
-    if (room.entitlement?.status !== "unpaid" || paidOnce.has(room.id)) {
+    const creatorId = raceCreatorOf(room);
+    if (
+      room.entitlement?.status !== "unpaid" ||
+      paidOnce.has(room.id) ||
+      (creatorId !== undefined && boughtUnattached.has(creatorId))
+    ) {
       return room;
     }
     const expiresAtMs = unpaidRaceExpiresAtMs(room.createdAt, warned.get(room.id));

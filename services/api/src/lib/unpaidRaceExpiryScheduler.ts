@@ -4,13 +4,14 @@
  * A runner can set up a race and see the finish-only teaser before paying. A race still `unpaid`
  * 30 days after it was created, and never paid, is deleted, with everything keyed by it, through
  * the same full delete account deletion uses (`deleteRaceRoomAndData`), but never sooner than 24
- * hours after its runner was warned: its `expiry_1d` reminder must have been claimed at least a
+ * hours after its creator was warned: its `expiry_1d` reminder must have been claimed at least a
  * day before (lib/unpaidRaceReminderScheduler.ts). A race created long ago gets that reminder on
  * the first reminder tick and is deleted a day later at the soonest. Paid and expired races are
  * never touched, and neither is a race with any billing grant: a refund (or a store EXPIRATION)
  * revokes the grant and puts the race back to `unpaid`, but a race someone paid for, raced and
- * chatted in is not an abandoned teaser. A race whose payload has no parsable `createdAt` is kept:
- * it has no age.
+ * chatted in is not an abandoned teaser. Nor is any race whose creator has an unattached grant
+ * (R25: a purchase the webhook stored with no room), since that creator may have paid for it. A
+ * race whose payload has no parsable `createdAt` is kept: it has no age.
  *
  * Every hour a tick lists the oldest never-paid unpaid races past the cutoff whose warning is a day
  * old (a slim query: id, entitlement status, creation time; never the payload with the course
@@ -18,7 +19,8 @@
  * pass. Each race is re-read under its room lock before anything is deleted, and again as its row
  * is deleted (Postgres: the stored row, locked until the delete commits, with the grants and the
  * warning read on that same transaction), and deleted only if it is still unpaid, still past the
- * cutoff, still warned a day ago, and still has no grant. A grant write takes the room row's key
+ * cutoff, still warned a day ago, still has no grant, and its creator still has no unattached
+ * grant. A grant write takes the room row's key
  * share lock (billingStore.ts `upsertBillingGrant`), so a purchase either lands before the lock
  * and keeps the race, or waits for the delete and finds the room gone; it never lands between the
  * last check and the delete.
@@ -28,7 +30,7 @@
  */
 import type { FastifyBaseLogger } from "fastify";
 import type { RaceRoomDeleteCondition, RaceRoomDeletion } from "../routes/raceRooms.js";
-import { ensureBillingStoreReady, roomHasBillingGrants } from "./billingStore.js";
+import { ensureBillingStoreReady, roomHasBillingGrants, userHasUnattachedBillingGrant } from "./billingStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import type { RaceRoomExpiryFields } from "./roomPersistence.js";
 import {
@@ -76,9 +78,11 @@ export function isUnpaidRaceExpired(
 /**
  * The sweeper's question, asked of the room as stored, under its lock, right before anything is
  * deleted: still expired at `now()`, its `expiry_1d` reminder claimed at least 24 hours before,
- * and no billing grant, active or revoked (a race paid once, or a purchase recorded before the
- * room lock was taken). The claim and the grants are read on the locking transaction's client
- * (`db`), never on a second pool connection.
+ * no billing grant, active or revoked (a race paid once, or a purchase recorded before the room
+ * lock was taken), and no unattached grant bought by its creator (R25: a purchase the webhook
+ * stored with no room, so the creator may be a paying runner whose race still reads `unpaid`).
+ * The claim and the grants are read on the locking transaction's client (`db`), never on a second
+ * pool connection.
  */
 export function unpaidRaceDeleteCondition(now: () => number = Date.now): RaceRoomDeleteCondition {
   return async (latest, db) => {
@@ -89,7 +93,10 @@ export function unpaidRaceDeleteCondition(now: () => number = Date.now): RaceRoo
     if (!isPastFinalReminderGrace(await unpaidFinalReminderClaimedAt(latest.id, db), nowMs)) {
       return false;
     }
-    return !(await roomHasBillingGrants(latest.id, db));
+    if (await roomHasBillingGrants(latest.id, db)) {
+      return false;
+    }
+    return !(await userHasUnattachedBillingGrant(latest.creatorId, db));
   };
 }
 

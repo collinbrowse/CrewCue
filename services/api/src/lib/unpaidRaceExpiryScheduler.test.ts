@@ -33,10 +33,12 @@ import { listFinishedEfforts, recordFinishedEffort } from "./finishedEffortStore
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
 import {
   deletePersistedRaceRoomRows,
+  getPersistencePool,
   isRoomPersistenceEnabled,
   loadRaceRoom,
   persistRaceRoom
 } from "./roomPersistence.js";
+import { roomRemovedAt } from "./roomRemovalStore.js";
 import { lineStringRouteOverlayForCheckpoints } from "./testCourseRouteLayer.js";
 import { claimTrackingReminder, listTrackingReminderClaims } from "./trackingReminderScheduler.js";
 import {
@@ -141,10 +143,14 @@ async function setEntitlement(app: App, roomId: string, runner: string, status: 
 
 /**
  * A race paid through billing (the webhook's path, a grant recorded), then refunded: `unpaid`
- * again, with a revoked grant.
+ * again, with a revoked grant. With `warnedHoursAgo`, its 1-day reminder was claimed before it was
+ * paid (a claim refuses a race with a grant).
  */
-async function refundedRace(app: App, runner: string, days: number): Promise<RaceRoom> {
+async function refundedRace(app: App, runner: string, days: number, warnedHoursAgo?: number): Promise<RaceRoom> {
   const room = await createRace(app, runner, `refunded ${days}d`);
+  if (warnedHoursAgo !== undefined) {
+    await warn(room.id, warnedHoursAgo);
+  }
   const grant = {
     transactionId: uid("txn"),
     roomId: room.id,
@@ -233,6 +239,23 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
       headers: auth(app, crew)
     });
     assert.equal(joined.statusCode, 200, joined.body);
+    // A crew member the runner removed: the removal record (room_removed_members, #723) is keyed
+    // by the race too, with no foreign key, so the delete must remove it.
+    const removed = uid("crew-removed");
+    const joinedRemoved = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: expiring.joinCode },
+      headers: auth(app, removed)
+    });
+    assert.equal(joinedRemoved.statusCode, 200, joinedRemoved.body);
+    const removal = await app.inject({
+      method: "DELETE",
+      url: `/race-rooms/${expiring.id}/members/${removed}`,
+      headers: auth(app, runner)
+    });
+    assert.equal(removal.statusCode, 200, removal.body);
+    assert.ok(await roomRemovedAt(expiring.id, removed), "the removal is recorded");
     const invite = await app.inject({
       method: "POST",
       url: `/race-rooms/${expiring.id}/invites`,
@@ -293,8 +316,7 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
     const expired = await unpaidRace(app, uid("runner-expired"), 31, "expired");
     // Paid through billing, raced long ago, refunded on day 45: unpaid again, but paid once. Its
     // 1-day reminder claim (from before it was paid) doesn't make it a candidate: the grant does.
-    const refunded = await refundedRace(app, uid("runner-refunded"), 45);
-    await warn(refunded.id, 30 * 24);
+    const refunded = await refundedRace(app, uid("runner-refunded"), 45, 30 * 24);
 
     const log = recordingLog();
     const outcomes = await sweeper(log).tick();
@@ -350,6 +372,7 @@ test("a 31-day-old unpaid race is deleted with all its data; 29-day unpaid, 31-d
     assert.deepEqual(await listChatMessages({ roomId: expiring.id, limit: 50 }), []);
     assert.deepEqual(await listTrackingReminderClaims(expiring.id), []);
     assert.deepEqual(await listUnpaidReminderClaims(expiring.id), [], "its reminder claims went with it");
+    assert.equal(await roomRemovedAt(expiring.id, removed), undefined, "its removal records went with it");
     assert.deepEqual(await listFinishedEfforts({ athleteUserId: runner }), []);
     assert.deepEqual(await getCourseHistoryEvents([historyId]), []);
 
@@ -412,6 +435,49 @@ test("a billing grant keeps the race: one recorded between the listing and the d
     assert.deepEqual(handed, [{ roomId: room.id, result: "kept" }]);
     assert.ok(await getRaceRoom(room.id));
     await deleteRaceRoomAndData(room.id);
+  });
+});
+
+test("a race whose creator bought a pass stored with no room (R25) is never listed or deleted; other creators' races are", async () => {
+  await withApp(async (app) => {
+    const buyer = uid("runner-unattached");
+    const bought = await unpaidRace(app, buyer, 31);
+    await warn(bought.id);
+    const other = await unpaidRace(app, uid("runner-unattached-other"), 31);
+    await warn(other.id);
+    // The store charged the runner, but the event named no room (no crewcue_room_id), so the
+    // webhook stored the grant with no room and never applied it.
+    const purchase = {
+      transactionId: uid("txn"),
+      roomId: null,
+      productId: "race_pass",
+      appUserId: buyer,
+      source: "revenuecat" as const
+    };
+    await applyBillingGrant({ ...purchase, status: "active" }, app.log);
+    assert.equal((await getRaceRoom(bought.id))?.entitlement.status, "unpaid", "still unpaid: nothing attached it");
+
+    const ours = (rooms: { id: string }[]) => rooms.filter((room) => room.id === bought.id || room.id === other.id);
+    assert.deepEqual(
+      ours(await listAll(Date.now() - UNPAID_RACE_TTL_MS)).map((room) => room.id),
+      [other.id],
+      "the buyer's race is not a candidate"
+    );
+    // Handed to the sweeper directly, past its listing: the condition under the lock keeps it.
+    const handed = sweeper(recordingLog(), async () => [
+      { id: bought.id, entitlementStatus: "unpaid", createdAt: daysAgo(31) }
+    ]);
+    assert.deepEqual(await handed.tick(), [{ roomId: bought.id, result: "kept" }]);
+    // Refunded before anyone attached it: still a purchase from that runner, still kept.
+    await applyBillingGrant({ ...purchase, status: "revoked" }, app.log);
+    assert.deepEqual(await handed.tick(), [{ roomId: bought.id, result: "kept" }]);
+    assert.ok(await getRaceRoom(bought.id));
+
+    // Another runner's race goes as usual.
+    const otherOnly: UnpaidRaceExpiryListRooms = async (createdBeforeMs, _limit, claimedBeforeMs) =>
+      (await listAll(createdBeforeMs, claimedBeforeMs)).filter((room) => room.id === other.id);
+    assert.deepEqual(forRoom(await sweeper(recordingLog(), otherOnly).tick(), other.id), ["deleted"]);
+    await deleteRaceRoomAndData(bought.id);
   });
 });
 
@@ -575,13 +641,35 @@ test("Postgres: a grant write waits behind the sweeper's row lock and never land
   });
 });
 
-test("Postgres: a grant committed before the sweeper locks the row keeps the race, and a room save does not wait on a grant write", postgresOnly, async () => {
+test("Postgres: a room save does not wait on a grant write in flight, and a grant committed before the sweeper locks the row keeps the race", postgresOnly, async () => {
   await withApp(async (app) => {
     const runner = uid("runner-row-lock-grant-first");
     const room = await unpaidRace(app, runner, 31);
     await warn(room.id);
     const stored = await loadRaceRoom(room.id);
     assert.ok(stored);
+    const pool = getPersistencePool();
+    assert.ok(pool);
+
+    // A grant write in flight on another instance: its transaction has run its first statement
+    // (billingStore.ts upsertBillingGrant: the room row FOR KEY SHARE) and not committed yet.
+    const grantWrite = await pool.connect();
+    let save: Promise<"saved"> | undefined;
+    try {
+      await grantWrite.query("BEGIN");
+      await grantWrite.query("SELECT 1 FROM race_rooms_json WHERE id = $1 FOR KEY SHARE", [room.id]);
+      // The room is saved meanwhile: a whole-document upsert that changes no key, so it takes the
+      // row FOR NO KEY UPDATE, which key share doesn't block.
+      save = persistRaceRoom({ ...stored, name: "Saved during a grant write" }).then(() => "saved" as const);
+      const first = await Promise.race([save, sleep(2_000).then(() => "waiting" as const)]);
+      assert.equal(first, "saved", "the save finished while the grant write's lock was held");
+    } finally {
+      await grantWrite.query("ROLLBACK").catch(() => undefined);
+      grantWrite.release();
+    }
+    await save;
+    assert.equal((await loadRaceRoom(room.id))?.name, "Saved during a grant write");
+
     await upsertBillingGrant({
       transactionId: uid("txn"),
       roomId: room.id,
@@ -627,13 +715,18 @@ test("candidates: unpaid races past the cutoff, oldest first; paid, expired, new
     const justWarned = await unpaidRace(app, uid("runner-candidates-just-warned"), 40);
     const unwarned = await unpaidRace(app, uid("runner-candidates-unwarned"), 40);
     const young = await unpaidRace(app, uid("runner-candidates-young"), 29);
-    const paid = await unpaidRace(app, uid("runner-candidates-paid"), 60, "paid");
-    const expired = await unpaidRace(app, uid("runner-candidates-expired"), 60, "expired");
+    const paidRunner = uid("runner-candidates-paid");
+    const paid = await unpaidRace(app, paidRunner, 60);
+    const expiredRunner = uid("runner-candidates-expired");
+    const expired = await unpaidRace(app, expiredRunner, 60);
     const undated = await createRace(app, uid("runner-candidates-undated"));
     await setRaceRoomCreatedAtForTests(undated.id, undefined);
     for (const room of [oldest, older, paid, expired, undated]) {
       await warn(room.id);
     }
+    // Warned while unpaid (a claim refuses a race that isn't), then paid or expired by hand.
+    await setEntitlement(app, paid.id, paidRunner, "paid");
+    await setEntitlement(app, expired.id, expiredRunner, "expired");
     await warn(justWarned.id, 23);
     await warn(young.id);
     const ours = new Set([
@@ -653,8 +746,13 @@ test("candidates: unpaid races past the cutoff, oldest first; paid, expired, new
       [oldest.id, older.id]
     );
     for (const room of listed) {
-      assert.deepEqual(Object.keys(room).sort(), ["createdAt", "entitlementStatus", "id"], "only the sweeper's fields");
+      assert.deepEqual(
+        Object.keys(room).sort(),
+        ["createdAt", "creatorId", "entitlementStatus", "id"],
+        "only the sweeper's fields"
+      );
       assert.equal(room.entitlementStatus, "unpaid");
+      assert.equal(room.creatorId, runner, "the creator, for the unattached-grant check");
     }
 
     // The undated race is never deleted, even when handed to the sweeper directly.

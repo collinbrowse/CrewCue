@@ -2,8 +2,9 @@
  * Unpaid-race reminder pushes (runner and crew onboarding).
  *
  * A race still `unpaid` 30 days after it was created, and never paid, is deleted
- * (lib/unpaidRaceExpiryScheduler.ts). Before that, its creator (the runner, never crew) gets up to
- * three pushes, each once:
+ * (lib/unpaidRaceExpiryScheduler.ts). Before that, its creator (`raceCreatorOf`: the one who pays,
+ * whatever role they chose, usually the runner) gets up to three pushes, each once; other members
+ * never do:
  *
  * - `expiry_7d`: due once `createdAt + 23 days` has passed ("will be deleted in N days", whole
  *   days rounded down, so a tick a few minutes after day 23 says 6).
@@ -15,6 +16,9 @@
  * Each is "due once after X", not a window: a server that was down, or a race created before this
  * shipped, still gets it on the next tick (catch-up). A race 40 days old gets `expiry_1d` first.
  *
+ * A race whose creator has an unattached billing grant (risk R25: a purchase the webhook stored with
+ * no room) is never reminded, and the sweeper never deletes it: that creator may have paid for it.
+ *
  * The sweeper deletes a race only once its `expiry_1d` claim is at least 24 hours old, so nobody
  * loses a race without that warning a day before. The claim is what counts, not the delivery: a
  * runner with no push device, or a creator no longer on the roster, still gets the claim (the slot
@@ -25,20 +29,34 @@
  * mode keeps the same key in process. A crash between the claim and the send skips that reminder;
  * it is never sent twice. Claims go with the room (ON DELETE CASCADE).
  *
+ * The claim also re-checks the race, since a pass can take a while to reach it (earlier rooms'
+ * pushes) and the listing is that much older: Postgres inserts the row only while the stored room
+ * is still `unpaid` with no billing grant for it and no unattached grant from its creator, in the
+ * same statement. Memory mode checks the grants right before it claims (every purchase, comp and
+ * fake purchase records a grant before it marks the room paid). A race paid in between gets
+ * neither a claim nor a push ("paid").
+ *
  * The push goes through `dispatchChatPush` with type "unlock" and the roomId, on every device the
  * creator registered for chat push. Its collapse key is `unlock:<roomId>`, so a newer reminder
- * replaces an unread older one but never a chat, schedule or tracking push. It expires (24 hours
- * for `expiry_*`, the race start for `race_soon`), so a phone offline for days never shows a stale
- * one. The copy is in lib/unpaidRaceReminderCopy.ts.
+ * replaces an unread older one but never a chat, schedule or tracking push. When `expiry_1d` and
+ * `race_soon` are both claimed in one pass, `race_soon` is sent first, so the deletion warning is
+ * the one left on the phone. It expires (24 hours for `expiry_*`, the race start for `race_soon`),
+ * so a phone offline for days never shows a stale one. The copy is in lib/unpaidRaceReminderCopy.ts.
  *
  * Every 15 minutes a tick lists the candidates through a slim query (Postgres: the unpaid partial
  * indexes on `createdAt` and `raceStartAt`, a few fields, never the payload with the course GPX).
  */
 import type { ChatPushDeviceRecord } from "@crewcue/contracts";
 import type { FastifyBaseLogger } from "fastify";
+import {
+  ensureBillingStoreReady,
+  listRoomIdsWithBillingGrants,
+  userHasUnattachedBillingGrant
+} from "./billingStore.js";
 import { listChatPushDevicesForUsers } from "./chatPersistence.js";
 import { devicesToTargets, dispatchChatPush } from "./chatPushDispatch.js";
 import {
+  creatorHasUnattachedGrantSql,
   getPersistencePool,
   type PersistenceQueryable,
   type RaceRoomReminderFields,
@@ -157,20 +175,32 @@ function claimKey(roomId: string, slot: UnpaidReminderSlot): string {
   return `${roomId}|${slot}`;
 }
 
-export type UnpaidReminderClaim = "claimed" | "taken" | "room_gone";
+export type UnpaidReminderClaim = "claimed" | "taken" | "paid" | "room_gone";
 
 /**
- * Claim one reminder before sending it. "claimed": this caller won and must send. "taken": another
- * tick or instance already did. "room_gone": the room row was deleted after the room was listed
- * (Postgres foreign key), so there is nothing to remind.
+ * Claim one reminder before sending it, if the race still needs it. "claimed": this caller won and
+ * must send. "taken": another tick or instance already did. "paid": the race was paid (or is no
+ * longer `unpaid`, or its creator bought a pass the webhook could not attach, R25) after it was
+ * listed, so nothing is claimed. "room_gone": the room row was deleted after the room was listed,
+ * so there is nothing to remind.
+ *
+ * Postgres reads the stored room and inserts the claim in one statement: the row goes in only while
+ * the room is `unpaid` with no billing grant for it, active or revoked, and no unattached grant
+ * from its creator (`createdByUserId`, else the first member). Memory mode checks the grants (the
+ * room's, and `creatorId`'s unattached ones) right before it claims; every way a room is paid
+ * records a grant first.
  */
 export async function claimUnpaidReminder(
   roomId: string,
   slot: UnpaidReminderSlot,
-  nowMs: number
+  nowMs: number,
+  creatorId?: string
 ): Promise<UnpaidReminderClaim> {
   const pool = getPersistencePool();
   if (!pool) {
+    if ((await listRoomIdsWithBillingGrants([roomId])).has(roomId) || (await userHasUnattachedBillingGrant(creatorId))) {
+      return "paid";
+    }
     // No await between the check and the set: two ticks in this process can't both claim.
     const key = claimKey(roomId, slot);
     if (memoryClaims.has(key)) {
@@ -179,15 +209,39 @@ export async function claimUnpaidReminder(
     memoryClaims.set(key, nowMs);
     return "claimed";
   }
+  // The statement reads billing_grants (migration 0019; created here too when missing).
+  await ensureBillingStoreReady();
   try {
-    const result = await pool.query(
-      `INSERT INTO unpaid_reminders_sent (room_id, slot, claimed_at)
-       VALUES ($1, $2, $3::timestamptz)
-       ON CONFLICT (room_id, slot) DO NOTHING`,
+    const result = await pool.query<{ claimed: boolean; due: boolean; room_exists: boolean }>(
+      `WITH due AS (
+         SELECT r.id FROM race_rooms_json r
+         WHERE r.id = $1::text
+           AND r.payload->'entitlement'->>'status' = 'unpaid'
+           AND NOT EXISTS (SELECT 1 FROM billing_grants g WHERE g.room_id = r.id)
+           AND NOT ${creatorHasUnattachedGrantSql("r")}
+       ),
+       claimed AS (
+         INSERT INTO unpaid_reminders_sent (room_id, slot, claimed_at)
+         SELECT id, $2::text, $3::timestamptz FROM due
+         ON CONFLICT (room_id, slot) DO NOTHING
+         RETURNING room_id
+       )
+       SELECT EXISTS (SELECT 1 FROM claimed) AS claimed,
+              EXISTS (SELECT 1 FROM due) AS due,
+              EXISTS (SELECT 1 FROM race_rooms_json WHERE id = $1::text) AS room_exists`,
       [roomId, slot, new Date(nowMs).toISOString()]
     );
-    return result.rowCount === 1 ? "claimed" : "taken";
+    const row = result.rows[0];
+    if (row?.claimed) {
+      return "claimed";
+    }
+    if (row?.due) {
+      // Still due, and the insert met another claim's row.
+      return "taken";
+    }
+    return row?.room_exists ? "paid" : "room_gone";
   } catch (err) {
+    // The room row was deleted after this statement's snapshot: the claim's foreign key refuses it.
     if ((err as { code?: unknown }).code === "23503") {
       return "room_gone";
     }
@@ -315,6 +369,11 @@ export type UnpaidReminderResult =
   | "dispatch_failed"
   /** Another tick or instance claimed it. */
   | "already_sent"
+  /**
+   * Paid (a billing grant, a status other than `unpaid`, or an unattached grant from its creator)
+   * after it was listed: nothing claimed, nothing sent.
+   */
+  | "paid"
   /** The room was deleted after it was listed. */
   | "room_gone"
   /** Reading devices or claiming threw; logged, and the next tick tries again. */
@@ -364,35 +423,56 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
   /** Set by `stop()`: a pass in flight ends before its next room. */
   let stopping = false;
 
-  /** Claim one slot and, when it won, push it to the creator. */
-  async function remindOne(
+  const outcomeOf = (
+    room: UnpaidReminderRoom,
+    slot: UnpaidReminderSlot,
+    result: UnpaidReminderResult,
+    delivered?: number
+  ): UnpaidReminderOutcome => ({
+    roomId: room.id,
+    slot,
+    result,
+    ...(delivered !== undefined ? { delivered } : {})
+  });
+
+  /** Claim one slot. Undefined when this pass won it (and must send it); else why not. */
+  async function claimOne(
+    room: UnpaidReminderRoom,
+    slot: UnpaidReminderSlot,
+    atMs: number
+  ): Promise<UnpaidReminderOutcome | undefined> {
+    let claim: UnpaidReminderClaim;
+    try {
+      claim = await claimUnpaidReminder(room.id, slot, atMs, room.creatorId);
+    } catch (err) {
+      log.warn({ err, unpaidReminder: { roomId: room.id, slot } }, "unpaid_reminder_check_failed");
+      return outcomeOf(room, slot, "error");
+    }
+    switch (claim) {
+      case "claimed":
+        room.claims[slot] = new Date(atMs).toISOString();
+        return undefined;
+      case "taken":
+        return outcomeOf(room, slot, "already_sent");
+      case "paid":
+        return outcomeOf(room, slot, "paid");
+      case "room_gone":
+        return outcomeOf(room, slot, "room_gone");
+    }
+  }
+
+  /** Push a slot this pass claimed at `sendAtMs` to the creator. */
+  async function sendOne(
     room: UnpaidReminderRoom,
     slot: UnpaidReminderSlot,
     devices: ChatPushDeviceRecord[] | undefined,
     sendAtMs: number
   ): Promise<UnpaidReminderOutcome> {
-    const outcome = (result: UnpaidReminderResult, delivered?: number): UnpaidReminderOutcome => ({
-      roomId: room.id,
-      slot,
-      result,
-      ...(delivered !== undefined ? { delivered } : {})
-    });
-    let claim: UnpaidReminderClaim;
-    try {
-      claim = await claimUnpaidReminder(room.id, slot, sendAtMs);
-    } catch (err) {
-      log.warn({ err, unpaidReminder: { roomId: room.id, slot } }, "unpaid_reminder_check_failed");
-      return outcome("error");
-    }
-    if (claim !== "claimed") {
-      return outcome(claim === "taken" ? "already_sent" : "room_gone");
-    }
-    room.claims[slot] = new Date(sendAtMs).toISOString();
     if (devices === undefined) {
-      return outcome("no_runner");
+      return outcomeOf(room, slot, "no_runner");
     }
     if (devices.length === 0) {
-      return outcome("no_devices");
+      return outcomeOf(room, slot, "no_devices");
     }
     const startMs = Date.parse(room.raceStartAt ?? "");
     const untilMs =
@@ -424,14 +504,17 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
         },
         "unpaid_reminder_sent"
       );
-      return outcome("sent", dispatch.delivered);
+      return outcomeOf(room, slot, "sent", dispatch.delivered);
     } catch (err) {
       log.warn({ err, unpaidReminder: { roomId: room.id, slot } }, "unpaid_reminder_dispatch_failed");
-      return outcome("dispatch_failed");
+      return outcomeOf(room, slot, "dispatch_failed");
     }
   }
 
-  /** The room's due reminders, judged on a fresh clock (earlier rooms' pushes take time). */
+  /**
+   * The room's due reminders, judged on a fresh clock (earlier rooms' pushes take time). Outcomes
+   * come back in claim order.
+   */
   async function remind(room: UnpaidReminderRoom): Promise<UnpaidReminderOutcome[]> {
     if (room.entitlementStatus !== "unpaid") {
       return [];
@@ -458,19 +541,30 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
         return due.map((slot) => ({ roomId: room.id, slot, result: "error" }));
       }
     }
-    const outcomes: UnpaidReminderOutcome[] = [];
-    // The expiry slot first: once `expiry_1d` is claimed, the race's expiry time moves to a day
-    // after it, which decides whether a race starting within that day still gets `race_soon`.
+    // Each slot this pass tries, in claim order; `outcome` is set once it is settled.
+    const steps: { slot: UnpaidReminderSlot; atMs: number; outcome: UnpaidReminderOutcome | undefined }[] = [];
+    // The expiry slot is claimed first: once `expiry_1d` is claimed, the race's expiry time moves to
+    // a day after it, which decides whether a race starting within that day still gets `race_soon`.
     const expiryAtMs = now();
     const expiryNow = unpaidExpiryReminderDue(current, expiryAtMs);
     if (expiryNow) {
-      outcomes.push(await remindOne(current, expiryNow, devices, expiryAtMs));
+      const refused = await claimOne(current, expiryNow, expiryAtMs);
+      if (refused?.result === "paid" || refused?.result === "room_gone") {
+        // Paid or deleted since it was listed: `race_soon` would be refused the same way.
+        return [refused];
+      }
+      steps.push({ slot: expiryNow, atMs: expiryAtMs, outcome: refused });
     }
     const soonAtMs = now();
     if (unpaidRaceSoonReminderDue(current, soonAtMs)) {
-      outcomes.push(await remindOne(current, "race_soon", devices, soonAtMs));
+      steps.push({ slot: "race_soon", atMs: soonAtMs, outcome: await claimOne(current, "race_soon", soonAtMs) });
     }
-    return outcomes;
+    // Sent in the reverse of the claim order. Both share the collapse key, so a phone keeps the
+    // last one it gets: with `expiry_1d` and `race_soon` together, that is the deletion warning.
+    for (const step of [...steps].reverse()) {
+      step.outcome ??= await sendOne(current, step.slot, devices, step.atMs);
+    }
+    return steps.map((step) => step.outcome as UnpaidReminderOutcome);
   }
 
   async function tick(): Promise<UnpaidReminderOutcome[]> {
@@ -509,6 +603,7 @@ export function createUnpaidRaceReminderScheduler(opts: UnpaidReminderSchedulerO
             noDevices: count("no_devices"),
             noRunner: count("no_runner"),
             alreadySent: count("already_sent"),
+            paid: count("paid"),
             failed: count("error") + count("dispatch_failed")
           }
         },
