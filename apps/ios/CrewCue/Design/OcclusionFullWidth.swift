@@ -21,29 +21,23 @@ extension View {
 
     /// Runs this view past a leading or trailing safe-area inset to the display's edge when that
     /// inset is a camera column (`OcclusionLayout.columnEdges`) and no occlusion region lies
-    /// beside the view. A view the column runs beside keeps the inset. Put it outside the row's
-    /// own horizontal padding, on a view that reaches the safe area's edge, so the padding moves
-    /// with the edge. In an `OcclusionScrollView` the view decides from where it sits with the
-    /// scroll at rest, so scrolling never changes its width.
+    /// beside the view. A view the column runs beside keeps the inset. The view decides again
+    /// whenever it moves, so a row scrolled up beside the column narrows to keep clear of it, and
+    /// the change animates. Put it outside the row's own horizontal padding, on a view that
+    /// reaches the safe area's edge, so the padding moves with the edge. In a scroll view, put it
+    /// on each row rather than on the whole content: a view keeps the inset while any of it in
+    /// sight is beside the column.
     func fullWidthClearOfOcclusions() -> some View {
         modifier(OcclusionFullWidth())
     }
 }
 
-/// Where an `OcclusionScrollView`'s content starts, in global coordinates, with the scroll at
-/// rest. Nil until it has been laid out at rest.
-struct OcclusionScrollContext: Equatable, Sendable {
-    /// The scroll content's coordinate space.
-    static let space = "crewcue.occlusion-scroll-content"
-
-    var restingOrigin: CGPoint?
-}
-
 extension EnvironmentValues {
     /// Set by `readsOcclusionDisplay()`. Nil before reserved regions, or before the first read.
     @Entry var occlusionDisplay: OcclusionDisplay? = nil
-    /// Set by `OcclusionScrollView` for its content.
-    @Entry var occlusionScroll: OcclusionScrollContext? = nil
+    /// Set by `OcclusionScrollView` for its content: the part of the window it shows, global. A
+    /// row's part outside it is clipped, so it can't be under the column.
+    @Entry var occlusionScrollViewport: CGRect? = nil
 }
 
 /// `readsOcclusionDisplay()`.
@@ -75,6 +69,13 @@ struct OcclusionDisplayReader: ViewModifier {
                         }
                         .ignoresSafeArea()
                 }
+                #if DEBUG
+                .overlay(alignment: .topLeading) {
+                    if OcclusionDebugLabel.enabled, let display {
+                        OcclusionDebugLabel(display: display)
+                    }
+                }
+                #endif
         } else {
             content
         }
@@ -84,16 +85,47 @@ struct OcclusionDisplayReader: ViewModifier {
     }
 }
 
+#if DEBUG
+/// UI tests launched with `--expose-occlusions` read the window's occlusion regions here, in
+/// window points, so they can check that nothing a person needs runs under the column
+/// (`FullWidthRowsTests`). "none" when the display has none.
+private struct OcclusionDebugLabel: View {
+    static let enabled = CommandLine.arguments.contains("--expose-occlusions")
+    let display: OcclusionDisplay
+
+    var body: some View {
+        let rects = display.occlusions.map { rect in
+            [rect.minX, rect.minY, rect.width, rect.height].map { String(format: "%.2f", $0) }.joined(separator: ",")
+        }
+        Text(verbatim: rects.isEmpty ? "none" : rects.joined(separator: ";"))
+            .font(.system(size: 1))
+            .foregroundStyle(.clear)
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("crewcue.debug.occlusions")
+    }
+}
+#endif
+
+/// A view's latest measurement. Not view state: in a scroll view it changes every frame, and only
+/// the decision it leads to should update the view.
+final class OcclusionTracker {
+    var measure: OcclusionMeasure?
+    /// The view has decided with the display it has now.
+    var decided = false
+}
+
 /// `fullWidthClearOfOcclusions()`.
 struct OcclusionFullWidth: ViewModifier {
     @Environment(\.occlusionDisplay) private var display
-    @Environment(\.occlusionScroll) private var scroll
+    @Environment(\.occlusionScrollViewport) private var viewport
     @Environment(\.layoutDirection) private var layoutDirection
-    /// The view's frame (global, or in its scroll view's content) and its insets.
-    @State private var row: OcclusionMeasure?
+    /// The edges the view runs past. Changes only when the decision does.
+    @State private var open: Edge.Set = []
+    @State private var tracker = OcclusionTracker()
 
-    /// Stores a measurement with no animation. A measured frame that fed an animated layout
-    /// change would be measured again at every step of that animation.
+    /// Stores a measurement or a first decision with no animation. A measured frame that fed an
+    /// animated layout change would be measured again at every step of that animation.
     static func store(_ update: () -> Void) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -105,23 +137,28 @@ struct OcclusionFullWidth: ViewModifier {
         #if compiler(>=6.4)
         if #available(iOS 27.1, *) {
             content
-                .ignoresSafeArea(.container, edges: edges)
+                .ignoresSafeArea(.container, edges: open)
                 // Measured outside `ignoresSafeArea`: the frame the safe area gives the view and
                 // its insets stay the same whether or not it runs past them, so the decision
-                // can't flip-flop. In a scroll view the frame is read in the content, which
-                // scrolling doesn't move.
+                // can't feed back into the frame it's made from.
                 .background {
-                    Color.clear.onGeometryChange(for: OcclusionMeasure.self) { [inScroll = scroll != nil] proxy in
+                    Color.clear.onGeometryChange(for: OcclusionMeasure.self) { proxy in
                         OcclusionMeasure(
-                            frame: inScroll ? proxy.frame(in: .named(OcclusionScrollContext.space)) : proxy.frame(in: .global),
+                            frame: proxy.frame(in: .global),
                             leading: proxy.safeAreaInsets.leading,
                             trailing: proxy.safeAreaInsets.trailing
                         )
                     } action: { next in
-                        if next.differs(from: row) {
-                            OcclusionFullWidth.store { row = next }
-                        }
+                        tracker.measure = next
+                        decide()
                     }
+                }
+                .onChange(of: display) {
+                    tracker.decided = false
+                    decide()
+                }
+                .onChange(of: viewport) {
+                    decide()
                 }
         } else {
             content
@@ -131,14 +168,26 @@ struct OcclusionFullWidth: ViewModifier {
         #endif
     }
 
-    private var edges: Edge.Set {
-        guard let display, let row else { return [] }
-        var frame = row.frame
-        if let scroll {
-            guard let origin = scroll.restingOrigin else { return [] }
-            frame = frame.offsetBy(dx: origin.x, dy: origin.y)
+    /// Decides from the latest measurement. The first decision with a display is made without
+    /// animation and without hysteresis; later ones, as the view moves, animate.
+    private func decide() {
+        guard let display, let measure = tracker.measure else { return }
+        let first = !tracker.decided
+        tracker.decided = true
+        let next = display.nextEdges(
+            current: first ? nil : open,
+            frame: measure.frame,
+            visible: viewport?.intersection(display.bounds),
+            leading: measure.leading,
+            trailing: measure.trailing,
+            layoutDirection: layoutDirection
+        )
+        guard next != open else { return }
+        if first {
+            OcclusionFullWidth.store { open = next }
+        } else {
+            withAnimation(.snappy) { open = next }
         }
-        return display.clearEdges(frame: frame, leading: row.leading, trailing: row.trailing, layoutDirection: layoutDirection)
     }
 }
 
@@ -170,9 +219,9 @@ private struct OcclusionColumnScrollView<Content: View>: View {
     @Environment(\.layoutDirection) private var layoutDirection
     /// The scroll view's frame as the safe area lays it out, global, and its insets.
     @State private var frame = OcclusionMeasure(frame: .zero, leading: 0, trailing: 0)
-    /// The scroll is at its resting position (the top).
-    @State private var atRest = true
-    @State private var restingOrigin: CGPoint?
+    /// The part of the window the scroll view shows: its frame, run up and down under any top or
+    /// bottom inset it may scroll its content under.
+    @State private var viewport: CGRect?
 
     var body: some View {
         let opened = display?.columnEdges(
@@ -187,29 +236,10 @@ private struct OcclusionColumnScrollView<Content: View>: View {
             content
                 .safeAreaPadding(.leading, leading)
                 .safeAreaPadding(.trailing, trailing)
-                .coordinateSpace(.named(OcclusionScrollContext.space))
-                // Where the content starts at rest. Read only at rest: scrolling moves it.
-                .background {
-                    Color.clear.onGeometryChange(for: CGPoint.self) { proxy in
-                        proxy.frame(in: .global).origin
-                    } action: { origin in
-                        guard atRest else { return }
-                        if let resting = restingOrigin, abs(resting.x - origin.x) <= 0.5, abs(resting.y - origin.y) <= 0.5 {
-                            return
-                        }
-                        OcclusionFullWidth.store { restingOrigin = origin }
-                    }
-                }
         }
         .contentMargins(.leading, leading, for: .scrollIndicators)
         .contentMargins(.trailing, trailing, for: .scrollIndicators)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            abs(geometry.contentOffset.y + geometry.contentInsets.top) < 0.5
-                && abs(geometry.contentOffset.x + geometry.contentInsets.leading) < 0.5
-        } action: { _, rest in
-            atRest = rest
-        }
-        .environment(\.occlusionScroll, OcclusionScrollContext(restingOrigin: restingOrigin))
+        .environment(\.occlusionScrollViewport, viewport)
         .ignoresSafeArea(.container, edges: opened)
         // Measured outside `ignoresSafeArea`, so opening the scroll view doesn't move it.
         .background {
@@ -224,6 +254,20 @@ private struct OcclusionColumnScrollView<Content: View>: View {
                 // only real changes, unanimated, or the two can chase each other forever.
                 if next.differs(from: frame) {
                     OcclusionFullWidth.store { frame = next }
+                }
+            }
+            .onGeometryChange(for: CGRect.self) { proxy in
+                let global = proxy.frame(in: .global)
+                let insets = proxy.safeAreaInsets
+                return CGRect(
+                    x: global.minX,
+                    y: global.minY - insets.top,
+                    width: global.width,
+                    height: global.height + insets.top + insets.bottom
+                )
+            } action: { next in
+                if OcclusionLayout.differs(next, from: viewport) {
+                    OcclusionFullWidth.store { viewport = next }
                 }
             }
         }

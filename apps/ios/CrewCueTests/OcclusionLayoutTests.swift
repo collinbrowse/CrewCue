@@ -130,6 +130,102 @@ final class OcclusionLayoutTests: XCTestCase {
         )
     }
 
+    // MARK: nextEdges
+
+    private func next(
+        _ frame: CGRect,
+        current: Edge.Set?,
+        visible: CGRect? = CGRect(x: 0, y: 0, width: 466, height: 644)
+    ) -> Edge.Set {
+        OcclusionLayout.nextEdges(
+            current: current,
+            frame: frame,
+            visible: visible,
+            leading: 0,
+            trailing: 84,
+            occlusions: regions,
+            displayTop: 0
+        )
+    }
+
+    func testAFirstDecisionIsClearEdgesOnWhatIsInSight() {
+        XCTAssertEqual(next(row(y: 207, height: 171), current: nil), .trailing)
+        XCTAssertEqual(next(row(y: 167, height: 117), current: nil), [])
+        // With no hysteresis: a row that only touches the column's bottom runs past it.
+        XCTAssertEqual(next(row(y: 174, height: 40), current: nil), .trailing)
+    }
+
+    func testARowScrolledUpBesideTheColumnKeepsTheInset() {
+        // The paywall's first option, scrolled from 207 pt to 24 pt: it ran past the inset at
+        // rest, and must not stay that wide beside the column.
+        XCTAssertEqual(next(row(y: 207, height: 171), current: nil), .trailing)
+        XCTAssertEqual(next(row(y: 24, height: 171), current: .trailing), [])
+        // One point beside it is enough.
+        XCTAssertEqual(next(row(y: 173, height: 60), current: .trailing), [])
+    }
+
+    func testARowScrolledBackBelowTheColumnRunsPastItOnceItIsClear() {
+        // Back below the column, but within the hysteresis: still inset.
+        XCTAssertEqual(next(row(y: 176, height: 60), current: []), [])
+        XCTAssertEqual(next(row(y: 177.5, height: 60), current: []), [])
+        // Clear by the hysteresis: full width again.
+        XCTAssertEqual(next(row(y: 178, height: 60), current: []), .trailing)
+        XCTAssertEqual(next(row(y: 300, height: 60), current: []), .trailing)
+    }
+
+    func testARowAlreadyFullWidthStaysSoUntilItMeetsTheColumn() {
+        XCTAssertEqual(next(row(y: 175, height: 60), current: .trailing), .trailing)
+        XCTAssertEqual(next(row(y: 174, height: 60), current: .trailing), .trailing)
+        XCTAssertEqual(next(row(y: 173.5, height: 60), current: .trailing), [])
+    }
+
+    func testOnlyThePartInSightCounts() {
+        // A transcript that starts above the scroll view's top, 186 pt, below the column: what
+        // the scroll view clips can't sit under the column.
+        let transcript = row(y: -400, height: 900)
+        let below = CGRect(x: 0, y: 186, width: 466, height: 392)
+        XCTAssertEqual(next(transcript, current: nil, visible: below), .trailing)
+        XCTAssertEqual(next(transcript, current: .trailing, visible: below), .trailing)
+        // A scroll view that starts beside the column: the same transcript keeps the inset.
+        let beside = CGRect(x: 0, y: 100, width: 466, height: 478)
+        XCTAssertEqual(next(transcript, current: .trailing, visible: beside), [])
+        // Outside a scroll view the whole frame counts.
+        XCTAssertEqual(next(transcript, current: nil, visible: nil), [])
+    }
+
+    func testARowOutOfSightKeepsWhatItDecided() {
+        // Scrolled off the top: it was beside the column on the way out, and stays inset, so its
+        // height can't change and move the rows still in sight.
+        XCTAssertEqual(next(row(y: -300, height: 171), current: []), [])
+        // Below the scroll view's bottom, it keeps its full width.
+        XCTAssertEqual(next(row(y: 700, height: 60), current: .trailing), .trailing)
+        // Never decided and out of sight: the whole frame decides.
+        XCTAssertEqual(next(row(y: 700, height: 60), current: nil), .trailing)
+        XCTAssertEqual(next(row(y: 700, height: 60), current: nil, visible: .null), .trailing)
+    }
+
+    func testNextEdgesFollowsTheColumnRightToLeft() {
+        let screen = OcclusionDisplay(bounds: display, occlusions: regions)
+        let visible = CGRect(x: 0, y: 0, width: 466, height: 644)
+        XCTAssertEqual(
+            screen.nextEdges(current: nil, frame: row(y: 300, height: 60), visible: visible, leading: 84, trailing: 0, layoutDirection: .rightToLeft),
+            .leading
+        )
+        XCTAssertEqual(
+            screen.nextEdges(current: .leading, frame: row(y: 100, height: 60), visible: visible, leading: 84, trailing: 0, layoutDirection: .rightToLeft),
+            []
+        )
+    }
+
+    func testRectsDifferByMoreThanHalfAPoint() {
+        let rect = CGRect(x: 0, y: 186, width: 466, height: 392)
+        XCTAssertTrue(OcclusionLayout.differs(rect, from: nil))
+        XCTAssertFalse(OcclusionLayout.differs(rect, from: rect.offsetBy(dx: 0.4, dy: -0.4)))
+        XCTAssertTrue(OcclusionLayout.differs(rect, from: rect.offsetBy(dx: 0, dy: 0.6)))
+        XCTAssertFalse(OcclusionLayout.differs(rect, from: rect.insetBy(dx: 0, dy: 0.3)))
+        XCTAssertTrue(OcclusionLayout.differs(rect, from: CGRect(x: 0, y: 186, width: 466, height: 392.6)))
+    }
+
     // MARK: columnEdges
 
     func testColumnEdgesDoNotDependOnWhereTheViewSits() {

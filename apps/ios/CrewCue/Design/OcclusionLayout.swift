@@ -44,6 +44,53 @@ enum OcclusionLayout {
         return edges
     }
 
+    /// How far past every region a view that keeps an inset must be before it runs past it again.
+    /// A view that runs past an inset keeps it again as soon as it meets a region.
+    static let hysteresis: CGFloat = 4
+
+    /// `clearEdges` for a view that moves, such as a row in a scroll view, given what it decided
+    /// last (`current`, nil before its first decision).
+    ///
+    /// - Only the part of `frame` between `visible`'s top and bottom counts, since a scroll view
+    ///   clips the rest. A view with none of it in sight keeps `current`, so a row scrolled out of
+    ///   sight above the column doesn't change its width, and so its height, under the rows still
+    ///   in sight.
+    /// - An edge `current` keeps the inset on opens only once the strip past it is `hysteresis`
+    ///   clear of every region; an edge it runs past closes as soon as the strip meets a region.
+    ///   So a row resting or bouncing at the column's bottom edge can't flip back and forth, and
+    ///   never runs under the column.
+    nonisolated static func nextEdges(
+        current: Edge.Set?,
+        frame: CGRect,
+        visible: CGRect?,
+        leading: CGFloat,
+        trailing: CGFloat,
+        occlusions: [CGRect],
+        displayTop: CGFloat,
+        hysteresis: CGFloat = OcclusionLayout.hysteresis
+    ) -> Edge.Set {
+        var shown = frame
+        if let visible {
+            let top = max(frame.minY, visible.minY)
+            let bottom = min(frame.maxY, visible.maxY)
+            guard bottom > top else {
+                return current ?? clearEdges(frame: frame, leading: leading, trailing: trailing, occlusions: occlusions, displayTop: displayTop)
+            }
+            shown = CGRect(x: frame.minX, y: top, width: frame.width, height: bottom - top)
+        }
+        let edges = clearEdges(frame: shown, leading: leading, trailing: trailing, occlusions: occlusions, displayTop: displayTop)
+        guard let current else { return edges }
+        // A taller frame only meets more regions, so `settled` is within `edges`.
+        let settled = clearEdges(
+            frame: shown.insetBy(dx: 0, dy: -hysteresis),
+            leading: leading,
+            trailing: trailing,
+            occlusions: occlusions,
+            displayTop: displayTop
+        )
+        return edges.intersection(current).union(settled)
+    }
+
     /// The leading and trailing safe-area insets that are a camera column: an occlusion region
     /// that starts at the display's top edge and covers the inset from the safe area's edge to
     /// the display's edge. Where the view sits doesn't matter here. An inset with no such
@@ -87,6 +134,15 @@ enum OcclusionLayout {
         CGRect(x: bounds.minX + bounds.maxX - rect.maxX, y: rect.minY, width: rect.width, height: rect.height)
     }
 
+    /// `rect` has moved or resized by more than half a point since `other`, or there was no
+    /// `other`. Smaller changes are layout noise.
+    nonisolated static func differs(_ rect: CGRect, from other: CGRect?) -> Bool {
+        guard let other else { return true }
+        let values = [rect.minX, rect.minY, rect.maxX, rect.maxY]
+        let others = [other.minX, other.minY, other.maxX, other.maxY]
+        return zip(values, others).contains { abs($0 - $1) > 0.5 }
+    }
+
     /// The two share some area. Rects that only touch don't.
     private nonisolated static func overlaps(_ a: CGRect, _ b: CGRect) -> Bool {
         a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY
@@ -119,6 +175,28 @@ struct OcclusionDisplay: Equatable, Sendable {
         )
     }
 
+    /// The edges a moving view runs past next (`OcclusionLayout.nextEdges`), read the way
+    /// `layoutDirection` lays them out. Only `visible`'s top and bottom count.
+    nonisolated func nextEdges(
+        current: Edge.Set?,
+        frame: CGRect,
+        visible: CGRect?,
+        leading: CGFloat,
+        trailing: CGFloat,
+        layoutDirection: LayoutDirection
+    ) -> Edge.Set {
+        let flip = layoutDirection == .rightToLeft
+        return OcclusionLayout.nextEdges(
+            current: current,
+            frame: flip ? OcclusionLayout.mirrored(frame, in: bounds) : frame,
+            visible: visible,
+            leading: leading,
+            trailing: trailing,
+            occlusions: flip ? occlusions.map { OcclusionLayout.mirrored($0, in: bounds) } : occlusions,
+            displayTop: bounds.minY
+        )
+    }
+
     /// The edges whose inset is a camera column, wherever `frame` sits
     /// (`OcclusionLayout.columnEdges`).
     nonisolated func columnEdges(frame: CGRect, leading: CGFloat, trailing: CGFloat, layoutDirection: LayoutDirection) -> Edge.Set {
@@ -144,8 +222,8 @@ struct OcclusionMeasure: Equatable, Sendable {
     /// decision `OcclusionLayout` makes to within a point.
     nonisolated func differs(from other: OcclusionMeasure?) -> Bool {
         guard let other else { return true }
-        let values = [frame.minX, frame.minY, frame.maxX, frame.maxY, leading, trailing]
-        let others = [other.frame.minX, other.frame.minY, other.frame.maxX, other.frame.maxY, other.leading, other.trailing]
-        return zip(values, others).contains { abs($0 - $1) > 0.5 }
+        return OcclusionLayout.differs(frame, from: other.frame)
+            || abs(leading - other.leading) > 0.5
+            || abs(trailing - other.trailing) > 0.5
     }
 }

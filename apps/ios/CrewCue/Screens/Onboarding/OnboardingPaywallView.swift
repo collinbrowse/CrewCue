@@ -59,10 +59,13 @@ struct OnboardingPaywallView: View {
                             Task { await billing?.buy(option.product) }
                         }
                         .avoidsReservedRegions()
+                        // Stacked, each option pads itself and decides its own width: scrolled up
+                        // beside the column it keeps clear of it, while the one below runs on.
+                        .padding(.horizontal, sideBySide ? 0 : CrewSpace.margin)
+                        .fullWidthClearOfOcclusions()
                     }
                 }
-                .padding(.horizontal, CrewSpace.margin)
-                .fullWidthClearOfOcclusions()
+                .padding(.horizontal, sideBySide ? CrewSpace.margin : 0)
                 footer
                     .avoidsReservedRegions()
                     .padding(.horizontal, CrewSpace.margin)
