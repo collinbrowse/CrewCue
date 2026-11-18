@@ -300,6 +300,19 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: room.path))
 }
 
+/// The replay's saved room is removed by path after a wipe may have taken its user: building that
+/// path creates nothing, so the wiped user's directory stays gone.
+@Test func userStorageLocationIsTheUsersDirectoryWithoutCreatingIt() throws {
+    let storage = UserStorage(root: temporaryDirectory())
+    let location = storage.location(userId: "auth0|abc/123")
+    #expect(!FileManager.default.fileExists(atPath: location.path))
+    #expect(try storage.userIds().isEmpty)
+    #expect(try storage.directory(userId: "auth0|abc/123") == location)
+    try storage.wipeAll()
+    _ = RoomStorage.directory(userDirectory: storage.location(userId: "auth0|abc/123"), roomId: "room")
+    #expect(!FileManager.default.fileExists(atPath: location.path))
+}
+
 @Test func bridgeWipeUserDataClearsEveryAccountUnderTheRoot() async throws {
     let root = temporaryDirectory()
     for user in ["athlete-a", "crew-b"] {

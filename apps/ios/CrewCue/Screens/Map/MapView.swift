@@ -179,32 +179,91 @@ private struct MapOverlayControls: View {
 struct AidPager: View {
     @Bindable var model: MapModel
     @ScaledMetric private var height: CGFloat = 228
+    /// The page on show, kept on the model's aid. Only the person picks an aid: a drag, or
+    /// VoiceOver's scroll. A pager laid out again (built with its pages already there by a display
+    /// switch or a map tool closing, or at a new width after a rotation) lands on whatever page its
+    /// layout gives, often the first; it is put back on the model's aid, so it never selects Start
+    /// and stops the sheet following the next aid station.
+    @State private var position: Int?
+    /// The person is dragging the pager, or it is settling from their drag.
+    @State private var dragging = false
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(model.aidPages) { page in
-                    AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
-                        .containerRelativeFrame(.horizontal)
-                        .id(page.index)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(model.aidPages) { page in
+                        AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
+                            .containerRelativeFrame(.horizontal)
+                            .id(page.index)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $position)
+            .onScrollPhaseChange { _, phase in
+                switch phase {
+                case .interacting, .decelerating:
+                    dragging = true
+                case .idle:
+                    if dragging { select(position) }
+                    dragging = false
+                case .tracking, .animating:
+                    // A touch that hasn't moved yet, or a scroll that isn't the person's drag
+                    // (the pager's own, or a layout's): neither picks an aid.
+                    break
+                @unknown default:
+                    break
                 }
             }
-            .scrollTargetLayout()
+            .onChange(of: position) { _, value in
+                if dragging {
+                    select(value)
+                } else if value != shown {
+                    show(shown, proxy)
+                }
+            }
+            .onChange(of: shown, initial: true) { _, index in
+                if !dragging { show(index, proxy) }
+            }
+            // The pages laid out at a new width move under the pager without a report: back to
+            // the model's aid.
+            .onScrollGeometryChange(for: CGSize.self) { geometry in
+                CGSize(width: geometry.containerSize.width, height: geometry.contentSize.width)
+            } action: { _, _ in
+                if !dragging { show(shown, proxy) }
+            }
+            .accessibilityScrollAction { edge in
+                switch edge {
+                case .leading: step(-1)
+                case .trailing: step(1)
+                default: break
+                }
+            }
         }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: aidScroll)
         .frame(height: height)
     }
 
-    private var aidScroll: Binding<Int?> {
-        Binding(
-            get: { model.aidPages.isEmpty ? nil : model.aidIndex },
-            set: { value in
-                guard let value, value != model.aidIndex else { return }
-                model.showAid(index: value)
-            }
-        )
+    /// The model's aid: the next aid station while the sheet follows the runner.
+    private var shown: Int? { model.aidPages.isEmpty ? nil : model.aidIndex }
+
+    private func show(_ index: Int?, _ proxy: ScrollViewProxy) {
+        position = index
+        if let index { proxy.scrollTo(index, anchor: .leading) }
+    }
+
+    private func select(_ value: Int?) {
+        guard let value, value != model.aidIndex else { return }
+        model.showAid(index: value)
+    }
+
+    /// VoiceOver's three-finger scroll: the next or previous page.
+    private func step(_ delta: Int) {
+        let next = model.aidIndex + delta
+        guard model.aidPages.indices.contains(next) else { return }
+        model.showAid(index: next)
     }
 }
 
@@ -257,6 +316,9 @@ struct AidPeek: View {
         .padding(.horizontal, CrewSpace.margin)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(page.scheduleLine)
+        // The eyebrow ("Next aid station"), which the schedule line leaves out.
+        .accessibilityValue(Text(verbatim: kicker))
+        .accessibilityIdentifier("crewcue.aid-page")
     }
 
     private var kicker: String {

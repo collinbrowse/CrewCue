@@ -47,6 +47,8 @@ final class ShellModel {
     let runnerSetup: RunnerSetupModel
     /// Runner phase 2: the race-day replay and the paywall after it.
     let racePreview: RacePreviewModel
+    /// The dev route's `?at=&paused=` (dev links only): where its fixture replay opens.
+    var racePreviewDevStart: RacePreviewDevStart?
 
     private(set) var signedInUserId: String? { didSet { syncChat() } }
     private(set) var signedInRole: String? { didSet { syncChat() } }
@@ -284,6 +286,7 @@ final class ShellModel {
         }
         let raw = url.absoluteString
         fixtureOverlay = DevLinks.enabled && LaunchConfiguration.isFixtureOverlay(raw)
+        racePreviewDevStart = DevLinks.enabled ? RacePreviewDevStart(deeplink: raw) : nil
         let parsed = DevLinks.enabled ? Route.parse(raw) : nil
         let next = parsed ?? Route(featureId: "app-shell", state: .success)
         show(next)

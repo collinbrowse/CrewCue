@@ -83,6 +83,14 @@ final class PaceModel {
     /// The estimate card shows the summary (not an error or the cold start), so a schedule read
     /// moves its finish to the plan's finish row.
     private var showsEstimateSummary = false
+    /// Bumped each time an estimate loads or attaches. Its summary waits for a schedule read that
+    /// started at this revision, so the card prints one finish: the plan's (planned stops
+    /// included), or the estimate's own when that read fails. Until then the card keeps what it
+    /// showed.
+    private var estimateRevision = 0
+    /// The `estimateRevision` the latest finished schedule read started at.
+    private var scheduleRevision = 0
+    private var summaryAwaitsSchedule: Bool { scheduleRevision < estimateRevision }
     private var courseCheckpoints: [RaceCourseCheckpoint] = []
     private var raceStartAt: String?
     private var scheduleRaceStart: String?
@@ -360,7 +368,14 @@ final class PaceModel {
     }
 
     private func loadScheduleSection(ticket: Int) async {
-        guard ticket == generation, let roomId, let directory = userDirectory() else { return }
+        guard ticket == generation else { return }
+        let revision = estimateRevision
+        guard let roomId, let directory = userDirectory() else {
+            // No schedule to read: a held summary prints the estimate's own finish.
+            finishScheduleRead(revision)
+            refreshEstimateSummary()
+            return
+        }
         let file = ScheduleCache.file(directory: directory)
         let before = modificationDate(file)
         do {
@@ -375,14 +390,26 @@ final class PaceModel {
             if servedFromCache {
                 let offline = await probeOffline()
                 guard ticket == generation else { return }
+                finishScheduleRead(revision)
                 applySheet(sheet, offline: offline, failed: offline == false)
             } else {
+                finishScheduleRead(revision)
                 applySheet(sheet, offline: false, failed: false)
             }
         } catch {
             guard ticket == generation else { return }
+            let held = summaryAwaitsSchedule
+            finishScheduleRead(revision)
             applyScheduleFailure(error)
+            // The read failed: a held summary prints the estimate's own finish, once.
+            if held { refreshEstimateSummary() }
         }
+    }
+
+    /// A schedule read that started at `revision` finished; an older read finishing late never
+    /// holds the summary again.
+    private func finishScheduleRead(_ revision: Int) {
+        scheduleRevision = max(scheduleRevision, revision)
     }
 
     private func loadCourseAndEstimate(ticket: Int, autoRecompute: Bool) async {
@@ -413,6 +440,7 @@ final class PaceModel {
         raceStartAt = room.raceStartAt
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
+        estimateRevision += 1
         planOfRecordId = room.pacingEstimateId ?? room.pacingEstimate?.id
         await loadHistoryIfNeeded(ticket: ticket)
         guard ticket == generation else { return }
@@ -471,6 +499,7 @@ final class PaceModel {
             )
             guard ticket == generation else { return }
             loadedEstimate = attached
+            estimateRevision += 1
             planOfRecordId = attached.id
             if let usableFingerprint {
                 historyRecord = EstimateHistoryRecord(estimateId: attached.id, fingerprint: usableFingerprint)
@@ -633,6 +662,9 @@ final class PaceModel {
         if let loadedEstimate, loadedEstimate.coldStart == false, historyEmpty == false {
             showColdStart = false
             showsEstimateSummary = true
+            // Printed once this estimate's schedule read is in, so the finish never moves from the
+            // estimate's own to the plan's.
+            guard summaryAwaitsSchedule == false else { return }
             // The race's one finish: the loaded schedule's finish row (planned stops included)
             // when that sheet is this estimate's plan, as the teaser and Android Pace show it;
             // else the estimate's own finish.

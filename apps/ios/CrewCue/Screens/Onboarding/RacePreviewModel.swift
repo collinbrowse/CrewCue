@@ -8,16 +8,61 @@ enum RacePreviewSource: Equatable {
     /// `finishEtaAt` is the finish the teaser just showed, so the replay starts from it.
     case race(userId: String, roomId: String, finishEtaAt: Date?)
     /// `crewcue://dev/onboarding-race-preview`: `DemoRaceFixture`, with no API. `?state=empty`,
-    /// `error` or `offline` shows that state on the real screen, Skip included.
-    case fixture(state: FeatureState)
+    /// `error` or `offline` shows that state on the real screen, Skip included. `start` is the
+    /// dev route's `?at=&paused=` (DEBUG): the replay opens at that moment.
+    case fixture(state: FeatureState, start: RacePreviewDevStart? = nil)
 
     /// Which race: the teaser's finish going away (a sign-in elsewhere, a relaunch) is still the
     /// same replay and doesn't restart it.
     var key: String {
         switch self {
         case .race(let userId, let roomId, _): "race|\(userId)|\(roomId)"
-        case .fixture(let state): "fixture|\(state.rawValue)"
+        case .fixture(let state, let start): "fixture|\(state.rawValue)|\(start?.key ?? "")"
         }
+    }
+
+    /// The dev route's start moment; the runner's own race always starts from the beginning.
+    var devStart: RacePreviewDevStart? {
+        guard case .fixture(_, let start) = self else { return nil }
+        return start
+    }
+}
+
+/// `crewcue://dev/onboarding-race-preview?at=<seconds>&paused=1` (dev links, DEBUG only): the
+/// fixture replay opens `at` seconds in, at the step, beat, caption and panel it would have
+/// reached playing, and with `paused` it holds there (Back from the paywall too, at the start).
+/// UI tests read each beat this way instead of racing the 25 s replay clock. The real onboarding
+/// flow never has one.
+struct RacePreviewDevStart: Equatable, Sendable {
+    var atSeconds: Double
+    var paused: Bool
+
+    var key: String { "\(atSeconds)|\(paused)" }
+
+    /// Nil when the link sets neither.
+    init?(deeplink urlString: String) {
+        guard let queryStart = urlString.firstIndex(of: "?") else { return nil }
+        var at: Double?
+        var paused: Bool?
+        for pair in urlString[urlString.index(after: queryStart)...].split(separator: "&") {
+            let bits = pair.split(separator: "=", maxSplits: 1)
+            guard bits.count == 2 else { continue }
+            switch bits[0] {
+            case "at":
+                if let seconds = Double(bits[1]), seconds.isFinite, seconds >= 0 { at = seconds }
+            case "paused":
+                paused = bits[1] == "1" || bits[1] == "true"
+            default:
+                break
+            }
+        }
+        guard at != nil || paused != nil else { return nil }
+        self.init(atSeconds: at ?? 0, paused: paused ?? false)
+    }
+
+    init(atSeconds: Double, paused: Bool) {
+        self.atSeconds = atSeconds
+        self.paused = paused
     }
 }
 
@@ -141,7 +186,7 @@ final class RacePreviewModel {
         } else if stage == .paywall || session != nil || starting != nil {
             return
         }
-        begin()
+        begin(at: source.devStart)
     }
 
     /// A view showed the flow: it plays, and a pending cleanup is called off.
@@ -157,12 +202,7 @@ final class RacePreviewModel {
     func viewDisappeared() {
         guard audience.disappeared() else { return }
         applyPlayback()
-        pendingCleanup?.cancel()
-        pendingCleanup = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.cleanupGraceSeconds))
-            guard !Task.isCancelled else { return }
-            self?.endSession()
-        }
+        scheduleCleanup()
     }
 
     /// The app went to the background (paused) or came back.
@@ -189,7 +229,8 @@ final class RacePreviewModel {
     func replayFromStart() {
         stage = .replay
         pausedByUser = false
-        begin()
+        // The dev route's paused start stays paused, at the first beat.
+        begin(at: source?.devStart.map { RacePreviewDevStart(atSeconds: 0, paused: $0.paused) })
     }
 
     /// The flow is over (Not now, a purchase, or leaving the dev route): the next race starts
@@ -243,8 +284,14 @@ final class RacePreviewModel {
 
     // MARK: Replay
 
-    private func begin() {
+    /// `devStart`: the dev route's moment (DEBUG); nil plays from the beginning.
+    private func begin(at devStart: RacePreviewDevStart? = nil) {
         endSession()
+        // `endSession` called off a pending cleanup. With no view left (a quick appear and
+        // disappear before `show`), the replay starting now, paused, ends after the grace period.
+        if !audience.isWatched {
+            scheduleCleanup()
+        }
         let ticket = generation
         status = .loading
         beat = .following
@@ -252,18 +299,18 @@ final class RacePreviewModel {
         panel = .map
         fromSavedRace = false
         starting = Task { [weak self] in
-            await self?.start(ticket: ticket)
+            await self?.start(ticket: ticket, devStart: devStart)
         }
     }
 
-    private func start(ticket: Int) async {
+    private func start(ticket: Int, devStart: RacePreviewDevStart?) async {
         defer { if ticket == generation { starting = nil } }
         guard let source else { return }
         let data: Data
         let viewer: String
         let finishEtaAt: Date?
         switch source {
-        case .fixture(let state):
+        case .fixture(let state, _):
             guard state == .success else {
                 status = Status(state)
                 return
@@ -287,6 +334,14 @@ final class RacePreviewModel {
             return
         }
         self.session = session
+        if let devStart {
+            // Before the models read the replay, so their first read is at that moment.
+            let moment = session.player.seek(toWallSeconds: devStart.atSeconds)
+            progress = moment.progress
+            beat = moment.beat
+            panel = Self.panel(for: moment.beat)
+            pausedByUser = devStart.paused
+        }
         let graph = AppClient(graph: session.graph)
         let storage = ModelStorage.replay(session)
         let next = Replay(
@@ -342,8 +397,12 @@ final class RacePreviewModel {
         (try? AppDirectories.roomDirectory(userId: userId, roomId: roomId))?.appendingPathComponent(Self.savedRoomFileName)
     }
 
+    /// Builds the path without creating a directory: an old source's user may have been wiped
+    /// already (another user's session adopted without a sign-out), and that directory stays gone.
     private func removeSavedRoom(userId: String, roomId: String) {
-        guard let url = savedRoomURL(userId: userId, roomId: roomId) else { return }
+        guard let url = AppDirectories.roomLocation(userId: userId, roomId: roomId)?
+            .appendingPathComponent(Self.savedRoomFileName),
+            FileManager.default.fileExists(atPath: url.path) else { return }
         try? FileManager.default.removeItem(at: url)
     }
 
@@ -388,6 +447,16 @@ final class RacePreviewModel {
         guard let player = session?.player, status == .playing else { return }
         let snapshot = pausedByUser || !sceneActive || !audience.isWatched ? player.pause() : player.play()
         isPlaying = snapshot.isPlaying
+    }
+
+    /// The replay ends unless a view comes back within the grace period.
+    private func scheduleCleanup() {
+        pendingCleanup?.cancel()
+        pendingCleanup = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.cleanupGraceSeconds))
+            guard !Task.isCancelled else { return }
+            self?.endSession()
+        }
     }
 
     /// Ends the replay: the player stops (its directory goes), the models let go of the graph.

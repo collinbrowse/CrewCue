@@ -36,6 +36,7 @@ struct FixtureRouteView: View {
 
 /// `crewcue://dev/onboarding-race-preview[?state=…]`: the real replay and paywall on
 /// `DemoRaceFixture` (no API, signed in or out), or the real screen in that state with Skip.
+/// `?at=<seconds>&paused=1` opens the replay at that moment (`RacePreviewDevStart`).
 struct RacePreviewDevRoute: View {
     var shell: ShellModel
     var state: FeatureState
@@ -43,7 +44,7 @@ struct RacePreviewDevRoute: View {
     var body: some View {
         RacePreviewFlowView(
             model: shell.racePreview,
-            source: .fixture(state: state),
+            source: .fixture(state: state, start: shell.racePreviewDevStart),
             onNotNow: { shell.leaveRacePreviewDevRoute() },
             onPurchased: {}
         )

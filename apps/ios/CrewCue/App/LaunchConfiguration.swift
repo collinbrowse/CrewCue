@@ -39,6 +39,8 @@ struct LaunchConfiguration: Equatable {
     var revenueCatAPIKey: String = ""
     /// Debug fake store only: dev links and launch arguments that shape the fake purchase.
     var fakeStore = FakeStoreOptions()
+    /// Dev links only: the replay dev route's `?at=&paused=`.
+    var racePreviewDevStart: RacePreviewDevStart?
 
     static func resolve(
         arguments: [String] = CommandLine.arguments,
@@ -55,9 +57,11 @@ struct LaunchConfiguration: Equatable {
         let revenueCatKey = ((bundle.object(forInfoDictionaryKey: "CrewCueRevenueCatAPIKey") as? String) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var fakeStore = FakeStoreOptions()
+        var racePreviewDevStart: RacePreviewDevStart?
         if devLinks {
             if let link = argument(arguments, flag: "--deeplink", offset: 1) {
                 fakeStore.apply(deeplink: link)
+                racePreviewDevStart = RacePreviewDevStart(deeplink: link)
             }
             if let delay = argument(arguments, flag: "--webhook-delay", offset: 1).flatMap(Double.init) {
                 fakeStore.webhookDelaySeconds = delay
@@ -75,7 +79,8 @@ struct LaunchConfiguration: Equatable {
             auth: auth,
             configurationProblem: configurationProblem(baseURL: baseURL, auth: auth, localFallback: localFallback),
             revenueCatAPIKey: revenueCatKey,
-            fakeStore: fakeStore
+            fakeStore: fakeStore,
+            racePreviewDevStart: racePreviewDevStart
         )
     }
 

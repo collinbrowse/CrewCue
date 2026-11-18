@@ -46,7 +46,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1232 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1065 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1048 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 910 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 900 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
