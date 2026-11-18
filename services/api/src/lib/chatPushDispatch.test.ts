@@ -4,6 +4,7 @@ import {
   CHAT_PUSH_PREVIEW_MAX_CHARS,
   GENERIC_CHAT_PUSH_BODY,
   chatPushBody,
+  devicesToTargets,
   dispatchChatPush,
   resetChatPushTransport,
   setChatPushTransport,
@@ -101,12 +102,7 @@ test("dispatchChatPush keeps a device that re-registered a fresh token while its
   _resetChatPersistenceForTests();
   const now = new Date().toISOString();
   await upsertChatPushDevice({ deviceId: "pixel", userId: "crew-1", platform: "android", token: "old", registeredAt: now });
-  const targets = (await listChatPushDevicesForUsers(["crew-1"])).map((d) => ({
-    platform: d.platform,
-    token: d.token,
-    userId: d.userId,
-    deviceId: d.deviceId
-  }));
+  const targets = devicesToTargets(await listChatPushDevicesForUsers(["crew-1"]));
   let releaseSend: () => void = () => undefined;
   let sendStarted: () => void = () => undefined;
   const started = new Promise<void>((resolve) => {
