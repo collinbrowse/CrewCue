@@ -206,7 +206,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `.` | 3 | 95 |
+| `.` | 3 | 116 |
 | `App` | 14 | 1592 |
 | `Brand` | 1 | 184 |
 | `Design` | 3 | 763 |
