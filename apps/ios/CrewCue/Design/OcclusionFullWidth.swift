@@ -22,11 +22,12 @@ extension View {
     /// Runs this view past a leading or trailing safe-area inset to the display's edge when that
     /// inset is a camera column (`OcclusionLayout.columnEdges`) and no occlusion region lies
     /// beside the view. A view the column runs beside keeps the inset. The view decides again
-    /// whenever it moves, so a row scrolled up beside the column narrows to keep clear of it, and
-    /// the change animates. Put it outside the row's own horizontal padding, on a view that
-    /// reaches the safe area's edge, so the padding moves with the edge. In a scroll view, put it
-    /// on each row rather than on the whole content: a view keeps the inset while any of it in
-    /// sight is beside the column.
+    /// whenever it moves, so a row scrolled up beside the column narrows to keep clear of it,
+    /// quickly, and opens again with a spring once clear. Its first decision in a new layout
+    /// doesn't animate, so a row doesn't slide as it appears. Put it outside the row's own
+    /// horizontal padding, on a view that reaches the safe area's edge, so the padding moves with
+    /// the edge. In a scroll view, put it on each row rather than on the whole content: a view
+    /// keeps the inset while any of it in sight is beside the column.
     func fullWidthClearOfOcclusions() -> some View {
         modifier(OcclusionFullWidth())
     }
@@ -107,14 +108,6 @@ private struct OcclusionDebugLabel: View {
 }
 #endif
 
-/// A view's latest measurement. Not view state: in a scroll view it changes every frame, and only
-/// the decision it leads to should update the view.
-final class OcclusionTracker {
-    var measure: OcclusionMeasure?
-    /// The view has decided with the display it has now.
-    var decided = false
-}
-
 /// `fullWidthClearOfOcclusions()`.
 struct OcclusionFullWidth: ViewModifier {
     @Environment(\.occlusionDisplay) private var display
@@ -149,15 +142,16 @@ struct OcclusionFullWidth: ViewModifier {
                             trailing: proxy.safeAreaInsets.trailing
                         )
                     } action: { next in
-                        tracker.measure = next
+                        tracker.measured(next)
                         decide()
                     }
                 }
                 .onChange(of: display) {
-                    tracker.decided = false
+                    tracker.displayChanged()
                     decide()
                 }
-                .onChange(of: viewport) {
+                .onChange(of: viewport) { old, _ in
+                    tracker.viewportChanged(from: old)
                     decide()
                 }
         } else {
@@ -168,25 +162,15 @@ struct OcclusionFullWidth: ViewModifier {
         #endif
     }
 
-    /// Decides from the latest measurement. The first decision with a display is made without
-    /// animation and without hysteresis; later ones, as the view moves, animate.
+    /// Applies the tracker's decision (`OcclusionTracker.decide`).
     private func decide() {
-        guard let display, let measure = tracker.measure else { return }
-        let first = !tracker.decided
-        tracker.decided = true
-        let next = display.nextEdges(
-            current: first ? nil : open,
-            frame: measure.frame,
-            visible: viewport?.intersection(display.bounds),
-            leading: measure.leading,
-            trailing: measure.trailing,
-            layoutDirection: layoutDirection
-        )
-        guard next != open else { return }
-        if first {
-            OcclusionFullWidth.store { open = next }
+        guard let change = tracker.decide(current: open, display: display, viewport: viewport, layoutDirection: layoutDirection) else {
+            return
+        }
+        if let animation = change.animation {
+            withAnimation(animation) { open = change.edges }
         } else {
-            withAnimation(.snappy) { open = next }
+            OcclusionFullWidth.store { open = change.edges }
         }
     }
 }

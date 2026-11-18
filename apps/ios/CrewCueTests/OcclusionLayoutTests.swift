@@ -312,6 +312,111 @@ final class OcclusionLayoutTests: XCTestCase {
         XCTAssertTrue(leading.differs(from: base))
     }
 
+    func testInsetsDifferByMoreThanHalfAPoint() {
+        let base = OcclusionMeasure(frame: CGRect(x: 0, y: 225, width: 382, height: 43), leading: 0, trailing: 84)
+        XCTAssertTrue(base.insetsDiffer(from: nil))
+        var moved = base
+        moved.frame.origin.y = 24
+        XCTAssertFalse(moved.insetsDiffer(from: base), "moving isn't new insets")
+        var noise = base
+        noise.trailing = 83.6
+        XCTAssertFalse(noise.insetsDiffer(from: base))
+        var none = base
+        none.trailing = 0
+        XCTAssertTrue(none.insetsDiffer(from: base))
+        var leading = base
+        leading.leading = 0.6
+        XCTAssertTrue(leading.insetsDiffer(from: base))
+    }
+
+    // MARK: OcclusionTracker
+
+    private var duo: OcclusionDisplay { OcclusionDisplay(bounds: display, occlusions: regions) }
+    /// The paywall's scroll view, below the status bar: what it shows of the window.
+    private let viewport = CGRect(x: 0, y: 0, width: 466, height: 644)
+
+    private func measure(_ frame: CGRect, trailing: CGFloat = 84) -> OcclusionMeasure {
+        OcclusionMeasure(frame: frame, leading: 0, trailing: trailing)
+    }
+
+    private func decide(_ tracker: OcclusionTracker, current: Edge.Set, viewport: CGRect?) -> OcclusionChange? {
+        tracker.decide(current: current, display: duo, viewport: viewport, layoutDirection: .leftToRight)
+    }
+
+    func testNothingIsDecidedBeforeADisplayAndAMeasurement() {
+        let tracker = OcclusionTracker()
+        XCTAssertNil(decide(tracker, current: [], viewport: viewport))
+        XCTAssertFalse(tracker.decided)
+        tracker.measured(measure(row(y: 207, height: 171)))
+        XCTAssertNil(tracker.decide(current: [], display: nil, viewport: viewport, layoutDirection: .leftToRight))
+        XCTAssertFalse(tracker.decided)
+    }
+
+    func testAScrollViewOpeningToTheEdgeIsANewLayoutNotAMove() {
+        // A new OcclusionScrollView lays its rows out once inside the safe area, before it has
+        // measured itself: no inset, and no viewport yet.
+        let tracker = OcclusionTracker()
+        tracker.measured(measure(row(y: 207, height: 171), trailing: 0))
+        XCTAssertNil(decide(tracker, current: [], viewport: nil), "no inset, nothing to run past")
+        XCTAssertTrue(tracker.decided)
+        // A pass later it runs to the display's edge and gives the row the column's inset back.
+        // The row hasn't moved: it lands full width at once instead of sliding open.
+        tracker.measured(measure(row(y: 207, height: 171)))
+        XCTAssertFalse(tracker.decided)
+        XCTAssertEqual(decide(tracker, current: [], viewport: nil), OcclusionChange(edges: .trailing, animation: nil))
+        // The viewport arriving changes nothing for this row.
+        tracker.viewportChanged(from: nil)
+        XCTAssertNil(decide(tracker, current: .trailing, viewport: viewport))
+    }
+
+    func testAViewportArrivingIsANewLayoutNotAMove() {
+        // The paid Chat transcript: taller than its scroll view, which starts below the column.
+        // Until the viewport arrives its whole frame counts, and that reaches beside the column.
+        let below = CGRect(x: 0, y: 186, width: 466, height: 392)
+        let tracker = OcclusionTracker()
+        tracker.measured(measure(row(y: -400, height: 900)))
+        XCTAssertNil(decide(tracker, current: [], viewport: nil))
+        // With the viewport only the part in sight counts: it lands full width at once.
+        tracker.viewportChanged(from: nil)
+        XCTAssertFalse(tracker.decided)
+        XCTAssertEqual(decide(tracker, current: [], viewport: below), OcclusionChange(edges: .trailing, animation: nil))
+        // A viewport that only moves is no new layout.
+        tracker.viewportChanged(from: below)
+        XCTAssertTrue(tracker.decided)
+    }
+
+    func testANewDisplayIsANewLayout() {
+        let tracker = OcclusionTracker()
+        tracker.measured(measure(row(y: 207, height: 171)))
+        XCTAssertNil(tracker.decide(current: [], display: OcclusionDisplay(bounds: display, occlusions: []), viewport: viewport, layoutDirection: .leftToRight))
+        tracker.displayChanged()
+        XCTAssertFalse(tracker.decided)
+        XCTAssertEqual(decide(tracker, current: [], viewport: viewport), OcclusionChange(edges: .trailing, animation: nil))
+    }
+
+    func testARowNarrowsQuicklyAndOpensAgainWithASpring() {
+        let tracker = OcclusionTracker()
+        tracker.measured(measure(row(y: 207, height: 171)))
+        XCTAssertEqual(decide(tracker, current: [], viewport: viewport), OcclusionChange(edges: .trailing, animation: nil))
+        // Scrolled up beside the column: the same layout, so it moves, and narrows quickly, since
+        // until it has it runs under the column.
+        tracker.measured(measure(row(y: 24, height: 171)))
+        XCTAssertTrue(tracker.decided)
+        XCTAssertEqual(decide(tracker, current: .trailing, viewport: viewport), OcclusionChange(edges: [], animation: OcclusionChange.narrowing))
+        // Scrolled back below it: it opens again with the usual spring.
+        tracker.measured(measure(row(y: 300, height: 171)))
+        XCTAssertEqual(decide(tracker, current: [], viewport: viewport), OcclusionChange(edges: .trailing, animation: OcclusionChange.reopening))
+        // Inset noise is no new layout: still a move.
+        tracker.measured(OcclusionMeasure(frame: row(y: 24, height: 171), leading: 0, trailing: 83.7))
+        XCTAssertEqual(decide(tracker, current: .trailing, viewport: viewport), OcclusionChange(edges: [], animation: OcclusionChange.narrowing))
+    }
+
+    func testNarrowingIsShortAndReopeningIsTheUsualSpring() {
+        XCTAssertEqual(OcclusionChange.narrowing, Animation.snappy(duration: 0.15))
+        XCTAssertEqual(OcclusionChange.reopening, Animation.snappy)
+        XCTAssertNotEqual(OcclusionChange.narrowing, OcclusionChange.reopening)
+    }
+
     func testMirroredFlipsWithinTheBounds() {
         XCTAssertEqual(OcclusionLayout.mirrored(column, in: display), CGRect(x: 0, y: 0, width: 84, height: 174))
         let offset = CGRect(x: 100, y: 0, width: 466, height: 678)

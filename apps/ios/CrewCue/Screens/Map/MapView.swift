@@ -79,7 +79,7 @@ struct MapView: View {
                 .avoidsReservedRegions(when: readOnly)
                 // Below a camera column (iPhone Duo's outer display) the sheet runs to the edge.
                 // Expanded, or open on Navigate, its top can reach beside the column: it then
-                // narrows to keep clear of it, animated along with the expand.
+                // narrows to keep clear of it, quickly, and opens again with a spring.
                 .fullWidthClearOfOcclusions()
         }
         .safeAreaInset(edge: .top, spacing: 0) {

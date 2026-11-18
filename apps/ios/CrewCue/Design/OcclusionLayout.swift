@@ -1,7 +1,8 @@
 import SwiftUI
 
-// The geometry behind `fullWidthClearOfOcclusions()` and `OcclusionScrollView`. Pure functions on
-// rects, so CrewCueTests compiles this file on its own: keep it free of other app code.
+// The geometry behind `fullWidthClearOfOcclusions()` and `OcclusionScrollView`: pure functions on
+// rects, and the tracker that turns a view's measurements into decisions. CrewCueTests compiles
+// this file on its own: keep it free of other app code.
 
 /// iPhone Duo's outer display keeps its camera and status icons in a column at the top of its
 /// trailing edge (84 x 174 pt on the 466 x 678 pt display). iOS reports that column as a trailing
@@ -222,8 +223,80 @@ struct OcclusionMeasure: Equatable, Sendable {
     /// decision `OcclusionLayout` makes to within a point.
     nonisolated func differs(from other: OcclusionMeasure?) -> Bool {
         guard let other else { return true }
-        return OcclusionLayout.differs(frame, from: other.frame)
-            || abs(leading - other.leading) > 0.5
-            || abs(trailing - other.trailing) > 0.5
+        return OcclusionLayout.differs(frame, from: other.frame) || insetsDiffer(from: other)
+    }
+
+    /// The leading or trailing inset changed by more than half a point, or there was no `other`.
+    nonisolated func insetsDiffer(from other: OcclusionMeasure?) -> Bool {
+        guard let other else { return true }
+        return abs(leading - other.leading) > 0.5 || abs(trailing - other.trailing) > 0.5
+    }
+}
+
+/// A change to the edges a view runs past (`OcclusionTracker.decide`).
+struct OcclusionChange: Equatable {
+    var edges: Edge.Set
+    /// How the view gets there: nil for its first decision with a layout, which lands at once.
+    var animation: Animation?
+
+    /// A view that keeps an inset again narrows quickly: until it has, it runs under the region it
+    /// just met.
+    static let narrowing = Animation.snappy(duration: 0.15)
+    /// A view that runs past an inset again opens with the usual spring.
+    static let reopening = Animation.snappy
+}
+
+/// A view's latest measurement, and whether it has decided with the layout it has now
+/// (`fullWidthClearOfOcclusions()`). Not view state: in a scroll view the measurement changes every
+/// frame, and only the decision it leads to should update the view.
+final class OcclusionTracker {
+    private(set) var measure: OcclusionMeasure?
+    /// The view has decided with the layout it has now. Its next decision after a new layout is a
+    /// first one: no hysteresis, no animation.
+    private(set) var decided = false
+
+    /// Stores the view's latest measurement. New insets are a new layout: an
+    /// `OcclusionScrollView` first lays its rows out with none, then a pass later runs to the
+    /// display's edge and gives them the column's inset back. That isn't the row moving.
+    func measured(_ next: OcclusionMeasure) {
+        if next.insetsDiffer(from: measure) { decided = false }
+        measure = next
+    }
+
+    /// The scroll view's viewport changed from `old`. The first one is a new layout too: until it
+    /// arrives a row counts its whole frame, not just the part in sight.
+    func viewportChanged(from old: CGRect?) {
+        if old == nil { decided = false }
+    }
+
+    /// A new display is a new layout.
+    func displayChanged() {
+        decided = false
+    }
+
+    /// Decides from the latest measurement for a view that runs past `current` now. The first
+    /// decision with a layout uses no hysteresis and doesn't animate; later ones, as the view
+    /// moves, do. Nil before there is a display and a measurement, or when the edges stay.
+    func decide(
+        current: Edge.Set,
+        display: OcclusionDisplay?,
+        viewport: CGRect?,
+        layoutDirection: LayoutDirection
+    ) -> OcclusionChange? {
+        guard let display, let measure else { return nil }
+        let first = !decided
+        decided = true
+        let next = display.nextEdges(
+            current: first ? nil : current,
+            frame: measure.frame,
+            visible: viewport?.intersection(display.bounds),
+            leading: measure.leading,
+            trailing: measure.trailing,
+            layoutDirection: layoutDirection
+        )
+        guard next != current else { return nil }
+        if first { return OcclusionChange(edges: next, animation: nil) }
+        let narrows = !current.subtracting(next).isEmpty
+        return OcclusionChange(edges: next, animation: narrows ? OcclusionChange.narrowing : OcclusionChange.reopening)
     }
 }
