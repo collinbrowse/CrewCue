@@ -1,5 +1,5 @@
 /**
- * People the race owner removed from a room (migration 0020). Join by code refuses them, and an
+ * People the race owner removed from a room (migration 0022). Join by code refuses them, and an
  * invite admits them only when the owner issued it after the removal. Kept out of the room
  * payload so clients never see who was removed. Memory mode keeps a map.
  */
