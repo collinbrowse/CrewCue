@@ -27,8 +27,9 @@ public struct RaceRoom: Codable, Equatable, Sendable {
     public var plannedPaceSecondsPerKm: Double?
     public var pacingEstimateId: String?
     public var pacingEstimate: PacingEstimate?
+    public var unpaidExpiresAt: String?
 
-    public init(id: String, joinCode: String? = nil, creatorName: String? = nil, description: String? = nil, crewName: String? = nil, teamId: String, athleteId: String, name: String, status: String, createdAt: String, raceStartAt: String? = nil, courseHistoryEventIds: [String]? = nil, activatedAt: String? = nil, eventEndsAt: String? = nil, memberships: [RaceRoomMembership], entitlement: RaceRoomEntitlement, createdByUserId: String? = nil, course: RaceCourse? = nil, courseDistanceMeters: Double? = nil, courseElevationGainMeters: Double? = nil, courseElevationLossMeters: Double? = nil, courseFileName: String? = nil, plannedPaceSecondsPerKm: Double? = nil, pacingEstimateId: String? = nil, pacingEstimate: PacingEstimate? = nil) {
+    public init(id: String, joinCode: String? = nil, creatorName: String? = nil, description: String? = nil, crewName: String? = nil, teamId: String, athleteId: String, name: String, status: String, createdAt: String, raceStartAt: String? = nil, courseHistoryEventIds: [String]? = nil, activatedAt: String? = nil, eventEndsAt: String? = nil, memberships: [RaceRoomMembership], entitlement: RaceRoomEntitlement, createdByUserId: String? = nil, course: RaceCourse? = nil, courseDistanceMeters: Double? = nil, courseElevationGainMeters: Double? = nil, courseElevationLossMeters: Double? = nil, courseFileName: String? = nil, plannedPaceSecondsPerKm: Double? = nil, pacingEstimateId: String? = nil, pacingEstimate: PacingEstimate? = nil, unpaidExpiresAt: String? = nil) {
         self.id = id
         self.joinCode = joinCode
         self.creatorName = creatorName
@@ -54,5 +55,6 @@ public struct RaceRoom: Codable, Equatable, Sendable {
         self.plannedPaceSecondsPerKm = plannedPaceSecondsPerKm
         self.pacingEstimateId = pacingEstimateId
         self.pacingEstimate = pacingEstimate
+        self.unpaidExpiresAt = unpaidExpiresAt
     }
 }
