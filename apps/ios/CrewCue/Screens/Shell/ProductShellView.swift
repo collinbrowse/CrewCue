@@ -22,6 +22,8 @@ struct ProductShellView: View {
         }
         .overlay(alignment: .bottom) {
             CrewTabBar(selection: $model.selectedTab, chatBadge: model.chatModel.unreadCount)
+                // Below a camera column (iPhone Duo's outer display) the bar spans the display.
+                .fullWidthClearOfOcclusions()
         }
         .toolbar(.hidden, for: .navigationBar)
         // Contain the children, or the shell's label replaces every tab button's own label.
