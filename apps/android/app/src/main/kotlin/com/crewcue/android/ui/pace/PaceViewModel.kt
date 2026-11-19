@@ -11,6 +11,7 @@ import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.pendingWork
 import com.crewcue.android.data.stopLines
 import com.crewcue.android.ui.map.TimelineRow
+import com.crewcue.android.ui.onboarding.TeaserRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -48,13 +49,21 @@ data class StopEditRow(
 
 class PaceViewModel(
     private val raceDay: RaceDayBridge,
-    private val roomId: String
+    private val roomId: String,
+    /**
+     * The onboarding replay: the estimate and the schedule only. No recompute, no check-in, no
+     * course file, stop or settings edits, no outbox: nothing here ever writes.
+     */
+    val readOnly: Boolean = false
 ) : ViewModel() {
     var scheduleMessage by mutableStateOf<String?>(null)
         private set
     var scheduleLines by mutableStateOf<List<String>>(emptyList())
         private set
     var scheduleStops by mutableStateOf<List<PaceStop>>(emptyList())
+        private set
+    /** The checkpoints an unpaid race withholds (`sheet.locked.checkpointIds`), in course order. */
+    var lockedIds by mutableStateOf<List<String>>(emptyList())
         private set
     var checkInOpen by mutableStateOf(false)
         private set
@@ -135,6 +144,13 @@ class PaceViewModel(
     fun load() {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
+            if (readOnly) {
+                // The replay shows the estimate and the schedule; it has no tools, so no crew
+                // sheet, course settings or outbox to read.
+                launch { applySchedule(withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }) }
+                launch { refreshEstimate(explicit = false) }
+                return@launch
+            }
             launch { loadScheduleAndExport() }
             launch { refreshEstimate(explicit = false) }
             launch { loadCourse() }
@@ -174,10 +190,12 @@ class PaceViewModel(
     private var hasPlanOfRecord = false
 
     fun recalculate() {
+        if (readOnly) return
         viewModelScope.launch { refreshEstimate(explicit = true) }
     }
 
     fun submitCheckIn() {
+        if (readOnly) return
         viewModelScope.launch {
             checkInBusy = true
             try {
@@ -199,11 +217,13 @@ class PaceViewModel(
     }
 
     fun importGpx(fileName: String, xml: String) {
+        if (readOnly) return
         gpxFileName = fileName.ifBlank { "route.gpx" }
         viewModelScope.launch { sendGpx(xml) }
     }
 
     fun importPastedGpx() {
+        if (readOnly) return
         viewModelScope.launch { sendGpx(gpxText) }
     }
 
@@ -212,6 +232,7 @@ class PaceViewModel(
     }
 
     fun saveCourse() {
+        if (readOnly) return
         val seconds = if (stoppageText.isBlank()) 0.0 else stoppageText.trim().toDoubleOrNull()
         if (seconds == null || seconds < 0.0 || !seconds.isFinite()) {
             courseMessage = COURSE_ERROR
@@ -243,7 +264,7 @@ class PaceViewModel(
      * rows marked done); they stay locked, like the start and finish.
      */
     fun beginStopEdit(passedIds: Set<String>) {
-        if (!mayEditStops || stopBusy) return
+        if (readOnly || !mayEditStops || stopBusy) return
         viewModelScope.launch {
             val room = withContext(Dispatchers.IO) { raceDay.loadRoom(roomId) }
             if (room !is RuntimeResult.Success) {
@@ -292,7 +313,7 @@ class PaceViewModel(
 
     /** Sends only the changed stops. On failure the draft stays open so nothing typed is lost. */
     fun saveStops() {
-        if (!stopCanSave || stopBusy) return
+        if (readOnly || !stopCanSave || stopBusy) return
         viewModelScope.launch {
             stopBusy = true
             try {
@@ -393,6 +414,7 @@ class PaceViewModel(
             is RuntimeResult.Failure -> {
                 scheduleLines = emptyList()
                 scheduleStops = emptyList()
+                lockedIds = emptyList()
                 scheduleMessage = if (result.offline) SCHEDULE_OFFLINE else SCHEDULE_ERROR
                 return result.offline
             }
@@ -404,7 +426,8 @@ class PaceViewModel(
                 }
                 if (start.isNotBlank()) raceStartAt = start
                 json.optJSONObject("sheet")?.let { scheduleSheet = it }
-                mayEditStops = json.optBoolean("mayEditCourse") && parsed.first.isNotEmpty()
+                mayEditStops = !readOnly && json.optBoolean("mayEditCourse") && parsed.first.isNotEmpty()
+                lockedIds = TeaserRow.lockedIds(json)
                 scheduleLines = parsed.first
                 scheduleStops = paceStops(json)
                 if (!checkpointEdited) {
@@ -429,7 +452,8 @@ class PaceViewModel(
                     val loaded = withContext(Dispatchers.IO) { raceDay.loadEstimate(roomId) }
                     applyEstimate(loaded)
                     val shouldCompute = loaded is RuntimeResult.Success && loaded.result.optBoolean("recompute")
-                    if (!shouldCompute) return@withLock
+                    // The replay never recomputes: its estimate is the race's, as loaded.
+                    if (!shouldCompute || readOnly) return@withLock
                 }
                 // Only the athlete's history recomputes automatically; a tap is an explicit Recalculate.
                 val trigger = if (explicit) "recalculate" else "auto"
@@ -674,10 +698,11 @@ class PaceViewModel(
 
 class PaceViewModelFactory(
     private val raceDay: RaceDayBridge,
-    private val roomId: String
+    private val roomId: String,
+    private val readOnly: Boolean = false
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return PaceViewModel(raceDay, roomId) as T
+        return PaceViewModel(raceDay, roomId, readOnly) as T
     }
 }

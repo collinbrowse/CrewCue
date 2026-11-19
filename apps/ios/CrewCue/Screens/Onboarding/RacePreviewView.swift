@@ -133,12 +133,15 @@ struct RacePreviewView: View {
         }
     }
 
+    /// The strip and the panes under it run to the display's edge below a camera column (iPhone
+    /// Duo's outer display); the controls and caption above stay clear of it.
     private func views(_ replay: RacePreviewModel.Replay) -> some View {
         VStack(spacing: 0) {
             if !splits {
                 RacePreviewPanelPicker(selection: $model.panel)
                     .padding(.horizontal, CrewSpace.gutter)
                     .padding(.bottom, CrewSpace.stackSm)
+                    .fullWidthClearOfOcclusions()
             }
             ZStack {
                 MapView(model: replay.map, readOnly: true)
@@ -148,6 +151,7 @@ struct RacePreviewView: View {
                         .transition(.opacity)
                 }
             }
+            .fullWidthClearOfOcclusions()
         }
     }
 

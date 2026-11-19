@@ -58,7 +58,11 @@ struct ChatView: View {
         VStack(spacing: 0) {
             ChatStatusHeader(status: status, raceName: raceName)
             ScrollViewReader { proxy in
-                ScrollView {
+                // The transcript decides its width as a whole: it runs to the display's edge while
+                // none of it in sight is beside a camera column (iPhone Duo's outer display), as
+                // below the status header. Bottom-anchored, rows that narrowed one at a time
+                // would rewrap and shift the messages under them.
+                OcclusionScrollView {
                     if model.hasOlder {
                         Button("Earlier messages") {
                             Task { await model.loadOlder() }
@@ -70,6 +74,7 @@ struct ChatView: View {
                     ChatTranscript(lines: model.lines, onDiscard: { line in Task { await model.discard(line) } })
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, CrewSpace.gutter)
+                        .fullWidthClearOfOcclusions()
                         .padding(.vertical, CrewSpace.gutter)
                 }
                 .scrollIndicators(.hidden)
@@ -87,8 +92,11 @@ struct ChatView: View {
                     withAnimation { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
+            // The status line and the composer sit at the bottom: below a camera column (iPhone
+            // Duo's outer display) they run to the display's edge.
             ChatStatusText(message: model.statusMessage)
                 .padding(.horizontal, CrewSpace.margin)
+                .fullWidthClearOfOcclusions()
             if !readOnly {
                 ChatComposer(
                     draft: $model.draft,
@@ -100,6 +108,7 @@ struct ChatView: View {
                 )
                     .padding(.horizontal, CrewSpace.gutter)
                     .padding(.bottom, CrewSpace.base)
+                    .fullWidthClearOfOcclusions()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
