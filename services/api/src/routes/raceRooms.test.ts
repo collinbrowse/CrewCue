@@ -974,8 +974,11 @@ test("lists race rooms for authenticated member via mine endpoint", async () => 
   const app = buildApp();
   await app.ready();
 
-  const userAToken = app.jwt.sign(buildClaims("user-a"));
-  const userBToken = app.jwt.sign(buildClaims("user-b"));
+  // Fresh users per run: on Postgres the unpaid rooms they create stay, and a fourth unpaid race
+  // per creator is refused (409 unpaid_race_limit), so fixed ids fail on a reused database.
+  const run = randomUUID().slice(0, 8);
+  const userAToken = app.jwt.sign(buildClaims(`user-a-${run}`));
+  const userBToken = app.jwt.sign(buildClaims(`user-b-${run}`));
 
   const roomA = await app.inject({
     method: "POST",
@@ -1027,8 +1030,11 @@ test("lists only caller-visible race rooms for team", async () => {
   const app = buildApp();
   await app.ready();
 
-  const userAToken = app.jwt.sign(buildClaims("user-a"));
-  const userBToken = app.jwt.sign(buildClaims("user-b"));
+  // Fresh users per run: on Postgres the unpaid rooms they create stay, and a fourth unpaid race
+  // per creator is refused (409 unpaid_race_limit), so fixed ids fail on a reused database.
+  const run = randomUUID().slice(0, 8);
+  const userAToken = app.jwt.sign(buildClaims(`user-a-${run}`));
+  const userBToken = app.jwt.sign(buildClaims(`user-b-${run}`));
 
   const roomA = await app.inject({
     method: "POST",
