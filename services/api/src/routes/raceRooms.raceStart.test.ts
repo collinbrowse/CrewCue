@@ -8,8 +8,6 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   parseCrewScheduleSheet,
   type AthletePingBatchResponse,
@@ -23,6 +21,7 @@ import {
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { plannedElapsedSecondsForDistance, withinCourseLength } from "../lib/raceProjection.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
 import { commitRaceRoomUpdate, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
@@ -1013,7 +1012,6 @@ test("a stored projection that pings now pre-start drove (stored before they wer
  * from Postgres) and returns each step's status and body.
  */
 function inFreshProcess(steps: Array<{ method: string; url: string; user: string; payload?: unknown }>) {
-  const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
   const script = `
     const { buildApp } = await import(process.argv[1]);
     const steps = JSON.parse(process.argv[2]);
@@ -1034,15 +1032,7 @@ function inFreshProcess(steps: Array<{ method: string; url: string; user: string
     await app.close();
     process.exit(0);
   `;
-  const stdout = execFileSync(
-    process.execPath,
-    ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, JSON.stringify(steps)],
-    { encoding: "utf8", env: process.env, timeout: 45_000 }
-  );
-  return JSON.parse(stdout.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as Array<{
-    status: number;
-    body: unknown;
-  }>;
+  return runInFreshProcess<Array<{ status: number; body: unknown }>>(script, [JSON.stringify(steps)]);
 }
 
 test(
