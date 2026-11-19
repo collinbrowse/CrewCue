@@ -20,6 +20,8 @@ import {
 } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { plannedElapsedSecondsForDistance, withinCourseLength } from "../lib/raceProjection.js";
 import { load50kCourseWithAids, pointOn50kRouteBeforeEnd } from "../lib/testCourseRouteLayer.js";
 import { commitRaceRoomUpdate, refreshProjectionAfterPlanOfRecordChange } from "./raceRooms.js";
@@ -1004,3 +1006,127 @@ test("a stored projection that pings now pre-start drove (stored before they wer
     assert.equal(raced.stoppageSummary.remainingPlannedStopSeconds, 5 * 120);
   });
 });
+
+/**
+ * Runs `steps` against a fresh API process (nothing of the room in memory, so it all comes back
+ * from Postgres) and returns each step's status and body.
+ */
+function inFreshProcess(steps: Array<{ method: string; url: string; user: string; payload?: unknown }>) {
+  const script = `
+    const { buildApp } = await import(process.argv[1]);
+    const steps = JSON.parse(process.argv[2]);
+    const app = buildApp();
+    await app.ready();
+    const out = [];
+    for (const step of steps) {
+      const token = app.jwt.sign({ sub: step.user, teamIds: ["team-1"], roomRoles: {} });
+      const res = await app.inject({
+        method: step.method,
+        url: step.url,
+        payload: step.payload,
+        headers: { authorization: "Bearer " + token }
+      });
+      out.push({ status: res.statusCode, body: res.json() });
+    }
+    process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+    await app.close();
+    process.exit(0);
+  `;
+  return runInFreshProcess<Array<{ status: number; body: unknown }>>(script, [JSON.stringify(steps)]);
+}
+
+test(
+  "a start delayed past the runner's pings still holds after an API restart: crew see a test ping at mile 0, and moving the start back re-counts it",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 90_000 },
+  async () => {
+    const runner = "runner-race-start-restart";
+    const crew = "crew-race-start-restart";
+    const now = wholeSecond(Date.now());
+    let roomId = "";
+    let pingId = "";
+    const delayedAt = iso(now + HOUR);
+    let racingProgress = 0;
+    let delayed: Awaited<ReturnType<typeof raceReads>> | undefined;
+    await withApp(async (app) => {
+      roomId = await paidRace(app, runner, iso(now - 20 * MINUTE));
+      const room = (await get(app, `/race-rooms/${roomId}`, runner)).json() as { room: RaceRoom };
+      const joined = await app.inject({
+        method: "POST",
+        url: "/race-rooms/join-by-code",
+        payload: { roomCode: room.room.joinCode },
+        headers: auth(app, crew)
+      });
+      assert.equal(joined.statusCode, 200, joined.body);
+
+      // A race ping 2 km up the route: it drives the projection.
+      const sent = await ping(app, roomId, runner, upRoute(2_000), now - 30_000);
+      assert.equal(sent.statusCode, 201, sent.body);
+      pingId = (sent.json() as { pingId: string }).pingId;
+      const racing = await latest(app, roomId, crew);
+      assert.equal(racing.ping?.preStart, undefined);
+      racingProgress = racing.ping?.progressMeters ?? 0;
+      assert.ok(racingProgress > 1_500, `race ping counts: ${racingProgress} m`);
+
+      // The gun is delayed an hour, past the ping: it is a test ping now.
+      assert.equal((await patchStart(app, roomId, runner, delayedAt)).statusCode, 200);
+      delayed = await raceReads(app, roomId, crew);
+      assert.equal(delayed.projection.asOfPingId, "bootstrap");
+      assert.equal((await latest(app, roomId, crew)).ping?.preStart, true);
+    });
+
+    const earlierAt = iso(now - 30 * MINUTE);
+    const [roomRes, latestRes, projectionRes, scheduleRes, trackRes, patchRes] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/schedule`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/track`, user: crew },
+      // The start goes back before the ping: it counts for the race again.
+      { method: "PATCH", url: `/race-rooms/${roomId}/race-start`, user: runner, payload: { raceStartAt: earlierAt } }
+    ]);
+    // A third process, so the moved-back start can only come from Postgres, not the second
+    // process's memory.
+    const [roomAfterRes, latestAfterRes, projectionAfterRes] = inFreshProcess([
+      { method: "GET", url: `/race-rooms/${roomId}`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/pings/latest`, user: crew },
+      { method: "GET", url: `/race-rooms/${roomId}/projection`, user: crew }
+    ]);
+
+    for (const [label, res] of Object.entries({
+      roomRes,
+      latestRes,
+      projectionRes,
+      scheduleRes,
+      trackRes,
+      patchRes,
+      roomAfterRes,
+      latestAfterRes,
+      projectionAfterRes
+    })) {
+      assert.equal(res!.status, 200, `${label}: ${JSON.stringify(res!.body)}`);
+    }
+    // After the restart the delayed start is still the start, and the crew's phones show the ping
+    // as a test ping at the start line, not 2 km into the race.
+    assert.equal((roomRes!.body as { room: RaceRoom }).room.raceStartAt, delayedAt);
+    const dot = (latestRes!.body as RaceRoomLatestPingResponse).ping;
+    assert.equal(dot?.pingId, pingId);
+    assert.equal(dot?.preStart, true);
+    assert.equal(dot?.progressMeters, 0);
+    const { evaluatedAt: _evaluatedAt, ...projection } = projectionRes!.body as RaceRoomProjection;
+    assert.deepEqual(projection, delayed!.projection, "the pre-race projection at the delayed start");
+    assert.deepEqual(parseCrewScheduleSheet(scheduleRes!.body), delayed!.schedule);
+    assert.deepEqual(
+      (trackRes!.body as RaceRoomPingTrackResponse).points.map((point) => point.preStart),
+      [true]
+    );
+
+    // Moving the start back is saved, and a later process re-counts the stored ping from Postgres.
+    assert.equal((roomAfterRes!.body as { room: RaceRoom }).room.raceStartAt, earlierAt);
+    const after = (latestAfterRes!.body as RaceRoomLatestPingResponse).ping;
+    assert.equal(after?.preStart, undefined);
+    assert.equal(after?.progressMeters, racingProgress);
+    const reanchored = projectionAfterRes!.body as RaceRoomProjection;
+    assert.equal(reanchored.asOfPingId, pingId);
+    assert.equal(reanchored.checkpointSplits[0]!.crossedAtRecordedAt, earlierAt);
+  }
+);
