@@ -100,6 +100,33 @@ if not eval(expr, {"__builtins__": {}}, {"d": data, "isinstance": isinstance, "l
 PY
 }
 
+expire_room() {
+  local result code
+  result="$(api_request POST "/race-rooms/$1/entitlement" '{"status":"expired"}')"
+  code="$(printf "%s" "$result" | sed -n '1p')"
+  [[ "$code" == "200" ]]
+}
+
+# The API refuses a 4th unpaid race per creator (409 unpaid_race_limit), and there is no route to
+# delete one. A run that fails between Step A and Step B leaves its room unpaid, so three such runs
+# would block every later smoke. Expire this account's leftover unpaid rooms first: expired rooms
+# don't count toward the limit. A refusal here is only a warning; Step A or Step B reports the cause.
+log "Pre-step: expire leftover unpaid rooms from earlier runs"
+mine_result="$(api_request GET "/race-rooms/mine")"
+mine_code="$(printf "%s" "$mine_result" | sed -n '1p')"
+mine_file="$(printf "%s" "$mine_result" | sed -n '2p')"
+[[ "$mine_code" == "200" ]] || fail "List rooms failed (HTTP $mine_code): $(jq -c . "$mine_file")"
+leftover_ids="$(jq -r --arg sub "$AUTOMATION_SUB" \
+  '.rooms[] | select(.entitlement.status == "unpaid" and ((.createdByUserId // .memberships[0].userId) == $sub)) | .id' \
+  "$mine_file")"
+for leftover_id in $leftover_ids; do
+  if expire_room "$leftover_id"; then
+    log "Expired leftover unpaid room: $leftover_id"
+  else
+    printf "\n[WARN] Could not expire leftover unpaid room %s\n" "$leftover_id" >&2
+  fi
+done
+
 log "Step A: create room"
 create_payload="$(jq -n --arg athlete "$AUTOMATION_SUB" '{teamId:"team-1", athleteId:$athlete, name:"Stoppage Smoke Room", creatorRole:"team_manager"}')"
 create_result="$(api_request POST "/race-rooms" "$create_payload")"
