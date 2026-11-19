@@ -32,5 +32,5 @@ Source: `GET /race-rooms/:roomId/pings/latest` → client-core `RaceDayAPI.lates
 - **XcodeBuildMCP:** Use the installed XcodeBuildMCP skill/docs before calling MCP tools.
 - **agent-ready waves:** `docs/agents/agent-work-package-verification.md` (Ready script first).
 - **Handoff / staging:** read the matching `docs/agents/*.md` by its description when needed.
-- **Knowledge base:** `docs/kb/` maps architecture, data flow, and risks. Read the matching section before touching an unfamiliar flow. Changed routes, migrations, env reads, or modules? Run `npm run kb:generate` and commit `docs/kb/generated` (CI `kb:check` fails otherwise).
+- **Knowledge base:** `docs/kb/` maps architecture, data flow, and risks. Read the matching section before touching an unfamiliar flow. Do not commit `docs/kb/generated` in a feature PR: `kb-refresh.yml` regenerates it after merge, and CI's `kb-drift` job shows the PR's KB changes in its summary. Run `npm run kb:generate` locally only to read fresh facts, then discard the diff.
 - **Continuity snapshot:** `docs/sdlc/agent-handoff.md` (integration agent / PR-wave boundaries; feature agents: PR Handoff delta only).

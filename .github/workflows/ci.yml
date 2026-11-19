@@ -94,11 +94,53 @@ jobs:
       - run: npm run build
       - run: npm run test
       - run: npm run agent:harness:test
-      - run: npm run kb:check  # docs/kb/generated must match the code; fix with `npm run kb:generate`
       - uses: ./.github/actions/setup-swift
         with:
           version: "6.3.2"
       - run: npm run verify:client-core
+
+  # Informational only: PRs do not commit docs/kb/generated. kb-refresh.yml regenerates it after
+  # merge. This job shows how the PR moves the KB (new routes, unguarded routes, tables, env vars)
+  # in the job summary so a reviewer still sees it, and never fails.
+  kb-drift:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Show how this PR changes the generated KB
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          touched="$(git diff --name-only "origin/$BASE_REF...HEAD" -- docs/kb/generated || true)"
+          if [ -n "$touched" ] && [ "$HEAD_REF" != "kb/refresh" ]; then
+            echo "::warning::This PR edits docs/kb/generated. kb-refresh regenerates it after merge; drop these changes to avoid conflicts with other PRs."
+          fi
+          # Compare with line numbers stripped, so code that only moved shows nothing.
+          norm() { sed -E 's/(:|#L)[0-9]+//g' "$1"; }
+          before="$RUNNER_TEMP/kb-before"; mkdir -p "$before"
+          cp docs/kb/generated/*.md "$before/"
+          node scripts/kb/generate-kb.mjs
+          changes=""
+          for f in docs/kb/generated/*.md; do
+            d="$(diff -U0 <(norm "$before/$(basename "$f")") <(norm "$f") | grep -E '^[-+][^-+]' || true)"
+            [ -n "$d" ] && changes="$changes"$'\n'"### $(basename "$f")"$'\n```diff\n'"$d"$'\n```'
+          done
+          {
+            echo "## Knowledge base drift"
+            if [ -z "$changes" ]; then
+              echo "No change to the generated KB."
+            else
+              echo "kb-refresh updates these pages after merge. Check risk-signals.md for new unguarded routes."
+              printf '%s\n' "$changes" | head -300
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   api-postgres-integration:
     runs-on: ubuntu-latest

@@ -22,7 +22,10 @@ Deterministic checks run in GitHub Actions instead: `.github/workflows/security.
 3. **Dedupe before work.** List open PRs and PRs closed in the last 60 days that carry any `automation:*`
    label or a `cursor/*` branch. Skip a finding or test that one of them already covers, merged or not.
    A PR the owner closed unmerged is a "no" for that idea; do not reopen it in new words.
-4. **One PR per run, at most.** A run that finds nothing worth a PR opens nothing. That is a good outcome.
+4. **One PR per run, at most, and one open PR per loop.** A run that finds nothing worth a PR opens nothing.
+   That is a good outcome. If this loop already has an open PR, open no new one: improve that PR if the
+   verifier asked for changes, else stop. Exception: a critical bug for `bug-hunt`.
+   Never copy a helper or fixture that an open PR adds. Wait for it to merge, then use it.
 5. **Branch and label.** Branch `claude/<loop>-<short-slug>`. Label the PR `automation:<loop>` and open it
    as a draft. The verifier, not the author, marks it ready.
 6. **PR body.** A filled `.github/pull_request_template.md`. `No issue: found by the <loop> automation` is
