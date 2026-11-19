@@ -1,10 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -711,7 +710,6 @@ test(
 
     // A fresh process has nothing in memory: who was removed, and when, must come from Postgres.
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, joinCode, oldInvite, owner, removed, kept] = process.argv.slice(2);
@@ -742,26 +740,14 @@ test(
       process.exit(0);
     `;
     const token = (sub: string) => f.as(sub).authorization.slice("Bearer ".length);
-    const out = execFileSync(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        script,
-        new URL(`file://${appModule}`).href,
-        f.roomId,
-        f.joinCode,
-        olderOwnerInvite.token,
-        token("athlete-user"),
-        token(removed),
-        token(staysCrew)
-      ],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as Record<
-      string,
-      number
-    >;
+    const result = runInFreshProcess<Record<string, number>>(script, [
+      f.roomId,
+      f.joinCode,
+      olderOwnerInvite.token,
+      token("athlete-user"),
+      token(removed),
+      token(staysCrew)
+    ]);
     assert.equal(result.removedRoom, 403, "the removed member cannot open the race");
     assert.equal(result.removedProgress, 403, "the removed member cannot read the runner's progress");
     assert.equal(result.removedByCode, 404, "the room code does not let them back in");

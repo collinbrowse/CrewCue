@@ -11,8 +11,7 @@ import { resetChatPushTransport, setChatPushTransport, type ChatPushDispatchInpu
 import { _settleChatPushForTests } from "./chatRoutes.js";
 import { runChatRetentionPass } from "../lib/chatRetention.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 type App = ReturnType<typeof buildApp>;
 
@@ -623,7 +622,6 @@ test(
     });
 
     // A fresh process has no chat state in memory; everything must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, owner, crew] = process.argv.slice(2);
@@ -647,12 +645,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken, crewToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, ownerToken, crewToken]) as {
       beforeTexts: string[];
       beforeCursor: string;
       retryStatus: number;

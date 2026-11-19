@@ -9,8 +9,6 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   parseCrewScheduleSheet,
   type CrewScheduleSheet,
@@ -25,6 +23,7 @@ import {
   closedActualStopSecondsByCheckpointId,
   projectCrewScheduleSheet
 } from "./raceRoomSchedule.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
@@ -761,7 +760,6 @@ test(
     await app.close();
 
     // A fresh process has no room in memory; the check-in must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const app = buildApp();
@@ -775,14 +773,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, ownerToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(
-      out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)
-    ) as { status: number; body: unknown };
+    const result = runInFreshProcess<{ status: number; body: unknown }>(script, [roomId, ownerToken]);
     assert.equal(result.status, 200);
     const after = parseCrewScheduleSheet(result.body);
     assertLaterStopsShiftedBy(baseline, after, deltaSeconds);

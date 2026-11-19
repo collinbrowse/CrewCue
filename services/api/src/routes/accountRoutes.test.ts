@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { parsePacingEstimate, type AccountDataExport, type AccountDeletionResult } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
@@ -16,6 +14,7 @@ import { listChatPushDevicesForUsers } from "../lib/chatPersistence.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { setStravaClientConfigForTests } from "./stravaRoutes.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 type Room = { id: string; joinCode: string; memberships: Array<{ userId: string }> };
 
@@ -295,7 +294,6 @@ test(
     });
 
     // A fresh process has nothing in memory, so whatever it serves came from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const libDir = new URL("../lib/", import.meta.url).href;
     const script = `
       const [appUrl, libDir, input] = process.argv.slice(1);
@@ -340,19 +338,10 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        script,
-        new URL(`file://${appModule}`).href,
-        libDir,
-        JSON.stringify({ owned, othersRoom, tokens, runner, inviteToken, estimateId })
-      ],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [
+      libDir,
+      JSON.stringify({ owned, othersRoom, tokens, runner, inviteToken, estimateId })
+    ]) as {
       ownedById: number;
       ownedByCode: number;
       ownedLatestPing: number;
