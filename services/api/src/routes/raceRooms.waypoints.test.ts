@@ -1,7 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import {
@@ -9,6 +7,7 @@ import {
   load50kCourseWithAids
 } from "../lib/testCourseRouteLayer.js";
 import type { RaceCourseCheckpoint, RaceRoom, WaypointTag } from "@crewcue/contracts";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 const GOLDEN_CHECKPOINT_IDS = ["start", "aid-1", "aid-2", "aid-3", "finish"] as const;
 const RACE_START_AT = "2026-08-15T13:00:00.000Z";
@@ -646,7 +645,6 @@ test(
 
     // A fresh process has no projection in memory; the "runner already passed cp0" fact must come
     // back from Postgres, or a crew edit could silently drop an aid station the runner already used.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const app = buildApp();
@@ -664,12 +662,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crewChiefToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, crewChiefToken]) as {
       visited: { status: number; body: { error?: string } };
       unvisited: { status: number };
       room: { room: RaceRoom };

@@ -4,8 +4,7 @@ import { buildApp } from "../app.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 import { _resetChatPersistenceForTests } from "../lib/chatPersistence.js";
 import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 
 function buildClaims(sub: string, teamIds: string[] = ["team-chat"]) {
   return { sub, teamIds, roomRoles: {} };
@@ -237,7 +236,6 @@ test(
     await app.close();
 
     // A fresh process has no prefs in memory; they must come back from Postgres.
-    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
     const script = `
       const { buildApp } = await import(process.argv[1]);
       const [roomId, crew, athlete] = process.argv.slice(2);
@@ -256,12 +254,7 @@ test(
       await app.close();
       process.exit(0);
     `;
-    const out = execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", script, new URL(`file://${appModule}`).href, roomId, crewToken, athleteToken],
-      { encoding: "utf8", env: process.env, timeout: 45_000 }
-    );
-    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as {
+    const result = runInFreshProcess(script, [roomId, crewToken, athleteToken]) as {
       crew: { status: number; preference: string };
       athlete: { status: number; preference: string };
     };
