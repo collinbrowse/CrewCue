@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildApp } from "../app.js";
+import { getRoomPersistenceMode } from "../lib/roomPersistence.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
 function buildClaims(sub: string) {
@@ -691,6 +694,84 @@ test("only a newer invite from the owner brings a removed member back", async ()
   assert.equal(await joinByCode(f, "crew-user"), 404);
   await f.app.close();
 });
+
+test(
+  "a crew member the owner removed stays out after an API restart until the owner sends a new invite",
+  { skip: getRoomPersistenceMode() !== "postgres" && "needs Postgres (test:pg)", timeout: 60_000 },
+  async () => {
+    const f = await removalFixture();
+    const removed = `removed-crew-${randomUUID().slice(0, 8)}`;
+    const staysCrew = `kept-crew-${randomUUID().slice(0, 8)}`;
+    const olderOwnerInvite = await issueInvite(f, "athlete-user", "crew_member");
+    assert.equal(olderOwnerInvite.statusCode, 201);
+    assert.equal(await joinByCode(f, removed), 200);
+    assert.equal(await joinByCode(f, staysCrew), 200);
+    await removeMember(f, removed);
+    await f.app.close();
+
+    // A fresh process has nothing in memory: who was removed, and when, must come from Postgres.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const appModule = fileURLToPath(new URL("../app.js", import.meta.url));
+    const script = `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, joinCode, oldInvite, owner, removed, kept] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = async (method, url, token, payload) => {
+        const res = await app.inject({ method, url, payload, headers: { authorization: "Bearer " + token } });
+        return res.statusCode;
+      };
+      const out = {
+        removedRoom: await call("GET", "/race-rooms/" + roomId, removed),
+        removedProgress: await call("GET", "/race-rooms/" + roomId + "/pings/latest", removed),
+        removedByCode: await call("POST", "/race-rooms/join-by-code", removed, { roomCode: joinCode }),
+        removedOldInvite: await call("POST", "/race-rooms/" + roomId + "/invites/accept", removed, { token: oldInvite }),
+        keptProgress: await call("GET", "/race-rooms/" + roomId + "/pings/latest", kept)
+      };
+      const fresh = await app.inject({
+        method: "POST",
+        url: "/race-rooms/" + roomId + "/invites",
+        payload: { email: "back@example.com", role: "crew_member" },
+        headers: { authorization: "Bearer " + owner }
+      });
+      out.freshInvite = fresh.statusCode;
+      out.freshAccept = await call("POST", "/race-rooms/" + roomId + "/invites/accept", removed, { token: fresh.json().token });
+      out.backInRoom = await call("GET", "/race-rooms/" + roomId, removed);
+      process.stdout.write("\\nRESULT:" + JSON.stringify(out) + "\\n");
+      await app.close();
+      process.exit(0);
+    `;
+    const token = (sub: string) => f.as(sub).authorization.slice("Bearer ".length);
+    const out = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        script,
+        new URL(`file://${appModule}`).href,
+        f.roomId,
+        f.joinCode,
+        olderOwnerInvite.token,
+        token("athlete-user"),
+        token(removed),
+        token(staysCrew)
+      ],
+      { encoding: "utf8", env: process.env, timeout: 45_000 }
+    );
+    const result = JSON.parse(out.split("\n").find((line) => line.startsWith("RESULT:"))!.slice("RESULT:".length)) as Record<
+      string,
+      number
+    >;
+    assert.equal(result.removedRoom, 403, "the removed member cannot open the race");
+    assert.equal(result.removedProgress, 403, "the removed member cannot read the runner's progress");
+    assert.equal(result.removedByCode, 404, "the room code does not let them back in");
+    assert.equal(result.removedOldInvite, 403, "an owner invite from before the removal does not let them back in");
+    assert.equal(result.keptProgress, 200, "the rest of the crew still read the runner's progress");
+    assert.equal(result.freshInvite, 201);
+    assert.equal(result.freshAccept, 200, "a new invite from the owner brings them back");
+    assert.equal(result.backInRoom, 200);
+  }
+);
 
 test("invites stay open for at most seven days", async () => {
   const f = await removalFixture();
