@@ -9,21 +9,23 @@ A map of the system that keeps itself current: what the parts are, how data move
 | [architecture.md](architecture.md) | What the components are and how they connect | Refresh workflow |
 | [data-flow.md](data-flow.md) | How pings, projections, chat, Strava, and invites move end to end | Refresh workflow |
 | [risks.md](risks.md) | Triaged risk register with stable IDs | Refresh workflow |
-| [generated/api-routes.md](generated/api-routes.md) | Every route, its auth guard, file and line | `kb:check` in CI |
-| [generated/data-model.md](generated/data-model.md) | Postgres schema replayed from migrations, and who touches each table | `kb:check` in CI |
-| [generated/modules.md](generated/modules.md) | Workspaces, API import graph, client-core types, native trees | `kb:check` in CI |
-| [generated/config.md](generated/config.md) | Env vars, where they are read, which look secret | `kb:check` in CI |
-| [generated/risk-signals.md](generated/risk-signals.md) | Unguarded routes, room routes without a membership check, large files, timers, untested modules, parity gaps | `kb:check` in CI |
-| [generated/kb.json](generated/kb.json) | The same facts as JSON, for tools and agents | `kb:check` in CI |
+| [generated/api-routes.md](generated/api-routes.md) | Every route, its auth guard, file and line | Refresh workflow (script) |
+| [generated/data-model.md](generated/data-model.md) | Postgres schema replayed from migrations, and who touches each table | Refresh workflow (script) |
+| [generated/modules.md](generated/modules.md) | Workspaces, API import graph, client-core types, native trees | Refresh workflow (script) |
+| [generated/config.md](generated/config.md) | Env vars, where they are read, which look secret | Refresh workflow (script) |
+| [generated/risk-signals.md](generated/risk-signals.md) | Unguarded routes, room routes without a membership check, large files, timers, untested modules, parity gaps | Refresh workflow (script) |
+| [generated/kb.json](generated/kb.json) | The same facts as JSON, for tools and agents | Refresh workflow (script) |
 
 ## How it stays current
 
 Two loops.
 
-1. **Facts, on every PR.** [scripts/kb/generate-kb.mjs](../../scripts/kb/generate-kb.mjs) reads the code and writes `generated/`. The output has no timestamps, so CI's `checks` job runs `npm run kb:check` and fails when a PR changes routes, migrations, env reads, or modules without regenerating. The check ignores line numbers and file sizes, so editing inside a file never trips it; adding or changing a route, guard, table, column, env var, module, or risk signal does. Fix: `npm run kb:generate` and commit.
-2. **Narrative, after merge.** [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) runs on pushes to `main` that touch code, and weekly. It regenerates the facts, then Claude reconciles the three narrative pages against the diff since [`.refresh-sha`](.refresh-sha), following [refresh-prompt.md](../../scripts/kb/refresh-prompt.md). The result is a PR that may touch only `docs/kb/**`, with auto-merge on.
+1. **Facts, after merge.** [scripts/kb/generate-kb.mjs](../../scripts/kb/generate-kb.mjs) reads the code and writes `generated/`. Feature PRs do not commit it, so open PRs never conflict over it or go stale when another PR merges. On a PR, CI's `kb-drift` job runs the generator and prints the diff (new routes, unguarded routes, tables, env vars) in its job summary; it never fails. [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) regenerates and commits the facts on every run, with or without Claude credentials.
+2. **Narrative, after merge.** The same [kb-refresh.yml](../../.github/workflows/kb-refresh.yml) run, on pushes to `main` that touch code and weekly, then has Claude reconcile the three narrative pages against the diff since [`.refresh-sha`](.refresh-sha), following [refresh-prompt.md](../../scripts/kb/refresh-prompt.md). The result is a PR that may touch only `docs/kb/**`, with auto-merge on.
 
-The refresh workflow signs in to Claude with the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (your Claude subscription; create it with `claude setup-token`), or with `ANTHROPIC_API_KEY` (API credits) when that token is absent. Add `KB_BOT_TOKEN` (the agent bot's token) too: a PR opened with the default `GITHUB_TOKEN` does not trigger CI, so its required checks never run and it cannot auto-merge. With neither secret the workflow logs a notice and exits.
+The refresh workflow signs in to Claude with the `CLAUDE_CODE_OAUTH_TOKEN` repository secret (your Claude subscription; create it with `claude setup-token`), or with `ANTHROPIC_API_KEY` (API credits) when that token is absent. Add `KB_BOT_TOKEN` (the agent bot's token) too: a PR opened with the default `GITHUB_TOKEN` does not trigger CI, so its required checks never run and it cannot auto-merge. With neither Claude secret the workflow still refreshes the fact pages and skips the narrative.
+
+[kb-drift-watch.yml](../../.github/workflows/kb-drift-watch.yml) runs `kb:check` on `main` daily. Stale with a refresh PR under 24 hours old is normal lag; otherwise it opens or updates the issue "Knowledge base on main is stale".
 
 ## Using it
 

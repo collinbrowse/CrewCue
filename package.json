@@ -43,7 +43,7 @@
     "test:pg": "npm run test:pg -w @crewcue/api",
     "test:pg:fresh": "npm run test:pg:fresh -w @crewcue/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run lint && npm run typecheck && npm run test && npm run build && npm run agent:harness:test && npm run kb:check && npm run verify:clients && npm run verify:client-core",
+    "verify": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run lint && npm run typecheck && npm run test && npm run build && npm run agent:harness:test && npm run verify:clients && npm run verify:client-core",
     "verify:android": "node scripts/verify-android.mjs",
     "verify:api": "npm run build -w @crewcue/contracts && npm run build -w @crewcue/map-core && npm run build -w @crewcue/platform-client && npm run typecheck -w @crewcue/api && npm run test -w @crewcue/api",
     "verify:client-behavior": "node scripts/verify-client-behavior.mjs",

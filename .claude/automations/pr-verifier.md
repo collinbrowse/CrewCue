@@ -11,6 +11,10 @@ they are wrong until shown otherwise.
 4. Look for what the author missed: other call sites with the same bug, a test that passes for the wrong
    reason, behavior changes outside Scope, and the Higher-Order Effects the body skipped.
 5. Check for duplicates of open or recently closed PRs (README rule 3).
+6. Check for copied helpers. A PR that copies a helper or fixture that main or another open PR already
+   provides is `needs work`, not a nit: name the helper and the PR that adds it.
+7. Ignore `docs/kb/generated`: PRs no longer commit it (`kb-refresh.yml` does). A PR that edits it is
+   `needs work` unless its branch is `kb/refresh`.
 
 ## Verdict
 
