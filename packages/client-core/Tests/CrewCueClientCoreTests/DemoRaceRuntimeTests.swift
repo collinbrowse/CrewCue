@@ -254,9 +254,10 @@ struct DemoRaceRuntimeTests {
         let runner = try result(try await runtime(request.merging(["op": "demoRaceRunner"]) { $1 }))
         let script = DemoRaceScript(course: try DemoRaceCourse(roomData: DemoRaceFixture.roomData, viewerUserId: DemoRaceFixture.runnerUserId))
         let expected = try #require(script.runnerPosition(atWallSeconds: 3.25))
-        #expect(runner["latitude"] as? Double == expected.latitude)
-        #expect(runner["longitude"] as? Double == expected.longitude)
-        #expect(runner["lineMeters"] as? Double == expected.lineMeters)
+        // The JSON round trip can move the last bit differently on Linux, so compare within a hair.
+        #expect(abs(try #require(runner["latitude"] as? Double) - expected.latitude) < 1e-9)
+        #expect(abs(try #require(runner["longitude"] as? Double) - expected.longitude) < 1e-9)
+        #expect(abs(try #require(runner["lineMeters"] as? Double) - expected.lineMeters) < 1e-3)
         #expect(runner["recordedAt"] as? String == RaceDayReadouts.iso8601(expected.recordedAt))
         #expect(runner["fromRecordedAt"] as? String == RaceDayReadouts.iso8601(expected.fromRecordedAt))
         let track = try result(try await runtime(request.merging(["op": "pingTrack"]) { $1 }))
