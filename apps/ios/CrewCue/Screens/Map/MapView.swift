@@ -45,8 +45,13 @@ struct MapView: View {
     /// The onboarding replay's runner between updates: the dot glides along the course. Nil on
     /// the race map, where the dot is the runner's latest ping.
     var glide: RunnerGlide? = nil
-    /// The replay's Map is on screen (not under Pace or Chat), so the glide is worth drawing.
-    var glideOnScreen = true
+    /// The replay plays and its Map is on screen (not under Pace or Chat): the dot glides frame by
+    /// frame. Otherwise it holds where the replay is.
+    var glidePlaying = false
+    /// The onboarding replay: how many pings the runner's path holds. The replay's path adds
+    /// points along the course between pings, so the path chip counts the pings, as on a race,
+    /// where every path point is a ping. Nil on the race map.
+    var pathPings: Int? = nil
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -60,7 +65,7 @@ struct MapView: View {
                 trackTimes: glide == nil ? [] : model.track.points.map(\.recordedAt),
                 route: route,
                 glide: glide,
-                glideOnScreen: glideOnScreen,
+                glidePlaying: glidePlaying,
                 recenterRequest: model.recenterRequest,
                 replay: readOnly,
                 onTap: { latitude, longitude in
@@ -95,8 +100,11 @@ struct MapView: View {
                 .fullWidthClearOfOcclusions()
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            MapOverlayControls(model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {}, readOnly: readOnly)
-                .avoidsReservedRegions(when: readOnly)
+            MapOverlayControls(
+                model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
+                readOnly: readOnly, pathPings: pathPings
+            )
+            .avoidsReservedRegions(when: readOnly)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -116,6 +124,7 @@ private struct MapOverlayControls: View {
     var access: RaceAccess?
     var onUnlock: () -> Void
     var readOnly = false
+    var pathPings: Int?
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -172,15 +181,19 @@ private struct MapOverlayControls: View {
         .accessibilityLabel("Map tools")
     }
 
-    /// The runner's path drawn on the map, from the API.
+    /// The runner's path drawn on the map, from the API: one point per ping (the replay's count).
     private var trackLabel: String {
-        let count = model.track.points.count
+        let count = trackCount
         return count == 0 ? "NO PATH YET" : "PATH · \(count) \(count == 1 ? "POINT" : "POINTS")"
     }
 
     private var trackAccessibility: String {
-        let count = model.track.points.count
+        let count = trackCount
         return count == 0 ? "No runner path yet" : "Runner path, \(count) points"
+    }
+
+    private var trackCount: Int {
+        model.track.points.isEmpty ? 0 : pathPings ?? model.track.points.count
     }
 
     private var pingAccessibility: String {
@@ -532,7 +545,7 @@ struct MapCanvas: View {
     var trackTimes: [Date] = []
     var route: [CLLocationCoordinate2D] = []
     var glide: RunnerGlide? = nil
-    var glideOnScreen = true
+    var glidePlaying = false
     var recenterRequest = 0
     /// The onboarding replay: no top bar to clear, and a pane that a fold or a size change
     /// resizes, so the course is framed again when it does.
@@ -548,7 +561,7 @@ struct MapCanvas: View {
         if let glide {
             // The onboarding replay: a frame on every display refresh while it plays, so the dot
             // glides along the course. Paused it holds; with Reduce Motion it steps at each update.
-            TimelineView(.animation(minimumInterval: nil, paused: reduceMotion || !glideOnScreen || !glide.isPlaying)) { _ in
+            TimelineView(.animation(minimumInterval: nil, paused: reduceMotion || !glidePlaying)) { _ in
                 map(glideFrame: reduceMotion ? nil : glide.frame())
             }
         } else {

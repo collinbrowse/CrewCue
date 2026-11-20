@@ -446,39 +446,54 @@ public struct DemoRaceScript: Equatable, Sendable {
     /// The course line strictly between two pings: the line's own vertices there, and evenly
     /// spaced points wherever two neighbours would be more than `trackSpacingMeters` apart along
     /// it. Times run evenly by distance from one ping's time to the other's, each the exact time
-    /// its wire string reads back as, so the track cursor compares them as the client does. A
-    /// point whose wire millisecond is already taken is left out (more than a thousand points in
-    /// one race second: never at running pace).
+    /// its wire string reads back as, so the track cursor compares them as the client does.
+    ///
+    /// Two points can't share a wire millisecond (the cursor would skip one). Where a point's
+    /// millisecond is already taken, a vertex wins over a spacing point: a vertex takes the place
+    /// of the spacing point before it, at that point's time, since leaving out a vertex would cut
+    /// a chord across its bend; a spacing point is left out. Only a vertex within a millisecond of
+    /// another vertex or of a ping is lost, a few millimetres of course at running pace.
     static func between(_ a: DemoRacePing, _ b: DemoRacePing, course: DemoRaceCourse, wire: WireTime) -> [DemoRaceTrackPoint] {
         let start = a.lineMeters
         let end = b.lineMeters
         let from = a.recordedAt.timeIntervalSince1970
         let until = b.recordedAt.timeIntervalSince1970
         guard end > start, until > from else { return [] }
-        var distances: [Double] = []
+        var marks: [(meters: Double, vertex: Bool)] = []
         var last = start
         for mark in course.vertexMeters.filter({ $0 > start && $0 < end }) + [end] {
             let gap = mark - last
             let pieces = Int((gap / trackSpacingMeters).rounded(.up))
             if pieces > 1 {
                 for piece in 1..<pieces {
-                    distances.append(last + gap * Double(piece) / Double(pieces))
+                    marks.append((last + gap * Double(piece) / Double(pieces), false))
                 }
             }
             if mark < end {
-                distances.append(mark)
+                marks.append((mark, true))
             }
             last = mark
         }
         var points: [DemoRaceTrackPoint] = []
+        // Whether each of `points` is a vertex of the line.
+        var vertices: [Bool] = []
         var taken = wire.time(a.recordedAt)
         let limit = wire.time(b.recordedAt)
-        for meters in distances {
+        for (meters, vertex) in marks {
             let time = wire.time(Date(timeIntervalSince1970: from + (until - from) * (meters - start) / (end - start)))
-            guard time > taken, time < limit else { continue }
             let point = course.position(atLineMeters: meters)
-            points.append(DemoRaceTrackPoint(recordedAt: time, latitude: point.latitude, longitude: point.longitude, lineMeters: meters))
-            taken = time
+            if time > taken, time < limit {
+                points.append(DemoRaceTrackPoint(recordedAt: time, latitude: point.latitude, longitude: point.longitude, lineMeters: meters))
+                vertices.append(vertex)
+                taken = time
+            } else if vertex, let previous = points.last, vertices.last == false {
+                // Its millisecond is taken (or is the next ping's): it replaces the spacing point
+                // before it, keeping that point's time, so times stay in order.
+                points[points.count - 1] = DemoRaceTrackPoint(
+                    recordedAt: previous.recordedAt, latitude: point.latitude, longitude: point.longitude, lineMeters: meters
+                )
+                vertices[vertices.count - 1] = true
+            }
         }
         return points
     }

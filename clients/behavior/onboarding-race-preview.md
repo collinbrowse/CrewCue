@@ -10,6 +10,8 @@ The Map draws the course from the line the replay's runner follows (the course's
 
 While the replay plays, the dot glides along the course from one ping to the next, and the trail grows behind it up to the dot. Paused, the dot holds at that moment. With Reduce Motion the dot doesn't glide: it steps to each new ping. The glide is the replay's only; on the race Map the dot is always the runner's latest ping.
 
+The path chip (`crewcue.runner-track`) counts the runner's pings, as on a race, not the points the replay adds along the course between them: on the fixture race it reaches PATH · 25 POINTS by the last step.
+
 ## API
 GET /race-rooms/:roomId (once, to build the replay on the runner's own course; the app may pass the saved room body instead). Everything after that uses local demo data only.
 

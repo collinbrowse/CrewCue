@@ -166,19 +166,58 @@ private func servedPath(_ demo: DemoRaceSession, _ clock: ManualWallClock, throu
 }
 
 @Test func demoRacePathIncludesEveryCourseVertexItPasses() throws {
-    let course = try DemoRaceCourse(
-        roomData: try trailRoom(line: switchbacks(legs: 12, vertices: 40, spacing: 40), meters: 19_000, finishSeconds: 3 * 3600),
-        viewerUserId: "runner-1"
-    )
-    let script = DemoRaceScript(course: course)
-    let path = script.track(through: script.steps.count - 1)
-    let reached = try #require(path.last).lineMeters
-    let passed = course.vertexMeters.filter { $0 <= reached }
-    let served = Set(path.map(\.lineMeters))
-    #expect(passed.count > 100)
-    #expect(passed.allSatisfy { served.contains($0) }, "a vertex the runner passed is missing from the path")
-    // Each path point is at its own place on the line.
-    for point in path {
+    for (name, data) in try courses() {
+        let course = try DemoRaceCourse(roomData: data, viewerUserId: "runner-1")
+        let script = DemoRaceScript(course: course)
+        let path = script.track(through: script.steps.count - 1)
+        // Every vertex up to the replay's furthest point, the first ping's included.
+        let reached = try #require(path.last).lineMeters
+        let passed = course.vertexMeters.filter { $0 <= reached }
+        let served = Set(path.map(\.lineMeters))
+        #expect(!passed.isEmpty)
+        #expect(passed.allSatisfy { served.contains($0) }, "\(name): a vertex the runner passed is missing from the path")
+        if name == "switchbacks" {
+            #expect(passed.count > 100)
+        }
+        // Each path point is at its own place on the line.
+        for point in path {
+            let spot = course.position(atLineMeters: point.lineMeters)
+            #expect(spot.latitude == point.latitude && spot.longitude == point.longitude, "\(name)")
+        }
+    }
+}
+
+@Test func demoRacePathKeepsAVertexOverASpacingPointInTheSameMillisecond() throws {
+    // A line with a vertex every 250 m, run 1 km in 5 ms: the spacing points (every 83 m) and the
+    // vertices crowd into the same wire milliseconds. Every vertex still makes the path.
+    let degreesPerMeter = 1 / 111_320.0
+    let east = 250 * degreesPerMeter / cos(39.2 * .pi / 180)
+    let line = (0...4).map { [-120.2 + Double($0) * east, 39.2 + ($0.isMultiple(of: 2) ? 0 : 40 * degreesPerMeter)] }
+    let course = try DemoRaceCourse(roomData: try trailRoom(line: line, meters: 1_000, finishSeconds: 3600), viewerUserId: "runner-1")
+    let vertexMeters = course.vertexMeters
+    let at = Date(timeIntervalSince1970: 1_786_000_000)
+    let ping = { (meters: Double, seconds: Double) -> DemoRacePing in
+        let point = course.position(atLineMeters: meters)
+        return DemoRacePing(
+            pingId: "p\(seconds)", latitude: point.latitude, longitude: point.longitude,
+            recordedAt: at.addingTimeInterval(seconds), receivedAt: at.addingTimeInterval(seconds),
+            progressMeters: meters, lineMeters: meters
+        )
+    }
+    let a = ping(0, 0)
+    let b = ping(course.lineLengthMeters, 0.005)
+    let points = DemoRaceScript.between(a, b, course: course, wire: WireTime())
+    let inner = vertexMeters.filter { $0 > 0 && $0 < course.lineLengthMeters }
+    #expect(inner.count == 3)
+    let served = Set(points.map(\.lineMeters))
+    #expect(inner.allSatisfy { served.contains($0) }, "a vertex was dropped for a spacing point")
+    // Still one point per wire millisecond, strictly between the two pings, in order on the line.
+    let times = points.map(\.recordedAt)
+    #expect(zip(times, times.dropFirst()).allSatisfy { $0 < $1 })
+    #expect(times.allSatisfy { $0 > a.recordedAt && $0 < b.recordedAt })
+    let meters = points.map(\.lineMeters)
+    #expect(zip(meters, meters.dropFirst()).allSatisfy { $0 < $1 })
+    for point in points {
         let spot = course.position(atLineMeters: point.lineMeters)
         #expect(spot.latitude == point.latitude && spot.longitude == point.longitude)
     }
