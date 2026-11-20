@@ -84,6 +84,8 @@ public final class SessionController: @unchecked Sendable {
     }
 }
 
+/// Legacy plaintext session file from builds before `SessionVault`. Only read once, by
+/// `SessionVaultLaunch`, to migrate it into the vault; new sessions are never written here.
 public enum SessionFile {
     public static func url(directory: URL) -> URL {
         directory.appendingPathComponent("session.json")
@@ -93,12 +95,6 @@ public enum SessionFile {
         let file = url(directory: directory)
         guard FileManager.default.fileExists(atPath: file.path) else { return nil }
         return try JSONDecoder().decode(ClientSession.self, from: Data(contentsOf: file))
-    }
-
-    public static func save(_ session: ClientSession, directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(session)
-        try data.write(to: url(directory: directory), options: .atomic)
     }
 
     public static func wipe(directory: URL) throws {
