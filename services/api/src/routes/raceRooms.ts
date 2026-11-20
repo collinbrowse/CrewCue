@@ -661,6 +661,16 @@ async function saveRaceRoomInvite(invite: RaceRoomInvite): Promise<void> {
   });
 }
 
+let roomLoadDelayForTests: (() => Promise<void>) | undefined;
+
+/**
+ * Test-only one-shot pause in a `getRaceRoom` cache miss, after the stored row is read and before
+ * it is cached: a cold read that overlaps another request.
+ */
+export function setRaceRoomLoadDelayForTests(delay: (() => Promise<void>) | undefined): void {
+  roomLoadDelayForTests = delay;
+}
+
 export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | undefined> {
   const resolvedId = await resolveStorageRoomId(roomIdOrCode);
   if (!resolvedId) {
@@ -669,6 +679,11 @@ export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | unde
   let room = raceRooms.get(resolvedId);
   if (!room) {
     const loaded = await loadRaceRoom(resolvedId);
+    const delay = roomLoadDelayForTests;
+    if (loaded && delay) {
+      roomLoadDelayForTests = undefined;
+      await delay();
+    }
     if (loaded) {
       // Re-check live cache after the await — a concurrent saveRaceRoom may have won.
       room = rememberRaceRoomIfAbsent(loaded);
