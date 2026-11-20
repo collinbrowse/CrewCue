@@ -14,7 +14,8 @@ extension OnboardingCopy {
 
     public enum Label: String, CaseIterable, Sendable {
         case chooserTitle, chooserSignIn
-        case createAccount, signIn, displayName
+        case createAccount, signIn, displayName, displayNameHelp
+        case raceName, raceNamePlaceholder, raceNameHelp, readingCourse
         case chooseCourseFile, chooseAnotherFile
         case raceDate, raceTime, raceTimeZone, done, cancel
         case importHistory, skipHistory
@@ -29,6 +30,11 @@ extension OnboardingCopy {
         case .createAccount: createAccount
         case .signIn: signIn
         case .displayName: displayName
+        case .displayNameHelp: displayNameHelp
+        case .raceName: raceNameLabel
+        case .raceNamePlaceholder: raceNamePlaceholder
+        case .raceNameHelp: raceNameHelp
+        case .readingCourse: readingCourse
         case .chooseCourseFile: chooseCourseFile
         case .chooseAnotherFile: chooseAnotherCourseFile
         case .raceDate: raceDateLabel

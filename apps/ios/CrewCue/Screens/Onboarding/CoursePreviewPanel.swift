@@ -2,28 +2,104 @@ import CoreLocation
 import SwiftUI
 import CrewCueClientCore
 
+/// Where the course preview goes in runner setup. While the picked file is read and previewed,
+/// and until the preview's map has drawn its first full frame, the Cairn loader sits centred in
+/// that space with "Reading your course…", and the map, summary and elevation profile stay hidden
+/// under it, so no blank tiles or empty profile show first. Reduce Motion shows the loader's
+/// finished stack. A failed preview shows nothing here: the step offers Try again.
+struct CoursePreviewSlot: View {
+    let preview: CoursePreview?
+    var summary: String?
+    /// The file is being read and previewed.
+    var previewing: Bool
+    var mapReady: Bool
+    var onMapReady: () -> Void
+    /// About the preview's own height (map, summary, profile), so it replaces the loader in place.
+    @ScaledMetric(relativeTo: .body) private var placeholderHeight: CGFloat = 320
+
+    /// The preview's map hasn't drawn yet. The wait has a limit, so a map that never reports a
+    /// full frame (tiles that keep failing) still shows rather than a loader for good.
+    private var waitingForMap: Bool { preview != nil && !mapReady && MapCanvas.available }
+    private var loading: Bool { previewing || waitingForMap }
+
+    var body: some View {
+        ZStack {
+            if let preview {
+                // Laid out and drawing under the loader, so the map can load its tiles; hidden
+                // from sight, touch and VoiceOver until then.
+                CoursePreviewPanel(preview: preview, summary: summary, concealed: loading, onMapRendered: onMapReady)
+                    .opacity(loading ? 0 : 1)
+                    .allowsHitTesting(!loading)
+            } else {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: placeholderHeight)
+            }
+            if loading {
+                CourseLoading()
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: loading)
+        .task(id: preview?.courseFileName ?? "") {
+            guard waitingForMap else { return }
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            onMapReady()
+        }
+    }
+}
+
+/// The loader in the course preview's place, with its caption.
+private struct CourseLoading: View {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(spacing: CrewSpace.stackSm) {
+            CairnLoader(onLight: scheme == .light)
+                .frame(width: 64, height: 64)
+            Text(OnboardingCopy.readingCourse)
+                .font(CrewFont.label)
+                .foregroundStyle(theme.body)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(OnboardingCopy.readingCourse)
+        .accessibilityIdentifier("crewcue.onboarding.course-loading")
+    }
+}
+
 /// The course the server read from the runner's file: the line on the map, the checkpoints, and
 /// the elevation profile along the route line (an unpaid race has no `baselineTrack`).
 struct CoursePreviewPanel: View {
     let preview: CoursePreview
     var summary: String?
+    /// Under the setup loader: kept out of VoiceOver (the map's own UIKit view included).
+    var concealed = false
+    /// The map drew a full frame (see `MapLibreCourseMap.onRendered`).
+    var onMapRendered: () -> Void = {}
     @Environment(\.crew) private var theme
     @ScaledMetric(relativeTo: .body) private var mapHeight: CGFloat = 220
 
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
             if MapCanvas.available {
-                CoursePreviewMap(preview: preview)
+                CoursePreviewMap(preview: preview, onRendered: onMapRendered)
                     .frame(maxWidth: .infinity, minHeight: mapHeight, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: CrewRadius.lg, style: .continuous))
                     .accessibilityLabel(OnboardingCopy.coursePreviewLabel)
                     .accessibilityIdentifier("crewcue.onboarding.course-map")
+                    .accessibilityHidden(concealed)
             }
             if let summary {
                 Text(summary)
                     .font(CrewFont.label)
                     .foregroundStyle(theme.body)
                     .accessibilityIdentifier("crewcue.onboarding.course-summary")
+                    .accessibilityHidden(concealed)
             }
             if let elevation = preview.elevation {
                 ElevationProfileView(profile: elevation)
@@ -31,15 +107,18 @@ struct CoursePreviewPanel: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(OnboardingCopy.elevationProfileLabel)
                     .accessibilityIdentifier("crewcue.onboarding.elevation-profile")
+                    .accessibilityHidden(concealed)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.onboarding.course-preview")
+        .accessibilityHidden(concealed)
     }
 }
 
 private struct CoursePreviewMap: View {
     let preview: CoursePreview
+    var onRendered: () -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -56,6 +135,7 @@ private struct CoursePreviewMap: View {
             onTap: { _, _ in },
             onStyleFailure: { _ in },
             onStyleLoaded: {},
+            onRendered: onRendered,
             lineColor: UIColor(theme.primary),
             trackColor: UIColor(theme.secondary),
             route: preview.route.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) },

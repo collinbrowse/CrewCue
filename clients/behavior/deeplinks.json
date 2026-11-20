@@ -326,8 +326,8 @@
       "label": "crewcue.onboarding-runner-setup",
       "sdk": "none",
       "scope": "v1",
-      "ios": "pass",
-      "android": "pass"
+      "ios": "fail",
+      "android": "fail"
     },
     {
       "id": "onboarding-race-preview",

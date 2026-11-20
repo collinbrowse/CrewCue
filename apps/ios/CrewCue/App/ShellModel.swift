@@ -151,7 +151,8 @@ final class ShellModel {
             signedIn: isSignedIn,
             userId: signedInUserId,
             displayName: signedInDisplayName,
-            race: onboarding.race(onboarding.state.roomId)
+            race: onboarding.race(onboarding.state.roomId),
+            raceName: roster.races.first { $0.id == onboarding.state.roomId }?.name
         )
         syncRacePreview()
     }

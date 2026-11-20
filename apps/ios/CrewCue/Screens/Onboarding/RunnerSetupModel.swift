@@ -25,6 +25,11 @@ final class RunnerSetupModel {
     /// the course step to the start time (the course is saved with the start, so the server still
     /// reads the course step as open).
     private var localStep: OnboardingStep?
+    /// A step behind the frontier the runner went Back to (`RunnerSetupSteps`). Nil on the frontier.
+    private var reviewing: OnboardingStep?
+    /// A relaunch has yet to check for a course file picked on a step the runner went back to
+    /// and never saved (see `resumeUnsavedCourse`).
+    private var resumePending = false
     private var draftStore: RunnerSetupDraftStore?
     private var draft = RunnerSetupDraft()
     private var generation = 0
@@ -32,9 +37,24 @@ final class RunnerSetupModel {
     // MARK: Step state
 
     var displayName = ""
+    /// The race's name, typed on the course step until the race exists; kept in the draft as it
+    /// is typed. The race is created with it, and there's no rename after that.
+    var raceName = "" {
+        didSet { if raceName != oldValue { saveRaceNameDraft() } }
+    }
+    /// The race list's name for this race, shown when this phone's draft didn't name it.
+    private var listedRaceName: String?
     private(set) var courseFileName: String?
     private(set) var courseXml: String?
-    private(set) var coursePreview: CoursePreview?
+    private(set) var coursePreview: CoursePreview? {
+        // Another preview (a new file, a relaunch) waits for its own map again.
+        didSet { if coursePreview != oldValue { courseMapReady = false } }
+    }
+    /// A picked file is being read and previewed (`POST .../course/gpx-preview`).
+    private(set) var previewingCourse = false
+    /// The preview's map drew its first full frame, or the wait for it ran out. Until then the
+    /// preview shows the loader, so no blank tiles or empty profile show first.
+    private(set) var courseMapReady = false
     /// The start's wall-clock fields, edited in UTC so every local time (a daylight saving gap
     /// in the chosen zone included) can be picked and then checked by `RaceStartInput`.
     var startWallClock: Date = RunnerSetupModel.defaultWallClock() {
@@ -92,8 +112,16 @@ final class RunnerSetupModel {
     // MARK: Following the onboarding state
 
     /// Called whenever the onboarding state changes. `state` is the runner flow's when it is in
-    /// setup; the dev route passes whatever state there is.
-    func follow(state: OnboardingState, signedIn: Bool, userId: String?, displayName: String?, race: OnboardingRace?) {
+    /// setup; the dev route passes whatever state there is. `raceName` is the race list's name
+    /// for the state's race.
+    func follow(
+        state: OnboardingState,
+        signedIn: Bool,
+        userId: String?,
+        displayName: String?,
+        race: OnboardingRace?,
+        raceName listedName: String? = nil
+    ) {
         let userChanged = userId != self.userId || signedIn != self.signedIn
         if userChanged {
             reset()
@@ -103,7 +131,10 @@ final class RunnerSetupModel {
             draft = draftStore?.load() ?? RunnerSetupDraft()
             courseXml = draftStore?.loadCourse()
             applyDraft(fallbackName: displayName)
+            resumePending = signedIn
         }
+        let listed = listedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        listedRaceName = listed.isEmpty ? nil : listed
         if let race { role = race.role }
         let stateRoom = state.flow == .runner ? state.roomId : nil
         if let stateRoom, stateRoom != roomId {
@@ -119,21 +150,63 @@ final class RunnerSetupModel {
         if serverStep == .startTime || serverStep == .course, draft.courseConfirmed, draft.roomId == roomId, coursePreview != nil {
             localStep = .startTime
         }
+        if resumePending, state.flow != .loading {
+            resumePending = false
+            resumeUnsavedCourse()
+        }
     }
 
-    /// The step on screen.
-    var step: OnboardingStep {
+    /// The furthest step setup has reached: the server's open step, or a save ahead of it.
+    private var frontierStep: OnboardingStep {
         guard let localStep, Self.order(localStep) > Self.order(serverStep) else { return serverStep }
         return localStep
     }
 
+    /// The step on screen: the frontier, or a step behind it the runner went Back to.
+    var step: OnboardingStep {
+        RunnerSetupSteps.shown(frontier: frontierStep, reviewing: reviewing)
+    }
+
     var stepIndex: Int { Self.order(step) }
     var stepCount: Int { OnboardingStep.runnerSetup.count }
-    /// Before a race exists the runner can still go back and pick crew instead.
-    var canGoBack: Bool { roomId == nil && !busy }
+    /// Back shows on every step after the first, and on the first only before a race exists
+    /// (it returns to the chooser, where the runner can pick crew instead).
+    var showsBack: Bool { RunnerSetupSteps.canGoBack(from: step, raceExists: roomId != nil) }
+    var canGoBack: Bool { showsBack && !busy }
 
     static func order(_ step: OnboardingStep) -> Int {
-        OnboardingStep.runnerSetup.firstIndex(of: step) ?? 0
+        RunnerSetupSteps.index(step)
+    }
+
+    /// Back: the step before this one, with everything entered kept; from the first step, the
+    /// chooser.
+    func goBack() {
+        guard canGoBack else { return }
+        failure = nil
+        if let previous = RunnerSetupSteps.previous(step) {
+            reviewing = previous
+        } else {
+            onBack()
+        }
+    }
+
+    /// A step's Continue moved on to `next`: the frontier moves forward (never back), and a step
+    /// the runner went back to opens the next one until it reaches the frontier again.
+    private func moveOn(to next: OnboardingStep) {
+        let frontier = RunnerSetupSteps.frontier(frontierStep, movingTo: next)
+        if frontier != frontierStep { localStep = frontier }
+        if reviewing != nil {
+            reviewing = RunnerSetupSteps.reviewing(after: next, frontier: frontier)
+        }
+    }
+
+    /// A relaunch past the start time with a course file the race never saved (picked on a step
+    /// the runner went back to): open that step again, so its Continue saves the file. A file
+    /// whose preview never came back opens the course step, which previews it again.
+    private func resumeUnsavedCourse() {
+        guard draft.courseUnsaved == true, draft.roomId == roomId, roomId != nil, courseFileName != nil,
+              Self.order(frontierStep) > Self.order(.startTime) else { return }
+        reviewing = draft.courseConfirmed && coursePreview != nil ? .startTime : .course
     }
 
     /// The runner flow's open setup step; signed out it is always the account.
@@ -171,11 +244,27 @@ final class RunnerSetupModel {
         persist()
         onDisplayName(name)
         failure = nil
-        localStep = .course
+        moveOn(to: .course)
         onMark(.account, .done, nil)
     }
 
     // MARK: Course
+
+    var trimmedRaceName: String { raceName.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// The race exists: its name is read-only, because the API has no rename.
+    var raceNameLocked: Bool { roomId != nil }
+    /// The name shown once the race exists: as typed on this phone, else the race list's.
+    var shownRaceName: String? {
+        let typed = trimmedRaceName
+        return typed.isEmpty ? listedRaceName : typed
+    }
+    /// The course file creates the race, so the race needs its name first.
+    var canChooseCourse: Bool { !busy && (roomId != nil || !trimmedRaceName.isEmpty) }
+
+    /// The preview's map is ready (or the wait for it ended): the preview replaces its loader.
+    func noteCourseMapReady() {
+        if !courseMapReady { courseMapReady = true }
+    }
 
     var courseSummary: String? {
         coursePreview.map { OnboardingCopy.courseSummary(lengthMeters: $0.lengthMeters, checkpoints: $0.checkpoints.count) }
@@ -211,6 +300,9 @@ final class RunnerSetupModel {
         draft.courseFileName = courseFileName
         draft.coursePreview = nil
         draft.courseConfirmed = false
+        // Saved with the start time, even when the race already had a course.
+        draft.courseUnsaved = true
+        draft.savedRaceStartAt = nil
         draftStore?.saveCourse(trimmed)
         persist()
         await previewCourse()
@@ -221,8 +313,12 @@ final class RunnerSetupModel {
         guard let fileName = courseFileName, let xml = courseXml, !busy else { return }
         let ticket = generation
         busy = true
+        previewingCourse = true
         failure = nil
-        defer { busy = false }
+        defer {
+            busy = false
+            previewingCourse = false
+        }
         do {
             let room = try await ensureRoom(fileName: fileName)
             guard ticket == generation else { return }
@@ -259,18 +355,22 @@ final class RunnerSetupModel {
         draft.courseConfirmed = true
         persist()
         failure = nil
-        localStep = .startTime
+        moveOn(to: .startTime)
     }
 
+    /// Creates the race with the name typed on the course step. A draft from before that field
+    /// existed has none: the file's name stands in, as it used to.
     private func ensureRoom(fileName: String) async throws -> String {
         if let roomId { return roomId }
         guard let userId else { throw ClientHTTPError(status: 401, message: "No session.") }
         let ticket = generation
         let base = (fileName as NSString).deletingPathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = trimmedRaceName
+        let title = !typed.isEmpty ? typed : (base.isEmpty ? fileName : base)
         let name = draft.displayName.isEmpty ? displayName : draft.displayName
         let room = try await RaceDayAPI.createRoom(
             graph: client.graph,
-            name: base.isEmpty ? fileName : base,
+            name: title,
             athleteId: userId,
             teamId: userId,
             creatorName: name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -280,6 +380,8 @@ final class RunnerSetupModel {
         roomId = room.id
         role = "athlete"
         draft.roomId = room.id
+        draft.raceName = title
+        raceName = title
         persist()
         onRaceCreated(room.id)
         return room.id
@@ -335,6 +437,13 @@ final class RunnerSetupModel {
     func saveStart() async {
         guard canSaveStart, let roomId, let fileName = courseFileName, let xml = courseXml,
               let raceStartAt = startInput.raceStartAt else { return }
+        if draft.courseUnsaved != true, draft.savedRaceStartAt == raceStartAt, draft.roomId == roomId {
+            // Back on a start time the race already saved, left as it was: no second save (it
+            // counts toward the course save limit), and the history step's estimate still holds.
+            failure = nil
+            moveOn(to: .history)
+            return
+        }
         let ticket = generation
         busy = true
         failure = nil
@@ -349,7 +458,15 @@ final class RunnerSetupModel {
                 plannedPaceSecondsPerKm: coursePreview?.plannedPaceSecondsPerKm ?? 0
             )
             guard ticket == generation else { return }
-            localStep = .history
+            draft.courseUnsaved = false
+            draft.savedRaceStartAt = raceStartAt
+            // Saved again after going back: an estimate the history step attached was for the
+            // course or start before, so its Continue computes a new one.
+            historyAttached = false
+            historyLine = nil
+            draft.historyLine = nil
+            persist()
+            moveOn(to: .history)
             await onServerStepSaved()
         } catch {
             guard ticket == generation else { return }
@@ -429,7 +546,7 @@ final class RunnerSetupModel {
             busy = false
         }
         guard ticket == generation else { return }
-        localStep = .projectionTeaser
+        moveOn(to: .projectionTeaser)
         onMark(.history, outcome, roomId)
     }
 
@@ -546,11 +663,14 @@ final class RunnerSetupModel {
         historyAttached = false
         historyImported = false
         localStep = nil
+        reviewing = nil
         failure = nil
         busy = false
+        previewingCourse = false
         if let saved = draft.roomId, saved != next {
-            // A draft from another race: keep the name, forget the course.
+            // A draft from another race: keep the runner's name, forget the race's name and course.
             draft.resetRace(next)
+            raceName = ""
             courseFileName = nil
             courseXml = nil
             coursePreview = nil
@@ -558,7 +678,10 @@ final class RunnerSetupModel {
             draftStore?.saveCourse(nil)
             persist()
         } else if draft.roomId == nil {
+            // Made elsewhere (or before this phone saved it): the race list has its name.
             draft.roomId = next
+            draft.raceName = nil
+            raceName = ""
             persist()
         }
     }
@@ -567,6 +690,7 @@ final class RunnerSetupModel {
         // A session saved before email names were dropped can still carry one.
         let fallback = SuggestedDisplayName.from(name: fallbackName, email: nil) ?? ""
         displayName = draft.displayName.isEmpty ? fallback : draft.displayName
+        raceName = draft.raceName ?? ""
         courseFileName = draft.courseFileName
         coursePreview = draft.coursePreview
         historyLine = draft.historyLine
@@ -578,6 +702,15 @@ final class RunnerSetupModel {
         guard draftStore != nil else { return }
         draft.startWallClock = startWallClock
         draft.timeZoneIdentifier = timeZoneIdentifier
+        persist()
+    }
+
+    /// The race's name as it is typed, until the race exists (then it can't change).
+    private func saveRaceNameDraft() {
+        guard draftStore != nil, roomId == nil else { return }
+        let value: String? = raceName.isEmpty ? nil : raceName
+        guard draft.raceName != value else { return }
+        draft.raceName = value
         persist()
     }
 
@@ -596,10 +729,16 @@ final class RunnerSetupModel {
         role = "athlete"
         serverStep = .account
         localStep = nil
+        reviewing = nil
+        resumePending = false
         displayName = ""
+        raceName = ""
+        listedRaceName = nil
         courseFileName = nil
         courseXml = nil
         coursePreview = nil
+        previewingCourse = false
+        courseMapReady = false
         startWallClock = Self.defaultWallClock()
         timeZoneIdentifier = DeviceTimeZone.current.identifier
         showsZonePicker = false

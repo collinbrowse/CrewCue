@@ -465,7 +465,9 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
         OnboardingCopy.coursePreviewLabel, OnboardingCopy.elevationProfileLabel, OnboardingCopy.loading,
         OnboardingCopy.back, OnboardingCopy.paywallNotNow, OnboardingCopy.tryAgain,
         OnboardingCopy.accountMenu, OnboardingCopy.signOut, OnboardingCopy.switchRace,
-        OnboardingCopy.lockedAidRow, OnboardingCopy.lockedAidExplanation
+        OnboardingCopy.lockedAidRow, OnboardingCopy.lockedAidExplanation,
+        OnboardingCopy.displayNameHelp, OnboardingCopy.raceNameLabel, OnboardingCopy.raceNamePlaceholder,
+        OnboardingCopy.raceNameHelp, OnboardingCopy.readingCourse
     ]
     for text in strings {
         #expect(!text.isEmpty)
