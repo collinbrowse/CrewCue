@@ -83,8 +83,8 @@ enum Auth0SignIn {
         let claims = IDTokenClaims.read(idToken)
         guard let userId = claims["sub"], !userId.isEmpty else { return nil }
         let role = claims["role"].flatMap { $0.isEmpty ? nil : $0 } ?? "crew"
-        let name = claims["name"] ?? claims["nickname"]
-        let displayName = name?.isEmpty == false ? name : nil
+        // Never the email or its local part (an email sign-up's name and nickname).
+        let displayName = SuggestedDisplayName.from(name: claims["name"], email: claims["email"])
         return ClientSession(
             userId: userId,
             role: role,
