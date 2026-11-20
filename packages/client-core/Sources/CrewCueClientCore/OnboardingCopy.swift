@@ -30,6 +30,9 @@ public enum OnboardingCopy {
     public static let continueLabel = "Continue"
     public static let chooseCourseFile = "Choose course file"
     public static let chooseAnotherCourseFile = "Choose another file"
+    /// The course step once the race has a course this phone doesn't hold the file for (signed
+    /// out and back in, another phone, a reinstall). Continue keeps it; nothing is uploaded again.
+    public static let courseSaved = "Course saved"
     public static let startLabel = "Start"
     public static let timeZoneLabel = "Time zone"
     public static let timeZoneSearch = "Search time zones"
@@ -182,6 +185,8 @@ public enum OnboardingCopy {
 
     /// Course save limit reached (HTTP 429).
     public static let courseSaveLimit = "You've changed the course a lot this hour. Try again in a bit."
+    /// A race has to be created and there's no name for it: the race name field opens again.
+    public static let raceNameMissing = "Add a race name to continue."
     /// A time that does not exist on that date in the chosen zone (spring-forward gap).
     public static let startTimeDstGap = "That time doesn't exist on that date because of daylight saving. Pick another time."
     // `course_mismatch` has no copy on purpose: the client recomputes the estimate and shows nothing.
@@ -208,7 +213,8 @@ public enum OnboardingCopy {
             "raceNamePlaceholder": raceNamePlaceholder, "raceNameHelp": raceNameHelp,
             "readingCourse": readingCourse, "historyTips": historyTips,
             "continueLabel": continueLabel, "chooseCourseFile": chooseCourseFile,
-            "chooseAnotherCourseFile": chooseAnotherCourseFile, "startLabel": startLabel,
+            "chooseAnotherCourseFile": chooseAnotherCourseFile, "courseSaved": courseSaved,
+            "startLabel": startLabel,
             "timeZoneLabel": timeZoneLabel, "timeZoneSearch": timeZoneSearch,
             "importPastRun": importPastRun, "skipHistory": skipHistory, "finishLabel": finishLabel,
             "coursePreviewLabel": coursePreviewLabel, "elevationProfileLabel": elevationProfileLabel,
@@ -227,7 +233,8 @@ public enum OnboardingCopy {
             "paywallFullCrewDetail": paywallFullCrewDetail,
             "paywallBuyLabelTemplate": paywallBuyLabelTemplate,
             "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
-            "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
+            "courseSaveLimit": courseSaveLimit, "raceNameMissing": raceNameMissing,
+            "startTimeDstGap": startTimeDstGap,
             "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
             "labels": runtimeLabels
         ]
