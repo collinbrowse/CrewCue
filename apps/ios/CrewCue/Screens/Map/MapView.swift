@@ -39,6 +39,14 @@ struct MapView: View {
     /// The onboarding replay: the course, the runner and the aid sheet only. No top bar and no map
     /// tools (placing a checkpoint, navigating, tracking), since the replay never writes.
     var readOnly = false
+    /// The onboarding replay's course line, the one its runner follows. Empty on the race map: the
+    /// line joins the checkpoints.
+    var route: [CLLocationCoordinate2D] = []
+    /// The onboarding replay's runner between updates: the dot glides along the course. Nil on
+    /// the race map, where the dot is the runner's latest ping.
+    var glide: RunnerGlide? = nil
+    /// The replay's Map is on screen (not under Pace or Chat), so the glide is worth drawing.
+    var glideOnScreen = true
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
@@ -49,6 +57,10 @@ struct MapView: View {
             MapCanvas(
                 points: model.points,
                 track: model.trackCoordinates,
+                trackTimes: glide == nil ? [] : model.track.points.map(\.recordedAt),
+                route: route,
+                glide: glide,
+                glideOnScreen: glideOnScreen,
                 recenterRequest: model.recenterRequest,
                 replay: readOnly,
                 onTap: { latitude, longitude in
@@ -517,36 +529,58 @@ struct MapCanvas: View {
 
     let points: [MapCoursePoint]
     var track: [CLLocationCoordinate2D] = []
+    var trackTimes: [Date] = []
+    var route: [CLLocationCoordinate2D] = []
+    var glide: RunnerGlide? = nil
+    var glideOnScreen = true
     var recenterRequest = 0
     /// The onboarding replay: no top bar to clear, and a pane that a fold or a size change
     /// resizes, so the course is framed again when it does.
     var replay = false
     @Environment(\.crew) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let onTap: (Double, Double) -> Void
     let onStyleFailure: (Bool) -> Void
     let onStyleLoaded: () -> Void
 
     var body: some View {
         #if canImport(MapLibre)
+        if let glide {
+            // The onboarding replay: a frame on every display refresh while it plays, so the dot
+            // glides along the course. Paused it holds; with Reduce Motion it steps at each update.
+            TimelineView(.animation(minimumInterval: nil, paused: reduceMotion || !glideOnScreen || !glide.isPlaying)) { _ in
+                map(glideFrame: reduceMotion ? nil : glide.frame())
+            }
+        } else {
+            map(glideFrame: nil)
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
+    #if canImport(MapLibre)
+    private func map(glideFrame: RunnerGlideFrame?) -> some View {
         MapLibreCourseMap(
             points: points,
             track: track,
+            trackTimes: trackTimes,
+            glideFrame: glideFrame,
             onTap: onTap,
             onStyleFailure: onStyleFailure,
             onStyleLoaded: onStyleLoaded,
             recenterRequest: recenterRequest,
             lineColor: UIColor(theme.primary),
             trackColor: UIColor(theme.secondary),
+            route: route,
             fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
             refitOnResize: replay,
             shrinksPaddingToFit: replay
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Course map")
-        #else
-        EmptyView()
-        #endif
     }
+    #endif
 }
 
 struct MapPickSection: View {

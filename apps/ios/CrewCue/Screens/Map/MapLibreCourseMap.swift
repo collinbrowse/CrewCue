@@ -9,6 +9,12 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var points: [MapCoursePoint]
     /// The runner's path from the API, oldest first. Drawn over the course; the last point is the runner.
     var track: [CLLocationCoordinate2D] = []
+    /// When each `track` point was recorded. Only the onboarding replay's gliding dot reads them.
+    var trackTimes: [Date] = []
+    /// The onboarding replay's dot between updates, sampled every frame while it plays: the dot
+    /// sits there and the trail stops at it. Nil on the race map and under Reduce Motion: the dot
+    /// sits on the latest point.
+    var glideFrame: RunnerGlideFrame?
     var onTap: (Double, Double) -> Void
     var onStyleFailure: (Bool) -> Void
     var onStyleLoaded: () -> Void
@@ -87,6 +93,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.onStyleLoaded = onStyleLoaded
         context.coordinator.points = points
         context.coordinator.track = track
+        context.coordinator.trackTimes = trackTimes
+        context.coordinator.glideFrame = glideFrame
         context.coordinator.lineColor = lineColor
         context.coordinator.trackColor = trackColor
         context.coordinator.route = route
@@ -131,6 +139,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var lineColor = UIColor.systemPurple
         var trackColor = UIColor.systemOrange
         var track: [CLLocationCoordinate2D] = []
+        var trackTimes: [Date] = []
+        var glideFrame: RunnerGlideFrame?
         var route: [CLLocationCoordinate2D] = []
         var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
         var shrinksPaddingToFit = false
@@ -138,6 +148,10 @@ struct MapLibreCourseMap: UIViewRepresentable {
         private var drawnRoute: [CLLocationCoordinate2D] = []
         private var drawnTrack: [CLLocationCoordinate2D] = []
         private var trackAnnotations: [MLNAnnotation] = []
+        /// The gliding dot as last drawn, and the two shapes a frame moves without a redraw.
+        private var drawnGlide: GlideLayout?
+        private var glidePath: RunnerPathPolyline?
+        private var glideMarker: RunnerMarker?
 
         init(
             onTap: @escaping (Double, Double) -> Void,
@@ -182,7 +196,12 @@ struct MapLibreCourseMap: UIViewRepresentable {
         /// refresh must not pull the map away from where the crew member panned it.
         func redrawTrack(force: Bool) {
             guard let mapView, mapView.style != nil else { return }
-            if !force, Self.same(track, drawnTrack) { return }
+            if let glideFrame, !track.isEmpty, trackTimes.count == track.count {
+                redrawGlide(GlideLayout(frame: glideFrame, track: track, times: trackTimes), force: force)
+                return
+            }
+            if !force, drawnGlide == nil, Self.same(track, drawnTrack) { return }
+            clearGlide()
             mapView.removeAnnotations(trackAnnotations)
             var next: [MLNAnnotation] = []
             if track.count >= 2 {
@@ -198,6 +217,47 @@ struct MapLibreCourseMap: UIViewRepresentable {
             mapView.addAnnotations(next)
             trackAnnotations = next
             drawnTrack = track
+        }
+
+        /// The onboarding replay, frame by frame: the path behind the dot, and the dot on the
+        /// course where the glide has it. The path up to where the glide began stays one shape
+        /// until the next update; a frame only moves the short stretch since then and the dot.
+        private func redrawGlide(_ layout: GlideLayout, force: Bool) {
+            guard let mapView else { return }
+            if !force, let drawn = drawnGlide, drawn.settled == layout.settled, let glidePath, let glideMarker,
+               Self.same(track, drawnTrack) {
+                guard drawn != layout else { return }
+                var stretch = layout.stretch(of: track)
+                glidePath.setCoordinates(&stretch, count: UInt(stretch.count))
+                glideMarker.coordinate = layout.dot
+                drawnGlide = layout
+                return
+            }
+            mapView.removeAnnotations(trackAnnotations)
+            var next: [MLNAnnotation] = []
+            if layout.settled >= 2 {
+                var settled = Array(track[..<layout.settled])
+                next.append(RunnerPathPolyline(coordinates: &settled, count: UInt(settled.count)))
+            }
+            var stretch = layout.stretch(of: track)
+            let path = RunnerPathPolyline(coordinates: &stretch, count: UInt(stretch.count))
+            next.append(path)
+            let marker = RunnerMarker()
+            marker.coordinate = layout.dot
+            marker.title = "Runner"
+            next.append(marker)
+            mapView.addAnnotations(next)
+            trackAnnotations = next
+            drawnTrack = track
+            drawnGlide = layout
+            glidePath = path
+            glideMarker = marker
+        }
+
+        private func clearGlide() {
+            drawnGlide = nil
+            glidePath = nil
+            glideMarker = nil
         }
 
         private static func same(_ a: [CLLocationCoordinate2D], _ b: [CLLocationCoordinate2D]) -> Bool {
@@ -295,6 +355,50 @@ struct MapLibreCourseMap: UIViewRepresentable {
             let coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: nil)
             onTap(coordinate.latitude, coordinate.longitude)
         }
+    }
+}
+
+/// Where the gliding dot is on the runner's path: `settled` points were behind it when its glide
+/// began, `reached` are behind it now, and `dot` is the dot. A path read that hasn't caught up
+/// with the glide yet keeps the dot on the path's last point.
+struct GlideLayout: Equatable {
+    var settled: Int
+    var reached: Int
+    var latitude: Double
+    var longitude: Double
+
+    var dot: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
+
+    init(frame: RunnerGlideFrame, track: [CLLocationCoordinate2D], times: [Date]) {
+        settled = Self.count(times, atOrBefore: frame.from)
+        let caughtUp = (times.last ?? .distantPast) >= frame.at
+        reached = caughtUp ? Self.count(times, atOrBefore: frame.at) : times.count
+        let dot = caughtUp ? frame.coordinate : (track.last ?? frame.coordinate)
+        latitude = dot.latitude
+        longitude = dot.longitude
+    }
+
+    /// The path from the last settled point through the points reached since, to the dot. At
+    /// least two points, so the shape always draws.
+    func stretch(of track: [CLLocationCoordinate2D]) -> [CLLocationCoordinate2D] {
+        let start = max(0, min(settled, reached) - 1)
+        var points = Array(track[start..<min(reached, track.count)])
+        points.append(dot)
+        if points.count < 2 {
+            points.append(dot)
+        }
+        return points
+    }
+
+    /// How many of `times` (oldest first) are at or before `moment`.
+    static func count(_ times: [Date], atOrBefore moment: Date) -> Int {
+        var low = 0
+        var high = times.count
+        while low < high {
+            let middle = (low + high) / 2
+            if times[middle] <= moment { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 }
 

@@ -110,7 +110,11 @@ private let planFinish = raceStart.addingTimeInterval(28_800)
     #expect(runner.ping != nil)
     #expect(runner.stalenessThresholdSeconds == 900)
     let track = try await RaceDayAPI.refreshTrack(graph: graph, roomId: "room-1", track: .empty)
-    #expect(track.points.count == demo.player.script.pings(through: demo.player.snapshot.stepIndex).count)
+    // The path runs along the course line: every ping, and the line between them.
+    let served = demo.player.script.track(through: demo.player.snapshot.stepIndex)
+    #expect(track.points.count == served.count)
+    #expect(track.points.count > demo.player.script.pings(through: demo.player.snapshot.stepIndex).count)
+    #expect(track.points.map(\.latitude) == served.map(\.latitude))
     #expect(track.cursor == RaceDayReadouts.iso8601(try #require(track.points.last).recordedAt))
     let page = try await RaceDayAPI.pingTrack(graph: graph, roomId: "room-1", after: nil, limit: 2)
     #expect(page.points.count == 2)
@@ -231,10 +235,16 @@ private let planFinish = raceStart.addingTimeInterval(28_800)
     let quiet = try await RaceDayAPI.refreshTrack(graph: graph, roomId: "room-1", track: before)
     #expect(quiet.points.count == before.points.count)
 
-    // Back in service: six saved samples arrive in one read, and the runner is live again.
+    // Back in service: six saved samples arrive in one read (with the course line between them),
+    // and the runner is live again.
     play(demo, clock, to: 19.5)
     let after = try await RaceDayAPI.refreshTrack(graph: graph, roomId: "room-1", track: quiet)
-    #expect(after.points.count == quiet.points.count + 6)
+    let backlog = demo.player.script.steps[demo.player.snapshot.stepIndex]
+    #expect(backlog.pings.count == 6)
+    let arrived = after.points.dropFirst(quiet.points.count)
+    #expect(arrived.count == backlog.track.count)
+    let arrivedTimes = Set(arrived.map(\.recordedAt))
+    #expect(backlog.pings.allSatisfy { arrivedTimes.contains(ScheduleFormat.parseISO8601(RaceDayReadouts.iso8601($0.recordedAt))!) })
     runner = try await RaceDayAPI.latestPing(graph: graph, roomId: "room-1")
     #expect(runner.state(now: graph.clock.now()) == .live)
     #expect(RaceDayReadouts.lastPingLabel(at: try #require(runner.ping).recordedAt, now: graph.clock.now()) == "JUST NOW")

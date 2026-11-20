@@ -242,6 +242,32 @@ struct DemoRaceRuntimeTests {
         _ = try await runtime(request.merging(["op": "demoRaceSkip"]) { $1 })
     }
 
+    /// Android's dot can glide too: `demoRaceRunner` answers where the dot is now, on the course
+    /// line, and the path `pingTrack` serves runs along the line up to it.
+    @Test func demoRaceRunnerAnswersTheGlidingDotOnTheCourseLine() async throws {
+        let created = try result(try await runtime(["op": "demoRaceCreate", "fixture": true, "tempDir": freshDirectory().path]))
+        let base = try #require(created["baseURL"] as? String)
+        let request: [String: Any] = [
+            "baseURL": base, "userId": DemoRaceFixture.runnerUserId, "storageDir": freshDirectory().path, "roomId": DemoRaceFixture.roomId
+        ]
+        _ = try await runtime(request.merging(["op": "demoRaceSeek", "seconds": 3.25]) { $1 })
+        let runner = try result(try await runtime(request.merging(["op": "demoRaceRunner"]) { $1 }))
+        let script = DemoRaceScript(course: try DemoRaceCourse(roomData: DemoRaceFixture.roomData, viewerUserId: DemoRaceFixture.runnerUserId))
+        let expected = try #require(script.runnerPosition(atWallSeconds: 3.25))
+        #expect(runner["latitude"] as? Double == expected.latitude)
+        #expect(runner["longitude"] as? Double == expected.longitude)
+        #expect(runner["lineMeters"] as? Double == expected.lineMeters)
+        #expect(runner["recordedAt"] as? String == RaceDayReadouts.iso8601(expected.recordedAt))
+        #expect(runner["fromRecordedAt"] as? String == RaceDayReadouts.iso8601(expected.fromRecordedAt))
+        let track = try result(try await runtime(request.merging(["op": "pingTrack"]) { $1 }))
+        let points = try #require(track["points"] as? [[String: Any]])
+        #expect(points.count == script.track(through: 6).count)
+        #expect(points.count > script.pings(through: 6).count)
+        _ = try await runtime(request.merging(["op": "demoRaceSkip"]) { $1 })
+        // Ended: the op fails, never answers a stale dot.
+        #expect(!ok(try await runtime(request.merging(["op": "demoRaceRunner"]) { $1 })))
+    }
+
     @Test func demoRaceCreateHandsBackTheRoomBodyItReadForAnOfflineReplay() async throws {
         let real = realBase()
         RuntimeCall.setTransportForTests(PlanServer(), baseURL: real)

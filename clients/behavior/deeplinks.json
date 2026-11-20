@@ -335,8 +335,8 @@
       "label": "crewcue.onboarding-race-preview",
       "sdk": "maplibre",
       "scope": "v1",
-      "ios": "pass",
-      "android": "pass"
+      "ios": "fail",
+      "android": "fail"
     }
   ]
 }

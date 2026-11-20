@@ -56,7 +56,9 @@ final class DemoRuntimes: @unchecked Sendable {
 /// start fails with `state`, its checklist state (`DemoRace.unavailableState`). Creating a replay
 /// retires any earlier one (a recreated screen never leaves the old one live). `demoRacePlay`,
 /// `demoRacePause`, `demoRaceTick`, `demoRaceSkip` and `demoRaceSeek` (`seconds`: wall time
-/// played, `DemoRacePlayer.seek`) take that `baseURL` and answer a snapshot. Finishing or skipping
+/// played, `DemoRacePlayer.seek`) take that `baseURL` and answer a snapshot; `demoRaceRunner`
+/// answers where the runner's dot is now, for a map that glides it along the course between
+/// updates (`DemoRacePlayer.runnerPosition`). Finishing or skipping
 /// deletes the directory and retires the base URL: later calls on it fail and never fall back to
 /// the network. `demoRaceCleanup` (`tempDir`) at app start removes directories an app kill left
 /// behind.
@@ -194,6 +196,22 @@ extension RuntimeCall {
             throw ClientHTTPError(status: 400, message: "seconds is required.")
         }
         return demoSnapshotJSON(session.player.seek(toWallSeconds: seconds))
+    }
+
+    /// Where the replay's runner dot is now (`DemoRacePlayer.runnerPosition`), for a map that
+    /// glides it along the course between updates: `latitude`, `longitude`, `lineMeters`,
+    /// `recordedAt` (path points recorded at or before it are behind the dot) and `fromRecordedAt`
+    /// (where the glide began). An empty object before the first ping.
+    static func demoRaceRunner(_ object: [String: Any]) throws -> Any {
+        guard let session = demoRace(object) else { throw DemoRaceError.ended }
+        guard let position = session.player.runnerPosition else { return [String: Any]() }
+        return [
+            "latitude": position.latitude,
+            "longitude": position.longitude,
+            "lineMeters": position.lineMeters,
+            "recordedAt": RaceDayReadouts.iso8601(position.recordedAt),
+            "fromRecordedAt": RaceDayReadouts.iso8601(position.fromRecordedAt)
+        ] as [String: Any]
     }
 
     static func demoChatPrefix(_ baseURL: URL) -> String {

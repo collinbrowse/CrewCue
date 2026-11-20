@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import Observation
 import CrewCueClientCore
@@ -128,6 +129,11 @@ final class RacePreviewModel {
         let chat: ChatModel
         let userId: String
         let roomId: String
+        /// The course line the replay's runner follows, drawn as the Map's course (the race map
+        /// joins the checkpoints; the replay's trail runs along this line, so it draws this one).
+        let route: [CLLocationCoordinate2D]
+        /// The dot between updates: it glides along `route` while the replay plays.
+        let glide: RunnerGlide
     }
 
     /// No role: the replay only watches, so its models offer no edit and attempt no write.
@@ -349,7 +355,9 @@ final class RacePreviewModel {
             pace: PaceModel(client: graph, storage: storage),
             chat: ChatModel(client: graph),
             userId: viewer,
-            roomId: session.roomId
+            roomId: session.roomId,
+            route: session.player.script.course.line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) },
+            glide: RunnerGlide(player: session.player)
         )
         replay = next
         await next.map.activate(userId: viewer, roomId: session.roomId, role: Self.viewerRole)
@@ -434,6 +442,7 @@ final class RacePreviewModel {
     private func apply(_ snapshot: DemoRaceSnapshot) async {
         progress = snapshot.progress
         isPlaying = snapshot.isPlaying
+        replay?.glide.isPlaying = snapshot.isPlaying
         if snapshot.beat != beat {
             beat = snapshot.beat
             panel = Self.panel(for: snapshot.beat)
@@ -447,6 +456,7 @@ final class RacePreviewModel {
         guard let player = session?.player, status == .playing else { return }
         let snapshot = pausedByUser || !sceneActive || !audience.isWatched ? player.pause() : player.play()
         isPlaying = snapshot.isPlaying
+        replay?.glide.isPlaying = snapshot.isPlaying
     }
 
     /// The replay ends unless a view comes back within the grace period.
@@ -472,6 +482,7 @@ final class RacePreviewModel {
         session = nil
         ended?.player.skip()
         if let replay {
+            replay.glide.isPlaying = false
             replay.map.clear()
             replay.pace.clear()
             replay.chat.clear()
