@@ -7,13 +7,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
-import { getRaceRoom } from "../routes/raceRooms.js";
+import { evictRaceRoomFromMemoryForTests, getRaceRoom, setRaceRoomLoadDelayForTests } from "../routes/raceRooms.js";
 import { appendTrackPoints, listTrackPoints } from "./athletePingTrack.js";
 import { insertChatMessage, listChatMessages } from "./chatMessageStore.js";
 import { MemoryChatPhotoStore, setChatPhotoStoreForTests } from "./chatPhotoStore.js";
 import { listFinishedEfforts, recordFinishedEffort } from "./finishedEffortStore.js";
 import { deleteRaceRoomAndData } from "./raceRoomDeletion.js";
-import type { RaceRoomExpiryFields } from "./roomPersistence.js";
+import { isRoomPersistenceEnabled, loadRaceRoom, type RaceRoomExpiryFields } from "./roomPersistence.js";
 import { recordRoomRemoval, roomRemovedAt } from "./roomRemovalStore.js";
 
 type App = ReturnType<typeof buildApp>;
@@ -208,3 +208,53 @@ test("a delete that fails partway leaves the room stored, and a repeat finishes 
     setChatPhotoStoreForTests(undefined);
   }
 });
+
+test(
+  "a cold read of the room that overlaps its delete does not bring the deleted room back",
+  { skip: !isRoomPersistenceEnabled() && "needs Postgres (test:pg): memory mode has no stored row to read" },
+  async () => {
+    await withApp(async (app) => {
+      const runner = uid("runner-cold-read");
+      const room = await raceWithData(app, runner);
+      // A fresh process after a deploy: the room is only in Postgres.
+      evictRaceRoomFromMemoryForTests(room.id);
+
+      let readDone!: () => void;
+      const read = new Promise<void>((resolve) => {
+        readDone = resolve;
+      });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      setRaceRoomLoadDelayForTests(async () => {
+        readDone();
+        await released;
+      });
+      try {
+        // A crew phone opens the race: its cold read has the row and has not cached it yet.
+        const coldGet = app.inject({ method: "GET", url: `/race-rooms/${room.id}`, headers: auth(app, runner) });
+        await read;
+        // Account deletion (or the unpaid race sweeper) deletes the race meanwhile.
+        assert.equal(await deleteRaceRoomAndData(room.id), "deleted");
+        release();
+        await coldGet;
+      } finally {
+        setRaceRoomLoadDelayForTests(undefined);
+      }
+
+      assert.equal(await getRaceRoom(room.id), undefined, "the deleted room is not served from the cache");
+      const after = await app.inject({ method: "GET", url: `/race-rooms/${room.id}`, headers: auth(app, runner) });
+      assert.equal(after.statusCode, 404, after.body);
+      // A write on the room must not upsert the deleted row back into Postgres.
+      const write = await app.inject({
+        method: "PATCH",
+        url: `/race-rooms/${room.id}/race-start`,
+        payload: { raceStartAt: new Date(Date.now() + 86_400_000).toISOString() },
+        headers: auth(app, runner)
+      });
+      assert.equal(write.statusCode, 404, write.body);
+      assert.equal(await loadRaceRoom(room.id), undefined, "the room row stays deleted");
+    });
+  }
+);
