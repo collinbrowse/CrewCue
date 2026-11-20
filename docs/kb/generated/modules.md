@@ -187,6 +187,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/ScheduleFormat.swift) | `ScheduleFormat` |
 | [packages/client-core/Sources/CrewCueClientCore/Session.swift](../../../packages/client-core/Sources/CrewCueClientCore/Session.swift) | `ClientSession`, `UserDataStore`, `SessionController`, `SessionFile` |
 | [packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift](../../../packages/client-core/Sources/CrewCueClientCore/StopPlanDraft.swift) | `PlannedStopEdit`, `StopPlanCopy`, `StopMinutesInput`, `StopPlanDraft` |
+| [packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift](../../../packages/client-core/Sources/CrewCueClientCore/SuggestedDisplayName.swift) | `SuggestedDisplayName` |
 | [packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift](../../../packages/client-core/Sources/CrewCueClientCore/UserFacingError.swift) | `UserFacingError` |
 | [packages/client-core/Sources/CrewCueClientCore/UserStorage.swift](../../../packages/client-core/Sources/CrewCueClientCore/UserStorage.swift) | `UserStorage`, `SessionExpiryTransport` |
 
@@ -194,11 +195,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-106 files under `packages/client-core/Sources/`.
+107 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 56 | 12497 |
+| `CrewCueClientCore` | 57 | 12519 |
 | `CrewCueClientCore/Generated` | 50 | 980 |
 
 ### iOS app (SwiftUI)
@@ -208,7 +209,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 14 | 1596 |
+| `App` | 14 | 1599 |
 | `Brand` | 1 | 184 |
 | `Design` | 5 | 1327 |
 | `Logging` | 2 | 18 |
@@ -222,7 +223,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 4 | 1951 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 10 | 2881 |
+| `Screens/Onboarding` | 10 | 2882 |
 | `Screens/Pace` | 2 | 1868 |
 | `Screens/Profile` | 2 | 427 |
 | `Screens/RoomMembers` | 2 | 199 |
