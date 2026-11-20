@@ -96,6 +96,14 @@ npm run auth0:bootstrap-mobile-client
 1. In Auth0, configure a database connection for email/password (for example `Username-Password-Authentication`).
 2. Enable the connection for CrewCue mobile app.
 3. Record that exact connection name for email.
+4. Say plainly when an email already has an account. By default, signing up with a registered email shows "Something went wrong, please try again later" (error code `auth0-users-validation`), which reads like an outage. Branding → Universal Login → Custom Text: prompt `signup`, screen `signup`, language English. Set these two keys and save:
+   ```json
+   {
+     "auth0-users-validation": "An account with this email may already exist. Tap Log in, or reset your password.",
+     "email-in-use": "An account with this email already exists. Tap Log in instead."
+   }
+   ```
+   Trade-off: anyone can tell whether an email has an account. Accepted for CrewCue (2026-11-20). Do this on every tenant, production included.
 
 ## 8) Environment wiring
 
