@@ -71,6 +71,17 @@ public final class DemoRacePlayer: @unchecked Sendable {
         return snapshotLocked(changed: false)
     }
 
+    /// Where the runner's dot is now (`DemoRaceScript.runnerPosition`), for a screen that samples
+    /// it every frame so the dot glides along the course between updates. Paused, it holds on the
+    /// paused moment. It never runs ahead of the step the replay's routes answer, so the dot is
+    /// always on the path they serve. Real race maps never use this: there the dot is the runner's
+    /// latest ping.
+    public var runnerPosition: DemoRaceRunnerPosition? {
+        lock.lock()
+        defer { lock.unlock() }
+        return script.runnerPosition(atWallSeconds: elapsedLocked(), throughStep: world.step.index)
+    }
+
     @discardableResult
     public func play() -> DemoRaceSnapshot {
         lock.lock()

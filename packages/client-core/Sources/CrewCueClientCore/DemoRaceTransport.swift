@@ -222,12 +222,22 @@ public final class DemoRaceTransport: HTTPTransport, @unchecked Sendable {
         )
     }
 
-    /// Accepted points after `after` (exclusive), oldest first; `nextCursor` on a full page.
+    /// The runner's path after `after` (exclusive), oldest first; `nextCursor` on a full page. The
+    /// path runs along the course line (`DemoRaceScript.track(through:)`), not ping to ping.
     private func track(after: String?, limit: Int?) -> RaceRoomPingTrackResponse {
         let cap = min(max(limit ?? 1000, 1), 1000)
         let cursor = after.flatMap(ScheduleFormat.parseISO8601)
-        let points = world.script.pings(through: world.step.index)
-            .filter { ping in cursor.map { ping.recordedAt > $0 } ?? true }
+        let served = world.script.track(through: world.step.index)
+        var start = served.startIndex
+        if let cursor {
+            start = served.firstIndex { $0.recordedAt > cursor } ?? served.endIndex
+            // A point whose millisecond wire time is the cursor's own was sent already.
+            while start < served.endIndex,
+                  let wire = ScheduleFormat.parseISO8601(RaceDayReadouts.iso8601(served[start].recordedAt)), wire <= cursor {
+                start += 1
+            }
+        }
+        let points = served[start...]
             .prefix(cap)
             .map { AthleteTrackPoint(recordedAt: RaceDayReadouts.iso8601($0.recordedAt), latitude: $0.latitude, longitude: $0.longitude) }
         return RaceRoomPingTrackResponse(
