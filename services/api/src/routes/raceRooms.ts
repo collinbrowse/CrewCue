@@ -559,6 +559,20 @@ export async function saveRaceRoom(room: RaceRoom): Promise<void> {
  * After deploy the cache is empty, so the first GET of a room (schedule, course, …)
  * overlaps in-flight writes the same way listing did.
  */
+/**
+ * Room deletes so far in this process, and the count at which each deleted room went. A cold read
+ * (`getRaceRoom` cache miss, a room listing) notes the count before its SELECT and caches only
+ * rooms not deleted since: a row it read before the delete committed must not put the room back
+ * in the cache, where the next save would upsert it back into Postgres. A room created again
+ * under the same id (an idempotent create replayed) is read after the delete and is cached.
+ */
+let roomDeleteCount = 0;
+const roomDeletedAtCount = new Map<string, number>();
+
+function deletedSince(roomId: string, readStartedAt: number): boolean {
+  return (roomDeletedAtCount.get(roomId) ?? -1) >= readStartedAt;
+}
+
 function rememberRaceRoomIfAbsent(room: RaceRoom): RaceRoom {
   const live = raceRooms.get(room.id);
   if (live) {
@@ -572,11 +586,13 @@ function rememberRaceRoomIfAbsent(room: RaceRoom): RaceRoom {
 /**
  * Hydrate the live room cache from a DB list without rolling back a newer in-process write.
  */
-function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[]): void {
-  for (const room of rooms) {
+function ingestPersistedRaceRoomsWithoutClobber(rooms: readonly RaceRoom[], readStartedAt = roomDeleteCount): RaceRoom[] {
+  const kept = rooms.filter((room) => !deletedSince(room.id, readStartedAt));
+  for (const room of kept) {
     rememberRaceRoomIfAbsent(room);
     indexJoinCode(room);
   }
+  return kept;
 }
 
 /** Test helper: simulate a late list payload against the live room cache. */
@@ -678,13 +694,14 @@ export async function getRaceRoom(roomIdOrCode: string): Promise<RaceRoom | unde
   }
   let room = raceRooms.get(resolvedId);
   if (!room) {
+    const readStartedAt = roomDeleteCount;
     const loaded = await loadRaceRoom(resolvedId);
     const delay = roomLoadDelayForTests;
     if (loaded && delay) {
       roomLoadDelayForTests = undefined;
       await delay();
     }
-    if (loaded) {
+    if (loaded && !deletedSince(resolvedId, readStartedAt)) {
       // Re-check live cache after the await — a concurrent saveRaceRoom may have won.
       room = rememberRaceRoomIfAbsent(loaded);
     }
@@ -1920,8 +1937,8 @@ export async function listRaceRoomsByTeamId(teamId: string): Promise<RaceRoom[]>
   if (!isRoomPersistenceEnabled()) {
     return [...raceRooms.values()].filter((r) => r.teamId === teamId);
   }
-  const persisted = await listPersistedRaceRoomsByTeamId(teamId);
-  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  const readStartedAt = roomDeleteCount;
+  const persisted = ingestPersistedRaceRoomsWithoutClobber(await listPersistedRaceRoomsByTeamId(teamId), readStartedAt);
   return mergeListedRaceRooms(persisted, (r) => r.teamId === teamId);
 }
 
@@ -1933,8 +1950,8 @@ export async function listRaceRoomsForMember(userId: string): Promise<RaceRoom[]
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return Promise.all(sorted.map((r) => ensureJoinCodeBackfill(r)));
   }
-  const persisted = await listPersistedRaceRoomsForMember(userId);
-  ingestPersistedRaceRoomsWithoutClobber(persisted);
+  const readStartedAt = roomDeleteCount;
+  const persisted = ingestPersistedRaceRoomsWithoutClobber(await listPersistedRaceRoomsForMember(userId), readStartedAt);
   const sorted = mergeListedRaceRooms(persisted, isMember).sort(
     (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
   );
@@ -2223,6 +2240,8 @@ export async function deleteRaceRoomRecord(
     await withExclusiveTail(roomSaveTail, roomId, async () => {
       unindexJoinCodeForRoomId(roomId);
       raceRooms.delete(roomId);
+      roomDeletedAtCount.set(roomId, roomDeleteCount);
+      roomDeleteCount += 1;
     });
     return result;
   });
