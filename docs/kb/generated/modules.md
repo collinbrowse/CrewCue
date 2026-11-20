@@ -100,7 +100,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceAudience.swift) | `DemoRaceAudience` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceFixture.swift) | `DemoRaceFixture` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRacePlayer.swift) | `DemoRaceSnapshot`, `DemoRacePlayer`, `DemoRaceSession`, `DemoRace`, `LiveDemoDirectories` |
-| [packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift) | `DemoRaceError`, `DemoRaceCoordinate`, `DemoRaceCourse`, `DemoRaceBeat`, `DemoRacePing`, `DemoRaceChatMessage`, `DemoRaceStep`, `DemoRaceScript` |
+| [packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceScript.swift) | `DemoRaceError`, `DemoRaceCoordinate`, `DemoRaceCourse`, `DemoRaceBeat`, `DemoRacePing`, `DemoRaceTrackPoint`, `DemoRaceRunnerPosition`, `DemoRaceChatMessage`, `DemoRaceStep`, `DemoRaceScript`, `WireTime`, `DemoRaceGlide` |
 | [packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift](../../../packages/client-core/Sources/CrewCueClientCore/DemoRaceTransport.swift) | `DemoRaceWorld`, `DemoRaceClock`, `DemoRaceTransport` |
 | [packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift](../../../packages/client-core/Sources/CrewCueClientCore/DeviceTimeZone.swift) | `DeviceTimeZone` |
 | [packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift](../../../packages/client-core/Sources/CrewCueClientCore/EstimateRecompute.swift) | `ActivityHistoryRef`, `EstimateRecomputeReason`, `EstimateHistoryRecord`, `EstimateRecomputeInput`, `EstimateRecomputeDecision`, `PlanAuthority`, `EstimateRecompute` |
@@ -199,12 +199,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 57 | 12519 |
+| `CrewCueClientCore` | 57 | 12825 |
 | `CrewCueClientCore/Generated` | 50 | 980 |
 
 ### iOS app (SwiftUI)
 
-72 files under `apps/ios/CrewCue/`.
+74 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -221,9 +221,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Chat` | 4 | 944 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 4 | 1951 |
+| `Screens/Map` | 6 | 2198 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 10 | 2882 |
+| `Screens/Onboarding` | 10 | 2927 |
 | `Screens/Pace` | 2 | 1868 |
 | `Screens/Profile` | 2 | 427 |
 | `Screens/RoomMembers` | 2 | 199 |
