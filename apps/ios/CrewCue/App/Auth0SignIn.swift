@@ -48,12 +48,15 @@ enum Auth0SignIn {
             }
             let credentials = try await web.start()
             guard let session = session(accessToken: credentials.accessToken, idToken: credentials.idToken) else {
+                OSLogSink.write("Auth0 sign-in failed: the ID token has no sub claim")
                 throw Auth0SignInFailure.failed
             }
             return session
         } catch let failure as Auth0SignInFailure {
             throw failure
         } catch {
+            // The screen shows only "Sign-in failed." or "Offline"; the cause goes to the log.
+            OSLogSink.write("Auth0 sign-in failed: \(String(describing: error))")
             throw map(error)
         }
         #else
