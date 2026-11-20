@@ -22,7 +22,9 @@ import {
   resetPacingEstimateStoreForTests,
   savePacingEstimate
 } from "../lib/pacingEstimateStore.js";
+import { isRoomPersistenceEnabled } from "../lib/roomPersistence.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
+import { runInFreshProcess } from "../lib/testFreshProcess.js";
 import { getRaceRoom, saveRaceRoom } from "./raceRooms.js";
 import { movingElapsedSecondsFromEstimate, projectCrewScheduleSheet } from "./raceRoomSchedule.js";
 
@@ -1101,3 +1103,81 @@ test("estimate projection does not treat an early finish id as the race finish",
   assert.equal(moving.get("finish-2"), 14_400);
   assert.ok((moving.get("finish") ?? 0) < 600);
 });
+
+test(
+  "after an API restart the crew's aid ETAs still come from the runner's attached plan, and the plan still attaches by id",
+  { skip: !isRoomPersistenceEnabled() && "needs Postgres (test:pg)", timeout: 90_000 },
+  async () => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const runner = `runner-plan-restart-${suffix}`;
+    const crew = `crew-plan-restart-${suffix}`;
+    // Not `withApp`: its cleanup truncates the stored estimates the restart must read back.
+    const app = buildApp();
+    await app.ready();
+    const runnerToken = app.jwt.sign(buildClaims(runner));
+    const crewToken = app.jwt.sign(buildClaims(crew));
+    const roomId = await createPaidRoom(app, runnerToken, "Plan restart");
+    const room = await put50kCourse(app, roomId, runnerToken);
+    // A second race of the runner's, still without a plan: the restart attaches the plan here.
+    const laterRoomId = await createPaidRoom(app, runnerToken, "Plan restart, next race");
+    await put50kCourse(app, laterRoomId, runnerToken);
+    const computed = await createEstimateViaApi(app, runnerToken, room);
+    const attach = await attachEstimate(app, roomId, runnerToken, { pacingEstimateId: computed.id });
+    assert.equal(attach.statusCode, 200, attach.body);
+    const joined = await app.inject({
+      method: "POST",
+      url: "/race-rooms/join-by-code",
+      payload: { roomCode: room.joinCode },
+      headers: { authorization: `Bearer ${crewToken}` }
+    });
+    assert.equal(joined.statusCode, 200, joined.body);
+    const before = await getSchedule(app, roomId, crewToken);
+    assert.equal(before.statusCode, 200, before.body);
+    const sheetBefore = parseCrewScheduleSheet(before.json());
+    assert.equal(sheetBefore.pacingEstimateId, computed.id);
+    const roomBefore = (await getRaceRoom(roomId))!;
+    // The plan, not the course's flat pace, sets the aid ETAs crew read.
+    assert.notDeepEqual(sheetBefore, parseCrewScheduleSheet(projectCrewScheduleSheet(room)));
+    await app.close();
+
+    type Read = { status: number; body: unknown };
+    const after = runInFreshProcess<{ room: Read; schedule: Read; reattach: Read; attachLater: Read; laterSchedule: Read }>(
+      `
+      const { buildApp } = await import(process.argv[1]);
+      const [roomId, laterRoomId, estimateId, runnerToken, crewToken] = process.argv.slice(2);
+      const app = buildApp();
+      await app.ready();
+      const call = async (method, url, token, payload) => {
+        const res = await app.inject({ method, url, payload, headers: { authorization: "Bearer " + token } });
+        return { status: res.statusCode, body: res.json() };
+      };
+      const room = await call("GET", "/race-rooms/" + roomId, crewToken);
+      const schedule = await call("GET", "/race-rooms/" + roomId + "/schedule", crewToken);
+      const reattach = await call("PUT", "/race-rooms/" + roomId + "/pacing-estimate", runnerToken, { pacingEstimateId: estimateId });
+      const attachLater = await call("PUT", "/race-rooms/" + laterRoomId + "/pacing-estimate", runnerToken, { pacingEstimateId: estimateId });
+      const laterSchedule = await call("GET", "/race-rooms/" + laterRoomId + "/schedule", runnerToken);
+      process.stdout.write("\\nRESULT:" + JSON.stringify({ room, schedule, reattach, attachLater, laterSchedule }) + "\\n");
+      await app.close();
+      process.exit(0);
+    `,
+      [roomId, laterRoomId, computed.id, runnerToken, crewToken]
+    );
+    for (const [label, res] of Object.entries(after)) {
+      assert.equal(res.status, 200, `${label}: ${JSON.stringify(res.body)}`);
+    }
+
+    // Crew read the same sheet after the restart: every aid ETA is still the plan's.
+    assert.deepEqual(parseCrewScheduleSheet(after.schedule.body), sheetBefore);
+    const roomAfter = (after.room.body as { room: RaceRoom }).room;
+    assert.equal(roomAfter.pacingEstimateId, computed.id);
+    assert.deepEqual(roomAfter.pacingEstimate, roomBefore.pacingEstimate);
+    assert.equal(roomAfter.plannedPaceSecondsPerKm, roomBefore.plannedPaceSecondsPerKm);
+    // Re-sending the same plan after the restart changes nothing.
+    assert.deepEqual(after.reattach.body, attach.json());
+    // The stored estimate itself came back from Postgres: it attaches to the runner's next race.
+    assert.equal((after.attachLater.body as { pacingEstimateId: string }).pacingEstimateId, computed.id);
+    assert.equal(parseCrewScheduleSheet(after.laterSchedule.body).pacingEstimateId, computed.id);
+    const stored = await getPacingEstimateById(computed.id);
+    assert.deepEqual([...(stored?.roomIds ?? [])].sort(), [roomId, laterRoomId].sort());
+  }
+);
