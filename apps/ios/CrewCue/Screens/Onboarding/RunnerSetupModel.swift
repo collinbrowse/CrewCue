@@ -564,7 +564,8 @@ final class RunnerSetupModel {
     }
 
     private func applyDraft(fallbackName: String?) {
-        let fallback = fallbackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // A session saved before email names were dropped can still carry one.
+        let fallback = SuggestedDisplayName.from(name: fallbackName, email: nil) ?? ""
         displayName = draft.displayName.isEmpty ? fallback : draft.displayName
         courseFileName = draft.courseFileName
         coursePreview = draft.coursePreview

@@ -1,6 +1,9 @@
 // Server and Auth0 tenant, read by Info.plist. `/$()/` keeps xcconfig from reading `//` as a comment.
 // Debug talks to the local API and the dev tenant.
 CREWCUE_API_BASE_URL = http:/$()/127.0.0.1:3000
+// On a real phone 127.0.0.1 is the phone itself, so Debug device builds use staging, which takes
+// the dev tenant's tokens (same audience) and the debug purchase (BILLING_MANUAL_ENTITLEMENT).
+CREWCUE_API_BASE_URL[config=Debug][sdk=iphoneos*] = https:/$()/crewcue-staging.up.railway.app
 CREWCUE_AUTH0_DOMAIN = dev-ozh1r6603ymvszq6.us.auth0.com
 CREWCUE_AUTH0_CLIENT_ID = oRRfHuZS7jN2pd8wn9aAwRnyay0kuzia
 CREWCUE_AUTH0_AUDIENCE = https:/$()/api.crewcue.staging

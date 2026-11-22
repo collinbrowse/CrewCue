@@ -144,8 +144,14 @@ struct RacePreviewView: View {
                     .fullWidthClearOfOcclusions()
             }
             ZStack {
-                MapView(model: replay.map, readOnly: true)
-                    .accessibilityHidden(!splits && model.panel != .map)
+                // The course line the runner follows, and the dot gliding along it while the
+                // replay plays with the Map on screen (under Pace or Chat it holds until the Map
+                // shows again).
+                MapView(
+                    model: replay.map, readOnly: true, route: replay.route, glide: replay.glide,
+                    glidePlaying: model.isPlaying && (splits || model.panel == .map), pathPings: model.pathPings
+                )
+                .accessibilityHidden(!splits && model.panel != .map)
                 if !splits && model.panel != .map {
                     panelView(model.panel, replay)
                         .transition(.opacity)
@@ -170,7 +176,10 @@ struct RacePreviewView: View {
     private func panelView(_ panel: RacePreviewModel.Panel, _ replay: RacePreviewModel.Replay) -> some View {
         switch panel {
         case .map:
-            MapView(model: replay.map, readOnly: true)
+            MapView(
+                model: replay.map, readOnly: true, route: replay.route, glide: replay.glide,
+                glidePlaying: model.isPlaying, pathPings: model.pathPings
+            )
         case .pace:
             PaceView(
                 model: replay.pace,

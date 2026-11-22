@@ -24,7 +24,8 @@ import Dispatch
 /// stopTrackingSession, featureFlags, activityHistoryItems, importActivityFile,
 /// readOnboarding, markOnboardingStep, resetOnboarding, parseInviteLink, savePendingJoin,
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
-/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceCleanup (`RuntimeDemoRace.swift`),
+/// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceRunner, demoRaceCleanup
+/// (`RuntimeDemoRace.swift`),
 /// raceStartInput, gpxPreview, raceAccess (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
@@ -316,6 +317,8 @@ enum RuntimeCall {
             return try demoRaceControl(op, object)
         case "demoRaceSeek":
             return try demoRaceSeek(object)
+        case "demoRaceRunner":
+            return try demoRaceRunner(object)
         case "demoRaceCleanup":
             return try demoRaceCleanup(object)
         case "raceStartInput":

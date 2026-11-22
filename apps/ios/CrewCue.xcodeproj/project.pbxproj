@@ -45,6 +45,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Design/OcclusionLayout.swift,
+				Screens/Map/GlideLayout.swift,
 			);
 			target = A10000000000000000000073 /* CrewCueTests */;
 		};
