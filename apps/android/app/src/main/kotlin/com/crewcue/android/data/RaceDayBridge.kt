@@ -457,6 +457,19 @@ class RaceDayBridge private constructor(
         if (onboarding != null) put("onboarding", onboarding)
     }
 
+    /**
+     * client-core `SuggestedDisplayName`: the name the account step suggests for crew, from the
+     * sign-in identity's [name] and [email] (a saved name passes no email). Null for an email or
+     * the email's local part, so the field starts empty. Pure and quick: safe on the calling thread.
+     */
+    fun suggestedDisplayName(name: String?, email: String?): String? {
+        val result = call("suggestedDisplayName") {
+            if (name != null) put("name", name)
+            if (!email.isNullOrBlank()) put("email", email)
+        }
+        return (result as? RuntimeResult.Success)?.result?.optText("name")?.ifBlank { null }
+    }
+
     /** Removes demo replay folders a killed process left in [tempDir] (the app's cache directory). */
     fun demoRaceCleanup(tempDir: String): RuntimeResult = call("demoRaceCleanup") { put("tempDir", tempDir) }
 
@@ -496,6 +509,13 @@ class RaceDayBridge private constructor(
 
     /** On a [replay] bridge: forward to [seconds] of wall time played; play or pause stays. */
     fun demoRaceSeek(seconds: Double): RuntimeResult = call("demoRaceSeek") { put("seconds", seconds) }
+
+    /**
+     * On a [replay] bridge: where the runner's dot is now (`DemoRacePlayer.runnerPosition`), on the
+     * course line: `latitude`, `longitude`, `lineMeters`, `recordedAt` and `fromRecordedAt`, or an
+     * empty object before the first ping. Paused, it holds. No request: a Map samples it every frame.
+     */
+    fun demoRaceRunner(): RuntimeResult = call("demoRaceRunner")
 
     private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
         if (races != null) put("races", races)

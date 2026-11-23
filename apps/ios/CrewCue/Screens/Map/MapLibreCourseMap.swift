@@ -18,6 +18,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
     var onTap: (Double, Double) -> Void
     var onStyleFailure: (Bool) -> Void
     var onStyleLoaded: () -> Void
+    /// A frame drawn with every tile it needs, on a loaded style (the remote one or the blank
+    /// fallback). Fires again after camera moves; the setup course preview waits for the first.
+    var onRendered: () -> Void = {}
     var recenterRequest = 0
     var lineColor = UIColor(red: 0.329, green: 0.251, blue: 0.725, alpha: 1)
     var trackColor = UIColor.systemOrange
@@ -60,7 +63,9 @@ struct MapLibreCourseMap: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTap: onTap, onStyleFailure: onStyleFailure, onStyleLoaded: onStyleLoaded)
+        let coordinator = Coordinator(onTap: onTap, onStyleFailure: onStyleFailure, onStyleLoaded: onStyleLoaded)
+        coordinator.onRendered = onRendered
+        return coordinator
     }
 
     func makeUIView(context: Context) -> MLNMapView {
@@ -91,6 +96,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.onTap = onTap
         context.coordinator.onStyleFailure = onStyleFailure
         context.coordinator.onStyleLoaded = onStyleLoaded
+        context.coordinator.onRendered = onRendered
         context.coordinator.points = points
         context.coordinator.track = track
         context.coordinator.trackTimes = trackTimes
@@ -131,6 +137,7 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var onTap: (Double, Double) -> Void
         var onStyleFailure: (Bool) -> Void
         var onStyleLoaded: () -> Void
+        var onRendered: () -> Void = {}
         weak var mapView: MLNMapView?
         var recenterRequest = 0
         var dark = false
@@ -353,6 +360,14 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 self.drawnPoints = []
                 self.redraw(force: true)
                 self.redrawTrack(force: true)
+            }
+        }
+
+        nonisolated func mapViewDidFinishRenderingMap(_ mapView: MLNMapView, fullyRendered: Bool) {
+            guard fullyRendered else { return }
+            MainActor.assumeIsolated {
+                guard mapView.style != nil else { return }
+                self.onRendered()
             }
         }
 

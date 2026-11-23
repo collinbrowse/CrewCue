@@ -149,12 +149,16 @@ final class ShellModel {
     /// Re-reads the onboarding state. `races` is the race list when one just answered.
     func syncOnboarding(races: [OnboardingRace]? = nil) {
         onboarding.refresh(signedIn: isSignedIn, userId: signedInUserId, races: races, activeRoomId: signedInRoomId)
+        // Setup reads only its own race's entries (its race and the state's can differ, on the
+        // dev route or while a new race isn't listed yet).
         runnerSetup.follow(
             state: onboarding.state,
             signedIn: isSignedIn,
             userId: signedInUserId,
             displayName: signedInDisplayName,
-            race: onboarding.race(onboarding.state.roomId)
+            races: onboarding.races,
+            raceNames: Dictionary(roster.races.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }),
+            freshRaces: races != nil
         )
         syncRacePreview()
     }
@@ -216,6 +220,24 @@ final class ShellModel {
         enterShellIfNeeded()
     }
 
+    // MARK: Sign-in
+
+    /// The chooser's "I already have an account": the sign-in screen, set to sign in (runner
+    /// setup's Create account may have left it on sign-up).
+    func openSignIn() {
+        authModel.signingUp = false
+        show(Route(featureId: "auth-sign-in", state: .success))
+    }
+
+    /// Sign-in's Back. Signed out, the sign-in route always has the app's own launch behind it,
+    /// the screen sign-out lands on: the chooser, or the step a saved pick resumes. So Back opens
+    /// it however sign-in opened (the chooser, join's Back, a dev link), with the onboarding state
+    /// untouched. Not while Auth0 is working.
+    func leaveSignIn() {
+        guard !isSignedIn, route.featureId == "auth-sign-in", !authModel.isWorking else { return }
+        show(Route(featureId: "app-shell", state: .success))
+    }
+
     private func bindRunnerSetup() {
         runnerSetup.onRaceCreated = { [weak self] roomId in
             self?.noteJoined(roomId: roomId, role: "athlete")
@@ -246,8 +268,15 @@ final class ShellModel {
             self?.showBilling()
         }
         runnerSetup.onBack = { [weak self] in
-            self?.onboarding.clearChoice()
-            self?.syncOnboarding()
+            guard let self else { return }
+            onboarding.clearChoice()
+            // `crewcue://dev/onboarding-runner-setup` shows setup whatever the state: Back leaves
+            // it for the app's own launch, which now opens the chooser.
+            if route.featureId == "onboarding-runner-setup" {
+                fixtureOverlay = false
+                show(Route(featureId: "app-shell", state: .success))
+            }
+            syncOnboarding()
         }
     }
 

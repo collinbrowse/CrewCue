@@ -28,8 +28,8 @@ class AppContainer(context: Context) {
     val logger = AndroidLogger()
     val sessionStore = SessionStore(appContext)
     val authConfig = AuthConfig.load(appContext)
-    val authGateway: AuthGateway = Auth0SdkGateway(authConfig)
     val raceDay = RaceDayBridge(authConfig.apiBaseUrl, sessionStore, logger)
+    val authGateway: AuthGateway = Auth0SdkGateway(authConfig, raceDay::suggestedDisplayName)
 
     /** The runner's half-typed setup and course file, outside the per-user storage root. */
     val runnerSetupDrafts: RunnerSetupDraftStore =

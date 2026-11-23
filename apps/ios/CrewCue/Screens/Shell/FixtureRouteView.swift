@@ -109,6 +109,7 @@ struct ProductRouteView: View {
 }
 
 /// The explicit sign-in route. Signed in, onboarding decides between setup and the tab bar.
+/// Signed out, Back opens the app's own launch (the chooser), the screen sign-out lands on.
 struct AuthOrShell: View {
     @Bindable var model: ShellModel
 
@@ -116,9 +117,11 @@ struct AuthOrShell: View {
         if model.isSignedIn {
             OnboardingGate(model: model)
         } else {
-            AuthSignInView(model: model.authModel, onJoin: {
-                model.show(Route(featureId: "join-crew", state: .success))
-            })
+            AuthSignInView(
+                model: model.authModel,
+                onJoin: { model.show(Route(featureId: "join-crew", state: .success)) },
+                onBack: { model.leaveSignIn() }
+            )
         }
     }
 }
@@ -150,9 +153,7 @@ struct OnboardingGate: View {
                 OnboardingChooserView(
                     onRunner: { choose(.runner) },
                     onCrew: { choose(.crew) },
-                    onSignIn: model.isSignedIn ? nil : {
-                        model.show(Route(featureId: "auth-sign-in", state: .success))
-                    }
+                    onSignIn: model.isSignedIn ? nil : { model.openSignIn() }
                 )
             case .runnerSetup:
                 RunnerSetupView(model: model.runnerSetup)

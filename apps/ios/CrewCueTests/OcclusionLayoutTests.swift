@@ -69,6 +69,43 @@ final class OcclusionLayoutTests: XCTestCase {
         XCTAssertEqual(clear(row(y: 200, height: 100), occlusions: regions + [sensor]), .trailing)
     }
 
+    // MARK: Obstacles (bar items in the column)
+
+    /// A trailing bar item the system places in the column below the cameras, clearance included.
+    private let barItem = CGRect(x: 398, y: 190, width: 56, height: 56)
+
+    func testARowBesideABarItemInTheColumnKeepsTheInset() {
+        // The account step's "Your name" field once the bar row has no Back.
+        let field = row(y: 200, height: 52)
+        XCTAssertEqual(OcclusionLayout.clearEdges(frame: field, leading: 0, trailing: 84, occlusions: regions, obstacles: [barItem], displayTop: 0), [])
+        XCTAssertEqual(clear(field), .trailing, "without the bar item the field runs under it")
+    }
+
+    func testARowBelowTheBarItemStillRunsPastTheInset() {
+        let below = row(y: 260, height: 52)
+        XCTAssertEqual(OcclusionLayout.clearEdges(frame: below, leading: 0, trailing: 84, occlusions: regions, obstacles: [barItem], displayTop: 0), .trailing)
+    }
+
+    func testABarItemNeverMakesAnInsetAColumn() {
+        // An iPhone's trailing inset with a bar item in it: still kept, as with no regions.
+        XCTAssertEqual(OcclusionLayout.clearEdges(frame: row(y: 400, height: 100), leading: 0, trailing: 84, occlusions: [], obstacles: [barItem], displayTop: 0), [])
+        XCTAssertEqual(OcclusionLayout.columnEdges(frame: row(y: 0, height: 10), leading: 0, trailing: 84, occlusions: [barItem], displayTop: 0), [])
+    }
+
+    func testAMovingRowNarrowsBesideABarItem() {
+        let field = row(y: 200, height: 52)
+        let next = OcclusionLayout.nextEdges(current: .trailing, frame: field, visible: display, leading: 0, trailing: 84, occlusions: regions, obstacles: [barItem], displayTop: 0)
+        XCTAssertEqual(next, [])
+    }
+
+    func testOcclusionDisplayReadsObstaclesRightToLeft() {
+        // Right to left the column, and the Back item the system puts in it, stay on the
+        // display's right, now the leading edge, at the same global frames.
+        let screen = OcclusionDisplay(bounds: display, occlusions: regions, obstacles: [barItem])
+        XCTAssertEqual(screen.clearEdges(frame: row(y: 200, height: 52), leading: 84, trailing: 0, layoutDirection: .rightToLeft), [])
+        XCTAssertEqual(screen.clearEdges(frame: row(y: 260, height: 52), leading: 84, trailing: 0, layoutDirection: .rightToLeft), .leading)
+    }
+
     func testAnInsetWithNoOcclusionRegionsIsKept() {
         // Before reserved regions, or a display that reports none.
         XCTAssertEqual(clear(row(y: 400, height: 100), occlusions: []), [])

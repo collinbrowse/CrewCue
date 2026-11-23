@@ -96,6 +96,11 @@ fun MapScreen(
  * tools, no tracking and nothing sent. [underTopBar]: the shell's floating top bar is above the
  * map, so the chips start below it; the replay draws the map in its own pane instead, framing
  * the course with [framing].
+ *
+ * Only the replay passes [glide] (its dot between pings, read on every frame it changes, never
+ * recomposing this) and [pathPings] (the pings in its path, which the path chip counts instead of
+ * the points the replay adds along the course). On the race Map the dot is the runner's latest
+ * ping and the chip counts the path the API serves.
  */
 @Composable
 fun MapContent(
@@ -106,7 +111,9 @@ fun MapContent(
     bottomInset: Dp = 16.dp,
     onLocked: (() -> Unit)? = null,
     underTopBar: Boolean = true,
-    framing: CourseFraming = CourseFraming.Screen
+    framing: CourseFraming = CourseFraming.Screen,
+    glide: (() -> RunnerGlideFrame?)? = null,
+    pathPings: Int? = null
 ) {
     LaunchedEffect(roomId) { model.load() }
     // Back from the lock screen or another app: read the runner now, not at the next tick.
@@ -160,9 +167,17 @@ fun MapContent(
                 onTilesUnavailable = model::onTilesUnavailable,
                 recenterRequest = model.recenterRequest,
                 modifier = Modifier.fillMaxSize(),
-                framing = framing
+                framing = framing,
+                trackTimes = if (glide != null) model.trackTimes else emptyList(),
+                glide = glide
             )
-            MapOverlay(model, onTool = { tool = it }, underTopBar = underTopBar, modifier = Modifier.align(Alignment.TopStart))
+            MapOverlay(
+                model,
+                onTool = { tool = it },
+                underTopBar = underTopBar,
+                pathPings = pathPings,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
         }
         MapSheet(
             model = model,
@@ -181,7 +196,13 @@ fun MapContent(
 
 /** Status chips and the round map controls under the shell top bar (or the replay pane's top). */
 @Composable
-private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, underTopBar: Boolean, modifier: Modifier = Modifier) {
+private fun MapOverlay(
+    model: MapViewModel,
+    onTool: (String) -> Unit,
+    underTopBar: Boolean,
+    pathPings: Int?,
+    modifier: Modifier = Modifier
+) {
     var menu by remember { mutableStateOf(false) }
     Row(
         modifier
@@ -197,7 +218,8 @@ private fun MapOverlay(model: MapViewModel, onTool: (String) -> Unit, underTopBa
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusChip(readout.pingLabel, ChipStyle.Surface, dot = readout.pingState == "live")
-            val count = model.track.size
+            // The runner's pings, as on a race: the replay's path adds points along the course between them.
+            val count = if (model.track.isEmpty()) 0 else pathPings ?: model.track.size
             val trackLabel = if (count == 0) "NO PATH YET" else "PATH · $count ${if (count == 1) "POINT" else "POINTS"}"
             StatusChip(
                 trackLabel,
@@ -447,7 +469,9 @@ private fun CourseMapHost(
     onTilesUnavailable: () -> Unit,
     recenterRequest: Int,
     modifier: Modifier,
-    framing: CourseFraming = CourseFraming.Screen
+    framing: CourseFraming = CourseFraming.Screen,
+    trackTimes: List<Long> = emptyList(),
+    glide: (() -> RunnerGlideFrame?)? = null
 ) {
     val renderer = CourseMaps.renderer
     if (BuildConfig.MAP_LIBRE && renderer != null) {
@@ -464,7 +488,9 @@ private fun CourseMapHost(
                 { settled = true; onStyleFailed() },
                 { settled = true; onTilesUnavailable() },
                 recenterRequest,
-                framing
+                framing,
+                trackTimes,
+                glide
             )
             if (!settled) {
                 CairnLoader(

@@ -411,6 +411,26 @@ public enum RaceDayAPI {
         }
     }
 
+    /// `PATCH /race-rooms/:roomId/race-start`: the start alone, without sending the course again.
+    /// The attached estimate's clocks (finish, bands, aid ETAs) move with the start, where a course
+    /// save (`PUT /course`) drops the estimate. On an unpaid race it counts toward the same hourly
+    /// save budget as a course save (429). Answers the room shaped for the caller.
+    public static func updateRaceStart(
+        graph: ClientGraph,
+        roomId: String,
+        raceStartAt: String,
+        idempotencyKey: String? = nil
+    ) async throws -> RaceRoom {
+        let data = try await sendJSON(
+            graph,
+            "/race-rooms/\(roomId)/race-start",
+            method: .patch,
+            object: ["raceStartAt": raceStartAt],
+            idempotencyKey: idempotencyKey
+        )
+        return try JSONDecoder().decode(RaceRoom.self, from: data)
+    }
+
     /// #250: save planned stop minutes. Sends only the changed checkpoints; the server applies all
     /// of them or none and recomputes the schedule without resetting crew task state.
     public static func updatePlannedStops(graph: ClientGraph, roomId: String, edits: [PlannedStopEdit]) async throws -> RaceRoom {
