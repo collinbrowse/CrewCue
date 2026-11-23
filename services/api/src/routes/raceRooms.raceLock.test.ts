@@ -1,6 +1,6 @@
 /**
- * The race lock and race rename. A Race Pass pays for one race: once the race is used (the first
- * runner ping at or after the start, or 48 hours after the start), its route line and start are
+ * The race lock and race rename. A Race Pass pays for one race: once the race is used (the runner
+ * reaches the first aid station on race pings, or 48 hours after the start), its route line and start are
  * locked so the paid room cannot be reused for another race. Renaming and aid-station edits stay
  * open. See lib/raceLock.ts. Runs in memory and on Postgres (CI).
  */
@@ -9,7 +9,13 @@ import assert from "node:assert/strict";
 import type { MapWorkspaceLayer, RaceMapWorkspace, RaceRoom } from "@crewcue/contracts";
 import { buildApp } from "../app.js";
 import { resetPacingEstimateStoreForTests } from "../lib/pacingEstimateStore.js";
-import { RACE_LOCK_AFTER_START_MS, effectiveRaceLockedAt, isRaceLocked } from "../lib/raceLock.js";
+import {
+  RACE_LOCK_AFTER_START_MS,
+  aidStationLockAt,
+  effectiveRaceLockedAt,
+  isRaceLocked,
+  raceStartChangeAllowed
+} from "../lib/raceLock.js";
 import { load50kCourseWithAids } from "../lib/testCourseRouteLayer.js";
 
 type App = ReturnType<typeof buildApp>;
@@ -109,11 +115,14 @@ async function raceOn50k(app: App, runner: string, raceStartAt: string, paid = t
   return roomId;
 }
 
-function ping(app: App, roomId: string, runner: string, recordedAtMs: number) {
+/** The 50k fixture's first aid station, 10 km due north of the start. */
+const AID_1_METERS = 9_989;
+
+function ping(app: App, roomId: string, runner: string, recordedAtMs: number, meters = 200) {
   return app.inject({
     method: "POST",
     url: `/race-rooms/${roomId}/pings`,
-    payload: { ...upRoute(200), recordedAt: iso(recordedAtMs), uploadIntervalSeconds: 30 },
+    payload: { ...upRoute(meters), recordedAt: iso(recordedAtMs), uploadIntervalSeconds: 30 },
     headers: auth(app, runner)
   });
 }
@@ -196,17 +205,46 @@ test("isRaceLocked: paid rooms only; a stored lock, or 48 hours after the start"
   assert.equal(isRaceLocked(unpaid, now), false, "an unpaid room is never locked");
   const expired = { ...grace, entitlement: { status: "expired" } } as RaceRoom;
   assert.equal(isRaceLocked(expired, now), false);
+
+  // Pings lock at the first aid station (checkpoints[1]), at or after the start only.
+  const course = { checkpoints: [{ id: "start" }, { id: "aid-1" }, { id: "finish" }] } as RaceRoom["course"];
+  const onCourse = { ...started, course } as RaceRoom;
+  assert.equal(aidStationLockAt(onCourse, { start: iso(now - HOUR) }), undefined, "the start line alone");
+  assert.equal(aidStationLockAt(onCourse, { "aid-1": iso(now - 10 * MINUTE) }), iso(now - 10 * MINUTE));
+  assert.equal(aidStationLockAt(onCourse, { "aid-1": iso(now - 2 * HOUR) }), undefined, "before the start");
+  assert.equal(aidStationLockAt({ ...onCourse, raceLockedAt: iso(now - HOUR) }, { "aid-1": iso(now) }), undefined, "already locked");
+  assert.equal(aidStationLockAt({ ...onCourse, entitlement: { status: "unpaid" } } as RaceRoom, { "aid-1": iso(now) }), undefined);
+
+  // A locked race's start may go anywhere in the 12 hours before the first aid station.
+  const aidLocked = { ...onCourse, raceLockedAt: iso(now) };
+  assert.equal(raceStartChangeAllowed(aidLocked, iso(now - 11 * HOUR), now), true);
+  assert.equal(raceStartChangeAllowed(aidLocked, iso(now - 13 * HOUR), now), false);
+  assert.equal(raceStartChangeAllowed(aidLocked, iso(now + MINUTE), now), false, "not after the aid station");
 });
 
-test("a race ping locks a paid race: no new route, GPX or start; aid stations, rename and planned stops stay open", async () => {
+test("reaching the first aid station locks a paid race: no new route, GPX or start; aid stations, rename and planned stops stay open", async () => {
   await withApp(async (app) => {
     const runner = "lock-runner";
     const now = wholeSecond(Date.now());
-    const start = iso(now - HOUR);
+    const startMs = now - 80 * MINUTE;
+    const start = iso(startMs);
     const roomId = await raceOn50k(app, runner, start);
     assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, undefined, "not locked before a race ping");
 
-    // Before any race ping the runner can still fix the course and the start.
+    // Race pings short of the first aid station (a runner at the start line, a delayed gun) do
+    // not lock: the start can move by any amount and the course can still be replaced.
+    const atStart = await app.inject({
+      method: "POST",
+      url: `/race-rooms/${roomId}/pings/batch`,
+      payload: { points: [{ ...upRoute(200), recordedAt: iso(startMs + 5 * MINUTE) }] },
+      headers: auth(app, runner)
+    });
+    assert.equal(atStart.statusCode, 200, atStart.body);
+    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, undefined, "a ping at the start line");
+    const postponed = await patchStart(app, roomId, runner, iso(startMs + 3 * DAY));
+    assert.equal(postponed.statusCode, 200, postponed.body);
+    const back = await patchStart(app, roomId, runner, start);
+    assert.equal(back.statusCode, 200, back.body);
     const fixedCourse = await putCourse(app, roomId, runner, start, { routeOverlayLayer: otherRoute() });
     assert.equal(fixedCourse.statusCode, 200, fixedCourse.body);
     const backCourse = await putCourse(app, roomId, runner, start, {
@@ -214,15 +252,18 @@ test("a race ping locks a paid race: no new route, GPX or start; aid stations, r
     });
     assert.equal(backCourse.statusCode, 200, backCourse.body);
 
-    const pinged = await ping(app, roomId, runner, now);
-    assert.equal(pinged.statusCode, 201, pinged.body);
+    // Past Aid 1 at a runner's pace: locked at the projection's arrival there.
+    const pastAid = await ping(app, roomId, runner, now, AID_1_METERS + 150);
+    assert.equal(pastAid.statusCode, 201, pastAid.body);
     const locked = await readRoom(app, roomId, runner);
-    assert.equal(locked.raceLockedAt, iso(now));
+    assert.ok(locked.raceLockedAt, "locked at the first aid station");
+    const lockMs = Date.parse(locked.raceLockedAt!);
+    assert.ok(lockMs > startMs + 5 * MINUTE && lockMs <= now, locked.raceLockedAt);
 
     // A later ping does not move the lock.
-    const later = await ping(app, roomId, runner, now + 30_000);
+    const later = await ping(app, roomId, runner, now + 30_000, AID_1_METERS + 300);
     assert.equal(later.statusCode, 201, later.body);
-    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, iso(now));
+    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, locked.raceLockedAt);
 
     // Refused: a new route line, a new start (on its route or in the course save), a new GPX.
     assertLocked(await putCourse(app, roomId, runner, start, { routeOverlayLayer: otherRoute() }));
@@ -257,13 +298,15 @@ test("a race ping locks a paid race: no new route, GPX or start; aid stations, r
     assert.equal((sameRoute.json() as RaceRoom).course?.checkpoints[1]?.title, "Aid station 1");
     const sameStart = await patchStart(app, roomId, runner, start);
     assert.equal(sameStart.statusCode, 200, sameStart.body);
-    // A delayed gun: the start may still move within 12 hours of the locking ping, and back.
-    assertLocked(await patchStart(app, roomId, runner, iso(now + 13 * HOUR)));
-    const delayed = await patchStart(app, roomId, runner, iso(now + 30 * MINUTE));
-    assert.equal(delayed.statusCode, 200, delayed.body);
-    const delayedCourse = await putCourse(app, roomId, runner, start);
-    assert.equal(delayedCourse.statusCode, 200, delayedCourse.body);
-    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, iso(now), "the lock stays");
+    // A start entered at the wrong hour: it may still go anywhere in the 12 hours before Aid 1,
+    // never after it, and never further back.
+    assertLocked(await patchStart(app, roomId, runner, iso(lockMs + MINUTE)));
+    assertLocked(await patchStart(app, roomId, runner, iso(lockMs - 13 * HOUR)));
+    const corrected = await patchStart(app, roomId, runner, iso(startMs + 30 * MINUTE));
+    assert.equal(corrected.statusCode, 200, corrected.body);
+    const correctedBack = await putCourse(app, roomId, runner, start);
+    assert.equal(correctedBack.statusCode, 200, correctedBack.body);
+    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, locked.raceLockedAt, "the lock stays");
     const workspaceNow = await readWorkspace(app, roomId, runner);
     const sameWorkspace = await putWorkspace(app, roomId, runner, workspaceNow);
     assert.equal(sameWorkspace.statusCode, 200, sameWorkspace.body);
@@ -271,7 +314,7 @@ test("a race ping locks a paid race: no new route, GPX or start; aid stations, r
     const renamed = await rename(app, roomId, runner, "  Western States 2030  ");
     assert.equal(renamed.statusCode, 200, renamed.body);
     assert.equal((renamed.json() as RaceRoom).name, "Western States 2030");
-    assert.equal((renamed.json() as RaceRoom).raceLockedAt, iso(now));
+    assert.equal((renamed.json() as RaceRoom).raceLockedAt, locked.raceLockedAt);
 
     // A refund puts the room back to unpaid: never locked, and the response carries no lock.
     const refund = await app.inject({
@@ -301,26 +344,35 @@ test("a pre-start ping does not lock the race", async () => {
   });
 });
 
-test("a backlog upload locks the race at its first race sample", async () => {
+test("a backlog upload that reaches the first aid station locks the race", async () => {
   await withApp(async (app) => {
     const runner = "lock-batch-runner";
     const now = wholeSecond(Date.now());
-    const startMs = now - 10 * MINUTE;
+    const startMs = now - 2 * HOUR;
     const roomId = await raceOn50k(app, runner, iso(startMs));
-    const batch = await app.inject({
-      method: "POST",
-      url: `/race-rooms/${roomId}/pings/batch`,
-      payload: {
-        points: [
-          { ...upRoute(0), recordedAt: iso(startMs - 2 * MINUTE) },
-          { ...upRoute(100), recordedAt: iso(startMs + MINUTE) },
-          { ...upRoute(300), recordedAt: iso(startMs + 3 * MINUTE) }
-        ]
-      },
-      headers: auth(app, runner)
-    });
-    assert.equal(batch.statusCode, 200, batch.body);
-    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, iso(startMs + MINUTE));
+    const upload = (points: Array<{ meters: number; atMs: number }>) =>
+      app.inject({
+        method: "POST",
+        url: `/race-rooms/${roomId}/pings/batch`,
+        payload: { points: points.map(({ meters, atMs }) => ({ ...upRoute(meters), recordedAt: iso(atMs) })) },
+        headers: auth(app, runner)
+      });
+    // A dead zone's backlog short of Aid 1: still unlocked.
+    const early = await upload([
+      { meters: 0, atMs: startMs - 2 * MINUTE },
+      { meters: 2_000, atMs: startMs + 15 * MINUTE },
+      { meters: 5_000, atMs: startMs + 35 * MINUTE }
+    ]);
+    assert.equal(early.statusCode, 200, early.body);
+    assert.equal((await readRoom(app, roomId, runner)).raceLockedAt, undefined);
+    // The next backlog passes Aid 1: locked, at or before the sample past it.
+    const past = await upload([
+      { meters: 8_000, atMs: startMs + 55 * MINUTE },
+      { meters: AID_1_METERS + 300, atMs: startMs + 75 * MINUTE }
+    ]);
+    assert.equal(past.statusCode, 200, past.body);
+    const lockedAt = (await readRoom(app, roomId, runner)).raceLockedAt;
+    assert.ok(lockedAt && Date.parse(lockedAt) <= startMs + 75 * MINUTE, lockedAt);
     assertLocked(await patchStart(app, roomId, runner, iso(now + DAY)));
   });
 });

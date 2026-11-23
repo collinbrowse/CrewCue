@@ -1,7 +1,7 @@
 import Foundation
 
 /// The race lock (server `lib/raceLock.ts`). A Race Pass pays for one race: once the race is used
-/// (the runner's first ping at or after the start, or 48 hours after the start), its course line
+/// (the runner reaches the first aid station, or 48 hours after the start), its course line
 /// and start time are locked. Renaming and aid-station edits stay open. The room carries the lock
 /// as `raceLockedAt`; a refused edit answers 409 `{ code: "race_locked" }`.
 public enum RaceLock {

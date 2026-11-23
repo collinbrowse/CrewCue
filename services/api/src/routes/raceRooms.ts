@@ -135,7 +135,7 @@ import { isTeaserRoom, projectionForRoom, roomForViewer, teaserProjection } from
 import { isManualBillingAllowed } from "../lib/billingEnv.js";
 import {
   isRaceLocked,
-  pingStartsRaceLock,
+  aidStationLockAt,
   raceStartChangeAllowed,
   RACE_LOCKED_CODE,
   RACE_LOCKED_ERROR,
@@ -2815,20 +2815,23 @@ function raceLockedReply(reply: FastifyReply) {
 }
 
 /**
- * Store the race lock on the first race ping (see raceLock.ts). Caller holds the room runtime
- * lock. Writes only once; a failed write is retried by the next ping.
+ * Store the race lock once race pings reach the first aid station (see raceLock.ts), read from the
+ * projection those pings just recomputed. Caller holds the room runtime lock. Writes only once; a
+ * failed write is retried by the next ping.
  */
-async function lockRaceOnPing(log: FastifyBaseLogger, room: RaceRoom, recordedAtMs: number): Promise<void> {
-  if (!pingStartsRaceLock(room, recordedAtMs)) {
+async function lockRaceAtFirstAid(log: FastifyBaseLogger, room: RaceRoom): Promise<void> {
+  const crossings = roomProjectionState.get(room.id)?.splitCrossedAt;
+  if (!crossings || !aidStationLockAt(room, crossings)) {
     return;
   }
   try {
     // Re-read so the write carries any room field saved since `room` was read.
     const latest = (await getRaceRoom(room.id)) ?? room;
-    if (!pingStartsRaceLock(latest, recordedAtMs)) {
+    const lockedAt = aidStationLockAt(latest, crossings);
+    if (!lockedAt) {
       return;
     }
-    await saveRaceRoom({ ...latest, raceLockedAt: new Date(recordedAtMs).toISOString() });
+    await saveRaceRoom({ ...latest, raceLockedAt: lockedAt });
   } catch (err) {
     log.warn({ err, roomId: room.id }, "race_lock_write_failed");
   }
@@ -4895,7 +4898,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     );
 
     await saveWs2RuntimeSnapshot(roomId);
-    await lockRaceOnPing(request.log, latestRoom, recordedAtMs);
+    await lockRaceAtFirstAid(request.log, latestRoom);
 
     // Pings to an unpaid race are 402 above; were that gate opened, the reply is still the teaser,
     // whose finish is from the start line, not from this ping's position.
@@ -5098,11 +5101,7 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
         pingState.lastUploadIntervalSeconds
       );
       await saveWs2RuntimeSnapshot(roomId);
-      // Accepted samples are oldest first: the first race sample is the race's first use.
-      const firstRaceSample = accepted.find((sample) => pingStartsRaceLock(latestRoom, sample.recordedAtMs));
-      if (firstRaceSample) {
-        await lockRaceOnPing(request.log, latestRoom, firstRaceSample.recordedAtMs);
-      }
+      await lockRaceAtFirstAid(request.log, latestRoom);
 
       const counts = { accepted: 0, duplicate: 0, rejected: 0 };
       for (const result of results) {

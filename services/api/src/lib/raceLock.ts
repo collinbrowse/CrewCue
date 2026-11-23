@@ -5,14 +5,18 @@ import type { RaceRoom } from "@crewcue/contracts";
  * are fixed, so the same paid room cannot be re-pointed at another race.
  *
  * A paid room is locked from the first of:
- * - the first accepted runner ping recorded at or after `raceStartAt` (stored as `raceLockedAt`,
- *   written once by `POST /pings` or `POST /pings/batch`), or
- * - 48 hours after `raceStartAt`, with or without pings (computed, never stored).
+ * - the runner reaching the first aid station (the course's first checkpoint after the start) on
+ *   race pings: the projection's crossing time there, stored once as `raceLockedAt` by
+ *   `POST /pings` or `POST /pings/batch`, or
+ * - 48 hours after the current `raceStartAt`, with or without pings (computed, never stored).
+ *
+ * Pings at the start line, test pings, and a runner waiting out a delayed or postponed start never
+ * lock the race, so until the first aid station the start can move by any amount.
  *
  * An unpaid or expired room is never locked, whatever is stored. Locked means: no new route line
  * (`PUT /course` with a different route or GPX, `PUT /map-workspace` with a different driving
  * layer) and no new start (`PATCH /race-start`, or a different `raceStartAt` on `PUT /course`),
- * except a start within 12 hours of the locking ping (a delayed gun; see `raceStartChangeAllowed`).
+ * except a start in the 12 hours before the first aid station (see `raceStartChangeAllowed`).
  * Renaming, aid-station and checkpoint edits on the same route, and planned stops stay open.
  */
 export const RACE_LOCK_AFTER_START_MS = 48 * 60 * 60 * 1000;
@@ -45,17 +49,17 @@ export function isRaceLocked(room: RaceRoom, nowMs: number): boolean {
 }
 
 /**
- * How far a locked race's start may still move from its first race ping: enough for a delayed gun
- * or a start entered at the wrong hour on race morning, not enough to re-point the room at a race
- * on another day.
+ * How long before the first aid station a locked race's start may still be put: enough to correct
+ * a start entered at the wrong hour, not enough to re-point the room at a race on another day.
+ * Anchored to the lock, so moves cannot be chained.
  */
 export const RACE_LOCK_START_SLACK_MS = 12 * 60 * 60 * 1000;
 
 /**
  * Whether the start may become `nextStartIso`. Always on an unlocked race, and to the start it
- * already has. On a race locked by a ping, within {@link RACE_LOCK_START_SLACK_MS} of that ping
- * (a delayed gun turns the early race pings back into test pings). On a race locked only by the
- * 48-hour rule, never: it was not run, and its window has passed.
+ * already has. On a race locked at the first aid station, any time in the
+ * {@link RACE_LOCK_START_SLACK_MS} before that arrival (the runner started before reaching it).
+ * On a race locked only by the 48-hour rule, never: it was not run, and its window has passed.
  */
 export function raceStartChangeAllowed(room: RaceRoom, nextStartIso: string, nowMs: number): boolean {
   const nextMs = Date.parse(nextStartIso);
@@ -63,19 +67,39 @@ export function raceStartChangeAllowed(room: RaceRoom, nextStartIso: string, now
     return true;
   }
   const pingLockMs = room.raceLockedAt ? Date.parse(room.raceLockedAt) : Number.NaN;
-  return !Number.isNaN(pingLockMs) && !Number.isNaN(nextMs) && Math.abs(nextMs - pingLockMs) <= RACE_LOCK_START_SLACK_MS;
+  return (
+    !Number.isNaN(pingLockMs) &&
+    !Number.isNaN(nextMs) &&
+    nextMs <= pingLockMs &&
+    pingLockMs - nextMs <= RACE_LOCK_START_SLACK_MS
+  );
 }
 
 /**
- * Whether an accepted ping recorded at `recordedAtMs` should store the lock: a paid room with a
- * start, not locked by a ping yet, and the ping at or after the start.
+ * The first aid station: the course's first checkpoint after the start (`checkpoints[0]`).
+ * Undefined on a course with no checkpoint after the start, which only the 48-hour rule locks.
  */
-export function pingStartsRaceLock(room: RaceRoom, recordedAtMs: number): boolean {
+export function firstAidStationId(room: RaceRoom): string | undefined {
+  return room.course?.checkpoints[1]?.id;
+}
+
+/**
+ * The lock time race pings have earned, given the projection's checkpoint crossings: the runner's
+ * arrival at the first aid station, on a paid room with a start that is not locked by pings yet,
+ * at or after the start. Undefined when the pings don't lock the race (yet).
+ */
+export function aidStationLockAt(room: RaceRoom, splitCrossedAt: Record<string, string>): string | undefined {
   if (room.entitlement?.status !== "paid" || room.raceLockedAt) {
-    return false;
+    return undefined;
   }
+  const aidId = firstAidStationId(room);
+  const crossed = aidId === undefined ? undefined : splitCrossedAt[aidId];
+  const crossedMs = crossed ? Date.parse(crossed) : Number.NaN;
   const startMs = room.raceStartAt ? Date.parse(room.raceStartAt) : Number.NaN;
-  return !Number.isNaN(startMs) && recordedAtMs >= startMs;
+  if (Number.isNaN(crossedMs) || Number.isNaN(startMs) || crossedMs < startMs) {
+    return undefined;
+  }
+  return new Date(crossedMs).toISOString();
 }
 
 /** Thrown inside a room edit that a lock refuses; the route answers 409 `race_locked`. */

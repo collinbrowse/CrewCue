@@ -216,8 +216,10 @@ Send `Idempotency-Key` to retry safely: a replay answers the room as it is now, 
 
 A Race Pass pays for one race. Once the race is used, its route line and start are locked so the paid room cannot be re-pointed at another race ([raceLock.ts](../../services/api/src/lib/raceLock.ts)). A **paid** room is locked from the first of:
 
-- the first accepted runner ping (`POST .../pings` or `POST .../pings/batch`) recorded at or after `raceStartAt`: stored once as `raceLockedAt` (that ping's `recordedAt`), with no write on later pings;
-- `raceStartAt` + 48 hours, with or without pings (computed, never stored).
+- the runner reaching the first aid station (the course's first checkpoint after the start) on race pings (`POST .../pings` or `POST .../pings/batch`): the projection's crossing time there, at or after `raceStartAt`, stored once as `raceLockedAt`, with no write on later pings;
+- the current `raceStartAt` + 48 hours, with or without pings (computed, never stored).
+
+Pings at the start line, test pings, and a runner waiting out a delayed or postponed start never lock the race: until the first aid station the start can move by any amount and the course can be replaced. A course with no checkpoint after the start is locked only by the 48-hour rule.
 
 An unpaid or expired room is never locked, whatever is stored (a refund unlocks; paying again relocks). Room responses (`GET /race-rooms/:roomId`, `GET /race-rooms/mine`, every route that answers a room) carry the effective lock as `raceLockedAt`: the stored time, else start + 48 h once that has passed, absent when unlocked.
 
@@ -227,7 +229,7 @@ Locked, these answer **409** `{ "error": "<sentence>", "code": "race_locked" }` 
 - `PUT .../map-workspace` that changes the projection-driving layer's geometry;
 - `PATCH .../race-start` to a start the lock does not allow.
 
-The start may stay as it is, and on a room locked by a ping it may move within 12 hours of that ping (a delayed gun turns the early race pings back into test pings). On a room locked only by the 48-hour rule it may not move. Still open: `PATCH /race-rooms/:roomId` (rename), `PUT .../course` with the same route and start (checkpoint and aid-station edits), checkpoint add/edit/delete, planned stops, map-workspace edits that keep the driving line, and `POST .../course/gpx-preview` (it saves nothing).
+The start may stay as it is, and on a room locked at the first aid station it may be set anywhere in the 12 hours before that arrival, never after it (a start entered at the wrong hour; anchored to the lock, so moves cannot be chained). On a room locked only by the 48-hour rule it may not move. Still open: `PATCH /race-rooms/:roomId` (rename), `PUT .../course` with the same route and start (checkpoint and aid-station edits), checkpoint add/edit/delete, planned stops, map-workspace edits that keep the driving line, and `POST .../course/gpx-preview` (it saves nothing).
 
 ### `PATCH /race-rooms/:roomId`
 
