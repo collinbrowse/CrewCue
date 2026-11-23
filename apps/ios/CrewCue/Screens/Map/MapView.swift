@@ -57,15 +57,12 @@ struct MapView: View {
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
-    /// Bumped by the info button: the map opens its data attribution.
-    @State private var attributionRequest = 0
     /// Window-space edges the crosshair sits between: the top bar's bottom and the sheet's top.
     @State private var barBottom: CGFloat = 0
     @State private var sheetTop: CGFloat = 0
     @State private var sheetBottom: CGFloat = 0
     @State private var mapFrame: CGRect = .zero
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -87,10 +84,9 @@ struct MapView: View {
                 onPickCenter: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
-                showsUserLocation: !readOnly && model.myLocation.isShowing,
-                userCoordinate: model.myLocation.coordinate,
-                userCenterRequest: model.myLocation.centerRequest,
-                attributionRequest: attributionRequest,
+                runnerCoordinate: readOnly ? nil : model.runnerCoordinate,
+                runnerFocusRequest: model.runnerFocusRequest,
+                focusAnchor: crosshair,
                 hidesAttributionButton: !readOnly,
                 onStyleFailure: { offline in
                     styleSettled = true
@@ -113,8 +109,6 @@ struct MapView: View {
             MapOverlayControls(
                 model: model, tool: $tool, title: title, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
                 readOnly: readOnly, pathPings: pathPings, part: .chips,
-                shortMap: mapFrame.height > 0 && mapFrame.height < 760,
-                onAttribution: { attributionRequest += 1 },
                 onBarBottom: { _ in }
             )
             .padding(.top, CrewSpace.stackSm)
@@ -138,7 +132,6 @@ struct MapView: View {
             MapOverlayControls(
                 model: model, tool: $tool, title: title, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
                 readOnly: readOnly, pathPings: pathPings, part: .bar,
-                onAttribution: { attributionRequest += 1 },
                 onBarBottom: { barBottom = $0 }
             )
             .avoidsReservedRegions(when: readOnly)
@@ -152,50 +145,12 @@ struct MapView: View {
             }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
-        .overlay(alignment: .top) {
-            if let notice = model.myLocation.notice {
-                Text(verbatim: notice)
-                    .font(CrewFont.body)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, CrewSpace.gutter)
-                    .padding(.vertical, 10)
-                    .crewGlass(in: Capsule())
-                    .padding(.horizontal, CrewSpace.gutter)
-                    .padding(.top, max(0, barBottom - mapFrame.minY) + CrewSpace.stackSm)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .accessibilityIdentifier("crewcue.my-location-notice")
-            }
-        }
-        .animation(.snappy, value: model.myLocation.notice)
-        .alert(
-            model.myLocation.problem?.title ?? "",
-            isPresented: Binding(
-                get: { model.myLocation.problem != nil },
-                set: { if !$0 { model.myLocation.problem = nil } }
-            ),
-            presenting: model.myLocation.problem
-        ) { problem in
-            if problem.opensSettings {
-                Button("Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
-                }
-            }
-            Button(problem.opensSettings ? "Not Now" : "OK", role: .cancel) {}
-        } message: { problem in
-            Text(problem.message)
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.map")
         .accessibilityLabel("Map")
         .task(id: focus) {
             tool = MapTool.forFocus(focus)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // Back from Settings: a permission changed there shows at once.
-            if phase == .active { model.myLocation.refresh() }
         }
         .animation(.snappy, value: tool)
     }
@@ -240,9 +195,6 @@ private struct MapOverlayControls: View {
     /// The top bar (and race banner) sits in the top safe area; the chips and map buttons sit
     /// on the map, under the aid sheet when it opens all the way.
     var part: Part
-    /// The map is short: the round buttons go in a row.
-    var shortMap = false
-    var onAttribution: () -> Void
     var onBarBottom: (CGFloat) -> Void
     @Environment(\.crew) private var theme
 
@@ -273,82 +225,66 @@ private struct MapOverlayControls: View {
     }
 
     private var chips: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: CrewSpace.base) {
-                if !readOnly {
-                    // OpenFreeMap / OpenStreetMap attribution, under the runner in the top bar.
-                    Button(action: onAttribution) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(theme.primary)
-                            .frame(width: 32, height: 32)
-                            .crewGlass(in: Circle(), interactive: true)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, -6)
-                    .padding(.leading, -2)
-                    .accessibilityLabel("Map data attribution")
-                    .accessibilityIdentifier("crewcue.map-attribution")
+        HStack(alignment: .top, spacing: CrewSpace.base) {
+            if !readOnly {
+                // Under the runner in the top bar: map licensing, then the runner and layers buttons.
+                VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                    MapLicensingButton()
+                    runnerButton
+                    mapTools
                 }
-                if model.readout.statusLabel.isEmpty == false {
-                    StatusChip(text: model.readout.statusLabel, style: model.readout.status == .behind ? .soft : .filled)
-                        .accessibilityLabel("Status \(model.readout.statusLabel)")
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: CrewSpace.stackSm) {
-                    StatusChip(text: model.readout.pingLabel, style: .glass, dot: model.readout.pingState == .live)
-                        .accessibilityLabel(pingAccessibility)
-                    StatusChip(text: trackLabel, style: .glass)
-                        .accessibilityIdentifier("crewcue.runner-track")
-                        .accessibilityLabel(trackAccessibility)
-                    // A short map (iPhone Duo's outer display, landscape) lays the buttons in a
-                    // row, so the half-open sheet doesn't cover them.
-                    if shortMap {
-                        HStack(spacing: CrewSpace.base) { roundButtons }
-                    } else {
-                        roundButtons
-                    }
-                }
+                .padding(.leading, -2)
+                .zIndex(1)
             }
-            .padding(.horizontal, CrewSpace.gutter)
+            if model.readout.statusLabel.isEmpty == false {
+                StatusChip(text: model.readout.statusLabel, style: model.readout.status == .behind ? .soft : .filled)
+                    .accessibilityLabel("Status \(model.readout.statusLabel)")
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: CrewSpace.stackSm) {
+                StatusChip(text: model.readout.pingLabel, style: .glass, dot: model.readout.pingState == .live)
+                    .accessibilityLabel(pingAccessibility)
+                StatusChip(text: trackLabel, style: .glass)
+                    .accessibilityIdentifier("crewcue.runner-track")
+                    .accessibilityLabel(trackAccessibility)
+            }
         }
+        .padding(.horizontal, CrewSpace.gutter)
     }
 
-    @ViewBuilder
-    private var roundButtons: some View {
-        CircleIconButton(systemImage: "arrow.up.left.and.arrow.down.right", label: "Fit course") {
-            model.recenter()
-        }
-        if !readOnly {
-            myLocationButton
-            mapTools
-        }
-    }
+    private static let buttonSize: CGFloat = 40
 
-    /// This phone's own position on the map. Never race progress.
-    private var myLocationButton: some View {
-        let location = model.myLocation
-        return Button(action: location.tap) {
-            ZStack {
-                if location.isBusy {
-                    ProgressView()
-                } else {
-                    Image(systemName: location.systemImage)
-                        .font(.system(size: 21, weight: .semibold))
-                }
-            }
-            .frame(width: 52, height: 52)
-            .foregroundStyle(location.isShowing ? theme.onPrimary : theme.primary)
-            .background {
-                if location.isShowing { Circle().fill(theme.primary) }
-            }
+    /// Zooms to the runner's latest ping. Dimmed until the runner's phone sends one; a tap then
+    /// says so in a note beside the button instead of moving the map.
+    private var runnerButton: some View {
+        let tracking = model.runnerCoordinate != nil
+        return Button(action: model.focusRunner) {
+            Image(systemName: "scope")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(theme.primary)
+                .frame(width: Self.buttonSize, height: Self.buttonSize)
+                .opacity(tracking ? 1 : 0.4)
         }
         .buttonStyle(.plain)
         .crewGlass(in: Circle(), interactive: true)
-        .accessibilityLabel(location.buttonLabel)
-        .accessibilityIdentifier("crewcue.my-location")
+        .accessibilityLabel("Zoom to runner")
+        .accessibilityValue(tracking ? "" : "The runner isn't tracking yet")
+        .accessibilityIdentifier("crewcue.map-runner")
+        // Beside the button, over the map: it moves nothing else.
+        .overlay(alignment: .leading) {
+            if let note = model.runnerNote {
+                Text(verbatim: note)
+                    .font(CrewFont.body)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .crewGlass(in: Capsule())
+                    .fixedSize()
+                    .offset(x: Self.buttonSize + CrewSpace.stackSm)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+                    .accessibilityIdentifier("crewcue.map-runner-note")
+            }
+        }
+        .animation(.snappy, value: model.runnerNote)
     }
 
     /// The base map, and the map tools (place checkpoint, navigate, tracking). Not in the replay.
@@ -371,8 +307,8 @@ private struct MapOverlayControls: View {
             }
         } label: {
             Image(systemName: "square.3.layers.3d")
-                .font(.system(size: 21, weight: .semibold))
-                .frame(width: 52, height: 52)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: Self.buttonSize, height: Self.buttonSize)
                 .foregroundStyle(theme.primary)
         }
         .crewGlass(in: Circle(), interactive: true)
@@ -956,10 +892,9 @@ struct MapCanvas: View {
     var pickTarget: PickTarget? = nil
     var pickCoordinate: CLLocationCoordinate2D? = nil
     var onPickCenter: ((Double, Double) -> Void)? = nil
-    var showsUserLocation = false
-    var userCoordinate: CLLocationCoordinate2D? = nil
-    var userCenterRequest = 0
-    var attributionRequest = 0
+    var runnerCoordinate: CLLocationCoordinate2D? = nil
+    var runnerFocusRequest = 0
+    var focusAnchor: CGPoint? = nil
     var hidesAttributionButton = false
     var onTap: (Double, Double) -> Void = { _, _ in }
     @Environment(\.crew) private var theme
@@ -1005,10 +940,9 @@ struct MapCanvas: View {
             onPickCenter: onPickCenter,
             pickTarget: pickTarget,
             pickCoordinate: pickCoordinate,
-            showsUserLocation: showsUserLocation,
-            userCoordinate: userCoordinate,
-            userCenterRequest: userCenterRequest,
-            attributionRequest: attributionRequest
+            runnerCoordinate: runnerCoordinate,
+            runnerFocusRequest: runnerFocusRequest,
+            focusAnchor: focusAnchor
         )
         map.hidesAttributionButton = hidesAttributionButton
         return map
@@ -1184,5 +1118,87 @@ struct MapLocationSection: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.location-heartbeat")
         .accessibilityLabel("Location")
+    }
+}
+
+
+/// The small info button under the top bar: who the base map comes from, with a link to each
+/// source's license. Required by the map data's licenses (ODbL, OpenMapTiles).
+private struct MapLicensingButton: View {
+    @State private var open = false
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        Button { open = true } label: {
+            Image(systemName: "info")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(theme.primary)
+                .frame(width: 28, height: 28)
+                .crewGlass(in: Circle(), interactive: true)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Map licensing")
+        .accessibilityIdentifier("crewcue.map-attribution")
+        .popover(isPresented: $open, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            MapLicensing()
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+private struct MapLicensing: View {
+    private struct Source: Identifiable {
+        let name: String
+        let role: String
+        let url: String
+        var id: String { name }
+    }
+
+    private let sources = [
+        Source(name: "OpenStreetMap contributors", role: "Map data, ODbL license", url: "https://www.openstreetmap.org/copyright"),
+        Source(name: "OpenMapTiles", role: "Map tile schema", url: "https://openmaptiles.org/"),
+        Source(name: "OpenFreeMap", role: "Map tiles and styles", url: "https://openfreemap.org/")
+    ]
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Map licensing")
+                    .font(CrewFont.title)
+                Text("The base map is built from open data. Tap a source to read its license.")
+                    .font(CrewFont.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(sources) { source in
+                if let url = URL(string: source.url) {
+                    Link(destination: url) {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: "© \(source.name)")
+                                    .font(CrewFont.bodyLarge)
+                                    .foregroundStyle(theme.primary)
+                                Text(verbatim: source.role)
+                                    .font(CrewFont.body)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .multilineTextAlignment(.leading)
+                            Spacer(minLength: 0)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityHint("Opens the license in Safari")
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 300, alignment: .leading)
+        .accessibilityIdentifier("crewcue.map-licensing")
     }
 }

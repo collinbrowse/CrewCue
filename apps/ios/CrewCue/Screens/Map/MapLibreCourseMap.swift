@@ -49,12 +49,12 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// The position the field holds now. When the crosshair moves (the sheet changed height, the
     /// keyboard came up) the map keeps this spot under it, rather than rewriting the field.
     var pickCoordinate: CLLocationCoordinate2D?
-    /// Draw this phone's own position (the my location button). Never race progress.
-    var showsUserLocation = false
-    var userCoordinate: CLLocationCoordinate2D?
-    var userCenterRequest = 0
-    /// Bumped to open the map data attribution (the info button over the map).
-    var attributionRequest = 0
+    /// The runner's latest ping. The dot sits here until the runner has a path (a test ping
+    /// before the start has none). Bumping `runnerFocusRequest` zooms the camera to it, centered
+    /// on `focusAnchor` (window coordinates: the middle of the map between the bar and the sheet).
+    var runnerCoordinate: CLLocationCoordinate2D?
+    var runnerFocusRequest = 0
+    var focusAnchor: CGPoint?
 
     /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
     /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
@@ -94,12 +94,11 @@ struct MapLibreCourseMap: UIViewRepresentable {
             mapView.onResize = { [weak coordinator] in coordinator?.fitCourse(animated: false) }
         }
         context.coordinator.dark = baseStyle.isDark(dark: dark)
-        context.coordinator.attributionRequest = attributionRequest
         mapView.delegate = context.coordinator
         mapView.tintColor = lineColor
         mapView.logoView.isHidden = true
-        // The OpenFreeMap/OSM attribution opens from the info button the race map draws under
-        // its top bar. A map without one (setup preview, replay) keeps MapLibre's own button.
+        // The race map draws its own info button (map licensing) under its top bar. A map
+        // without one (setup preview, replay) keeps MapLibre's own button.
         mapView.attributionButtonPosition = .topLeft
         mapView.attributionButtonMargins = CGPoint(x: 16, y: 150)
         mapView.attributionButton.isHidden = hidesAttributionButton
@@ -136,24 +135,18 @@ struct MapLibreCourseMap: UIViewRepresentable {
             mapView.styleURL = Self.styleURL(baseStyle, dark: dark)
         }
         context.coordinator.redraw(force: false)
+        context.coordinator.latestPing = runnerCoordinate
         context.coordinator.redrawTrack(force: false)
         if context.coordinator.recenterRequest != recenterRequest {
             context.coordinator.recenterRequest = recenterRequest
             context.coordinator.fitCourse(animated: true)
         }
         context.coordinator.updatePick(anchor: pickAnchor, target: pickTarget, holding: pickCoordinate)
-        if mapView.showsUserLocation != showsUserLocation {
-            mapView.showsUserLocation = showsUserLocation
-        }
-        if context.coordinator.userCenterRequest != userCenterRequest {
-            context.coordinator.userCenterRequest = userCenterRequest
-            if let userCoordinate {
-                mapView.setCenter(userCoordinate, zoomLevel: max(mapView.zoomLevel, 14), animated: true)
+        if context.coordinator.runnerFocusRequest != runnerFocusRequest {
+            context.coordinator.runnerFocusRequest = runnerFocusRequest
+            if let runnerCoordinate {
+                context.coordinator.focus(on: runnerCoordinate, anchor: focusAnchor)
             }
-        }
-        if context.coordinator.attributionRequest != attributionRequest {
-            context.coordinator.attributionRequest = attributionRequest
-            mapView.attributionButton.sendActions(for: .touchUpInside)
         }
     }
 
@@ -179,8 +172,10 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var onStyleLoaded: () -> Void
         weak var mapView: MLNMapView?
         var recenterRequest = 0
-        var userCenterRequest = 0
-        var attributionRequest = 0
+        var runnerFocusRequest = 0
+        /// The runner's latest ping: the dot when there is no path yet.
+        var latestPing: CLLocationCoordinate2D?
+        private var drawnDot: CLLocationCoordinate2D?
         /// The OpenFreeMap style name on the map now.
         var styleKey = ""
         var onPickCenter: ((Double, Double) -> Void)?
@@ -276,15 +271,39 @@ struct MapLibreCourseMap: UIViewRepresentable {
                 redrawGlide(GlideLayout(frame: glideFrame, track: track, times: trackTimes), on: mapView)
                 return
             }
+            let dot = track.last ?? latestPing
             if drawnGlide == nil, Self.same(track, drawnTrack) {
                 drawnTrack = track
+                if !force, Self.same(dot.map { [$0] } ?? [], drawnDot.map { [$0] } ?? []) { return }
+                placeRunner(at: dot, on: mapView)
+                drawnDot = dot
                 return
             }
             drawnGlide = nil
             glidePath = nil
             replacePath(with: track.count >= 2 ? [track] : [], on: mapView)
-            placeRunner(at: track.last, on: mapView)
+            placeRunner(at: dot, on: mapView)
             drawnTrack = track
+            drawnDot = dot
+        }
+
+        /// Zooms to `coordinate` (at least street level) with it at `anchor`, a window point.
+        func focus(on coordinate: CLLocationCoordinate2D, anchor: CGPoint?) {
+            guard let mapView, CLLocationCoordinate2DIsValid(coordinate) else { return }
+            let size = mapView.bounds.size
+            var padding = UIEdgeInsets.zero
+            if let anchor, mapView.window != nil {
+                // Padding moves the center of the padded box onto the anchor.
+                let point = mapView.convert(anchor, from: nil)
+                let dy = size.height - 2 * point.y
+                if dy > 0 { padding.bottom = dy } else { padding.top = -dy }
+                let dx = size.width - 2 * point.x
+                if dx > 0 { padding.right = dx } else { padding.left = -dx }
+            }
+            let zoom = max(mapView.zoomLevel, 14)
+            let altitude = MLNAltitudeForZoomLevel(zoom, 0, coordinate.latitude, size)
+            let camera = MLNMapCamera(lookingAtCenter: coordinate, altitude: altitude, pitch: 0, heading: mapView.direction)
+            mapView.setCamera(camera, withDuration: 0.6, animationTimingFunction: CAMediaTimingFunction(name: .easeInEaseOut), edgePadding: padding, completionHandler: nil)
         }
 
         /// The onboarding replay, frame by frame: the path behind the dot, and the dot on the

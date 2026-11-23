@@ -99,8 +99,11 @@ final class MapModel {
     var baseMap: MapBaseStyle = MapBaseStyle.saved() {
         didSet { baseMap.save() }
     }
-    /// This phone's own position on the map, for finding your way. Never race progress.
-    let myLocation = MyLocationModel()
+    /// Bumped by the runner button: the map zooms to the runner's latest ping.
+    private(set) var runnerFocusRequest = 0
+    /// A short note beside the runner button (the runner isn't tracking yet), cleared after a few seconds.
+    private(set) var runnerNote: String?
+    @ObservationIgnored private var runnerNoteTask: Task<Void, Never>?
     private(set) var pickMessage = "No checkpoint selected."
     private(set) var pickBusy = false
     var originId = ""
@@ -462,6 +465,31 @@ final class MapModel {
 
     func recenter() {
         recenterRequest += 1
+    }
+
+    /// Where the runner's phone last was: the latest ping from the API, else the end of their path.
+    /// Nil until the runner's phone sends a position.
+    var runnerCoordinate: CLLocationCoordinate2D? {
+        if let ping = runner.ping {
+            return CLLocationCoordinate2D(latitude: ping.latitude, longitude: ping.longitude)
+        }
+        return trackCoordinates.last
+    }
+
+    /// The runner button: zoom to the runner, or say they aren't tracking yet.
+    func focusRunner() {
+        guard runnerCoordinate != nil else {
+            runnerNote = "The runner isn't tracking yet."
+            runnerNoteTask?.cancel()
+            runnerNoteTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.runnerNote = nil
+            }
+            return
+        }
+        runnerNote = nil
+        runnerFocusRequest += 1
     }
 
     func jumpToNextAid() {
