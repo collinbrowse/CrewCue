@@ -57,7 +57,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -300,10 +303,15 @@ private fun ReplayPanels(
     val views = rememberReplayViews(replay, shell)
     // Each step reads the scripted runner at once, instead of the 30 s poll.
     LaunchedEffect(views, model.stepIndex) { views.map.refreshNow() }
+    val covered = !split && model.panel != ReplayPanel.Map
+    val animations = rememberAnimationsOn()
+    RunnerGlideSampler(model, replay, mapShown = !covered, animations = animations)
+    // Read by the map on each new frame, without recomposing the screen. Animations off: no glide,
+    // the dot steps to each new ping.
+    val glide = remember(model, animations) { { if (animations) model.glide else null } }
     Column(Modifier.fillMaxSize()) {
         if (!split) PanelStrip(model, text)
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            val covered = !split && model.panel != ReplayPanel.Map
             Box(Modifier.fillMaxSize().then(if (covered) Modifier.clearAndSetSemantics {} else Modifier)) {
                 MapContent(
                     views.map,
@@ -311,7 +319,9 @@ private fun ReplayPanels(
                     focus = "map-track",
                     bottomInset = 8.dp,
                     underTopBar = false,
-                    framing = CourseFraming.Replay
+                    framing = CourseFraming.Replay,
+                    glide = glide,
+                    pathPings = model.pathPings
                 )
             }
             if (covered) {
@@ -323,6 +333,58 @@ private fun ReplayPanels(
         }
     }
 }
+
+/**
+ * Asks client-core where the runner's dot is (`demoRaceRunner`) on every frame while the replay
+ * plays and its Map is on screen, so the dot glides along the course line from ping to ping; once
+ * when that stops, so a pause holds the dot at the paused moment. Nothing while Pace or Chat covers
+ * the Map, or with animations off (Android's reduce motion), when the dot steps to each new ping.
+ * The moment comes from the replay's clock in [RacePreviewViewModel], so a fold carries it on.
+ */
+@Composable
+private fun RunnerGlideSampler(model: RacePreviewViewModel, replay: RacePreviewReplay, mapShown: Boolean, animations: Boolean) {
+    val playing = model.playing
+    LaunchedEffect(model, replay, mapShown, animations, playing) {
+        if (!mapShown || !animations) return@LaunchedEffect
+        model.sampleRunner()
+        while (playing) {
+            withFrameNanos { }
+            model.sampleRunner()
+        }
+    }
+}
+
+/**
+ * False while the system's animator duration scale is 0 (Settings → Accessibility → Remove
+ * animations, or the developer option), Android's reduce motion. Follows a change while shown.
+ */
+@Composable
+private fun rememberAnimationsOn(): Boolean {
+    val context = LocalContext.current
+    var on by remember(context) { mutableStateOf(animatorsOn(context)) }
+    DisposableEffect(context) {
+        val resolver = context.contentResolver
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                on = animatorsOn(context)
+            }
+        }
+        resolver.registerContentObserver(
+            android.provider.Settings.Global.getUriFor(android.provider.Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer
+        )
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    return on
+}
+
+private fun animatorsOn(context: android.content.Context): Boolean =
+    android.provider.Settings.Global.getFloat(
+        context.contentResolver,
+        android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f
+    ) != 0f
 
 /** Medium and expanded: Pace beside the Map, or Chat at its beat. */
 @Composable

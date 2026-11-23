@@ -510,6 +510,13 @@ class RaceDayBridge private constructor(
     /** On a [replay] bridge: forward to [seconds] of wall time played; play or pause stays. */
     fun demoRaceSeek(seconds: Double): RuntimeResult = call("demoRaceSeek") { put("seconds", seconds) }
 
+    /**
+     * On a [replay] bridge: where the runner's dot is now (`DemoRacePlayer.runnerPosition`), on the
+     * course line: `latitude`, `longitude`, `lineMeters`, `recordedAt` and `fromRecordedAt`, or an
+     * empty object before the first ping. Paused, it holds. No request: a Map samples it every frame.
+     */
+    fun demoRaceRunner(): RuntimeResult = call("demoRaceRunner")
+
     private fun JSONObject.onboardingContext(races: JSONArray?, activeRoomId: String?) {
         if (races != null) put("races", races)
         if (!activeRoomId.isNullOrBlank()) put("activeRoomId", activeRoomId)
