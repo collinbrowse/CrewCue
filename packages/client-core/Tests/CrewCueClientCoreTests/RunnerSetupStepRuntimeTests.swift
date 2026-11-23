@@ -176,6 +176,9 @@ private struct OfflineServer: HTTPTransport {
     #expect(try await decide("historyContinue", ["reviewing": true, "estimateDropped": true])["action"] as? String == "recompute")
     #expect(try await decide("historyContinue", ["attachedThisVisit": true, "estimateDropped": true])["action"] as? String == "moveOn")
     #expect(try await decide("historyContinue")["action"] as? String == "recompute")
+    // A race that already has an estimate (a phone without this race's setup progress).
+    #expect(try await decide("historyShowsContinue", ["raceHasEstimate": true])["value"] as? Bool == true)
+    #expect(try await decide("historyContinue", ["raceHasEstimate": true])["action"] as? String == "keepRaceEstimate")
 }
 
 @Test func resumeStepReopensTheStepThatStillHasSomethingToSave() async throws {
