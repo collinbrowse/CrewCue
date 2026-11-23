@@ -42,6 +42,10 @@ struct ProfileTabPage: View {
                 },
                 onName: { [weak model] name in
                     model?.updateDisplayName(name)
+                },
+                opensRename: model.route.featureId == "race-rename",
+                onRenamed: { [weak model] roomId, name in
+                    model?.noteRenamed(roomId: roomId, name: name)
                 }
             )
         }
@@ -65,6 +69,9 @@ struct ProfileView: View {
     var onRacePass: () -> Void = {}
     var onCreated: @MainActor (String) -> Void
     var onName: @MainActor (String) -> Void
+    /// `crewcue://dev/race-rename`: open the rename alert once the room has loaded.
+    var opensRename = false
+    var onRenamed: @MainActor (String, String) -> Void = { _, _ in }
     @Environment(\.crew) private var theme
     @Environment(\.colorScheme) private var scheme
 
@@ -114,6 +121,15 @@ struct ProfileView: View {
                         CrewSectionHeader(title: "Race & crew")
                         CrewListRow(systemImage: "person.3", title: "Room members", detail: "Your crew for this race", action: onMembers)
                         CrewListRow(systemImage: "exclamationmark.bubble", title: "Incidents", detail: "Log and review race incidents", action: onIncidents)
+                        if canRename {
+                            CrewListRow(
+                                systemImage: "pencil",
+                                title: RaceRenameCopy.rowTitle,
+                                detail: RaceRenameCopy.rowDetail,
+                                action: { model.beginRename(currentName: activeRaceName) }
+                            )
+                            .accessibilityIdentifier("crewcue.race-rename")
+                        }
                         if role == "athlete" {
                             CrewListRow(systemImage: "ticket", title: "Race Pass", detail: "Unlock this race for your crew", action: onRacePass)
                         }
@@ -171,7 +187,28 @@ struct ProfileView: View {
         .accessibilityLabel("Profile")
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, displayName: displayName, onName: onName)
+            if opensRename, canRename {
+                model.beginRename(currentName: activeRaceName)
+            }
         }
+        .alert(RaceRenameCopy.rowTitle, isPresented: $model.showsRename) {
+            TextField("Race name", text: $model.renameDraft)
+                .accessibilityLabel("Race name")
+            Button("Save") {
+                Task { await model.renameRace(onRenamed: onRenamed) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your crew sees the new name. Up to \(RaceName.maxLength) characters.")
+        }
+    }
+
+    private var canRename: Bool {
+        hasRoom && PlanAuthority.mayEditRaceSetup(role: role ?? "")
+    }
+
+    private var activeRaceName: String {
+        races.first { $0.id == roomId }?.name ?? ""
     }
 
     private var hasRoom: Bool {

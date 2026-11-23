@@ -41,7 +41,9 @@ object DevRoutes {
         "dev/billing-upgrade" to "billing-upgrade",
         "dev/billing-redeem" to "billing-redeem",
         "dev/onboarding-runner-setup" to "onboarding-runner-setup",
-        "dev/onboarding-race-preview" to "onboarding-race-preview"
+        "dev/onboarding-race-preview" to "onboarding-race-preview",
+        "dev/race-rename" to "race-rename",
+        "dev/course-locked" to "course-locked"
     ) + (if (BuildConfig.STRAVA_ENABLED) mapOf("dev/strava" to "strava") else emptyMap())
 
     /** Feature for a link from outside the app. Release builds open no fixture routes from links. */

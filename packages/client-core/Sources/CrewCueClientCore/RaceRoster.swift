@@ -9,14 +9,27 @@ public struct RaceSummary: Codable, Equatable, Sendable {
     public var raceStartAt: String?
     /// The name this user's crew sees in this room. Names live on the membership, so they differ per room.
     public var displayName: String?
+    /// The race lock (`RaceLock`): set once the race is used. Its course line and start are locked.
+    public var raceLockedAt: String?
 
-    public init(id: String, name: String, role: String, raceStartAt: String? = nil, displayName: String? = nil) {
+    public init(
+        id: String,
+        name: String,
+        role: String,
+        raceStartAt: String? = nil,
+        displayName: String? = nil,
+        raceLockedAt: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.role = role
         self.raceStartAt = raceStartAt
         self.displayName = displayName
+        self.raceLockedAt = raceLockedAt
     }
+
+    /// The course line and start can no longer change. Renaming and aid-station edits still can.
+    public var isRaceLocked: Bool { RaceLock.isLocked(raceLockedAt: raceLockedAt) }
 
     public init(room: RaceRoom, userId: String) {
         let membership = room.memberships.first { $0.userId == userId }
@@ -27,7 +40,8 @@ public struct RaceSummary: Codable, Equatable, Sendable {
             name: trimmed.isEmpty ? "Untitled race" : trimmed,
             role: membership?.role ?? (room.athleteId == userId ? "athlete" : "crew_member"),
             raceStartAt: room.raceStartAt,
-            displayName: name.isEmpty ? nil : name
+            displayName: name.isEmpty ? nil : name,
+            raceLockedAt: room.raceLockedAt
         )
     }
 }
@@ -87,6 +101,13 @@ public struct RaceRoster: Equatable, Sendable {
         guard let race = races.first(where: { $0.id == roomId }) else { return nil }
         activeRoomId = race.id
         return race
+    }
+
+    /// A race was renamed. The active race stays as it is; unknown ids and empty names change nothing.
+    public mutating func rename(_ roomId: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false, let index = races.firstIndex(where: { $0.id == roomId }) else { return }
+        races[index].name = trimmed
     }
 
     /// Add or replace a race (create or join) and make it active.

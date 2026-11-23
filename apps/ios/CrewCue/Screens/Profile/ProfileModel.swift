@@ -10,6 +10,11 @@ final class ProfileModel {
     private(set) var showsName = false
     var raceName = ""
     private(set) var creatingRace = false
+    /// The rename alert: open, its draft, and a save in flight. Kept here so a fold or rotation
+    /// keeps the typed name.
+    var showsRename = false
+    var renameDraft = ""
+    private(set) var renaming = false
 
     private let client: AppClient
     private var onSignOut: @MainActor () -> Void
@@ -59,6 +64,35 @@ final class ProfileModel {
         }
     }
 
+    /// The active room's name as Profile last loaded it: the rename draft before the race list loads.
+    private var loadedRoomName = ""
+
+    /// Opens the rename alert with the race's current name.
+    func beginRename(currentName: String) {
+        renameDraft = currentName.isEmpty ? loadedRoomName : currentName
+        showsRename = true
+    }
+
+    /// `PATCH /race-rooms/:roomId` through client-core. Open on a locked race too.
+    func renameRace(onRenamed: @escaping @MainActor (String, String) -> Void) async {
+        guard let roomId, !renaming else { return }
+        guard RaceName.validated(renameDraft) != nil else {
+            message = RaceName.invalidMessage
+            return
+        }
+        renaming = true
+        defer { renaming = false }
+        do {
+            let room = try await RaceDayAPI.renameRace(graph: client.graph, roomId: roomId, name: renameDraft)
+            guard roomId == self.roomId else { return }
+            message = RaceRenameCopy.saved
+            loadedRoomName = room.name
+            onRenamed(room.id, room.name)
+        } catch {
+            message = RaceRenameCopy.message(for: error)
+        }
+    }
+
     func activate(
         userId: String?,
         roomId: String?,
@@ -78,6 +112,7 @@ final class ProfileModel {
         do {
             let envelope = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId)
             guard ticket == generation, !Task.isCancelled else { return }
+            loadedRoomName = envelope.room.name
             let remoteName = Self.trimmed(envelope.room.memberships.first { $0.userId == self.userId }?.displayName)
             if sessionName == nil, let remoteName {
                 applyName(remoteName)
@@ -100,6 +135,9 @@ final class ProfileModel {
         showsName = false
         userId = nil
         roomId = nil
+        showsRename = false
+        renameDraft = ""
+        loadedRoomName = ""
     }
 
     private func applyName(_ name: String?) {

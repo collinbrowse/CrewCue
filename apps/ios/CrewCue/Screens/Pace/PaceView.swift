@@ -84,6 +84,9 @@ struct PaceView: View {
             if paceToolFocuses.contains(focus) {
                 openTools(focus)
             }
+            if focus == "course-locked" {
+                openTools("gpx-import")
+            }
             if focus == "pace-stop-edit" {
                 model.beginStopEdit()
             }
@@ -735,20 +738,33 @@ struct PaceGpxSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("GPX import")
                 .font(CrewFont.title)
-            Text(verbatim: model.gpxMessage)
-                .font(CrewFont.bodyLarge)
-            TextField("GPX", text: $model.gpxText, axis: .vertical)
-                .font(CrewFont.bodyLarge)
-                .lineLimit(3...8)
-                .textFieldStyle(.crew)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("GPX text")
-            PaceChooseGpxButton(isBusy: model.gpxBusy) {
-                importing = true
-            }
-            PaceImportGpxButton(isBusy: model.gpxBusy) {
-                await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
+            if model.courseLocked {
+                // The race has started: say so instead of offering a file the server would refuse.
+                Label {
+                    Text(verbatim: RaceLock.message)
+                        .font(CrewFont.bodyLarge)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "lock.fill")
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("crewcue.course-locked")
+            } else {
+                Text(verbatim: model.gpxMessage)
+                    .font(CrewFont.bodyLarge)
+                TextField("GPX", text: $model.gpxText, axis: .vertical)
+                    .font(CrewFont.bodyLarge)
+                    .lineLimit(3...8)
+                    .textFieldStyle(.crew)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("GPX text")
+                PaceChooseGpxButton(isBusy: model.gpxBusy) {
+                    importing = true
+                }
+                PaceImportGpxButton(isBusy: model.gpxBusy) {
+                    await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
+                }
             }
         }
         .crewCard()

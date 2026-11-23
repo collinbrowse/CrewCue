@@ -54,6 +54,9 @@ final class PaceModel {
     var gpxFileName = "course.gpx"
     private(set) var gpxMessage = "Choose a route file."
     private(set) var gpxBusy = false
+    /// The race has started (`RaceLock`): its course can't be replaced, so GPX import shows why
+    /// instead of its controls. Aid-station edits stay open.
+    private(set) var courseLocked = false
 
     private(set) var exportText = ""
     private(set) var exportMessage = "Nothing to export."
@@ -153,6 +156,11 @@ final class PaceModel {
             self.role = nextRole
         }
         await reload(ticket: ticket, autoRecompute: true)
+    }
+
+    /// The race was renamed from Profile: the header shows the new name without a reload.
+    func noteRenamed(_ name: String) {
+        raceName = name
     }
 
     func clear() {
@@ -278,7 +286,7 @@ final class PaceModel {
             gpxMessage = "Choose a route file."
             return
         }
-        guard let roomId, !gpxBusy else { return }
+        guard let roomId, !gpxBusy, !courseLocked else { return }
         gpxText = trimmed
         gpxFileName = fileName.isEmpty ? "course.gpx" : fileName
         gpxBusy = true
@@ -318,6 +326,10 @@ final class PaceModel {
                 await queueGpx(roomId: roomId, fileName: gpxFileName, xml: trimmed, start: start, pace: pace, ticket: ticket)
                 guard ticket == generation else { return }
                 gpxMessage = "Offline. The file stays on this device until upload."
+            } else if RaceLock.isLockedError(error) {
+                // Locked since the room was read (the runner's first race ping).
+                courseLocked = true
+                gpxMessage = RaceLock.message
             } else {
                 gpxMessage = "Couldn't read the route file."
             }
@@ -438,6 +450,7 @@ final class PaceModel {
         courseCheckpoints = room.course?.checkpoints ?? []
         raceName = room.name
         raceStartAt = room.raceStartAt
+        courseLocked = RaceLock.isLocked(room)
         plannedPaceSecondsPerKm = room.plannedPaceSecondsPerKm
         loadedEstimate = room.pacingEstimate
         estimateRevision += 1
@@ -932,6 +945,7 @@ final class PaceModel {
         raceStartAt = nil
         scheduleRaceStart = nil
         plannedPaceSecondsPerKm = nil
+        courseLocked = false
     }
 }
 
