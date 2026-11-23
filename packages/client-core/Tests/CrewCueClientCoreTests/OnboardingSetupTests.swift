@@ -363,6 +363,30 @@ private let previewBody = """
     #expect(object == ["gpxXml": "<gpx/>", "courseFileName": "course.gpx"])
 }
 
+// MARK: Start time
+
+@Test func updateRaceStartPatchesTheStartAloneAndReadsTheRoom() async throws {
+    let room = #"{"id":"room","teamId":"t","athleteId":"a","name":"Canyons 2027","status":"active","createdAt":"2026-11-01T00:00:00.000Z","raceStartAt":"2026-11-21T14:30:00.000Z","memberships":[],"entitlement":{"status":"unpaid","lastUpdatedAt":"2026-11-01T00:00:00.000Z","source":"free"}}"#
+    let server = SetupServer(["PATCH /race-rooms/room/race-start": [(200, room)]])
+    let updated = try await RaceDayAPI.updateRaceStart(graph: setupGraph(server), roomId: "room", raceStartAt: "2026-11-21T14:30:00.000Z")
+    #expect(updated.raceStartAt == "2026-11-21T14:30:00.000Z")
+    // No course upload, no preview: only the start.
+    #expect(await server.keys() == ["PATCH /race-rooms/room/race-start"])
+    let body = try #require(await server.bodies("PATCH /race-rooms/room/race-start").first)
+    let object = try #require(try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: String])
+    #expect(object == ["raceStartAt": "2026-11-21T14:30:00.000Z"])
+}
+
+@Test func updateRaceStartOverTheSaveLimitIsTheCourseSaveLimit() async throws {
+    let server = SetupServer(["PATCH /race-rooms/room/race-start": [(429, #"{"error":"Too many requests"}"#)]])
+    do {
+        _ = try await RaceDayAPI.updateRaceStart(graph: setupGraph(server), roomId: "room", raceStartAt: "2026-11-21T14:30:00.000Z")
+        Issue.record("expected a 429")
+    } catch {
+        #expect(OnboardingSetupFailure.classify(error, courseSave: true) == .courseSaveLimit)
+    }
+}
+
 // MARK: Projection teaser
 
 private let teaserSheet = CrewScheduleSheet(
@@ -451,6 +475,8 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
     #expect(OnboardingSetupFailure.classify(ClientHTTPError(status: 500, message: "x")) == .failed)
     #expect(OnboardingSetupFailure.failed.message == "Couldn't save this step.")
     #expect(!OnboardingSetupFailure.failed.opensPaywall)
+    #expect(OnboardingSetupFailure.raceNameMissing.message == "Add a race name to continue.")
+    #expect(!OnboardingSetupFailure.raceNameMissing.opensPaywall)
 }
 
 // MARK: Copy
@@ -465,7 +491,10 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
         OnboardingCopy.coursePreviewLabel, OnboardingCopy.elevationProfileLabel, OnboardingCopy.loading,
         OnboardingCopy.back, OnboardingCopy.paywallNotNow, OnboardingCopy.tryAgain,
         OnboardingCopy.accountMenu, OnboardingCopy.signOut, OnboardingCopy.switchRace,
-        OnboardingCopy.lockedAidRow, OnboardingCopy.lockedAidExplanation
+        OnboardingCopy.lockedAidRow, OnboardingCopy.lockedAidExplanation,
+        OnboardingCopy.displayNameHelp, OnboardingCopy.raceNameLabel, OnboardingCopy.raceNamePlaceholder,
+        OnboardingCopy.raceNameHelp, OnboardingCopy.readingCourse, OnboardingCopy.courseSaved,
+        OnboardingCopy.raceNameMissing
     ]
     for text in strings {
         #expect(!text.isEmpty)
@@ -481,5 +510,7 @@ private func teaserProjection(finish: String, locked: [String]) -> RaceRoomProje
     #expect(copy["signOut"] as? String == OnboardingCopy.signOut)
     #expect(copy["switchRace"] as? String == OnboardingCopy.switchRace)
     #expect(copy["accountMenu"] as? String == OnboardingCopy.accountMenu)
+    #expect(copy["courseSaved"] as? String == OnboardingCopy.courseSaved)
+    #expect(copy["raceNameMissing"] as? String == OnboardingCopy.raceNameMissing)
     #expect(OnboardingCopy.courseSummary(lengthMeters: 1609.344, checkpoints: 1) == "1.0 mi · 1 checkpoint")
 }

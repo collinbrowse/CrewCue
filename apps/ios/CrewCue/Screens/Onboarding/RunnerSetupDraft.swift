@@ -5,24 +5,50 @@ import CrewCueClientCore
 /// step resumes with it. Per user, inside the user's directory, so sign-out wipes it. The course
 /// file sits beside it, written only when a file is picked.
 struct RunnerSetupDraft: Codable, Equatable {
+    // Fields added after the first release are optional, so a draft saved by an older build
+    // still decodes.
     var displayName = ""
+    /// The race's name as typed on the course step. The race is created with it; it can't be
+    /// renamed after that.
+    var raceName: String?
     /// The race the course belongs to.
     var roomId: String?
     var courseFileName: String?
     var coursePreview: CoursePreview?
     /// The runner pressed Continue on the previewed course; the course is saved with the start time.
     var courseConfirmed = false
+    /// A file was picked that the race hasn't saved yet (`PUT /race-rooms/:roomId/course` with the
+    /// start). Nil in older drafts, read as saved.
+    var courseUnsaved: Bool?
+    /// The start the race saved, as this phone last knew it: set by a save from here, or taken from
+    /// the race list (a phone that never held the draft, or a draft from before this field). A
+    /// Continue on a start time the runner went back to saves only when the start differs.
+    var savedRaceStartAt: String?
+    /// The fingerprint (`RunnerSetupSteps.courseFingerprint`) of the file this phone holds.
+    var courseFingerprint: String?
+    /// The fingerprint of the file the race saved from this phone, so the same file picked again
+    /// after Back isn't uploaded twice.
+    var savedCourseFingerprint: String?
+    /// The course was saved again (`PUT /course`), which drops the estimate the history step
+    /// attached: the history step runs again, a relaunch included.
+    var historyRedo: Bool?
     /// The start's wall-clock fields, read in UTC (see `RunnerSetupModel.startInput`).
     var startWallClock: Date?
     var timeZoneIdentifier: String?
     var historyLine: String?
 
-    /// Forgets the course and everything after it, for another race.
+    /// Forgets the race's name, its course and everything after it, for another race.
     mutating func resetRace(_ roomId: String?) {
         self.roomId = roomId
+        raceName = nil
         courseFileName = nil
         coursePreview = nil
         courseConfirmed = false
+        courseUnsaved = nil
+        savedRaceStartAt = nil
+        courseFingerprint = nil
+        savedCourseFingerprint = nil
+        historyRedo = nil
         startWallClock = nil
         timeZoneIdentifier = nil
         historyLine = nil
