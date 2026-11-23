@@ -11,6 +11,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import com.crewcue.android.ui.theme.SettingRow
 import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.ProductTitle
 import com.crewcue.android.ui.theme.SecondaryButton
@@ -43,47 +49,29 @@ fun ChatAlertsSection(shell: ShellViewModel, roomId: String, modifier: Modifier 
         factory = ChatPrefsViewModelFactory(shell.container.raceDay, roomId)
     )
     LaunchedEffect(roomId) { model.load() }
-    ProductCard(
-        modifier
+    val options = listOf("all" to "All", "mentions" to "Mentions", "none" to "Off")
+    SettingRow(
+        Icons.AutoMirrored.Outlined.Chat,
+        "Crew chat",
+        modifier = modifier
             .testTag("crewcue.chat-notification-prefs")
-            .semantics { contentDescription = "Chat alerts" }
-    ) {
-        SectionHeader("Chat alerts")
-        Text("Choose what reaches you from this room.", style = MaterialTheme.typography.bodyMedium)
-        PreferenceButton("All", "all", model)
-        PreferenceButton("Mentions", "mentions", model)
-        PreferenceButton("None", "none", model)
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-    }
-}
-
-@Composable
-private fun PreferenceButton(label: String, preference: String, model: ChatPrefsViewModel) {
-    val selected = model.preference == preference
-    Button(
-        onClick = { model.select(preference) },
-        enabled = !model.busy,
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .fillMaxWidth()
-            .semantics { contentDescription = if (selected) "$label selected" else label },
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHigh
-            },
-            contentColor = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurface
+            .semantics { contentDescription = "Chat alerts" },
+        hint = model.status,
+        below = {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                options.forEachIndexed { index, (value, label) ->
+                    val selected = model.preference == value
+                    SegmentedButton(
+                        selected = selected,
+                        onClick = { model.select(value) },
+                        enabled = !model.busy,
+                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                        modifier = Modifier.semantics { contentDescription = if (selected) "$label selected" else label }
+                    ) { Text(label) }
+                }
             }
-        )
-    ) {
-        Text(label)
-    }
+        }
+    )
 }
 
 class ChatPrefsViewModel(
@@ -134,7 +122,8 @@ class ChatPrefsViewModel(
                 status = when {
                     result.result.optBoolean("offline") -> PREFS_OFFLINE
                     preference == "none" -> PREFS_EMPTY
-                    preference == "all" || preference == "mentions" -> PREFS_SUCCESS
+                    preference == "mentions" -> PREFS_SUCCESS
+                    preference == "all" -> PREFS_ALL
                     else -> PREFS_ERROR
                 }
             }

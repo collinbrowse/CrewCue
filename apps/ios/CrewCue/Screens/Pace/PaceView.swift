@@ -95,7 +95,7 @@ struct PaceView: View {
         Button {
             openTools("gpx-import")
         } label: {
-            Image(systemName: "calendar.badge.clock")
+            Image(systemName: "wrench.and.screwdriver")
                 .font(CrewFont.headline)
                 .foregroundStyle(theme.onPrimary)
                 .frame(width: 60, height: 60)
@@ -558,21 +558,27 @@ struct PaceToolsSheet: View {
     var focus: String
 
     var body: some View {
-        ToolSheet(title: "Race tools") {
+        ToolSheet(title: RaceToolsCopy.sheetTitle) {
             ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+                VStack(alignment: .leading, spacing: CrewSpace.margin) {
                     if model.checkInOpen || focus == "check-in" {
                         PaceCheckInSection(model: model)
                             .id("check-in")
                     }
-                    PaceGpxSection(model: model)
-                        .id("gpx-import")
-                    PaceExportSection(text: model.exportText, message: model.exportMessage)
-                        .id("crew-sheet-export")
-                    PaceCourseSection(model: model)
-                        .id("course-settings")
-                    PaceOutboxSection(rows: model.outboxRows, message: model.outboxMessage)
-                        .id("outbox-status")
+                    CrewSettingsGroup(title: "Course") {
+                        PaceGpxSection(model: model)
+                        PaceCourseSection(model: model)
+                            .id("course-settings")
+                    }
+                    .id("gpx-import")
+                    CrewSettingsGroup(title: "Share") {
+                        PaceExportSection(rows: model.crewSheetRows, text: model.exportText, message: model.exportMessage)
+                    }
+                    .id("crew-sheet-export")
+                    CrewSettingsGroup(title: "This phone") {
+                        PaceOutboxSection(rows: model.outboxRows, message: model.outboxMessage)
+                    }
+                    .id("outbox-status")
                 }
                 .onAppear { proxy.scrollTo(focus, anchor: .top) }
                 // The crew sheet loads after the sheet opens and pushes later tools down; keep the focus in view.
@@ -730,31 +736,42 @@ struct PaceCheckInButton: View {
 struct PaceGpxSection: View {
     @Bindable var model: PaceModel
     @State private var importing = false
+    @State private var pasting = false
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("GPX import")
-                .font(CrewFont.title)
-            Text(verbatim: model.gpxMessage)
-                .font(CrewFont.bodyLarge)
-            TextField("GPX", text: $model.gpxText, axis: .vertical)
-                .font(CrewFont.bodyLarge)
-                .lineLimit(3...8)
-                .textFieldStyle(.crew)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("GPX text")
-            PaceChooseGpxButton(isBusy: model.gpxBusy) {
-                importing = true
+        CrewSettingRow(
+            systemImage: "map",
+            title: RaceToolsCopy.courseFileTitle,
+            hint: model.gpxMessage,
+            trailing: {
+                PaceChooseGpxButton(isBusy: model.gpxBusy) {
+                    importing = true
+                }
+            },
+            below: {
+                DisclosureGroup(RaceToolsCopy.pasteGpxLabel, isExpanded: $pasting) {
+                    VStack(alignment: .trailing, spacing: CrewSpace.base) {
+                        TextField("<gpx>…</gpx>", text: $model.gpxText, axis: .vertical)
+                            .font(.system(.footnote, design: .monospaced))
+                            .lineLimit(3...6)
+                            .padding(CrewSpace.stackSm)
+                            .background(theme.well, in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .accessibilityLabel("GPX text")
+                        PaceImportGpxButton(isBusy: model.gpxBusy) {
+                            await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
+                        }
+                    }
+                    .padding(.top, CrewSpace.base)
+                }
+                .font(CrewFont.hint)
+                .tint(theme.primary)
             }
-            PaceImportGpxButton(isBusy: model.gpxBusy) {
-                await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
-            }
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.gpx-import")
-        .accessibilityLabel("GPX import")
+        .accessibilityLabel("Course file")
         .fileImporter(isPresented: $importing, allowedContentTypes: gpxTypes, allowsMultipleSelection: false) { result in
             Task { await importFile(result) }
         }
@@ -799,9 +816,10 @@ struct PaceChooseGpxButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button("Choose GPX file", action: action)
-            .buttonStyle(.crewSecondary)
+        Button("Choose file", action: action)
+            .buttonStyle(.crewPillProminent)
             .crewBusy(isBusy)
+            .accessibilityLabel("Choose GPX file")
     }
 }
 
@@ -810,85 +828,159 @@ struct PaceImportGpxButton: View {
     let action: () async -> Void
 
     var body: some View {
-        Button("Import GPX") {
+        Button("Import") {
             Task { await action() }
         }
-        .buttonStyle(.crewPrimary)
+        .buttonStyle(.crewPill)
         .crewBusy(isBusy)
+        .accessibilityLabel("Import GPX")
     }
 }
 
+/// The schedule as a table (stop, due time, race time) with a Share button for the text version.
 struct PaceExportSection: View {
+    let rows: [CrewSheetRow]
     let text: String
     let message: String
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Crew sheet")
-                .font(CrewFont.title)
-            if text.isEmpty == false {
-                Text(verbatim: text)
-                    .font(.system(.footnote, design: .monospaced))
-                    .padding(CrewSpace.stackSm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
-                ShareLink(item: text) {
-                    Label("Share crew sheet", systemImage: "square.and.arrow.up")
+        CrewSettingRow(
+            systemImage: "list.bullet.rectangle",
+            title: RaceToolsCopy.crewSheetTitle,
+            hint: message.isEmpty ? RaceToolsCopy.crewSheetHint : message,
+            trailing: {
+                if text.isEmpty == false {
+                    ShareLink(item: text) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.crewPillProminent)
+                    .accessibilityLabel("Share crew sheet")
                 }
-                .buttonStyle(.crewPrimary)
+            },
+            below: {
+                if rows.isEmpty == false {
+                    Grid(alignment: .leading, horizontalSpacing: CrewSpace.stackSm, verticalSpacing: 6) {
+                        GridRow {
+                            Text("Stop")
+                            Text("Due").gridColumnAlignment(.trailing)
+                            Text("Race time").gridColumnAlignment(.trailing)
+                        }
+                        .font(CrewFont.kicker)
+                        .foregroundStyle(theme.outline)
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            GridRow {
+                                Text(verbatim: row.title)
+                                    .font(.system(.subheadline, weight: .medium))
+                                    .foregroundStyle(theme.ink)
+                                Text(verbatim: row.arrival)
+                                    .font(.system(.subheadline).monospacedDigit())
+                                    .foregroundStyle(theme.ink)
+                                Text(verbatim: row.elapsed)
+                                    .font(.system(.subheadline).monospacedDigit())
+                                    .foregroundStyle(theme.outline)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            if message.isEmpty == false {
-                Text(verbatim: message)
-                    .font(CrewFont.bodyLarge)
-            }
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.crew-sheet-export")
         .accessibilityLabel("Crew sheet")
     }
 }
 
+/// Aid station stops and cutoffs from the loaded course, plus notes kept on this phone.
 struct PaceCourseSection: View {
     @Bindable var model: PaceModel
+    @State private var editingNotes = false
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Course settings")
-                .font(CrewFont.title)
+        VStack(alignment: .leading, spacing: 0) {
+            CrewSettingRow(
+                systemImage: "clock",
+                title: RaceToolsCopy.stopsTitle,
+                hint: model.stopSummary.isEmpty ? model.courseMessage : model.stopSummary,
+                trailing: { EmptyView() },
+                below: {
+                    if model.stoppageLines.isEmpty == false {
+                        PaceTwoColumnLines(lines: model.stoppageLines)
+                    }
+                }
+            )
             if model.cutoffLines.isEmpty == false {
-                Text("Cutoff")
-                    .crewKicker()
-                ForEach(model.cutoffLines) { line in
-                    PaceSheetLine(text: line.text)
+                CrewRowDivider()
+                CrewSettingRow(
+                    systemImage: "flag.checkered",
+                    title: RaceToolsCopy.cutoffsTitle,
+                    trailing: { EmptyView() },
+                    below: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(model.cutoffLines) { line in
+                                Text(verbatim: line.text)
+                                    .font(.system(.subheadline))
+                                    .foregroundStyle(theme.ink)
+                            }
+                        }
+                    }
+                )
+            }
+            CrewRowDivider()
+            CrewSettingRow(
+                systemImage: "note.text",
+                title: RaceToolsCopy.notesTitle,
+                hint: model.stopSummary.isEmpty || model.courseMessage.isEmpty ? RaceToolsCopy.notesHint : model.courseMessage,
+                trailing: {
+                    Button(editingNotes ? "Done" : "Edit") {
+                        editingNotes.toggle()
+                    }
+                    .buttonStyle(.crewPill)
+                },
+                below: {
+                    if editingNotes {
+                        VStack(alignment: .trailing, spacing: CrewSpace.base) {
+                            TextField(RaceToolsCopy.cutoffNotePlaceholder, text: $model.cutoffNote)
+                                .textFieldStyle(.crew)
+                                .accessibilityLabel(RaceToolsCopy.cutoffNoteLabel)
+                            TextField(RaceToolsCopy.usualStopLabel, text: $model.stoppageText)
+                                .textFieldStyle(.crew)
+                                .keyboardType(.decimalPad)
+                                .accessibilityLabel(RaceToolsCopy.usualStopLabel)
+                            PaceSaveCourseButton(action: model.saveCourseDraft)
+                        }
+                    }
                 }
-            }
-            if model.stoppageLines.isEmpty == false {
-                Text("Stoppage")
-                    .crewKicker()
-                ForEach(model.stoppageLines) { line in
-                    PaceSheetLine(text: line.text)
-                }
-            }
-            TextField("Cutoff", text: $model.cutoffNote)
-                .font(CrewFont.bodyLarge)
-                .textFieldStyle(.crew)
-                .accessibilityLabel("Cutoff")
-            TextField("Stoppage seconds", text: $model.stoppageText)
-                .font(CrewFont.bodyLarge)
-                .textFieldStyle(.crew)
-                .keyboardType(.decimalPad)
-                .accessibilityLabel("Stoppage")
-            if model.courseMessage.isEmpty == false {
-                Text(verbatim: model.courseMessage)
-                    .font(CrewFont.bodyLarge)
-            }
-            PaceSaveCourseButton(action: model.saveCourseDraft)
+            )
         }
-        .crewCard()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.course-settings")
         .accessibilityLabel("Course settings")
+    }
+}
+
+/// "Aid 1<TAB>2 min" lines as a name column and a right-aligned value column.
+struct PaceTwoColumnLines: View {
+    let lines: [PaceLine]
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: CrewSpace.stackSm, verticalSpacing: 4) {
+            ForEach(lines) { line in
+                let parts = line.text.split(separator: "\t", maxSplits: 1).map(String.init)
+                GridRow {
+                    Text(verbatim: parts.first ?? "")
+                        .foregroundStyle(theme.ink)
+                    Text(verbatim: parts.count > 1 ? parts[1] : "")
+                        .monospacedDigit()
+                        .foregroundStyle(theme.outline)
+                        .gridColumnAlignment(.trailing)
+                }
+                .font(.system(.subheadline))
+            }
+        }
     }
 }
 
@@ -896,30 +988,50 @@ struct PaceSaveCourseButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button("Save", action: action)
-            .buttonStyle(.crewPrimary)
+        Button("Save notes", action: action)
+            .buttonStyle(.crewPillProminent)
+            .accessibilityLabel("Save course settings")
     }
 }
 
+/// Work made without signal that hasn't reached the server yet.
 struct PaceOutboxSection: View {
     let rows: [PaceLine]
     let message: String
+    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Outbox")
-                .font(CrewFont.title)
-            ForEach(rows) { row in
-                PaceSheetLine(text: row.text)
+        CrewSettingRow(
+            systemImage: "arrow.up.circle",
+            title: RaceToolsCopy.outboxTitle,
+            hint: RaceToolsCopy.outboxHint,
+            trailing: {
+                if rows.isEmpty == false {
+                    Text(verbatim: "\(rows.count)")
+                        .font(.system(.subheadline, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(theme.onPrimarySoft)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 28)
+                        .background(theme.primarySoft, in: Capsule())
+                        .accessibilityLabel("\(rows.count) waiting")
+                }
+            },
+            below: {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(rows) { row in
+                        Label(row.text, systemImage: "clock.arrow.circlepath")
+                            .font(.system(.subheadline))
+                            .foregroundStyle(theme.ink)
+                    }
+                    if message.isEmpty == false {
+                        Text(verbatim: message)
+                            .font(.system(.subheadline))
+                            .foregroundStyle(theme.body)
+                    }
+                }
             }
-            if message.isEmpty == false {
-                Text(verbatim: message)
-                    .font(CrewFont.bodyLarge)
-            }
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.outbox")
-        .accessibilityLabel("Outbox")
+        .accessibilityLabel("Waiting to upload")
     }
 }

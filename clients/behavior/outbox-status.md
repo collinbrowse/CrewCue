@@ -16,13 +16,13 @@ none
 Shows pending operations that are safe to retry, including one pending ping when the fixture overlay is used.
 
 ## Empty
-Outbox is empty.
+Nothing waiting. Everything is uploaded.
 
 ## Error
-Rejected by server policy.
+The server turned down a change, so it won't upload.
 
 ## Offline
-Network error. Will retry when the app is active.
+No signal. These upload once this phone is back online.
 
 ## Accessibility labels
 - crewcue.outbox

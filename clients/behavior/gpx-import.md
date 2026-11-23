@@ -16,7 +16,7 @@ none
 Calculating race splits… then the course is saved.
 
 ## Empty
-Choose a route file.
+The race's .gpx route. Sets the aid stations and schedule.
 
 ## Error
 Couldn't read the route file.

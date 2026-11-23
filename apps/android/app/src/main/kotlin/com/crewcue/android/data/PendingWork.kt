@@ -8,30 +8,29 @@ data class PendingWork(
     val lines: List<String>
 )
 
+const val OUTBOX_EMPTY = "Nothing waiting. Everything is uploaded."
+const val OUTBOX_OFFLINE = "No signal. These upload once this phone is back online."
+const val OUTBOX_REJECTED = "The server turned down a change, so it won't upload."
+
+/** What is still waiting to upload, as plain labels from client-core (`RaceToolsCopy.outboxLabel`). */
 fun RuntimeResult.pendingWork(): PendingWork {
     if (this is RuntimeResult.Failure) {
-        val message = if (offline) "Network error. Will retry when the app is active." else "Rejected by server policy."
-        return PendingWork(message, emptyList())
+        return PendingWork(if (offline) OUTBOX_OFFLINE else OUTBOX_REJECTED, emptyList())
     }
     val json = (this as RuntimeResult.Success).result
     val operations = json.optJSONArray("operations") ?: JSONArray()
     val lines = buildList {
         for (index in 0 until operations.length()) {
             val row = operations.optJSONObject(index) ?: continue
-            val type = row.optString("type")
-            val status = row.optString("status")
-            if (type.isNotBlank() || status.isNotBlank()) add("$type $status".trim())
+            if (row.optString("status") != "pending") continue
+            add(row.optString("label").ifBlank { row.optString("type") })
         }
     }
-    val pending = json.optInt("pending", lines.count { it.endsWith("pending") })
-    val safeRetry = (0 until operations.length()).any { index ->
-        operations.optJSONObject(index)?.optBoolean("safeRetry") == true
-    }
+    val pending = json.optInt("pending", lines.size)
     val message = when {
-        json.optBoolean("rejected") -> "Rejected by server policy."
-        pending <= 0 -> "Outbox is empty."
-        safeRetry -> "Pending $pending. Safe retry true."
-        else -> "Pending $pending."
+        json.optBoolean("rejected") -> OUTBOX_REJECTED
+        pending <= 0 -> OUTBOX_EMPTY
+        else -> ""
     }
     return PendingWork(message, lines)
 }

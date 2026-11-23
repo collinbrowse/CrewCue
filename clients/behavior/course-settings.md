@@ -13,7 +13,7 @@ GET /race-rooms/:roomId for course checkpoint stoppage. Draft stays local, in th
 none
 
 ## Success
-Cutoff and stoppage saved as a draft.
+Notes saved on this phone.
 
 ## Empty
 No course settings yet.
