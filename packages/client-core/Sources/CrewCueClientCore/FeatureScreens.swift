@@ -464,7 +464,7 @@ private func accountDeletionBody(_ state: FeatureState) -> String {
 private func raceDeleteBody(_ state: FeatureState) -> String {
     switch state {
     case .success: RaceDeletion.deletedMessage
-    case .empty: RaceDeletion.confirmBody
+    case .empty: RaceDeletion.confirmBody(paid: true)
     case .error: RaceDeletion.genericFailureMessage
     case .offline: RaceDeletion.offlineMessage
     }

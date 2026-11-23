@@ -7,9 +7,22 @@ public enum RaceDeletion {
     public static let rowDetail = "Remove this race for the whole crew"
     public static let confirmButton = "Delete race"
     public static let cancelButton = "Cancel"
-    public static let confirmBody = """
-        This deletes the race for the whole crew: the course, plan, check-ins and chat. \
-        It can't be undone.
+    /// What the confirm says. A paid race warns first that its Race Pass goes with it, and every
+    /// race points at the fixes that keep it: a new name, or a new course file before the start.
+    public static func confirmBody(paid: Bool) -> String {
+        var parts: [String] = []
+        if paid {
+            parts.append("You'll lose this race's Race Pass. It can't be moved to another race or restored.")
+        }
+        parts.append(alternatives)
+        parts.append("Deleting removes the course, plan, check-ins and chat for the whole crew. It can't be undone.")
+        return parts.joined(separator: "\n\n")
+    }
+
+    /// The changes that don't need a delete.
+    public static let alternatives = """
+        Wrong name or course? Rename the race in Race & crew, or load a new course file in Pace, \
+        until the race starts.
         """
     public static let deletedMessage = "Race deleted."
     public static let offlineMessage = "Offline. Race not deleted."

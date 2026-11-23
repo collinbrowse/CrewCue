@@ -73,6 +73,11 @@ private func graph(_ transport: some HTTPTransport) -> ClientGraph {
 @Test func raceDeletionCopyWarnsItCannotBeUndone() {
     #expect(RaceDeletion.confirmTitle(raceName: " Leadville ") == "Delete Leadville?")
     #expect(RaceDeletion.confirmTitle(raceName: "") == "Delete this race?")
-    #expect(RaceDeletion.confirmBody.contains("whole crew"))
-    #expect(RaceDeletion.confirmBody.contains("can't be undone"))
+    for paid in [true, false] {
+        let body = RaceDeletion.confirmBody(paid: paid)
+        #expect(body.contains("whole crew"))
+        #expect(body.contains("can't be undone"))
+        #expect(body.contains("Rename the race"))
+        #expect(body.contains("Race Pass") == paid)
+    }
 }

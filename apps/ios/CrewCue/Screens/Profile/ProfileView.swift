@@ -210,8 +210,8 @@ struct ProfileView: View {
             Button(RaceDeletion.cancelButton, role: .cancel) {
                 model.pendingDelete = nil
             }
-        } message: { _ in
-            Text(RaceDeletion.confirmBody)
+        } message: { race in
+            Text(RaceDeletion.confirmBody(paid: race.paid ?? false))
         }
         .task(id: activationID) {
             await model.activate(userId: userId, roomId: roomId, displayName: displayName, onName: onName)

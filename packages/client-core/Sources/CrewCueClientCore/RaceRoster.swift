@@ -12,6 +12,9 @@ public struct RaceSummary: Codable, Equatable, Sendable {
     /// The race owner's user id (`athleteId`). Only the owner can delete the race. Optional so a
     /// summary stored before this field still decodes.
     public var ownerId: String?
+    /// The race has a Race Pass (paid). Deleting it loses the pass. Nil on a summary stored
+    /// before this field.
+    public var paid: Bool?
 
     public init(
         id: String,
@@ -19,7 +22,8 @@ public struct RaceSummary: Codable, Equatable, Sendable {
         role: String,
         raceStartAt: String? = nil,
         displayName: String? = nil,
-        ownerId: String? = nil
+        ownerId: String? = nil,
+        paid: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -27,6 +31,7 @@ public struct RaceSummary: Codable, Equatable, Sendable {
         self.raceStartAt = raceStartAt
         self.displayName = displayName
         self.ownerId = ownerId
+        self.paid = paid
     }
 
     public init(room: RaceRoom, userId: String) {
@@ -39,7 +44,8 @@ public struct RaceSummary: Codable, Equatable, Sendable {
             role: membership?.role ?? (room.athleteId == userId ? "athlete" : "crew_member"),
             raceStartAt: room.raceStartAt,
             displayName: name.isEmpty ? nil : name,
-            ownerId: room.athleteId
+            ownerId: room.athleteId,
+            paid: room.entitlement.status == "paid"
         )
     }
 
