@@ -127,15 +127,21 @@ import Testing
         "op": "exportCrewSheet",
         "storageDir": directory.path,
         "roomId": "room-1",
+        "raceName": "Western 50K",
         "timeZone": "America/Denver"
     ])
     let sheet = try resultObject(exported)
     let text = try #require(sheet["text"] as? String)
-    #expect(text.contains("Crew sheet"))
-    #expect(text.contains("Aid 1  1:10:00  8:10"))
+    #expect(text.hasPrefix("Western 50K crew sheet\nUpdated "))
+    #expect(text.contains("Aid 1: due 8:10"))
+    #expect(text.contains("AM (1:10:00 race time)"))
     #expect(!text.contains("UTC"))
     #expect(!text.contains("14:10"))
-    #expect(text.contains("Room room-1"))
+    #expect(!text.contains("room-1"))
+    let rows = try #require(sheet["rows"] as? [[String: Any]])
+    #expect(rows.first?["title"] as? String == "Aid 1")
+    #expect((rows.first?["arrival"] as? String)?.hasPrefix("8:10") == true)
+    #expect(rows.first?["elapsed"] as? String == "1:10:00")
 }
 
 @Test func runtimeCheckInRejectsEmptyAndListsQueuedWork() async throws {

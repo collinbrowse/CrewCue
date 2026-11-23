@@ -331,7 +331,10 @@ class RaceDayBridge private constructor(
 
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
-    fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }
+    fun exportCrewSheet(roomId: String, raceName: String = ""): RuntimeResult = call("exportCrewSheet") {
+        put("roomId", roomId)
+        put("raceName", raceName)
+    }
 
     /** #250 Pace edit draft: rows, projected stops, and timeline for the typed minutes. Pure; no network. */
     fun stopPlanDraft(

@@ -867,6 +867,7 @@ enum RuntimeCall {
                 "id": operation.id,
                 "type": operation.type,
                 "status": operation.status,
+                "label": RaceToolsCopy.outboxLabel(type: operation.type),
                 "safeRetry": OutboxPolicy.isSafeRetry(policy)
             ]
         }
@@ -885,16 +886,18 @@ enum RuntimeCall {
             return ["empty": true]
         }
         let zone = requestTimeZone(object)
-        let lines = sheet.stops.map {
-            ScheduleFormat.scheduleLine(
-                checkpointId: $0.checkpointId,
-                elapsedSeconds: $0.elapsedSeconds,
-                clockArrivalAt: $0.clockArrivalAt,
-                timeZone: zone
-            )
-        }
-        let text = ScheduleFormat.crewSheetText(roomId: sheet.roomId, capturedAtIso: isoNow(object), stopLines: lines, timeZone: zone)
-        return ["empty": false, "text": text]
+        let rows = RaceToolsCopy.crewSheetRows(sheet.stops, timeZone: zone)
+        let text = RaceToolsCopy.crewSheetText(
+            raceName: object["raceName"] as? String ?? "",
+            capturedAtIso: isoNow(object),
+            rows: rows,
+            timeZone: zone
+        )
+        return [
+            "empty": false,
+            "text": text,
+            "rows": rows.map { ["title": $0.title, "arrival": $0.arrival, "elapsed": $0.elapsed] }
+        ]
     }
 
     private static func readCourseSettings(_ object: [String: Any]) async throws -> Any {

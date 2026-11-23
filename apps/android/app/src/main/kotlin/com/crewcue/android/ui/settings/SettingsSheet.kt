@@ -35,12 +35,20 @@ import com.crewcue.android.ui.members.RoomMembersViewModelFactory
 import com.crewcue.android.BuildConfig
 import com.crewcue.android.ui.activity.ActivityImportSection
 import com.crewcue.android.ui.strava.StravaSection
-import com.crewcue.android.ui.theme.CrewListRow
 import com.crewcue.android.ui.theme.CrewTextField
-import com.crewcue.android.ui.theme.PrimaryButton
-import com.crewcue.android.ui.theme.ProductCard
-import com.crewcue.android.ui.theme.SectionHeader
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.RowDivider
+import com.crewcue.android.ui.theme.SettingRow
+import com.crewcue.android.ui.theme.SettingsGroup
 import com.crewcue.android.ui.theme.ToolSheet
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.Alignment
 
 /** Every app setting, reached from the top-bar gear on any tab. Settings deeplinks open it at their section. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -50,31 +58,43 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
     val focus = viewModel.settingsFocus
     val roomId = viewModel.session?.roomId
     ToolSheet(title = "Settings", onDismiss = onDismiss) {
-        SettingsNameSection(viewModel, roomId)
-        if (!roomId.isNullOrBlank()) {
-            ChatAlertsSection(viewModel, roomId, Modifier.focusedOn("chat-notification-prefs", focus))
+        SettingsGroup("Profile") {
+            SettingsNameSection(viewModel, roomId)
         }
-        PushSection(viewModel, requestOnAppear = focus == "push-registration", modifier = Modifier.focusedOn("push-registration", focus))
+        SettingsGroup("Notifications", Modifier.focusedOn("push-registration", focus)) {
+            PushSection(viewModel, requestOnAppear = focus == "push-registration")
+            if (!roomId.isNullOrBlank()) {
+                RowDivider()
+                ChatAlertsSection(viewModel, roomId, Modifier.focusedOn("chat-notification-prefs", focus))
+            }
+        }
         if (viewModel.session?.role == "athlete") {
-            TrackingIntervalSection(viewModel, Modifier.focusedOn("location-heartbeat", focus))
+            SettingsGroup("Race day", Modifier.focusedOn("location-heartbeat", focus)) {
+                TrackingIntervalSection(viewModel)
+            }
         }
-        ActivityImportSection(viewModel, Modifier.focusedOn("activity-import", focus))
-        // Strava is off in v1 (#652); the server routes stay for later.
-        if (BuildConfig.STRAVA_ENABLED) {
-            StravaSection(viewModel, Modifier.focusedOn("strava", focus))
+        SettingsGroup("Pace estimate", Modifier.focusedOn("activity-import", focus)) {
+            ActivityImportSection(viewModel)
+            // Strava is off in v1 (#652); the server routes stay for later.
+            if (BuildConfig.STRAVA_ENABLED) {
+                RowDivider()
+                StravaSection(viewModel, Modifier.focusedOn("strava", focus))
+            }
         }
-        ProductCard(Modifier.focusedOn("account-deletion", focus)) {
-            SectionHeader("Account")
-            CrewListRow(
+        SettingsGroup("Account", Modifier.focusedOn("account-deletion", focus)) {
+            SettingRow(
                 Icons.AutoMirrored.Outlined.Logout,
                 "Sign out",
+                modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Sign out" },
+                hint = "Your races and runs stay saved to your account.",
+                tint = MaterialTheme.colorScheme.error,
+                titleColor = MaterialTheme.colorScheme.error,
                 onClick = {
                     onDismiss()
                     viewModel.signOut(activity)
-                },
-                tint = MaterialTheme.colorScheme.error,
-                titleColor = MaterialTheme.colorScheme.error
+                }
             )
+            RowDivider()
             DeleteAccountRow(viewModel) {
                 onDismiss()
                 viewModel.signOut(activity)
@@ -87,7 +107,8 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
                 append(".")
             },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 8.dp)
         )
     }
 }
@@ -96,38 +117,42 @@ fun ShellSettingsSheet(viewModel: ShellViewModel, onDismiss: () -> Unit) {
 @Composable
 private fun SettingsNameSection(shell: ShellViewModel, roomId: String?) {
     val session = shell.session
-    ProductCard {
-        SectionHeader("Profile")
-        if (roomId.isNullOrBlank() || session == null) {
-            Text("Join or create a race to set the name your crew sees.", style = MaterialTheme.typography.bodyMedium)
-            return@ProductCard
-        }
-        val model: RoomMembersViewModel = viewModel(
-            key = "members-$roomId",
-            factory = RoomMembersViewModelFactory(shell.container.raceDay, roomId)
-        )
-        val context = LocalContext.current
-        var draft by rememberSaveable(session.userId, roomId) { mutableStateOf(session.displayName.orEmpty()) }
-        LaunchedEffect(roomId) { model.load(context.isOnline()) }
-        // The roster holds the saved name; the session may not carry one.
-        val saved = model.members.firstOrNull { it.userId == session.userId }?.displayName.orEmpty()
-        LaunchedEffect(saved) { if (draft.isBlank() && saved.isNotBlank()) draft = saved }
-        CrewTextField(
-            value = draft,
-            onValueChange = { draft = it },
-            label = "Display name",
-            modifier = Modifier.semantics { contentDescription = "Display name" }
-        )
-        PrimaryButton(
-            "Save name",
-            onClick = { model.saveName(session.userId, draft, context.isOnline(), shell::noteDisplayName) },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.busy && draft.isNotBlank()
-        )
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
+    if (roomId.isNullOrBlank() || session == null) {
+        SettingRow(Icons.Outlined.Person, "Name your crew sees", hint = "Join or create a race to set it.")
+        return
     }
+    val model: RoomMembersViewModel = viewModel(
+        key = "members-$roomId",
+        factory = RoomMembersViewModelFactory(shell.container.raceDay, roomId)
+    )
+    val context = LocalContext.current
+    var draft by rememberSaveable(session.userId, roomId) { mutableStateOf(session.displayName.orEmpty()) }
+    LaunchedEffect(roomId) { model.load(context.isOnline()) }
+    // The roster holds the saved name; the session may not carry one.
+    val saved = model.members.firstOrNull { it.userId == session.userId }?.displayName.orEmpty()
+    LaunchedEffect(saved) { if (draft.isBlank() && saved.isNotBlank()) draft = saved }
+    SettingRow(
+        Icons.Outlined.Person,
+        "Name your crew sees",
+        hint = model.status ?: "Shown on your chat messages and in this race's crew list.",
+        below = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CrewTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = "Display name",
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "Display name" }
+                )
+                PillButton(
+                    "Save",
+                    onClick = { model.saveName(session.userId, draft, context.isOnline(), shell::noteDisplayName) },
+                    prominent = true,
+                    enabled = !model.busy && draft.isNotBlank(),
+                    spoken = "Save name"
+                )
+            }
+        }
+    )
 }
 
 /** Scrolls this section into view when the sheet opened for it. */
@@ -157,27 +182,32 @@ private fun TrackingIntervalSection(viewModel: ShellViewModel, modifier: Modifie
         }
     }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    ProductCard(modifier.semantics { contentDescription = "Location interval" }) {
-        SectionHeader("Location interval")
-        Text(
-            "How often your phone shares your position with your crew during the race. Shorter uses more battery.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        androidx.compose.foundation.layout.FlowRow(
-            modifier = Modifier.padding(top = 8.dp).testTag("crewcue.location-interval"),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-        ) {
-            choices.forEach { seconds ->
-                androidx.compose.material3.FilterChip(
-                    selected = seconds == interval,
-                    onClick = {
-                        interval = seconds
-                        scope.launch(kotlinx.coroutines.Dispatchers.IO) { raceDay.setTrackingSettings(seconds) }
-                    },
-                    label = { Text("Every ${com.crewcue.android.ui.map.intervalLabel(seconds)}") }
+    var open by remember { mutableStateOf(false) }
+    SettingRow(
+        Icons.Outlined.MyLocation,
+        "Share my location every",
+        modifier = modifier.semantics(mergeDescendants = false) { contentDescription = "Location interval" },
+        hint = "Your crew's mile and ETA come from these. Shorter uses more battery.",
+        trailing = {
+            Box(Modifier.testTag("crewcue.location-interval")) {
+                PillButton(
+                    com.crewcue.android.ui.map.intervalLabel(interval),
+                    onClick = { open = true },
+                    spoken = "Every ${com.crewcue.android.ui.map.intervalLabel(interval)}"
                 )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    choices.forEach { seconds ->
+                        DropdownMenuItem(
+                            text = { Text("Every ${com.crewcue.android.ui.map.intervalLabel(seconds)}") },
+                            onClick = {
+                                open = false
+                                interval = seconds
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) { raceDay.setTrackingSettings(seconds) }
+                            }
+                        )
+                    }
+                }
             }
         }
-    }
+    )
 }

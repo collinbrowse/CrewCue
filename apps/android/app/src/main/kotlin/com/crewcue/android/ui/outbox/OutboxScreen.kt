@@ -52,7 +52,7 @@ fun OutboxScreen(shell: ShellViewModel, modifier: Modifier = Modifier) {
 }
 
 class OutboxViewModel(private val raceDay: RaceDayBridge) : ViewModel() {
-    var message by mutableStateOf("Outbox is empty.")
+    var message by mutableStateOf(com.crewcue.android.data.OUTBOX_EMPTY)
         private set
     var lines by mutableStateOf<List<String>>(emptyList())
         private set

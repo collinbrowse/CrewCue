@@ -52,16 +52,19 @@ final class PaceModel {
 
     var gpxText = ""
     var gpxFileName = "course.gpx"
-    private(set) var gpxMessage = "Choose a route file."
+    private(set) var gpxMessage = RaceToolsCopy.courseFileHint
     private(set) var gpxBusy = false
 
     private(set) var exportText = ""
-    private(set) var exportMessage = "Nothing to export."
+    private(set) var crewSheetRows: [CrewSheetRow] = []
+    private(set) var exportMessage = PaceModel.exportEmpty
 
     var cutoffNote = ""
     var stoppageText = ""
     private(set) var cutoffLines: [PaceLine] = []
     private(set) var stoppageLines: [PaceLine] = []
+    /// One sentence about the aid station stops; `stoppageLines` lists them only when they differ.
+    private(set) var stopSummary = ""
     private(set) var courseMessage = "No course settings yet."
 
     /// #250 Pace edit: planned stop minutes. Non-nil while editing; the timeline renders from it.
@@ -71,7 +74,7 @@ final class PaceModel {
     private var latestRunner = RunnerProgress.none
 
     private(set) var outboxRows: [PaceLine] = []
-    private(set) var outboxMessage = "Outbox is empty."
+    private(set) var outboxMessage = RaceToolsCopy.outboxEmpty
 
     private var loadedStops: [ScheduleStop] = []
     /// The aid stations an unpaid race withholds (`locked` on the schedule), shown locked on the timeline.
@@ -275,7 +278,7 @@ final class PaceModel {
         let ticket = generation
         let trimmed = xml.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            gpxMessage = "Choose a route file."
+            gpxMessage = RaceToolsCopy.courseFileHint
             return
         }
         guard let roomId, !gpxBusy else { return }
@@ -330,12 +333,13 @@ final class PaceModel {
 
     func saveCourseDraft() {
         let note = cutoffNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawSeconds = stoppageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The field takes minutes; the draft keeps seconds.
+        let rawMinutes = stoppageText.trimmingCharacters(in: .whitespacesAndNewlines)
         let seconds: Double
-        if rawSeconds.isEmpty {
+        if rawMinutes.isEmpty {
             seconds = 0
-        } else if let parsed = Double(rawSeconds), parsed.isFinite, parsed >= 0 {
-            seconds = parsed
+        } else if let parsed = Double(rawMinutes), parsed.isFinite, parsed >= 0 {
+            seconds = parsed * 60
         } else {
             courseMessage = "Couldn't save course settings."
             return
@@ -351,7 +355,7 @@ final class PaceModel {
             )
             hasDraft = true
             courseOffline = false
-            courseMessage = "Cutoff and stoppage saved as a draft."
+            courseMessage = "Notes saved on this phone."
         } catch {
             courseMessage = "Couldn't save course settings."
         }
@@ -638,19 +642,23 @@ final class PaceModel {
             ? "Offline. Schedule not updated."
             : "Couldn't load the schedule."
         exportText = ""
+        crewSheetRows = []
         exportMessage = "Couldn't build the crew sheet."
     }
 
     private func applyExport(roomId: String, offline: Bool, failed: Bool) {
         if stopLines.isEmpty {
             exportText = ""
-            exportMessage = failed ? "Couldn't build the crew sheet." : "Nothing to export."
+            crewSheetRows = []
+            exportMessage = failed ? "Couldn't build the crew sheet." : Self.exportEmpty
             return
         }
-        let captured = ScheduleFormat.formatScheduleClock(isoNow())
-        var rows = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]
-        rows.append(contentsOf: stopLines.map(\.text))
-        exportText = rows.joined(separator: "\n")
+        let titles = Dictionary(
+            courseCheckpoints.compactMap { checkpoint in checkpoint.title.map { (checkpoint.id, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        crewSheetRows = RaceToolsCopy.crewSheetRows(loadedStops, titles: titles)
+        exportText = RaceToolsCopy.crewSheetText(raceName: raceName, capturedAtIso: isoNow(), rows: crewSheetRows)
         if offline {
             exportMessage = "Offline. Crew sheet is ready to share from this device."
         } else {
@@ -692,33 +700,30 @@ final class PaceModel {
     }
 
     private func refreshCourseReadout() {
-        stoppageLines = courseCheckpoints.compactMap { checkpoint in
-            guard let seconds = checkpoint.plannedStopSeconds else { return nil }
-            let title = ScheduleFormat.checkpointDisplayTitle(id: checkpoint.id, title: checkpoint.title)
-            return PaceLine(
-                id: "stoppage-\(checkpoint.id)",
-                text: "\(title) \(ScheduleFormat.formatDurationSeconds(seconds))"
-            )
+        let summary = RaceToolsCopy.stopSummary(courseCheckpoints.map { checkpoint in
+            (RaceToolsCopy.checkpointName(id: checkpoint.id, title: checkpoint.title), checkpoint.plannedStopSeconds)
+        })
+        stopSummary = courseCheckpoints.isEmpty ? "" : summary.summary
+        stoppageLines = summary.rows.enumerated().map { index, row in
+            PaceLine(id: "stoppage-\(index)", text: "\(row.title)\t\(row.duration)")
         }
         cutoffLines = loadedStops.compactMap { stop in
             guard let status = stop.cutoffStatus, status.isEmpty == false else { return nil }
-            let title = ScheduleFormat.checkpointDisplayTitle(
-                id: stop.checkpointId,
-                title: courseTitle(for: stop.checkpointId)
+            let title = RaceToolsCopy.checkpointName(id: stop.checkpointId, title: courseTitle(for: stop.checkpointId))
+            return PaceLine(
+                id: "cutoff-\(stop.id)",
+                text: RaceToolsCopy.cutoffLine(title: title, status: status, marginSeconds: stop.cutoffMarginSeconds)
             )
-            let margin = stop.cutoffMarginSeconds.map { ScheduleFormat.formatDurationSeconds($0) }
-            let text = margin.map { "\(title) \(status) \($0)" } ?? "\(title) \(status)"
-            return PaceLine(id: "cutoff-\(stop.id)", text: text)
         }
         if courseOffline {
             courseMessage = "Offline. Course settings stay on this device."
             return
         }
         if hasDraft {
-            courseMessage = "Cutoff and stoppage saved as a draft."
+            courseMessage = "Notes saved on this phone."
             return
         }
-        if stoppageLines.isEmpty, cutoffLines.isEmpty {
+        if stopSummary.isEmpty, cutoffLines.isEmpty {
             courseMessage = "No course settings yet."
         } else {
             courseMessage = ""
@@ -728,26 +733,28 @@ final class PaceModel {
     private func refreshOutbox(offline: Bool) async {
         guard let outbox = client.graph.outbox else {
             outboxRows = []
-            outboxMessage = "Outbox is empty."
+            outboxMessage = RaceToolsCopy.outboxEmpty
             return
         }
         do {
             let operations = try await outbox.operations()
             let pending = operations.filter { $0.status == "pending" }
-            outboxRows = pending.map { PaceLine(id: $0.id, text: "\($0.type) \($0.id)") }
+            outboxRows = pending.map { PaceLine(id: $0.id, text: RaceToolsCopy.outboxLabel(type: $0.type)) }
             if operations.contains(where: { $0.status == "rejected" || $0.status == "conflict" }) {
-                outboxMessage = "Rejected by server policy."
+                outboxMessage = RaceToolsCopy.outboxRejected
             } else if offline, pending.isEmpty == false {
-                outboxMessage = "Network error. Will retry when the app is active."
+                outboxMessage = RaceToolsCopy.outboxOffline
             } else if pending.isEmpty {
-                outboxMessage = "Outbox is empty."
+                outboxMessage = RaceToolsCopy.outboxEmpty
             } else {
                 outboxMessage = ""
             }
         } catch {
-            outboxMessage = "Network error. Will retry when the app is active."
+            outboxMessage = RaceToolsCopy.outboxOffline
         }
     }
+
+    static let exportEmpty = "No schedule yet. Import the course file to build one."
 
     private func fetchHistory() async throws -> [ActivityHistoryRef] {
         guard client.graph.baseURL != nil else { return [] }
@@ -881,11 +888,14 @@ final class PaceModel {
         return formatter.string(from: client.graph.clock.now())
     }
 
+    /// The draft's seconds as the minutes the field shows ("" for none).
     private func formatStoppage(_ seconds: Double) -> String {
-        if seconds.rounded() == seconds {
-            return String(Int(seconds))
+        guard seconds > 0 else { return "" }
+        let minutes = seconds / 60
+        if minutes.rounded() == minutes {
+            return String(Int(minutes))
         }
-        return String(seconds)
+        return String(format: "%.1f", minutes)
     }
 
     private func clearFields() {
@@ -912,9 +922,9 @@ final class PaceModel {
         checkInMessage = ""
         gpxText = ""
         gpxFileName = "course.gpx"
-        gpxMessage = "Choose a route file."
+        gpxMessage = RaceToolsCopy.courseFileHint
         exportText = ""
-        exportMessage = "Nothing to export."
+        exportMessage = Self.exportEmpty
         cutoffNote = ""
         stoppageText = ""
         stopDraft = nil
@@ -922,12 +932,14 @@ final class PaceModel {
         latestRunner = .none
         cutoffLines = []
         stoppageLines = []
+        stopSummary = ""
+        crewSheetRows = []
         courseMessage = "No course settings yet."
         courseOffline = false
         hasDraft = false
         didApplyDraft = false
         outboxRows = []
-        outboxMessage = "Outbox is empty."
+        outboxMessage = RaceToolsCopy.outboxEmpty
         courseCheckpoints = []
         raceStartAt = nil
         scheduleRaceStart = nil

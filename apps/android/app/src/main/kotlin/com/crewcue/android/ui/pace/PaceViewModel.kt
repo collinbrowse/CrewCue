@@ -97,6 +97,11 @@ class PaceViewModel(
         private set
     var exportText by mutableStateOf<String?>(null)
         private set
+    /** The crew sheet as table rows (stop, due time, race time) from client-core. */
+    var crewSheetRows by mutableStateOf<List<CrewSheetRow>>(emptyList())
+        private set
+    /** Heads the shared crew sheet text; the screen sets it from the selected race. */
+    var raceName = ""
     var exportMessage by mutableStateOf<String?>(null)
         private set
     var cutoffNote by mutableStateOf("")
@@ -233,7 +238,8 @@ class PaceViewModel(
 
     fun saveCourse() {
         if (readOnly) return
-        val seconds = if (stoppageText.isBlank()) 0.0 else stoppageText.trim().toDoubleOrNull()
+        // The field takes minutes; the draft keeps seconds.
+        val seconds = if (stoppageText.isBlank()) 0.0 else stoppageText.trim().toDoubleOrNull()?.times(60)
         if (seconds == null || seconds < 0.0 || !seconds.isFinite()) {
             courseMessage = COURSE_ERROR
             return
@@ -405,7 +411,7 @@ class PaceViewModel(
     private suspend fun loadScheduleAndExport() {
         val result = withContext(Dispatchers.IO) { raceDay.loadSchedule(roomId) }
         val offline = applySchedule(result)
-        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId) }
+        val exported = withContext(Dispatchers.IO) { raceDay.exportCrewSheet(roomId, raceName) }
         applyExport(exported, scheduleOffline = offline, scheduleFailed = result is RuntimeResult.Failure && !offline)
     }
 
@@ -528,13 +534,20 @@ class PaceViewModel(
         when (result) {
             is RuntimeResult.Failure -> {
                 exportText = null
+                crewSheetRows = emptyList()
                 exportMessage = if (result.offline) EXPORT_OFFLINE else EXPORT_ERROR
             }
             is RuntimeResult.Success -> {
                 val text = result.result.optString("text").ifBlank { null }
                 val empty = result.result.optBoolean("empty") || text == null
                 exportText = if (empty) null else text
-                exportMessage = exportCopy(empty, scheduleOffline, scheduleFailed)
+                val rows = result.result.optJSONArray("rows")
+                crewSheetRows = if (empty || rows == null) emptyList() else (0 until rows.length()).mapNotNull { index ->
+                    rows.optJSONObject(index)?.let {
+                        CrewSheetRow(it.optString("title"), it.optString("arrival"), it.optString("elapsed"))
+                    }
+                }
+                exportMessage = exportCopy(empty, scheduleOffline, scheduleFailed).ifBlank { null }
             }
         }
     }
@@ -562,7 +575,7 @@ class PaceViewModel(
                 }
                 if (!courseDirty || fromSave) {
                     cutoffNote = json.optString("cutoffNote")
-                    stoppageText = formatSeconds(json.optDouble("stoppageSeconds", 0.0))
+                    stoppageText = formatMinutes(json.optDouble("stoppageSeconds", 0.0))
                 }
                 if (fromSave) courseDirty = false
                 if (!json.optBoolean("offline")) {
@@ -603,10 +616,12 @@ class PaceViewModel(
         return CHECKIN_SUCCESS
     }
 
-    private fun formatSeconds(value: Double): String {
-        if (!value.isFinite() || value == 0.0) return if (value == 0.0) "0" else ""
-        val whole = value.toLong()
-        return if (value == whole.toDouble()) whole.toString() else value.toString()
+    /** Draft seconds as the minutes the field shows ("" for none). */
+    private fun formatMinutes(seconds: Double): String {
+        if (!seconds.isFinite() || seconds <= 0.0) return ""
+        val minutes = seconds / 60
+        val whole = minutes.toLong()
+        return if (minutes == whole.toDouble()) whole.toString() else String.format(java.util.Locale.US, "%.1f", minutes)
     }
 
     fun openCheckIn(checkpoint: String) {
@@ -679,14 +694,14 @@ class PaceViewModel(
         const val CHECKIN_INVALID = "Couldn't validate check-in times."
         const val CHECKIN_OFFLINE = "Offline. Check-in queued in the outbox."
         const val GPX_SUCCESS = "Calculating race splits… then the course is saved."
-        const val GPX_EMPTY = "Choose a route file."
+        const val GPX_EMPTY = "The race's .gpx route. Sets the aid stations and schedule."
         const val GPX_ERROR = "Couldn't read the route file."
         const val GPX_OFFLINE = "Offline. The file stays on this device until upload."
-        const val EXPORT_SUCCESS = "Shows a plaintext crew sheet built on device."
-        const val EXPORT_EMPTY = "Nothing to export."
+        const val EXPORT_SUCCESS = ""
+        const val EXPORT_EMPTY = "No schedule yet. Import the course file to build one."
         const val EXPORT_ERROR = "Couldn't build the crew sheet."
         const val EXPORT_OFFLINE = "Offline. Crew sheet is ready to share from this device."
-        const val COURSE_SUCCESS = "Cutoff and stoppage saved as a draft."
+        const val COURSE_SUCCESS = "Notes saved on this phone."
         const val COURSE_EMPTY = "No course settings yet."
         const val COURSE_ERROR = "Couldn't save course settings."
         const val COURSE_OFFLINE = "Offline. Course settings stay on this device."
@@ -695,6 +710,9 @@ class PaceViewModel(
         const val STOPS_OFFLINE = "Offline. Planned stops not saved. Try again when you're online."
     }
 }
+
+/** One crew sheet row as client-core `RaceToolsCopy.crewSheetRows` built it. */
+data class CrewSheetRow(val title: String, val arrival: String, val elapsed: String)
 
 class PaceViewModelFactory(
     private val raceDay: RaceDayBridge,
