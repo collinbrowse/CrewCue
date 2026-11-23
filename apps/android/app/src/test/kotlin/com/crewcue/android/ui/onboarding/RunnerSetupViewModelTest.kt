@@ -964,6 +964,34 @@ class RunnerSetupViewModelTest {
         assertFalse(effects.contains(RunnerSetupEffect.RacesChanged))
     }
 
+    @Test
+    fun theScreenReadsClientCoresAnswersAndANewStateIsAnsweredOffMain() = runTest(dispatcher) {
+        val io = HeldDispatcher()
+        val model = reviewing(SetupSteps.COURSE, io = io)
+        fun readAll() = listOf(
+            model.step, model.isReviewing, model.showsBack, model.courseAction, model.startAction,
+            model.historyShowsContinue, model.canContinueCourse, model.showsCourseSaved,
+            model.canContinueStart, model.startNeedsCourseFile, model.canRetry
+        )
+        val asked = runtime.decisions.size
+        // Every recomposition reads these: none asks the bridge.
+        val drawn = readAll()
+        repeat(3) { assertEquals(drawn, readAll()) }
+        assertEquals(asked, runtime.decisions.size)
+        // Back while the io is held: client-core is asked only there, so the screen keeps the
+        // answer it has, and reading it asks nothing on Main.
+        io.held = true
+        model.goBack()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertEquals(drawn, readAll())
+        assertEquals(asked, runtime.decisions.size)
+        // The io answers: the account step, Back hidden (the race exists).
+        io.release()
+        assertTrue(runtime.decisions.size > asked)
+        assertEquals(SetupSteps.ACCOUNT, model.step)
+        assertFalse(model.showsBack)
+    }
+
     // MARK: a reviewed step's Continue
 
     /** Setup on the teaser, then Back to [step]. */

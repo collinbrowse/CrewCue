@@ -10,6 +10,8 @@ import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.ui.UserFacingError
 import java.time.LocalDate
+import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KProperty
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -93,7 +95,9 @@ data class PendingCourse(
  * Back opens the step before the one on screen with everything entered kept. The step setup has
  * reached is the frontier; a step opened with Back (or by a relaunch) is reviewed, and its
  * Continue opens the next step until it meets the frontier again, saving only what changed. Every
- * one of those decisions is client-core `RunnerSetupSteps` ([SetupDecisions]).
+ * one of those decisions is client-core `RunnerSetupSteps` ([SetupDecisions]), asked off Main: the
+ * screen reads [rules], published whenever a state they read changes, and a tap's action asks for
+ * them again for the state it acts on.
  */
 class RunnerSetupViewModel(
     private val runtime: RunnerSetupRuntime,
@@ -116,6 +120,27 @@ class RunnerSetupViewModel(
     private val decisions = SetupDecisions(runtime)
 
     /**
+     * client-core's answers for the step on show ([SetupRules]). The screen reads only these, so a
+     * frame never waits on the bridge; [refreshRules] asks again, off Main, whenever a state they
+     * read changes. [SetupRules.Unknown] (no step, the screen's loader) until the first answer.
+     */
+    var rules by mutableStateOf(SetupRules.Unknown)
+        private set
+    /** The inputs [rules] answers. */
+    private var rulesInputs: SetupRules.Inputs? = null
+    private var rulesQueued = false
+
+    /** A state the step rules read: setting it asks client-core for them again ([refreshRules]). */
+    private fun <T> ruleInput(initial: T): ReadWriteProperty<Any?, T> = object : ReadWriteProperty<Any?, T> {
+        private val state = mutableStateOf(initial)
+        override fun getValue(thisRef: Any?, property: KProperty<*>): T = state.value
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
+            state.value = value
+            refreshRules()
+        }
+    }
+
+    /**
      * Draft writes to disk, one at a time and newest last: each keystroke writes, and separate
      * launches could land out of order, leaving an older draft on disk for the next launch.
      */
@@ -124,17 +149,17 @@ class RunnerSetupViewModel(
     /** A new launch, not a restore after process death: the relaunch check may reopen a step. */
     private val freshLaunch = !savedState.contains(KEY_DRAFT)
 
-    var draft by mutableStateOf(initialDraft())
+    var draft by ruleInput(initialDraft())
         private set
     /**
      * The step client-core's onboarding state names: the state the screen opened with, else the
      * one saved before process death, so a resume never draws another step first.
      */
-    var serverStep by mutableStateOf(
+    var serverStep by ruleInput(
         initialFlow?.takeIf { it.isRunnerSetup }?.step ?: savedState.get<String>(KEY_SERVER_STEP)
     )
         private set
-    var roomId by mutableStateOf(initialFlow?.takeIf { it.isRunnerSetup }?.roomId ?: draft.roomId)
+    var roomId by ruleInput(initialFlow?.takeIf { it.isRunnerSetup }?.roomId ?: draft.roomId)
         private set
     var status by mutableStateOf<SetupStatus>(SetupStatus.Ready)
         private set
@@ -142,15 +167,15 @@ class RunnerSetupViewModel(
      * The course file is on this phone (it uploads with the start time). Assumed from the draft
      * until the disk says otherwise, so a resume on the start time doesn't draw the course first.
      */
-    var courseOnDevice by mutableStateOf(draft.courseFileName != null)
+    var courseOnDevice by ruleInput(draft.courseFileName != null)
         private set
-    var preview by mutableStateOf<CoursePreview?>(null)
+    var preview by ruleInput<CoursePreview?>(null)
         private set
     /**
      * client-core's `raceStartAt` for the picked fields, null while they name no instant or while
      * client-core hasn't answered for the latest pick.
      */
-    var startInstant by mutableStateOf<String?>(null)
+    var startInstant by ruleInput<String?>(null)
         private set
     /** The shared daylight-saving copy, only for the spring-forward gap. */
     var startProblem by mutableStateOf<String?>(null)
@@ -176,15 +201,15 @@ class RunnerSetupViewModel(
     // MARK: steps
 
     /** A step behind the frontier the runner went Back to (or a relaunch reopened). Null on the frontier. */
-    var reviewing by mutableStateOf(savedState.get<String>(KEY_REVIEWING))
+    var reviewing by ruleInput(savedState.get<String>(KEY_REVIEWING))
         private set
     /**
      * Ahead of client-core's step only after a save the race list hasn't answered for yet (or a
      * course kept as the race saved it). The frontier is the further of the two.
      */
-    private var localStep by mutableStateOf(savedState.get<String>(KEY_LOCAL_STEP))
+    private var localStep by ruleInput(savedState.get<String>(KEY_LOCAL_STEP))
     /** The step the runner changed something on since it opened. Back, Continue and a relaunch forget it. */
-    private var editedStep by mutableStateOf(savedState.get<String>(KEY_EDITED_STEP))
+    private var editedStep by ruleInput(savedState.get<String>(KEY_EDITED_STEP))
 
     // MARK: course
 
@@ -208,7 +233,7 @@ class RunnerSetupViewModel(
     /** The race list's name for this setup's race (never another race's). */
     private var listedRaceName by mutableStateOf(savedState.get<String>(KEY_LISTED_RACE_NAME))
     /** The race list says the race has a course. */
-    private var raceListHasCourse by mutableStateOf(savedState.get<Boolean>(KEY_RACE_LIST_HAS_COURSE) ?: false)
+    private var raceListHasCourse by ruleInput(savedState.get<Boolean>(KEY_RACE_LIST_HAS_COURSE) ?: false)
 
     /**
      * The relaunch check hasn't reopened a step yet and the runner hasn't moved since this launch.
@@ -219,7 +244,10 @@ class RunnerSetupViewModel(
     private var seenRacesVersion: Int? = null
 
     private var startTicket = 0
+    /** Requests, one at a time (see [work]). */
     private val gate = Mutex()
+    /** Moves between steps (a new state, Back, a Continue that saves nothing), one at a time, in order. */
+    private val stepGate = Mutex()
 
     init {
         if (userId != null) {
@@ -231,36 +259,24 @@ class RunnerSetupViewModel(
             }
         }
         validateStart()
+        refreshRules()
     }
 
     /** The step client-core's state names, with a previewed course moved on to the start time on this phone. */
     private val serverFrontier: String?
         get() = visibleStep(serverStep, draft, courseOnDevice, roomId)
 
-    /** The furthest step setup has reached: client-core's, or a save ahead of it. */
-    val frontier: String?
-        get() {
-            val server = serverFrontier ?: return null
-            val local = localStep ?: return server
-            return decisions.moveOn(server, null, local).frontier
-        }
-
-    private fun navigation(): SetupDecisions.Navigation? {
-        val frontier = frontier ?: return null
-        return decisions.navigation(frontier, reviewing, raceExists = roomId != null)
-    }
-
     /** The step on screen: the frontier, or a step behind it the runner went Back to. */
     val step: String?
-        get() = navigation()?.shown
+        get() = rules.step
 
     /** The step on screen is behind the frontier: opened with Back, or by a relaunch. */
     val isReviewing: Boolean
-        get() = navigation()?.reviewing != null
+        get() = rules.reviewing
 
     /** Back shows on every step after the first, and on the first only before a race exists. */
     val showsBack: Boolean
-        get() = navigation()?.canGoBack == true
+        get() = rules.canGoBack
 
     val busy: Boolean get() = status is SetupStatus.Working
 
@@ -273,6 +289,10 @@ class RunnerSetupViewModel(
      */
     fun sync(flow: OnboardingFlow, races: JSONArray? = null, racesVersion: Int = 0) {
         if (!flow.isRunnerSetup) return
+        steps { follow(flow, races, racesVersion) }
+    }
+
+    private suspend fun follow(flow: OnboardingFlow, races: JSONArray?, racesVersion: Int) {
         val room = flow.roomId
         val saved = draft.roomId
         if (room != null && saved != null && room != saved) {
@@ -300,7 +320,9 @@ class RunnerSetupViewModel(
         // The race list caught up with a save made here: the frontier is client-core's again.
         val server = serverFrontier
         val local = localStep
-        if (server != null && local != null && decisions.moveOn(server, null, local).frontier == server) keepLocalStep(null)
+        if (server != null && local != null && withContext(io) { decisions.moveOn(server, null, local) }.frontier == server) {
+            keepLocalStep(null)
+        }
         val fresh = seenRacesVersion != null && seenRacesVersion != racesVersion
         seenRacesVersion = racesVersion
         if (resumeWatching && (fresh || !resumeChecked)) {
@@ -315,19 +337,23 @@ class RunnerSetupViewModel(
     /** Back: the step before this one, with everything entered kept; from the first step, the chooser. */
     fun goBack() {
         if (busy) return
-        val navigation = navigation() ?: return
-        if (!navigation.canGoBack) return
-        status = SetupStatus.Ready
-        // A picked file that couldn't be read is dropped; the course before it stays.
-        pendingCourse = null
-        leaveStep()
-        val previous = navigation.previous
-        if (previous == null) {
-            effectQueue.trySend(RunnerSetupEffect.LeaveSetup)
-            return
+        steps {
+            // A request that started meanwhile keeps its step.
+            if (busy) return@steps
+            val navigation = freshRules()
+            if (navigation.step == null || !navigation.canGoBack) return@steps
+            status = SetupStatus.Ready
+            // A picked file that couldn't be read is dropped; the course before it stays.
+            pendingCourse = null
+            leaveStep()
+            val previous = navigation.previous
+            if (previous == null) {
+                effectQueue.trySend(RunnerSetupEffect.LeaveSetup)
+                return@steps
+            }
+            keepReviewing(previous)
+            onStepShown()
         }
-        keepReviewing(previous)
-        onStepShown()
     }
 
     // MARK: account
@@ -387,11 +413,7 @@ class RunnerSetupViewModel(
 
     /** What the course step's main button does (client-core `RunnerSetupSteps.courseContinue`). */
     val courseAction: CourseContinue
-        get() = decisions.courseContinue(
-            holdsPickedFile = draft.courseFileName != null && courseOnDevice,
-            previewed = preview != null,
-            courseSavedOnRace = courseSavedOnRace
-        )
+        get() = rules.courseAction
 
     val canContinueCourse: Boolean
         get() = pendingCourse == null && courseAction != CourseContinue.ChooseFile && canChooseCourse
@@ -445,7 +467,9 @@ class RunnerSetupViewModel(
                 status = failed(text.setupError)
                 return@work
             }
-            val pick = decisions.coursePick(fingerprint, held = draft.courseFingerprint, saved = draft.savedCourseFingerprint)
+            val held = draft.courseFingerprint
+            val savedCourse = draft.savedCourseFingerprint
+            val pick = withContext(io) { decisions.coursePick(fingerprint, held = held, saved = savedCourse) }
             if (pick == CoursePick.Unchanged && courseOnDevice && preview != null) {
                 pendingCourse = null
                 return@work
@@ -463,17 +487,18 @@ class RunnerSetupViewModel(
             } else {
                 // The first file: kept on this phone at once, so offline it waits for the network.
                 showPreview(null)
-                hold(user, picked, null)
+                hold(user, picked, null, onStartTime = false)
                 if (!online) {
                     status = offline()
                     return@work
                 }
                 val parsed = readCourse(user, picked.fileName, picked.xml, reading = true) ?: return@work
                 showPreview(parsed)
+                val onStartTime = freshRules().step == SetupSteps.START_TIME
                 writeDraft(
                     draft.copy(
                         plannedPaceSecondsPerKm = parsed.plannedPaceSecondsPerKm,
-                        courseConfirmed = step == SetupSteps.START_TIME
+                        courseConfirmed = onStartTime
                     )
                 )
             }
@@ -483,20 +508,23 @@ class RunnerSetupViewModel(
     /** The course step's main button (see [courseAction]). */
     fun continueCourse(online: Boolean) {
         if (busy || pendingCourse != null) return
-        when (courseAction) {
-            CourseContinue.Confirm -> {
-                writeDraft(draft.copy(courseConfirmed = true))
-                status = SetupStatus.Ready
-                moveOn(SetupSteps.START_TIME)
-                validateStart()
+        steps {
+            if (busy || pendingCourse != null) return@steps
+            when (freshRules().courseAction) {
+                CourseContinue.Confirm -> {
+                    writeDraft(draft.copy(courseConfirmed = true))
+                    status = SetupStatus.Ready
+                    moveOn(SetupSteps.START_TIME)
+                    validateStart()
+                }
+                CourseContinue.Preview -> retryCourse(online)
+                // The race's course stays; nothing is uploaded again.
+                CourseContinue.KeepSavedCourse -> {
+                    status = SetupStatus.Ready
+                    moveOn(SetupSteps.START_TIME)
+                }
+                CourseContinue.ChooseFile -> Unit
             }
-            CourseContinue.Preview -> retryCourse(online)
-            // The race's course stays; nothing is uploaded again.
-            CourseContinue.KeepSavedCourse -> {
-                status = SetupStatus.Ready
-                moveOn(SetupSteps.START_TIME)
-            }
-            CourseContinue.ChooseFile -> Unit
         }
     }
 
@@ -597,15 +625,7 @@ class RunnerSetupViewModel(
 
     /** What the start time step's Continue does (client-core `RunnerSetupSteps.startTimeContinue`). */
     val startAction: StartTimeContinue
-        get() = decisions.startTimeContinue(
-            reviewing = isReviewing,
-            editedThisVisit = editedStep != null && editedStep == step,
-            courseUnsaved = draft.courseUnsaved == true && draft.courseFileName != null,
-            courseSavedOnRace = courseSavedOnRace,
-            holdsCourseFile = courseOnDevice && draft.courseFileName != null,
-            start = startInstant,
-            savedStart = draft.savedRaceStartAt
-        )
+        get() = rules.startAction
 
     val canContinueStart: Boolean
         get() = roomId != null && !busy && startAction.saves
@@ -622,24 +642,28 @@ class RunnerSetupViewModel(
     fun continueStart(online: Boolean) {
         val user = userId ?: return
         val room = roomId ?: return
-        if (busy || step != SetupSteps.START_TIME) return
-        val action = startAction
-        if (!action.saves) return
-        val startAt = startInstant
-        when (action) {
-            // Left as the race saved it: no save (it counts toward the course save limit), and
-            // the history step's estimate still holds.
-            StartTimeContinue.MoveOn -> {
-                status = SetupStatus.Ready
-                moveOn(SetupSteps.HISTORY)
+        if (busy) return
+        steps {
+            if (busy) return@steps
+            // The start the answer is for: client-core decides with the instant on screen now.
+            val startAt = startInstant
+            val now = freshRules()
+            if (now.step != SetupSteps.START_TIME) return@steps
+            when (now.startAction) {
+                // Left as the race saved it: no save (it counts toward the course save limit), and
+                // the history step's estimate still holds.
+                StartTimeContinue.MoveOn -> {
+                    status = SetupStatus.Ready
+                    moveOn(SetupSteps.HISTORY)
+                }
+                StartTimeContinue.SaveStart -> if (startAt != null) {
+                    if (!online) status = offline() else saveStartOnly(room, startAt)
+                }
+                StartTimeContinue.SaveCourse -> if (startAt != null) {
+                    if (!online) status = offline() else saveCourseWithStart(user, room, startAt)
+                }
+                StartTimeContinue.NeedsCourseFile, StartTimeContinue.InvalidStart -> Unit
             }
-            StartTimeContinue.SaveStart -> if (startAt != null) {
-                if (!online) status = offline() else saveStartOnly(room, startAt)
-            }
-            StartTimeContinue.SaveCourse -> if (startAt != null) {
-                if (!online) status = offline() else saveCourseWithStart(user, room, startAt)
-            }
-            StartTimeContinue.NeedsCourseFile, StartTimeContinue.InvalidStart -> Unit
         }
     }
 
@@ -751,7 +775,7 @@ class RunnerSetupViewModel(
 
     /** Continue shows after an import on this visit, and always on a history step already passed. */
     val historyShowsContinue: Boolean
-        get() = decisions.historyShowsContinue(reviewing = isReviewing, importedThisVisit = draft.historyImported)
+        get() = rules.historyShowsContinue
 
     /**
      * Continue keeps the estimate the race has (attached on this visit, or a reviewed step's)
@@ -766,16 +790,20 @@ class RunnerSetupViewModel(
         if (busy) return
         val room = roomId
         val skipped = outcome == "skipped"
-        val recomputes = skipped || decisions.historyRecomputes(
-            reviewing = isReviewing,
-            estimateDropped = draft.historyRedo,
-            importedThisVisit = draft.historyImported,
-            attachedThisVisit = draft.historyAttached
-        )
-        // A new estimate, or one attached on this visit: the step is marked with how it ended.
-        // Moving on over an unchanged step keeps how it was marked before.
-        val marks = recomputes || draft.historyAttached
         work {
+            val visit = draft
+            val reviewed = freshRules().reviewing
+            val recomputes = skipped || withContext(io) {
+                decisions.historyRecomputes(
+                    reviewing = reviewed,
+                    estimateDropped = visit.historyRedo,
+                    importedThisVisit = visit.historyImported,
+                    attachedThisVisit = visit.historyAttached
+                )
+            }
+            // A new estimate, or one attached on this visit: the step is marked with how it ended.
+            // Moving on over an unchanged step keeps how it was marked before.
+            val marks = recomputes || visit.historyAttached
             if (recomputes && room != null) {
                 when (val result = withContext(io) { runtime.computeEstimate(room, if (skipped) HISTORY_NONE else null) }) {
                     is RuntimeResult.Failure -> {
@@ -877,9 +905,10 @@ class RunnerSetupViewModel(
     // MARK: internals
 
     /** A step's Continue moved on to [next]: the frontier moves forward (never back), a reviewed step walks on. */
-    private fun moveOn(next: String) {
-        val frontier = frontier ?: return
-        val move = decisions.moveOn(frontier, reviewing, next)
+    private suspend fun moveOn(next: String) {
+        val frontier = freshRules().frontier ?: return
+        val from = reviewing
+        val move = withContext(io) { decisions.moveOn(frontier, from, next) }
         leaveStep()
         if (move.frontier != frontier) keepLocalStep(move.frontier)
         if (reviewing != null) keepReviewing(move.reviewing)
@@ -902,25 +931,28 @@ class RunnerSetupViewModel(
      * after Back and never saved, a start edited and never saved, or a history step whose estimate
      * a course save dropped. True when it opened one.
      */
-    private fun resumeIfNeeded(): Boolean {
+    private suspend fun resumeIfNeeded(): Boolean {
         val room = roomId ?: return false
         if (draft.roomId != room) return false
-        val frontier = frontier ?: return false
-        val fields = draft.start
-        val open = decisions.resumeStep(
-            frontier,
-            courseUnsaved = draft.courseUnsaved == true && draft.courseFileName != null,
-            coursePreviewed = draft.courseConfirmed,
-            startUnsaved = decisions.startUnsaved(fields != null, fields?.let(::instantOf), draft.savedRaceStartAt),
-            estimateDropped = draft.historyRedo
-        ) ?: return false
+        val frontier = freshRules().frontier ?: return false
+        val kept = draft
+        val open = withContext(io) {
+            val fields = kept.start
+            decisions.resumeStep(
+                frontier,
+                courseUnsaved = kept.courseUnsaved == true && kept.courseFileName != null,
+                coursePreviewed = kept.courseConfirmed,
+                startUnsaved = decisions.startUnsaved(fields != null, fields?.let(::instantOf), kept.savedRaceStartAt),
+                estimateDropped = kept.historyRedo
+            )
+        } ?: return false
         leaveStep()
         keepReviewing(open)
         return true
     }
 
     /** The race list's row for setup's race: its name, whether it has a course, its start. */
-    private fun followRace(races: JSONArray?) {
+    private suspend fun followRace(races: JSONArray?) {
         val room = roomId ?: return
         races ?: return
         val row = (0 until races.length()).mapNotNull { races.optJSONObject(it) }.firstOrNull { it.optText("id") == room } ?: return
@@ -933,24 +965,28 @@ class RunnerSetupViewModel(
      * The race's saved start: the fields show it on a phone that never picked one, and the draft
      * remembers it as saved (client-core `RunnerSetupSteps.raceStartAdoption`).
      */
-    private fun followRaceStart(raceStart: String?, activatedAt: String?) {
+    private suspend fun followRaceStart(raceStart: String?, activatedAt: String?) {
         if (userId == null || draft.roomId != roomId) return
-        val fields = draft.start
-        val adoption = decisions.raceStartAdoption(
-            draftHasStart = fields != null,
-            draftStart = fields?.let(::instantOf),
-            savedStart = draft.savedRaceStartAt,
-            raceStart = raceStart,
-            activatedAt = activatedAt,
-            courseUnsaved = draft.courseUnsaved == true
-        )
+        val kept = draft
+        val fields = kept.start
+        val adoption = withContext(io) {
+            decisions.raceStartAdoption(
+                draftHasStart = fields != null,
+                draftStart = fields?.let(::instantOf),
+                savedStart = kept.savedRaceStartAt,
+                raceStart = raceStart,
+                activatedAt = activatedAt,
+                courseUnsaved = kept.courseUnsaved == true
+            )
+        }
         when (adoption.adoption) {
             RaceStartAdoption.Keep -> Unit
             RaceStartAdoption.TakeSaved -> writeDraft(draft.copy(savedRaceStartAt = adoption.raceStart))
             RaceStartAdoption.Fill -> {
                 val saved = adoption.raceStart ?: return
                 // The fields show the race's start in the draft's zone, else this phone's.
-                val filled = fieldsOf(saved, fields?.timeZone ?: deviceZone)
+                val zone = fields?.timeZone ?: deviceZone
+                val filled = withContext(io) { fieldsOf(saved, zone) }
                 writeDraft(draft.copy(start = filled ?: draft.start, savedRaceStartAt = saved))
                 if (filled != null) {
                     startInstant = null
@@ -961,8 +997,8 @@ class RunnerSetupViewModel(
     }
 
     /** Whatever the step now on screen needs: its saved course drawn, its comparison, its teaser. */
-    private fun onStepShown() {
-        val shown = step ?: return
+    private suspend fun onStepShown() {
+        val shown = freshRules().step ?: return
         if (shown != SetupSteps.START_TIME && dialog != null) closeDialog()
         when (shown) {
             SetupSteps.COURSE, SetupSteps.START_TIME -> previewSavedCourse()
@@ -979,12 +1015,14 @@ class RunnerSetupViewModel(
      */
     private suspend fun ensureRoom(user: String): String? {
         roomId?.let { return it }
-        val name = decisions.newRaceName(draft.raceName.orEmpty(), listedRaceName)
+        val typed = draft.raceName.orEmpty()
+        val listed = listedRaceName
+        val name = withContext(io) { decisions.newRaceName(typed, listed) }
         if (name == null) {
             status = failed(text.raceNameMissing, code = RACE_NAME_MISSING)
             return null
         }
-        val creator = draft.displayName.trim().ifBlank { sessionFallbackName() }.ifBlank { null }
+        val creator = draft.displayName.trim().ifBlank { withContext(io) { sessionFallbackName() } }.ifBlank { null }
         return when (val result = withContext(io) { runtime.createRoom(name, user, creator) }) {
             is RuntimeResult.Failure -> {
                 fail(result)
@@ -1080,23 +1118,25 @@ class RunnerSetupViewModel(
     /** Previews a file picked while a course is there; it replaces that course only once the server has read it. */
     private suspend fun previewPending(user: String, picked: PendingCourse) {
         pendingCourse = picked
+        // Asked before the preview: nothing may wait between the preview and showing it (hold).
+        val onStartTime = freshRules().step == SetupSteps.START_TIME
         val parsed = readCourse(user, picked.fileName, picked.xml, reading = true) ?: return
         pendingCourse = null
-        hold(user, picked, parsed)
+        hold(user, picked, parsed, onStartTime)
     }
 
     /**
      * Keeps [picked] as this phone's file for the race. A new course is saved with the start; the
      * race's own isn't, and the file already held, picked again, stays as saved or unsaved as it was.
      */
-    private suspend fun hold(user: String, picked: PendingCourse, parsed: CoursePreview?) {
+    private suspend fun hold(user: String, picked: PendingCourse, parsed: CoursePreview?, onStartTime: Boolean) {
         writeDraft(
             draft.copy(
                 courseFileName = picked.fileName,
                 courseFingerprint = picked.fingerprint,
                 courseUnsaved = picked.unsavedOnceHeld(draft.courseUnsaved),
                 // Another file picked on the start time stays on that step.
-                courseConfirmed = parsed != null && step == SetupSteps.START_TIME,
+                courseConfirmed = parsed != null && onStartTime,
                 plannedPaceSecondsPerKm = parsed?.plannedPaceSecondsPerKm
             )
         )
@@ -1184,11 +1224,11 @@ class RunnerSetupViewModel(
         }
     }
 
-    /** client-core's instant for [fields], at once (pure and quick), for the relaunch and race list checks. */
+    /** client-core's instant for [fields] (pure and quick, but a bridge call: off Main), for the relaunch and race list checks. */
     private fun instantOf(fields: RaceStartFields): String? =
         (runtime.raceStartInput(fields) as? RuntimeResult.Success)?.result?.optText("raceStartAt")?.ifBlank { null }
 
-    /** A saved start as the fields in [zone], through client-core. */
+    /** A saved start as the fields in [zone], through client-core (off Main). */
     private fun fieldsOf(raceStartAt: String, zone: String): RaceStartFields? =
         RaceStartFields.from((runtime.raceStartFields(raceStartAt, zone) as? RuntimeResult.Success)?.result)
 
@@ -1225,6 +1265,59 @@ class RunnerSetupViewModel(
         SetupStatus.Failed(UserFacingError(code, message, retryable = true))
 
     private fun offline() = SetupStatus.Offline(UserFacingError("offline", text.setupOffline, retryable = true))
+
+    /**
+     * Moves between steps one at a time, in order: a new state, Back, and a Continue (whose
+     * request, if any, then runs as [work]). Unlike [work] it shows nothing busy.
+     */
+    private fun steps(block: suspend () -> Unit) {
+        viewModelScope.launch { stepGate.withLock { block() } }
+    }
+
+    /** What the step rules read, all from the state as it is now. */
+    private fun ruleInputs() = SetupRules.Inputs(
+        serverFrontier = serverFrontier,
+        localStep = localStep,
+        reviewing = reviewing,
+        raceExists = roomId != null,
+        holdsPickedFile = draft.courseFileName != null && courseOnDevice,
+        previewed = preview != null,
+        courseSavedOnRace = courseSavedOnRace,
+        editedStep = editedStep,
+        courseUnsaved = draft.courseUnsaved == true && draft.courseFileName != null,
+        start = startInstant,
+        savedStart = draft.savedRaceStartAt,
+        historyImported = draft.historyImported
+    )
+
+    /**
+     * A state the rules read changed: client-core answers again off Main and [rules] follows. Once
+     * the change in progress is over, so the inputs one call sets get one answer.
+     */
+    private fun refreshRules() {
+        if (rulesQueued) return
+        rulesQueued = true
+        viewModelScope.launch(Dispatchers.Main) {
+            rulesQueued = false
+            freshRules()
+        }
+    }
+
+    /**
+     * client-core's answers for the state as it is now, published as [rules] unless the state
+     * moved on meanwhile (its own [refreshRules] then answers it). A tap's action decides with
+     * these, never with what an earlier frame drew.
+     */
+    private suspend fun freshRules(): SetupRules {
+        val inputs = ruleInputs()
+        if (inputs == rulesInputs) return rules
+        val answer = withContext(io) { decisions.rules(inputs) }
+        if (inputs == ruleInputs()) {
+            rulesInputs = inputs
+            rules = answer
+        }
+        return answer
+    }
 
     /**
      * Runs requests one at a time, in order. Taps check [busy] first, so a second tap while one

@@ -182,7 +182,8 @@ private fun RunnerSetup(shell: ShellViewModel, flow: OnboardingFlow, text: Onboa
     val races = shell.onboardingRaces
     LaunchedEffect(model, flow, races) { model.sync(flow, races.rows, races.version) }
     LaunchedEffect(model) { model.effects.collect(shell::onSetupEffect) }
-    // The state names the step before the first frame; a loader only if it doesn't.
+    // client-core's answers for the step (RunnerSetupViewModel.rules), asked off Main: the loader
+    // until the first one comes back (a frame or so on open), or while the state names no step.
     val step = model.step
     if (step == null) {
         SetupLoading(shell, text)

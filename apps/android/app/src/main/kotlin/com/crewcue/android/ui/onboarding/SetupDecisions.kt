@@ -68,10 +68,67 @@ enum class RaceStartAdoption(val wire: String) {
 }
 
 /**
+ * What the step on screen shows and does: client-core's answers for one [Inputs]. The ViewModel
+ * asks for them off Main whenever an input changes and the screen reads only this, so drawing a
+ * frame never waits on the bridge.
+ */
+data class SetupRules(
+    /** The furthest step setup has reached; null while client-core's state names none. */
+    val frontier: String?,
+    /** The step on screen: the frontier, or a step behind it the runner went Back to. */
+    val step: String?,
+    /** [step] is behind the frontier: opened with Back, or by a relaunch. */
+    val reviewing: Boolean,
+    /** The step Back opens; null on the first step, where Back leaves setup. */
+    val previous: String?,
+    val canGoBack: Boolean,
+    val courseAction: CourseContinue,
+    val startAction: StartTimeContinue,
+    val historyShowsContinue: Boolean
+) {
+    /** What the rules read, all of it taken from the ViewModel's state at once. */
+    data class Inputs(
+        /** client-core's step, with a previewed course moved on to the start time on this phone. */
+        val serverFrontier: String?,
+        /** A step ahead of client-core's after a save the race list hasn't answered for yet. */
+        val localStep: String?,
+        /** The step the runner went Back to (or a relaunch reopened). */
+        val reviewing: String?,
+        val raceExists: Boolean,
+        /** This phone holds the picked course file. */
+        val holdsPickedFile: Boolean,
+        val previewed: Boolean,
+        val courseSavedOnRace: Boolean,
+        /** The step the runner changed something on since it opened. */
+        val editedStep: String?,
+        /** A picked file the race hasn't saved yet. */
+        val courseUnsaved: Boolean,
+        /** client-core's instant for the start fields, null while they name none. */
+        val start: String?,
+        val savedStart: String?,
+        val historyImported: Boolean
+    )
+
+    companion object {
+        /** Before client-core has answered, or while its state names no step: no step on screen. */
+        val Unknown = SetupRules(
+            frontier = null,
+            step = null,
+            reviewing = false,
+            previous = null,
+            canGoBack = false,
+            courseAction = CourseContinue.ChooseFile,
+            startAction = StartTimeContinue.InvalidStart,
+            historyShowsContinue = false
+        )
+    }
+}
+
+/**
  * client-core `RunnerSetupSteps`, the rules for moving between the runner's setup steps and for
  * what a reviewed step's Continue saves, read through the `runnerSetupStep` op. Kotlin never
- * decides these itself. The rules are pure, so answers are kept for inputs already asked (the
- * screen reads some on every recomposition).
+ * decides these itself. Every call blocks on the bridge: call them off Main. The rules are pure,
+ * so answers are kept for inputs already asked.
  */
 class SetupDecisions(private val runtime: RunnerSetupRuntime) {
     /** The step on screen, and where Back goes from it. */
@@ -99,6 +156,32 @@ class SetupDecisions(private val runtime: RunnerSetupRuntime) {
         val answer = (runtime.setupStep(decision, input) as? RuntimeResult.Success)?.result ?: return null
         synchronized(answers) { answers[key] = answer }
         return answer
+    }
+
+    /** Every answer the step on screen reads, for [inputs] ([SetupRules]). */
+    fun rules(inputs: SetupRules.Inputs): SetupRules {
+        val server = inputs.serverFrontier ?: return SetupRules.Unknown
+        val frontier = inputs.localStep?.let { moveOn(server, null, it).frontier } ?: server
+        val navigation = navigation(frontier, inputs.reviewing, inputs.raceExists)
+        val reviewing = navigation.reviewing != null
+        return SetupRules(
+            frontier = frontier,
+            step = navigation.shown,
+            reviewing = reviewing,
+            previous = navigation.previous,
+            canGoBack = navigation.canGoBack,
+            courseAction = courseContinue(inputs.holdsPickedFile, inputs.previewed, inputs.courseSavedOnRace),
+            startAction = startTimeContinue(
+                reviewing = reviewing,
+                editedThisVisit = inputs.editedStep != null && inputs.editedStep == navigation.shown,
+                courseUnsaved = inputs.courseUnsaved,
+                courseSavedOnRace = inputs.courseSavedOnRace,
+                holdsCourseFile = inputs.holdsPickedFile,
+                start = inputs.start,
+                savedStart = inputs.savedStart
+            ),
+            historyShowsContinue = historyShowsContinue(reviewing = reviewing, importedThisVisit = inputs.historyImported)
+        )
     }
 
     fun navigation(frontier: String, reviewing: String?, raceExists: Boolean): Navigation {
