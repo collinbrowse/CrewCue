@@ -117,6 +117,24 @@ private struct ScriptedOffline: HTTPTransport {
     #expect(fields["raceStartAt"] as? String == "2026-08-16T03:00:00.000Z")
 }
 
+// MARK: suggestedDisplayName
+
+@Test func suggestedDisplayNameOpNeverSuggestsTheEmail() async throws {
+    func suggest(_ fields: [String: Any]) async throws -> Any? {
+        try result(try await runtime(["op": "suggestedDisplayName"].merging(fields) { $1 }))["name"]
+    }
+    // Auth0 email sign-up: name is the email, nickname the part before the @ (Android never sends it).
+    #expect(try await suggest(["name": "pat.runner@example.com", "email": "pat.runner@example.com"]) is NSNull)
+    #expect(try await suggest(["name": "Pat.Runner", "email": "pat.runner@example.com"]) is NSNull)
+    // A saved name has no email beside it: an @ is still never a name.
+    #expect(try await suggest(["name": "pat@work"]) is NSNull)
+    #expect(try await suggest(["email": "pat@example.com"]) is NSNull)
+    #expect(try await suggest(["name": "   ", "email": NSNull()]) is NSNull)
+    // A real name (Google, Apple) is suggested, trimmed.
+    #expect(try await suggest(["name": "  Pat Runner ", "email": "pat.runner@example.com"]) as? String == "Pat Runner")
+    #expect(try await suggest(["name": "Pat Runner"]) as? String == "Pat Runner")
+}
+
 // MARK: gpxPreview
 
 private let previewJSON = """

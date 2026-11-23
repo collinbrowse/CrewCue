@@ -7,7 +7,15 @@ import com.auth0.android.callback.Callback
 import com.auth0.android.provider.WebAuthProvider
 import com.auth0.android.result.Credentials
 
-class Auth0SdkGateway(private val config: AuthConfig) : AuthGateway {
+/**
+ * [suggestName] is client-core `SuggestedDisplayName` (`RaceDayBridge.suggestedDisplayName`): an
+ * email sign-up's Auth0 `name` is the email and its `nickname` the part before the @, so neither
+ * is the name crew see. Only a real name (Google, Apple) reaches the session.
+ */
+class Auth0SdkGateway(
+    private val config: AuthConfig,
+    private val suggestName: (name: String?, email: String?) -> String?
+) : AuthGateway {
     override val isConfigured: Boolean = config.isConfigured
 
     override fun signIn(activity: Activity, connection: String?, signUp: Boolean, callback: (AuthResult) -> Unit) {
@@ -43,8 +51,7 @@ class Auth0SdkGateway(private val config: AuthConfig) : AuthGateway {
             override fun onSuccess(result: Credentials) {
                 val profile = runCatching { result.user }.getOrNull()
                 val userId = profile?.getId()?.trim().orEmpty().ifBlank { "auth0-user" }
-                val name = profile?.name?.trim()?.ifBlank { null }
-                    ?: profile?.nickname?.trim()?.ifBlank { null }
+                val name = suggestName(profile?.name, profile?.email)
                 callback(
                     AuthResult.Success(
                         userId = userId,
