@@ -217,6 +217,24 @@ final class ShellModel {
         enterShellIfNeeded()
     }
 
+    // MARK: Sign-in
+
+    /// The chooser's "I already have an account": the sign-in screen, set to sign in (runner
+    /// setup's Create account may have left it on sign-up).
+    func openSignIn() {
+        authModel.signingUp = false
+        show(Route(featureId: "auth-sign-in", state: .success))
+    }
+
+    /// Sign-in's Back. Signed out, the sign-in route always has the app's own launch behind it,
+    /// the screen sign-out lands on: the chooser, or the step a saved pick resumes. So Back opens
+    /// it however sign-in opened (the chooser, join's Back, a dev link), with the onboarding state
+    /// untouched. Not while Auth0 is working.
+    func leaveSignIn() {
+        guard !isSignedIn, route.featureId == "auth-sign-in", !authModel.isWorking else { return }
+        show(Route(featureId: "app-shell", state: .success))
+    }
+
     private func bindRunnerSetup() {
         runnerSetup.onRaceCreated = { [weak self] roomId in
             self?.noteJoined(roomId: roomId, role: "athlete")
