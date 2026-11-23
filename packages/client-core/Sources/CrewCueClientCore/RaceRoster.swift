@@ -9,13 +9,24 @@ public struct RaceSummary: Codable, Equatable, Sendable {
     public var raceStartAt: String?
     /// The name this user's crew sees in this room. Names live on the membership, so they differ per room.
     public var displayName: String?
+    /// The race owner's user id (`athleteId`). Only the owner can delete the race. Optional so a
+    /// summary stored before this field still decodes.
+    public var ownerId: String?
 
-    public init(id: String, name: String, role: String, raceStartAt: String? = nil, displayName: String? = nil) {
+    public init(
+        id: String,
+        name: String,
+        role: String,
+        raceStartAt: String? = nil,
+        displayName: String? = nil,
+        ownerId: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.role = role
         self.raceStartAt = raceStartAt
         self.displayName = displayName
+        self.ownerId = ownerId
     }
 
     public init(room: RaceRoom, userId: String) {
@@ -27,8 +38,16 @@ public struct RaceSummary: Codable, Equatable, Sendable {
             name: trimmed.isEmpty ? "Untitled race" : trimmed,
             role: membership?.role ?? (room.athleteId == userId ? "athlete" : "crew_member"),
             raceStartAt: room.raceStartAt,
-            displayName: name.isEmpty ? nil : name
+            displayName: name.isEmpty ? nil : name,
+            ownerId: room.athleteId
         )
+    }
+
+    /// Whether `userId` owns this race and so may delete it (`DELETE /race-rooms/:roomId`).
+    /// Crew never can. Without a known owner nobody is offered the delete; the server decides anyway.
+    public func isOwned(by userId: String?) -> Bool {
+        guard let ownerId, let userId, !userId.isEmpty else { return false }
+        return ownerId == userId
     }
 }
 

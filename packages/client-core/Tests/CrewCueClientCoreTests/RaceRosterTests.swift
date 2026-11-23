@@ -47,6 +47,18 @@ private struct SilentTestLogger: Logger {
     #expect(races[1].role == "athlete")
 }
 
+@Test func onlyTheOwnerIsOfferedRaceDelete() async throws {
+    let races = try await RaceDayAPI.myRaces(graph: roomsGraph(), userId: "me")
+    #expect(races[0].ownerId == "ada")
+    #expect(races[0].isOwned(by: "me") == false)
+    #expect(races[1].isOwned(by: "me") == true)
+    #expect(races[1].isOwned(by: nil) == false)
+    // A summary stored before ownerId existed decodes and offers no delete.
+    let stored = try JSONDecoder().decode(RaceSummary.self, from: Data(#"{"id":"x","name":"X","role":"athlete"}"#.utf8))
+    #expect(stored.ownerId == nil)
+    #expect(stored.isOwned(by: "me") == false)
+}
+
 @Test func roleLabelsNeverShowWireValues() {
     #expect(RaceRole.label("athlete") == "Runner")
     #expect(RaceRole.label("crew_member") == "Crew member")

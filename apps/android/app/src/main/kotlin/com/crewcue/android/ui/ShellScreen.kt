@@ -311,7 +311,7 @@ private fun FeatureRoute(viewModel: ShellViewModel) {
                 else -> PaywallScreen(viewModel, roomId, onContinue = { viewModel.noteUnlocked(roomId) })
             }
         }
-        "profile", "room-members", "readouts-incidents", "billing-upgrade" -> {
+        "profile", "race-delete", "room-members", "readouts-incidents", "billing-upgrade" -> {
             if (viewModel.session != null && !viewModel.stateOverlay && profileDestinationReady(viewModel)) {
                 ProfileDestination(viewModel)
             } else {

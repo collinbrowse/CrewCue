@@ -33,6 +33,9 @@ struct ProductShellView: View {
         .sheet(isPresented: $model.showsSettings, onDismiss: { model.settingsFocus = nil }) {
             ShellSettingsSheet(model: model)
         }
+        .sheet(isPresented: $model.choosingRace) {
+            RaceChooserSheet(model: model)
+        }
         .onAppear { model.enterShellIfNeeded() }
         .task(id: raceDayID) {
             await model.mapModel.activate(userId: model.signedInUserId, roomId: model.signedInRoomId, role: model.signedInRole)
@@ -61,6 +64,8 @@ struct ProductTabPage: View {
         if tab != .profile && model.signedInRoomId == nil {
             ShellPage(onSettings: onSettings) {
                 NoRaceView(
+                    races: model.roster.races,
+                    onSelect: { model.selectRace($0) },
                     onCreate: { model.selectedTab = .profile },
                     onJoin: { model.show(Route(featureId: "join-crew", state: .success)) }
                 )
@@ -105,30 +110,97 @@ struct ProductTabPage: View {
     }
 }
 
-/// Map, Pace, and Chat need a race. Until there is one, point at the two ways to get one.
+/// Map, Pace, and Chat need a race. Until there is one, offer the person's other races (after
+/// they deleted the active one) and the two ways to get a new one.
 struct NoRaceView: View {
+    var races: [RaceSummary] = []
+    var onSelect: (String) -> Void = { _ in }
     var onCreate: () -> Void
     var onJoin: () -> Void
     @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            Text("No race yet")
+            Text(races.isEmpty ? "No race yet" : "Choose a race")
                 .font(CrewFont.headline)
                 .foregroundStyle(theme.ink)
-            Text("Create a race for your run, or join your crew's race with an invite code.")
-                .font(CrewFont.bodyLarge)
-                .foregroundStyle(theme.body)
-            Button("Create new race", action: onCreate)
-                .buttonStyle(.crewPrimary)
-            Button("Join race room", action: onJoin)
-                .buttonStyle(.crewSecondary)
+            RaceChoices(races: races, onSelect: onSelect, onCreate: onCreate, onJoin: onJoin)
         }
         .crewGlassCard()
         .padding(.horizontal, CrewSpace.gutter)
         .padding(.top, CrewSpace.gutter)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.no-race")
+    }
+}
+
+/// Asked right after the active race was deleted: pick another race, or create or join one.
+struct RaceChooserSheet: View {
+    var model: ShellModel
+    @Environment(\.crew) private var theme
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+                Text("Race deleted")
+                    .font(CrewFont.headline)
+                    .foregroundStyle(theme.ink)
+                    .accessibilityAddTraits(.isHeader)
+                RaceChoices(
+                    races: model.roster.races,
+                    onSelect: { roomId in
+                        model.selectRace(roomId)
+                        dismiss()
+                    },
+                    onCreate: {
+                        model.selectedTab = .profile
+                        dismiss()
+                    },
+                    onJoin: {
+                        dismiss()
+                        model.show(Route(featureId: "join-crew", state: .success))
+                    }
+                )
+            }
+            .padding(CrewSpace.margin)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .accessibilityIdentifier("crewcue.race-chooser")
+    }
+}
+
+/// The person's races to switch to, then Create new race and Join race room.
+struct RaceChoices: View {
+    var races: [RaceSummary]
+    var onSelect: (String) -> Void
+    var onCreate: () -> Void
+    var onJoin: () -> Void
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
+            Text(races.isEmpty
+                 ? "Create a race for your run, or join your crew's race with an invite code."
+                 : "Pick the race Map, Pace and Chat should follow, or start a new one.")
+                .font(CrewFont.bodyLarge)
+                .foregroundStyle(theme.body)
+                .fixedSize(horizontal: false, vertical: true)
+            if !races.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(races, id: \.id) { race in
+                        ProfileRaceRow(race: race, active: false) { onSelect(race.id) }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("crewcue.race-choices")
+            }
+            Button("Create new race", action: onCreate)
+                .buttonStyle(races.isEmpty ? CrewButtonStyle.crewPrimary : CrewButtonStyle.crewSecondary)
+            Button("Join race room", action: onJoin)
+                .buttonStyle(.crewSecondary)
+        }
     }
 }
 

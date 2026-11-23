@@ -622,6 +622,49 @@ async function canReadRoom(f: RemovalFixture, sub: string): Promise<boolean> {
   return res.statusCode === 200;
 }
 
+async function deleteRace(f: RemovalFixture, sub?: string, roomId = f.roomId): Promise<number> {
+  const res = await f.app.inject({
+    method: "DELETE",
+    url: `/race-rooms/${roomId}`,
+    ...(sub ? { headers: f.as(sub) } : {})
+  });
+  return res.statusCode;
+}
+
+test("the owner deletes the race and it is gone for the whole crew", async () => {
+  const f = await removalFixture();
+  assert.equal(await joinByCode(f, "crew-user"), 200);
+  const res = await f.app.inject({ method: "DELETE", url: `/race-rooms/${f.roomId}`, headers: f.as("athlete-user") });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { deleted: true });
+
+  const ownerRead = await f.app.inject({ method: "GET", url: `/race-rooms/${f.roomId}`, headers: f.as("athlete-user") });
+  assert.equal(ownerRead.statusCode, 404);
+  const crewRead = await f.app.inject({ method: "GET", url: `/race-rooms/${f.roomId}`, headers: f.as("crew-user") });
+  assert.equal(crewRead.statusCode, 404);
+  // The room code no longer finds it, and a second delete finds nothing.
+  assert.equal(await joinByCode(f, "new-crew-user"), 404);
+  assert.equal(await deleteRace(f, "athlete-user"), 404);
+  await f.app.close();
+});
+
+test("only the race owner can delete the race", async () => {
+  const f = await removalFixture();
+  const chief = await issueInvite(f, "athlete-user", "crew_chief");
+  assert.equal(await acceptInvite(f, "chief-user", chief.token), 200);
+  assert.equal(await joinByCode(f, "crew-user"), 200);
+
+  assert.equal(await deleteRace(f), 401);
+  assert.equal(await deleteRace(f, "crew-user"), 403);
+  assert.equal(await deleteRace(f, "chief-user"), 403);
+  assert.equal(await deleteRace(f, "stranger-user"), 403);
+  assert.equal(await deleteRace(f, "athlete-user", `missing-${randomUUID()}`), 404);
+
+  assert.equal(await canReadRoom(f, "athlete-user"), true);
+  assert.equal(await canReadRoom(f, "crew-user"), true);
+  await f.app.close();
+});
+
 test("a member the owner removed stays out when they use the room code again", async () => {
   const f = await removalFixture();
   assert.equal(await joinByCode(f, "crew-user"), 200);
