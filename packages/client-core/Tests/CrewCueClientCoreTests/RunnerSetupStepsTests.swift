@@ -188,25 +188,67 @@ private func start(
 // MARK: History
 
 @Test func b2AReviewedHistoryStepAlwaysOffersContinue() {
-    #expect(RunnerSetupSteps.historyShowsContinue(reviewing: true, importedThisVisit: false))
-    #expect(RunnerSetupSteps.historyShowsContinue(reviewing: false, importedThisVisit: true))
+    func shows(reviewing: Bool = false, imported: Bool = false, estimate: Bool = false) -> Bool {
+        RunnerSetupSteps.historyShowsContinue(reviewing: reviewing, importedThisVisit: imported, raceHasEstimate: estimate)
+    }
+    #expect(shows(reviewing: true))
+    #expect(shows(imported: true))
     // First visit: import a run or skip it.
-    #expect(!RunnerSetupSteps.historyShowsContinue(reviewing: false, importedThisVisit: false))
+    #expect(!shows())
+}
+
+@Test func aPhoneWithNoSetupProgressOffersContinueOnARaceWithAnEstimate() {
+    // A reinstall, another phone, a sign-in on a new device: the history step is the frontier
+    // again, but the race kept the estimate the step attached there.
+    #expect(RunnerSetupSteps.historyShowsContinue(reviewing: false, importedThisVisit: false, raceHasEstimate: true))
+}
+
+private func history(
+    reviewing: Bool = true,
+    dropped: Bool = false,
+    imported: Bool = false,
+    attached: Bool = false,
+    estimate: Bool = false
+) -> RunnerSetupSteps.HistoryContinue {
+    RunnerSetupSteps.historyContinue(
+        reviewing: reviewing,
+        estimateDropped: dropped,
+        importedThisVisit: imported,
+        attachedThisVisit: attached,
+        raceHasEstimate: estimate
+    )
 }
 
 @Test func b2ContinueOnAReviewedHistoryStepKeepsTheEstimate() {
-    func history(reviewing: Bool = true, dropped: Bool = false, imported: Bool = false, attached: Bool = false) -> RunnerSetupSteps.HistoryContinue {
-        RunnerSetupSteps.historyContinue(reviewing: reviewing, estimateDropped: dropped, importedThisVisit: imported, attachedThisVisit: attached)
-    }
     // Relaunch, Back to history, Continue: the history-based estimate stays.
     #expect(history() == .moveOn)
+    #expect(history(estimate: true) == .moveOn)
     // The comparison attached one on this visit: keep it.
     #expect(history(imported: true, attached: true) == .moveOn)
     #expect(history(reviewing: false, imported: true, attached: true) == .moveOn)
+    #expect(history(reviewing: false, imported: true, attached: true, estimate: true) == .moveOn)
     // An import whose comparison failed, or a course save that dropped the estimate: compute one.
     #expect(history(imported: true) == .recompute)
     #expect(history(dropped: true) == .recompute)
     #expect(history(reviewing: false, imported: true) == .recompute)
+}
+
+@Test func continueOnAPhoneWithNoSetupProgressKeepsTheRacesEstimate() {
+    // The frontier history step of a race that has an estimate: no request, marked done here.
+    #expect(history(reviewing: false, estimate: true) == .keepRaceEstimate)
+    // A run imported on this visit, or a course save this phone made that dropped it (a stale race
+    // list still listing the estimate): compute one, as before.
+    #expect(history(reviewing: false, imported: true, estimate: true) == .recompute)
+    #expect(history(reviewing: false, dropped: true, estimate: true) == .recompute)
+    // No estimate on the race: Continue only shows after an import, which computes one.
+    #expect(history(reviewing: false) == .recompute)
+}
+
+@Test func historyContinueMarksTheStepUnlessItMovesOnOverAnUnchangedStep() {
+    #expect(RunnerSetupSteps.historyContinueMarks(.recompute, attachedThisVisit: false))
+    #expect(RunnerSetupSteps.historyContinueMarks(.keepRaceEstimate, attachedThisVisit: false))
+    #expect(RunnerSetupSteps.historyContinueMarks(.moveOn, attachedThisVisit: true))
+    #expect(!RunnerSetupSteps.historyContinueMarks(.moveOn, attachedThisVisit: false))
 }
 
 // MARK: Relaunch
