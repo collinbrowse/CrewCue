@@ -36,8 +36,16 @@ struct RunnerSetupView: View {
                 if model.showsBack {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: model.goBack) {
-                            Label(OnboardingCopy.back, systemImage: "chevron.left")
-                                .labelStyle(.titleAndIcon)
+                            // The chevron and the word "Back", like a pushed screen's back button.
+                            // Not `Label(...).labelStyle(.titleAndIcon)`: tried on the iOS 27
+                            // simulator, the bar still draws a Label item as its icon alone.
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .fontWeight(.semibold)
+                                Text(OnboardingCopy.back)
+                            }
+                            // Tinted like the bar's other items (an image-only item takes the tint).
+                            .foregroundStyle(model.canGoBack ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         }
                         .disabled(!model.canGoBack)
                         .accessibilityLabel(OnboardingCopy.back)
