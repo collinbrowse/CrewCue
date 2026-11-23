@@ -1,9 +1,19 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../app.js";
+import { deleteRaceRoomAndData } from "../lib/raceRoomDeletion.js";
 import { lineStringRouteOverlayForCheckpoints } from "../lib/testCourseRouteLayer.js";
 
-function buildClaims(sub: string, teamIds: string[] = ["team-1"]) {
+// A team of its own per run: the board lists every room on the team, and on a reused Postgres
+// database the rooms of earlier runs (or of other files on `team-1`) would land on it too.
+const TEAM_ID = `team-ws6-${Math.random().toString(36).slice(2, 10)}`;
+const createdRoomIds: string[] = [];
+
+after(async () => {
+  for (const id of createdRoomIds) await deleteRaceRoomAndData(id);
+});
+
+function buildClaims(sub: string, teamIds: string[] = [TEAM_ID]) {
   return {
     sub,
     teamIds,
@@ -22,7 +32,7 @@ async function setupPaidActiveRoom(
     method: "POST",
     url: "/race-rooms",
     payload: {
-      teamId: "team-1",
+      teamId: TEAM_ID,
       athleteId: opts.athleteId,
       name: opts.name,
       creatorRole: opts.creatorRole ?? "athlete"
@@ -31,6 +41,7 @@ async function setupPaidActiveRoom(
   });
   assert.equal(createResponse.statusCode, 201);
   const roomId = (createResponse.json() as { id: string }).id;
+  createdRoomIds.push(roomId);
 
   await app.inject({
     method: "POST",
@@ -117,21 +128,21 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const boardDenied = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/board",
+    url: `/teams/${TEAM_ID}/command-center/board`,
     headers: { authorization: `Bearer ${memberToken}` }
   });
   assert.equal(boardDenied.statusCode, 403);
 
   const boardAthlete = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/board",
+    url: `/teams/${TEAM_ID}/command-center/board`,
     headers: { authorization: `Bearer ${athleteToken}` }
   });
   assert.equal(boardAthlete.statusCode, 403);
 
   const boardOk = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/board",
+    url: `/teams/${TEAM_ID}/command-center/board`,
     headers: { authorization: `Bearer ${managerToken}` }
   });
   assert.equal(boardOk.statusCode, 200);
@@ -145,14 +156,14 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const chiefBoard = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/board",
+    url: `/teams/${TEAM_ID}/command-center/board`,
     headers: { authorization: `Bearer ${chiefToken}` }
   });
   assert.equal(chiefBoard.statusCode, 200);
 
   const putDenied = await app.inject({
     method: "PUT",
-    url: "/teams/team-1/command-center/metric-config",
+    url: `/teams/${TEAM_ID}/command-center/metric-config`,
     payload: { selectedMetrics: ["sodium_per_hr"] },
     headers: { authorization: `Bearer ${chiefToken}` }
   });
@@ -160,7 +171,7 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const putOk = await app.inject({
     method: "PUT",
-    url: "/teams/team-1/command-center/metric-config",
+    url: `/teams/${TEAM_ID}/command-center/metric-config`,
     payload: { selectedMetrics: ["electrolytes_per_hr", "sodium_per_hr"] },
     headers: { authorization: `Bearer ${managerToken}` }
   });
@@ -170,7 +181,7 @@ test("team manager command board, metric config, heatmap, and authz", async () =
 
   const heat = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/checkpoint-heatmap",
+    url: `/teams/${TEAM_ID}/command-center/checkpoint-heatmap`,
     headers: { authorization: `Bearer ${managerToken}` }
   });
   assert.equal(heat.statusCode, 200);
@@ -235,7 +246,7 @@ test("staffing overlap when same assignee is in progress in two rooms", async ()
 
   const ov = await app.inject({
     method: "GET",
-    url: "/teams/team-1/command-center/staffing-overlaps",
+    url: `/teams/${TEAM_ID}/command-center/staffing-overlaps`,
     headers: { authorization: `Bearer ${managerToken}` }
   });
   assert.equal(ov.statusCode, 200);
