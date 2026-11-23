@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureIosSimulator, sharedDevice } from "./lib/agentDevice.mjs";
+import { ensureIosSimulator, sharedDevice, sharedSourcePackagesArgs } from "./lib/agentDevice.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "darwin") {
@@ -62,6 +62,9 @@ const xcodeArgs = [
   "-scheme", "CrewCue",
   "-destination", destination,
   "-resultBundlePath", path.join(evidenceDir, `ios-tests-${Date.now()}.xcresult`),
+  // Locally, build into this worktree (removed with it) and share package checkouts across worktrees.
+  ...(process.env.CI ? [] : ["-derivedDataPath", path.join(evidenceDir, "ios-derived")]),
+  ...sharedSourcePackagesArgs(),
   "test"
 ];
 // GitHub-hosted macOS has no Apple team. Simulator UI tests ad-hoc sign.
