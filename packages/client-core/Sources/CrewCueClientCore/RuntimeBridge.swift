@@ -26,7 +26,8 @@ import Dispatch
 /// readPendingJoin, clearPendingJoin, resolvePendingJoin (`RuntimeOnboarding.swift`),
 /// demoRaceCreate, demoRacePlay, demoRacePause, demoRaceTick, demoRaceSkip, demoRaceSeek, demoRaceRunner, demoRaceCleanup
 /// (`RuntimeDemoRace.swift`),
-/// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName (`RuntimeRunnerSetup.swift`).
+/// raceStartInput, gpxPreview, raceAccess, suggestedDisplayName, runnerSetupStep, updateRaceStart
+/// (`RuntimeRunnerSetup.swift`).
 ///
 /// `storageDir` is the app's storage root. Per-user files live under `UserStorage(root:)` keyed
 /// by `userId`. A failure on a 401 carries `sessionExpired: true` so the app wipes the session.
@@ -329,6 +330,10 @@ enum RuntimeCall {
             return raceAccess(object)
         case "suggestedDisplayName":
             return suggestedDisplayName(object)
+        case "runnerSetupStep":
+            return try runnerSetupStep(object)
+        case "updateRaceStart":
+            return try await updateRaceStart(object)
         default:
             throw ClientHTTPError(status: 400, message: "Unknown runtime op \(op).")
         }

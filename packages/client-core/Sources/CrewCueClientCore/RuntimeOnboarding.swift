@@ -18,7 +18,9 @@ import Foundation
 ///   Existing accounts: with no saved progress at all, the first loaded list that has a paid
 ///   race marks both tours done. A crew member's unpaid race answers `flow: raceLocked` with a
 ///   `reason`, `showsTabBar: true` and no tour.
-/// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`.
+/// - `resetOnboarding`: forgets the user's progress, or one race's with `roomId`. With
+///   `choiceOnly: true` it forgets only the runner or crew pick (Back from the runner's first
+///   setup step), and every marked step stays.
 ///
 /// The pending invite: one per device, expiring after 7 days, and one user's at a time. Every op
 /// below reads and saves it as the request's user (`userId`, signed out when it is blank or
@@ -103,6 +105,9 @@ extension RuntimeCall {
     static func resetOnboarding(_ object: [String: Any]) throws -> Any {
         let store = try onboardingStore(object)
         let userId = onboardingSignedIn(object) ? text(object, "userId") : nil
+        if boolValue(object["choiceOnly"]) == true {
+            return ["progress": try store.clearChoice(userId: userId).jsonObject]
+        }
         try store.reset(userId: userId, roomId: text(object, "roomId"))
         return ["progress": store.load(userId: userId).jsonObject]
     }
