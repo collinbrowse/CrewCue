@@ -1240,13 +1240,22 @@ class RunnerSetupViewModelTest {
         model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
         model.chooseCourse("route.gpx", COURSE_XML, online = true)
         assertTrue(model.courseLoading)
-        model.noteCourseMapReady()
+        val first = assertNotNullAnd(model.preview)
+        model.noteCourseMapReady(first)
         assertFalse(model.courseLoading)
         // Another file, another course: its own wait again.
         runtime.answer("gpxPreview", ok(PREVIEW.replace("39.01]", "39.02]")))
         model.chooseCourse("other.gpx", "<gpx><trk/></gpx>", online = true)
         assertTrue(model.courseLoading)
         assertEquals("Reading your course…", model.courseLoadingCaption)
+        // A frame the map drew of the first course, before it applied the new one, ends nothing.
+        model.noteCourseMapReady(first)
+        assertTrue(model.courseLoading)
+        assertEquals("Reading your course…", model.courseLoadingCaption)
+        // The new course's own frame does.
+        model.noteCourseMapReady(assertNotNullAnd(model.preview))
+        assertFalse(model.courseLoading)
+        assertNull(model.courseLoadingCaption)
     }
 
     @Test
@@ -1259,7 +1268,7 @@ class RunnerSetupViewModelTest {
         assertTrue(model.courseLoading)
         // Spoken "Loading": no "Reading your course…" for a file read before the relaunch.
         assertNull(model.courseLoadingCaption)
-        model.noteCourseMapReady()
+        model.noteCourseMapReady(assertNotNullAnd(model.preview))
         assertFalse(model.courseLoading)
     }
 
@@ -1318,10 +1327,14 @@ class RunnerSetupViewModelTest {
         val model = reviewing(SetupSteps.COURSE)
         val before = assertNotNullAnd(model.preview)
         // The course from before is drawn.
-        model.noteCourseMapReady()
+        model.noteCourseMapReady(before)
         assertFalse(model.courseLoading)
         var meanwhile: Triple<CoursePreview?, Boolean, String?>? = null
-        drafts.onWriteCourse = { meanwhile = Triple(model.preview, model.courseLoading, model.courseLoadingCaption) }
+        drafts.onWriteCourse = {
+            // The map under the loader draws the course before it once more meanwhile.
+            model.noteCourseMapReady(before)
+            meanwhile = Triple(model.preview, model.courseLoading, model.courseLoadingCaption)
+        }
         runtime.answer("gpxPreview", ok(PREVIEW.replace("39.01]", "39.02]")))
         model.chooseCourse("other.gpx", "<gpx><trk/></gpx>", online = true)
         // While the file goes to disk the new course is already the one under the loader: the one

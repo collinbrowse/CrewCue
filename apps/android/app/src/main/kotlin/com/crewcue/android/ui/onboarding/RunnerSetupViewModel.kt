@@ -534,12 +534,12 @@ class RunnerSetupViewModel(
     }
 
     /**
-     * The preview's map drew its first full frame: the preview replaces its loader. Not while a
-     * file is read: the map under the loader is the course before it, and its frames don't end
-     * the wait for the new one.
+     * A map frame of [course] drew in full: when it is the preview on show, that preview replaces
+     * its loader. A frame of another course (the one before, still on the map while the new one
+     * is applied) ends nothing. While another file is read the loader and its caption stay.
      */
-    fun noteCourseMapReady() {
-        if (previewingCourse) return
+    fun noteCourseMapReady(course: CoursePreview) {
+        if (course != preview) return
         endMapWait()
     }
 

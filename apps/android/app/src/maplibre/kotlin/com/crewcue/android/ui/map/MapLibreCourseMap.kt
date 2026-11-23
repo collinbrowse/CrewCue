@@ -100,7 +100,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         framing: CourseFraming,
         trackTimes: List<Long>,
         glide: (() -> RunnerGlideFrame?)?,
-        onRendered: () -> Unit
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
     ) {
         val context = LocalContext.current
         val dark = context.isDarkMode()
@@ -129,6 +129,12 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         }
         val framingState = rememberUpdatedState(framing)
         val framed = remember { booleanArrayOf(false) }
+        /** The course line and checkpoints last handed to the style, which a finished render reports. */
+        val drawnCourse = remember { arrayOfNulls<Pair<List<CoursePoint>, List<MapCheckpoint>>>(1) }
+        fun drawCourse(style: Style, map: MapLibreMap, view: MapView, line: List<CoursePoint>, points: List<MapCheckpoint>) {
+            runCatching { draw(style, map, view, line, points, framed, framingState.value, paletteState.value) }
+                .onSuccess { drawnCourse[0] = line to points }
+        }
         val usingBlankStyle = remember { booleanArrayOf(false) }
         val mapView = remember(context) {
             if (!MapLibre.hasInstance()) {
@@ -147,15 +153,17 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                         view.getMapAsync { map ->
                             // No ready.value(): the failure message stays up over the blank map.
                             map.setStyle(Style.Builder().fromJson(blankStyleJson(dark))) { style ->
-                                runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
+                                drawCourse(style, map, view, lineState.value, pointState.value)
                                 runCatching { drawRunner(style) }
                             }
                         }
                     }
                 }
-                // The first full frame (style, course and tiles drawn): a preview's loader can go.
+                // A full frame (style, course and tiles drawn), with the course it drew: a preview's
+                // loader can go once it is that preview's course.
                 view.addOnDidFinishRenderingMapListener { fully ->
-                    if (fully) rendered.value()
+                    val course = drawnCourse[0]
+                    if (fully && course != null) rendered.value(course.first, course.second)
                 }
                 view.addOnTileActionListener { operation, _, _, _, _, _, _ ->
                     if (operation == TileOperation.Error && !context.isOnline()) {
@@ -173,7 +181,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                     map.uiSettings.attributionGravity = android.view.Gravity.TOP or android.view.Gravity.START
                     map.setStyle(Style.Builder().fromUri(styleUrl(dark))) { style ->
                         ready.value()
-                        runCatching { draw(style, map, view, lineState.value, pointState.value, framed, framingState.value, paletteState.value) }
+                        drawCourse(style, map, view, lineState.value, pointState.value)
                         runCatching { drawRunner(style) }
                     }
                 }
@@ -217,7 +225,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
             update = { view ->
                 view.getMapAsync { map ->
                     val style = map.style ?: return@getMapAsync
-                    runCatching { draw(style, map, view, line, points, framed, framing, palette) }
+                    drawCourse(style, map, view, line, points)
                     if (glide == null) {
                         runCatching { drawTrack(style, track, palette) }
                     } else {

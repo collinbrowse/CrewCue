@@ -354,7 +354,7 @@ fun RaceZoneDialog(
  * Where the course preview goes: the map with its elevation profile, under the Cairn loader while
  * a file is read and previewed and until the map has drawn its first full frame ([loading]). The
  * map draws under the loader, hidden from sight and from TalkBack, so its first frame can end the
- * wait ([onRendered]).
+ * wait ([onRendered], with the course that frame drew).
  */
 @Composable
 fun CoursePreviewSlot(
@@ -362,7 +362,7 @@ fun CoursePreviewSlot(
     loading: Boolean,
     caption: String?,
     text: OnboardingText,
-    onRendered: () -> Unit,
+    onRendered: (CoursePreview) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val drawn = course?.takeIf { !it.isEmpty }
@@ -391,17 +391,19 @@ fun CoursePreviewSlot(
 
 /**
  * The course on the map (MapLibre when this build has it, else a line sketch), with its elevation
- * profile from the route. Nothing here comes from this phone's location. [onRendered]: the map's
- * first full frame (the sketch draws at once).
+ * profile from the route. Nothing here comes from this phone's location. [onRendered]: a full
+ * frame of the map that drew [course] (the sketch draws at once). A frame that still shows the
+ * course before it, because the map hasn't applied the new one yet, doesn't count.
  */
 @Composable
-fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modifier = Modifier, onRendered: () -> Unit = {}) {
+fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modifier = Modifier, onRendered: (CoursePreview) -> Unit = {}) {
     val renderer = CourseMaps.renderer
     var mapFailed by remember(course) { mutableStateOf(false) }
     val sketch = !(BuildConfig.MAP_LIBRE && renderer != null && !mapFailed)
     val rendered by rememberUpdatedState(onRendered)
+    val shown by rememberUpdatedState(course)
     LaunchedEffect(course, sketch) {
-        if (sketch) rendered()
+        if (sketch) rendered(course)
     }
     Column(modifier.testTag(setupTag("preview.course")), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(
@@ -428,7 +430,10 @@ fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modi
                     CourseFraming.Preview,
                     trackTimes = emptyList(),
                     glide = null,
-                    onRendered = { rendered() }
+                    onRendered = { line, points ->
+                        val current = shown
+                        if (line == current.line && points == current.checkpoints) rendered(current)
+                    }
                 )
             } else {
                 RouteSketch(course.line, Modifier.fillMaxSize().padding(16.dp))

@@ -184,9 +184,11 @@ interface CourseMapRenderer {
         glide: (() -> RunnerGlideFrame?)?,
         /**
          * The map finished rendering with everything loaded (MapLibre's did-finish-rendering-map,
-         * fully rendered). It can come more than once; a map that never gets there never calls it.
+         * fully rendered), with the course line and checkpoints it had drawn by then: a frame of
+         * the course before a new one is applied names that course, not the new one. It can come
+         * more than once; a map that never gets there never calls it.
          */
-        onRendered: () -> Unit
+        onRendered: (line: List<CoursePoint>, points: List<MapCheckpoint>) -> Unit
     )
 }
 
