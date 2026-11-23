@@ -145,6 +145,25 @@ struct MapView: View {
             }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
+        .overlay(alignment: .bottom) {
+            // Just above the aid sheet, clear of the chips under the top bar.
+            if let note = model.mapNote {
+                Text(verbatim: note)
+                    .font(CrewFont.body)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .crewGlass(in: Capsule())
+                    .padding(.bottom, max(0, mapFrame.maxY - sheetTop) + CrewSpace.stackSm)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("crewcue.map-note")
+            }
+        }
+        .animation(.snappy, value: model.mapNote)
+        .onChange(of: tool) { old, _ in
+            // Closing the place-checkpoint sheet (saved or not) clears its form for the next one.
+            if old == .pick { model.resetPick() }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.map")
@@ -840,7 +859,11 @@ struct MapAidSheet: View {
                     invalid: model.coordinateInvalid,
                     message: model.pickMessage,
                     isBusy: model.pickBusy,
-                    onSave: model.placeCheckpoint
+                    onSave: {
+                        if await model.placeCheckpoint() {
+                            withAnimation(.snappy) { tool = .none }
+                        }
+                    }
                 )
             case .navigate:
                 ScrollView {

@@ -104,6 +104,10 @@ final class MapModel {
     /// A short note beside the runner button (the runner isn't tracking yet), cleared after a few seconds.
     private(set) var runnerNote: String?
     @ObservationIgnored private var runnerNoteTask: Task<Void, Never>?
+    /// A short note over the map after the place-checkpoint sheet closes ("Saved Water Stop."),
+    /// cleared after a few seconds.
+    private(set) var mapNote: String?
+    @ObservationIgnored private var mapNoteTask: Task<Void, Never>?
     private(set) var pickMessage = "No checkpoint selected."
     private(set) var pickBusy = false
     var originId = ""
@@ -383,16 +387,32 @@ final class MapModel {
         refreshMapMessage()
     }
 
-    func placeCheckpoint() async {
+    /// Clears the place-checkpoint form: a closed or saved checkpoint leaves nothing behind for
+    /// the next one.
+    func resetPick() {
+        typedCoordinateTask?.cancel()
+        writingCoordinateFromMap = true
+        coordinateText = ""
+        writingCoordinateFromMap = false
+        coordinateInvalid = false
+        pickTarget = nil
+        checkpointTitle = ""
+        pickMessage = "No checkpoint selected."
+    }
+
+    /// Saves the checkpoint. True when it saved: the form is cleared and the caller closes it,
+    /// and the map says what was saved.
+    @discardableResult
+    func placeCheckpoint() async -> Bool {
         guard let coordinate = selectedCoordinate() else {
             pickMessage = "No checkpoint selected."
-            return
+            return false
         }
         guard let roomId else {
             pickMessage = "Couldn't save the checkpoint."
-            return
+            return false
         }
-        guard !pickBusy else { return }
+        guard !pickBusy else { return false }
         pickBusy = true
         defer { pickBusy = false }
         let ticket = generation
@@ -408,15 +428,27 @@ final class MapModel {
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude
             )
-            guard ticket == generation else { return }
-            pickMessage = "Saved \(title)."
-            checkpointTitle = ""
+            guard ticket == generation else { return false }
+            resetPick()
+            show(mapNote: "Saved \(title).")
             await loadCourse(ticket: ticket)
+            return true
         } catch {
-            guard ticket == generation else { return }
+            guard ticket == generation else { return false }
             pickMessage = APIFailure.isTransport(error)
                 ? "Offline. Checkpoint placement needs the network."
                 : "Couldn't save the checkpoint."
+            return false
+        }
+    }
+
+    private func show(mapNote text: String) {
+        mapNote = text
+        mapNoteTask?.cancel()
+        mapNoteTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.mapNote = nil
         }
     }
 
