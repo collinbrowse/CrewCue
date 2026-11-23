@@ -468,7 +468,7 @@ class RunnerSetupViewModel(
     private suspend fun createRoom(user: String, fileName: String): String? {
         // The race is named after the course file until the runner renames it.
         val name = fileName.substringBeforeLast('.').trim().ifBlank { fileName }
-        val creator = draft.displayName.trim().ifBlank { sessionName?.trim().orEmpty() }.ifBlank { null }
+        val creator = draft.displayName.trim().ifBlank { sessionFallbackName() }.ifBlank { null }
         val result = withContext(io) { runtime.createRoom(name, user, creator) }
         return when (result) {
             is RuntimeResult.Failure -> {
@@ -638,9 +638,16 @@ class RunnerSetupViewModel(
         val saved = RunnerSetupDraft.from(savedState.get<String>(KEY_DRAFT))
             ?: userId?.let { drafts.load(it) }
             ?: RunnerSetupDraft()
-        val name = saved.displayName.ifBlank { sessionName?.trim().orEmpty() }
+        val name = saved.displayName.ifBlank { sessionFallbackName() }
         return saved.copy(displayName = name)
     }
+
+    /**
+     * The session's name when the runner typed none, through client-core `SuggestedDisplayName`:
+     * a session saved before email names were dropped can still carry the email. "" for none.
+     */
+    private fun sessionFallbackName(): String =
+        sessionName?.let { runtime.suggestedDisplayName(it, null) }.orEmpty()
 
     /** Tomorrow at 06:00 in the device's zone, until the runner picks. */
     private fun defaultStart(): RaceStartFields {
