@@ -31,6 +31,8 @@ enum MapTool: String, Hashable {
 struct MapView: View {
     @Bindable var model: MapModel
     var focus: String = "map-track"
+    /// The race's name, in the top bar.
+    var title: String = "CrewCue"
     var onSettings: () -> Void = {}
     /// The race isn't unlocked: a banner under the top bar.
     var access: RaceAccess? = nil
@@ -39,8 +41,8 @@ struct MapView: View {
     /// The onboarding replay: the course, the runner and the aid sheet only. No top bar and no map
     /// tools (placing a checkpoint, navigating, tracking), since the replay never writes.
     var readOnly = false
-    /// The onboarding replay's course line, the one its runner follows. Empty on the race map: the
-    /// line joins the checkpoints.
+    /// The onboarding replay's course line, the one its runner follows. Empty on the race map:
+    /// the line is the race's saved GPX (else the checkpoints joined).
     var route: [CLLocationCoordinate2D] = []
     /// The onboarding replay's runner between updates: the dot glides along the course. Nil on
     /// the race map, where the dot is the runner's latest ping.
@@ -55,7 +57,15 @@ struct MapView: View {
     @State private var tool = MapTool.none
     /// The map style has loaded or failed. Until then a loader sits over the map.
     @State private var styleSettled = false
+    /// Bumped by the info button: the map opens its data attribution.
+    @State private var attributionRequest = 0
+    /// Window-space edges the crosshair sits between: the top bar's bottom and the sheet's top.
+    @State private var barBottom: CGFloat = 0
+    @State private var sheetTop: CGFloat = 0
+    @State private var sheetBottom: CGFloat = 0
+    @State private var mapFrame: CGRect = .zero
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -63,14 +73,25 @@ struct MapView: View {
                 points: model.points,
                 track: model.trackCoordinates,
                 trackTimes: glide == nil ? [] : model.track.points.map(\.recordedAt),
-                route: route,
+                route: readOnly ? route : model.route,
                 glide: glide,
                 glidePlaying: glidePlaying,
                 recenterRequest: model.recenterRequest,
                 replay: readOnly,
-                onTap: { latitude, longitude in
+                baseStyle: readOnly ? .automatic : model.baseMap,
+                pickAnchor: tool == .pick ? crosshair : nil,
+                pickTarget: model.pickTarget,
+                pickCoordinate: CoordinateText.parse(model.coordinateText).map {
+                    CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                },
+                onPickCenter: { latitude, longitude in
                     model.selectCoordinate(latitude: latitude, longitude: longitude)
                 },
+                showsUserLocation: !readOnly && model.myLocation.isShowing,
+                userCoordinate: model.myLocation.coordinate,
+                userCenterRequest: model.myLocation.centerRequest,
+                attributionRequest: attributionRequest,
+                hidesAttributionButton: !readOnly,
                 onStyleFailure: { offline in
                     styleSettled = true
                     model.noteStyleFailure(offline: offline)
@@ -89,7 +110,17 @@ struct MapView: View {
                         .allowsHitTesting(false)
                 }
             }
-            MapAidSheet(model: model, tool: $tool, onUnlock: onUnlock)
+            MapOverlayControls(
+                model: model, tool: $tool, title: title, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
+                readOnly: readOnly, pathPings: pathPings, part: .chips,
+                shortMap: mapFrame.height > 0 && mapFrame.height < 760,
+                onAttribution: { attributionRequest += 1 },
+                onBarBottom: { _ in }
+            )
+            .padding(.top, CrewSpace.stackSm)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .avoidsReservedRegions(when: readOnly)
+            MapAidSheet(model: model, tool: $tool, onUnlock: onUnlock, maxHeight: max(0, sheetBottom - barBottom - CrewSpace.stackSm))
                 .padding(.horizontal, 8)
                 // The replay's Map is a pane a fold can run through: its sheet and chips stay off
                 // the fold while the canvas under them stays full-bleed.
@@ -98,13 +129,62 @@ struct MapView: View {
                 // Expanded, or open on Navigate, its top can reach beside the column: it then
                 // narrows to keep clear of it, quickly, and opens again with a spring.
                 .fullWidthClearOfOcclusions()
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    sheetTop = $0.minY
+                    sheetBottom = $0.maxY
+                }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             MapOverlayControls(
-                model: model, tool: $tool, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
-                readOnly: readOnly, pathPings: pathPings
+                model: model, tool: $tool, title: title, onSettings: onSettings, access: access, onUnlock: onUnlock ?? {},
+                readOnly: readOnly, pathPings: pathPings, part: .bar,
+                onAttribution: { attributionRequest += 1 },
+                onBarBottom: { barBottom = $0 }
             )
             .avoidsReservedRegions(when: readOnly)
+        }
+        .overlay {
+            if tool == .pick, let crosshair {
+                PickCrosshair()
+                    .position(x: crosshair.x - mapFrame.minX, y: crosshair.y - mapFrame.minY)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mapFrame = $0 }
+        .overlay(alignment: .top) {
+            if let notice = model.myLocation.notice {
+                Text(verbatim: notice)
+                    .font(CrewFont.body)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .padding(.vertical, 10)
+                    .crewGlass(in: Capsule())
+                    .padding(.horizontal, CrewSpace.gutter)
+                    .padding(.top, max(0, barBottom - mapFrame.minY) + CrewSpace.stackSm)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("crewcue.my-location-notice")
+            }
+        }
+        .animation(.snappy, value: model.myLocation.notice)
+        .alert(
+            model.myLocation.problem?.title ?? "",
+            isPresented: Binding(
+                get: { model.myLocation.problem != nil },
+                set: { if !$0 { model.myLocation.problem = nil } }
+            ),
+            presenting: model.myLocation.problem
+        ) { problem in
+            if problem.opensSettings {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+            Button(problem.opensSettings ? "Not Now" : "OK", role: .cancel) {}
+        } message: { problem in
+            Text(problem.message)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -113,6 +193,37 @@ struct MapView: View {
         .task(id: focus) {
             tool = MapTool.forFocus(focus)
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from Settings: a permission changed there shows at once.
+            if phase == .active { model.myLocation.refresh() }
+        }
+        .animation(.snappy, value: tool)
+    }
+
+    /// Where the crosshair sits, in window coordinates: across the middle of the map, halfway
+    /// between the top bar and the sheet. Nil until both are laid out.
+    private var crosshair: CGPoint? {
+        guard mapFrame.width > 0, sheetTop > barBottom + 40 else { return nil }
+        return CGPoint(x: mapFrame.midX, y: (barBottom + sheetTop) / 2)
+    }
+}
+
+/// The X the map moves under while placing a checkpoint: the checkpoint goes where it points.
+private struct PickCrosshair: View {
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        ZStack {
+            Image(systemName: "xmark")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(.white)
+            Image(systemName: "xmark")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(theme.primary)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+        .accessibilityHidden(true)
+        .accessibilityIdentifier("crewcue.map-crosshair")
     }
 }
 
@@ -120,25 +231,67 @@ struct MapView: View {
 private struct MapOverlayControls: View {
     var model: MapModel
     @Binding var tool: MapTool
+    var title: String
     var onSettings: () -> Void
     var access: RaceAccess?
     var onUnlock: () -> Void
     var readOnly = false
     var pathPings: Int?
+    /// The top bar (and race banner) sits in the top safe area; the chips and map buttons sit
+    /// on the map, under the aid sheet when it opens all the way.
+    var part: Part
+    /// The map is short: the round buttons go in a row.
+    var shortMap = false
+    var onAttribution: () -> Void
+    var onBarBottom: (CGFloat) -> Void
     @Environment(\.crew) private var theme
 
+    enum Part { case bar, chips }
+
     var body: some View {
+        switch part {
+        case .bar: bar
+        case .chips: chips
+        }
+    }
+
+    private var bar: some View {
         VStack(spacing: CrewSpace.stackSm) {
             if !readOnly {
-                CrewTopBar(onSettings: onSettings)
+                CrewTopBar(title: title, onSettings: onSettings)
                     .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
                     .padding(.horizontal, 8)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { onBarBottom($0) }
             }
             if let access {
                 RaceAccessBanner(access: access, onUnlock: onUnlock)
                     .padding(.horizontal, CrewSpace.gutter)
             }
-            HStack(alignment: .top) {
+        }
+        // The replay has no bar: report its top edge so the crosshair math still has one.
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { if readOnly { onBarBottom($0) } }
+    }
+
+    private var chips: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: CrewSpace.base) {
+                if !readOnly {
+                    // OpenFreeMap / OpenStreetMap attribution, under the runner in the top bar.
+                    Button(action: onAttribution) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(theme.primary)
+                            .frame(width: 32, height: 32)
+                            .crewGlass(in: Circle(), interactive: true)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, -6)
+                    .padding(.leading, -2)
+                    .accessibilityLabel("Map data attribution")
+                    .accessibilityIdentifier("crewcue.map-attribution")
+                }
                 if model.readout.statusLabel.isEmpty == false {
                     StatusChip(text: model.readout.statusLabel, style: model.readout.status == .behind ? .soft : .filled)
                         .accessibilityLabel("Status \(model.readout.statusLabel)")
@@ -150,11 +303,12 @@ private struct MapOverlayControls: View {
                     StatusChip(text: trackLabel, style: .glass)
                         .accessibilityIdentifier("crewcue.runner-track")
                         .accessibilityLabel(trackAccessibility)
-                    CircleIconButton(systemImage: "scope", label: "Fit course") {
-                        model.recenter()
-                    }
-                    if !readOnly {
-                        mapTools
+                    // A short map (iPhone Duo's outer display, landscape) lays the buttons in a
+                    // row, so the half-open sheet doesn't cover them.
+                    if shortMap {
+                        HStack(spacing: CrewSpace.base) { roundButtons }
+                    } else {
+                        roundButtons
                     }
                 }
             }
@@ -162,14 +316,58 @@ private struct MapOverlayControls: View {
         }
     }
 
-    /// Place checkpoint, navigate and tracking. Not in the replay.
+    @ViewBuilder
+    private var roundButtons: some View {
+        CircleIconButton(systemImage: "arrow.up.left.and.arrow.down.right", label: "Fit course") {
+            model.recenter()
+        }
+        if !readOnly {
+            myLocationButton
+            mapTools
+        }
+    }
+
+    /// This phone's own position on the map. Never race progress.
+    private var myLocationButton: some View {
+        let location = model.myLocation
+        return Button(action: location.tap) {
+            ZStack {
+                if location.isBusy {
+                    ProgressView()
+                } else {
+                    Image(systemName: location.systemImage)
+                        .font(.system(size: 21, weight: .semibold))
+                }
+            }
+            .frame(width: 52, height: 52)
+            .foregroundStyle(location.isShowing ? theme.onPrimary : theme.primary)
+            .background {
+                if location.isShowing { Circle().fill(theme.primary) }
+            }
+        }
+        .buttonStyle(.plain)
+        .crewGlass(in: Circle(), interactive: true)
+        .accessibilityLabel(location.buttonLabel)
+        .accessibilityIdentifier("crewcue.my-location")
+    }
+
+    /// The base map, and the map tools (place checkpoint, navigate, tracking). Not in the replay.
     private var mapTools: some View {
         Menu {
-            Picker("Map tool", selection: $tool) {
-                Label("Aid stations", systemImage: "flag").tag(MapTool.none)
-                Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
-                Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
-                Label("Tracking", systemImage: "location").tag(MapTool.location)
+            Section("Base map") {
+                Picker("Base map", selection: Binding(get: { model.baseMap }, set: { model.baseMap = $0 })) {
+                    ForEach(MapBaseStyle.allCases) { style in
+                        Label(style.title, systemImage: style.systemImage).tag(style)
+                    }
+                }
+            }
+            Section("Map tools") {
+                Picker("Map tool", selection: $tool) {
+                    Label("Aid stations", systemImage: "flag").tag(MapTool.none)
+                    Label("Place checkpoint", systemImage: "mappin.and.ellipse").tag(MapTool.pick)
+                    Label("Navigate", systemImage: "arrow.triangle.turn.up.right.diamond").tag(MapTool.navigate)
+                    Label("Tracking", systemImage: "location.circle").tag(MapTool.location)
+                }
             }
         } label: {
             Image(systemName: "square.3.layers.3d")
@@ -178,7 +376,8 @@ private struct MapOverlayControls: View {
                 .foregroundStyle(theme.primary)
         }
         .crewGlass(in: Circle(), interactive: true)
-        .accessibilityLabel("Map tools")
+        .accessibilityLabel("Map layers and tools")
+        .accessibilityIdentifier("crewcue.map-tools")
     }
 
     /// The runner's path drawn on the map, from the API: one point per ping (the replay's count).
@@ -207,7 +406,7 @@ private struct MapOverlayControls: View {
 
 struct AidPager: View {
     @Bindable var model: MapModel
-    @ScaledMetric private var height: CGFloat = 228
+    @ScaledMetric private var height: CGFloat = 200
     /// The page on show, kept on the model's aid. Only the person picks an aid: a drag, or
     /// VoiceOver's scroll. A pager laid out again (built with its pages already there by a display
     /// switch or a map tool closing, or at a new width after a rotation) lands on whatever page its
@@ -223,6 +422,7 @@ struct AidPager: View {
                 HStack(spacing: 0) {
                     ForEach(model.aidPages) { page in
                         AidPeek(page: page, averagePace: model.readout.averagePaceLabel)
+                            .frame(maxHeight: .infinity, alignment: .top)
                             .containerRelativeFrame(.horizontal)
                             .id(page.index)
                     }
@@ -371,32 +571,44 @@ private struct MetricDivider: View {
 }
 
 /// Bottom sheet on the map: aid station pager by default, or the active map tool.
+///
+/// The aid sheet has three heights: closed (one row, the next aid and its arrival), half (the
+/// pager) and open (the pager and the details). A drag moves it with the finger, point for
+/// point; on lift it settles at the nearest height, taking the flick's speed into account.
 struct MapAidSheet: View {
     @Bindable var model: MapModel
     @Binding var tool: MapTool
     /// Set on the runner's unpaid race: Start tracking opens the paywall (pings answer 402 there).
     var onUnlock: (() -> Void)? = nil
+    /// The most the sheet may grow to: the room between the top bar and the sheet's bottom.
+    var maxHeight: CGFloat = .infinity
     @Environment(\.crew) private var theme
-    @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The finger's travel since the drag began (down is positive). Zero between drags.
+    @State private var drag: CGFloat = 0
+    /// The gesture is a vertical drag of the sheet (not a swipe through the pager), decided on
+    /// its first movement.
+    @State private var dragAxis: DragAxis?
+    /// Measured content heights for the three detents.
+    @State private var handleHeight: CGFloat = 31
+    @State private var compactHeight: CGFloat = 56
+    @State private var halfHeight: CGFloat = 240
+    @State private var openHeight: CGFloat = 420
+
+    private enum DragAxis { case vertical, horizontal }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
-            Capsule()
-                .fill(theme.outline.opacity(0.45))
-                .frame(width: 44, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 10)
-                .contentShape(Rectangle())
-                .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
-                .accessibilityLabel(expanded ? "Collapse details" : "Expand details")
-                .accessibilityAddTraits(.isButton)
+        Group {
             if tool == .none {
-                aidContent
+                aidSheet
             } else {
-                toolContent
+                VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+                    handle(interactive: false)
+                    toolContent
+                }
+                .padding(.bottom, CrewSpace.gutter)
             }
         }
-        .padding(.bottom, CrewSpace.gutter)
         .frame(maxWidth: .infinity, alignment: .leading)
         .crewGlass(in: UnevenRoundedRectangle(
             topLeadingRadius: CrewRadius.sheet,
@@ -406,40 +618,227 @@ struct MapAidSheet: View {
             style: .continuous
         ))
         .shadow(color: theme.shadow, radius: 20, y: -2)
-        .gesture(
-            DragGesture(minimumDistance: 20).onEnded { value in
-                withAnimation(.snappy) {
-                    if value.translation.height < -30 { expanded = true }
-                    if value.translation.height > 30 { expanded = false }
+    }
+
+    // MARK: Aid sheet
+
+    private var aidSheet: some View {
+        let height = currentHeight
+        let pager = pagerVisibility(at: height)
+        return VStack(alignment: .leading, spacing: 0) {
+            handle(interactive: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { handleHeight = $0 }
+            ZStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+                    pagerSection
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { halfHeight = $0 }
+                    if !model.aidPages.isEmpty {
+                        expandedDetails
+                    }
+                }
+                .padding(.top, CrewSpace.base)
+                .padding(.bottom, CrewSpace.gutter)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { openHeight = $0 }
+                .opacity(pager)
+                .allowsHitTesting(pager > 0.5)
+                .accessibilityHidden(pager < 0.5)
+                compactRow
+                    .padding(.top, CrewSpace.base)
+                    .padding(.bottom, CrewSpace.gutter + 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { compactHeight = $0 }
+                    .opacity(1 - pager)
+                    .allowsHitTesting(pager <= 0.5)
+                    .accessibilityHidden(pager >= 0.5)
+            }
+        }
+        .frame(height: height, alignment: .top)
+        .clipped()
+        .contentShape(Rectangle())
+        .simultaneousGesture(sheetDrag)
+        .accessibilityIdentifier("crewcue.aid-sheet")
+    }
+
+    /// The sheet's grab handle. A tap steps it open (closed → half → open → half).
+    private func handle(interactive: Bool) -> some View {
+        Capsule()
+            .fill(theme.outline.opacity(0.45))
+            .frame(width: 44, height: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 10)
+            .padding(.bottom, interactive ? 6 : 0)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard interactive else { return }
+                settle(at: model.sheetDetent == .half ? .open : (model.sheetDetent == .open ? .half : .half))
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Aid station details")
+            .accessibilityValue(detentDescription)
+            .accessibilityAddTraits(interactive ? .isButton : [])
+            .accessibilityAdjustableAction { direction in
+                guard interactive else { return }
+                let detents = MapSheetDetent.allCases
+                let index = detents.firstIndex(of: model.sheetDetent) ?? 1
+                switch direction {
+                case .increment: settle(at: detents[min(detents.count - 1, index + 1)])
+                case .decrement: settle(at: detents[max(0, index - 1)])
+                @unknown default: break
                 }
             }
-        )
+            .accessibilityIdentifier("crewcue.aid-sheet-handle")
+    }
+
+    private var detentDescription: String {
+        switch model.sheetDetent {
+        case .closed: "Closed"
+        case .half: "Half open"
+        case .open: "Open"
+        }
     }
 
     @ViewBuilder
-    private var aidContent: some View {
-        if model.aidPages.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Next aid station")
+    private var pagerSection: some View {
+        VStack(alignment: .leading, spacing: CrewSpace.gutter) {
+            if model.aidPages.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Next aid station")
+                        .crewKicker()
+                        .foregroundStyle(theme.primary)
+                    Text(verbatim: model.mapMessage.isEmpty ? "No aid stations yet." : model.mapMessage)
+                        .font(CrewFont.bodyLarge)
+                        .foregroundStyle(theme.body)
+                }
+                .padding(.horizontal, CrewSpace.margin)
+            } else {
+                AidPager(model: model)
+                if model.mapMessage.isEmpty == false {
+                    Text(verbatim: model.mapMessage)
+                        .font(CrewFont.body)
+                        .foregroundStyle(theme.body)
+                        .padding(.horizontal, CrewSpace.margin)
+                }
+            }
+        }
+    }
+
+    /// The closed sheet's one row: the next aid station and the runner's estimated arrival.
+    private var compactRow: some View {
+        let page = model.aidPages.indices.contains(model.aidIndex) ? model.aidPages[model.aidIndex] : nil
+        return HStack(alignment: .firstTextBaseline, spacing: CrewSpace.stackSm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: page.map { Self.kicker($0.kicker) } ?? "Next aid station")
                     .crewKicker()
                     .foregroundStyle(theme.primary)
-                Text(verbatim: model.mapMessage.isEmpty ? "No aid stations yet." : model.mapMessage)
-                    .font(CrewFont.bodyLarge)
-                    .foregroundStyle(theme.body)
+                Text(verbatim: page?.title.capitalized ?? (model.mapMessage.isEmpty ? "No aid stations yet." : model.mapMessage))
+                    .font(CrewFont.title)
+                    .foregroundStyle(theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            .padding(.horizontal, CrewSpace.margin)
-        } else {
-            AidPager(model: model)
-            if model.mapMessage.isEmpty == false {
-                Text(verbatim: model.mapMessage)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
-                    .padding(.horizontal, CrewSpace.margin)
+            Spacer(minLength: 8)
+            if let page {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("EST. ARRIVAL")
+                        .font(CrewFont.kicker)
+                        .tracking(1)
+                        .foregroundStyle(theme.body)
+                    Text(verbatim: CrewClock.short(page.arrivalAt) ?? page.clockLabel)
+                        .font(CrewFont.title.monospacedDigit())
+                        .foregroundStyle(theme.primary)
+                        .lineLimit(1)
+                }
             }
-            if expanded {
-                expandedDetails
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        .padding(.horizontal, CrewSpace.margin)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("crewcue.aid-compact")
+    }
+
+    private static func kicker(_ raw: String) -> String {
+        switch raw {
+        case "NEXT": "Next aid station"
+        case "START": "Start"
+        case "FINISHED": "Finished"
+        default: raw
+        }
+    }
+
+    // MARK: Heights and the drag
+
+    private func height(for detent: MapSheetDetent) -> CGFloat {
+        let closed = handleHeight + compactHeight
+        let half = max(closed, handleHeight + halfHeight + CrewSpace.base + CrewSpace.gutter)
+        switch detent {
+        case .closed: return closed
+        case .half: return half
+        case .open:
+            let full = model.aidPages.isEmpty ? half : max(half, handleHeight + openHeight)
+            return maxHeight > half ? min(full, maxHeight) : full
+        }
+    }
+
+    /// The sheet's height now: its detent, moved by the finger. Past the closed or open height
+    /// it gives a little, with resistance.
+    private var currentHeight: CGFloat {
+        let resting = height(for: model.sheetDetent)
+        let low = height(for: .closed)
+        let high = height(for: .open)
+        let raw = resting - drag
+        if raw < low { return low - Self.rubber(low - raw) }
+        if raw > high { return high + Self.rubber(raw - high) }
+        return raw
+    }
+
+    private static func rubber(_ overshoot: CGFloat) -> CGFloat {
+        let limit: CGFloat = 60
+        return limit * (1 - 1 / (overshoot / limit + 1))
+    }
+
+    /// How much of the pager shows (1) against the closed row (0), between those two heights.
+    private func pagerVisibility(at current: CGFloat) -> Double {
+        let closed = height(for: .closed)
+        let half = height(for: .half)
+        guard half > closed else { return 1 }
+        return Double(min(1, max(0, (current - closed) / (half - closed))))
+    }
+
+    private var sheetDrag: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                if dragAxis == nil {
+                    let dx = abs(value.translation.width)
+                    let dy = abs(value.translation.height)
+                    dragAxis = dy >= dx ? .vertical : .horizontal
+                }
+                guard dragAxis == .vertical else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { drag = value.translation.height }
             }
+            .onEnded { value in
+                defer { dragAxis = nil }
+                guard dragAxis == .vertical else { return }
+                // Where the flick would carry the sheet, so a quick swipe goes on to the next height.
+                let projected = height(for: model.sheetDetent) - value.predictedEndTranslation.height
+                let target = MapSheetDetent.allCases.min { a, b in
+                    abs(height(for: a) - projected) < abs(height(for: b) - projected)
+                } ?? .half
+                settle(at: target, releasedAt: value.translation.height)
+            }
+    }
+
+    /// Animates to `detent`. With `releasedAt`, the spring starts from where the finger let go.
+    private func settle(at detent: MapSheetDetent, releasedAt translation: CGFloat? = nil) {
+        let animation: Animation = reduceMotion ? .easeOut(duration: 0.2) : .interpolatingSpring(stiffness: 420, damping: 38)
+        withAnimation(animation) {
+            if model.aidPages.isEmpty && detent == .open {
+                model.sheetDetent = .half
+            } else {
+                model.sheetDetent = detent
+            }
+            drag = 0
         }
     }
 
@@ -475,6 +874,8 @@ struct MapAidSheet: View {
         .padding(.horizontal, CrewSpace.margin)
     }
 
+    // MARK: Map tools
+
     @ViewBuilder
     private var toolContent: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
@@ -498,9 +899,9 @@ struct MapAidSheet: View {
                 EmptyView()
             case .pick:
                 MapPickSection(
-                    latitude: $model.latitudeText,
-                    longitude: $model.longitudeText,
+                    coordinate: $model.coordinateText,
                     title: $model.checkpointTitle,
+                    invalid: model.coordinateInvalid,
                     message: model.pickMessage,
                     isBusy: model.pickBusy,
                     onSave: model.placeCheckpoint
@@ -550,9 +951,19 @@ struct MapCanvas: View {
     /// The onboarding replay: no top bar to clear, and a pane that a fold or a size change
     /// resizes, so the course is framed again when it does.
     var replay = false
+    var baseStyle = MapBaseStyle.automatic
+    var pickAnchor: CGPoint? = nil
+    var pickTarget: PickTarget? = nil
+    var pickCoordinate: CLLocationCoordinate2D? = nil
+    var onPickCenter: ((Double, Double) -> Void)? = nil
+    var showsUserLocation = false
+    var userCoordinate: CLLocationCoordinate2D? = nil
+    var userCenterRequest = 0
+    var attributionRequest = 0
+    var hidesAttributionButton = false
+    var onTap: (Double, Double) -> Void = { _, _ in }
     @Environment(\.crew) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let onTap: (Double, Double) -> Void
     let onStyleFailure: (Bool) -> Void
     let onStyleLoaded: () -> Void
 
@@ -574,7 +985,7 @@ struct MapCanvas: View {
 
     #if canImport(MapLibre)
     private func map(glideFrame: RunnerGlideFrame?) -> some View {
-        MapLibreCourseMap(
+        var map = MapLibreCourseMap(
             points: points,
             track: track,
             trackTimes: trackTimes,
@@ -588,33 +999,54 @@ struct MapCanvas: View {
             route: route,
             fitPadding: replay ? MapLibreCourseMap.replayFitPadding : MapLibreCourseMap.raceFitPadding,
             refitOnResize: replay,
-            shrinksPaddingToFit: replay
+            shrinksPaddingToFit: replay,
+            baseStyle: baseStyle,
+            pickAnchor: pickAnchor,
+            onPickCenter: onPickCenter,
+            pickTarget: pickTarget,
+            pickCoordinate: pickCoordinate,
+            showsUserLocation: showsUserLocation,
+            userCoordinate: userCoordinate,
+            userCenterRequest: userCenterRequest,
+            attributionRequest: attributionRequest
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityLabel("Course map")
+        map.hidesAttributionButton = hidesAttributionButton
+        return map
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Course map")
     }
     #endif
 }
 
+/// Placing a checkpoint: the map moves under the crosshair, or a position is typed or pasted
+/// into the one coordinate field.
 struct MapPickSection: View {
-    @Binding var latitude: String
-    @Binding var longitude: String
+    @Binding var coordinate: String
     @Binding var title: String
+    var invalid = false
     let message: String
     let isBusy: Bool
     let onSave: () async -> Void
+    @Environment(\.crew) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Tap the map to place a checkpoint.")
+            Text("Drag the map to put the X where the checkpoint goes, or paste a position.")
                 .font(CrewFont.body)
                 .foregroundStyle(.secondary)
-            MapCoordinateField(title: "Latitude", text: $latitude)
-            MapCoordinateField(title: "Longitude", text: $longitude)
+                .fixedSize(horizontal: false, vertical: true)
+            MapCoordinateField(title: "Latitude, longitude", text: $coordinate)
+            if invalid {
+                Text("Enter latitude and longitude, like 39.2450, -120.2500.")
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.danger)
+                    .accessibilityIdentifier("crewcue.map-coordinate-invalid")
+            }
             TextField("Title", text: $title)
                 .font(CrewFont.bodyLarge)
                 .textFieldStyle(.crew)
                 .textInputAutocapitalization(.words)
+                .submitLabel(.done)
                 .accessibilityLabel("Checkpoint title")
             if message.isEmpty == false {
                 Text(verbatim: message)
@@ -638,12 +1070,15 @@ struct MapCoordinateField: View {
 
     var body: some View {
         TextField(title, text: $text)
-            .font(CrewFont.bodyLarge)
+            .font(CrewFont.bodyLarge.monospacedDigit())
             .textFieldStyle(.crew)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .keyboardType(.numbersAndPunctuation)
+            .submitLabel(.done)
             .accessibilityLabel(title)
+            .accessibilityHint("Paste or type a position, like 39.2450, -120.2500")
+            .accessibilityIdentifier("crewcue.map-coordinate")
     }
 }
 

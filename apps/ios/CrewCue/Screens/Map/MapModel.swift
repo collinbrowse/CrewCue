@@ -11,6 +11,30 @@ struct MapCoursePoint: Codable, Equatable, Identifiable, Sendable {
     var longitude: Double
 }
 
+/// The course map's offline copy: the checkpoints and the GPX line.
+private struct MapCourseCache: Codable {
+    var points: [MapCoursePoint]
+    var route: [CourseRoutePoint]
+}
+
+/// A position the person typed for a new checkpoint. `id` changes with every new one, so the
+/// same position typed twice still moves the map.
+struct PickTarget: Equatable, Sendable {
+    var id: Int
+    var latitude: Double
+    var longitude: Double
+}
+
+/// How far the map's aid sheet is open.
+enum MapSheetDetent: Int, CaseIterable, Sendable {
+    /// One row: the next aid station and when the runner gets there.
+    case closed
+    /// The aid station pager.
+    case half
+    /// The pager and the course progress, stop and delay details.
+    case open
+}
+
 @MainActor
 @Observable
 final class MapModel {
@@ -45,6 +69,8 @@ final class MapModel {
     private var styleFailed = false
 
     private(set) var points: [MapCoursePoint] = []
+    /// The course line from the race's saved GPX. Empty: the map joins the checkpoints.
+    private(set) var route: [CLLocationCoordinate2D] = []
     private(set) var aidPages: [AidStationPage] = []
     private(set) var aidLiveNextIndex: Int?
     private(set) var aidIndex = 0
@@ -53,9 +79,28 @@ final class MapModel {
     /// Bumped to ask the map to fit the course again.
     private(set) var recenterRequest = 0
     private(set) var mapMessage = "No course on the map."
-    var latitudeText = ""
-    var longitudeText = ""
+    /// The new checkpoint's position as one "latitude, longitude" field, so a pasted position
+    /// goes in whole. The map's crosshair writes it as the map moves; typing a valid one moves
+    /// the map under the crosshair.
+    var coordinateText = "" {
+        didSet {
+            guard coordinateText != oldValue, !writingCoordinateFromMap else { return }
+            followTypedCoordinate(pasted: coordinateText.count - oldValue.count > 1)
+        }
+    }
+    @ObservationIgnored private var writingCoordinateFromMap = false
+    @ObservationIgnored private var typedCoordinateTask: Task<Void, Never>?
+    /// A position typed or pasted into the field: the map centers it under the crosshair.
+    private(set) var pickTarget: PickTarget?
     var checkpointTitle = ""
+    /// How far the aid sheet is open. Kept here so a fold or rotation keeps it.
+    var sheetDetent = MapSheetDetent.half
+    /// The map's base style, kept on this phone.
+    var baseMap: MapBaseStyle = MapBaseStyle.saved() {
+        didSet { baseMap.save() }
+    }
+    /// This phone's own position on the map, for finding your way. Never race progress.
+    let myLocation = MyLocationModel()
     private(set) var pickMessage = "No checkpoint selected."
     private(set) var pickBusy = false
     var originId = ""
@@ -92,6 +137,7 @@ final class MapModel {
         self.role = nextRole
         if nextUser == nil || nextRoom == nil {
             points = []
+            route = []
             schedule = nil
             courseCheckpoints = []
             aidPages = []
@@ -105,6 +151,7 @@ final class MapModel {
         }
         if contextChanged {
             resetActions()
+            route = []
             runner = .none
             live = nil
             track = .empty
@@ -244,6 +291,7 @@ final class MapModel {
         roomId = nil
         role = ""
         points = []
+        route = []
         schedule = nil
         courseCheckpoints = []
         runner = .none
@@ -257,8 +305,9 @@ final class MapModel {
         courseFailed = false
         styleOffline = false
         styleFailed = false
-        latitudeText = ""
-        longitudeText = ""
+        coordinateText = ""
+        coordinateInvalid = false
+        pickTarget = nil
         checkpointTitle = ""
         originId = ""
         destinationId = ""
@@ -271,12 +320,47 @@ final class MapModel {
         refreshMapMessage()
     }
 
+    /// The crosshair settled over a new spot. Leaves the field alone while its text already
+    /// names that spot, so a typed position isn't rewritten under the person's cursor.
     func selectCoordinate(latitude: Double, longitude: Double) {
-        latitudeText = String(format: "%.6f", latitude)
-        longitudeText = String(format: "%.6f", longitude)
+        if let current = CoordinateText.parse(coordinateText),
+           // About 5 m: the camera lands a hair off a typed position, which stays as typed.
+           abs(current.latitude - latitude) < 0.000_05, abs(current.longitude - longitude) < 0.000_05 {
+            return
+        }
+        writingCoordinateFromMap = true
+        coordinateText = CoordinateText.format(latitude: latitude, longitude: longitude)
+        writingCoordinateFromMap = false
+        coordinateInvalid = false
         if pickMessage == "No checkpoint selected." {
             pickMessage = ""
         }
+    }
+
+    /// Moves the map under the crosshair to a typed position once typing pauses, so a half-typed
+    /// number ("39.35, -1") never sends the map across the world. A paste moves it at once.
+    private func followTypedCoordinate(pasted: Bool) {
+        typedCoordinateTask?.cancel()
+        let text = coordinateText
+        if !Self.isInvalidCoordinate(text) { coordinateInvalid = false }
+        typedCoordinateTask = Task { [weak self] in
+            if !pasted {
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            guard !Task.isCancelled, let self, self.coordinateText == text else { return }
+            self.coordinateInvalid = Self.isInvalidCoordinate(text)
+            guard let parsed = CoordinateText.parse(text) else { return }
+            self.pickTarget = PickTarget(id: (self.pickTarget?.id ?? 0) + 1, latitude: parsed.latitude, longitude: parsed.longitude)
+        }
+    }
+
+    /// The text in the coordinate field isn't a position (shown under the field once typing
+    /// pauses, so it doesn't flash on every keystroke).
+    private(set) var coordinateInvalid = false
+
+    private static func isInvalidCoordinate(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && CoordinateText.parse(trimmed) == nil
     }
 
     func noteStyleFailure(offline: Bool) {
@@ -322,7 +406,8 @@ final class MapModel {
                 longitude: coordinate.longitude
             )
             guard ticket == generation else { return }
-            pickMessage = "Tap the map to place a checkpoint."
+            pickMessage = "Saved \(title)."
+            checkpointTitle = ""
             await loadCourse(ticket: ticket)
         } catch {
             guard ticket == generation else { return }
@@ -535,6 +620,7 @@ final class MapModel {
     private func loadCourse(ticket: Int) async {
         guard let roomId else {
             points = []
+            route = []
             schedule = nil
             courseCheckpoints = []
             aidPages = []
@@ -544,10 +630,13 @@ final class MapModel {
             return
         }
         do {
-            let envelope = try await RaceDayAPI.loadRoom(graph: client.graph, roomId: roomId)
+            let data = try await RaceDayAPI.loadRoomData(graph: client.graph, roomId: roomId)
             guard ticket == generation else { return }
+            let envelope = try JSONDecoder().decode(RoomEnvelope.self, from: data)
             let next = Self.points(from: envelope.room.course)
+            let line = CourseRouteLine.points(roomData: data)
             points = next
+            route = line.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
             courseCheckpoints = Self.aidCheckpoints(from: envelope.room.course)
             elevation = envelope.room.course?.baselineTrack.map { ElevationProfile(points: $0.points) }
             if let loaded = try? await RaceDayAPI.loadScheduleResult(
@@ -563,7 +652,7 @@ final class MapModel {
             if next.isEmpty {
                 deleteCache()
             } else {
-                saveCache(next)
+                saveCache(MapCourseCache(points: next, route: line))
             }
             refreshMapMessage()
         } catch {
@@ -571,11 +660,14 @@ final class MapModel {
             if APIFailure.isTransport(error) {
                 courseOffline = true
                 courseFailed = false
-                points = loadCache()
+                let cached = loadCache()
+                points = cached.points
+                route = cached.route.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
             } else {
                 courseOffline = false
                 courseFailed = true
                 points = []
+                route = []
             }
             refreshMapMessage()
         }
@@ -622,8 +714,9 @@ final class MapModel {
     }
 
     private func resetActions() {
-        latitudeText = ""
-        longitudeText = ""
+        coordinateText = ""
+        coordinateInvalid = false
+        pickTarget = nil
         checkpointTitle = ""
         originId = ""
         destinationId = ""
@@ -634,12 +727,7 @@ final class MapModel {
     }
 
     private func selectedCoordinate() -> (latitude: Double, longitude: Double)? {
-        let latitude = Double(latitudeText.trimmingCharacters(in: .whitespacesAndNewlines))
-        let longitude = Double(longitudeText.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard let latitude, let longitude, latitude >= -90, latitude <= 90, longitude >= -180, longitude <= 180 else {
-            return nil
-        }
-        return (latitude, longitude)
+        CoordinateText.parse(coordinateText).map { ($0.latitude, $0.longitude) }
     }
 
     private func cacheDirectory() -> URL? {
@@ -651,14 +739,18 @@ final class MapModel {
         cacheDirectory()?.appendingPathComponent("course-map.json")
     }
 
-    private func saveCache(_ points: [MapCoursePoint]) {
-        guard let url = cacheURL(), let data = try? JSONEncoder().encode(points) else { return }
+    private func saveCache(_ cache: MapCourseCache) {
+        guard let url = cacheURL(), let data = try? JSONEncoder().encode(cache) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
-    private func loadCache() -> [MapCoursePoint] {
-        guard let url = cacheURL(), let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([MapCoursePoint].self, from: data)) ?? []
+    /// The course as last loaded. A cache written before the course line was kept holds the
+    /// checkpoints alone.
+    private func loadCache() -> MapCourseCache {
+        guard let url = cacheURL(), let data = try? Data(contentsOf: url) else { return MapCourseCache(points: [], route: []) }
+        if let cache = try? JSONDecoder().decode(MapCourseCache.self, from: data) { return cache }
+        let points = (try? JSONDecoder().decode([MapCoursePoint].self, from: data)) ?? []
+        return MapCourseCache(points: points, route: [])
     }
 
     private func deleteCache() {

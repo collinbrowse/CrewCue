@@ -33,15 +33,37 @@ struct MapLibreCourseMap: UIViewRepresentable {
     /// Frame the course again whenever the map changes size (a small preview laid out late, or a
     /// fold). The race map keeps the camera where the person panned it, so it leaves this off.
     var refitOnResize = false
-    /// A map in a pane (the onboarding replay, the setup course preview): `fitPadding` shrinks
-    /// when it would leave the course under a quarter of the map. The race map leaves this off
-    /// and always frames with its full padding, clear of its chips and sheet.
+    /// A map in a pane (the onboarding replay, the setup course preview): it frames every new
+    /// course it is given. The race map leaves this off and frames its course once. Every map's
+    /// `fitPadding` shrinks when it would leave the course under a quarter of the map.
     var shrinksPaddingToFit = false
+    /// The base layer the person chose. The setup preview and the replay keep `.automatic`.
+    var baseStyle = MapBaseStyle.automatic
+    /// Placing a checkpoint: the spot under `pickAnchor` (a point in window coordinates, where the
+    /// crosshair sits) is reported through `onPickCenter` each time the map settles. A tap moves
+    /// the tapped spot under the crosshair.
+    var pickAnchor: CGPoint?
+    var onPickCenter: ((Double, Double) -> Void)?
+    /// A typed position: the map moves it under the crosshair.
+    var pickTarget: PickTarget?
+    /// The position the field holds now. When the crosshair moves (the sheet changed height, the
+    /// keyboard came up) the map keeps this spot under it, rather than rewriting the field.
+    var pickCoordinate: CLLocationCoordinate2D?
+    /// Draw this phone's own position (the my location button). Never race progress.
+    var showsUserLocation = false
+    var userCoordinate: CLLocationCoordinate2D?
+    var userCenterRequest = 0
+    /// Bumped to open the map data attribution (the info button over the map).
+    var attributionRequest = 0
 
     /// OpenFreeMap: free, keyless vector tiles (OpenStreetMap data). The style's TileJSON carries the
     /// OpenFreeMap / OpenMapTiles / OpenStreetMap attribution shown by the map's attribution button.
     static func styleURL(dark: Bool) -> URL? {
-        URL(string: "https://tiles.openfreemap.org/styles/\(dark ? "dark" : "liberty")")
+        styleURL(MapBaseStyle.automatic, dark: dark)
+    }
+
+    static func styleURL(_ style: MapBaseStyle, dark: Bool) -> URL? {
+        URL(string: "https://tiles.openfreemap.org/styles/\(style.styleName(dark: dark))")
     }
 
     /// A local style with only a background layer. Loaded when the tile server is unreachable so the
@@ -65,18 +87,22 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MLNMapView {
         let dark = context.environment.colorScheme == .dark
-        let mapView = ResizingMapView(frame: .zero, styleURL: Self.styleURL(dark: dark))
+        let mapView = ResizingMapView(frame: .zero, styleURL: Self.styleURL(baseStyle, dark: dark))
+        context.coordinator.styleKey = baseStyle.styleName(dark: dark)
         if refitOnResize {
             let coordinator = context.coordinator
             mapView.onResize = { [weak coordinator] in coordinator?.fitCourse(animated: false) }
         }
-        context.coordinator.dark = dark
+        context.coordinator.dark = baseStyle.isDark(dark: dark)
+        context.coordinator.attributionRequest = attributionRequest
         mapView.delegate = context.coordinator
         mapView.tintColor = lineColor
         mapView.logoView.isHidden = true
-        // Keep OpenFreeMap/OSM attribution reachable: below the top bar and status chips.
+        // The OpenFreeMap/OSM attribution opens from the info button the race map draws under
+        // its top bar. A map without one (setup preview, replay) keeps MapLibre's own button.
         mapView.attributionButtonPosition = .topLeft
         mapView.attributionButtonMargins = CGPoint(x: 16, y: 150)
+        mapView.attributionButton.isHidden = hidesAttributionButton
         mapView.compassViewPosition = .topLeft
         mapView.compassViewMargins = CGPoint(x: 16, y: 190)
         context.coordinator.mapView = mapView
@@ -100,11 +126,14 @@ struct MapLibreCourseMap: UIViewRepresentable {
         context.coordinator.route = route
         context.coordinator.fitPadding = fitPadding
         context.coordinator.shrinksPaddingToFit = shrinksPaddingToFit
+        context.coordinator.onPickCenter = onPickCenter
         let dark = context.environment.colorScheme == .dark
-        if context.coordinator.dark != dark {
-            context.coordinator.dark = dark
+        let key = baseStyle.styleName(dark: dark)
+        if context.coordinator.styleKey != key {
+            context.coordinator.styleKey = key
+            context.coordinator.dark = baseStyle.isDark(dark: dark)
             context.coordinator.usingBlankStyle = false
-            mapView.styleURL = Self.styleURL(dark: dark)
+            mapView.styleURL = Self.styleURL(baseStyle, dark: dark)
         }
         context.coordinator.redraw(force: false)
         context.coordinator.redrawTrack(force: false)
@@ -112,7 +141,24 @@ struct MapLibreCourseMap: UIViewRepresentable {
             context.coordinator.recenterRequest = recenterRequest
             context.coordinator.fitCourse(animated: true)
         }
+        context.coordinator.updatePick(anchor: pickAnchor, target: pickTarget, holding: pickCoordinate)
+        if mapView.showsUserLocation != showsUserLocation {
+            mapView.showsUserLocation = showsUserLocation
+        }
+        if context.coordinator.userCenterRequest != userCenterRequest {
+            context.coordinator.userCenterRequest = userCenterRequest
+            if let userCoordinate {
+                mapView.setCenter(userCoordinate, zoomLevel: max(mapView.zoomLevel, 14), animated: true)
+            }
+        }
+        if context.coordinator.attributionRequest != attributionRequest {
+            context.coordinator.attributionRequest = attributionRequest
+            mapView.attributionButton.sendActions(for: .touchUpInside)
+        }
     }
+
+    /// The race map draws its own info button (under the top bar), so MapLibre's is hidden.
+    var hidesAttributionButton = false
 
     nonisolated static func isOffline(_ error: Error) -> Bool {
         if APIFailure.isTransport(error) {
@@ -133,6 +179,14 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var onStyleLoaded: () -> Void
         weak var mapView: MLNMapView?
         var recenterRequest = 0
+        var userCenterRequest = 0
+        var attributionRequest = 0
+        /// The OpenFreeMap style name on the map now.
+        var styleKey = ""
+        var onPickCenter: ((Double, Double) -> Void)?
+        /// Where the crosshair sits (window coordinates) while placing a checkpoint.
+        private var pickAnchor: CGPoint?
+        private var pickTargetId: Int?
         var dark = false
         /// True after the remote style failed and the blank local style replaced it.
         var usingBlankStyle = false
@@ -145,6 +199,8 @@ struct MapLibreCourseMap: UIViewRepresentable {
         var fitPadding = UIEdgeInsets(top: 210, left: 48, bottom: 380, right: 90)
         var shrinksPaddingToFit = false
         private var drawnPoints: [MapCoursePoint] = []
+        /// The course has been framed on this map.
+        private var framedCourse = false
         private var drawnRoute: [CLLocationCoordinate2D] = []
         private var drawnTrack: [CLLocationCoordinate2D] = []
         /// The runner's path as drawn: one shape, or in the replay's glide the path up to where
@@ -196,7 +252,13 @@ struct MapLibreCourseMap: UIViewRepresentable {
             }
             if annotations.isEmpty == false {
                 mapView.addAnnotations(annotations)
-                fitCourse(animated: false)
+                // Framed once. A course that changes later (a checkpoint placed, the base map
+                // switched) keeps the camera where the person has it; Fit course frames again.
+                // Maps in a pane (setup preview, replay) frame every new course.
+                if !framedCourse || shrinksPaddingToFit {
+                    framedCourse = true
+                    fitCourse(animated: false)
+                }
             }
             drawnPoints = points
             drawnRoute = route
@@ -312,13 +374,14 @@ struct MapLibreCourseMap: UIViewRepresentable {
             guard let mapView, let all = mapView.annotations else { return }
             let annotations = all.filter { !($0 is RunnerPathPolyline) && !($0 is RunnerMarker) }
             guard annotations.isEmpty == false else { return }
-            let padding = shrinksPaddingToFit ? Self.padding(fitPadding, in: mapView.bounds.size) : fitPadding
+            // A short map (iPhone Duo's outer display) shrinks the padding too; a tall one keeps it.
+            let padding = Self.padding(fitPadding, in: mapView.bounds.size)
             mapView.showAnnotations(annotations, edgePadding: padding, animated: animated, completionHandler: nil)
         }
 
         /// `padding`, shrunk evenly when it would leave the course less than a quarter of the map
         /// (a map in a short pane), where the camera could only zoom out to the whole world. A
-        /// tall enough pane keeps its padding as it is. Only maps that set `shrinksPaddingToFit`.
+        /// tall enough map keeps its padding as it is.
         nonisolated static func padding(_ padding: UIEdgeInsets, in size: CGSize) -> UIEdgeInsets {
             func fit(_ lead: CGFloat, _ trail: CGFloat, _ length: CGFloat) -> (CGFloat, CGFloat) {
                 let room = max(0, length) * 0.75
@@ -395,8 +458,78 @@ struct MapLibreCourseMap: UIViewRepresentable {
 
         @objc func handleMapTap(sender: UITapGestureRecognizer) {
             guard let mapView else { return }
-            let coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: nil)
+            let coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: mapView)
+            if pickAnchor != nil {
+                // Placing a checkpoint: the tapped spot slides under the crosshair.
+                move(coordinate, underAnchorOf: mapView, animated: true)
+                return
+            }
             onTap(coordinate.latitude, coordinate.longitude)
+        }
+
+        /// Placing a checkpoint starts, moves its crosshair (the sheet changed height), or ends;
+        /// or a typed position arrives.
+        func updatePick(anchor: CGPoint?, target: PickTarget?, holding: CLLocationCoordinate2D?) {
+            guard let mapView else { return }
+            let anchorMoved = anchor != pickAnchor
+            // The crosshair just appeared: the field takes the spot under it.
+            let entering = pickAnchor == nil
+            pickAnchor = anchor
+            guard anchor != nil else {
+                pickTargetId = target?.id
+                return
+            }
+            if let target, target.id != pickTargetId {
+                pickTargetId = target.id
+                move(CLLocationCoordinate2D(latitude: target.latitude, longitude: target.longitude), underAnchorOf: mapView, animated: false)
+                return
+            }
+            pickTargetId = target?.id
+            guard anchorMoved else { return }
+            if let holding, !entering {
+                move(holding, underAnchorOf: mapView, animated: false)
+            } else {
+                reportPick()
+            }
+        }
+
+        /// The spot under the crosshair, to the model. Only when the map has settled: a report
+        /// every frame of a pan would lay the whole map screen out again each frame.
+        private func reportPick() {
+            guard let mapView, let point = anchorPoint(in: mapView) else { return }
+            let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+            onPickCenter?(coordinate.latitude, coordinate.longitude)
+        }
+
+        private func anchorPoint(in mapView: MLNMapView) -> CGPoint? {
+            guard let pickAnchor else { return nil }
+            return mapView.convert(pickAnchor, from: nil)
+        }
+
+        /// Pans so `coordinate` sits under the crosshair, at the zoom the map has.
+        private func move(_ coordinate: CLLocationCoordinate2D, underAnchorOf mapView: MLNMapView, animated: Bool) {
+            guard let anchor = anchorPoint(in: mapView), CLLocationCoordinate2DIsValid(coordinate) else { return }
+            let center = CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY)
+            let offset = CGPoint(x: center.x - anchor.x, y: center.y - anchor.y)
+            if animated {
+                // A tapped spot, on screen: slide it to the crosshair.
+                let point = mapView.convert(coordinate, toPointTo: mapView)
+                let target = mapView.convert(CGPoint(x: point.x + offset.x, y: point.y + offset.y), toCoordinateFrom: mapView)
+                mapView.setCenter(target, animated: true)
+                return
+            }
+            // A typed spot, maybe far away: center it, then shift by the crosshair's offset.
+            mapView.setCenter(coordinate, animated: false)
+            let target = mapView.convert(CGPoint(x: center.x + offset.x, y: center.y + offset.y), toCoordinateFrom: mapView)
+            mapView.setCenter(target, animated: false)
+        }
+
+        nonisolated func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            MainActor.assumeIsolated {
+                guard self.pickAnchor != nil else { return }
+                self.reportPick()
+            }
         }
     }
 }

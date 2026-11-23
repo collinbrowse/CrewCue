@@ -1941,6 +1941,11 @@ enum CoursePayload {
         return parsed.sorted { $0.distance < $1.distance }.map(\.row)
     }
 
+    /// The saved course line's vertices (the driving layer of `mapWorkspace`), for `CourseRouteLine`.
+    static func routeVertices(room: [String: Any]) -> [(longitude: Double, latitude: Double, elevation: Double?)] {
+        vertices(from: workspaceGeometry(room))
+    }
+
     /// The geometry of the layer that drives the projection (else the selected one, else the first
     /// with a line), or nil.
     private static func workspaceGeometry(_ room: [String: Any]) -> Any? {
