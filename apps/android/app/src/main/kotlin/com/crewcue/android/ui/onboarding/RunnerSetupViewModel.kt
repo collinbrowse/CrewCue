@@ -10,6 +10,7 @@ import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.data.optText
 import com.crewcue.android.ui.UserFacingError
 import java.time.LocalDate
+import java.util.Locale
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 import kotlinx.coroutines.CoroutineDispatcher
@@ -59,7 +60,9 @@ data class TeaserModel(
     val finishClock: String?,
     /** client-core's estimate summary: the explanation, then "Finish 10:42:00 · 9:42 AM". */
     val summary: String?,
-    val rows: List<TeaserRow>
+    val rows: List<TeaserRow>,
+    /** The race's zone (IANA id) client-core wrote every clock here in: the start time step's. */
+    val timeZone: String
 )
 
 /**
@@ -281,6 +284,19 @@ class RunnerSetupViewModel(
     val busy: Boolean get() = status is SetupStatus.Working
 
     val start: RaceStartFields get() = draft.start ?: defaultStart()
+
+    /**
+     * The race's zone (IANA id): the one picked on the start time step, else this phone's. The
+     * teaser and the history comparison read their times in it, like the start (as on iOS).
+     */
+    val raceZone: String get() = start.timeZone
+
+    /**
+     * The teaser's zone by name ("Pacific Time") when it isn't this phone's, under the finish;
+     * null when it is.
+     */
+    val teaserZoneLabel: String?
+        get() = teaser?.let { raceZoneLabel(it.timeZone, deviceZone, Locale.getDefault()) }
 
     /**
      * A new onboarding state from the shell. [races] is the race list it was read with (`myRaces`
@@ -792,6 +808,7 @@ class RunnerSetupViewModel(
         val skipped = outcome == "skipped"
         work {
             val visit = draft
+            val zone = raceZone
             val reviewed = freshRules().reviewing
             val recomputes = skipped || withContext(io) {
                 decisions.historyRecomputes(
@@ -805,7 +822,7 @@ class RunnerSetupViewModel(
             // Moving on over an unchanged step keeps how it was marked before.
             val marks = recomputes || visit.historyAttached
             if (recomputes && room != null) {
-                when (val result = withContext(io) { runtime.computeEstimate(room, if (skipped) HISTORY_NONE else null) }) {
+                when (val result = withContext(io) { runtime.computeEstimate(room, zone, if (skipped) HISTORY_NONE else null) }) {
                     is RuntimeResult.Failure -> {
                         fail(result)
                         return@work
@@ -833,10 +850,12 @@ class RunnerSetupViewModel(
         val room = roomId ?: return
         work {
             if (teaser != null) return@work
-            var estimate = withContext(io) { runtime.loadEstimate(room) }
+            // Every clock below in the race's zone, as the start was picked.
+            val zone = raceZone
+            var estimate = withContext(io) { runtime.loadEstimate(room, zone) }
             val loaded = (estimate as? RuntimeResult.Success)?.result
             if (loaded != null && !loaded.optBoolean("hasEstimate") && !loaded.optBoolean("offline")) {
-                estimate = withContext(io) { runtime.computeEstimate(room) }
+                estimate = withContext(io) { runtime.computeEstimate(room, zone) }
             }
             val plan = when (estimate) {
                 is RuntimeResult.Failure -> {
@@ -851,7 +870,7 @@ class RunnerSetupViewModel(
             val schedule = (withContext(io) { runtime.loadSchedule(room) } as? RuntimeResult.Success)?.result
             val checkpoints = (course ?: preview)?.checkpointJson() ?: JSONArray()
             val projected = withContext(io) {
-                runtime.timeline(schedule?.optJSONObject("sheet"), checkpoints, (course ?: preview)?.elevationJson())
+                runtime.timeline(schedule?.optJSONObject("sheet"), checkpoints, (course ?: preview)?.elevationJson(), zone)
             }
             val rows = parseTimeline((projected as? RuntimeResult.Success)?.result?.optJSONArray("timeline"))
             val titles = (course ?: preview)?.checkpoints?.associate { it.id to it.title }.orEmpty()
@@ -861,7 +880,8 @@ class RunnerSetupViewModel(
                 finishAt = finishRow?.clockArrivalAt ?: plan.optText("finishAt").ifBlank { null },
                 finishClock = finishRow?.clockLabel ?: plan.optText("finishClock").ifBlank { null },
                 summary = plan.optText("summary").ifBlank { null },
-                rows = TeaserRow.build(rows, TeaserRow.lockedIds(schedule), titles)
+                rows = TeaserRow.build(rows, TeaserRow.lockedIds(schedule), titles),
+                timeZone = zone
             )
             if (plan.optBoolean("offline")) status = offline()
         }
@@ -1004,7 +1024,11 @@ class RunnerSetupViewModel(
             SetupSteps.COURSE, SetupSteps.START_TIME -> previewSavedCourse()
             // After a relaunch the line comes back from the draft.
             SetupSteps.HISTORY -> if (comparison == null && draft.historyLine != null) keepComparison(draft.historyLine)
-            SetupSteps.TEASER -> if (teaser == null) loadTeaser()
+            SetupSteps.TEASER -> {
+                // Written in another zone (the start's zone changed, its instant didn't): again.
+                if (teaser?.timeZone != raceZone) teaser = null
+                if (teaser == null) loadTeaser()
+            }
         }
     }
 
@@ -1192,8 +1216,10 @@ class RunnerSetupViewModel(
      * client-core answers ok with the plan this phone cached (`offline`), which was not attached:
      * null, as iOS throws there.
      */
-    private suspend fun attachPlan(room: String, historyMode: String): JSONObject? =
-        when (val result = withContext(io) { runtime.computeEstimate(room, historyMode) }) {
+    private suspend fun attachPlan(room: String, historyMode: String): JSONObject? {
+        // The comparison line in the race's zone, like the teaser.
+        val zone = raceZone
+        return when (val result = withContext(io) { runtime.computeEstimate(room, zone, historyMode) }) {
             is RuntimeResult.Failure -> {
                 if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)
                 null
@@ -1205,6 +1231,7 @@ class RunnerSetupViewModel(
                 result.result
             }
         }
+    }
 
     private fun validateStart() {
         val fields = start

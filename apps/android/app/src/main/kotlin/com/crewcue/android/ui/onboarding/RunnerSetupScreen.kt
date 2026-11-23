@@ -632,15 +632,25 @@ private fun TeaserStep(model: RunnerSetupViewModel, text: OnboardingText) {
         if (model.busy) SetupLoader(setupTag("teaser.loading"))
         return
     }
-    // client-core's clock, the one its summary and the history comparison write too.
+    // client-core's clock, the one its summary and the history comparison write too, in the
+    // race's zone (the start's), named under the finish when it isn't this phone's.
     val finish = teaser.finishClock ?: "—"
+    val zone = model.teaserZoneLabel
     Column(
         Modifier.testTag(setupTag("teaser.finish")).semantics(mergeDescendants = true) {
-            contentDescription = "${text.label("finish")} $finish"
+            contentDescription = listOfNotNull("${text.label("finish")} $finish", zone).joinToString(", ")
         }
     ) {
         Kicker(text.label("finish"))
         Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+        zone?.let {
+            Text(
+                it,
+                modifier = Modifier.testTag(setupTag("teaser.zone")),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         teaser.summary?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -699,6 +709,9 @@ private fun LivePreview(model: RunnerSetupViewModel, step: String, text: Onboard
             Column(Modifier.testTag(setupTag("preview.finish"))) {
                 Kicker(text.label("finish"))
                 Text(finish, style = MetricLargeStyle, color = MaterialTheme.colorScheme.primary)
+                model.teaserZoneLabel?.let {
+                    Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         model.comparison?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary) }

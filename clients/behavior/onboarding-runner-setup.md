@@ -14,7 +14,7 @@ Start time: a local date and time in a chosen zone; a time that does not exist b
 
 Training history: the lead "CrewCue reads your pace on a past run, adjusted for its climbs, so your finish and aid station times fit how you run." and three tips: which run to pick (a recent race or long run the watch recorded), the formats the importer takes (.gpx, .fit or .tcx up to 10 MB, exported from a watch app), and that it is optional (Skip gives a rough estimate from the course alone; Settings > Past runs adds runs later). Import a file or skip.
 
-Projection teaser: the finish ETA only, with every aid station row locked until the race is unlocked.
+Projection teaser: the finish ETA only, with every aid station row locked until the race is unlocked. Its times, like the history step's comparison line, read in the race's zone (the start time's), with the zone's name under the finish ("Pacific Time") when it isn't the phone's.
 
 Back: a Back at the top leading edge, spoken "Back" (iOS: the navigation bar's chevron and the word Back; Android: the top app bar's arrow), plus the platform's back gestures (iOS: the swipe from the leading edge and VoiceOver's escape; Android: system Back and the predictive back gesture), opens the previous step: teaser, history, start time, course, account. What was entered stays. From the account step they return to the chooser, and only while no race exists (on the dev link, to the app's own launch). Continue on a step reached with Back (or reopened by a relaunch) opens the next step until setup is back where it was, and saves only what changed (client-core `RunnerSetupSteps`):
 

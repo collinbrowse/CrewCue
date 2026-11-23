@@ -87,9 +87,12 @@ class RaceDayBridge private constructor(
         selectedIndex: Int,
         follow: Boolean,
         elevation: JSONArray? = null,
-        live: JSONObject? = null
+        live: JSONObject? = null,
+        /** The zone (IANA id) the rows' clocks are written in; null: this phone's. */
+        timeZone: String? = null
     ): RuntimeResult = call("projectAidSheet") {
         if (sheet != null) put("sheet", sheet)
+        if (timeZone != null) put("timeZone", timeZone)
         put("checkpoints", checkpoints)
         if (runner != null) put("runner", runner)
         if (live != null) put("live", live)
@@ -122,7 +125,11 @@ class RaceDayBridge private constructor(
 
     fun stopTrackingSession(): RuntimeResult = call("stopTrackingSession")
 
-    fun loadEstimate(roomId: String): RuntimeResult = call("loadEstimate") { put("roomId", roomId) }
+    /** [timeZone]: the zone (IANA id) `finishClock` and `summary` are written in; null: this phone's. */
+    fun loadEstimate(roomId: String, timeZone: String? = null): RuntimeResult = call("loadEstimate") {
+        put("roomId", roomId)
+        if (timeZone != null) put("timeZone", timeZone)
+    }
 
     /**
      * [trigger] is "auto" (athlete history changed), "cold_start" (crew seeds a room with no plan)
@@ -138,9 +145,12 @@ class RaceDayBridge private constructor(
          * The runner's history step: `none` (Skip, a cold start even after an import) or `compare`
          * (after an import; the result also carries `comparison`, the line to show). Null: all history.
          */
-        historyMode: String? = null
+        historyMode: String? = null,
+        /** The zone (IANA id) `finishClock`, `summary` and `comparison` are written in; null: this phone's. */
+        timeZone: String? = null
     ): RuntimeResult =
         call("computeEstimate") {
+            if (timeZone != null) put("timeZone", timeZone)
             put("roomId", roomId)
             put("usableHistoryCount", usableHistoryCount)
             put("trigger", trigger)

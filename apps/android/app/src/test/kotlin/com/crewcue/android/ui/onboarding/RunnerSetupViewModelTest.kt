@@ -3,6 +3,9 @@ package com.crewcue.android.ui.onboarding
 import androidx.lifecycle.SavedStateHandle
 import com.crewcue.android.data.RuntimeResult
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +76,7 @@ private const val PREVIEW = """{"status":"previewed","line":[[-120.0,39.0],[-120
  "checkpoints":[{"id":"start","title":"Start","latitude":39.0,"longitude":-120.0,"distanceMetersFromStart":0},
   {"id":"aid-1","title":"Aid 1","latitude":39.005,"longitude":-120.0,"distanceMetersFromStart":550},
   {"id":"finish","title":"Finish","latitude":39.01,"longitude":-120.0,"distanceMetersFromStart":1100}],
- "elevation":[[0,1800],[1100,1830]],"plannedPaceSecondsPerKm":420}"""
+ "elevation":[[0,1800],[1100,1830]],"plannedPaceSecondsPerKm":420,"summary":"0.7 mi · 3 checkpoints"}"""
 
 private fun state(step: String, roomId: String? = null): JSONObject = JSONObject()
     .put("flow", "runner").put("phase", "setup").put("step", step).put("showsTabBar", false)
@@ -87,6 +90,8 @@ private class FakeRuntime : RunnerSetupRuntime {
     val marks = mutableListOf<Triple<String, String?, String?>>()
     val imports = mutableListOf<List<Any?>>()
     val historyModes = mutableListOf<String?>()
+    /** The zone each clock-writing op was asked to write in, as `op to timeZone`. */
+    val zones = mutableListOf<Pair<String, String>>()
     var created: Triple<String, String, String?>? = null
     val answers = mutableMapOf<String, ArrayDeque<RuntimeResult>>()
     /** What `suggestedDisplayName` was asked, and client-core's answer (scripted; the rule is Swift's). */
@@ -146,17 +151,20 @@ private class FakeRuntime : RunnerSetupRuntime {
         return next("importCourse", ok("""{"status":"saved"}"""))
     }
 
-    override fun loadEstimate(roomId: String): RuntimeResult =
-        next(
+    override fun loadEstimate(roomId: String, timeZone: String): RuntimeResult {
+        zones += "loadEstimate" to timeZone
+        return next(
             "loadEstimate",
             ok(
                 """{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:02:00.000Z","finishAt":"2026-08-15T22:10:00.000Z",
                 "summary":"Finish 9:40:00 · 4:10 PM","finishClock":"4:10 PM","offline":false}"""
             )
         )
+    }
 
-    override fun computeEstimate(roomId: String, historyMode: String?): RuntimeResult {
+    override fun computeEstimate(roomId: String, timeZone: String, historyMode: String?): RuntimeResult {
         historyModes += historyMode
+        zones += "computeEstimate" to timeZone
         return next(
             "computeEstimate",
             ok("""{"hasEstimate":true,"expectedFinishAt":"2026-08-15T22:10:00.000Z","finishAt":"2026-08-15T22:18:00.000Z","offline":false}""")
@@ -176,7 +184,12 @@ private class FakeRuntime : RunnerSetupRuntime {
         return suggest(name, email)
     }
 
-    override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult = next(
+    override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?, timeZone: String): RuntimeResult {
+        zones += "timeline" to timeZone
+        return timelineAnswer()
+    }
+
+    private fun timelineAnswer(): RuntimeResult = next(
         "timeline",
         ok(
             """{"timeline":[
@@ -794,6 +807,88 @@ class RunnerSetupViewModelTest {
         assertEquals("4:10 PM", model.teaser?.finishClock)
         // The race's finish (the schedule's), never the estimate's own moving-time finish.
         assertEquals("2026-08-15T22:10:00.000Z", model.teaser?.finishAt)
+    }
+
+    @Test
+    fun theTeaserAndTheComparisonReadInTheRacesZoneNamedWhenItIsntThePhones() = runTest(dispatcher) {
+        // This phone is in Denver; the runner picked the race's start in Pacific time.
+        val pacific = "America/Los_Angeles"
+        drafts.save("ada", savedDraft().copy(start = RaceStartFields(2026, 8, 15, 5, 30, pacific)))
+        drafts.course = COURSE_XML
+        runtime.answer(
+            "computeEstimate",
+            ok("""{"hasEstimate":true,"finishAt":"2026-08-15T21:50:00.000Z","comparison":"Finish 2:50 PM instead of 3:18 PM","offline":false}""")
+        )
+        val history = model()
+        history.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        history.importHistory("run.fit", "AAAA", online = true)
+        // client-core writes the comparison in the race's zone, as iOS does.
+        assertEquals(listOf("computeEstimate" to pacific), runtime.zones)
+        assertEquals("Finish 2:50 PM instead of 3:18 PM", history.comparison)
+
+        runtime.zones.clear()
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        val teaser = assertNotNullAnd(model.teaser)
+        assertEquals(pacific, teaser.timeZone)
+        assertEquals(listOf("loadEstimate" to pacific, "timeline" to pacific), runtime.zones)
+        // Named under the finish, because it isn't this phone's zone.
+        assertEquals(ZoneId.of(pacific).getDisplayName(TextStyle.FULL, Locale.getDefault()), model.teaserZoneLabel)
+    }
+
+    @Test
+    fun aRaceInThePhonesZoneShowsNoZoneName() = runTest(dispatcher) {
+        // No start picked here: the race's zone is this phone's.
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        assertEquals("America/Denver", model.teaser?.timeZone)
+        assertEquals(listOf("loadEstimate" to "America/Denver", "timeline" to "America/Denver"), runtime.zones)
+        assertNull(model.teaserZoneLabel)
+        // A plan computed for the teaser goes in the same zone.
+        runtime.zones.clear()
+        runtime.answer("loadEstimate", ok("""{"hasEstimate":false,"offline":false}"""))
+        model(SavedStateHandle()).sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        assertTrue(runtime.zones.contains("computeEstimate" to "America/Denver"))
+    }
+
+    @Test
+    fun theTeaserIsWrittenAgainWhenTheRacesZoneChangesButItsStartDoesnt() = runTest(dispatcher) {
+        drafts.save("ada", savedDraft())
+        drafts.course = COURSE_XML
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        assertEquals("America/Denver", model.teaser?.timeZone)
+        assertNull(model.teaserZoneLabel)
+        model.goBack()
+        model.goBack()
+        assertEquals(SetupSteps.START_TIME, model.step)
+        // 5:30 AM Pacific is the race's saved start (6:30 AM Mountain): nothing to save.
+        model.updateStart(RaceStartFields(2026, 8, 15, 5, 30, "America/Los_Angeles"))
+        assertEquals(StartTimeContinue.MoveOn, model.startAction)
+        model.continueStart(online = true)
+        model.finishHistory()
+        assertEquals(SetupSteps.TEASER, model.step)
+        assertTrue(runtime.startSaves.isEmpty())
+        assertEquals("America/Los_Angeles", model.teaser?.timeZone)
+        assertEquals("loadEstimate" to "America/Los_Angeles", runtime.zones.last { it.first == "loadEstimate" })
+        assertNotNull(model.teaserZoneLabel)
+    }
+
+    @Test
+    fun theCourseSummaryIsClientCoresAndComesBackWithARestoredPreview() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertEquals("0.7 mi · 3 checkpoints", model.preview?.summary)
+        // A relaunch: the preview is read again from the file this phone holds, its summary with it,
+        // and it waits under the loader with the map and profile.
+        val relaunched = model()
+        relaunched.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        assertEquals("0.7 mi · 3 checkpoints", relaunched.preview?.summary)
+        assertTrue(relaunched.courseLoading)
+        relaunched.noteCourseMapReady(assertNotNullAnd(relaunched.preview))
+        assertFalse(relaunched.courseLoading)
     }
 
     @Test

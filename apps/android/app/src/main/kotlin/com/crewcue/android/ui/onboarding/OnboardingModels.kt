@@ -6,6 +6,9 @@ import com.crewcue.android.data.optText
 import com.crewcue.android.ui.map.CoursePoint
 import com.crewcue.android.ui.map.MapCheckpoint
 import com.crewcue.android.ui.map.TimelineRow
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -283,6 +286,16 @@ data class RaceStartFields(
     }
 }
 
+/**
+ * The race's zone by its generic name in [locale] ("Pacific Time"), when it isn't this phone's
+ * zone, so times written in it say so (as on iOS). Null when it is the phone's. An id the platform
+ * can't name stays as it is.
+ */
+fun raceZoneLabel(raceZone: String, phoneZone: String, locale: Locale): String? {
+    if (raceZone == phoneZone) return null
+    return runCatching { ZoneId.of(raceZone).getDisplayName(TextStyle.FULL, locale) }.getOrNull()?.ifBlank { null } ?: raceZone
+}
+
 /** A course drawn from `gpxPreview` or `loadRoom`: the same shape either way. */
 data class CoursePreview(
     val line: List<CoursePoint>,
@@ -291,7 +304,9 @@ data class CoursePreview(
     val elevation: List<Pair<Double, Double>>,
     val plannedPaceSecondsPerKm: Double?,
     /** The course file's name as the server has it, when it says (a saved course read from the room). */
-    val courseFileName: String? = null
+    val courseFileName: String? = null,
+    /** client-core's line under the map, "31.1 mi · 4 checkpoints" (`OnboardingCopy.courseSummary`). */
+    val summary: String? = null
 ) {
     val isEmpty: Boolean get() = line.size < 2 && checkpoints.isEmpty()
 
@@ -355,7 +370,14 @@ data class CoursePreview(
                 }
             }
             val pace = json.optDouble("plannedPaceSecondsPerKm", Double.NaN).takeIf { !it.isNaN() && it > 0 }
-            return CoursePreview(line, checkpoints, elevation, pace, json.optText("courseFileName").trim().ifBlank { null })
+            return CoursePreview(
+                line,
+                checkpoints,
+                elevation,
+                pace,
+                json.optText("courseFileName").trim().ifBlank { null },
+                json.optText("summary").ifBlank { null }
+            )
         }
     }
 }

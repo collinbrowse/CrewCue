@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -351,10 +352,11 @@ fun RaceZoneDialog(
 }
 
 /**
- * Where the course preview goes: the map with its elevation profile, under the Cairn loader while
- * a file is read and previewed and until the map has drawn its first full frame ([loading]). The
- * map draws under the loader, hidden from sight and from TalkBack, so its first frame can end the
- * wait ([onRendered], with the course that frame drew).
+ * Where the course preview goes: the map, its summary and its elevation profile, under the Cairn
+ * loader while a file is read and previewed and until the map has drawn its first full frame
+ * ([loading]). The map draws under the loader, hidden from sight and from TalkBack, so its first
+ * frame can end the wait ([onRendered], with the course that frame drew). The summary and the
+ * profile keep their place but draw nothing meanwhile, so nothing shows past the loader's corners.
  */
 @Composable
 fun CoursePreviewSlot(
@@ -372,6 +374,7 @@ fun CoursePreviewSlot(
                 drawn,
                 text,
                 if (loading) Modifier.clearAndSetSemantics {} else Modifier,
+                concealed = loading,
                 onRendered = onRendered
             )
         }
@@ -390,13 +393,21 @@ fun CoursePreviewSlot(
 }
 
 /**
- * The course on the map (MapLibre when this build has it, else a line sketch), with its elevation
- * profile from the route. Nothing here comes from this phone's location. [onRendered]: a full
- * frame of the map that drew [course] (the sketch draws at once). A frame that still shows the
- * course before it, because the map hasn't applied the new one yet, doesn't count.
+ * The course on the map (MapLibre when this build has it, else a line sketch), client-core's
+ * summary under it ("31.1 mi · 4 checkpoints"), then its elevation profile from the route.
+ * Nothing here comes from this phone's location. [onRendered]: a full frame of the map that drew
+ * [course] (the sketch draws at once). A frame that still shows the course before it, because the
+ * map hasn't applied the new one yet, doesn't count. [concealed]: under the loader, the summary
+ * and profile draw nothing (the map keeps drawing, for its first frame).
  */
 @Composable
-fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modifier = Modifier, onRendered: (CoursePreview) -> Unit = {}) {
+fun CourseMapPreview(
+    course: CoursePreview,
+    text: OnboardingText,
+    modifier: Modifier = Modifier,
+    concealed: Boolean = false,
+    onRendered: (CoursePreview) -> Unit = {}
+) {
     val renderer = CourseMaps.renderer
     var mapFailed by remember(course) { mutableStateOf(false) }
     val sketch = !(BuildConfig.MAP_LIBRE && renderer != null && !mapFailed)
@@ -439,8 +450,17 @@ fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modi
                 RouteSketch(course.line, Modifier.fillMaxSize().padding(16.dp))
             }
         }
+        val hidden = Modifier.alpha(if (concealed) 0f else 1f)
+        course.summary?.let { summary ->
+            Text(
+                summary,
+                modifier = hidden.testTag(setupTag("preview.summary")).semantics { contentDescription = summary },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         if (course.elevation.size >= 2) {
-            ElevationProfile(course.elevation, text.label("elevation"))
+            ElevationProfile(course.elevation, text.label("elevation"), hidden)
         }
     }
 }
@@ -468,10 +488,10 @@ private fun RouteSketch(line: List<CoursePoint>, modifier: Modifier) {
 
 /** The elevation along the course, from the route geometry (an unpaid race has no plan curve). */
 @Composable
-fun ElevationProfile(samples: List<Pair<Double, Double>>, label: String) {
+fun ElevationProfile(samples: List<Pair<Double, Double>>, label: String, modifier: Modifier = Modifier) {
     val ink = MaterialTheme.colorScheme.primary
     val fill = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-    Column(Modifier.fillMaxWidth().testTag(setupTag("preview.elevation")).semantics { contentDescription = label }) {
+    Column(modifier.fillMaxWidth().testTag(setupTag("preview.elevation")).semantics { contentDescription = label }) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Canvas(Modifier.fillMaxWidth().height(88.dp).padding(top = 8.dp)) {
             val maxDistance = samples.last().first.takeIf { it > 0 } ?: return@Canvas

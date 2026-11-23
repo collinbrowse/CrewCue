@@ -33,17 +33,22 @@ interface RunnerSetupRuntime {
      */
     fun setupStep(decision: String, input: JSONObject): RuntimeResult
     fun importCourse(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double?): RuntimeResult
-    fun loadEstimate(roomId: String): RuntimeResult
+    /** [timeZone]: the race's zone (IANA id), the one client-core writes `finishClock` and `summary` in. */
+    fun loadEstimate(roomId: String, timeZone: String): RuntimeResult
     /**
      * An athlete's automatic recompute: `POST /pacing-estimates`, then attach it to the race
      * (client-core retries a `course_mismatch` once). [historyMode]: [HISTORY_NONE] or [HISTORY_COMPARE].
+     * [timeZone]: the race's zone (IANA id), for `finishClock`, `summary` and `comparison`.
      */
-    fun computeEstimate(roomId: String, historyMode: String? = null): RuntimeResult
+    fun computeEstimate(roomId: String, timeZone: String, historyMode: String? = null): RuntimeResult
     fun importActivity(fileName: String, contentBase64: String): RuntimeResult
     fun loadRoom(roomId: String): RuntimeResult
     fun loadSchedule(roomId: String): RuntimeResult
-    /** Pace timeline rows from the schedule sheet and course. No runner: nobody has pinged yet. */
-    fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult
+    /**
+     * Pace timeline rows from the schedule sheet and course, their clocks in [timeZone] (the
+     * race's, an IANA id). No runner: nobody has pinged yet.
+     */
+    fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?, timeZone: String): RuntimeResult
     /**
      * client-core `SuggestedDisplayName`: [name] as the account step's suggestion, or null when it
      * is an email (or [email]'s local part). Pure and quick (no request), so it may run on Main.
@@ -84,16 +89,17 @@ class BridgeRunnerSetupRuntime(
         plannedPaceSecondsPerKm: Double?
     ): RuntimeResult = raceDay.importGpx(roomId, fileName, gpxXml, raceStartAt, plannedPaceSecondsPerKm)
 
-    override fun loadEstimate(roomId: String): RuntimeResult = raceDay.loadEstimate(roomId)
+    override fun loadEstimate(roomId: String, timeZone: String): RuntimeResult = raceDay.loadEstimate(roomId, timeZone)
 
-    override fun computeEstimate(roomId: String, historyMode: String?): RuntimeResult =
+    override fun computeEstimate(roomId: String, timeZone: String, historyMode: String?): RuntimeResult =
         raceDay.computeEstimate(
             roomId,
             historyFingerprint = null,
             usableHistoryCount = 0,
             trigger = "auto",
             hasPlanOfRecord = false,
-            historyMode = historyMode
+            historyMode = historyMode,
+            timeZone = timeZone
         )
 
     override fun importActivity(fileName: String, contentBase64: String): RuntimeResult =
@@ -103,8 +109,8 @@ class BridgeRunnerSetupRuntime(
 
     override fun loadSchedule(roomId: String): RuntimeResult = raceDay.loadSchedule(roomId)
 
-    override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult =
-        raceDay.projectAidSheet(sheet, checkpoints, runner = null, selectedIndex = 0, follow = true, elevation = elevation)
+    override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?, timeZone: String): RuntimeResult =
+        raceDay.projectAidSheet(sheet, checkpoints, runner = null, selectedIndex = 0, follow = true, elevation = elevation, timeZone = timeZone)
 
     override fun suggestedDisplayName(name: String?, email: String?): String? = raceDay.suggestedDisplayName(name, email)
 }
