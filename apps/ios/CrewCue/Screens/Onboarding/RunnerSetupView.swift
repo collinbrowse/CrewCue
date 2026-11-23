@@ -50,6 +50,8 @@ struct RunnerSetupView: View {
                         .disabled(!model.canGoBack)
                         .accessibilityLabel(OnboardingCopy.back)
                         .accessibilityIdentifier("crewcue.onboarding.back")
+                        // Right to left, the column and this item are both on the leading edge.
+                        .keepsFullWidthRowsClear()
                     }
                 }
             }
