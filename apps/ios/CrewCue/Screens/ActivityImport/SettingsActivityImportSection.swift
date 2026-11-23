@@ -18,36 +18,46 @@ struct SettingsActivityImportSection: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "Past runs")
-            Text("Import runs exported from Garmin, COROS, Suunto or another watch app. They improve the pace estimate.")
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-            Text(verbatim: model.message)
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-                .accessibilityIdentifier("crewcue.activity-import.message")
-            Button("Import past run") {
-                picking = true
+        CrewSettingRow(
+            systemImage: "square.and.arrow.down",
+            title: "Import your training history",
+            hint: hint,
+            trailing: {
+                Button("Import") {
+                    picking = true
+                }
+                .buttonStyle(.crewPillProminent)
+                .crewBusy(model.busy)
+                .accessibilityLabel("Import past run")
+                .accessibilityHint("Choose a .gpx, .fit or .tcx file")
+            },
+            below: {
+                if model.items.isEmpty == false {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.items, id: \.id) { item in
+                            Label(item.summary, systemImage: "checkmark.circle")
+                                .font(CrewFont.hint)
+                                .foregroundStyle(theme.body)
+                        }
+                    }
+                }
             }
-            .buttonStyle(.crewPrimary)
-            .disabled(model.busy)
-            .accessibilityHint("Choose a .gpx, .fit or .tcx file")
-            ForEach(model.items, id: \.id) { item in
-                Text(verbatim: item.summary)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
-            }
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.activity-import")
-        .accessibilityLabel("Past runs")
+        .accessibilityLabel("Training history")
         .fileImporter(isPresented: $picking, allowedContentTypes: Self.contentTypes) { result in
             Task { await model.picked(result) }
         }
         .task(id: userId ?? "") {
             await model.activate()
         }
+    }
+
+    /// Status from the last import when there is one; otherwise what to choose and why.
+    private var hint: String {
+        if model.message.isEmpty || model.message == ActivityImport.emptyMessage {
+            return "Runs from Garmin, COROS, Suunto or any watch app (.gpx, .fit, .tcx). They sharpen your estimate."
+        }
+        return model.message
     }
 }

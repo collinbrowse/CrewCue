@@ -7,7 +7,7 @@ Mechanical signals worth a human look. Each is a pointer, not a verdict; triage 
 | --- | --- |
 | Routes with no auth guard detected | 8 |
 | Room-scoped routes with no membership check detected | 0 |
-| Source files ≥ 800 lines | 14 |
+| Source files ≥ 800 lines | 16 |
 | In-process timers in the API | 4 |
 | API lib modules with no same-named test | 43 |
 | Native features not passing on both platforms | 14 |
@@ -41,19 +41,21 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | File | Lines |
 | --- | --- |
 | [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5763 |
-| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2034 |
+| [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2010 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1251 |
+| [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1228 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1140 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1125 |
-| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 942 |
-| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 926 |
+| [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1001 |
+| [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 907 |
+| [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 885 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt) | 861 |
+| [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
 | [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 817 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
-| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | 813 |
 
 ## In-process timers (API)
 

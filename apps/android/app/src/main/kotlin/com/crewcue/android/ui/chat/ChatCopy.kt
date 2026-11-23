@@ -4,15 +4,20 @@ package com.crewcue.android.ui.chat
 const val CHAT_ERROR = "Couldn't load chat."
 const val CHAT_PHOTO_ERROR = "Couldn't send the photo."
 
-const val PREFS_SUCCESS = "Mentions and check-ins notify."
-const val PREFS_EMPTY = "Alerts are off."
+const val PREFS_ALL = "Every crew chat message in this race notifies you."
+const val PREFS_SUCCESS = "Only messages that @mention you, and check-ins."
+const val PREFS_EMPTY = "Crew chat won't notify you. Check-ins still do."
 const val PREFS_ERROR = "Couldn't save alert settings."
 const val PREFS_OFFLINE = "Offline. Alert settings stay on this device."
 
-const val PUSH_SUCCESS = "Push token queued for registration."
-const val PUSH_EMPTY = "No push token."
-const val PUSH_ERROR = "Push permission was denied."
-const val PUSH_OFFLINE = "Offline. Token queued."
+/** Registration reached the server: the row shows "On" and no status line. */
+const val PUSH_SUCCESS = ""
+const val PUSH_EMPTY = "This phone couldn't set up alerts. Try again."
+const val PUSH_ERROR = "Notifications are off for CrewCue. Turn them on in Android settings."
+const val PUSH_FAILED = "This phone couldn't set up alerts. Try again."
+const val PUSH_OFFLINE = "Offline. Alerts start once this phone is back online."
+const val PUSH_HINT_OFF = "Check-ins, ETA changes and crew chat, even with the app closed."
+const val PUSH_HINT_ON = "On. Check-ins, ETA changes and crew chat reach you, even with the app closed."
 
 /** One transcript row as client-core `ChatThread` built it. */
 data class CrewChatMessage(
