@@ -926,7 +926,7 @@ class ShellViewModel(
         val tabRoot = when (feature) {
             "map-track" -> ShellTab.Map
             "chat-thread" -> ShellTab.Chat
-            "profile" -> ShellTab.Profile
+            "profile", "race-delete" -> ShellTab.Profile
             else -> null
         }
         if (signedIn && !hasStateQuery(url) && tabRoot != null) {
