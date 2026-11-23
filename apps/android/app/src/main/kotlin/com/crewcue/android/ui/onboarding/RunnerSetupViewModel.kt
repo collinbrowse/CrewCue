@@ -659,9 +659,10 @@ class RunnerSetupViewModel(
     }
 
     /**
-     * `PUT /race-rooms/:roomId/course` with the chosen start (the existing import path), then the
-     * first estimate. It drops the estimate the history step attached, so that step runs again
-     * (after a relaunch too).
+     * `PUT /race-rooms/:roomId/course` with the chosen start (the existing import path). It drops
+     * the estimate the history step attached, so that step runs again (after a relaunch too) and
+     * attaches the next one, as on iOS: nothing is computed here, so a save costs no estimate of
+     * its own against the estimator limit.
      */
     private fun saveCourseWithStart(user: String, room: String, startAt: String) {
         val fileName = draft.courseFileName ?: return
@@ -693,7 +694,6 @@ class RunnerSetupViewModel(
                         raceListHasCourse = true
                         keepComparison(null)
                         teaser = null
-                        attachPlan(room)
                         moveOn(SetupSteps.HISTORY)
                         effectQueue.trySend(RunnerSetupEffect.RacesChanged)
                     }
@@ -1145,14 +1145,14 @@ class RunnerSetupViewModel(
     }
 
     /**
-     * Computes and attaches a plan after a step saved (client-core retries a `course_mismatch`
-     * once, silently), returning its estimate payload. Only an unpaid race's 402 (the paywall) and
-     * no network (the offline copy) show; any other failure, the estimator limit included, leaves
-     * the saved step as is, and the teaser computes again and says so there. Offline, client-core
-     * answers ok with the plan this phone cached (`offline`), which was not attached: null, as iOS
-     * throws there.
+     * Computes and attaches the plan for an imported past run (client-core retries a
+     * `course_mismatch` once, silently), returning its estimate payload. Only an unpaid race's 402
+     * (the paywall) and no network (the offline copy) show; any other failure, the estimator limit
+     * included, leaves the import as is, and the step's Continue computes the plan again. Offline,
+     * client-core answers ok with the plan this phone cached (`offline`), which was not attached:
+     * null, as iOS throws there.
      */
-    private suspend fun attachPlan(room: String, historyMode: String? = null): JSONObject? =
+    private suspend fun attachPlan(room: String, historyMode: String): JSONObject? =
         when (val result = withContext(io) { runtime.computeEstimate(room, historyMode) }) {
             is RuntimeResult.Failure -> {
                 if (result.status == 402 && result.code == ROOM_UNPAID) fail(result)

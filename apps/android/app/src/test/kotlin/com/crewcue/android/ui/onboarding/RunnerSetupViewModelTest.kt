@@ -498,13 +498,13 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun theStartTimeUploadsTheCourseWithRaceStartAtThenEstimates() = runTest(dispatcher) {
+    fun theStartTimeUploadsTheCourseWithRaceStartAtAndTheHistoryStepEstimates() = runTest(dispatcher) {
         val model = startTimeModel()
         val effects = effectsOf(model)
         model.continueStart(online = true)
         assertEquals(listOf(listOf<Any?>("room-1", "route.gpx", "<gpx/>", "2026-08-15T12:30:00.000Z", 420.0)), runtime.imports)
-        // The first plan, with all history, attached for the teaser.
-        assertEquals(listOf<String?>(null), runtime.historyModes)
+        // No estimate with the save (as on iOS): the history step attaches the first one.
+        assertTrue(runtime.historyModes.isEmpty())
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
         // On to the history step at once, which runs again because the save dropped the estimate.
         assertEquals(SetupSteps.HISTORY, model.step)
@@ -518,6 +518,12 @@ class RunnerSetupViewModelTest {
         assertEquals(SetupSteps.HISTORY, model.step)
         assertEquals(1, runtime.imports.size)
         assertTrue(runtime.startSaves.isEmpty())
+        // The first time through, the history step attaches the estimate the teaser shows.
+        assertFalse(model.isReviewing)
+        model.skipHistory()
+        assertEquals(listOf<String?>(HISTORY_NONE), runtime.historyModes)
+        assertEquals(Triple(SetupSteps.HISTORY, "skipped", null as String?), runtime.marks.last())
+        assertEquals(SetupSteps.TEASER, model.step)
     }
 
     @Test
@@ -555,14 +561,20 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun theEstimatorLimitAfterASavedStartLeavesTheStepAlone() = runTest(dispatcher) {
+    fun aCourseSaveComputesNoEstimateSoTheEstimatorLimitWaitsForTheHistoryStep() = runTest(dispatcher) {
         runtime.answer("computeEstimate", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
         val model = startTimeModel()
         val effects = effectsOf(model)
         model.continueStart(online = true)
-        // The course and start saved; the teaser computes the plan again later.
+        // The course and start saved, with no estimate of their own.
         assertEquals(SetupStatus.Ready, model.status)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertTrue(runtime.historyModes.isEmpty())
+        // The history step's estimate meets the limit: a plain failure there, not the course copy.
+        model.skipHistory()
+        assertEquals(text.setupError, (model.status as SetupStatus.Failed).failure.message)
+        assertEquals(SetupSteps.HISTORY, model.step)
     }
 
     @Test
@@ -572,12 +584,14 @@ class RunnerSetupViewModelTest {
             "computeEstimate",
             RuntimeResult.Failure("The estimate was computed for another course.", offline = false, status = 400, code = "course_mismatch")
         )
-        val model = startTimeModel()
-        val effects = effectsOf(model)
-        model.continueStart(online = true)
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        model.importHistory("run.fit", "AAAA", online = true)
         assertEquals(1, runtime.calls.count { it == "computeEstimate" })
         assertEquals(SetupStatus.Ready, model.status)
-        assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
+        assertNull(model.comparison)
+        // The import stands; Continue computes the plan again.
+        assertTrue(model.historyShowsContinue)
     }
 
     @Test
