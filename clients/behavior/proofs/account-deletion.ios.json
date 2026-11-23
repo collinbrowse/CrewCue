@@ -12,7 +12,7 @@
     "Empty": "Confirm alert 'Delete your account?' with the shared client-core copy, Delete account (destructive) and Cancel. Cancel left the room in place (crew GET 200).",
     "Error": "Stub 502: 'Your data was deleted, but we couldn't finish removing your login. Try again.' User stays signed in on Settings.",
     "Offline": "API stopped: 'You're offline. Your account was not deleted.' User stays signed in.",
-    "Accessibility labels": "crewcue.account-deletion row labelled 'Delete account'; 'Delete on the web instead' link from CrewCueAccountDeletionURL."
+    "Accessibility labels": "crewcue.account-deletion row labelled 'Delete account'"
   },
   "screenshots": "Attached to the PR, not committed."
 }

@@ -10,49 +10,65 @@ struct ShellSettingsSheet: View {
     var body: some View {
         ToolSheet(title: "Settings") {
             ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: CrewSpace.gutter) {
-                    SettingsNameSection(
-                        model: model.membersModel,
-                        userId: model.signedInUserId,
-                        roomId: model.signedInRoomId,
-                        onSaved: { [weak model] name in model?.updateDisplayName(name) }
-                    )
-                    SettingsChatAlertsSection(model: model.chatPrefsModel, roomId: model.signedInRoomId)
-                        .id("chat-notification-prefs")
-                    SettingsPushSection(
-                        model: model.pushModel,
-                        role: model.signedInRole,
-                        registerOnAppear: model.settingsFocus == "push-registration"
-                    )
-                        .id("push-registration")
+                VStack(alignment: .leading, spacing: CrewSpace.margin) {
+                    CrewSettingsGroup(title: "Profile") {
+                        SettingsNameSection(
+                            model: model.membersModel,
+                            userId: model.signedInUserId,
+                            roomId: model.signedInRoomId,
+                            onSaved: { [weak model] name in model?.updateDisplayName(name) }
+                        )
+                    }
+                    CrewSettingsGroup(title: "Notifications") {
+                        SettingsPushSection(
+                            model: model.pushModel,
+                            role: model.signedInRole,
+                            registerOnAppear: model.settingsFocus == "push-registration"
+                        )
+                        SettingsChatAlertsSection(model: model.chatPrefsModel, roomId: model.signedInRoomId)
+                            .id("chat-notification-prefs")
+                    }
+                    .id("push-registration")
                     if model.mapModel.isAthlete {
-                        SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
-                            .id("location-heartbeat")
+                        CrewSettingsGroup(title: "Race day") {
+                            SettingsTrackingSection(mapModel: model.mapModel, userId: model.signedInUserId)
+                        }
+                        .id("location-heartbeat")
                     }
-                    SettingsActivityImportSection(model: model.activityImportModel, userId: model.signedInUserId)
-                        .id("activity-import")
-                    if ClientFeatureFlags.stravaEnabled {
-                        SettingsStravaSection(model: model.stravaModel)
-                            .id("strava")
+                    CrewSettingsGroup(title: "Pace estimate") {
+                        SettingsActivityImportSection(model: model.activityImportModel, userId: model.signedInUserId)
+                        if ClientFeatureFlags.stravaEnabled {
+                            SettingsStravaSection(model: model.stravaModel)
+                                .id("strava")
+                        }
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        CrewSectionHeader(title: "Account")
-                        CrewListRow(systemImage: "rectangle.portrait.and.arrow.right", title: "Sign out", tint: theme.danger) {
+                    .id("activity-import")
+                    CrewSettingsGroup(title: "Account") {
+                        Button {
                             dismiss()
                             model.profileModel.signOut()
+                        } label: {
+                            CrewSettingRow(
+                                systemImage: "rectangle.portrait.and.arrow.right",
+                                title: "Sign out",
+                                hint: "Your races and runs stay saved to your account.",
+                                tint: theme.danger
+                            )
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Sign out")
                         SettingsDeleteAccountRow(model: model.accountDeletionModel) {
                             dismiss()
                             model.profileModel.signOut()
                         }
                     }
-                    .crewCard()
                     .id("account-deletion")
                     Text("Pacing model built with race results from [OpenSplitTime.org](https://www.opensplittime.org).")
-                        .font(.footnote)
-                        .foregroundStyle(theme.body)
-                        .tint(theme.body)
+                        .font(CrewFont.hint)
+                        .foregroundStyle(theme.outline)
+                        .tint(theme.outline)
+                        .padding(.horizontal, CrewSpace.base)
                         .accessibilityIdentifier("crewcue.settings.credits")
                 }
                 .onAppear {
@@ -71,32 +87,42 @@ struct SettingsNameSection: View {
     var userId: String?
     var roomId: String?
     var onSaved: (String) -> Void
-    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "Profile")
+        Group {
             if hasRoom {
-                TextField("Display name", text: $model.nameDraft)
-                    .textFieldStyle(.crew)
-                    .textContentType(.name)
-                    .accessibilityLabel("Display name")
-                Button("Save name") {
-                    Task {
-                        if let saved = await model.saveDisplayName() {
-                            onSaved(saved)
+                CrewSettingRow(
+                    systemImage: "person",
+                    title: "Name your crew sees",
+                    hint: "Shown on your chat messages and in this race's crew list.",
+                    trailing: { EmptyView() },
+                    below: {
+                        HStack(spacing: CrewSpace.base) {
+                            TextField("Display name", text: $model.nameDraft)
+                                .textFieldStyle(.crewCompact)
+                                .textContentType(.name)
+                                .accessibilityLabel("Display name")
+                            Button("Save") {
+                                Task {
+                                    if let saved = await model.saveDisplayName() {
+                                        onSaved(saved)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.crewPillProminent)
+                            .disabled(model.working)
+                            .accessibilityLabel("Save name")
                         }
                     }
-                }
-                .buttonStyle(.crewPrimary)
-                .disabled(model.working)
+                )
             } else {
-                Text("Join or create a race to set the name your crew sees.")
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
+                CrewSettingRow(
+                    systemImage: "person",
+                    title: "Name your crew sees",
+                    hint: "Join or create a race to set it."
+                )
             }
         }
-        .crewCard()
         .task(id: "\(userId ?? "")|\(roomId ?? "")") {
             await model.activate(userId: userId, roomId: roomId)
         }
@@ -110,31 +136,26 @@ struct SettingsNameSection: View {
 struct SettingsChatAlertsSection: View {
     var model: ChatNotificationPrefsModel
     var roomId: String?
-    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "Chat alerts")
-            Text("Choose what reaches you from this room.")
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-            ChatAlertChoice(title: "All", selected: model.preference == "all", isWorking: model.isWorking) {
-                Task { await model.choose("all") }
+        CrewSettingRow(
+            systemImage: "bubble.left.and.bubble.right",
+            title: "Crew chat",
+            hint: model.message.isEmpty ? ChatAlertCopy.hint(for: model.preference) : model.message,
+            trailing: { EmptyView() },
+            below: {
+                Picker("Crew chat alerts", selection: Binding(
+                    get: { model.preference },
+                    set: { value in Task { await model.choose(value) } }
+                )) {
+                    Text("All").tag("all")
+                    Text("Mentions").tag("mentions")
+                    Text("Off").tag("none")
+                }
+                .pickerStyle(.segmented)
+                .disabled(model.isWorking)
             }
-            ChatAlertChoice(title: "Mentions", selected: model.preference == "mentions", isWorking: model.isWorking) {
-                Task { await model.choose("mentions") }
-            }
-            ChatAlertChoice(title: "None", selected: model.preference == "none", isWorking: model.isWorking) {
-                Task { await model.choose("none") }
-            }
-            if model.message.isEmpty == false {
-                Text(verbatim: model.message)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
-            }
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.chat-notification-prefs")
         .accessibilityLabel("Chat alerts")
         .task(id: roomId ?? "") {
@@ -150,29 +171,37 @@ struct SettingsPushSection: View {
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "This device")
-            Text("Register so race alerts can reach you.")
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-            if model.message.isEmpty == false {
-                Text(verbatim: model.message)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
+        CrewSettingRow(
+            systemImage: "bell",
+            title: "Race alerts on this phone",
+            hint: hint,
+            trailing: {
+                if model.enabled, model.message.isEmpty {
+                    Label("On", systemImage: "checkmark")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(theme.primary)
+                } else {
+                    Button("Turn on") {
+                        Task { await model.register() }
+                    }
+                    .buttonStyle(.crewPillProminent)
+                    .crewBusy(model.isWorking)
+                    .accessibilityLabel("Register this device")
+                }
             }
-            Button("Register this device") {
-                Task { await model.register() }
-            }
-            .buttonStyle(.crewPrimary)
-            .disabled(model.isWorking)
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.push-registration")
         .accessibilityLabel("Push")
         .task(id: role ?? "") {
             await model.activate(role: role, registerNow: registerOnAppear)
         }
+    }
+
+    private var hint: String {
+        if model.message.isEmpty == false { return model.message }
+        return model.enabled
+            ? "On. Check-ins, ETA changes and crew chat reach you, even with the app closed."
+            : "Check-ins, ETA changes and crew chat, even with the app closed."
     }
 }
 
@@ -181,24 +210,23 @@ struct SettingsTrackingSection: View {
     var mapModel: MapModel
     var userId: String?
     @State private var interval = TrackingSettings.defaultIntervalSeconds
-    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "Location interval")
-            Text("How often your phone shares your position with your crew during the race. Shorter uses more battery.")
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-            Picker("Location interval", selection: $interval) {
-                ForEach(TrackingSettings.allowedIntervalSeconds, id: \.self) { seconds in
-                    Text(verbatim: "Every \(MapModel.intervalText(seconds))").tag(seconds)
+        CrewSettingRow(
+            systemImage: "location",
+            title: "Share my location every",
+            hint: "Your crew's mile and ETA come from these. Shorter uses more battery.",
+            trailing: {
+                Picker("Location interval", selection: $interval) {
+                    ForEach(TrackingSettings.allowedIntervalSeconds, id: \.self) { seconds in
+                        Text(verbatim: MapModel.intervalText(seconds)).tag(seconds)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityIdentifier("crewcue.location-interval")
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("crewcue.location-interval")
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityLabel("Location interval")
         .onAppear {
             interval = mapModel.trackingIntervalSeconds
@@ -216,57 +244,43 @@ struct SettingsTrackingSection: View {
 
 struct SettingsStravaSection: View {
     @Bindable var model: StravaModel
-    @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            CrewSectionHeader(title: "Strava")
-            Text("Recent efforts improve the pace estimate.")
-                .font(CrewFont.body)
-                .foregroundStyle(theme.body)
-            if model.message.isEmpty == false {
-                Text(verbatim: model.message)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
+        CrewSettingRow(
+            systemImage: "figure.run",
+            title: "Strava",
+            hint: hint,
+            trailing: {
+                if model.connected {
+                    Button("Disconnect") {
+                        Task { await model.disconnect() }
+                    }
+                    .buttonStyle(.crewPill)
+                    .crewBusy(model.busy)
+                } else {
+                    Button("Connect") {
+                        Task { await model.connect() }
+                    }
+                    .buttonStyle(.crewPillProminent)
+                    .crewBusy(model.busy)
+                }
             }
-            Button("Connect") {
-                Task { await model.connect() }
-            }
-            .buttonStyle(.crewPrimary)
-            .disabled(model.busy)
-            Button("Disconnect") {
-                Task { await model.disconnect() }
-            }
-            .buttonStyle(.crewSecondary)
-            .disabled(model.busy)
-        }
-        .crewCard()
-        .accessibilityElement(children: .contain)
+        )
         .accessibilityIdentifier("crewcue.strava")
         .accessibilityLabel("Strava")
         .task {
             await model.activate()
         }
     }
-}
 
-struct ChatAlertChoice: View {
-    let title: String
-    let selected: Bool
-    let isWorking: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Group {
-            if selected {
-                Button(title, action: action)
-                    .buttonStyle(.crewPrimary)
-            } else {
-                Button(title, action: action)
-                    .buttonStyle(.crewSecondary)
-            }
+    private var hint: String {
+        if model.connected {
+            return "Connected. Your recent Strava runs sharpen the pace estimate."
         }
-        .disabled(isWorking)
+        if model.message.isEmpty || model.message == "Strava is not connected." {
+            return "Not connected. Your recent Strava runs sharpen the pace estimate."
+        }
+        return model.message
     }
 }
 
@@ -277,25 +291,21 @@ struct SettingsDeleteAccountRow: View {
     @Environment(\.crew) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            CrewListRow(systemImage: "trash", title: AccountDeletion.rowTitle, tint: theme.danger) {
-                model.confirming = true
-            }
-            .disabled(model.deleting)
-            .accessibilityIdentifier("crewcue.account-deletion")
-            .accessibilityLabel(AccountDeletion.rowTitle)
-            if model.message.isEmpty == false {
-                Text(verbatim: model.message)
-                    .font(CrewFont.body)
-                    .foregroundStyle(theme.body)
-                    .accessibilityIdentifier("crewcue.account-deletion.message")
-            }
-            if let url = model.webURL {
-                Link(AccountDeletion.webLinkLabel, destination: url)
-                    .font(.footnote)
-                    .tint(theme.body)
-            }
+        Button {
+            model.confirming = true
+        } label: {
+            CrewSettingRow(
+                systemImage: "trash",
+                title: AccountDeletion.rowTitle,
+                hint: model.message.isEmpty ? AccountDeletion.rowHint : model.message,
+                tint: theme.danger
+            )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(model.deleting)
+        .accessibilityIdentifier("crewcue.account-deletion")
+        .accessibilityLabel(AccountDeletion.rowTitle)
         .alert(AccountDeletion.confirmTitle, isPresented: $model.confirming) {
             Button(AccountDeletion.confirmButton, role: .destructive) {
                 Task {

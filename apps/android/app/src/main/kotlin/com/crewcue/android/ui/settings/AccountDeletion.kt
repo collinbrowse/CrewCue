@@ -1,7 +1,5 @@
 package com.crewcue.android.ui.settings
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
@@ -15,21 +13,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.crewcue.android.BuildConfig
 import com.crewcue.android.data.RaceDayBridge
 import com.crewcue.android.data.RuntimeResult
 import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.map.isOnline
-import com.crewcue.android.ui.theme.CrewListRow
+import com.crewcue.android.ui.theme.SettingRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,8 +37,7 @@ data class AccountDeletionCopy(
     val confirmButton: String = "Delete account",
     val cancelButton: String = "Cancel",
     val workingMessage: String = "Deleting your account…",
-    val defaultWebURL: String = "https://crewcue.app/delete-account",
-    val webLinkLabel: String = "Delete on the web instead"
+    val rowHint: String = "Erases your profile, races and run history. This can't be undone."
 )
 
 /** What the row does after `deleteAccount` returns. Pure, so it is unit-tested on the JVM. */
@@ -89,8 +83,7 @@ class AccountDeletionViewModel(private val raceDay: RaceDayBridge) : ViewModel()
                     confirmButton = json.optString("confirmButton", base.confirmButton),
                     cancelButton = json.optString("cancelButton", base.cancelButton),
                     workingMessage = json.optString("workingMessage", base.workingMessage),
-                    defaultWebURL = json.optString("defaultWebURL", base.defaultWebURL),
-                    webLinkLabel = json.optString("webLinkLabel", base.webLinkLabel)
+                    rowHint = json.optString("rowHint", base.rowHint)
                 )
             }
         }
@@ -144,33 +137,19 @@ fun DeleteAccountRow(shell: ShellViewModel, onDeleted: () -> Unit) {
         factory = AccountDeletionViewModelFactory(shell.container.raceDay)
     )
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     LaunchedEffect(Unit) { model.loadCopy() }
     val copy = model.copy
-    Box(
-        Modifier
+    SettingRow(
+        Icons.Outlined.Delete,
+        copy.rowTitle,
+        modifier = Modifier
             .testTag("crewcue.account-deletion")
-            .semantics { contentDescription = copy.rowTitle }
-    ) {
-        CrewListRow(
-            Icons.Outlined.Delete,
-            copy.rowTitle,
-            onClick = { if (!model.deleting) model.confirming = true },
-            tint = MaterialTheme.colorScheme.error,
-            titleColor = MaterialTheme.colorScheme.error
-        )
-    }
-    model.message?.let { line ->
-        Text(
-            line,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line }
-        )
-    }
-    val webUrl = BuildConfig.ACCOUNT_DELETION_URL.takeIf { it.startsWith("https://") } ?: copy.defaultWebURL
-    TextButton(onClick = { runCatching { uriHandler.openUri(webUrl) } }) {
-        Text(copy.webLinkLabel, style = MaterialTheme.typography.bodySmall)
-    }
+            .semantics(mergeDescendants = true) { contentDescription = copy.rowTitle },
+        hint = model.message ?: copy.rowHint,
+        tint = MaterialTheme.colorScheme.error,
+        titleColor = MaterialTheme.colorScheme.error,
+        onClick = { if (!model.deleting) model.confirming = true }
+    )
     if (model.confirming) {
         AlertDialog(
             onDismissRequest = { model.confirming = false },

@@ -18,14 +18,6 @@ final class AccountDeletionModel {
         self.client = client
     }
 
-    /// The web deletion page from build config (`CrewCueAccountDeletionURL`), else the default.
-    var webURL: URL? {
-        let raw = (Bundle.main.object(forInfoDictionaryKey: "CrewCueAccountDeletionURL") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let candidate = raw.hasPrefix("https://") ? raw : AccountDeletion.defaultWebURL
-        return URL(string: candidate)
-    }
-
     /// Returns true when the account is gone and the caller should sign out.
     func delete() async -> Bool {
         guard !deleting else { return false }

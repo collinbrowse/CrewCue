@@ -28,7 +28,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.EditCalendar
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.automirrored.outlined.ListAlt
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.RowDivider
+import com.crewcue.android.ui.theme.SettingRow
+import com.crewcue.android.ui.theme.SettingsGroup
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.FloatingActionButton
@@ -147,6 +159,8 @@ fun PaceContent(
                 .padding(top = 12.dp, bottom = if (readOnly) 16.dp else 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            model.raceName = race?.raceName.orEmpty()
+            model.courseTitles = titles.entries.mapNotNull { entry -> entry.value?.let { entry.key to it.toString() } }.toMap()
             PaceHeader(race?.raceName.orEmpty(), readout)
             EstimateCard(model)
             if (!readOnly && (model.mayEditStops || model.stopMessage != null)) {
@@ -180,7 +194,7 @@ fun PaceContent(
                     .padding(16.dp)
                     .semantics { contentDescription = "Race tools" }
             ) {
-                Icon(Icons.Outlined.EditCalendar, contentDescription = null)
+                Icon(Icons.Outlined.Build, contentDescription = null)
             }
         }
     }
@@ -668,72 +682,125 @@ private fun PaceTools(model: PaceViewModel, focus: String) {
             }
         }
     }
-    ProductCard(Modifier.testTag("crewcue.gpx-import").then(bringIntoViewWhen(focus == "gpx-import"))) {
-        Text("Route file", style = MaterialTheme.typography.titleLarge)
-        Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                model.gpxMessage,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.semantics { contentDescription = model.gpxMessage }
+    SettingsGroup("Course", bringIntoViewWhen(focus == "gpx-import")) {
+        var pasting by rememberSaveable { mutableStateOf(false) }
+        SettingRow(
+            Icons.Outlined.Map,
+            "Course file",
+            modifier = Modifier.testTag("crewcue.gpx-import"),
+            hint = model.gpxMessage,
+            trailing = {
+                PillButton(
+                    "Choose file",
+                    onClick = { picker.launch(arrayOf("*/*")) },
+                    prominent = true,
+                    busy = model.gpxBusy,
+                    spoken = "Choose route file"
+                )
+            },
+            below = {
+                Text(
+                    if (pasting) "Hide GPX text" else "Paste GPX text instead",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { pasting = !pasting }
+                )
+                if (pasting) {
+                    CrewTextField(model.gpxText, model::updateGpxText, "GPX text", singleLine = false, minLines = 3)
+                    PillButton("Import", onClick = model::importPastedGpx, busy = model.gpxBusy, spoken = "Import route")
+                }
+            }
+        )
+        RowDivider()
+        SettingRow(
+            Icons.Outlined.Schedule,
+            "Aid station stops",
+            modifier = Modifier
+                .testTag("crewcue.course-settings")
+                .then(bringIntoViewWhen(focus == "course-settings", model.exportText)),
+            hint = listOfNotNull(model.stopSummary, model.courseMessage).joinToString(" "),
+            below = if (model.courseStopRows.isEmpty()) null else {
+                {
+                    model.courseStopRows.forEach { (title, duration) ->
+                        Row {
+                            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Text(duration, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+            }
+        )
+        if (model.cutoffLines.isNotEmpty()) {
+            RowDivider()
+            SettingRow(
+                Icons.Outlined.Flag,
+                "Cutoffs",
+                below = {
+                    model.cutoffLines.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                    }
+                }
             )
-            CrewTextField(model.gpxText, model::updateGpxText, "GPX", singleLine = false, minLines = 2)
-            SecondaryButton(
-                "Choose file",
-                onClick = { picker.launch(arrayOf("*/*")) },
-                spoken = "Choose route file",
-                busy = model.gpxBusy
-            )
-            PrimaryButton("Import", onClick = model::importPastedGpx, spoken = "Import route", busy = model.gpxBusy)
         }
     }
-    ProductCard(Modifier.testTag("crewcue.crew-sheet-export").then(bringIntoViewWhen(focus == "crew-sheet-export"))) {
-        Text("Crew sheet", style = MaterialTheme.typography.titleLarge)
-        model.exportMessage?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        model.exportText?.let { line ->
-            Text(
-                line,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.small)
-                    .padding(12.dp)
-                    .semantics { contentDescription = "Crew sheet" },
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-            )
-        }
-        PrimaryButton(
-            "Share",
-            onClick = { model.exportText?.let { shareCrewSheet(context, it) } },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.exportText.isNullOrBlank(),
-            spoken = "Share crew sheet"
+    SettingsGroup("Share", bringIntoViewWhen(focus == "crew-sheet-export")) {
+        SettingRow(
+            Icons.AutoMirrored.Outlined.ListAlt,
+            "Crew sheet",
+            modifier = Modifier.testTag("crewcue.crew-sheet-export"),
+            hint = model.exportMessage ?: "When the runner is due at each stop, for crew without the app.",
+            trailing = if (model.exportText.isNullOrBlank()) null else {
+                {
+                    PillButton(
+                        "Share",
+                        onClick = { model.exportText?.let { shareCrewSheet(context, it) } },
+                        prominent = true,
+                        spoken = "Share crew sheet"
+                    )
+                }
+            },
+            below = if (model.crewSheetRows.isEmpty()) null else {
+                { CrewSheetTable(model.crewSheetRows) }
+            }
         )
     }
-    ProductCard(Modifier.testTag("crewcue.course-settings").then(bringIntoViewWhen(focus == "course-settings", model.exportText))) {
-        Text("Course settings", style = MaterialTheme.typography.titleLarge)
-        Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            model.courseMessage?.let { line ->
-                Text(line, modifier = Modifier.semantics { contentDescription = line })
+    SettingsGroup("This phone", bringIntoViewWhen(focus == "outbox-status", model.exportText)) {
+        SettingRow(
+            Icons.Outlined.CloudUpload,
+            "Waiting to upload",
+            modifier = Modifier.testTag("crewcue.outbox"),
+            hint = "Check-ins, course files and messages made without signal wait here. They upload on their own once this phone is back online.",
+            below = {
+                model.outboxLines.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                }
+                model.outboxMessage?.takeIf { it.isNotBlank() }?.let { line ->
+                    Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { contentDescription = line })
+                }
             }
-            CrewTextField(model.cutoffNote, model::updateCutoff, "Cutoff", singleLine = false)
-            CrewTextField(
-                model.stoppageText,
-                model::updateStoppage,
-                "Stoppage seconds",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-            )
-            PrimaryButton("Save draft", onClick = model::saveCourse, enabled = !model.courseBusy, spoken = "Save course settings")
-        }
+        )
     }
-    ProductCard(Modifier.testTag("crewcue.outbox").then(bringIntoViewWhen(focus == "outbox-status", model.exportText))) {
-        Text("Outbox", style = MaterialTheme.typography.titleLarge)
-        model.outboxMessage?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+}
+
+/** Stop, due time and race time in three aligned columns. */
+@Composable
+private fun CrewSheetTable(rows: List<CrewSheetRow>) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier.semantics(mergeDescendants = true) { contentDescription = "Crew sheet" },
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row {
+            Text("STOP", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = colors.outline)
+            Text("DUE", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = colors.outline, textAlign = TextAlign.End)
+            Text("RACE TIME", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = colors.outline, textAlign = TextAlign.End)
         }
-        model.outboxLines.forEach { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+        rows.forEach { row ->
+            Row {
+                Text(row.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(row.arrival, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End)
+                Text(row.elapsed, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = colors.outline, textAlign = TextAlign.End)
+            }
         }
     }
 }
