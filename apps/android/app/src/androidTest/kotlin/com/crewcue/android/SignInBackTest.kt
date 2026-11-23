@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -51,7 +52,7 @@ class SignInBackTest {
 
     private fun openSignInFromTheChooser() {
         waitFor(setupTag("chooser.sign-in"))
-        compose.onNodeWithTag(setupTag("chooser.sign-in"), useUnmergedTree = true).performClick()
+        compose.onNodeWithTag(setupTag("chooser.sign-in"), useUnmergedTree = true).performScrollTo().performClick()
         waitFor(signIn)
     }
 
@@ -61,7 +62,8 @@ class SignInBackTest {
             waitFor(chooser)
             openSignInFromTheChooser()
             // Switched to sign-up, then Back: the chooser opens sign-in on Sign in again.
-            compose.onNodeWithText("Need an account? Sign up").performClick()
+            // CI's emulator screen is short: the toggle sits below the fold, under the top bar's Back.
+            compose.onNodeWithText("Need an account? Sign up").performScrollTo().performClick()
             compose.onNodeWithText("CREATE AN ACCOUNT").assertExists()
             compose.onNodeWithTag(back, useUnmergedTree = true).performClick()
             waitFor(chooser)
