@@ -160,6 +160,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
         case "account-deletion":
             return FeatureCopy(accessibilityIdentifier: "crewcue.account-deletion", title: AccountDeletion.rowTitle, body: accountDeletionBody(state))
+        case "race-delete":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.race-delete", title: RaceDeletion.rowTitle, body: raceDeleteBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
@@ -453,6 +455,15 @@ private func accountDeletionBody(_ state: FeatureState) -> String {
     case .empty: AccountDeletion.confirmBody
     case .error: AccountDeletion.genericFailureMessage
     case .offline: AccountDeletion.offlineMessage
+    }
+}
+
+private func raceDeleteBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: RaceDeletion.deletedMessage
+    case .empty: RaceDeletion.confirmBody(paid: true)
+    case .error: RaceDeletion.genericFailureMessage
+    case .offline: RaceDeletion.offlineMessage
     }
 }
 

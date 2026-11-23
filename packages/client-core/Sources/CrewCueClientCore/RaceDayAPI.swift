@@ -204,6 +204,12 @@ public enum RaceDayAPI {
         _ = try await sendData(graph, "/race-rooms/\(roomId)/members/\(userId)", method: .delete, body: nil)
     }
 
+    /// `DELETE /race-rooms/:roomId`: the owner deletes the race for the whole crew. The server
+    /// answers 403 for anyone else and 404 once the race is gone. Cannot be undone.
+    public static func deleteRace(graph: ClientGraph, roomId: String) async throws {
+        _ = try await sendData(graph, "/race-rooms/\(roomId)", method: .delete, body: nil)
+    }
+
     /// Network sheet, or the on-device sheet when the transport is offline.
     public static func loadScheduleResult(graph: ClientGraph, roomId: String, cacheDirectory: URL?) async throws -> ScheduleLoadResult {
         do {

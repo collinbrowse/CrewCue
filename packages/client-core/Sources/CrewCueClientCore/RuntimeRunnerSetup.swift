@@ -52,12 +52,12 @@ import Foundation
 ///     the race list's `raceStart?` and `activatedAt?` → `adoption` (`keep`, `takeSaved`, `fill`)
 ///     and `raceStart`, the race's start as the server's clock reads it (`raceStartAt`, else the
 ///     legacy `activatedAt`), or null.
-///   - `historyShowsContinue`: `reviewing`, `importedThisVisit`, `raceHasEstimate` (the race
-///     list's `hasEstimate`) → `value`.
+///   - `historyShowsContinue`: `reviewing`, `importedThisVisit`, `raceHasEstimate` → `value`.
 ///   - `historyContinue`: `reviewing`, `estimateDropped`, `importedThisVisit`,
 ///     `attachedThisVisit`, `raceHasEstimate` → `action`: `moveOn`, `keepRaceEstimate` (the race's
 ///     estimate, on a phone that never ended the step: no request) or `recompute`; and `marks`,
-///     whether Continue marks the step (`historyContinueMarks`).
+///     whether Continue marks the step (`historyContinueMarks`). `raceHasEstimate` is the race
+///     list's `OnboardingRace.hasEstimate`; left out, false.
 ///   - `resumeStep`: `frontier`, `courseUnsaved`, `coursePreviewed`, `startUnsaved`,
 ///     `estimateDropped` → `step`, the step a relaunch reopens, or null to stay on the frontier.
 /// - `updateRaceStart`: `roomId`, `raceStartAt` → `PATCH /race-rooms/:roomId/race-start`, which

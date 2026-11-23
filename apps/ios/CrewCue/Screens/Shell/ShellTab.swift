@@ -62,7 +62,7 @@ enum ShellTab: String, CaseIterable, Identifiable, Hashable {
 
     static func isProfileFeature(_ featureId: String) -> Bool {
         switch featureId {
-        case "profile", "room-members", "readouts-incidents":
+        case "profile", "race-delete", "room-members", "readouts-incidents":
             true
         default:
             false
