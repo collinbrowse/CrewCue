@@ -23,6 +23,15 @@ interface RunnerSetupRuntime {
     fun createRoom(name: String, userId: String, creatorName: String?): RuntimeResult
     fun gpxPreview(roomId: String, fileName: String, gpxXml: String): RuntimeResult
     fun raceStartInput(fields: RaceStartFields): RuntimeResult
+    /** `raceStartInput` the other way: a saved start as the fields in [timeZone]. Pure and quick. */
+    fun raceStartFields(raceStartAt: String, timeZone: String): RuntimeResult
+    /** `PATCH /race-rooms/:roomId/race-start`: a start-only change. */
+    fun updateRaceStart(roomId: String, raceStartAt: String): RuntimeResult
+    /**
+     * One client-core `RunnerSetupSteps` decision (the `runnerSetupStep` op); read it through
+     * [SetupDecisions]. Pure and quick, except `courseFingerprint` on a large file.
+     */
+    fun setupStep(decision: String, input: JSONObject): RuntimeResult
     fun importCourse(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double?): RuntimeResult
     fun loadEstimate(roomId: String): RuntimeResult
     /**
@@ -61,6 +70,12 @@ class BridgeRunnerSetupRuntime(
     override fun raceStartInput(fields: RaceStartFields): RuntimeResult =
         raceDay.raceStartInput(fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.timeZone)
 
+    override fun raceStartFields(raceStartAt: String, timeZone: String): RuntimeResult = raceDay.raceStartFields(raceStartAt, timeZone)
+
+    override fun updateRaceStart(roomId: String, raceStartAt: String): RuntimeResult = raceDay.updateRaceStart(roomId, raceStartAt)
+
+    override fun setupStep(decision: String, input: JSONObject): RuntimeResult = raceDay.runnerSetupStep(decision, input)
+
     override fun importCourse(
         roomId: String,
         fileName: String,
@@ -96,12 +111,18 @@ class BridgeRunnerSetupRuntime(
 
 /**
  * What the runner typed so far, kept small enough for [androidx.lifecycle.SavedStateHandle]. The
- * course file itself is kept by [RunnerSetupDraftStore], beside it.
+ * course file itself is kept by [RunnerSetupDraftStore], beside it. Fields added later read as
+ * their defaults from an older draft.
  */
 data class RunnerSetupDraft(
     /** The race created for this setup. A draft for another race is dropped. */
     val roomId: String? = null,
     val displayName: String = "",
+    /**
+     * The race's name as typed on the course step, kept as it is typed. The race is created with
+     * it; there's no rename after that.
+     */
+    val raceName: String? = null,
     val courseFileName: String? = null,
     /** The runner saw the preview and moved on to the start time. Course and start time upload together. */
     val courseConfirmed: Boolean = false,
@@ -113,12 +134,32 @@ data class RunnerSetupDraft(
     val historyLine: String? = null,
     /** The comparison attached the plan with the imported history, so Continue needs no new estimate. */
     val historyAttached: Boolean = false,
-    /** A history file went in on this phone, so the history step offers Continue, not Skip. */
-    val historyImported: Boolean = false
+    /** A history file went in on this visit to the history step, so it offers Continue, not Skip. */
+    val historyImported: Boolean = false,
+    /**
+     * A file was picked that the race hasn't saved yet (`PUT …/course` with the start). Null in
+     * older drafts, read as saved.
+     */
+    val courseUnsaved: Boolean? = null,
+    /**
+     * The start the race saved, as this phone last knew it: set by a save from here, or taken
+     * from the race list. A reviewed start time saves only when the start differs.
+     */
+    val savedRaceStartAt: String? = null,
+    /** client-core's fingerprint of the file this phone holds. */
+    val courseFingerprint: String? = null,
+    /** The fingerprint of the file the race saved from this phone, so the same file isn't saved twice. */
+    val savedCourseFingerprint: String? = null,
+    /**
+     * The course was saved again (`PUT …/course`), which drops the estimate the history step
+     * attached: the history step runs again, a relaunch included.
+     */
+    val historyRedo: Boolean = false
 ) {
     fun toJson(): String = JSONObject()
         .put("roomId", roomId ?: JSONObject.NULL)
         .put("displayName", displayName)
+        .put("raceName", raceName ?: JSONObject.NULL)
         .put("courseFileName", courseFileName ?: JSONObject.NULL)
         .put("courseConfirmed", courseConfirmed)
         .put("plannedPaceSecondsPerKm", plannedPaceSecondsPerKm ?: JSONObject.NULL)
@@ -127,6 +168,11 @@ data class RunnerSetupDraft(
         .put("historyLine", historyLine ?: JSONObject.NULL)
         .put("historyAttached", historyAttached)
         .put("historyImported", historyImported)
+        .put("courseUnsaved", courseUnsaved ?: JSONObject.NULL)
+        .put("savedRaceStartAt", savedRaceStartAt ?: JSONObject.NULL)
+        .put("courseFingerprint", courseFingerprint ?: JSONObject.NULL)
+        .put("savedCourseFingerprint", savedCourseFingerprint ?: JSONObject.NULL)
+        .put("historyRedo", historyRedo)
         .toString()
 
     companion object {
@@ -136,6 +182,8 @@ data class RunnerSetupDraft(
             return RunnerSetupDraft(
                 roomId = json.optText("roomId").ifBlank { null },
                 displayName = json.optText("displayName"),
+                // As typed, spaces included: only an empty name is none.
+                raceName = json.optText("raceName").ifEmpty { null },
                 courseFileName = json.optText("courseFileName").ifBlank { null },
                 courseConfirmed = json.optBoolean("courseConfirmed"),
                 plannedPaceSecondsPerKm = json.optDouble("plannedPaceSecondsPerKm", Double.NaN).takeIf { !it.isNaN() && it > 0 },
@@ -143,7 +191,12 @@ data class RunnerSetupDraft(
                 uploadedStartAt = json.optText("uploadedStartAt").ifBlank { null },
                 historyLine = json.optText("historyLine").ifBlank { null },
                 historyAttached = json.optBoolean("historyAttached"),
-                historyImported = json.optBoolean("historyImported")
+                historyImported = json.optBoolean("historyImported"),
+                courseUnsaved = if (json.has("courseUnsaved") && !json.isNull("courseUnsaved")) json.optBoolean("courseUnsaved") else null,
+                savedRaceStartAt = json.optText("savedRaceStartAt").ifBlank { null },
+                courseFingerprint = json.optText("courseFingerprint").ifBlank { null },
+                savedCourseFingerprint = json.optText("savedCourseFingerprint").ifBlank { null },
+                historyRedo = json.optBoolean("historyRedo")
             )
         }
     }

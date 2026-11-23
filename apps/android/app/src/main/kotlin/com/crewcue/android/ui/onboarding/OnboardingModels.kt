@@ -15,6 +15,23 @@ const val SETUP_TAG = "crewcue.onboarding-runner-setup"
 /** Stable test tag for one control on the onboarding route. */
 fun setupTag(part: String): String = "$SETUP_TAG.$part"
 
+// The checklist's own identifiers (clients/behavior/onboarding-runner-setup.md, Accessibility labels).
+
+/** The top app bar's back arrow on every setup step, spoken "Back". */
+const val BACK_TAG = "crewcue.onboarding.back"
+/** "Your name", the account step's field. */
+const val DISPLAY_NAME_TAG = "crewcue.onboarding.display-name"
+/** The race name: the field, then the read-only name once the race exists. */
+const val RACE_NAME_TAG = "crewcue.onboarding.race-name"
+/** The Cairn loader where the course preview goes, spoken "Reading your course…" or "Loading". */
+const val COURSE_LOADING_TAG = "crewcue.onboarding.course-loading"
+/** "Course saved" (with the file's name when known) on a phone that doesn't hold the file. */
+const val COURSE_SAVED_TAG = "crewcue.onboarding.course-saved"
+/** Cancel after a file picked after Back couldn't be read: the course from before stays. */
+const val CANCEL_COURSE_TAG = "crewcue.onboarding.cancel-course"
+/** The history step's three tips. */
+const val HISTORY_TIPS_TAG = "crewcue.onboarding.history-tips"
+
 /** Runner phase 1 steps, as client-core `OnboardingStep` names them. */
 object SetupSteps {
     const val ACCOUNT = "account"
@@ -24,6 +41,12 @@ object SetupSteps {
     const val TEASER = "projectionTeaser"
     val all = listOf(ACCOUNT, COURSE, START_TIME, HISTORY, TEASER)
 }
+
+/**
+ * The race list an onboarding state was read with: `myRaces` rows (null while unknown), and how
+ * many fresh lists `myRaces` had answered by then, so the runner's setup tells a fresh list apart.
+ */
+data class SetupRaces(val rows: JSONArray?, val version: Int)
 
 /** client-core `OnboardingState`, as `readOnboarding` and `markOnboardingStep` answer it. */
 data class OnboardingFlow(
@@ -85,6 +108,10 @@ data class OnboardingText(
     val unpaidBanner: String = "",
     val courseSaveLimit: String = "",
     val startTimeDstGap: String = "",
+    /** "Add a race name to continue.": the race needs a name and has none, typed or listed. */
+    val raceNameMissing: String = "",
+    /** The history step's three tips, under its lead (the step's explanation). */
+    val historyTips: List<String> = emptyList(),
     val stepTitles: Map<String, String> = emptyMap(),
     val stepExplanations: Map<String, String> = emptyMap(),
     val labels: Map<String, String> = emptyMap(),
@@ -100,15 +127,24 @@ data class OnboardingText(
     fun title(step: String): String = stepTitles[step].orEmpty()
     fun explanation(step: String): String = stepExplanations[step].orEmpty()
 
+    /** "Back", the setup's top bar arrow's spoken label. */
+    val back: String get() = replay.back
+
+    /** "Loading", what a loader with no caption says. */
+    val loading: String get() = replay.loading
+
     companion object {
         fun from(copy: JSONObject?, success: String, empty: String, error: String, offline: String): OnboardingText {
             val json = copy ?: JSONObject()
+            val tips = json.optJSONArray("historyTips")
             return OnboardingText(
                 chooserRunner = json.optText("chooserRunner"),
                 chooserCrew = json.optText("chooserCrew"),
                 unpaidBanner = json.optText("unpaidBanner"),
                 courseSaveLimit = json.optText("courseSaveLimit"),
                 startTimeDstGap = json.optText("startTimeDstGap"),
+                raceNameMissing = json.optText("raceNameMissing"),
+                historyTips = (0 until (tips?.length() ?: 0)).mapNotNull { tips?.optString(it)?.ifBlank { null } },
                 stepTitles = json.optJSONObject("stepTitles").strings(),
                 stepExplanations = json.optJSONObject("stepExplanations").strings(),
                 labels = json.optJSONObject("labels").strings(),
@@ -253,7 +289,9 @@ data class CoursePreview(
     val checkpoints: List<MapCheckpoint>,
     /** `[distanceMeters, elevationMeters]`, from the route geometry on an unpaid race. */
     val elevation: List<Pair<Double, Double>>,
-    val plannedPaceSecondsPerKm: Double?
+    val plannedPaceSecondsPerKm: Double?,
+    /** The course file's name as the server has it, when it says (a saved course read from the room). */
+    val courseFileName: String? = null
 ) {
     val isEmpty: Boolean get() = line.size < 2 && checkpoints.isEmpty()
 
@@ -317,7 +355,7 @@ data class CoursePreview(
                 }
             }
             val pace = json.optDouble("plannedPaceSecondsPerKm", Double.NaN).takeIf { !it.isNaN() && it > 0 }
-            return CoursePreview(line, checkpoints, elevation, pace)
+            return CoursePreview(line, checkpoints, elevation, pace, json.optText("courseFileName").trim().ifBlank { null })
         }
     }
 }

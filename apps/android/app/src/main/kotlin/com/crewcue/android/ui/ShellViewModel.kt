@@ -33,6 +33,7 @@ import com.crewcue.android.ui.onboarding.ReplayRoomUpdate
 import com.crewcue.android.ui.onboarding.RaceAccess
 import com.crewcue.android.ui.onboarding.RaceBilling
 import com.crewcue.android.ui.onboarding.RunnerSetupEffect
+import com.crewcue.android.ui.onboarding.SetupRaces
 import com.crewcue.android.ui.onboarding.SignInNext
 import com.crewcue.android.ui.onboarding.SETUP_FEATURE
 import kotlinx.coroutines.Dispatchers
@@ -174,6 +175,11 @@ class ShellViewModel(
         private set
     /** The last `myRaces` rows, sent back to `readOnboarding`. Null while this user's list is unknown. */
     private var raceRows: JSONArray? = null
+    /** Counts race lists `myRaces` answered, so the runner's setup tells a fresh list from the cached one. */
+    private var racesVersion = 0
+    /** The race list [onboarding] was read with: the runner's setup reads its own race's row. */
+    var onboardingRaces by mutableStateOf(SetupRaces(null, 0))
+        private set
     private var onboardingTicket = 0
     /** The join screen on show was opened by the crew choice, so a new state may move on from it. */
     private var joinFromOnboarding = false
@@ -271,6 +277,7 @@ class ShellViewModel(
                     racesFailedOffline = false
                     val rows = result.result.optJSONArray("races")
                     raceRows = rows ?: JSONArray()
+                    racesVersion++
                     val loaded = buildList {
                         for (index in 0 until (rows?.length() ?: 0)) {
                             val row = rows?.optJSONObject(index) ?: continue
@@ -369,12 +376,21 @@ class ShellViewModel(
         }
     }
 
-    /** Back from the signed-out account step: forget the guest's pick and show the chooser again. */
-    fun chooseAgain() {
-        if (session != null) return
+    /**
+     * Back from the runner's first setup step, while no race exists: forget only the runner pick
+     * (every marked step stays) and show the chooser again. A setup the dev link opened leaves for
+     * the app's own launch, as sign-in's Back does.
+     */
+    fun leaveRunnerSetup() {
+        val fromLink = setupFromLink
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { container.raceDay.resetOnboarding() }
-            refreshOnboarding(force = true)
+            withContext(Dispatchers.IO) { container.raceDay.resetOnboarding(choiceOnly = true) }
+            if (fromLink) {
+                setupFromLink = false
+                routeEntry()
+            } else {
+                refreshOnboarding(force = true)
+            }
         }
     }
 
@@ -395,6 +411,7 @@ class ShellViewModel(
             }
             RunnerSetupEffect.RacesChanged -> loadRaces()
             RunnerSetupEffect.OpenPaywall -> openPaywall()
+            RunnerSetupEffect.LeaveSetup -> leaveRunnerSetup()
         }
     }
 
@@ -413,6 +430,7 @@ class ShellViewModel(
      */
     private fun applyOnboarding(next: OnboardingFlow?, force: Boolean) {
         onboarding = next
+        onboardingRaces = SetupRaces(raceRows, racesVersion)
         syncReplayRoom(next)
         val owns = OnboardingRouting.ownsScreen(
             showAppShell,

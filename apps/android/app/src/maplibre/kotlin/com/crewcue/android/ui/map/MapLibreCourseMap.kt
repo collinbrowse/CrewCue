@@ -99,7 +99,8 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         recenterRequest: Int,
         framing: CourseFraming,
         trackTimes: List<Long>,
-        glide: (() -> RunnerGlideFrame?)?
+        glide: (() -> RunnerGlideFrame?)?,
+        onRendered: () -> Unit
     ) {
         val context = LocalContext.current
         val dark = context.isDarkMode()
@@ -110,6 +111,7 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
         val ready = rememberUpdatedState(onStyleReady)
         val failed = rememberUpdatedState(onStyleFailed)
         val tilesUnavailable = rememberUpdatedState(onTilesUnavailable)
+        val rendered = rememberUpdatedState(onRendered)
         val pointState = rememberUpdatedState(points)
         val lineState = rememberUpdatedState(line)
         val trackState = rememberUpdatedState(track)
@@ -150,6 +152,10 @@ private class MapLibreCourseRenderer : CourseMapRenderer {
                             }
                         }
                     }
+                }
+                // The first full frame (style, course and tiles drawn): a preview's loader can go.
+                view.addOnDidFinishRenderingMapListener { fully ->
+                    if (fully) rendered.value()
                 }
                 view.addOnTileActionListener { operation, _, _, _, _, _, _ ->
                     if (operation == TileOperation.Error && !context.isOnline()) {

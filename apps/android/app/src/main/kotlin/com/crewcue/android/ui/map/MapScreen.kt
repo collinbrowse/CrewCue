@@ -490,7 +490,8 @@ private fun CourseMapHost(
                 recenterRequest,
                 framing,
                 trackTimes,
-                glide
+                glide,
+                onRendered = {}
             )
             if (!settled) {
                 CairnLoader(

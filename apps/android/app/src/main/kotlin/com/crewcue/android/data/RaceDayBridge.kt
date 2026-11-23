@@ -421,8 +421,13 @@ class RaceDayBridge private constructor(
         if (!choice.isNullOrBlank()) put("choice", choice)
     }
 
-    /** Forgets the user's onboarding progress (the signed-out guest's when signed out). */
-    fun resetOnboarding(): RuntimeResult = call("resetOnboarding")
+    /**
+     * Forgets the user's onboarding progress (the signed-out guest's when signed out). With
+     * [choiceOnly], only the runner or crew pick: Back from the runner's first setup step.
+     */
+    fun resetOnboarding(choiceOnly: Boolean = false): RuntimeResult = call("resetOnboarding") {
+        if (choiceOnly) put("choiceOnly", true)
+    }
 
     /** Shared onboarding strings: chooser, step titles and explanations, errors and control `labels`. */
     fun onboardingCopy(): RuntimeResult = call("onboardingCopy")
@@ -437,6 +442,28 @@ class RaceDayBridge private constructor(
             put("minute", minute)
             put("timeZone", timeZone)
         }
+
+    /** client-core `RaceStartInput` the other way: a saved [raceStartAt] as the fields in [timeZone]. */
+    fun raceStartFields(raceStartAt: String, timeZone: String): RuntimeResult = call("raceStartInput") {
+        put("raceStartAt", raceStartAt)
+        put("timeZone", timeZone)
+    }
+
+    /**
+     * One client-core `RunnerSetupSteps` decision (the `runnerSetupStep` op), with [input]'s
+     * fields. Pure, no request: quick on the calling thread, except `courseFingerprint` on a
+     * large file.
+     */
+    fun runnerSetupStep(decision: String, input: JSONObject): RuntimeResult = call("runnerSetupStep") {
+        put("decision", decision)
+        input.keys().forEach { key -> put(key, input.get(key)) }
+    }
+
+    /** `PATCH /race-rooms/:roomId/race-start`: the start alone, which moves the attached estimate with it. */
+    fun updateRaceStart(roomId: String, raceStartAt: String): RuntimeResult = call("updateRaceStart") {
+        put("roomId", roomId)
+        put("raceStartAt", raceStartAt)
+    }
 
     /** The server's parse of a GPX before it is saved: `line`, `checkpoints`, `elevation`, `plannedPaceSecondsPerKm`. */
     fun gpxPreview(roomId: String, fileName: String, gpxXml: String): RuntimeResult = call("gpxPreview") {
