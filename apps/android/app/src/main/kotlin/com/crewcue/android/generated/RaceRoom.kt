@@ -12,6 +12,7 @@ data class RaceRoom(
     val status: String,
     val createdAt: String,
     val raceStartAt: String? = null,
+    val raceLockedAt: String? = null,
     val courseHistoryEventIds: List<String>? = null,
     val activatedAt: String? = null,
     val eventEndsAt: String? = null,

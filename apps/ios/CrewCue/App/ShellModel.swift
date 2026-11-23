@@ -547,6 +547,15 @@ final class ShellModel {
         enterShellIfNeeded()
     }
 
+    /// A race renamed from Profile: the race list (and the top bar, which reads it) shows the new
+    /// name at once. Crew pick it up on their next race-list load.
+    func noteRenamed(roomId: String, name: String) {
+        roster.rename(roomId, to: name)
+        if roomId == signedInRoomId {
+            paceModel.noteRenamed(name)
+        }
+    }
+
     func updateDisplayName(_ name: String) {
         client.graph.session?.update { session in
             session.displayName = name

@@ -14,7 +14,9 @@ public struct UserFacingError: Equatable, Sendable {
     public init(_ error: ClientHTTPError) {
         let resolution = OutboxPolicy.resolve(error)
         let code: String
-        if error.status == 422 && error.decision == "rejected" {
+        if RaceLock.isLockedError(error) {
+            code = RaceLock.code
+        } else if error.status == 422 && error.decision == "rejected" {
             code = "rejected"
         } else if error.status == 409 {
             code = "conflict"

@@ -100,6 +100,17 @@ public enum PlanAuthority {
             false
         }
     }
+
+    /// Race setup: the race name, course file and start. Mirrors the API's `canEditRaceSetup`:
+    /// the runner, crew chiefs and team managers, not crew members.
+    public static func mayEditRaceSetup(role: String) -> Bool {
+        switch role {
+        case "athlete", "crew_chief", "team_manager":
+            true
+        default:
+            false
+        }
+    }
 }
 
 public enum EstimateRecompute {

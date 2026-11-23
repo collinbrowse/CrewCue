@@ -25,6 +25,7 @@ import {
   plannedElapsedSecondsForDistance,
   withinCourseLength
 } from "./raceProjection.js";
+import { withEffectiveRaceLock } from "./raceLock.js";
 
 /** Where a stored estimate went (see `StoredPacingEstimate` in pacingEstimateStore.ts). */
 export type EstimateProvenance = {
@@ -381,8 +382,10 @@ export function lockedRoom(room: RaceRoom): RaceRoom {
  * unpaid race is the teaser for its runner and the locked room for everyone else.
  */
 export function roomForViewer(room: RaceRoom, viewerUserId: string | undefined): RaceRoom {
-  if (!isTeaserRoom(room)) return room;
-  return viewerUserId !== undefined && viewerUserId === room.athleteId ? teaserRoom(room) : lockedRoom(room);
+  // `raceLockedAt` goes out as the effective lock (see raceLock.ts): absent on an unpaid room.
+  const locked = withEffectiveRaceLock(room, Date.now());
+  if (!isTeaserRoom(locked)) return locked;
+  return viewerUserId !== undefined && viewerUserId === room.athleteId ? teaserRoom(locked) : lockedRoom(locked);
 }
 
 function withoutPlanCurve(room: RaceRoom): RaceRoom {

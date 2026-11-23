@@ -176,6 +176,10 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-runner-setup", title: "Set up your race", body: onboardingRunnerSetupBody(state))
         case "onboarding-race-preview":
             return FeatureCopy(accessibilityIdentifier: "crewcue.onboarding-race-preview", title: "Race day preview", body: onboardingRacePreviewBody(state))
+        case "race-rename":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.race-rename", title: "Rename race", body: raceRenameBody(state))
+        case "course-locked":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.course-locked", title: "Course locked", body: courseLockedBody(state))
         default:
             return FeatureCopy(accessibilityIdentifier: "crewcue.unknown", title: "CrewCue", body: "Unknown fixture.")
         }
@@ -522,6 +526,26 @@ private func onboardingRunnerSetupBody(_ state: FeatureState) -> String {
     case .empty: "Add your course file to start. Training history is optional."
     case .error: "Couldn't save this step."
     case .offline: "Offline. Setup needs the network. Your answers stay on this phone until you reconnect."
+    }
+}
+
+/// Copy for clients/behavior/race-rename.md.
+private func raceRenameBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: RaceRenameCopy.saved
+    case .empty: RaceName.invalidMessage
+    case .error: RaceRenameCopy.failed
+    case .offline: RaceRenameCopy.offline
+    }
+}
+
+/// Copy for clients/behavior/course-locked.md.
+private func courseLockedBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: RaceLock.message
+    case .empty: "Choose a route file."
+    case .error: "Couldn't read the route file."
+    case .offline: "Offline. The file stays on this device until upload."
     }
 }
 

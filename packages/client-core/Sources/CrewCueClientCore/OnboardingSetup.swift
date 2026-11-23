@@ -135,6 +135,8 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
     /// A race has to be created and there's no name for it (none typed, none listed): the race
     /// name field opens again. A race is never named after its course file.
     case raceNameMissing
+    /// 409 `race_locked`: the race has started, so its course and start can't change (`RaceLock`).
+    case courseLocked
     /// Anything else.
     case failed
 
@@ -145,6 +147,7 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
         guard let http = error as? ClientHTTPError else { return .failed }
         if http.status == 429, courseSave { return .courseSaveLimit }
         if http.status == 402, http.reason == "room_unpaid" || http.decision == "room_unpaid" { return .raceLocked }
+        if RaceLock.isLockedError(http) { return .courseLocked }
         return .failed
     }
 
@@ -155,6 +158,7 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
         case .courseSaveLimit: OnboardingCopy.courseSaveLimit
         case .raceLocked: OnboardingCopy.explanation(for: .paywall) ?? ""
         case .raceNameMissing: OnboardingCopy.raceNameMissing
+        case .courseLocked: RaceLock.message
         case .failed: CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .error).body
         }
     }
