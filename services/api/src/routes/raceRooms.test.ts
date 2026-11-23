@@ -1242,9 +1242,11 @@ test("PUT course rejects removing a visited checkpoint", async () => {
           { id: "cp-new", latitude: 41.02, longitude: -71.0 }
         ]
       },
+      // The same route line: a race that has started keeps its route (lib/raceLock.ts), so only
+      // the checkpoint list changes here.
       routeOverlayLayer: lineStringRouteOverlayForCheckpoints([
-        { latitude: 41.01, longitude: -71.0 },
-        { latitude: 41.02, longitude: -71.0 }
+        { latitude: 41.0, longitude: -71.0 },
+        { latitude: 41.01, longitude: -71.0 }
       ]),
       raceStartAt: "2026-05-12T16:00:00.000Z"
     },
@@ -1474,7 +1476,7 @@ test("PUT course keeps task board when room persist fails after reset would wipe
           { latitude: 41.01, longitude: -71.0 }
         ]),
         plannedPaceSecondsPerKm: 600,
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt: "2030-05-12T16:00:00.000Z"
       },
       headers: { authorization: `Bearer ${ownerToken}` }
     });
@@ -1499,7 +1501,7 @@ test("PUT course keeps task board when room persist fails after reset would wipe
           { latitude: 41.0, longitude: -71.0 },
           { latitude: 41.02, longitude: -71.01 }
         ]),
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt: "2030-05-12T16:00:00.000Z"
       },
       headers: {
         authorization: `Bearer ${ownerToken}`,

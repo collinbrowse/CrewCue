@@ -67,7 +67,7 @@ test("returns role-scoped task board for authorized crew members", async () => {
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt: "2030-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${athleteToken}`
@@ -234,7 +234,7 @@ test("task board snapshot path matches canonical replay path", async () => {
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt: "2030-05-12T16:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${athleteToken}`
@@ -293,7 +293,7 @@ test("task board snapshot path matches canonical replay path", async () => {
         baselineTrack: activatedRoom.course.baselineTrack
       },
       plannedPaceSecondsPerKm: 720,
-      raceStartAt: "2026-05-12T17:00:00.000Z"
+      raceStartAt: "2030-05-12T17:00:00.000Z"
     },
     headers: {
       authorization: `Bearer ${athleteToken}`
@@ -373,7 +373,7 @@ async function createRoomWithCourseForColdLoad(app: ReturnType<typeof buildApp>,
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt: "2030-05-12T16:00:00.000Z"
     },
     headers: { authorization: `Bearer ${athleteToken}` }
   });
@@ -537,7 +537,7 @@ test("course reset does not resurrect the task board while its delete is in flig
           { latitude: 42.08, longitude: -70.02 }
         ]),
         plannedPaceSecondsPerKm: 720,
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt: "2030-05-12T16:00:00.000Z"
       },
       headers
     });

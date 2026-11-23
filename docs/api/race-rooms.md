@@ -29,7 +29,7 @@ Effective permissions for a member:
 | Activate room (`POST .../activate`) | `athlete`, `crew_chief`, `team_manager` |
 | Issue invite (`POST .../invites`) | `athlete`, `crew_chief`, `team_manager` |
 | Update entitlement (`POST .../entitlement`) | `athlete`, `crew_chief`, `team_manager` |
-| Replace the course or move the start (`PUT .../course`, `PUT .../map-workspace`, `PATCH .../race-start`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
+| Replace the course or move the start (`PUT .../course`, `PUT .../map-workspace`, `PATCH .../race-start`; refused once the race is locked, see [Race lock](#race-lock)), rename the race (`PATCH /race-rooms/:roomId`) | `athlete`, `crew_chief`, `team_manager` (`canEditRaceSetup`) |
 | Edit course details: checkpoints, planned stops, stop plans (`POST`/`PATCH`/`DELETE .../checkpoints`, `PATCH .../checkpoint-stops`, `PUT`/`PATCH`/`DELETE .../stop-plans/:checkpointId`) | `athlete`, `crew_member`, `crew_chief`, `team_manager` (`canEditCourse`) |
 
 Non-members receive **403 Forbidden** for those operations (except invite acceptance; see below).
@@ -209,8 +209,48 @@ Send `Idempotency-Key` to retry safely: a replay answers the room as it is now, 
 | 402 | Entitlement unpaid (anyone but the runner) |
 | 403 | Not a member, no race setup rights, or entitlement expired |
 | 404 | Unknown `roomId` |
-| 409 | `Idempotency-Key` reused with another body, or still in progress |
+| 409 | `Idempotency-Key` reused with another body, or still in progress; or `{ "code": "race_locked" }` (see [Race lock](#race-lock)) |
 | 429 | Unpaid race: the course-save limit is spent |
+
+### Race lock
+
+A Race Pass pays for one race. Once the race is used, its route line and start are locked so the paid room cannot be re-pointed at another race ([raceLock.ts](../../services/api/src/lib/raceLock.ts)). A **paid** room is locked from the first of:
+
+- the runner reaching the first aid station (the course's first checkpoint after the start) on race pings (`POST .../pings` or `POST .../pings/batch`): the projection's crossing time there, at or after `raceStartAt`, stored once as `raceLockedAt`, with no write on later pings;
+- the current `raceStartAt` + 48 hours, with or without pings (computed, never stored).
+
+Pings at the start line, test pings, and a runner waiting out a delayed or postponed start never lock the race: until the first aid station the start can move by any amount and the course can be replaced. A course with no checkpoint after the start is locked only by the 48-hour rule.
+
+An unpaid or expired room is never locked, whatever is stored (a refund unlocks; paying again relocks). Room responses (`GET /race-rooms/:roomId`, `GET /race-rooms/mine`, every route that answers a room) carry the effective lock as `raceLockedAt`: the stored time, else start + 48 h once that has passed, absent when unlocked.
+
+Locked, these answer **409** `{ "error": "<sentence>", "code": "race_locked" }` and write nothing:
+
+- `PUT .../course` with a different route line (`routeOverlayLayer` whose geometry differs from the stored driving layer), a different `courseGpxXml`, or a start the lock does not allow;
+- `PUT .../map-workspace` that changes the projection-driving layer's geometry;
+- `PATCH .../race-start` to a start the lock does not allow.
+
+The start may stay as it is, and on a room locked at the first aid station it may be set anywhere in the 12 hours before that arrival, never after it (a start entered at the wrong hour; anchored to the lock, so moves cannot be chained). On a room locked only by the 48-hour rule it may not move. Still open: `PATCH /race-rooms/:roomId` (rename), `PUT .../course` with the same route and start (checkpoint and aid-station edits), checkpoint add/edit/delete, planned stops, map-workspace edits that keep the driving line, and `POST .../course/gpx-preview` (it saves nothing).
+
+### `PATCH /race-rooms/:roomId`
+
+Renames the race. Same gates as `PATCH .../race-start`: race setup rights (`athlete`, `crew_chief`, `team_manager`; a `crew_member` gets 403); on an unpaid race only the runner, answered with the teaser. Open on a locked race. No event is published: crew clients read the new name on their next `GET /race-rooms/mine` or room read.
+
+**Body (JSON)**
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | string | required; trimmed, 1 to 80 characters |
+
+**Responses**
+
+| Code | Meaning |
+| --- | --- |
+| 200 | Returns the updated `RaceRoom` (the teaser for the runner of an unpaid race) |
+| 400 | `{ "error": "Race name must be 1 to 80 characters." }` |
+| 401 | Missing/invalid JWT or malformed claims |
+| 402 | Entitlement unpaid (anyone but the runner) |
+| 403 | Not a member, no race setup rights, or entitlement expired |
+| 404 | Unknown `roomId` |
 
 ### Pings before the race start
 
