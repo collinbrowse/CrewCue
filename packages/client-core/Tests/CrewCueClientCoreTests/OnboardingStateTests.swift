@@ -133,6 +133,30 @@ private func store() -> (store: OnboardingStore, storageRoot: URL) {
     #expect(OnboardingRace.raceClockStart(raceStartAt: "2026-08-15T13:00:00.000Z", activatedAt: "2026-08-15T12:00:00.000Z") == "2026-08-15T13:00:00.000Z")
 }
 
+@Test func onboardingRaceKnowsWhetherTheRaceHasAnEstimate() throws {
+    var room = try JSONDecoder().decode(RoomEnvelope.self, from: try demoRoomData()).room
+    room.pacingEstimateId = nil
+    room.pacingEstimate = nil
+    #expect(!OnboardingRace(room: room, userId: "runner-1").hasEstimate)
+    room.pacingEstimateId = "  "
+    #expect(!OnboardingRace(room: room, userId: "runner-1").hasEstimate)
+    room.pacingEstimateId = "est-1"
+    let race = OnboardingRace(room: room, userId: "runner-1")
+    #expect(race.hasEstimate)
+    // The saved list keeps it; a list saved before it existed reads false.
+    #expect(OnboardingRace(jsonObject: race.jsonObject) == race)
+    var legacy = race.jsonObject
+    legacy.removeValue(forKey: "hasEstimate")
+    #expect(OnboardingRace(jsonObject: legacy)?.hasEstimate == false)
+    // The estimate never moves the frontier: a phone with no setup progress still opens the
+    // history step, whose Continue keeps it (`RunnerSetupSteps.historyContinue`).
+    var listed = race
+    listed.raceStartAt = "2026-08-15T12:00:00.000Z"
+    listed.hasCourse = true
+    let state = resolve(races: [listed], progress: OnboardingProgress(account: [.account: .done]))
+    #expect(state.phase == .setup && state.step == .history)
+}
+
 @Test func onboardingExpiredRaceHasNothingToSetUp() {
     let state = resolve(races: [race("r1", status: "expired")])
     #expect(state.flow == .done)
