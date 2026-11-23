@@ -46,15 +46,15 @@ Files over 800 lines concentrate merge conflicts and review misses.
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
 | [packages/contracts/src/index.ts](../../../packages/contracts/src/index.ts) | 1251 |
 | [apps/ios/CrewCue/Screens/Map/MapView.swift](../../../apps/ios/CrewCue/Screens/Map/MapView.swift) | 1228 |
+| [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1143 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/ShellViewModel.kt) | 1140 |
-| [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupModel.swift) | 1125 |
 | [apps/ios/CrewCue/Screens/Pace/PaceView.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceView.swift) | 1001 |
 | [apps/ios/CrewCue/Screens/Map/MapModel.swift](../../../apps/ios/CrewCue/Screens/Map/MapModel.swift) | 907 |
 | [apps/ios/CrewCue/Screens/Pace/PaceModel.swift](../../../apps/ios/CrewCue/Screens/Pace/PaceModel.swift) | 885 |
 | [services/api/src/lib/raceProjection.ts](../../../services/api/src/lib/raceProjection.ts) | 875 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/onboarding/RacePreviewScreen.kt) | 861 |
 | [apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt](../../../apps/android/app/src/main/kotlin/com/crewcue/android/ui/pace/PaceScreen.kt) | 838 |
-| [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 817 |
+| [apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift](../../../apps/ios/CrewCue/Screens/Onboarding/RunnerSetupView.swift) | 818 |
 | [packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift](../../../packages/client-core/Sources/CrewCueClientCore/OutboxStore.swift) | 817 |
 
 ## In-process timers (API)
