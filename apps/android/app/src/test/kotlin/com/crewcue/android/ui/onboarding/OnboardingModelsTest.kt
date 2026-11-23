@@ -89,9 +89,11 @@ class OnboardingModelsTest {
         val draft = RunnerSetupDraft(
             roomId = "r1", displayName = "Ada", courseFileName = "route.gpx", courseConfirmed = true,
             plannedPaceSecondsPerKm = 420.0, start = RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"),
-            uploadedStartAt = "2026-08-15T12:30:00.000Z", historyLine = "Finish 9:42 AM instead of 10:15 AM", historyAttached = true
+            savedRaceStartAt = "2026-08-15T12:30:00.000Z", historyLine = "Finish 9:42 AM instead of 10:15 AM", historyAttached = true
         )
         assertEquals(draft, RunnerSetupDraft.from(draft.toJson()))
+        // A draft from a build that kept the start the course last uploaded with still reads.
+        assertEquals(draft, RunnerSetupDraft.from(JSONObject(draft.toJson()).put("uploadedStartAt", "2026-08-15T12:30:00.000Z").toString()))
         assertEquals(RunnerSetupDraft(), RunnerSetupDraft.from(RunnerSetupDraft().toJson()))
         assertNull(RunnerSetupDraft.from("not json"))
         assertNull(RunnerSetupDraft.from(null))

@@ -128,8 +128,6 @@ data class RunnerSetupDraft(
     val courseConfirmed: Boolean = false,
     val plannedPaceSecondsPerKm: Double? = null,
     val start: RaceStartFields? = null,
-    /** The `raceStartAt` the course last uploaded with, so a second tap doesn't upload it again. */
-    val uploadedStartAt: String? = null,
     /** client-core's history comparison line ("Finish 9:42 AM instead of 10:15 AM"), kept for a relaunch. */
     val historyLine: String? = null,
     /** The comparison attached the plan with the imported history, so Continue needs no new estimate. */
@@ -164,7 +162,6 @@ data class RunnerSetupDraft(
         .put("courseConfirmed", courseConfirmed)
         .put("plannedPaceSecondsPerKm", plannedPaceSecondsPerKm ?: JSONObject.NULL)
         .put("start", start?.toJson() ?: JSONObject.NULL)
-        .put("uploadedStartAt", uploadedStartAt ?: JSONObject.NULL)
         .put("historyLine", historyLine ?: JSONObject.NULL)
         .put("historyAttached", historyAttached)
         .put("historyImported", historyImported)
@@ -188,7 +185,6 @@ data class RunnerSetupDraft(
                 courseConfirmed = json.optBoolean("courseConfirmed"),
                 plannedPaceSecondsPerKm = json.optDouble("plannedPaceSecondsPerKm", Double.NaN).takeIf { !it.isNaN() && it > 0 },
                 start = RaceStartFields.from(json.optJSONObject("start")),
-                uploadedStartAt = json.optText("uploadedStartAt").ifBlank { null },
                 historyLine = json.optText("historyLine").ifBlank { null },
                 historyAttached = json.optBoolean("historyAttached"),
                 historyImported = json.optBoolean("historyImported"),

@@ -530,7 +530,9 @@ class RunnerSetupViewModelTest {
         model.continueStart(online = true)
         assertTrue(model.status is SetupStatus.Offline)
         assertEquals(SetupSteps.START_TIME, model.step)
-        assertNull(model.draft.uploadedStartAt)
+        // Nothing counts as saved until the server says so.
+        assertNull(model.draft.savedRaceStartAt)
+        assertTrue(runtime.calls.none { it == "computeEstimate" })
     }
 
     @Test

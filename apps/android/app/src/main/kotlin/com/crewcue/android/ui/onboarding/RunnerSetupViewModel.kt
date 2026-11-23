@@ -626,14 +626,6 @@ class RunnerSetupViewModel(
         val action = startAction
         if (!action.saves) return
         val startAt = startInstant
-        if (action != StartTimeContinue.MoveOn && !isReviewing && startAt != null &&
-            startAt == draft.uploadedStartAt && draft.courseUnsaved != true
-        ) {
-            // Already on the server; the race list just hasn't moved the flow on yet.
-            moveOn(SetupSteps.HISTORY)
-            effectQueue.trySend(RunnerSetupEffect.RacesChanged)
-            return
-        }
         when (action) {
             // Left as the race saved it: no save (it counts toward the course save limit), and
             // the history step's estimate still holds.
@@ -657,7 +649,7 @@ class RunnerSetupViewModel(
             is RuntimeResult.Failure -> fail(result, courseSave = true)
             is RuntimeResult.Success -> {
                 // The estimate moved with the start; the comparison's two finishes were for the old one.
-                writeDraft(draft.copy(savedRaceStartAt = startAt, uploadedStartAt = startAt, historyLine = null))
+                writeDraft(draft.copy(savedRaceStartAt = startAt, historyLine = null))
                 keepComparison(null)
                 teaser = null
                 moveOn(SetupSteps.HISTORY)
@@ -689,7 +681,6 @@ class RunnerSetupViewModel(
                         val fingerprint = draft.courseFingerprint ?: withContext(io) { decisions.courseFingerprint(xml) }
                         writeDraft(
                             draft.copy(
-                                uploadedStartAt = startAt,
                                 courseUnsaved = false,
                                 courseFingerprint = fingerprint,
                                 savedCourseFingerprint = fingerprint,
@@ -1029,8 +1020,7 @@ class RunnerSetupViewModel(
                 savedRaceStartAt = null,
                 savedCourseFingerprint = null,
                 courseUnsaved = true,
-                historyRedo = false,
-                uploadedStartAt = null
+                historyRedo = false
             )
         )
     }
@@ -1107,8 +1097,7 @@ class RunnerSetupViewModel(
                 courseUnsaved = picked.unsavedOnceHeld(draft.courseUnsaved),
                 // Another file picked on the start time stays on that step.
                 courseConfirmed = parsed != null && step == SetupSteps.START_TIME,
-                plannedPaceSecondsPerKm = parsed?.plannedPaceSecondsPerKm,
-                uploadedStartAt = null
+                plannedPaceSecondsPerKm = parsed?.plannedPaceSecondsPerKm
             )
         )
         // At once, before the disk write: the course before it never shows again in between, and
