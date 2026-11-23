@@ -7,6 +7,11 @@ import com.crewcue.android.data.optText
 import com.crewcue.android.logging.AndroidLogger
 import com.crewcue.android.session.SessionStore
 import com.crewcue.android.ui.members.MemberPermissions
+import com.crewcue.android.ui.onboarding.BridgeRunnerSetupRuntime
+import com.crewcue.android.ui.onboarding.CoursePick
+import com.crewcue.android.ui.onboarding.SetupDecisions
+import com.crewcue.android.ui.onboarding.SetupSteps
+import com.crewcue.android.ui.onboarding.StartTimeContinue
 import com.crewcue.android.ui.pace.PaceViewModel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -60,6 +65,39 @@ class ScreenRulesTest {
         assertNull(bridge.suggestedDisplayName(null, "pat@example.com"))
         assertEquals("Pat Runner", bridge.suggestedDisplayName("  Pat Runner ", "pat.runner@example.com"))
         assertEquals("Pat Runner", bridge.suggestedDisplayName("Pat Runner", null))
+    }
+
+    /**
+     * The Swift library on the device answers the runner setup's step rules (client-core
+     * `RunnerSetupSteps`, the `runnerSetupStep` op) that the JVM tests can only fake.
+     */
+    @Test
+    fun theRunnerSetupsStepRulesComeFromClientCore() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val bridge = RaceDayBridge("http://127.0.0.1:9", SessionStore(context), AndroidLogger())
+        val steps = SetupDecisions(BridgeRunnerSetupRuntime(bridge) { null to null })
+        val reviewed = steps.navigation(SetupSteps.HISTORY, SetupSteps.COURSE, raceExists = true)
+        assertEquals(SetupSteps.COURSE, reviewed.shown)
+        assertEquals(SetupSteps.ACCOUNT, reviewed.previous)
+        assertFalse(steps.navigation(SetupSteps.HISTORY, SetupSteps.ACCOUNT, raceExists = true).canGoBack)
+        assertTrue(steps.navigation(SetupSteps.ACCOUNT, null, raceExists = false).canGoBack)
+        assertEquals("Canyons 2027", steps.newRaceName("  Canyons 2027 ", "Western States"))
+        assertNull(steps.newRaceName(" ", null))
+        val fingerprint = steps.courseFingerprint("<gpx/>")
+        assertEquals(CoursePick.Unchanged, steps.coursePick(fingerprint!!, held = fingerprint, saved = null))
+        assertEquals(
+            StartTimeContinue.MoveOn,
+            steps.startTimeContinue(
+                reviewing = true,
+                editedThisVisit = false,
+                courseUnsaved = false,
+                courseSavedOnRace = true,
+                holdsCourseFile = false,
+                start = "2026-08-15T12:30:00.000Z",
+                savedStart = "2026-08-15T12:30:00.000Z"
+            )
+        )
+        assertEquals(SetupSteps.HISTORY, steps.resumeStep(SetupSteps.TEASER, false, false, false, estimateDropped = true))
     }
 
     @Test
