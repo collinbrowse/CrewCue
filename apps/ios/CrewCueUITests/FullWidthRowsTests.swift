@@ -204,4 +204,67 @@ final class FullWidthRowsTests: XCTestCase {
         app.swipeDown()
         assertEvenMargins(first, in: app, "You + 1 crew, back at the top")
     }
+
+    // MARK: Bar items in the column
+
+    /// No part of `element` is under `item`.
+    private func assertClear(
+        _ element: XCUIElement,
+        ofBarItem item: XCUIElement,
+        _ name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "bar item missing", file: file, line: line)
+        waitFor(element, name, file: file, line: line) { frame in
+            !item.frame.insetBy(dx: 0.5, dy: 0.5).intersects(frame)
+        } problem: { _ in
+            "runs under the bar item \(item.frame)"
+        }
+    }
+
+    /// Signed in with a race and no course: runner setup opens on the course step, and its Back
+    /// opens the account step, which has no Back. The bar row collapses, and on iPhone Duo's outer
+    /// display the "Your name" field rises beside the account menu, which the system puts in the
+    /// camera column. The field keeps clear of the menu, as do the chooser's rows. Needs the local
+    /// API (`TEST_RUNNER_CREWCUE_SETUP_API_BASE_URL`), and a dev session for a user with one race
+    /// and no course (`TEST_RUNNER_CREWCUE_BAR_USER`, `_TOKEN`, `_ROOM`; see
+    /// `OnboardingRunnerSetupFlowTests`).
+    func testTheAccountStepsRowsKeepClearOfTheAccountMenu() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let api = environment["CREWCUE_SETUP_API_BASE_URL"],
+              let user = environment["CREWCUE_BAR_USER"],
+              let token = environment["CREWCUE_BAR_TOKEN"],
+              let room = environment["CREWCUE_BAR_ROOM"] else {
+            throw XCTSkip("Needs a running API and a dev session for a user with a race and no course.")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--expose-occlusions", "--deeplink", "crewcue://dev/app-shell",
+            "--api-base-url", api, "--dev-session", user, "athlete", token, room
+        ]
+        app.launch()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.course").waitForExistence(timeout: 20), "course step missing")
+        let back = app.navigationBars.buttons["crewcue.onboarding.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back missing on the course step")
+        back.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.account").waitForExistence(timeout: 5), "Back didn't open the account step")
+        XCTAssertTrue(waitUntilGone(back, timeout: 5), "the account step shows Back")
+
+        let menu = app.buttons["crewcue.onboarding.account-menu"]
+        let occlusions = occlusions(app)
+        let name = app.textFields["crewcue.onboarding.display-name"]
+        assertClear(name, ofBarItem: menu, "Your name")
+        assertClear(name, of: occlusions, "Your name")
+        assertClear(app.buttons["crewcue.onboarding.continue"], ofBarItem: menu, "Continue")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "account-step-without-back"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
+    }
 }
