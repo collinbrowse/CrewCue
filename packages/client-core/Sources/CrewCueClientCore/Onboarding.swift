@@ -94,7 +94,7 @@ public enum OnboardingError: Error, Equatable, Sendable {
 
 /// One race the user belongs to, as `GET /race-rooms/mine` lists it. The progress file keeps the
 /// last list the server answered, so a relaunch without it (offline, or before it answers) still
-/// knows each race's role, payment, course and start.
+/// knows each race's role, payment, course, start and estimate.
 public struct OnboardingRace: Equatable, Sendable {
     public var roomId: String
     /// This user's role in this race. Roles differ per race.
@@ -105,13 +105,25 @@ public struct OnboardingRace: Equatable, Sendable {
     /// falls back to (`resolveRaceAnchorIso`).
     public var raceStartAt: String?
     public var hasCourse: Bool
+    /// The race has an estimate attached (`pacingEstimateId`), which the runner's setup history
+    /// step keeps (`RunnerSetupSteps.historyContinue`). The server sends it to the runner and to
+    /// a paid race's crew; any other member of an unpaid race reads false.
+    public var hasEstimate: Bool
 
-    public init(roomId: String, role: String, entitlementStatus: String, raceStartAt: String? = nil, hasCourse: Bool) {
+    public init(
+        roomId: String,
+        role: String,
+        entitlementStatus: String,
+        raceStartAt: String? = nil,
+        hasCourse: Bool,
+        hasEstimate: Bool = false
+    ) {
         self.roomId = roomId
         self.role = role
         self.entitlementStatus = entitlementStatus
         self.raceStartAt = raceStartAt
         self.hasCourse = hasCourse
+        self.hasEstimate = hasEstimate
     }
 
     public init(room: RaceRoom, userId: String) {
@@ -122,8 +134,15 @@ public struct OnboardingRace: Equatable, Sendable {
             role: summary.role,
             entitlementStatus: room.entitlement.status,
             raceStartAt: Self.raceClockStart(raceStartAt: room.raceStartAt, activatedAt: room.activatedAt),
-            hasCourse: room.course?.checkpoints.isEmpty == false || !fileName.isEmpty
+            hasCourse: room.course?.checkpoints.isEmpty == false || !fileName.isEmpty,
+            hasEstimate: Self.hasEstimate(room)
         )
+    }
+
+    /// An estimate is attached: its id, or the estimate itself.
+    static func hasEstimate(_ room: RaceRoom) -> Bool {
+        let id = room.pacingEstimateId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !id.isEmpty || room.pacingEstimate != nil
     }
 
     public var isRunner: Bool { role == "athlete" }
@@ -146,7 +165,8 @@ public struct OnboardingRace: Equatable, Sendable {
             "roomId": roomId,
             "role": role,
             "entitlementStatus": entitlementStatus,
-            "hasCourse": hasCourse
+            "hasCourse": hasCourse,
+            "hasEstimate": hasEstimate
         ]
         if let raceStartAt { object["raceStartAt"] = raceStartAt }
         return object
@@ -162,7 +182,8 @@ public struct OnboardingRace: Equatable, Sendable {
             role: role,
             entitlementStatus: status,
             raceStartAt: object["raceStartAt"] as? String,
-            hasCourse: object["hasCourse"] as? Bool ?? false
+            hasCourse: object["hasCourse"] as? Bool ?? false,
+            hasEstimate: object["hasEstimate"] as? Bool ?? false
         )
     }
 }
