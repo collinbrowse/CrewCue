@@ -26,6 +26,8 @@ struct CrewBackground: View {
 
 /// Top bar: avatar, CrewCue wordmark, and a settings button.
 struct CrewTopBar: View {
+    /// The active race's name, or the app's when there is no race.
+    var title: String = "CrewCue"
     var onSettings: (() -> Void)?
     @Environment(\.crew) private var theme
 
@@ -39,9 +41,13 @@ struct CrewTopBar: View {
                 .clipShape(Circle())
                 .overlay { Circle().stroke(theme.primary, lineWidth: 2) }
                 .accessibilityHidden(true)
-            Text("CrewCue")
+            Text(verbatim: title)
                 .font(CrewFont.wordmark)
                 .foregroundStyle(theme.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("crewcue.top-bar-title")
             Spacer()
             if let onSettings {
                 Button(action: onSettings) {
