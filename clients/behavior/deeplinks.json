@@ -326,7 +326,7 @@
       "label": "crewcue.onboarding-runner-setup",
       "sdk": "none",
       "scope": "v1",
-      "ios": "fail",
+      "ios": "pass",
       "android": "fail"
     },
     {
