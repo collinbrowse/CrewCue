@@ -173,7 +173,15 @@ interface CourseMapRenderer {
         onStyleFailed: () -> Unit,
         onTilesUnavailable: () -> Unit,
         recenterRequest: Int,
-        framing: CourseFraming
+        framing: CourseFraming,
+        /** Each [track] point's `recordedAt` in epoch ms; read only with [glide]. */
+        trackTimes: List<Long>,
+        /**
+         * The onboarding replay's gliding dot: read on every change, the dot is drawn where it says
+         * and the trail up to it ([GlideLayout]). A null frame draws [track] whole with the dot on its
+         * last point, as the race Map always does (it passes no [glide]).
+         */
+        glide: (() -> RunnerGlideFrame?)?
     )
 }
 
