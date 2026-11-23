@@ -10,12 +10,15 @@ extension OnboardingCopy {
     public static let raceDateLabel = "Date"
     public static let raceTimeLabel = "Time"
     public static let pickerDone = "Done"
+    /// A picker's Cancel, and on the course step the way back to the saved course after a file
+    /// picked after Back couldn't be read.
     public static let pickerCancel = "Cancel"
 
     public enum Label: String, CaseIterable, Sendable {
         case chooserTitle, chooserSignIn
-        case createAccount, signIn, displayName
-        case chooseCourseFile, chooseAnotherFile
+        case createAccount, signIn, displayName, displayNameHelp
+        case raceName, raceNamePlaceholder, raceNameHelp, readingCourse
+        case chooseCourseFile, chooseAnotherFile, courseSaved
         case raceDate, raceTime, raceTimeZone, done, cancel
         case importHistory, skipHistory
         case finish, locked, elevation, coursePreview
@@ -29,8 +32,14 @@ extension OnboardingCopy {
         case .createAccount: createAccount
         case .signIn: signIn
         case .displayName: displayName
+        case .displayNameHelp: displayNameHelp
+        case .raceName: raceNameLabel
+        case .raceNamePlaceholder: raceNamePlaceholder
+        case .raceNameHelp: raceNameHelp
+        case .readingCourse: readingCourse
         case .chooseCourseFile: chooseCourseFile
         case .chooseAnotherFile: chooseAnotherCourseFile
+        case .courseSaved: courseSaved
         case .raceDate: raceDateLabel
         case .raceTime: raceTimeLabel
         case .raceTimeZone: timeZoneLabel

@@ -132,6 +132,9 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
     case courseSaveLimit
     /// 402 `room_unpaid`: a crew feature of a race that isn't unlocked. The app opens the paywall.
     case raceLocked
+    /// A race has to be created and there's no name for it (none typed, none listed): the race
+    /// name field opens again. A race is never named after its course file.
+    case raceNameMissing
     /// Anything else.
     case failed
 
@@ -151,6 +154,7 @@ public enum OnboardingSetupFailure: String, Equatable, Sendable {
         case .offline: CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .offline).body
         case .courseSaveLimit: OnboardingCopy.courseSaveLimit
         case .raceLocked: OnboardingCopy.explanation(for: .paywall) ?? ""
+        case .raceNameMissing: OnboardingCopy.raceNameMissing
         case .failed: CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .error).body
         }
     }
