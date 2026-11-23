@@ -30,7 +30,7 @@ Which `lib/` modules each route file imports directly.
 | [services/api/src/routes/pacingEstimates.ts](../../../services/api/src/routes/pacingEstimates.ts) | `activityHistoryStore.ts`, `courseHistory/resolve.ts`, `finishedEffortStore.ts`, `pacingEstimate/index.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomSchedule.ts](../../../services/api/src/routes/raceRoomSchedule.ts) | `billingEntitlement.ts`, `cutoffWarning.ts`, `pacingEstimateStore.ts`, `planAuthority.ts`, `raceProjection.ts`, `raceTeaser.ts` |
 | [services/api/src/routes/raceRoomStopPlans.ts](../../../services/api/src/routes/raceRoomStopPlans.ts) | `httpIdempotency.ts` |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceProjection.ts`, `raceRoomDeletion.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `roomRemovalStore.ts`, `trackingReminderScheduler.ts`, `unpaidRaceReminderScheduler.ts` |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | `athletePingTrack.ts`, `billingEntitlement.ts`, `billingEnv.ts`, `billingStore.ts`, `chatLive.ts`, `checkInEtaNotify.ts`, `courseHistory/resolve.ts`, `courseHistory/sources/crewcueRoom.ts`, `courseHistory/store.ts`, `deterministicRaceRoomId.ts`, `finishedEffort.ts`, `finishedEffortStore.ts`, `httpIdempotency.ts`, `lazyHydrate.ts`, `pacingEstimate/microModel/liveRemaining.ts`, `projectionTimeliness.ts`, `projectionTuning.ts`, `raceLock.ts`, `raceProjection.ts`, `raceRoomDeletion.ts`, `raceTeaser.ts`, `roomPersistence.ts`, `roomRemovalStore.ts`, `trackingReminderScheduler.ts`, `unpaidRaceReminderScheduler.ts` |
 | [services/api/src/routes/routingRoutes.ts](../../../services/api/src/routes/routingRoutes.ts) | — |
 | [services/api/src/routes/stravaRoutes.ts](../../../services/api/src/routes/stravaRoutes.ts) | `activityHistoryStore.ts`, `strava/mapStravaActivity.ts`, `strava/stravaClient.ts`, `stravaConnectionStore.ts` |
 | [services/api/src/routes/ws4AdaptivePlanRoutes.ts](../../../services/api/src/routes/ws4AdaptivePlanRoutes.ts) | `lazyHydrate.ts`, `roomPersistence.ts` |
@@ -45,7 +45,7 @@ High fan-in modules are where a change spreads furthest.
 | Module | Imported by | Lines |
 | --- | --- | --- |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 17 | 1464 |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5789 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 17 | 5946 |
 | [services/api/src/lib/projectionTuning.ts](../../../services/api/src/lib/projectionTuning.ts) | 9 | 51 |
 | [services/api/src/lib/chatPersistence.ts](../../../services/api/src/lib/chatPersistence.ts) | 8 | 366 |
 | [services/api/src/lib/pacingEstimate/microModel/simulate.ts](../../../services/api/src/lib/pacingEstimate/microModel/simulate.ts) | 7 | 319 |
@@ -65,7 +65,7 @@ High fan-in modules are where a change spreads furthest.
 | [services/api/src/lib/pacingEstimate/backtest.ts](../../../services/api/src/lib/pacingEstimate/backtest.ts) | 4 | 182 |
 | [services/api/src/lib/pacingEstimate/microModel/scenarios.ts](../../../services/api/src/lib/pacingEstimate/microModel/scenarios.ts) | 4 | 164 |
 | [services/api/src/lib/pacingEstimateStore.ts](../../../services/api/src/lib/pacingEstimateStore.ts) | 4 | 341 |
-| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 396 |
+| [services/api/src/lib/raceTeaser.ts](../../../services/api/src/lib/raceTeaser.ts) | 4 | 399 |
 | [services/api/src/lib/unpaidRaceReminderScheduler.ts](../../../services/api/src/lib/unpaidRaceReminderScheduler.ts) | 4 | 691 |
 | [services/api/src/lib/gpxActivityHistory.ts](../../../services/api/src/lib/gpxActivityHistory.ts) | 3 | 100 |
 | [services/api/src/lib/logSafeUrl.ts](../../../services/api/src/lib/logSafeUrl.ts) | 3 | 6 |
@@ -178,6 +178,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | `JoinPreviewEnvelope`, `RoomEnvelope`, `AttachEnvelope`, `IncidentEnvelope`, `IncidentListEnvelope`, `StravaStart`, `StravaConnection`, `ChatPreference`, `TransportFailure`, `ScheduleLoadResult`, `ScheduleCache`, `EstimateCache` +2 |
 | [packages/client-core/Sources/CrewCueClientCore/RaceDayReadout.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayReadout.swift) | `TrackStatus`, `ElevationProfile`, `RunnerPing`, `RunnerPingState`, `RunnerProgress`, `RaceDayReadout`, `CheckpointState`, `CheckpointTimelineRow`, `RaceDayReadouts` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceDeletion.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDeletion.swift) | `RaceDeletion` |
+| [packages/client-core/Sources/CrewCueClientCore/RaceLock.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceLock.swift) | `RaceLock`, `RaceName`, `RaceRenameCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift) | `RaceSummary`, `RaceRole`, `RaceRoster`, `RoomStorage`, `RaceListEnvelope` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift) | `RaceStartInput` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift) | `CrewSheetRow`, `CourseStopRow`, `RaceToolsCopy` |
@@ -201,12 +202,12 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-112 files under `packages/client-core/Sources/`.
+113 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 62 | 13438 |
-| `CrewCueClientCore/Generated` | 50 | 980 |
+| `CrewCueClientCore` | 63 | 13569 |
+| `CrewCueClientCore/Generated` | 50 | 982 |
 
 ### iOS app (SwiftUI)
 
@@ -215,7 +216,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 14 | 1661 |
+| `App` | 14 | 1670 |
 | `Brand` | 1 | 184 |
 | `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
@@ -230,8 +231,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `Screens/Map` | 7 | 3052 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 10 | 3772 |
-| `Screens/Pace` | 2 | 1886 |
-| `Screens/Profile` | 2 | 544 |
+| `Screens/Pace` | 2 | 1913 |
+| `Screens/Profile` | 2 | 620 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 365 |
 | `Screens/Shell` | 4 | 735 |
@@ -249,9 +250,9 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
 | `kotlin/com/crewcue/android/data` | 3 | 672 |
 | `kotlin/com/crewcue/android/di` | 1 | 94 |
-| `kotlin/com/crewcue/android/generated` | 50 | 515 |
+| `kotlin/com/crewcue/android/generated` | 50 | 516 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
-| `kotlin/com/crewcue/android/nav` | 2 | 104 |
+| `kotlin/com/crewcue/android/nav` | 2 | 106 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
 | `kotlin/com/crewcue/android/ui` | 5 | 1673 |
 | `kotlin/com/crewcue/android/ui/activity` | 1 | 194 |
