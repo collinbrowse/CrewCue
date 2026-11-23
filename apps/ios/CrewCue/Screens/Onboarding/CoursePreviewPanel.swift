@@ -4,14 +4,18 @@ import CrewCueClientCore
 
 /// Where the course preview goes in runner setup. While the picked file is read and previewed,
 /// and until the preview's map has drawn its first full frame, the Cairn loader sits centred in
-/// that space with "Reading your course…", and the map, summary and elevation profile stay hidden
-/// under it, so no blank tiles or empty profile show first. Reduce Motion shows the loader's
-/// finished stack. A failed preview shows nothing here: the step offers Try again.
+/// that space, and the map, summary and elevation profile stay hidden under it, so no blank tiles
+/// or empty profile show first. It says "Reading your course…" only while a picked file is read;
+/// a preview restored after a relaunch waits for its map under the loader alone. Reduce Motion
+/// shows the loader's finished stack. A failed preview shows nothing here: the step offers Try
+/// again.
 struct CoursePreviewSlot: View {
     let preview: CoursePreview?
     var summary: String?
     /// The file is being read and previewed.
     var previewing: Bool
+    /// A picked file is being read, from the pick until its map is ready (the caption shows).
+    var reading: Bool
     var mapReady: Bool
     var onMapReady: () -> Void
     /// About the preview's own height (map, summary, profile), so it replaces the loader in place.
@@ -35,12 +39,13 @@ struct CoursePreviewSlot: View {
                     .frame(maxWidth: .infinity, minHeight: placeholderHeight)
             }
             if loading {
-                CourseLoading()
+                CourseLoading(reading: previewing || reading)
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.25), value: loading)
-        .task(id: preview?.courseFileName ?? "") {
+        // Keyed on the preview itself: another file with the same name waits for its own map.
+        .task(id: preview) {
             guard waitingForMap else { return }
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled else { return }
@@ -49,8 +54,9 @@ struct CoursePreviewSlot: View {
     }
 }
 
-/// The loader in the course preview's place, with its caption.
+/// The loader in the course preview's place, captioned while a picked file is read.
 private struct CourseLoading: View {
+    let reading: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.crew) private var theme
 
@@ -58,16 +64,18 @@ private struct CourseLoading: View {
         VStack(spacing: CrewSpace.stackSm) {
             CairnLoader(onLight: scheme == .light)
                 .frame(width: 64, height: 64)
-            Text(OnboardingCopy.readingCourse)
-                .font(CrewFont.label)
-                .foregroundStyle(theme.body)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if reading {
+                Text(OnboardingCopy.readingCourse)
+                    .font(CrewFont.label)
+                    .foregroundStyle(theme.body)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(OnboardingCopy.readingCourse)
+        .accessibilityLabel(reading ? OnboardingCopy.readingCourse : OnboardingCopy.loading)
         .accessibilityIdentifier("crewcue.onboarding.course-loading")
     }
 }

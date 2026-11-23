@@ -1,9 +1,11 @@
 import XCTest
 
 /// Runner setup signed in (clients/behavior/onboarding-runner-setup.md) against a running API:
-/// the race name, the course loader, Back between steps with what was entered kept, and the
-/// history step's tips. It needs a server and a dev session for a user with no race yet, so it is
-/// skipped unless the run names them:
+/// the race name, the course loader, Back between steps with what was entered kept, the history
+/// step's tips, a relaunch whose Back to history keeps the estimate, and a phone without the
+/// setup draft (signed out and back in) going Back and on again without the course file. It needs
+/// a server and a dev session for a user with no race yet, so it is skipped unless the run names
+/// them:
 ///
 ///     TEST_RUNNER_CREWCUE_SETUP_API_BASE_URL=http://127.0.0.1:3187 \
 ///     TEST_RUNNER_CREWCUE_SETUP_USER=<new user id> TEST_RUNNER_CREWCUE_SETUP_TOKEN=<HS256 dev JWT> \
@@ -52,6 +54,17 @@ final class OnboardingRunnerSetupFlowTests: XCTestCase {
         if onPhone.waitForExistence(timeout: 5) { onPhone.tap() }
         XCTAssertTrue(file.waitForExistence(timeout: 5), "\(name) missing from the picker")
         file.tap()
+    }
+
+    /// The teaser's finish once it has loaded (not the "—" it shows before).
+    private func loadedFinish(_ app: XCUIApplication) -> String? {
+        let finish = element(app, "crewcue.onboarding.teaser-finish")
+        let loaded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND NOT (label CONTAINS %@)", "—"),
+            object: finish
+        )
+        guard XCTWaiter().wait(for: [loaded], timeout: 20) == .completed else { return nil }
+        return finish.label
     }
 
     func testRaceNameLoaderBackAndHistoryTips() throws {
@@ -157,6 +170,48 @@ final class OnboardingRunnerSetupFlowTests: XCTestCase {
         app.buttons["crewcue.onboarding.skip-history"].tap()
         XCTAssertTrue(element(app, "crewcue.onboarding.step.projectionTeaser").waitForExistence(timeout: 20), "teaser missing")
         XCTAssertTrue(back.exists, "Back shows on the teaser")
+        let finish = try XCTUnwrap(loadedFinish(app), "the teaser never showed a finish")
         keep(app, "teaser")
+
+        // A relaunch opens the teaser. Back to history offers Continue (not only Import and Skip),
+        // and Continue keeps the estimate instead of computing another.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.projectionTeaser").waitForExistence(timeout: 20), "the relaunch didn't open the teaser")
+        back.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.history").waitForExistence(timeout: 5))
+        let continueStep = app.buttons["crewcue.onboarding.continue"]
+        XCTAssertTrue(continueStep.exists, "a history step already passed has no Continue")
+        keep(app, "history-after-relaunch")
+        continueStep.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.projectionTeaser").waitForExistence(timeout: 20))
+        XCTAssertEqual(loadedFinish(app), finish, "Continue on the history step changed the estimate")
+
+        // Signed out and back in: the setup draft is gone (no course file on this phone). The
+        // history step is open again; Back to the start time shows the race's start, and Continue
+        // moves on without the file. The course step keeps the race's course.
+        app.buttons["crewcue.onboarding.account-menu"].tap()
+        let signOut = app.buttons["crewcue.onboarding.sign-out"]
+        XCTAssertTrue(signOut.waitForExistence(timeout: 5), "sign out missing from the account menu")
+        signOut.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 10), "sign-out didn't reach the chooser")
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.history").waitForExistence(timeout: 20), "signed in again, history isn't the open step")
+        back.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.startTime").waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["crewcue.onboarding.choose-course"].exists, "the start time asks for the course file again")
+        XCTAssertTrue(continueStep.isEnabled, "Continue on the start time needs the course file")
+        keep(app, "start-time-without-draft")
+        back.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.course").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "crewcue.onboarding.course-saved").exists, "the course step shows the empty pick state")
+        XCTAssertFalse(element(app, "crewcue.onboarding.empty").exists)
+        XCTAssertEqual(element(app, "crewcue.onboarding.race-name").value as? String, "Canyons 2027")
+        keep(app, "course-without-draft")
+        continueStep.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.startTime").waitForExistence(timeout: 5))
+        continueStep.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.history").waitForExistence(timeout: 10), "Continue on the start time didn't move on")
     }
 }

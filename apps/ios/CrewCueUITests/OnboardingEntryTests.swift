@@ -59,12 +59,13 @@ final class OnboardingEntryTests: XCTestCase {
         XCTAssertEqual(back.label, "Back")
         XCTAssertLessThan(back.frame.midX, app.frame.midX, "Back is the bar's leading item")
 
-        // The bar draws a 36 pt glass button, like every bar button; its target is at least 44 pt,
-        // so a tap 3 pt below the glass still goes back.
-        let below = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: back.frame.midX, dy: back.frame.maxY + 3))
-        below.tap()
-        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5), "Back's target is under 44 pt")
+        // A tap inside the button's frame, near its bottom edge, goes back (the whole frame is the
+        // target, not only the glass the bar draws around the chevron and title).
+        let insideBottom = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: back.frame.midX, dy: back.frame.maxY - 3))
+        XCTAssertTrue(back.frame.height > 6, "Back's frame is too short to tap inside")
+        insideBottom.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5), "a tap inside Back's frame didn't go back")
 
         // From the first step, the swipe from the leading edge returns to the chooser too.
         element(app, "crewcue.onboarding.chooser.runner").tap()

@@ -36,15 +36,8 @@ struct RunnerSetupView: View {
                 if model.showsBack {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: model.goBack) {
-                            // The chevron and the word "Back" (a bar button's `Label` would draw
-                            // only its icon).
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left")
-                                    .fontWeight(.semibold)
-                                Text(OnboardingCopy.back)
-                            }
-                            // Tinted like the bar's other items (an image-only item takes the tint).
-                            .foregroundStyle(model.canGoBack ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            Label(OnboardingCopy.back, systemImage: "chevron.left")
+                                .labelStyle(.titleAndIcon)
                         }
                         .disabled(!model.canGoBack)
                         .accessibilityLabel(OnboardingCopy.back)
@@ -53,6 +46,10 @@ struct RunnerSetupView: View {
                 }
             }
             .gesture(EdgeSwipeBack(enabled: model.canGoBack, rightToLeft: layoutDirection == .rightToLeft, onBack: model.goBack))
+            // VoiceOver's escape (the two-finger Z) goes Back too, like a pushed screen's.
+            .accessibilityAction(.escape) {
+                if model.canGoBack { model.goBack() }
+            }
             .sheet(isPresented: $model.showsZonePicker) {
                 TimeZonePicker(model: model)
             }
@@ -208,6 +205,7 @@ struct RunnerSetupView: View {
             preview: model.coursePreview,
             summary: model.courseSummary,
             previewing: model.previewingCourse,
+            reading: model.readingCourse,
             mapReady: model.courseMapReady,
             onMapReady: model.noteCourseMapReady
         )
@@ -406,9 +404,12 @@ private struct CourseStep: View {
         .courseImporter(model: model)
     }
 
+    /// Nothing to continue with yet: the checklist's Empty state and Choose course file.
+    private var empty: Bool { model.shownCourseFileName == nil && model.courseContinue == .chooseFile }
+
     private var courseFile: some View {
         VStack(alignment: .leading, spacing: CrewSpace.stackSm) {
-            if model.courseFileName == nil {
+            if empty {
                 // The checklist's Empty state.
                 Text(CrewCueClientCore.featureScreen(id: "onboarding-runner-setup", state: .empty).body)
                     .font(CrewFont.body)
@@ -416,40 +417,70 @@ private struct CourseStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.empty")
             }
-            if let name = model.courseFileName {
+            if let name = model.shownCourseFileName {
                 Label(name, systemImage: "doc")
                     .font(CrewFont.label)
                     .foregroundStyle(theme.ink)
                     .accessibilityIdentifier("crewcue.onboarding.course-file")
+            } else if model.courseContinue == .keepSavedCourse {
+                // The race saved its course and this phone doesn't hold the file (signed out and
+                // back in, another phone): Continue keeps it, nothing is uploaded again.
+                SavedCourse(fileName: model.savedCourseFileName)
             }
-            Button(model.courseFileName == nil ? OnboardingCopy.chooseCourseFile : OnboardingCopy.chooseAnotherCourseFile) {
+            Button(empty ? OnboardingCopy.chooseCourseFile : OnboardingCopy.chooseAnotherCourseFile) {
                 model.importingCourse = true
             }
-            .buttonStyle(model.courseFileName == nil ? .crewPrimary : .crewSecondary)
+            .buttonStyle(empty ? .crewPrimary : .crewSecondary)
             .crewBusy(model.previewingCourse)
             // The file creates the race, which needs its name first.
             .disabled(!model.canChooseCourse)
             .accessibilityIdentifier("crewcue.onboarding.choose-course")
             if model.courseNeedsRetry {
-                // The preview failed: this previews the same file again, it doesn't move on.
+                // The preview failed: this reads the same file again, it doesn't move on. A race
+                // still to be created needs its name first.
                 Button(OnboardingCopy.tryAgain) {
-                    Task { await model.previewCourse() }
-                }
-                .buttonStyle(.crewPrimary)
-                .accessibilityIdentifier("crewcue.onboarding.retry")
-            } else if model.courseFileName != nil {
-                Button(OnboardingCopy.continueLabel) {
-                    if model.coursePreview == nil {
-                        Task { await model.previewCourse() }
-                    } else {
-                        model.continueCourse()
-                    }
+                    Task { await model.retryCourse() }
                 }
                 .buttonStyle(.crewPrimary)
                 .disabled(!model.canChooseCourse)
+                .accessibilityIdentifier("crewcue.onboarding.retry")
+                if model.pendingCourse != nil {
+                    // A file picked after Back that couldn't be read: keep the course from before.
+                    Button(OnboardingCopy.pickerCancel, action: model.cancelPendingCourse)
+                        .buttonStyle(.crewGhost)
+                        .accessibilityIdentifier("crewcue.onboarding.cancel-course")
+                }
+            } else if !empty {
+                Button(OnboardingCopy.continueLabel) {
+                    Task { await model.continueCourse() }
+                }
+                .buttonStyle(.crewPrimary)
+                .disabled(!model.canContinueCourse)
                 .accessibilityIdentifier("crewcue.onboarding.continue")
             }
         }
+    }
+}
+
+/// The course the race saved, shown without its file on this phone.
+private struct SavedCourse: View {
+    let fileName: String?
+    @Environment(\.crew) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(OnboardingCopy.courseSaved, systemImage: "checkmark.circle")
+                .font(CrewFont.label)
+                .foregroundStyle(theme.ink)
+            if let fileName {
+                Text(verbatim: fileName)
+                    .font(CrewFont.body)
+                    .foregroundStyle(theme.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("crewcue.onboarding.course-saved")
     }
 }
 
@@ -497,17 +528,19 @@ private struct StartTimeStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("crewcue.onboarding.dst-gap")
             }
-            if model.courseXml == nil {
-                // The race has no saved course and this phone lost the file: pick it again.
+            if model.startNeedsCourseFile {
+                // The race has no saved course and this phone lost the file: pick it again. A race
+                // that has its course never needs the file here.
                 Button(OnboardingCopy.chooseCourseFile) { model.importingCourse = true }
                     .buttonStyle(.crewSecondary)
+                    .disabled(model.busy)
                     .accessibilityIdentifier("crewcue.onboarding.choose-course")
             }
             Button(OnboardingCopy.continueLabel) {
-                Task { await model.saveStart() }
+                Task { await model.continueStart() }
             }
             .buttonStyle(.crewPrimary)
-            .disabled(!model.canSaveStart)
+            .disabled(!model.canContinueStart)
             .crewBusy(model.busy)
             .accessibilityIdentifier("crewcue.onboarding.continue")
         }
@@ -538,10 +571,12 @@ private struct HistoryStep: View {
                     .accessibilityIdentifier("crewcue.onboarding.history-comparison")
             }
             Button(OnboardingCopy.importPastRun) { model.importingHistory = true }
-                .buttonStyle(model.historyLine == nil ? .crewPrimary : .crewSecondary)
+                .buttonStyle(model.historyShowsContinue ? .crewSecondary : .crewPrimary)
                 .disabled(model.busy)
                 .accessibilityIdentifier("crewcue.onboarding.import-history")
-            if model.historyImported {
+            if model.historyShowsContinue {
+                // After an import, and always on a history step already passed: Continue keeps
+                // the estimate the race has unless a course save dropped it.
                 Button(OnboardingCopy.continueLabel) {
                     Task { await model.continueHistory() }
                 }

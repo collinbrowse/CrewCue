@@ -146,13 +146,16 @@ final class ShellModel {
     /// Re-reads the onboarding state. `races` is the race list when one just answered.
     func syncOnboarding(races: [OnboardingRace]? = nil) {
         onboarding.refresh(signedIn: isSignedIn, userId: signedInUserId, races: races, activeRoomId: signedInRoomId)
+        // Setup reads only its own race's entries (its race and the state's can differ, on the
+        // dev route or while a new race isn't listed yet).
         runnerSetup.follow(
             state: onboarding.state,
             signedIn: isSignedIn,
             userId: signedInUserId,
             displayName: signedInDisplayName,
-            race: onboarding.race(onboarding.state.roomId),
-            raceName: roster.races.first { $0.id == onboarding.state.roomId }?.name
+            races: onboarding.races,
+            raceNames: Dictionary(roster.races.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }),
+            freshRaces: races != nil
         )
         syncRacePreview()
     }
@@ -244,8 +247,15 @@ final class ShellModel {
             self?.showBilling()
         }
         runnerSetup.onBack = { [weak self] in
-            self?.onboarding.clearChoice()
-            self?.syncOnboarding()
+            guard let self else { return }
+            onboarding.clearChoice()
+            // `crewcue://dev/onboarding-runner-setup` shows setup whatever the state: Back leaves
+            // it for the app's own launch, which now opens the chooser.
+            if route.featureId == "onboarding-runner-setup" {
+                fixtureOverlay = false
+                show(Route(featureId: "app-shell", state: .success))
+            }
+            syncOnboarding()
         }
     }
 
