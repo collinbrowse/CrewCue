@@ -13,7 +13,12 @@ function buildClaims(sub: string) {
   return { sub, teamIds: ["team-1"], roomRoles: {} };
 }
 
-async function createPaidActiveRoom(app: ReturnType<typeof buildApp>, ownerToken: string): Promise<string> {
+async function createPaidActiveRoom(
+  app: ReturnType<typeof buildApp>,
+  ownerToken: string,
+  // Started long ago, so only the 48 h backlog limit applies in these route tests.
+  raceStartAt = "2026-05-12T16:00:00.000Z"
+): Promise<string> {
   const create = await app.inject({
     method: "POST",
     url: "/race-rooms",
@@ -44,8 +49,7 @@ async function createPaidActiveRoom(app: ReturnType<typeof buildApp>, ownerToken
         { latitude: 42.01, longitude: -70.0 }
       ]),
       plannedPaceSecondsPerKm: 720,
-      // Started long ago, so only the 48 h backlog limit applies in these route tests.
-      raceStartAt: "2026-05-12T16:00:00.000Z"
+      raceStartAt
     },
     headers: { authorization: `Bearer ${ownerToken}` }
   });
@@ -354,7 +358,9 @@ test("a backlog upload that waited for the room lock is projected on the course 
   const app = buildApp();
   await app.ready();
   const token = app.jwt.sign(buildClaims("owner-user"));
-  const roomId = await createPaidActiveRoom(app, token);
+  // Started an hour ago: the race is not locked yet (no race ping, inside 48 h), so the route can change.
+  const raceStartAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 3_600_000).toISOString();
+  const roomId = await createPaidActiveRoom(app, token, raceStartAt);
 
   let release: (() => void) | undefined;
   const gate = new Promise<void>((resolve) => {
@@ -394,7 +400,7 @@ test("a backlog upload that waited for the room lock is projected on the course 
         },
         routeOverlayLayer: lineStringRouteOverlayForCheckpoints(longer),
         plannedPaceSecondsPerKm: 720,
-        raceStartAt: "2026-05-12T16:00:00.000Z"
+        raceStartAt
       },
       headers: { authorization: `Bearer ${token}` }
     });

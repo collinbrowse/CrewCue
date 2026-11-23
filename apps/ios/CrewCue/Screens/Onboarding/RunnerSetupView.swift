@@ -585,8 +585,9 @@ private struct HistoryStep: View {
                 .disabled(model.busy)
                 .accessibilityIdentifier("crewcue.onboarding.import-history")
             if model.historyShowsContinue {
-                // After an import, and always on a history step already passed: Continue keeps
-                // the estimate the race has unless a course save dropped it.
+                // After an import, always on a history step already passed, and on a race that
+                // already has an estimate: Continue keeps that estimate unless a course save
+                // dropped it.
                 Button(OnboardingCopy.continueLabel) {
                     Task { await model.continueHistory() }
                 }
