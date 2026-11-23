@@ -6,7 +6,7 @@ import Foundation
 ///   invite's token or code; left out, the saved pending join's code; `hasPendingInvite: true`
 ///   with no code saved is an invite that can't be confirmed signed out), `races?` (rows from
 ///   `myRaces`: `id`, `role`, `entitlementStatus`,
-///   `raceStartAt?`, `activatedAt?`, `hasCourse`), `activeRoomId?`. Leave `races` out (or null)
+///   `raceStartAt?`, `activatedAt?`, `hasCourse`, `hasEstimate?`), `activeRoomId?`. Leave `races` out (or null)
 ///   while `myRaces` hasn't answered: the state then follows the list saved by the last read that
 ///   had one, or is `loading` when there is none. A signed-in read adopts the signed-out guest's
 ///   progress and saves a loaded list.
@@ -212,7 +212,8 @@ extension RuntimeCall {
                 role: text(row, "role") ?? "crew_member",
                 entitlementStatus: entitlement ?? "unpaid",
                 raceStartAt: OnboardingRace.raceClockStart(raceStartAt: text(row, "raceStartAt"), activatedAt: text(row, "activatedAt")),
-                hasCourse: boolValue(row["hasCourse"]) ?? false
+                hasCourse: boolValue(row["hasCourse"]) ?? false,
+                hasEstimate: boolValue(row["hasEstimate"]) ?? false
             )
         }
     }

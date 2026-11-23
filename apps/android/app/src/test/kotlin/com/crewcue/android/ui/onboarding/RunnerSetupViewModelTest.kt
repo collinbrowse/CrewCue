@@ -46,9 +46,15 @@ private const val MOVED_START = "2026-08-15T13:00:00.000Z"
 private const val COURSE_XML = "<gpx/>"
 
 /** The race list's row for setup's race, as `myRaces` answers it. */
-private fun raceRow(id: String = "room-1", name: String = "Western States 2026", hasCourse: Boolean = true, raceStartAt: String? = SAVED_START) =
+private fun raceRow(
+    id: String = "room-1",
+    name: String = "Western States 2026",
+    hasCourse: Boolean = true,
+    raceStartAt: String? = SAVED_START,
+    hasEstimate: Boolean = false
+) =
     JSONObject().put("id", id).put("name", name).put("role", "athlete").put("hasCourse", hasCourse)
-        .put("raceStartAt", raceStartAt ?: JSONObject.NULL)
+        .put("raceStartAt", raceStartAt ?: JSONObject.NULL).put("hasEstimate", hasEstimate)
 
 /**
  * A draft on a phone that went through setup up to the history step: the race, its name, the
@@ -1331,6 +1337,40 @@ class RunnerSetupViewModelTest {
         assertTrue(runtime.imports.isEmpty())
         assertTrue(runtime.startSaves.isEmpty())
         assertEquals(0, runtime.calls.count { it == "gpxPreview" })
+    }
+
+    @Test
+    fun aPhoneWithNoSetupProgressKeepsTheRacesEstimateOnHistory() = runTest(dispatcher) {
+        // A reinstall or cleared app data: no draft, no progress, so the history step is the
+        // frontier again. The race list has the course, the start and the estimate attached there.
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray().put(raceRow(hasEstimate = true)), racesVersion = 1)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.isReviewing)
+        assertTrue(model.historyShowsContinue)
+        model.finishHistory()
+        // Continue keeps that estimate: none computed, and the step is marked done on this phone
+        // so setup doesn't open it again.
+        assertEquals(0, runtime.calls.count { it == "computeEstimate" })
+        assertEquals(listOf(Triple(SetupSteps.HISTORY, "done", null as String?)), runtime.marks)
+        assertEquals(SetupSteps.TEASER, model.step)
+    }
+
+    @Test
+    fun aPhoneWithNoSetupProgressStillSkipsToARoughEstimate() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray().put(raceRow(hasEstimate = true)), racesVersion = 1)
+        model.skipHistory()
+        assertEquals(listOf(HISTORY_NONE), runtime.historyModes)
+        assertEquals(listOf(Triple(SetupSteps.HISTORY, "skipped", null as String?)), runtime.marks)
+    }
+
+    @Test
+    fun aRaceWithNoEstimateOffersImportAndSkipOnTheHistoryStep() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray().put(raceRow(hasEstimate = false)), racesVersion = 1)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.historyShowsContinue)
     }
 
     @Test
