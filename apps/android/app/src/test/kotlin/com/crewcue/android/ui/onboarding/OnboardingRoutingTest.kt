@@ -150,6 +150,19 @@ class OnboardingRoutingTest {
         assertFalse(OnboardingRouting.ownsScreen(false, stateOverlay = true, featureId = RACE_PREVIEW_FEATURE, joinOpenedByOnboarding = false))
     }
 
+    @Test
+    fun signInBackLeavesOnlySignedOutAndNotWhileAuth0Works() {
+        assertTrue(OnboardingRouting.leavesSignIn(signedIn = false, showsShell = false, featureId = "auth-sign-in", authWorking = false))
+        // Auth0's page is up (or about to be): Back waits for it to come back.
+        assertFalse(OnboardingRouting.leavesSignIn(signedIn = false, showsShell = false, featureId = "auth-sign-in", authWorking = true))
+        // Signed in, onboarding decides what follows sign-in; Back has nothing to leave.
+        assertFalse(OnboardingRouting.leavesSignIn(signedIn = true, showsShell = false, featureId = "auth-sign-in", authWorking = false))
+        // Already elsewhere (the chooser, join, the tab bar): a late Back changes nothing.
+        assertFalse(OnboardingRouting.leavesSignIn(signedIn = false, showsShell = false, featureId = SETUP_FEATURE, authWorking = false))
+        assertFalse(OnboardingRouting.leavesSignIn(signedIn = false, showsShell = false, featureId = "join-crew", authWorking = false))
+        assertFalse(OnboardingRouting.leavesSignIn(signedIn = false, showsShell = true, featureId = "auth-sign-in", authWorking = false))
+    }
+
     // client-core decides the access (RaceAccessTests.swift); these cover only the pane it draws.
     private val unpaidRunner = RaceAccess(unpaid = true, loadsRace = true, samplesLocation = false, gatesActions = true, lockedReason = null)
     private val lockedCrew = RaceAccess(
