@@ -1177,6 +1177,25 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun courseSavedAndTheRaceListsNameSurviveProcessDeathBeforeTheListComesBack() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        // Signed in on another phone: no file here, the race list has the course and the name.
+        val model = model(saved)
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray().put(raceRow()), racesVersion = 1)
+        model.goBack()
+        model.goBack()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.showsCourseSaved)
+        // A new process, before the shell has a race list again: only the saved state.
+        val restored = model(saved, store = MemoryDrafts(), initialFlow = flow(SetupSteps.HISTORY, roomId = "room-1"))
+        assertEquals(SetupSteps.COURSE, restored.step)
+        assertTrue(restored.showsCourseSaved)
+        assertEquals(CourseContinue.KeepSavedCourse, restored.courseAction)
+        assertTrue(restored.raceNameLocked)
+        assertEquals("Western States 2026", restored.shownRaceName)
+    }
+
+    @Test
     fun aRelaunchChecksAgainOnEachFreshRaceListUntilItReopensAStep() = runTest(dispatcher) {
         // A course save after the history step dropped its estimate, then the app was closed.
         drafts.save("ada", RunnerSetupDraft(roomId = "room-1", displayName = "Ada", historyRedo = true))

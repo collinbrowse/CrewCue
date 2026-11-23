@@ -206,9 +206,9 @@ class RunnerSetupViewModel(
     private var mapWait: Job? = null
 
     /** The race list's name for this setup's race (never another race's). */
-    private var listedRaceName by mutableStateOf<String?>(null)
+    private var listedRaceName by mutableStateOf(savedState.get<String>(KEY_LISTED_RACE_NAME))
     /** The race list says the race has a course. */
-    private var raceListHasCourse by mutableStateOf(false)
+    private var raceListHasCourse by mutableStateOf(savedState.get<Boolean>(KEY_RACE_LIST_HAS_COURSE) ?: false)
 
     /**
      * The relaunch check hasn't reopened a step yet and the runner hasn't moved since this launch.
@@ -283,8 +283,8 @@ class RunnerSetupViewModel(
             teaser = null
             keepComparison(null)
             pendingCourse = null
-            listedRaceName = null
-            raceListHasCourse = false
+            keepListedRaceName(null)
+            keepRaceListHasCourse(false)
             keepReviewing(null)
             keepLocalStep(null)
             keepEditedStep(null)
@@ -691,7 +691,7 @@ class RunnerSetupViewModel(
                                 historyLine = null
                             )
                         )
-                        raceListHasCourse = true
+                        keepRaceListHasCourse(true)
                         keepComparison(null)
                         teaser = null
                         moveOn(SetupSteps.HISTORY)
@@ -924,8 +924,8 @@ class RunnerSetupViewModel(
         val room = roomId ?: return
         races ?: return
         val row = (0 until races.length()).mapNotNull { races.optJSONObject(it) }.firstOrNull { it.optText("id") == room } ?: return
-        row.optText("name").trim().ifEmpty { null }?.let { listedRaceName = it }
-        raceListHasCourse = row.optBoolean("hasCourse")
+        row.optText("name").trim().ifEmpty { null }?.let(::keepListedRaceName)
+        keepRaceListHasCourse(row.optBoolean("hasCourse"))
         followRaceStart(row.optText("raceStartAt").ifBlank { null }, row.optText("activatedAt").ifBlank { null })
     }
 
@@ -1011,7 +1011,7 @@ class RunnerSetupViewModel(
     private fun forgetGoneRace() {
         val name = shownRaceName.orEmpty()
         roomId = null
-        raceListHasCourse = false
+        keepRaceListHasCourse(false)
         writeDraft(
             draft.copy(
                 roomId = null,
@@ -1264,6 +1264,17 @@ class RunnerSetupViewModel(
         savedState[KEY_EDITED_STEP] = value
     }
 
+    /** Kept across process death, so "Course saved" and the read-only name show before the race list comes back. */
+    private fun keepListedRaceName(value: String?) {
+        listedRaceName = value
+        savedState[KEY_LISTED_RACE_NAME] = value
+    }
+
+    private fun keepRaceListHasCourse(value: Boolean) {
+        raceListHasCourse = value
+        savedState[KEY_RACE_LIST_HAS_COURSE] = value
+    }
+
     private fun keepHistoryMessage(value: String?) {
         historyMessage = value
         savedState[KEY_HISTORY_MESSAGE] = value
@@ -1312,6 +1323,8 @@ class RunnerSetupViewModel(
         private const val KEY_REVIEWING = "runner-setup.reviewing"
         private const val KEY_LOCAL_STEP = "runner-setup.local-step"
         private const val KEY_EDITED_STEP = "runner-setup.edited-step"
+        private const val KEY_LISTED_RACE_NAME = "runner-setup.listed-race-name"
+        private const val KEY_RACE_LIST_HAS_COURSE = "runner-setup.race-list-has-course"
         const val DIALOG_DATE = "date"
         const val DIALOG_TIME = "time"
         const val DIALOG_ZONE = "zone"
