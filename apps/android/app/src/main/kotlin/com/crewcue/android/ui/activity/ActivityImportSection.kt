@@ -8,6 +8,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Download
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.SettingRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,34 +65,39 @@ fun ActivityImportSection(shell: ShellViewModel, modifier: Modifier = Modifier) 
         }
     }
     LaunchedEffect(shell.session?.userId) { model.refresh() }
-    ProductCard(
-        modifier
+    SettingRow(
+        Icons.Outlined.Download,
+        "Import your training history",
+        modifier = modifier
             .testTag("crewcue.activity-import")
-            .semantics { contentDescription = "Past runs" }
-    ) {
-        SectionHeader("Past runs")
-        Text(
-            "Import runs exported from Garmin, COROS, Suunto or another watch app. They improve the pace estimate.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            model.message,
-            modifier = Modifier.padding(top = 8.dp).testTag("crewcue.activity-import.message")
-                .semantics { contentDescription = model.message }
-        )
-        PrimaryButton(
-            "Import past run",
-            // FIT and TCX have no registered MIME type on most devices; the server checks the content.
-            onClick = { picker.launch(arrayOf("*/*")) },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.busy
-        )
-        model.items.forEach { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            .semantics { contentDescription = "Training history" },
+        hint = if (model.message.isBlank() || model.message == ACTIVITY_IMPORT_EMPTY) ACTIVITY_IMPORT_HINT else model.message,
+        trailing = {
+            PillButton(
+                "Import",
+                // FIT and TCX have no registered MIME type on most devices; the server checks the content.
+                onClick = { picker.launch(arrayOf("*/*")) },
+                prominent = true,
+                busy = model.busy,
+                spoken = "Import past run"
+            )
+        },
+        below = if (model.items.isEmpty()) null else {
+            {
+                model.items.forEach { line ->
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics { contentDescription = line }
+                    )
+                }
+            }
         }
-    }
+    )
 }
+
+const val ACTIVITY_IMPORT_HINT = "Runs from Garmin, COROS, Suunto or any watch app (.gpx, .fit, .tcx). They sharpen your estimate."
 
 /** Display name and bytes, or null when the file can't be read or is over the size limit. */
 private fun readFile(context: Context, uri: Uri): Pair<String, ByteArray>? {

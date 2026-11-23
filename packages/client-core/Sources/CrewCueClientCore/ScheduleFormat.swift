@@ -48,18 +48,6 @@ public enum ScheduleFormat {
         return "\(title)  \(formatDurationSeconds(elapsedSeconds))  \(clock)"
     }
 
-    public static func crewSheetText(
-        roomId: String,
-        capturedAtIso: String,
-        stopLines: [String],
-        timeZone: TimeZone = DeviceTimeZone.current
-    ) -> String {
-        let captured = formatScheduleClock(capturedAtIso, timeZone: timeZone)
-        var lines = ["Crew sheet", "Captured \(captured)", "Room \(roomId)"]
-        lines.append(contentsOf: stopLines)
-        return lines.joined(separator: "\n")
-    }
-
     public static func checkpointDisplayTitle(id: String, title: String?) -> String {
         let raw = (title?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? slugToTitle(id)
         return raw.uppercased()

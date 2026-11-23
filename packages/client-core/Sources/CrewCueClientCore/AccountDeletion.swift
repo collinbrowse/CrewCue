@@ -4,6 +4,7 @@ import Foundation
 /// call `DELETE /me` through `run`, and sign out (which wipes per-user stores) only on `.deleted`.
 public enum AccountDeletion {
     public static let rowTitle = "Delete account"
+    public static let rowHint = "Erases your profile, races and run history. This can't be undone."
     public static let confirmTitle = "Delete your account?"
     public static let confirmBody = """
         This permanently deletes your CrewCue account: your profile, race history, pace estimates, \
@@ -13,21 +14,17 @@ public enum AccountDeletion {
     public static let confirmButton = "Delete account"
     public static let cancelButton = "Cancel"
     public static let workingMessage = "Deleting your account…"
-    /// Web deletion page (Play requirement). Apps read their build-config URL and fall back to this.
-    public static let defaultWebURL = "https://crewcue.app/delete-account"
-    public static let webLinkLabel = "Delete on the web instead"
 
     /// The same strings for Android, through runtime op `accountDeletionCopy`.
     static var copy: [String: String] {
         [
             "rowTitle": rowTitle,
+            "rowHint": rowHint,
             "confirmTitle": confirmTitle,
             "confirmBody": confirmBody,
             "confirmButton": confirmButton,
             "cancelButton": cancelButton,
-            "workingMessage": workingMessage,
-            "defaultWebURL": defaultWebURL,
-            "webLinkLabel": webLinkLabel
+            "workingMessage": workingMessage
         ]
     }
 

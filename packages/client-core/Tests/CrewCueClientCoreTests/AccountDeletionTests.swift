@@ -90,8 +90,9 @@ private func graph(_ transport: some HTTPTransport) -> ClientGraph {
     let copy = try #require(response["result"] as? [String: String])
     #expect(copy["confirmTitle"] == AccountDeletion.confirmTitle)
     #expect(copy["confirmBody"] == AccountDeletion.confirmBody)
-    #expect(copy["defaultWebURL"] == AccountDeletion.defaultWebURL)
-    #expect(copy.count == 8)
+    #expect(copy["rowHint"] == AccountDeletion.rowHint)
+    #expect(copy["defaultWebURL"] == nil)
+    #expect(copy.count == 7)
 }
 
 private func call(_ fields: [String: Any]) async throws -> [String: Any] {

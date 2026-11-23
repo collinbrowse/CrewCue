@@ -75,10 +75,17 @@ final class ChatNotificationPrefsModel {
 
     private func apply(_ value: String) {
         preference = value
-        if value == "none" {
-            message = "Alerts are off."
-        } else {
-            message = "Mentions and check-ins notify."
+        message = ChatAlertCopy.hint(for: value)
+    }
+}
+
+/// What each crew chat alert choice means, shown under the Settings row.
+enum ChatAlertCopy {
+    static func hint(for preference: String) -> String {
+        switch preference {
+        case "none": "Crew chat won't notify you. Check-ins still do."
+        case "mentions": "Only messages that @mention you, and check-ins."
+        default: "Every crew chat message in this race notifies you."
         }
     }
 }

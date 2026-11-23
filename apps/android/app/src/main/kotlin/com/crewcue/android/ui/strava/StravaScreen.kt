@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsRun
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.SettingRow
 import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.ProductTitle
@@ -56,33 +60,26 @@ fun StravaSection(shell: ShellViewModel, modifier: Modifier = Modifier) {
     LaunchedEffect(shell.stravaSignal.id, shell.stravaSignal.failed) {
         model.refresh(context.isOnline(), shell.stravaSignal.failed)
     }
-    ProductCard(
-        modifier
-            .testTag("crewcue.strava")
-            .semantics { contentDescription = "Strava" }
-    ) {
-        SectionHeader("Strava")
-        Text("Recent efforts improve the pace estimate.", style = MaterialTheme.typography.bodyMedium)
-        if (model.connected) {
-            val line = if (model.athleteId.isNullOrBlank()) "Connected" else "Connected ${model.athleteId}"
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
-        }
-        PrimaryButton(
-            "Connect",
-            onClick = { model.connect(context) },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.busy
-        )
-        SecondaryButton(
-            "Disconnect",
-            onClick = { model.disconnect(context.isOnline()) },
-            modifier = Modifier.padding(top = 8.dp),
-            enabled = !model.busy
-        )
+    val hint = when {
+        !model.status.isNullOrBlank() && model.status != STRAVA_EMPTY -> model.status
+        model.connected -> "Connected. Your recent Strava runs sharpen the pace estimate."
+        else -> "Not connected. Your recent Strava runs sharpen the pace estimate."
     }
+    SettingRow(
+        Icons.AutoMirrored.Outlined.DirectionsRun,
+        "Strava",
+        modifier = modifier
+            .testTag("crewcue.strava")
+            .semantics { contentDescription = "Strava" },
+        hint = hint,
+        trailing = {
+            if (model.connected) {
+                PillButton("Disconnect", onClick = { model.disconnect(context.isOnline()) }, busy = model.busy)
+            } else {
+                PillButton("Connect", onClick = { model.connect(context) }, prominent = true, busy = model.busy)
+            }
+        }
+    )
 }
 
 class StravaViewModel(
