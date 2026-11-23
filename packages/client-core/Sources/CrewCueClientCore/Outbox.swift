@@ -94,6 +94,10 @@ public enum OutboxPolicy {
                 feedback: "Stale location sample dropped."
             )
         }
+        if RaceLock.isLockedError(http) {
+            // The race is locked: a retry would be refused again, and the copy says why.
+            return OutboxFailureResolution(status: "rejected", retryable: false, feedback: RaceLock.message)
+        }
         if http.status == 409 {
             let haystack = [http.reason, http.decision, http.bodyError, http.message]
                 .compactMap { $0?.lowercased() }

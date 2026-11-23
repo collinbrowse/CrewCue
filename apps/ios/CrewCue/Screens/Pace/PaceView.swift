@@ -84,6 +84,9 @@ struct PaceView: View {
             if paceToolFocuses.contains(focus) {
                 openTools(focus)
             }
+            if focus == "course-locked" {
+                openTools("gpx-import")
+            }
             if focus == "pace-stop-edit" {
                 model.beginStopEdit()
             }
@@ -741,33 +744,43 @@ struct PaceGpxSection: View {
 
     var body: some View {
         CrewSettingRow(
-            systemImage: "map",
+            systemImage: model.courseLocked ? "lock.fill" : "map",
             title: RaceToolsCopy.courseFileTitle,
-            hint: model.gpxMessage,
+            hint: model.courseLocked ? nil : model.gpxMessage,
             trailing: {
-                PaceChooseGpxButton(isBusy: model.gpxBusy) {
-                    importing = true
+                if !model.courseLocked {
+                    PaceChooseGpxButton(isBusy: model.gpxBusy) {
+                        importing = true
+                    }
                 }
             },
             below: {
-                DisclosureGroup(RaceToolsCopy.pasteGpxLabel, isExpanded: $pasting) {
-                    VStack(alignment: .trailing, spacing: CrewSpace.base) {
-                        TextField("<gpx>…</gpx>", text: $model.gpxText, axis: .vertical)
-                            .font(.system(.footnote, design: .monospaced))
-                            .lineLimit(3...6)
-                            .padding(CrewSpace.stackSm)
-                            .background(theme.well, in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .accessibilityLabel("GPX text")
-                        PaceImportGpxButton(isBusy: model.gpxBusy) {
-                            await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
+                if model.courseLocked {
+                    // The race has started: say so instead of offering a file the server would refuse.
+                    Text(verbatim: RaceLock.message)
+                        .font(CrewFont.hint)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("crewcue.course-locked")
+                } else {
+                    DisclosureGroup(RaceToolsCopy.pasteGpxLabel, isExpanded: $pasting) {
+                        VStack(alignment: .trailing, spacing: CrewSpace.base) {
+                            TextField("<gpx>…</gpx>", text: $model.gpxText, axis: .vertical)
+                                .font(.system(.footnote, design: .monospaced))
+                                .lineLimit(3...6)
+                                .padding(CrewSpace.stackSm)
+                                .background(theme.well, in: RoundedRectangle(cornerRadius: CrewRadius.md, style: .continuous))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .accessibilityLabel("GPX text")
+                            PaceImportGpxButton(isBusy: model.gpxBusy) {
+                                await model.importGpx(fileName: "course.gpx", xml: model.gpxText)
+                            }
                         }
+                        .padding(.top, CrewSpace.base)
                     }
-                    .padding(.top, CrewSpace.base)
+                    .font(CrewFont.hint)
+                    .tint(theme.primary)
                 }
-                .font(CrewFont.hint)
-                .tint(theme.primary)
             }
         )
         .accessibilityIdentifier("crewcue.gpx-import")
