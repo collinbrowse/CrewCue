@@ -120,6 +120,13 @@ object OnboardingRouting {
     }
 
     /**
+     * Sign-in's Back (the top bar's arrow and system Back) opens the app's own signed-out launch:
+     * only signed out, on the sign-in screen, and not while Auth0 is working.
+     */
+    fun leavesSignIn(signedIn: Boolean, showsShell: Boolean, featureId: String?, authWorking: Boolean): Boolean =
+        !signedIn && !showsShell && featureId == "auth-sign-in" && !authWorking
+
+    /**
      * The paywall opens over a race tab: the one on show, or Map when Profile is. A screen outside
      * the shell (the setup route, the teaser) opens the shell first.
      */
