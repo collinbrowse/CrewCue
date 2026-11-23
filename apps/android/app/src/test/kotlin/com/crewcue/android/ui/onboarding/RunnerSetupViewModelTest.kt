@@ -9,6 +9,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -30,8 +31,41 @@ private fun ok(json: String): RuntimeResult = RuntimeResult.Success(JSONObject(j
 private val text = OnboardingText(
     courseSaveLimit = "You've changed the course a lot this hour. Try again in a bit.",
     startTimeDstGap = "That time doesn't exist on that date because of daylight saving. Pick another time.",
+    raceNameMissing = "Add a race name to continue.",
+    labels = mapOf("readingCourse" to "Reading your course…", "courseSaved" to "Course saved"),
     setupError = "Couldn't save this step.",
     setupOffline = "Offline. Setup needs the network. Your answers stay on this phone until you reconnect."
+)
+
+private const val SAVED_START = "2026-08-15T12:30:00.000Z"
+private const val MOVED_START = "2026-08-15T13:00:00.000Z"
+private const val COURSE_XML = "<gpx/>"
+
+/** The race list's row for setup's race, as `myRaces` answers it. */
+private fun raceRow(id: String = "room-1", name: String = "Western States 2026", hasCourse: Boolean = true, raceStartAt: String? = SAVED_START) =
+    JSONObject().put("id", id).put("name", name).put("role", "athlete").put("hasCourse", hasCourse)
+        .put("raceStartAt", raceStartAt ?: JSONObject.NULL)
+
+/**
+ * A draft on a phone that went through setup up to the history step: the race, its name, the
+ * course file it holds and saved, and the start the race saved.
+ */
+private fun savedDraft(
+    courseXml: String = COURSE_XML,
+    savedCourseXml: String = COURSE_XML,
+    courseUnsaved: Boolean = false
+) = RunnerSetupDraft(
+    roomId = "room-1",
+    displayName = "Ada",
+    raceName = "Canyons 2027",
+    courseFileName = "route.gpx",
+    courseConfirmed = true,
+    plannedPaceSecondsPerKm = 420.0,
+    start = RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"),
+    courseUnsaved = courseUnsaved,
+    savedRaceStartAt = SAVED_START,
+    courseFingerprint = FakeSetupSteps.fingerprint(courseXml),
+    savedCourseFingerprint = FakeSetupSteps.fingerprint(savedCourseXml)
 )
 
 private const val PREVIEW = """{"status":"previewed","line":[[-120.0,39.0],[-120.0,39.01]],
@@ -85,6 +119,26 @@ private class FakeRuntime : RunnerSetupRuntime {
             "raceStartInput",
             ok("""{"raceStartAt":"2026-08-15T12:30:00.000Z","problem":null,"message":null,"dateLabel":"Aug 15, 2026","timeLabel":"6:30 AM"}""")
         )
+
+    /** The race's start read back into fields (client-core's conversion; scripted here). */
+    val fieldsAsked = mutableListOf<Pair<String, String>>()
+    override fun raceStartFields(raceStartAt: String, timeZone: String): RuntimeResult {
+        fieldsAsked += raceStartAt to timeZone
+        return RuntimeResult.Success(RaceStartFields(2026, 8, 15, 6, 30, timeZone).toJson())
+    }
+
+    val startSaves = mutableListOf<Pair<String, String>>()
+    override fun updateRaceStart(roomId: String, raceStartAt: String): RuntimeResult {
+        startSaves += roomId to raceStartAt
+        return next("updateRaceStart", ok("""{"status":"saved","raceStartAt":"$raceStartAt"}"""))
+    }
+
+    /** `runnerSetupStep`: the RunnerSetupSteps rules, answered by [FakeSetupSteps]. Not in [calls]. */
+    val decisions = mutableListOf<String>()
+    override fun setupStep(decision: String, input: JSONObject): RuntimeResult {
+        decisions += decision
+        return FakeSetupSteps.answer(decision, input)
+    }
 
     override fun importCourse(roomId: String, fileName: String, gpxXml: String, raceStartAt: String, plannedPaceSecondsPerKm: Double?): RuntimeResult {
         imports += listOf(roomId, fileName, gpxXml, raceStartAt, plannedPaceSecondsPerKm)
@@ -213,8 +267,9 @@ class RunnerSetupViewModelTest {
         assertEquals("", model.draft.displayName)
         // Account done elsewhere: the race is created without the email as the creator's name.
         model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
         model.chooseCourse("route.gpx", "<gpx/>", online = true)
-        assertEquals(Triple("route", "ada", null as String?), runtime.created)
+        assertEquals(Triple("Canyons 2027", "ada", null as String?), runtime.created)
     }
 
     @Test
@@ -241,8 +296,10 @@ class RunnerSetupViewModelTest {
         val model = model()
         val effects = effectsOf(model)
         model.sync(flow(SetupSteps.COURSE))
-        model.chooseCourse("Western States.gpx", "<gpx/>", online = true)
-        assertEquals(Triple("Western States", "ada", "Ada"), runtime.created)
+        model.updateRaceName("Western States 2026")
+        model.chooseCourse("States course.gpx", "<gpx/>", online = true)
+        // The typed name, never the course file's.
+        assertEquals(Triple("Western States 2026", "ada", "Ada"), runtime.created)
         assertEquals(listOf("createRoom", "gpxPreview"), runtime.calls.filter { it != "raceStartInput" })
         assertTrue(effects.contains(RunnerSetupEffect.RoomCreated("room-1")))
         assertEquals("room-1", model.roomId)
@@ -254,14 +311,16 @@ class RunnerSetupViewModelTest {
         assertEquals(SetupSteps.COURSE, model.step)
         model.confirmCourse()
         assertEquals(SetupSteps.START_TIME, model.step)
-        model.backToCourse()
+        model.goBack()
         assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.isReviewing)
     }
 
     @Test
     fun offlineCourseKeepsTheFileAndTheStep() = runTest(dispatcher) {
         val model = model()
         model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
         model.chooseCourse("route.gpx", "<gpx/>", online = false)
         assertTrue(model.status is SetupStatus.Offline)
         assertEquals(text.setupOffline, (model.status as SetupStatus.Offline).failure.message)
@@ -275,28 +334,53 @@ class RunnerSetupViewModelTest {
     fun tryAgainAfterAnOfflinePickCreatesTheRaceAndPreviews() = runTest(dispatcher) {
         val model = model()
         model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
         model.chooseCourse("route.gpx", "<gpx/>", online = false)
         // A new state while offline creates nothing on its own.
         model.sync(flow(SetupSteps.COURSE))
         assertNull(runtime.created)
         model.retry(online = true)
-        assertEquals("route", runtime.created?.first)
+        assertEquals("Canyons 2027", runtime.created?.first)
         assertNotNull(model.preview)
         assertEquals(SetupStatus.Ready, model.status)
     }
 
     @Test
-    fun aGoneRaceIsForgottenSoTheNextTryCreatesOne() = runTest(dispatcher) {
+    fun aGoneRaceWithNoNameAsksForOneAndTryAgainWaitsForIt() = runTest(dispatcher) {
+        // A draft from before race names: the race is gone and nothing names it.
         drafts.save("ada", RunnerSetupDraft(roomId = "gone", courseFileName = "route.gpx"))
         drafts.course = "<gpx/>"
         runtime.answer("gpxPreview", RuntimeResult.Failure("Race room not found", offline = false, status = 404), ok(PREVIEW))
         val model = model()
         model.sync(flow(SetupSteps.COURSE))
-        assertTrue(model.status is SetupStatus.Failed)
+        // Never named after its course file: the step asks for a name, with the field open.
+        assertEquals(text.raceNameMissing, (model.status as SetupStatus.Failed).failure.message)
         assertNull(model.roomId)
+        assertFalse(model.raceNameLocked)
+        assertTrue(model.courseNeedsRetry)
+        assertFalse(model.canRetry)
         model.retry(online = true)
+        assertNull(runtime.created)
+        model.updateRaceName("Canyons 2027")
+        assertTrue(model.canRetry)
+        model.retry(online = true)
+        assertEquals("Canyons 2027", runtime.created?.first)
         assertEquals("room-1", model.roomId)
         assertNotNull(model.preview)
+    }
+
+    @Test
+    fun aGoneRaceIsMadeAgainWithTheRaceListsName() = runTest(dispatcher) {
+        drafts.save("ada", RunnerSetupDraft(roomId = "gone", courseFileName = "route.gpx"))
+        drafts.course = "<gpx/>"
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Race room not found", offline = false, status = 404), ok(PREVIEW))
+        val model = model()
+        // No name typed on this phone; the race list still names the race this setup had.
+        model.sync(flow(SetupSteps.COURSE), JSONArray().put(raceRow(id = "gone", hasCourse = false, raceStartAt = null)), racesVersion = 1)
+        assertEquals("Western States 2026", runtime.created?.first)
+        assertEquals("room-1", model.roomId)
+        assertNotNull(model.preview)
+        assertEquals("Western States 2026", model.shownRaceName)
     }
 
     @Test
@@ -386,25 +470,33 @@ class RunnerSetupViewModelTest {
     fun theStartTimeUploadsTheCourseWithRaceStartAtThenEstimates() = runTest(dispatcher) {
         val model = startTimeModel()
         val effects = effectsOf(model)
-        model.saveStart(online = true)
+        model.continueStart(online = true)
         assertEquals(listOf(listOf<Any?>("room-1", "route.gpx", "<gpx/>", "2026-08-15T12:30:00.000Z", 420.0)), runtime.imports)
         // The first plan, with all history, attached for the teaser.
         assertEquals(listOf<String?>(null), runtime.historyModes)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
-        // A second tap with the same start only asks for the race list again.
-        model.saveStart(online = true)
+        // On to the history step at once, which runs again because the save dropped the estimate.
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertEquals(SAVED_START, model.draft.savedRaceStartAt)
+        assertEquals(false, model.draft.courseUnsaved)
+        assertTrue(model.draft.historyRedo)
+        // Back to the start time and Continue with nothing changed: no second upload.
+        model.goBack()
+        assertEquals(SetupSteps.START_TIME, model.step)
+        model.continueStart(online = true)
+        assertEquals(SetupSteps.HISTORY, model.step)
         assertEquals(1, runtime.imports.size)
-        assertEquals(2, effects.count { it == RunnerSetupEffect.RacesChanged })
+        assertTrue(runtime.startSaves.isEmpty())
     }
 
     @Test
     fun offlineStartTimeKeepsTheStepAndQueuedCountsAsOffline() = runTest(dispatcher) {
         val model = startTimeModel()
-        model.saveStart(online = false)
+        model.continueStart(online = false)
         assertTrue(model.status is SetupStatus.Offline)
         assertTrue(runtime.imports.isEmpty())
         runtime.answer("importCourse", ok("""{"status":"queued","id":"op-1"}"""))
-        model.saveStart(online = true)
+        model.continueStart(online = true)
         assertTrue(model.status is SetupStatus.Offline)
         assertEquals(SetupSteps.START_TIME, model.step)
         assertNull(model.draft.uploadedStartAt)
@@ -414,7 +506,7 @@ class RunnerSetupViewModelTest {
     fun theCourseSaveLimitShowsTheSharedCopy() = runTest(dispatcher) {
         runtime.answer("importCourse", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
         val model = startTimeModel()
-        model.saveStart(online = true)
+        model.continueStart(online = true)
         val failed = model.status as SetupStatus.Failed
         assertEquals(text.courseSaveLimit, failed.failure.message)
         assertTrue(failed.failure.retryable)
@@ -434,7 +526,7 @@ class RunnerSetupViewModelTest {
         runtime.answer("computeEstimate", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
         val model = startTimeModel()
         val effects = effectsOf(model)
-        model.saveStart(online = true)
+        model.continueStart(online = true)
         // The course and start saved; the teaser computes the plan again later.
         assertEquals(SetupStatus.Ready, model.status)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
@@ -449,7 +541,7 @@ class RunnerSetupViewModelTest {
         )
         val model = startTimeModel()
         val effects = effectsOf(model)
-        model.saveStart(online = true)
+        model.continueStart(online = true)
         assertEquals(1, runtime.calls.count { it == "computeEstimate" })
         assertEquals(SetupStatus.Ready, model.status)
         assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
@@ -662,6 +754,7 @@ class RunnerSetupViewModelTest {
         val saved = SavedStateHandle()
         val first = model(saved)
         first.sync(flow(SetupSteps.COURSE))
+        first.updateRaceName("Canyons 2027")
         first.chooseCourse("route.gpx", "<gpx/>", online = true)
         first.confirmCourse()
         first.updateStart(RaceStartFields(2026, 9, 12, 5, 0, "America/Los_Angeles"))
@@ -693,6 +786,375 @@ class RunnerSetupViewModelTest {
         assertEquals("room-1", model.roomId)
         // Without a state the step is unknown (the screen shows its loader), never the account step.
         assertNull(model().step)
+    }
+
+    // MARK: race name
+
+    @Test
+    fun theRaceNameComesFirstAndGatesTheCourseFile() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE))
+        assertFalse(model.raceNameLocked)
+        assertFalse(model.canChooseCourse)
+        // Choose course file waits for the name: nothing is created, nothing held.
+        model.chooseCourse("States course.gpx", "<gpx/>", online = true)
+        assertNull(runtime.created)
+        assertNull(model.draft.courseFileName)
+        // Kept in the setup draft as it is typed, on disk too, so a relaunch keeps it.
+        model.updateRaceName("  Canyons 2027 ")
+        assertEquals("  Canyons 2027 ", model.draft.raceName)
+        assertEquals("  Canyons 2027 ", drafts.draft?.raceName)
+        assertTrue(model.canChooseCourse)
+        model.chooseCourse("States course.gpx", "<gpx/>", online = true)
+        assertEquals("Canyons 2027", runtime.created?.first)
+        // Read-only once the race exists: the API has no rename.
+        assertTrue(model.raceNameLocked)
+        model.updateRaceName("Renamed")
+        assertEquals("Canyons 2027", model.shownRaceName)
+        assertEquals("Canyons 2027", drafts.draft?.raceName)
+    }
+
+    @Test
+    fun aTypedRaceNameSurvivesARelaunch() = runTest(dispatcher) {
+        val first = model()
+        first.sync(flow(SetupSteps.COURSE))
+        first.updateRaceName("Canyons 2027")
+        // A new launch: nothing in SavedStateHandle, only the draft on disk.
+        val relaunched = model()
+        relaunched.sync(flow(SetupSteps.COURSE))
+        assertEquals("Canyons 2027", relaunched.draft.raceName)
+        assertTrue(relaunched.canChooseCourse)
+    }
+
+    // MARK: Back
+
+    @Test
+    fun backFromTheFirstStepLeavesSetupOnlyBeforeARaceExists() = runTest(dispatcher) {
+        val model = model()
+        val effects = effectsOf(model)
+        model.sync(flow(SetupSteps.ACCOUNT))
+        assertTrue(model.showsBack)
+        model.updateName("Ada R")
+        model.goBack()
+        assertEquals(listOf<RunnerSetupEffect>(RunnerSetupEffect.LeaveSetup), effects.filter { it == RunnerSetupEffect.LeaveSetup })
+        // The name typed stays for when the runner picks the runner's setup again.
+        assertEquals("Ada R", model.draft.displayName)
+
+        // Signed out, too: Back is the way to the chooser.
+        val guest = model(userId = null, name = null)
+        val guestEffects = effectsOf(guest)
+        guest.sync(flow(SetupSteps.ACCOUNT))
+        assertTrue(guest.showsBack)
+        guest.goBack()
+        assertTrue(guestEffects.contains(RunnerSetupEffect.LeaveSetup))
+    }
+
+    @Test
+    fun backFromTheCourseKeepsTheTypedRaceNameAcrossProcessDeath() = runTest(dispatcher) {
+        val saved = SavedStateHandle()
+        val model = model(saved)
+        model.sync(flow(SetupSteps.COURSE))
+        model.updateRaceName("Canyons 2027")
+        model.goBack()
+        assertEquals(SetupSteps.ACCOUNT, model.step)
+        assertTrue(model.isReviewing)
+        // No race yet: Back still shows here, for the chooser.
+        assertTrue(model.showsBack)
+        val restored = model(saved, initialFlow = flow(SetupSteps.COURSE))
+        assertEquals(SetupSteps.ACCOUNT, restored.step)
+        assertEquals("Canyons 2027", restored.draft.raceName)
+        // Continue on the account step opens the course again, the name as typed.
+        restored.sync(flow(SetupSteps.COURSE))
+        restored.saveAccount()
+        assertEquals(SetupSteps.COURSE, restored.step)
+        assertFalse(restored.isReviewing)
+        assertEquals("Canyons 2027", restored.draft.raceName)
+    }
+
+    @Test
+    fun backOpensEachStepBeforeWithEverythingKeptAndContinueWalksBackWithoutSaving() = runTest(dispatcher) {
+        drafts.save("ada", savedDraft())
+        drafts.course = COURSE_XML
+        val model = model()
+        val effects = effectsOf(model)
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"))
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.isReviewing)
+        assertTrue(model.showsBack)
+
+        model.goBack()
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertTrue(model.isReviewing)
+        assertEquals(RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"), model.start)
+        model.goBack()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.raceNameLocked)
+        assertEquals("Canyons 2027", model.shownRaceName)
+        assertEquals("route.gpx", model.shownCourseFileName)
+        model.goBack()
+        assertEquals(SetupSteps.ACCOUNT, model.step)
+        assertEquals("Ada", model.draft.displayName)
+        // The race exists: no way back to the chooser from here.
+        assertFalse(model.showsBack)
+        model.goBack()
+        assertEquals(SetupSteps.ACCOUNT, model.step)
+        assertFalse(effects.contains(RunnerSetupEffect.LeaveSetup))
+
+        // Continue opens the next step, one at a time, until setup is back where it was.
+        model.saveAccount()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.isReviewing)
+        assertEquals(CourseContinue.Confirm, model.courseAction)
+        model.continueCourse(online = true)
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertEquals(StartTimeContinue.MoveOn, model.startAction)
+        model.continueStart(online = true)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.isReviewing)
+        // Nothing changed, so nothing was saved again.
+        assertTrue(runtime.imports.isEmpty())
+        assertTrue(runtime.startSaves.isEmpty())
+        assertFalse(effects.contains(RunnerSetupEffect.RacesChanged))
+    }
+
+    // MARK: a reviewed step's Continue
+
+    /** Setup on the teaser, then Back to [step]. */
+    private fun reviewing(step: String, draft: RunnerSetupDraft = savedDraft(), course: String? = COURSE_XML): RunnerSetupViewModel {
+        drafts.save("ada", draft)
+        drafts.course = course
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        while (model.step != step) model.goBack()
+        return model
+    }
+
+    @Test
+    fun aStartOnlyChangeIsSavedWithPatchRaceStart() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.START_TIME)
+        val effects = effectsOf(model)
+        runtime.answer("raceStartInput", ok("""{"raceStartAt":"$MOVED_START","problem":null,"message":null}"""))
+        model.updateStart(RaceStartFields(2026, 8, 15, 7, 0, "America/Denver"))
+        assertEquals(StartTimeContinue.SaveStart, model.startAction)
+        model.continueStart(online = true)
+        assertEquals(listOf("room-1" to MOVED_START), runtime.startSaves)
+        // The start alone: no course file goes up, and the estimate moved with the start.
+        assertTrue(runtime.imports.isEmpty())
+        assertEquals(MOVED_START, model.draft.savedRaceStartAt)
+        assertFalse(model.draft.historyRedo)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertTrue(model.isReviewing)
+        assertTrue(effects.contains(RunnerSetupEffect.RacesChanged))
+        // The reviewed history step keeps the race's estimate: Continue, no new estimate, no mark.
+        assertTrue(model.historyShowsContinue)
+        val estimates = runtime.historyModes.size
+        model.finishHistory()
+        assertEquals(estimates, runtime.historyModes.size)
+        assertTrue(runtime.marks.none { it.first == SetupSteps.HISTORY })
+        assertEquals(SetupSteps.TEASER, model.step)
+    }
+
+    @Test
+    fun aStartSaveOverTheLimitShowsTheCourseSaveCopy() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.START_TIME)
+        runtime.answer("raceStartInput", ok("""{"raceStartAt":"$MOVED_START","problem":null,"message":null}"""))
+        runtime.answer("updateRaceStart", RuntimeResult.Failure("Too many requests", offline = false, status = 429))
+        model.updateStart(RaceStartFields(2026, 8, 15, 7, 0, "America/Denver"))
+        model.continueStart(online = true)
+        assertEquals(text.courseSaveLimit, (model.status as SetupStatus.Failed).failure.message)
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertEquals(SAVED_START, model.draft.savedRaceStartAt)
+    }
+
+    @Test
+    fun aNewFileAfterBackGoesUpWithTheStartAndTheHistoryRunsAgain() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.COURSE)
+        val other = "<gpx><trk/></gpx>"
+        model.chooseCourse("other.gpx", other, online = true)
+        // It replaced the course once it previewed; it isn't saved until the start time.
+        assertEquals("other.gpx", model.draft.courseFileName)
+        assertEquals(true, model.draft.courseUnsaved)
+        assertTrue(runtime.imports.isEmpty())
+        model.continueCourse(online = true)
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertEquals(StartTimeContinue.SaveCourse, model.startAction)
+        model.continueStart(online = true)
+        assertEquals(listOf(listOf<Any?>("room-1", "other.gpx", other, SAVED_START, 420.0)), runtime.imports)
+        assertTrue(runtime.startSaves.isEmpty())
+        // The save dropped the estimate: the reviewed history step computes one again on Continue.
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertTrue(model.isReviewing)
+        assertTrue(model.draft.historyRedo)
+        val estimates = runtime.historyModes.size
+        model.finishHistory()
+        assertEquals(estimates + 1, runtime.historyModes.size)
+        assertEquals(Triple(SetupSteps.HISTORY, "done", null as String?), runtime.marks.last())
+        assertFalse(model.draft.historyRedo)
+        assertEquals(SetupSteps.TEASER, model.step)
+    }
+
+    @Test
+    fun theSameFilePickedAgainChangesNothing() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.COURSE)
+        val previews = runtime.calls.count { it == "gpxPreview" }
+        model.chooseCourse("route copy.gpx", "\n$COURSE_XML\n", online = true)
+        assertEquals(previews, runtime.calls.count { it == "gpxPreview" })
+        assertEquals("route.gpx", model.draft.courseFileName)
+        assertEquals(false, model.draft.courseUnsaved)
+    }
+
+    @Test
+    fun aRelaunchReopensTheStepWithAFilePickedAfterBackAndTheSavedCoursePickedAgainIsNotSavedTwice() = runTest(dispatcher) {
+        // Back on the course, another file picked and confirmed, then the app was closed.
+        val other = "<gpx><trk/></gpx>"
+        drafts.save("ada", savedDraft(courseXml = other, courseUnsaved = true))
+        drafts.course = other
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
+        // The start time, where that file is saved with the start.
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertTrue(model.isReviewing)
+        assertEquals(StartTimeContinue.SaveCourse, model.startAction)
+        // Back to the course: the race's own course picked again isn't uploaded a second time.
+        model.goBack()
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertEquals(false, model.draft.courseUnsaved)
+        model.continueCourse(online = true)
+        assertEquals(StartTimeContinue.MoveOn, model.startAction)
+        model.continueStart(online = true)
+        assertTrue(runtime.imports.isEmpty())
+        assertEquals(SetupSteps.HISTORY, model.step)
+    }
+
+    @Test
+    fun cancelAfterAnUnreadableFileKeepsTheCourseFromBefore() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.COURSE)
+        val before = model.preview
+        assertNotNull(before)
+        // The course from before is on the map.
+        model.noteCourseMapReady()
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
+        model.chooseCourse("broken.gpx", "<nope/>", online = true)
+        assertTrue(model.status is SetupStatus.Failed)
+        assertTrue(model.courseNeedsRetry)
+        assertTrue(model.canCancelCourse)
+        assertEquals("broken.gpx", model.shownCourseFileName)
+        // No loader over a failed preview: the error and Try again.
+        assertFalse(model.courseLoading)
+        model.cancelPendingCourse()
+        assertEquals(SetupStatus.Ready, model.status)
+        assertFalse(model.canCancelCourse)
+        assertEquals("route.gpx", model.shownCourseFileName)
+        assertEquals("route.gpx", model.draft.courseFileName)
+        assertEquals(COURSE_XML, drafts.course)
+        assertEquals(before, model.preview)
+        assertEquals(CourseContinue.Confirm, model.courseAction)
+    }
+
+    @Test
+    fun aPhoneWithoutTheFileShowsCourseSavedAndUploadsNothing() = runTest(dispatcher) {
+        // Signed in on another phone: no draft, no file. The race list has the course and start.
+        val model = model()
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray().put(raceRow()), racesVersion = 1)
+        // The start time shows the race's saved start, in this phone's zone.
+        assertEquals(listOf(SAVED_START to "America/Denver"), runtime.fieldsAsked)
+        assertEquals(RaceStartFields(2026, 8, 15, 6, 30, "America/Denver"), model.start)
+        assertEquals(SAVED_START, model.draft.savedRaceStartAt)
+        model.goBack()
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertEquals(StartTimeContinue.MoveOn, model.startAction)
+        model.goBack()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.showsCourseSaved)
+        assertEquals("Western States 2026", model.shownRaceName)
+        assertTrue(model.raceNameLocked)
+        model.continueCourse(online = true)
+        assertEquals(SetupSteps.START_TIME, model.step)
+        model.continueStart(online = true)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertTrue(runtime.imports.isEmpty())
+        assertTrue(runtime.startSaves.isEmpty())
+        assertEquals(0, runtime.calls.count { it == "gpxPreview" })
+    }
+
+    @Test
+    fun aRelaunchChecksAgainOnEachFreshRaceListUntilItReopensAStep() = runTest(dispatcher) {
+        // A course save after the history step dropped its estimate, then the app was closed.
+        drafts.save("ada", RunnerSetupDraft(roomId = "room-1", displayName = "Ada", historyRedo = true))
+        val model = model()
+        // The cached list still has the history step open: nothing behind it to reopen.
+        model.sync(flow(SetupSteps.HISTORY, roomId = "room-1"), JSONArray(), racesVersion = 1)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.isReviewing)
+        // The fresh list has setup on the teaser: the history step opens again.
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"), JSONArray(), racesVersion = 2)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertTrue(model.isReviewing)
+        assertTrue(model.historyShowsContinue)
+        // Continue computes the estimate the save dropped; the next list reopens nothing.
+        model.finishHistory()
+        assertEquals(SetupSteps.TEASER, model.step)
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"), JSONArray(), racesVersion = 3)
+        assertEquals(SetupSteps.TEASER, model.step)
+    }
+
+    // MARK: the course loader
+
+    @Test
+    fun theLoaderCoversAPickedPreviewUntilItsMapIsReadyAtMostEightSeconds() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        assertFalse(model.courseLoading)
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertNotNull(model.preview)
+        assertTrue(model.courseLoading)
+        assertEquals("Reading your course…", model.courseLoadingCaption)
+        advanceTimeBy(RunnerSetupViewModel.MAP_WAIT_MS - 1)
+        assertTrue(model.courseLoading)
+        advanceTimeBy(2)
+        assertFalse(model.courseLoading)
+        assertNull(model.courseLoadingCaption)
+    }
+
+    @Test
+    fun theMapsFirstFullFrameEndsTheWait() = runTest(dispatcher) {
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertTrue(model.courseLoading)
+        model.noteCourseMapReady()
+        assertFalse(model.courseLoading)
+        // Another file, another course: its own wait again.
+        runtime.answer("gpxPreview", ok(PREVIEW.replace("39.01]", "39.02]")))
+        model.chooseCourse("other.gpx", "<gpx><trk/></gpx>", online = true)
+        assertTrue(model.courseLoading)
+        assertEquals("Reading your course…", model.courseLoadingCaption)
+    }
+
+    @Test
+    fun aPreviewRestoredAfterARelaunchWaitsWithNoCaption() = runTest(dispatcher) {
+        drafts.save("ada", RunnerSetupDraft(roomId = "room-1", displayName = "Ada", raceName = "Canyons 2027", courseFileName = "route.gpx"))
+        drafts.course = COURSE_XML
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        assertNotNull(model.preview)
+        assertTrue(model.courseLoading)
+        // Spoken "Loading": no "Reading your course…" for a file read before the relaunch.
+        assertNull(model.courseLoadingCaption)
+        model.noteCourseMapReady()
+        assertFalse(model.courseLoading)
+    }
+
+    @Test
+    fun aFailedPreviewShowsTheErrorWithNoLoader() = runTest(dispatcher) {
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
+        val model = model()
+        model.sync(flow(SetupSteps.COURSE, roomId = "room-1"))
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertTrue(model.status is SetupStatus.Failed)
+        assertFalse(model.courseLoading)
+        assertNull(model.courseLoadingCaption)
+        assertTrue(model.courseNeedsRetry)
     }
 
     private fun <T> assertNotNullAnd(value: T?): T {
