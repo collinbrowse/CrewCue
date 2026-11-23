@@ -56,7 +56,8 @@ final class DemoRuntimes: @unchecked Sendable {
 /// start fails with `state`, its checklist state (`DemoRace.unavailableState`). Creating a replay
 /// retires any earlier one (a recreated screen never leaves the old one live). `demoRacePlay`,
 /// `demoRacePause`, `demoRaceTick`, `demoRaceSkip` and `demoRaceSeek` (`seconds`: wall time
-/// played, `DemoRacePlayer.seek`) take that `baseURL` and answer a snapshot; `demoRaceRunner`
+/// played, `DemoRacePlayer.seek`) take that `baseURL` and answer a snapshot (with `pathPings`,
+/// the pings in the path served so far, for the path chip); `demoRaceRunner`
 /// answers where the runner's dot is now, for a map that glides it along the course between
 /// updates (`DemoRacePlayer.runnerPosition`). Finishing or skipping
 /// deletes the directory and retires the base URL: later calls on it fail and never fall back to
@@ -132,7 +133,7 @@ extension RuntimeCall {
             // The plan finish the replay starts from, before beat 2 moves it.
             "finishEtaAt": RaceDayReadouts.iso8601(course.raceStart.addingTimeInterval(course.plannedFinishSeconds)),
             "beats": DemoRaceBeat.allCases.map { ["beat": $0.rawValue, "number": $0.number, "caption": $0.caption] },
-            "snapshot": demoSnapshotJSON(session.player.snapshot)
+            "snapshot": demoSnapshotJSON(session.player.snapshot, script: session.player.script)
         ]
         if let readRoom {
             result["room"] = readRoom
@@ -185,7 +186,7 @@ extension RuntimeCall {
         case "demoRaceSkip": snapshot = player.skip()
         default: snapshot = player.tick()
         }
-        return demoSnapshotJSON(snapshot)
+        return demoSnapshotJSON(snapshot, script: player.script)
     }
 
     /// Moves the replay forward to `seconds` of wall time played (a dev route's `?at=`, or the
@@ -195,7 +196,7 @@ extension RuntimeCall {
         guard let seconds = doubleValue(object["seconds"]), seconds.isFinite else {
             throw ClientHTTPError(status: 400, message: "seconds is required.")
         }
-        return demoSnapshotJSON(session.player.seek(toWallSeconds: seconds))
+        return demoSnapshotJSON(session.player.seek(toWallSeconds: seconds), script: session.player.script)
     }
 
     /// Where the replay's runner dot is now (`DemoRacePlayer.runnerPosition`), for a map that
@@ -218,7 +219,9 @@ extension RuntimeCall {
         "demo|\(baseURL.host?.lowercased() ?? "")|"
     }
 
-    static func demoSnapshotJSON(_ snapshot: DemoRaceSnapshot) -> [String: Any] {
+    /// `pathPings`: the pings in the path the replay serves at this step. A path chip counts
+    /// these, as on a race, not the points the replay adds along the course between them.
+    static func demoSnapshotJSON(_ snapshot: DemoRaceSnapshot, script: DemoRaceScript) -> [String: Any] {
         [
             "progress": snapshot.progress,
             "beat": snapshot.beat.rawValue,
@@ -227,6 +230,7 @@ extension RuntimeCall {
             "beatLabel": OnboardingCopy.replayBeatCount(snapshot.beat),
             "caption": snapshot.caption,
             "stepIndex": snapshot.stepIndex,
+            "pathPings": script.pings(through: snapshot.stepIndex).count,
             "nowMs": (snapshot.now.timeIntervalSince1970 * 1000).rounded(),
             "now": RaceDayReadouts.iso8601(snapshot.now),
             "playing": snapshot.isPlaying,

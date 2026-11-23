@@ -327,7 +327,7 @@
       "sdk": "none",
       "scope": "v1",
       "ios": "pass",
-      "android": "pass"
+      "android": "fail"
     },
     {
       "id": "onboarding-race-preview",
@@ -336,7 +336,7 @@
       "sdk": "maplibre",
       "scope": "v1",
       "ios": "pass",
-      "android": "fail"
+      "android": "pass"
     }
   ]
 }

@@ -59,6 +59,29 @@ private func plain(_ text: String?) -> String? {
     #expect(OnboardingCopy.replayCaption(.deadZone).contains("Last update 18 min ago"))
 }
 
+@Test func theAccountStepAsksForTheRunnersOwnName() {
+    // Not a race or crew name: the race is named on the course step.
+    #expect(OnboardingCopy.displayName == "Your name")
+    #expect(OnboardingCopy.displayNameHelp == "Your crew sees this in chat.")
+    #expect(OnboardingCopy.explanation(for: .account) == "Create an account or sign in, then add your name.")
+    #expect(OnboardingCopy.raceNameLabel == "Race name")
+    #expect(OnboardingCopy.raceNamePlaceholder == "Western States 2026")
+    #expect(OnboardingCopy.raceNameHelp == "Your race and the year, or a fun name for your crew.")
+}
+
+@Test func historyTipsNameWhatTheImporterTakes() {
+    #expect((1...3).contains(OnboardingCopy.historyTips.count))
+    let formats = OnboardingCopy.historyTips[1]
+    for ext in ActivityImport.fileExtensions {
+        #expect(formats.contains(".\(ext)"), "\(ext)")
+    }
+    #expect(formats.contains("\(ActivityImport.maxFileBytes / (1024 * 1024)) MB"))
+    // Skip is the cold start its button already names; Settings > Past runs imports more later.
+    #expect(OnboardingCopy.historyTips[2].contains("rough estimate"))
+    #expect(OnboardingCopy.skipHistory.contains("rough estimate"))
+    #expect(OnboardingCopy.historyTips[2].contains("Settings"))
+}
+
 @Test func everyScaffoldedStepHasATitleAndExplanation() {
     let covered: [OnboardingStep] = [.account, .course, .startTime, .history, .projectionTeaser, .preview, .paywall]
     for step in covered {
@@ -76,8 +99,10 @@ private func plain(_ text: String?) -> String? {
         OnboardingCopy.paywallRunnerPlusOneTitle, OnboardingCopy.paywallFullCrewTitle, OnboardingCopy.paywallPitch,
         OnboardingCopy.unpaidBanner, OnboardingCopy.courseSaveLimit, OnboardingCopy.startTimeDstGap,
         OnboardingCopy.replayMapTitle, OnboardingCopy.replayPaceTitle, OnboardingCopy.replayChatTitle,
-        OnboardingCopy.paywallBuyLabel(product: .racePass, price: BillingProduct.racePass.fallbackPrice)
-    ]
+        OnboardingCopy.paywallBuyLabel(product: .racePass, price: BillingProduct.racePass.fallbackPrice),
+        OnboardingCopy.displayNameHelp, OnboardingCopy.raceNameLabel, OnboardingCopy.raceNamePlaceholder,
+        OnboardingCopy.raceNameHelp, OnboardingCopy.readingCourse
+    ] + OnboardingCopy.historyTips
     for step in OnboardingStep.allCases {
         all += [OnboardingCopy.title(for: step), OnboardingCopy.explanation(for: step)].compactMap { $0 }
     }
@@ -186,6 +211,9 @@ private func plain(_ text: String?) -> String? {
     #expect((copy["stepTitles"] as? [String: String])?["course"] == OnboardingCopy.title(for: .course))
     #expect((copy["stepExplanations"] as? [String: String])?["paywall"] == OnboardingCopy.explanation(for: .paywall))
     #expect((copy["beatCaptions"] as? [String: String])?["deadZone"] == OnboardingCopy.replayCaption(.deadZone))
+    #expect(copy["historyTips"] as? [String] == OnboardingCopy.historyTips)
+    #expect(copy["raceNameLabel"] as? String == OnboardingCopy.raceNameLabel)
+    #expect(copy["readingCourse"] as? String == OnboardingCopy.readingCourse)
 }
 
 @Test func onboardingHistoryComparisonRuntimeOpUsesTheSharedFormatter() async throws {

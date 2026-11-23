@@ -1,10 +1,13 @@
 package com.crewcue.android.ui.auth
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,23 +19,29 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -86,17 +95,67 @@ private fun AuthProviderButton(
     }
 }
 
+/**
+ * Signed out: Auth0 sign-in or sign-up, or join a crew with a code. Back (the top bar's arrow and
+ * system Back) opens the app's own launch, the chooser, however this screen opened.
+ */
 @Composable
 fun AuthSignInScreen(viewModel: ShellViewModel) {
     val activity = LocalContext.current.findActivity()
-    var signingUp by remember { mutableStateOf(false) }
+    // Starts on Sign in each time the screen opens; a fold or rotation keeps the person's pick.
+    var signingUp by rememberSaveable { mutableStateOf(false) }
     val screen = viewModel.uiState.screen
-    val colors = MaterialTheme.colorScheme
+    val working = viewModel.signInConnection
+    val signedOut = viewModel.session == null
+    // Always taken while signed out, so Back never closes the app from here; while Auth0 works it
+    // does nothing (ShellViewModel.leaveSignIn).
+    BackHandler(enabled = signedOut) { viewModel.leaveSignIn() }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .testTag(screen.accessibilityIdentifier)
             .semantics { contentDescription = "Signed out" }
+    ) {
+        if (signedOut) SignInTopBar(enabled = working == null, onBack = viewModel::leaveSignIn)
+        SignInContent(viewModel, activity, screen.body, signingUp, working, onToggle = { signingUp = !signingUp }, Modifier.weight(1f))
+    }
+}
+
+/** The standard top app bar with only the navigation arrow, over the page's own ground. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SignInTopBar(enabled: Boolean, onBack: () -> Unit) {
+    TopAppBar(
+        title = {},
+        navigationIcon = {
+            IconButton(
+                onClick = onBack,
+                enabled = enabled,
+                modifier = Modifier.testTag("crewcue.auth-sign-in.back")
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        },
+        // The route already sits below the status bar (FeatureHost).
+        windowInsets = WindowInsets(0),
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+    )
+}
+
+@Composable
+private fun SignInContent(
+    viewModel: ShellViewModel,
+    activity: Activity?,
+    status: String,
+    signingUp: Boolean,
+    working: String?,
+    onToggle: () -> Unit,
+    modifier: Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = CrewSpace.margin, vertical = CrewSpace.margin),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
@@ -115,7 +174,6 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
             style = MaterialTheme.typography.bodyLarge,
             color = colors.onSurfaceVariant
         )
-        val status = screen.body
         val showStatus = status.isNotBlank() &&
             status != "Signed out. Auth0 is the sign-in pocket." &&
             status != "No session."
@@ -128,7 +186,6 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
             )
         }
         Kicker(if (signingUp) "Create an account" else "Sign in")
-        val working = viewModel.signInConnection
         AuthProviderButton("Continue with Apple", Icons.Outlined.PhoneIphone, working != null, working == "apple") {
             viewModel.signIn(activity, "apple", signingUp)
         }
@@ -150,7 +207,7 @@ fun AuthSignInScreen(viewModel: ShellViewModel) {
             busy = working == ""
         )
         TextButton(
-            onClick = { signingUp = !signingUp },
+            onClick = onToggle,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .semantics {

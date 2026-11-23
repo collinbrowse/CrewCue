@@ -13,15 +13,22 @@ enum OcclusionLayout {
     /// Within this many points, two edges count as the same edge.
     static let tolerance: CGFloat = 1
 
+    /// How far a row keeps from a bar item (`keepsFullWidthRowsClear()`): the system draws the
+    /// item's glass a little past the frame its content gets.
+    static let barItemClearance: CGFloat = 6
+
     /// The leading and trailing safe-area insets `frame` can ignore: those that are a camera
-    /// column (`columnEdges`) where no occlusion region lies in the strip the view would take
-    /// past the inset, from its top to its bottom.
+    /// column (`columnEdges`) where no occlusion region, and no obstacle, lies in the strip the
+    /// view would take past the inset, from its top to its bottom.
     ///
     /// - Parameters:
     ///   - frame: the view as the safe area lays it out (not run past any inset).
     ///   - leading: how far the display's leading edge is past `frame`'s leading edge.
     ///   - trailing: how far the display's trailing edge is past `frame`'s trailing edge.
     ///   - occlusions: the occlusion regions' frames, margins included (`outset`).
+    ///   - obstacles: other things a row mustn't run under that aren't occlusion regions, such
+    ///     as a bar item the system places in the camera column. They never make an inset a
+    ///     column; they only keep a view beside them inside it.
     ///   - displayTop: the display's top edge.
     ///
     ///   Every rect and edge is in one coordinate space, with x growing toward the trailing edge.
@@ -30,10 +37,11 @@ enum OcclusionLayout {
         leading: CGFloat,
         trailing: CGFloat,
         occlusions: [CGRect],
+        obstacles: [CGRect] = [],
         displayTop: CGFloat
     ) -> Edge.Set {
         var edges = columnEdges(frame: frame, leading: leading, trailing: trailing, occlusions: occlusions, displayTop: displayTop)
-        let regions = regions(occlusions)
+        let regions = regions(occlusions + obstacles)
         if edges.contains(.leading) {
             let strip = CGRect(x: frame.minX - leading, y: frame.minY, width: leading, height: frame.height)
             if regions.contains(where: { overlaps($0, strip) }) { edges.remove(.leading) }
@@ -67,6 +75,7 @@ enum OcclusionLayout {
         leading: CGFloat,
         trailing: CGFloat,
         occlusions: [CGRect],
+        obstacles: [CGRect] = [],
         displayTop: CGFloat,
         hysteresis: CGFloat = OcclusionLayout.hysteresis
     ) -> Edge.Set {
@@ -75,11 +84,17 @@ enum OcclusionLayout {
             let top = max(frame.minY, visible.minY)
             let bottom = min(frame.maxY, visible.maxY)
             guard bottom > top else {
-                return current ?? clearEdges(frame: frame, leading: leading, trailing: trailing, occlusions: occlusions, displayTop: displayTop)
+                return current ?? clearEdges(
+                    frame: frame, leading: leading, trailing: trailing,
+                    occlusions: occlusions, obstacles: obstacles, displayTop: displayTop
+                )
             }
             shown = CGRect(x: frame.minX, y: top, width: frame.width, height: bottom - top)
         }
-        let edges = clearEdges(frame: shown, leading: leading, trailing: trailing, occlusions: occlusions, displayTop: displayTop)
+        let edges = clearEdges(
+            frame: shown, leading: leading, trailing: trailing,
+            occlusions: occlusions, obstacles: obstacles, displayTop: displayTop
+        )
         guard let current else { return edges }
         // A taller frame only meets more regions, so `settled` is within `edges`.
         let settled = clearEdges(
@@ -87,6 +102,7 @@ enum OcclusionLayout {
             leading: leading,
             trailing: trailing,
             occlusions: occlusions,
+            obstacles: obstacles,
             displayTop: displayTop
         )
         return edges.intersection(current).union(settled)
@@ -155,13 +171,22 @@ enum OcclusionLayout {
     }
 }
 
-/// The window's occlusion regions, margins included, and its bounds, in global coordinates.
+/// The window's occlusion regions, margins included, the obstacles views have reported
+/// (`keepsFullWidthRowsClear()`), and the window's bounds, in global coordinates.
 /// Global x grows to the right whatever the layout direction, as do the regions (read with
 /// `layoutDirectionBehavior: .fixed`); a view's leading and trailing insets follow the layout
 /// direction, so a right-to-left layout is mirrored before the edges are worked out.
 struct OcclusionDisplay: Equatable, Sendable {
     var bounds: CGRect
     var occlusions: [CGRect]
+    /// Bar items and the like, margins included: rows beside them keep the inset
+    /// (`OcclusionLayout.clearEdges`), but they never make an inset a column.
+    var obstacles: [CGRect] = []
+
+    /// `obstacles` mirrored like `occlusions` when `flip`.
+    private nonisolated func obstacles(flip: Bool) -> [CGRect] {
+        flip ? obstacles.map { OcclusionLayout.mirrored($0, in: bounds) } : obstacles
+    }
 
     /// The edges `frame` can run past its `leading` and `trailing` insets on
     /// (`OcclusionLayout.clearEdges`), read the way `layoutDirection` lays them out.
@@ -172,6 +197,7 @@ struct OcclusionDisplay: Equatable, Sendable {
             leading: leading,
             trailing: trailing,
             occlusions: flip ? occlusions.map { OcclusionLayout.mirrored($0, in: bounds) } : occlusions,
+            obstacles: obstacles(flip: flip),
             displayTop: bounds.minY
         )
     }
@@ -194,6 +220,7 @@ struct OcclusionDisplay: Equatable, Sendable {
             leading: leading,
             trailing: trailing,
             occlusions: flip ? occlusions.map { OcclusionLayout.mirrored($0, in: bounds) } : occlusions,
+            obstacles: obstacles(flip: flip),
             displayTop: bounds.minY
         )
     }

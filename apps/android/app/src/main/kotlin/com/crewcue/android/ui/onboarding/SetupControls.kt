@@ -337,7 +337,9 @@ fun CourseMapPreview(course: CoursePreview, text: OnboardingText, modifier: Modi
                     { mapFailed = true },
                     0,
                     // The whole course and its checkpoints, fitted again after every resize.
-                    CourseFraming.Preview
+                    CourseFraming.Preview,
+                    trackTimes = emptyList(),
+                    glide = null
                 )
             } else {
                 RouteSketch(course.line, Modifier.fillMaxSize().padding(16.dp))

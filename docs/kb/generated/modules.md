@@ -178,6 +178,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift) | `RaceStartInput` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
+| [packages/client-core/Sources/CrewCueClientCore/RunnerSetupSteps.swift](../../../packages/client-core/Sources/CrewCueClientCore/RunnerSetupSteps.swift) | `RunnerSetupSteps` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | `RuntimeCall`, `PersistedEstimateRecord`, `EstimateRecordFile`, `SilentRuntimeLogger`, `CapturingTransport`, `CoursePayload`, `BridgeBox` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeChat.swift) | `RuntimeChatThreads` |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeDemoRace.swift) | `DemoRuntimes` |
@@ -195,40 +196,40 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-107 files under `packages/client-core/Sources/`.
+108 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 57 | 12825 |
+| `CrewCueClientCore` | 58 | 13156 |
 | `CrewCueClientCore/Generated` | 50 | 980 |
 
 ### iOS app (SwiftUI)
 
-74 files under `apps/ios/CrewCue/`.
+75 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
-| `App` | 14 | 1599 |
+| `App` | 14 | 1628 |
 | `Brand` | 1 | 184 |
-| `Design` | 5 | 1327 |
+| `Design` | 6 | 1676 |
 | `Logging` | 2 | 18 |
 | `Screens/ActivityImport` | 2 | 145 |
 | `Screens/AthleteSetup` | 2 | 146 |
-| `Screens/Auth` | 2 | 182 |
+| `Screens/Auth` | 2 | 222 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
 | `Screens/Chat` | 4 | 944 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
-| `Screens/Map` | 6 | 2198 |
+| `Screens/Map` | 6 | 2213 |
 | `Screens/Notifications` | 2 | 116 |
-| `Screens/Onboarding` | 10 | 2927 |
+| `Screens/Onboarding` | 10 | 3753 |
 | `Screens/Pace` | 2 | 1868 |
 | `Screens/Profile` | 2 | 427 |
 | `Screens/RoomMembers` | 2 | 199 |
 | `Screens/Settings` | 2 | 363 |
-| `Screens/Shell` | 4 | 659 |
+| `Screens/Shell` | 4 | 660 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
@@ -238,19 +239,19 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `kotlin/com/crewcue/android` | 2 | 117 |
-| `kotlin/com/crewcue/android/auth` | 3 | 192 |
+| `kotlin/com/crewcue/android/auth` | 3 | 199 |
 | `kotlin/com/crewcue/android/billing` | 3 | 252 |
 | `kotlin/com/crewcue/android/crash` | 2 | 108 |
-| `kotlin/com/crewcue/android/data` | 3 | 652 |
+| `kotlin/com/crewcue/android/data` | 3 | 665 |
 | `kotlin/com/crewcue/android/di` | 1 | 94 |
 | `kotlin/com/crewcue/android/generated` | 50 | 515 |
 | `kotlin/com/crewcue/android/logging` | 1 | 10 |
 | `kotlin/com/crewcue/android/nav` | 2 | 103 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
-| `kotlin/com/crewcue/android/ui` | 5 | 1658 |
+| `kotlin/com/crewcue/android/ui` | 5 | 1673 |
 | `kotlin/com/crewcue/android/ui/activity` | 1 | 185 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
-| `kotlin/com/crewcue/android/ui/auth` | 1 | 173 |
+| `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
@@ -260,7 +261,7 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/map` | 5 | 1811 |
 | `kotlin/com/crewcue/android/ui/members` | 1 | 308 |
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
-| `kotlin/com/crewcue/android/ui/onboarding` | 10 | 4251 |
+| `kotlin/com/crewcue/android/ui/onboarding` | 10 | 4272 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
 | `kotlin/com/crewcue/android/ui/pace` | 2 | 1480 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
