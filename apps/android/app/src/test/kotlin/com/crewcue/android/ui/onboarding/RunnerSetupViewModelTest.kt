@@ -191,6 +191,8 @@ private class MemoryDrafts : RunnerSetupDraftStore {
     var draft: RunnerSetupDraft? = null
     var course: String? = null
     var cleared = false
+    /** Runs while a course file is written, so a test sees what shows meanwhile. */
+    var onWriteCourse: () -> Unit = {}
 
     override fun load(userId: String): RunnerSetupDraft? = draft.takeIf { owner == userId }
     override fun save(userId: String, draft: RunnerSetupDraft) {
@@ -199,6 +201,7 @@ private class MemoryDrafts : RunnerSetupDraftStore {
     }
     override fun readCourse(userId: String): String? = course.takeIf { owner == userId }
     override fun writeCourse(userId: String, gpxXml: String): Boolean {
+        onWriteCourse()
         course = gpxXml
         return true
     }
@@ -1273,6 +1276,29 @@ class RunnerSetupViewModelTest {
         assertEquals("copy.gpx", model.draft.courseFileName)
         assertFalse(model.courseLoading)
         assertNull(model.courseLoadingCaption)
+    }
+
+    @Test
+    fun aFilePickedAfterBackShowsWithItsLoaderAndCaptionWhileThePhoneWritesIt() = runTest(dispatcher) {
+        val model = reviewing(SetupSteps.COURSE)
+        val before = assertNotNullAnd(model.preview)
+        // The course from before is drawn.
+        model.noteCourseMapReady()
+        assertFalse(model.courseLoading)
+        var meanwhile: Triple<CoursePreview?, Boolean, String?>? = null
+        drafts.onWriteCourse = { meanwhile = Triple(model.preview, model.courseLoading, model.courseLoadingCaption) }
+        runtime.answer("gpxPreview", ok(PREVIEW.replace("39.01]", "39.02]")))
+        model.chooseCourse("other.gpx", "<gpx><trk/></gpx>", online = true)
+        // While the file goes to disk the new course is already the one under the loader: the one
+        // before it never shows again, and the caption stays.
+        val (shown, loading, caption) = assertNotNullAnd(meanwhile)
+        assertNotNull(shown)
+        assertFalse(before == shown)
+        assertTrue(loading)
+        assertEquals("Reading your course…", caption)
+        assertEquals(shown, model.preview)
+        assertTrue(model.courseLoading)
+        assertEquals("Reading your course…", model.courseLoadingCaption)
     }
 
     @Test

@@ -1111,12 +1111,14 @@ class RunnerSetupViewModel(
                 uploadedStartAt = null
             )
         )
+        // At once, before the disk write: the course before it never shows again in between, and
+        // the new one keeps its loader and "Reading your course…" until its own map is ready.
+        if (parsed != null) showPreview(parsed)
         val current = draft
         courseOnDevice = withContext(io) {
             drafts.save(user, current)
             drafts.writeCourse(user, picked.xml)
         }
-        if (parsed != null) showPreview(parsed)
     }
 
     /** After process death or a relaunch the course is on disk but not drawn: preview it again. */
