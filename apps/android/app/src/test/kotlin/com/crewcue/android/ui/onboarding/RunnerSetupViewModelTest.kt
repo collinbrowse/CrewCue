@@ -1239,6 +1239,27 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun courseSavedNamesTheFileTheTeaserReadFromTheRoom() = runTest(dispatcher) {
+        // Another phone, on the teaser: no file here. The room `loadRoom` reads names the saved
+        // course's file (client-core's payload carries the room's `courseFileName`).
+        runtime.answer(
+            "loadRoom",
+            ok(PREVIEW.replace("\"plannedPaceSecondsPerKm\":420", "\"plannedPaceSecondsPerKm\":420,\"courseFileName\":\"course-50k-edited.gpx\""))
+        )
+        val model = model()
+        model.sync(flow(SetupSteps.TEASER, roomId = "room-1"), JSONArray().put(raceRow()), racesVersion = 1)
+        assertTrue(model.teaser != null)
+        model.goBack()
+        model.goBack()
+        model.goBack()
+        assertEquals(SetupSteps.COURSE, model.step)
+        assertTrue(model.showsCourseSaved)
+        assertEquals("course-50k-edited.gpx", model.savedCourseFileName)
+        assertTrue(runtime.imports.isEmpty())
+        assertEquals(0, runtime.calls.count { it == "gpxPreview" })
+    }
+
+    @Test
     fun courseSavedAndTheRaceListsNameSurviveProcessDeathBeforeTheListComesBack() = runTest(dispatcher) {
         val saved = SavedStateHandle()
         // Signed in on another phone: no file here, the race list has the course and the name.

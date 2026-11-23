@@ -1851,6 +1851,8 @@ enum CoursePayload {
             "name": (room["name"] as? String) ?? "",
             // Android shows Remove member only to the race's athlete, as the API allows.
             "athleteId": (room["athleteId"] as? String) ?? "",
+            // The saved course's file name, for runner setup's "Course saved" on a phone without the file.
+            "courseFileName": (room["courseFileName"] as? String) ?? "",
             "line": line,
             // An unpaid race's teaser has no baseline track, so its profile comes from the route.
             "elevation": planned.isEmpty ? geometryElevation(geometry) : planned,

@@ -579,6 +579,19 @@ private let paidLastAidStop = #"{"id":"s3","checkpointId":"aid-2","elapsedSecond
     #expect(CoursePayload.make(from: Data(paid.utf8))["elevation"] as? [[Double]] == [[0, 5], [50, 9]])
 }
 
+/// A phone without the course file names the saved one ("Course saved", the file's name) from the
+/// room `loadRoom` reads, as iOS does from the decoded room.
+@Test func loadRoomPayloadCarriesTheSavedCourseFileName() throws {
+    let saved = """
+    {"room":{"id":"r1","name":"Canyons 2027","courseFileName":"course-50k-edited.gpx","course":{"checkpoints":[]}}}
+    """
+    #expect(CoursePayload.make(from: Data(saved.utf8))["courseFileName"] as? String == "course-50k-edited.gpx")
+    let none = """
+    {"room":{"id":"r1","name":"Canyons 2027","course":{"checkpoints":[]}}}
+    """
+    #expect(CoursePayload.make(from: Data(none.utf8))["courseFileName"] as? String == "")
+}
+
 // MARK: labels
 
 @Test func onboardingCopyOpCarriesEveryControlLabel() async throws {
