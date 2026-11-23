@@ -35,6 +35,11 @@ interface RunnerSetupRuntime {
     fun loadSchedule(roomId: String): RuntimeResult
     /** Pace timeline rows from the schedule sheet and course. No runner: nobody has pinged yet. */
     fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult
+    /**
+     * client-core `SuggestedDisplayName`: [name] as the account step's suggestion, or null when it
+     * is an email (or [email]'s local part). Pure and quick (no request), so it may run on Main.
+     */
+    fun suggestedDisplayName(name: String?, email: String?): String?
 }
 
 class BridgeRunnerSetupRuntime(
@@ -85,6 +90,8 @@ class BridgeRunnerSetupRuntime(
 
     override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult =
         raceDay.projectAidSheet(sheet, checkpoints, runner = null, selectedIndex = 0, follow = true, elevation = elevation)
+
+    override fun suggestedDisplayName(name: String?, email: String?): String? = raceDay.suggestedDisplayName(name, email)
 }
 
 /**

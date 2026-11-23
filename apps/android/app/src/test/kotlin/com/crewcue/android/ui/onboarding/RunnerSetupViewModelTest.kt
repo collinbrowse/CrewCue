@@ -54,6 +54,9 @@ private class FakeRuntime : RunnerSetupRuntime {
     val historyModes = mutableListOf<String?>()
     var created: Triple<String, String, String?>? = null
     val answers = mutableMapOf<String, ArrayDeque<RuntimeResult>>()
+    /** What `suggestedDisplayName` was asked, and client-core's answer (scripted; the rule is Swift's). */
+    val suggestions = mutableListOf<Pair<String?, String?>>()
+    var suggest: (String?, String?) -> String? = { name, _ -> name?.trim() }
 
     fun answer(op: String, vararg results: RuntimeResult) {
         answers[op] = ArrayDeque(results.toList())
@@ -112,6 +115,11 @@ private class FakeRuntime : RunnerSetupRuntime {
 
     override fun loadSchedule(roomId: String): RuntimeResult =
         next("loadSchedule", ok("""{"sheet":{"roomId":"room-1","raceStartAt":"2026-08-15T12:30:00.000Z","stops":[],"locked":{"checkpointIds":["aid-1"]}}}"""))
+
+    override fun suggestedDisplayName(name: String?, email: String?): String? {
+        suggestions += name to email
+        return suggest(name, email)
+    }
 
     override fun timeline(sheet: JSONObject?, checkpoints: JSONArray, elevation: JSONArray?): RuntimeResult = next(
         "timeline",
@@ -193,6 +201,29 @@ class RunnerSetupViewModelTest {
         assertEquals(listOf(Triple(SetupSteps.ACCOUNT, "done", null as String?)), runtime.marks)
         assertEquals(RunnerSetupEffect.DisplayNameChosen("Ada"), effects[0])
         assertTrue(effects[1] is RunnerSetupEffect.StateChanged)
+    }
+
+    @Test
+    fun aSessionNameClientCoreRefusesNeverReachesTheNameCrewSee() = runTest(dispatcher) {
+        // A session saved before email names were dropped: client-core says it is no name.
+        runtime.suggest = { _, _ -> null }
+        val model = model(name = "pat.runner@example.com")
+        model.sync(flow(SetupSteps.ACCOUNT))
+        assertEquals(listOf("pat.runner@example.com" to null as String?), runtime.suggestions)
+        assertEquals("", model.draft.displayName)
+        // Account done elsewhere: the race is created without the email as the creator's name.
+        model.sync(flow(SetupSteps.COURSE))
+        model.chooseCourse("route.gpx", "<gpx/>", online = true)
+        assertEquals(Triple("route", "ada", null as String?), runtime.created)
+    }
+
+    @Test
+    fun aTypedNameIsKeptWithoutAskingClientCore() = runTest(dispatcher) {
+        drafts.save("ada", RunnerSetupDraft(displayName = "Ada R"))
+        runtime.suggest = { _, _ -> null }
+        val model = model(name = "ada@example.com")
+        assertEquals("Ada R", model.draft.displayName)
+        assertTrue(runtime.suggestions.isEmpty())
     }
 
     @Test
