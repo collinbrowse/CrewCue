@@ -1112,6 +1112,7 @@ test(
     const runner = `runner-plan-restart-${suffix}`;
     const crew = `crew-plan-restart-${suffix}`;
     // Not `withApp`: its cleanup truncates the stored estimates the restart must read back.
+    // Unique user ids keep the rooms apart; the estimate row is shared across runs (see below).
     const app = buildApp();
     await app.ready();
     const runnerToken = app.jwt.sign(buildClaims(runner));
@@ -1177,7 +1178,11 @@ test(
     // The stored estimate itself came back from Postgres: it attaches to the runner's next race.
     assert.equal((after.attachLater.body as { pacingEstimateId: string }).pacingEstimateId, computed.id);
     assert.equal(parseCrewScheduleSheet(after.laterSchedule.body).pacingEstimateId, computed.id);
+    // The estimate id is a digest of the plan's inputs, so on a reused database the row also
+    // names rooms from earlier runs: check this run's two races are recorded, not the exact set.
     const stored = await getPacingEstimateById(computed.id);
-    assert.deepEqual([...(stored?.roomIds ?? [])].sort(), [roomId, laterRoomId].sort());
+    for (const id of [roomId, laterRoomId]) {
+      assert.ok(stored?.roomIds.includes(id), `estimate roomIds records ${id}`);
+    }
   }
 );
