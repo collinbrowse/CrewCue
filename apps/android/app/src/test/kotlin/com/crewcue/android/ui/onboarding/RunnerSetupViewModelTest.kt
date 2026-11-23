@@ -3,6 +3,7 @@ package com.crewcue.android.ui.onboarding
 import androidx.lifecycle.SavedStateHandle
 import com.crewcue.android.data.RuntimeResult
 import java.time.LocalDate
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -206,6 +207,33 @@ private class MemoryDrafts : RunnerSetupDraftStore {
         draft = null
         course = null
         owner = null
+    }
+}
+
+/**
+ * The ViewModel's io: runs in place, like the test dispatcher, until [held]. Held, each request
+ * waits until the test runs it, so a test can act while one is in flight.
+ */
+private class HeldDispatcher : CoroutineDispatcher() {
+    var held = false
+    private val waiting = ArrayDeque<Runnable>()
+
+    override fun isDispatchNeeded(context: CoroutineContext): Boolean = held
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        waiting.addLast(block)
+    }
+
+    /** Runs the waiting requests one at a time until [done] (the next ones keep waiting). */
+    fun runUntil(done: () -> Boolean) {
+        while (!done() && waiting.isNotEmpty()) waiting.removeFirst().run()
+        check(done()) { "Nothing left waiting, and still not there." }
+    }
+
+    /** Lets every request through, the waiting ones first. */
+    fun release() {
+        held = false
+        while (waiting.isNotEmpty()) waiting.removeFirst().run()
     }
 }
 
@@ -920,10 +948,15 @@ class RunnerSetupViewModelTest {
     // MARK: a reviewed step's Continue
 
     /** Setup on the teaser, then Back to [step]. */
-    private fun reviewing(step: String, draft: RunnerSetupDraft = savedDraft(), course: String? = COURSE_XML): RunnerSetupViewModel {
+    private fun reviewing(
+        step: String,
+        draft: RunnerSetupDraft = savedDraft(),
+        course: String? = COURSE_XML,
+        io: CoroutineDispatcher = dispatcher
+    ): RunnerSetupViewModel {
         drafts.save("ada", draft)
         drafts.course = course
-        val model = model()
+        val model = model(io = io)
         model.sync(flow(SetupSteps.TEASER, roomId = "room-1"))
         while (model.step != step) model.goBack()
         return model
@@ -1031,19 +1064,24 @@ class RunnerSetupViewModelTest {
         val model = reviewing(SetupSteps.COURSE)
         val before = model.preview
         assertNotNull(before)
-        // The course from before is on the map.
-        model.noteCourseMapReady()
+        // The course from before still waits for its map: nothing marks it drawn here.
+        assertTrue(model.courseLoading)
         runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
         model.chooseCourse("broken.gpx", "<nope/>", online = true)
         assertTrue(model.status is SetupStatus.Failed)
         assertTrue(model.courseNeedsRetry)
         assertTrue(model.canCancelCourse)
         assertEquals("broken.gpx", model.shownCourseFileName)
-        // No loader over a failed preview: the error and Try again.
+        // No loader over a failed preview: the error and Try again, the course before it shown.
         assertFalse(model.courseLoading)
+        assertNull(model.courseLoadingCaption)
         model.cancelPendingCourse()
         assertEquals(SetupStatus.Ready, model.status)
         assertFalse(model.canCancelCourse)
+        // Cancel brings no loader back, now or after the course's own wait would have run out.
+        assertFalse(model.courseLoading)
+        advanceTimeBy(RunnerSetupViewModel.MAP_WAIT_MS + 1)
+        assertFalse(model.courseLoading)
         assertEquals("route.gpx", model.shownCourseFileName)
         assertEquals("route.gpx", model.draft.courseFileName)
         assertEquals(COURSE_XML, drafts.course)
@@ -1143,6 +1181,56 @@ class RunnerSetupViewModelTest {
         assertNull(model.courseLoadingCaption)
         model.noteCourseMapReady()
         assertFalse(model.courseLoading)
+    }
+
+    @Test
+    fun theCapRunsOutDuringAnotherFilesPreviewAndThatPreviewFailingLeavesNoLoader() = runTest(dispatcher) {
+        val io = HeldDispatcher()
+        val model = reviewing(SetupSteps.COURSE, io = io)
+        val before = assertNotNullAnd(model.preview)
+        // The course from before waits for its map, which hasn't drawn.
+        assertTrue(model.courseLoading)
+        io.held = true
+        model.chooseCourse("other.gpx", "<gpx><trk/></gpx>", online = true)
+        // The other file's preview request is in flight.
+        io.runUntil { model.previewingCourse }
+        assertEquals("other.gpx", model.pendingCourse?.fileName)
+        // The course on show runs out of its 8 s meanwhile: its wait ends, and the file being read
+        // keeps the loader and its caption.
+        advanceTimeBy(RunnerSetupViewModel.MAP_WAIT_MS + 1)
+        assertTrue(model.courseMapReady)
+        assertTrue(model.courseLoading)
+        assertEquals("Reading your course…", model.courseLoadingCaption)
+        // The file can't be read: the error, Try again and Cancel, with no loader, then or later.
+        runtime.answer("gpxPreview", RuntimeResult.Failure("Couldn't read this GPX file.", offline = false, status = 400))
+        io.release()
+        assertTrue(model.status is SetupStatus.Failed)
+        assertTrue(model.courseNeedsRetry)
+        assertTrue(model.canCancelCourse)
+        assertFalse(model.courseLoading)
+        advanceTimeBy(60_000)
+        assertFalse(model.courseLoading)
+        model.cancelPendingCourse()
+        assertFalse(model.courseLoading)
+        assertEquals(before, model.preview)
+    }
+
+    @Test
+    fun theSameCourseReadAgainAfterItsCapRanOutShowsWithNoLoader() = runTest(dispatcher) {
+        val io = HeldDispatcher()
+        val model = reviewing(SetupSteps.COURSE, io = io)
+        val before = assertNotNullAnd(model.preview)
+        io.held = true
+        // Another file whose preview is the same course as the one on show.
+        model.chooseCourse("copy.gpx", "<gpx><trk/></gpx>", online = true)
+        io.runUntil { model.previewingCourse }
+        advanceTimeBy(RunnerSetupViewModel.MAP_WAIT_MS + 1)
+        io.release()
+        assertEquals(SetupStatus.Ready, model.status)
+        assertEquals(before, model.preview)
+        assertEquals("copy.gpx", model.draft.courseFileName)
+        assertFalse(model.courseLoading)
+        assertNull(model.courseLoadingCaption)
     }
 
     @Test

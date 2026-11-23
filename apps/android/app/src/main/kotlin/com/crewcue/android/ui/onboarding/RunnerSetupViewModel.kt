@@ -444,6 +444,8 @@ class RunnerSetupViewModel(
                 pendingCourse = picked
                 if (!online) {
                     status = offline()
+                    // The error and Try again, with no loader over the course before it.
+                    if (preview != null) endMapWait()
                     return@work
                 }
                 previewPending(user, picked)
@@ -516,6 +518,8 @@ class RunnerSetupViewModel(
         pendingCourse = null
         status = SetupStatus.Ready
         readingCourse = false
+        // Its failure already ended the wait of the course before it; no loader comes back.
+        if (preview != null) endMapWait()
     }
 
     /**
@@ -525,10 +529,32 @@ class RunnerSetupViewModel(
      */
     fun noteCourseMapReady() {
         if (previewingCourse) return
-        mapWait?.cancel()
+        endMapWait()
+    }
+
+    /**
+     * The wait for the map of the preview on show is over: its map drew, its [MAP_WAIT_MS] ran
+     * out, or a file picked after it couldn't be previewed. A file being read keeps its caption
+     * (and the loader, [previewingCourse]) until its own preview's map is ready.
+     */
+    private fun endMapWait() {
+        val wait = mapWait
         mapWait = null
+        wait?.cancel()
         if (!courseMapReady) courseMapReady = true
-        readingCourse = false
+        if (!previewingCourse) readingCourse = false
+    }
+
+    /** The preview on show waits for its map at most [MAP_WAIT_MS], once: a wait already running keeps its time. */
+    private fun startMapWait() {
+        val shown = preview?.takeIf { !it.isEmpty } ?: return
+        if (courseMapReady || mapWait?.isActive == true) return
+        mapWait = viewModelScope.launch {
+            delay(MAP_WAIT_MS)
+            // Its own path: it ends this preview's wait even while another file is read, so a
+            // preview of that file that fails or is cancelled leaves no loader behind.
+            if (preview == shown) endMapWait()
+        }
     }
 
     // MARK: start time
@@ -1005,6 +1031,7 @@ class RunnerSetupViewModel(
     private suspend fun readCourse(user: String, fileName: String, xml: String, reading: Boolean): CoursePreview? {
         previewingCourse = true
         if (reading) readingCourse = true
+        var parsed: CoursePreview? = null
         try {
             val room = ensureRoom(user) ?: run {
                 readingCourse = false
@@ -1027,18 +1054,25 @@ class RunnerSetupViewModel(
                     null
                 }
                 is RuntimeResult.Success -> {
-                    val parsed = CoursePreview.from(result.result)
-                    if (result.result.optText("status") != "previewed" || parsed.isEmpty) {
+                    val read = CoursePreview.from(result.result)
+                    if (result.result.optText("status") != "previewed" || read.isEmpty) {
                         readingCourse = false
                         status = failed(text.setupError)
                         null
                     } else {
-                        parsed
+                        parsed = read
+                        read
                     }
                 }
             }
         } finally {
             previewingCourse = false
+            // A failed preview shows the error and Try again, with no loader: the course still on
+            // show (the one before the file) ends its wait, drawn as far as its map got.
+            if (parsed == null) {
+                readingCourse = false
+                if (preview != null) endMapWait()
+            }
         }
     }
 
@@ -1093,21 +1127,16 @@ class RunnerSetupViewModel(
     /** Another preview (a new file, a relaunch) waits for its own map again, at most [MAP_WAIT_MS]. */
     private fun showPreview(next: CoursePreview?) {
         if (next == preview) {
-            // The same course again (the file picked again, read once more): its map is already drawn.
-            if (courseMapReady) readingCourse = false
+            // The same course again (the file picked again, read once more): its map is already
+            // drawn, or its wait is still running (started again if it has none).
+            if (courseMapReady) readingCourse = false else startMapWait()
             return
         }
         preview = next
         courseMapReady = false
         mapWait?.cancel()
-        mapWait = if (next != null && !next.isEmpty) {
-            viewModelScope.launch {
-                delay(MAP_WAIT_MS)
-                noteCourseMapReady()
-            }
-        } else {
-            null
-        }
+        mapWait = null
+        startMapWait()
     }
 
     /**
