@@ -1848,6 +1848,8 @@ enum CoursePayload {
         return [
             "offline": false,
             "checkpoints": checkpoints,
+            // Runner setup's line under the map ("31.1 mi · 4 checkpoints"), as iOS writes it. "" with no course.
+            "summary": summary(line: line, checkpoints: checkpoints.count),
             "name": (room["name"] as? String) ?? "",
             // Android shows Remove member only to the race's athlete, as the API allows.
             "athleteId": (room["athleteId"] as? String) ?? "",
@@ -1858,6 +1860,18 @@ enum CoursePayload {
             "elevation": planned.isEmpty ? geometryElevation(geometry) : planned,
             "memberships": membershipRows(room)
         ]
+    }
+
+    /// `OnboardingCopy.courseSummary` for the course drawn: its length along `line` (the route,
+    /// else the checkpoints: the rule `CoursePreview.lengthMeters` follows) and its checkpoint
+    /// count. "" when there are no checkpoints.
+    static func summary(line: [[Double]], checkpoints: Int) -> String {
+        guard checkpoints > 0 else { return "" }
+        let route = line.compactMap { pair in
+            pair.count >= 2 ? CourseRoutePoint(latitude: pair[1], longitude: pair[0]) : nil
+        }
+        let length = CoursePreview(courseFileName: "", checkpoints: [], plannedPaceSecondsPerKm: nil, route: route).lengthMeters
+        return OnboardingCopy.courseSummary(lengthMeters: length, checkpoints: checkpoints)
     }
 
     /// `[distanceMeters, elevationMeters]` along the route line, from each vertex's third value

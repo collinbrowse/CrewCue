@@ -11,9 +11,13 @@ import Foundation
 ///   `daylightSavingGap`) or null, `message` (the shared copy, only for `daylightSavingGap`), the
 ///   fields, and `dateLabel` and `timeLabel`: the picked day and time as the pickers show them.
 /// - `gpxPreview`: `roomId`, `fileName`, `gpxXml` → the server's parse (`POST
-///   …/course/gpx-preview`) as `line`, `checkpoints`, `elevation`, `plannedPaceSecondsPerKm` and
-///   `courseFileName`, the shape `loadRoom` answers. Saves nothing. A blank file answers
-///   `status: empty` without a request.
+///   …/course/gpx-preview`) as `line`, `checkpoints`, `elevation`, `plannedPaceSecondsPerKm`,
+///   `courseFileName` and `summary` (`OnboardingCopy.courseSummary`, "31.1 mi · 4 checkpoints"),
+///   the shape `loadRoom` answers. Saves nothing. A blank file answers `status: empty` without a
+///   request.
+/// - The teaser's `loadEstimate`, `computeEstimate` (`finishClock`, `summary`, `comparison`) and
+///   `projectAidSheet` (timeline `clockLabel`) write their clocks in `timeZone` (an IANA id):
+///   Android sends the race's zone, the start time step's. Left out, the device zone.
 /// - `raceAccess`: `roomId` (the active race), `role`, `billing?` (`paid` or `unpaid`, the last
 ///   billing read for this race; left out while unknown or after a failed read) and
 ///   `onboarding?` (the state `readOnboarding` answered: `flow`, `phase`, `roomId`, `reason`) →
