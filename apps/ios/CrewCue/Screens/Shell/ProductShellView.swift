@@ -59,7 +59,7 @@ struct ProductTabPage: View {
 
     var body: some View {
         if tab != .profile && model.signedInRoomId == nil {
-            ShellPage(onSettings: onSettings) {
+            ShellPage(title: model.topBarTitle, onSettings: onSettings) {
                 NoRaceView(
                     onCreate: { model.selectedTab = .profile },
                     onJoin: { model.show(Route(featureId: "join-crew", state: .success)) }
@@ -77,12 +77,13 @@ struct ProductTabPage: View {
             MapView(
                 model: model.mapModel,
                 focus: ShellTab.isMapFeature(model.route.featureId) ? model.route.featureId : "map-track",
+                title: model.topBarTitle,
                 onSettings: onSettings,
                 access: model.raceAccess,
                 onUnlock: model.isUnpaidRunnerRace ? { model.showBilling() } : nil
             )
         case .pace:
-            ShellPage(onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
+            ShellPage(title: model.topBarTitle, onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
                 PaceView(
                     model: model.paceModel,
                     userId: model.signedInUserId,
@@ -94,11 +95,11 @@ struct ProductTabPage: View {
                 )
             }
         case .chat:
-            ShellPage(onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
+            ShellPage(title: model.topBarTitle, onSettings: onSettings, access: model.raceAccess, onUnlock: { model.showBilling() }) {
                 ChatTabPage(model: model)
             }
         case .profile:
-            ShellPage(onSettings: onSettings) {
+            ShellPage(title: model.topBarTitle, onSettings: onSettings) {
                 ProfileTabPage(model: model)
             }
         }
@@ -135,6 +136,8 @@ struct NoRaceView: View {
 /// Non-map tab chrome: tinted page ground with the floating glass top bar, matching the map tab.
 /// `access` adds the race's Unlock race (runner) or locked (crew) banner under the bar.
 struct ShellPage<Content: View>: View {
+    /// The active race's name in the top bar.
+    var title: String = "CrewCue"
     var onSettings: () -> Void
     var access: RaceAccess? = nil
     var onUnlock: () -> Void = {}
@@ -146,7 +149,7 @@ struct ShellPage<Content: View>: View {
             .background(CrewBackground())
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: CrewSpace.base) {
-                    CrewTopBar(onSettings: onSettings)
+                    CrewTopBar(title: title, onSettings: onSettings)
                         .crewGlass(in: RoundedRectangle(cornerRadius: CrewRadius.card, style: .continuous))
                         .padding(.horizontal, 8)
                     if let access {

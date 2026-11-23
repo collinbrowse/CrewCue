@@ -135,6 +135,13 @@ final class ShellModel {
     }
 
     /// The banner Map, Pace and Chat show, if any.
+    /// The top bar on every tab: the active race's name, else the app's.
+    var topBarTitle: String {
+        let name = roster.races.first(where: { $0.id == signedInRoomId })?.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (name?.isEmpty == false ? name : nil) ?? "CrewCue"
+    }
+
     var raceAccess: RaceAccess? {
         if isUnpaidRunnerRace { return .unlock }
         if onboarding.state.flow == .raceLocked, let reason = onboarding.state.reason {
