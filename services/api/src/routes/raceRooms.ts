@@ -4515,6 +4515,32 @@ export async function raceRoomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ room: roomForViewer(updatedRoom, request.identity.sub) });
   });
 
+  /**
+   * The owner deletes the race for the whole crew. Same full delete as account deletion and the
+   * unpaid sweeper (lib/raceRoomDeletion.ts), so every room URL answers 404 afterwards.
+   */
+  app.delete("/race-rooms/:roomId", async (request, reply) => {
+    if (!request.identity) {
+      return reply.code(401).send({ error: "Unauthorized" });
+    }
+
+    const { roomId } = request.params as { roomId: string };
+    const room = await getRaceRoom(roomId);
+    if (!room) {
+      return reply.code(404).send({ error: "Race room not found" });
+    }
+    if (room.athleteId !== request.identity.sub) {
+      return reply.code(403).send({ error: "Only the race owner can delete the race" });
+    }
+
+    // Dynamic import: lib/raceRoomDeletion.ts imports this module.
+    const { deleteRaceRoomAndData } = await import("../lib/raceRoomDeletion.js");
+    await deleteRaceRoomAndData(roomId);
+    // Wakes the crew's open chat long-polls, which then find no room.
+    publishChatRoom(roomId, "membership");
+    return reply.send({ deleted: true });
+  });
+
   app.get("/teams/:teamId/race-rooms", async (request, reply) => {
     if (!request.identity) {
       return reply.code(401).send({ error: "Unauthorized" });

@@ -16,6 +16,13 @@ final class ProfileModel {
     var renameDraft = ""
     private(set) var renaming = false
 
+    /// The race the owner asked to delete, waiting on the confirm dialog. Lives here, not in view
+    /// state, so a size change or fold keeps the dialog's race.
+    var pendingDelete: RaceSummary?
+    private(set) var deletingRaceId: String?
+    /// Shown under Your races. Kept apart from `message`, which a race switch resets.
+    private(set) var deleteMessage = ""
+
     private let client: AppClient
     private var onSignOut: @MainActor () -> Void
     private var onDisplayName: (@MainActor (String) -> Void)?
@@ -93,6 +100,29 @@ final class ProfileModel {
         }
     }
 
+    func confirmDelete(_ race: RaceSummary) {
+        guard deletingRaceId == nil else { return }
+        deleteMessage = ""
+        pendingDelete = race
+    }
+
+    /// Deletes the race the dialog confirmed, for the whole crew. Takes the race from the dialog,
+    /// since dismissing it clears `pendingDelete`. `onDeleted` runs only once the server says it
+    /// is gone, so a failure leaves the race listed and active.
+    func delete(_ race: RaceSummary, onDeleted: @escaping @MainActor (String) -> Void) async {
+        guard deletingRaceId == nil else { return }
+        pendingDelete = nil
+        deletingRaceId = race.id
+        defer { deletingRaceId = nil }
+        switch await RaceDeletion.run(graph: client.graph, roomId: race.id) {
+        case .deleted:
+            deleteMessage = RaceDeletion.deletedMessage
+            onDeleted(race.id)
+        case .failed(let failure):
+            deleteMessage = failure
+        }
+    }
+
     func activate(
         userId: String?,
         roomId: String?,
@@ -138,6 +168,8 @@ final class ProfileModel {
         showsRename = false
         renameDraft = ""
         loadedRoomName = ""
+        pendingDelete = nil
+        deleteMessage = ""
     }
 
     private func applyName(_ name: String?) {
