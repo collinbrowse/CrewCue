@@ -606,6 +606,21 @@ class ShellViewModel(
         showSignedOut()
     }
 
+    /**
+     * Sign-in's Back. Signed out, it opens the app's own launch (the chooser, or the step a saved
+     * pick resumes) however sign-in opened: the chooser, join's Back, a dev link or sign-out. The
+     * onboarding state is only read, never reset. Not while Auth0 is working.
+     */
+    fun leaveSignIn() {
+        val leaves = OnboardingRouting.leavesSignIn(
+            signedIn = session != null,
+            showsShell = showAppShell,
+            featureId = uiState.screen.featureId,
+            authWorking = signInConnection != null
+        )
+        if (leaves) routeEntry()
+    }
+
     fun openProfileHome() {
         profilePane = "profile"
     }
@@ -911,7 +926,7 @@ class ShellViewModel(
         val tabRoot = when (feature) {
             "map-track" -> ShellTab.Map
             "chat-thread" -> ShellTab.Chat
-            "profile" -> ShellTab.Profile
+            "profile", "race-delete" -> ShellTab.Profile
             else -> null
         }
         if (signedIn && !hasStateQuery(url) && tabRoot != null) {

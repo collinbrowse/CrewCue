@@ -12,6 +12,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Notifications
+import com.crewcue.android.ui.theme.PillButton
+import com.crewcue.android.ui.theme.SettingRow
 import com.crewcue.android.ui.theme.PrimaryButton
 import com.crewcue.android.ui.theme.ProductCard
 import com.crewcue.android.ui.theme.ProductTitle
@@ -63,24 +71,26 @@ fun PushSection(shell: ShellViewModel, requestOnAppear: Boolean, modifier: Modif
         }
     }
     LaunchedEffect(requestOnAppear) { if (requestOnAppear) request() }
-    ProductCard(
-        modifier
+    LaunchedEffect(Unit) { model.noteAllowed(notificationsGranted(context)) }
+    val on = model.enabled && model.status.isNullOrBlank()
+    SettingRow(
+        Icons.Outlined.Notifications,
+        "Race alerts on this phone",
+        modifier = modifier
             .testTag("crewcue.push-registration")
-            .semantics { contentDescription = "Push" }
-    ) {
-        SectionHeader("This device")
-        Text("Register so race alerts can reach you.", style = MaterialTheme.typography.bodyMedium)
-        model.status?.let { line ->
-            Text(line, modifier = Modifier.padding(top = 8.dp).semantics { contentDescription = line })
+            .semantics { contentDescription = "Push" },
+        hint = model.status?.takeIf { it.isNotBlank() } ?: if (model.enabled) PUSH_HINT_ON else PUSH_HINT_OFF,
+        trailing = {
+            if (on) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text(" On", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
+            } else {
+                PillButton("Turn on", onClick = { request() }, prominent = true, busy = model.busy, spoken = "Register")
+            }
         }
-        PrimaryButton(
-            "Register",
-            onClick = { request() },
-            modifier = Modifier.padding(top = 12.dp),
-            enabled = !model.busy,
-            spoken = "Register"
-        )
-    }
+    )
 }
 
 class PushRegistrationViewModel(
@@ -90,18 +100,28 @@ class PushRegistrationViewModel(
         private set
     var busy by mutableStateOf(false)
         private set
+    /** Notifications are allowed and this phone's token reached the server (or is queued). */
+    var enabled by mutableStateOf(false)
+        private set
+
+    fun noteAllowed(allowed: Boolean) {
+        if (status == null) enabled = allowed
+    }
 
     fun onPermission(granted: Boolean, context: Context) {
         if (!granted) {
+            enabled = false
             status = PUSH_ERROR
             return
         }
         viewModelScope.launch {
             busy = true
             try {
-                status = register(context)
+                val next = register(context)
+                enabled = next == PUSH_SUCCESS || next == PUSH_OFFLINE
+                status = next.ifBlank { null }
             } catch (_: Throwable) {
-                status = if (context.isOnline()) PUSH_ERROR else PUSH_OFFLINE
+                status = if (context.isOnline()) PUSH_FAILED else PUSH_OFFLINE
             } finally {
                 busy = false
             }
@@ -115,18 +135,18 @@ class PushRegistrationViewModel(
         val online = context.isOnline()
         val enqueued = withContext(Dispatchers.IO) { raceDay.enqueuePush(CrewPush.deviceId(context), token) }
         val id = when (enqueued) {
-            is RuntimeResult.Failure -> return if (enqueued.offline || !online) PUSH_OFFLINE else PUSH_ERROR
+            is RuntimeResult.Failure -> return if (enqueued.offline || !online) PUSH_OFFLINE else PUSH_FAILED
             is RuntimeResult.Success -> enqueued.result.optString("id")
         }
         val flushed = withContext(Dispatchers.IO) { raceDay.flushOutbox() }
         return when (flushed) {
-            is RuntimeResult.Failure -> if (flushed.offline || !context.isOnline()) PUSH_OFFLINE else PUSH_ERROR
+            is RuntimeResult.Failure -> if (flushed.offline || !context.isOnline()) PUSH_OFFLINE else PUSH_FAILED
             is RuntimeResult.Success -> {
                 val pending = flushed.result.optJSONArray("pending")
                 val rejected = flushed.result.optJSONArray("rejected")
                 when {
                     !context.isOnline() || pending.containsString(id) -> PUSH_OFFLINE
-                    rejected.containsString(id) -> PUSH_ERROR
+                    rejected.containsString(id) -> PUSH_FAILED
                     else -> PUSH_SUCCESS
                 }
             }

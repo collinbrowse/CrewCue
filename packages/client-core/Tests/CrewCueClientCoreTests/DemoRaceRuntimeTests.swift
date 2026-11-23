@@ -269,6 +269,31 @@ struct DemoRaceRuntimeTests {
         #expect(!ok(try await runtime(request.merging(["op": "demoRaceRunner"]) { $1 })))
     }
 
+    /// Android's path chip counts the runner's pings, as on a race, not the points the replay adds
+    /// along the course between them: every snapshot names the pings in the path served so far.
+    @Test func demoRaceSnapshotsCountThePingsInTheServedPath() async throws {
+        let created = try result(try await runtime(["op": "demoRaceCreate", "fixture": true, "tempDir": freshDirectory().path]))
+        let base = try #require(created["baseURL"] as? String)
+        let script = DemoRaceScript(course: try DemoRaceCourse(roomData: DemoRaceFixture.roomData, viewerUserId: DemoRaceFixture.runnerUserId))
+        let first = try #require(created["snapshot"] as? [String: Any])
+        #expect(first["pathPings"] as? Int == 1)
+        let request: [String: Any] = [
+            "baseURL": base, "userId": DemoRaceFixture.runnerUserId, "storageDir": freshDirectory().path, "roomId": DemoRaceFixture.roomId
+        ]
+        // 10 s in: ten pings while following, then the first of falling behind.
+        let atTen = try result(try await runtime(request.merging(["op": "demoRaceSeek", "seconds": 10.0]) { $1 }))
+        #expect(atTen["stepIndex"] as? Int == 20)
+        #expect(atTen["pathPings"] as? Int == 11)
+        let served = try #require(try result(try await runtime(request.merging(["op": "pingTrack"]) { $1 }))["points"] as? [[String: Any]])
+        #expect(served.count > 11)
+        // The last step: every ping of the replay.
+        let last = try result(try await runtime(request.merging(["op": "demoRaceSeek", "seconds": 24.6]) { $1 }))
+        #expect(last["stepIndex"] as? Int == script.steps.count - 1)
+        #expect(last["pathPings"] as? Int == script.pings(through: script.steps.count - 1).count)
+        #expect(last["pathPings"] as? Int == 25)
+        _ = try await runtime(request.merging(["op": "demoRaceSkip"]) { $1 })
+    }
+
     @Test func demoRaceCreateHandsBackTheRoomBodyItReadForAnOfflineReplay() async throws {
         let real = realBase()
         RuntimeCall.setTransportForTests(PlanServer(), baseURL: real)

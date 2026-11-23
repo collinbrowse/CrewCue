@@ -13,10 +13,10 @@ GET and POST /chat/rooms/:roomId/notification-prefs
 notifications
 
 ## Success
-Mentions and check-ins notify when the preference is all or mentions.
+All: "Every crew chat message in this race notifies you." Mentions: "Only messages that @mention you, and check-ins."
 
 ## Empty
-Alerts are off.
+Off: "Crew chat won't notify you. Check-ins still do."
 
 ## Error
 Couldn't save alert settings.

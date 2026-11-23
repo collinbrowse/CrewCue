@@ -318,6 +318,7 @@ actor CourseImportTransport: HTTPTransport {
         ("crewcue://dev/room-members", "room-members"),
         ("crewcue://dev/activity-import", "activity-import"),
         ("crewcue://dev/account-deletion", "account-deletion"),
+        ("crewcue://dev/race-delete", "race-delete"),
         ("crewcue://dev/app-shell", "app-shell"),
         ("crewcue://dev/loader", "brand-loader"),
         ("crewcue://dev/billing-purchase", "billing-purchase"),

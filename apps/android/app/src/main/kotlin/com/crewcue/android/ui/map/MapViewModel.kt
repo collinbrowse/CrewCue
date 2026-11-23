@@ -81,6 +81,12 @@ class MapViewModel(
     /** The runner's path from the API, oldest first. Every crew phone draws the same one. */
     var track by mutableStateOf<List<CoursePoint>>(emptyList())
         private set
+    /**
+     * Each [track] point's `recordedAt` in epoch ms, in step with it. Only the onboarding replay's
+     * gliding dot reads them, to draw the trail up to the dot; the race Map draws [track] whole.
+     */
+    var trackTimes by mutableStateOf<List<Long>>(emptyList())
+        private set
     /** The athlete tapped Start tracking for this race (saved, so it survives a restart). */
     var trackingActive by mutableStateOf(false)
         private set
@@ -238,14 +244,22 @@ class MapViewModel(
         if (result !is RuntimeResult.Success || result.result.optBoolean("offline")) return
         val points = result.result.optJSONArray("points") ?: return
         val added = mutableListOf<CoursePoint>()
+        val addedTimes = mutableListOf<Long>()
         for (index in 0 until points.length()) {
             val point = points.optJSONObject(index) ?: continue
             val latitude = point.optDouble("latitude", Double.NaN)
             val longitude = point.optDouble("longitude", Double.NaN)
-            if (!latitude.isNaN() && !longitude.isNaN()) added += CoursePoint(latitude, longitude)
+            if (!latitude.isNaN() && !longitude.isNaN()) {
+                added += CoursePoint(latitude, longitude)
+                // Oldest first: a time that doesn't read keeps the one before it.
+                addedTimes += epochMillis(point.optString("recordedAt")) ?: addedTimes.lastOrNull() ?: trackTimes.lastOrNull() ?: 0L
+            }
         }
         result.result.optString("cursor").ifBlank { null }?.let { trackCursor = it }
-        if (added.isNotEmpty()) track = track + added
+        if (added.isNotEmpty()) {
+            track = track + added
+            trackTimes = trackTimes + addedTimes
+        }
     }
 
     private suspend fun refreshLive() {
