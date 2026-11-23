@@ -62,8 +62,8 @@ const xcodeArgs = [
   "-scheme", "CrewCue",
   "-destination", destination,
   "-resultBundlePath", path.join(evidenceDir, `ios-tests-${Date.now()}.xcresult`),
-  // Locally, build into this worktree (removed with it) and share package checkouts across worktrees.
-  ...(process.env.CI ? [] : ["-derivedDataPath", path.join(evidenceDir, "ios-derived")]),
+  // Share package checkouts across worktrees. DerivedData stays in ~/Library: the unit-test bundle is
+  // loaded from it in place, and the simulator may not read ~/Documents, where worktrees live.
   ...sharedSourcePackagesArgs(),
   "test"
 ];
