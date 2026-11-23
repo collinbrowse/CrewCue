@@ -9,15 +9,19 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.crewcue.android.di.AppContainer
 import com.crewcue.android.session.SessionStore
+import com.crewcue.android.ui.ShellViewModel
 import com.crewcue.android.ui.onboarding.BACK_TAG
 import com.crewcue.android.ui.onboarding.SetupSteps
 import com.crewcue.android.ui.onboarding.setupTag
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -54,6 +58,13 @@ class RunnerSetupBackTest {
         }
     }
 
+    /** The setup route on show is the dev link's (ShellViewModel.setupFromLink). */
+    private fun setupOpenedByLink(scenario: ActivityScenario<MainActivity>): Boolean {
+        var opened = false
+        scenario.onActivity { activity -> opened = ViewModelProvider(activity)[ShellViewModel::class.java].setupFromLink }
+        return opened
+    }
+
     private fun openTheAccountStep() {
         waitFor(runner)
         // CI's emulator screen is short: the chooser's buttons can sit below the fold.
@@ -86,9 +97,13 @@ class RunnerSetupBackTest {
             // Signed out with no pick, the link's route opens on the chooser; the runner pick
             // opens setup on the account step, and Back leaves it for the app's own launch.
             waitFor(chooser)
+            assertTrue(setupOpenedByLink(scenario))
             openTheAccountStep()
             compose.onNodeWithTag(BACK_TAG, useUnmergedTree = true).performClick()
             waitFor(chooser)
+            // Not the link's route any more: only the app's own launch (the shell's routeEntry)
+            // lets go of it. Back without the link keeps the route and shows the same chooser.
+            assertFalse(setupOpenedByLink(scenario))
             assertEquals(Lifecycle.State.RESUMED, scenario.state)
         }
     }

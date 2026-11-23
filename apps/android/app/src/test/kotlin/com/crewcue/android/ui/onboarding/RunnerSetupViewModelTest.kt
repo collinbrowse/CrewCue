@@ -894,6 +894,40 @@ class RunnerSetupViewModelTest {
         assertTrue(guest.showsBack)
         guest.goBack()
         assertTrue(guestEffects.contains(RunnerSetupEffect.LeaveSetup))
+
+        // Once a race exists the account step has no Back, and system Back leaves nothing.
+        val withRace = model(store = MemoryDrafts())
+        val raceEffects = effectsOf(withRace)
+        withRace.sync(flow(SetupSteps.ACCOUNT, roomId = "room-1"))
+        assertEquals(SetupSteps.ACCOUNT, withRace.step)
+        assertFalse(withRace.showsBack)
+        withRace.goBack()
+        assertEquals(SetupSteps.ACCOUNT, withRace.step)
+        assertFalse(raceEffects.contains(RunnerSetupEffect.LeaveSetup))
+    }
+
+    @Test
+    fun backDoesNothingWhileAStepSaves() = runTest(dispatcher) {
+        val io = HeldDispatcher()
+        val model = reviewing(SetupSteps.START_TIME, io = io)
+        runtime.answer("raceStartInput", ok("""{"raceStartAt":"$MOVED_START","problem":null,"message":null}"""))
+        model.updateStart(RaceStartFields(2026, 8, 15, 7, 0, "America/Denver"))
+        assertEquals(StartTimeContinue.SaveStart, model.startAction)
+        // The PATCH is in flight.
+        io.held = true
+        model.continueStart(online = true)
+        io.runUntil { runtime.startSaves.isNotEmpty() || model.busy }
+        assertTrue(model.busy)
+        val effects = effectsOf(model)
+        model.goBack()
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertTrue(model.isReviewing)
+        assertFalse(effects.contains(RunnerSetupEffect.LeaveSetup))
+        // The save lands: on to the history step, never back to the course.
+        io.release()
+        assertEquals(listOf("room-1" to MOVED_START), runtime.startSaves)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        assertFalse(model.busy)
     }
 
     @Test
@@ -1074,7 +1108,7 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
-    fun theSameFilePickedAgainChangesNothing() = runTest(dispatcher) {
+    fun theSameFilePickedAgainWithItsPreviewOnShowChangesNothing() = runTest(dispatcher) {
         val model = reviewing(SetupSteps.COURSE)
         val previews = runtime.calls.count { it == "gpxPreview" }
         model.chooseCourse("route copy.gpx", "\n$COURSE_XML\n", online = true)
