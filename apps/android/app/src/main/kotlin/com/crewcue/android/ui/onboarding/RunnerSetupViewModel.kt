@@ -69,9 +69,20 @@ data class PendingCourse(
     val fileName: String,
     val xml: String,
     val fingerprint: String,
-    /** The course the race already saved from this phone, picked again: it isn't saved twice. */
-    val saved: Boolean
-)
+    /** client-core's answer for the file: the one held, the race's saved course, or another. */
+    val pick: CoursePick
+) {
+    /**
+     * Whether the race still has to save the course once this file is held: the file this phone
+     * already holds keeps what the draft said (it may be one picked after Back and never saved),
+     * the race's own course isn't saved twice, and another course is saved with the start.
+     */
+    fun unsavedOnceHeld(held: Boolean?): Boolean? = when (pick) {
+        CoursePick.Unchanged -> held
+        CoursePick.SavedCourse -> false
+        CoursePick.NewCourse -> true
+    }
+}
 
 /**
  * Runner phase 1 (clients/behavior/onboarding-runner-setup.md). The server step comes from
@@ -439,7 +450,7 @@ class RunnerSetupViewModel(
                 pendingCourse = null
                 return@work
             }
-            val picked = PendingCourse(name, gpxXml, fingerprint, saved = pick == CoursePick.SavedCourse)
+            val picked = PendingCourse(name, gpxXml, fingerprint, pick)
             if (draft.courseFileName != null || courseSavedOnRace) {
                 pendingCourse = picked
                 if (!online) {
@@ -1084,13 +1095,16 @@ class RunnerSetupViewModel(
         hold(user, picked, parsed)
     }
 
-    /** Keeps [picked] as this phone's file for the race. A new course is saved with the start; the race's own isn't. */
+    /**
+     * Keeps [picked] as this phone's file for the race. A new course is saved with the start; the
+     * race's own isn't, and the file already held, picked again, stays as saved or unsaved as it was.
+     */
     private suspend fun hold(user: String, picked: PendingCourse, parsed: CoursePreview?) {
         writeDraft(
             draft.copy(
                 courseFileName = picked.fileName,
                 courseFingerprint = picked.fingerprint,
-                courseUnsaved = !picked.saved,
+                courseUnsaved = picked.unsavedOnceHeld(draft.courseUnsaved),
                 // Another file picked on the start time stays on that step.
                 courseConfirmed = parsed != null && step == SetupSteps.START_TIME,
                 plannedPaceSecondsPerKm = parsed?.plannedPaceSecondsPerKm,

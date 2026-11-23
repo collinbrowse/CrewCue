@@ -1037,6 +1037,48 @@ class RunnerSetupViewModelTest {
     }
 
     @Test
+    fun theSameFilePickedAgainWithNoPreviewInMemoryIsNotSavedAgain() = runTest(dispatcher) {
+        // Relaunched offline on the teaser: neither the race's course nor the file this phone holds
+        // could be read, so no preview is in memory.
+        val offline = RuntimeResult.Failure("Offline", offline = true)
+        runtime.answer("loadRoom", offline)
+        runtime.answer("gpxPreview", offline)
+        val model = reviewing(SetupSteps.COURSE)
+        assertNull(model.preview)
+        assertEquals(CourseContinue.Preview, model.courseAction)
+        // Back online, the same file picked again: it previews, and nothing waits to be saved.
+        runtime.answer("gpxPreview", ok(PREVIEW))
+        model.chooseCourse("route.gpx", COURSE_XML, online = true)
+        assertNotNull(model.preview)
+        assertEquals(false, model.draft.courseUnsaved)
+        model.continueCourse(online = true)
+        assertEquals(SetupSteps.START_TIME, model.step)
+        assertEquals(StartTimeContinue.MoveOn, model.startAction)
+        model.continueStart(online = true)
+        assertEquals(SetupSteps.HISTORY, model.step)
+        // No second course save: the hourly limit and the history step's estimate are untouched.
+        assertTrue(runtime.imports.isEmpty())
+        assertTrue(runtime.startSaves.isEmpty())
+        assertFalse(model.draft.historyRedo)
+    }
+
+    @Test
+    fun aFilePickedAfterBackAndNeverSavedStaysUnsavedWhenPickedAgain() = runTest(dispatcher) {
+        val other = "<gpx><trk/></gpx>"
+        val offline = RuntimeResult.Failure("Offline", offline = true)
+        runtime.answer("loadRoom", offline)
+        runtime.answer("gpxPreview", offline)
+        // The relaunch reopens the start time for it; Back to the course, where nothing is drawn.
+        val model = reviewing(SetupSteps.COURSE, draft = savedDraft(courseXml = other, courseUnsaved = true), course = other)
+        assertNull(model.preview)
+        runtime.answer("gpxPreview", ok(PREVIEW))
+        model.chooseCourse("other.gpx", other, online = true)
+        assertEquals(true, model.draft.courseUnsaved)
+        model.continueCourse(online = true)
+        assertEquals(StartTimeContinue.SaveCourse, model.startAction)
+    }
+
+    @Test
     fun aRelaunchReopensTheStepWithAFilePickedAfterBackAndTheSavedCoursePickedAgainIsNotSavedTwice() = runTest(dispatcher) {
         // Back on the course, another file picked and confirmed, then the app was closed.
         val other = "<gpx><trk/></gpx>"
