@@ -47,6 +47,34 @@ final class OnboardingEntryTests: XCTestCase {
         XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5))
     }
 
+    /// Back is the navigation bar's standard back button, and the edge swipe goes back too.
+    func testBackIsANavigationBarButtonAndTheEdgeSwipeAlsoGoesBack() {
+        let app = XCUIApplication()
+        openChooser(app)
+        element(app, "crewcue.onboarding.chooser.runner").tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.account").waitForExistence(timeout: 5))
+
+        let back = app.navigationBars.buttons["crewcue.onboarding.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back sits in the navigation bar")
+        XCTAssertEqual(back.label, "Back")
+        XCTAssertLessThan(back.frame.midX, app.frame.midX, "Back is the bar's leading item")
+
+        // A tap inside the button's frame, near its bottom edge, goes back (the whole frame is the
+        // target, not only the glass the bar draws around the chevron and title).
+        let insideBottom = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: back.frame.midX, dy: back.frame.maxY - 3))
+        XCTAssertTrue(back.frame.height > 6, "Back's frame is too short to tap inside")
+        insideBottom.tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5), "a tap inside Back's frame didn't go back")
+
+        // From the first step, the swipe from the leading edge returns to the chooser too.
+        element(app, "crewcue.onboarding.chooser.runner").tap()
+        XCTAssertTrue(element(app, "crewcue.onboarding.step.account").waitForExistence(timeout: 5))
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        XCTAssertTrue(element(app, "crewcue.onboarding-chooser").waitForExistence(timeout: 5), "the edge swipe goes back")
+    }
+
     func testCrewChoiceOpensTheJoinScreenAndBackReturnsToTheChooser() {
         let app = XCUIApplication()
         openChooser(app)

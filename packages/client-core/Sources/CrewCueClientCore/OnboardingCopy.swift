@@ -16,10 +16,23 @@ public enum OnboardingCopy {
 
     public static let createAccount = "Create account"
     public static let signIn = "Sign in"
-    public static let displayName = "Display name"
+    /// The runner's own name on the account step: the name their crew sees in chat.
+    public static let displayName = "Your name"
+    public static let displayNameHelp = "Your crew sees this in chat."
+    /// The race's name, typed on the course step before the course file. It names the race when
+    /// the race is created, and there's no rename after that.
+    public static let raceNameLabel = "Race name"
+    public static let raceNamePlaceholder = "Western States 2026"
+    public static let raceNameHelp = "Your race and the year, or a fun name for your crew."
+    /// Under the loader while a picked course file is read and previewed, until the map and the
+    /// elevation profile are ready.
+    public static let readingCourse = "Reading your course…"
     public static let continueLabel = "Continue"
     public static let chooseCourseFile = "Choose course file"
     public static let chooseAnotherCourseFile = "Choose another file"
+    /// The course step once the race has a course this phone doesn't hold the file for (signed
+    /// out and back in, another phone, a reinstall). Continue keeps it; nothing is uploaded again.
+    public static let courseSaved = "Course saved"
     public static let startLabel = "Start"
     public static let timeZoneLabel = "Time zone"
     public static let timeZoneSearch = "Search time zones"
@@ -67,16 +80,28 @@ public enum OnboardingCopy {
     /// One or two plain sentences under the step heading, or nil for steps this file does not cover.
     public static func explanation(for step: OnboardingStep) -> String? {
         switch step {
-        case .account: "Sign in and pick the name your crew sees."
+        case .account: "Create an account or sign in, then add your name."
         case .course: "Add your course file so CrewCue can estimate your finish."
         case .startTime: "Pick the date and time you start, in the time zone of the race."
-        case .history: "Add past runs to tighten your estimate, or skip this and add them later."
+        case .history: "CrewCue reads your pace on a past run, adjusted for its climbs, so your finish and aid station times fit how you run."
         case .projectionTeaser: "This is your estimated finish time. Aid station times unlock with your race."
         case .preview: "A short replay on your course shows what your crew sees on race day."
         case .paywall: "Unlock your race so your crew can follow you."
         default: nil
         }
     }
+
+    // MARK: History step
+
+    /// What to pick on the history step, under its lead (`explanation(for: .history)`). Each line
+    /// matches the code: the importer takes .gpx, .fit and .tcx up to `ActivityImport.maxFileBytes`
+    /// and needs a recorded run (a file without times has no pace); Skip computes a cold start from
+    /// the course; Settings > Past runs imports more later, and Pace then recomputes the estimate.
+    public static let historyTips = [
+        "Pick a recent race or long run your watch recorded, ideally on terrain like your race.",
+        "Use a .gpx, .fit or .tcx file up to 10 MB. Garmin Connect, COROS and many other watch apps can export one.",
+        "It's optional. Skip it for a rough estimate from your course alone. You can add past runs later in Settings."
+    ]
 
     // MARK: History comparison
 
@@ -160,6 +185,8 @@ public enum OnboardingCopy {
 
     /// Course save limit reached (HTTP 429).
     public static let courseSaveLimit = "You've changed the course a lot this hour. Try again in a bit."
+    /// A race has to be created and there's no name for it: the race name field opens again.
+    public static let raceNameMissing = "Add a race name to continue."
     /// A time that does not exist on that date in the chosen zone (spring-forward gap).
     public static let startTimeDstGap = "That time doesn't exist on that date because of daylight saving. Pick another time."
     // `course_mismatch` has no copy on purpose: the client recomputes the estimate and shows nothing.
@@ -182,8 +209,12 @@ public enum OnboardingCopy {
             "chooserTitle": chooserTitle, "chooserRunnerDetail": chooserRunnerDetail,
             "chooserCrewDetail": chooserCrewDetail, "chooserSignIn": chooserSignIn,
             "createAccount": createAccount, "signIn": signIn, "displayName": displayName,
+            "displayNameHelp": displayNameHelp, "raceNameLabel": raceNameLabel,
+            "raceNamePlaceholder": raceNamePlaceholder, "raceNameHelp": raceNameHelp,
+            "readingCourse": readingCourse, "historyTips": historyTips,
             "continueLabel": continueLabel, "chooseCourseFile": chooseCourseFile,
-            "chooseAnotherCourseFile": chooseAnotherCourseFile, "startLabel": startLabel,
+            "chooseAnotherCourseFile": chooseAnotherCourseFile, "courseSaved": courseSaved,
+            "startLabel": startLabel,
             "timeZoneLabel": timeZoneLabel, "timeZoneSearch": timeZoneSearch,
             "importPastRun": importPastRun, "skipHistory": skipHistory, "finishLabel": finishLabel,
             "coursePreviewLabel": coursePreviewLabel, "elevationProfileLabel": elevationProfileLabel,
@@ -202,7 +233,8 @@ public enum OnboardingCopy {
             "paywallFullCrewDetail": paywallFullCrewDetail,
             "paywallBuyLabelTemplate": paywallBuyLabelTemplate,
             "replayMapTitle": replayMapTitle, "replayPaceTitle": replayPaceTitle, "replayChatTitle": replayChatTitle,
-            "courseSaveLimit": courseSaveLimit, "startTimeDstGap": startTimeDstGap,
+            "courseSaveLimit": courseSaveLimit, "raceNameMissing": raceNameMissing,
+            "startTimeDstGap": startTimeDstGap,
             "stepTitles": titles, "stepExplanations": explanations, "beatCaptions": captions,
             "labels": runtimeLabels
         ]
