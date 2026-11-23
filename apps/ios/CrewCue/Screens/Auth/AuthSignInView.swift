@@ -1,8 +1,11 @@
 import SwiftUI
 
+/// Signed out: Auth0 sign-in or sign-up, or join a crew with a code. `onBack` is the way back to
+/// the screen behind it (the chooser), as the navigation bar's Back; nil draws none.
 struct AuthSignInView: View {
     var model: AuthSignInModel
     var onJoin: () -> Void
+    var onBack: (() -> Void)? = nil
     @Environment(\.crew) private var theme
 
     var body: some View {
@@ -70,6 +73,8 @@ struct AuthSignInView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("crewcue.auth-signed-out")
         .accessibilityLabel("Signed out")
+        // Auth0's sheet covers the screen while it works; cancelling it comes back here, Back included.
+        .barBack(identifier: "crewcue.auth-sign-in.back", enabled: !model.isWorking, action: onBack)
     }
 }
 
