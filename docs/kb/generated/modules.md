@@ -174,10 +174,11 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | [packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableFormat.swift) | `PortableFormat`, `JSONNumber` |
 | [packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift](../../../packages/client-core/Sources/CrewCueClientCore/PortableSHA256.swift) | `PortableSHA256` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceAccess.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceAccess.swift) | `RaceAccess` |
-| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | `JoinPreviewEnvelope`, `RoomEnvelope`, `AttachEnvelope`, `IncidentEnvelope`, `IncidentListEnvelope`, `StravaStart`, `StravaConnection`, `ChatPreference`, `TransportFailure`, `ScheduleLoadResult`, `ScheduleCache`, `EstimateCache` +3 |
+| [packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayAPI.swift) | `JoinPreviewEnvelope`, `RoomEnvelope`, `AttachEnvelope`, `IncidentEnvelope`, `IncidentListEnvelope`, `StravaStart`, `StravaConnection`, `ChatPreference`, `TransportFailure`, `ScheduleLoadResult`, `ScheduleCache`, `EstimateCache` +2 |
 | [packages/client-core/Sources/CrewCueClientCore/RaceDayReadout.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceDayReadout.swift) | `TrackStatus`, `ElevationProfile`, `RunnerPing`, `RunnerPingState`, `RunnerProgress`, `RaceDayReadout`, `CheckpointState`, `CheckpointTimelineRow`, `RaceDayReadouts` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceRoster.swift) | `RaceSummary`, `RaceRole`, `RaceRoster`, `RoomStorage`, `RaceListEnvelope` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceStartInput.swift) | `RaceStartInput` |
+| [packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceToolsCopy.swift) | `CrewSheetRow`, `CourseStopRow`, `RaceToolsCopy` |
 | [packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift](../../../packages/client-core/Sources/CrewCueClientCore/RaceTracking.swift) | `TrackingSettings`, `TrackingSession`, `RunnerTrackPoint`, `RunnerTrack`, `LiveProjection`, `PingBatchPolicy` |
 | [packages/client-core/Sources/CrewCueClientCore/Route.swift](../../../packages/client-core/Sources/CrewCueClientCore/Route.swift) | `Route` |
 | [packages/client-core/Sources/CrewCueClientCore/RunnerSetupSteps.swift](../../../packages/client-core/Sources/CrewCueClientCore/RunnerSetupSteps.swift) | `RunnerSetupSteps` |
@@ -198,45 +199,45 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 
 ### client-core (Swift, shared)
 
-110 files under `packages/client-core/Sources/`.
+111 files under `packages/client-core/Sources/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
-| `CrewCueClientCore` | 60 | 13261 |
+| `CrewCueClientCore` | 61 | 13290 |
 | `CrewCueClientCore/Generated` | 50 | 980 |
 
 ### iOS app (SwiftUI)
 
-76 files under `apps/ios/CrewCue/`.
+77 files under `apps/ios/CrewCue/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
 | `.` | 3 | 116 |
 | `App` | 14 | 1635 |
 | `Brand` | 1 | 184 |
-| `Design` | 6 | 1682 |
+| `Design` | 7 | 1869 |
 | `Logging` | 2 | 18 |
-| `Screens/ActivityImport` | 2 | 145 |
+| `Screens/ActivityImport` | 2 | 155 |
 | `Screens/AthleteSetup` | 2 | 146 |
 | `Screens/Auth` | 2 | 222 |
 | `Screens/Billing` | 2 | 457 |
 | `Screens/BrandLoader` | 1 | 47 |
-| `Screens/Chat` | 4 | 944 |
+| `Screens/Chat` | 4 | 955 |
 | `Screens/Incidents` | 2 | 182 |
 | `Screens/Join` | 2 | 186 |
 | `Screens/Map` | 7 | 3052 |
 | `Screens/Notifications` | 2 | 116 |
 | `Screens/Onboarding` | 10 | 3753 |
-| `Screens/Pace` | 2 | 1868 |
+| `Screens/Pace` | 2 | 1886 |
 | `Screens/Profile` | 2 | 427 |
 | `Screens/RoomMembers` | 2 | 199 |
-| `Screens/Settings` | 2 | 363 |
+| `Screens/Settings` | 2 | 365 |
 | `Screens/Shell` | 4 | 663 |
 | `Screens/Strava` | 2 | 193 |
 
 ### Android app (Compose)
 
-118 files under `apps/android/app/src/main/`.
+119 files under `apps/android/app/src/main/`.
 
 | Directory | Files | Lines |
 | --- | --- | --- |
@@ -251,13 +252,13 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/nav` | 2 | 103 |
 | `kotlin/com/crewcue/android/session` | 3 | 151 |
 | `kotlin/com/crewcue/android/ui` | 5 | 1673 |
-| `kotlin/com/crewcue/android/ui/activity` | 1 | 185 |
+| `kotlin/com/crewcue/android/ui/activity` | 1 | 194 |
 | `kotlin/com/crewcue/android/ui/athlete` | 1 | 148 |
 | `kotlin/com/crewcue/android/ui/auth` | 1 | 230 |
 | `kotlin/com/crewcue/android/ui/billing` | 2 | 511 |
 | `kotlin/com/crewcue/android/ui/brand` | 1 | 234 |
 | `kotlin/com/crewcue/android/ui/brandloader` | 1 | 54 |
-| `kotlin/com/crewcue/android/ui/chat` | 7 | 1220 |
+| `kotlin/com/crewcue/android/ui/chat` | 7 | 1234 |
 | `kotlin/com/crewcue/android/ui/incidents` | 1 | 298 |
 | `kotlin/com/crewcue/android/ui/join` | 1 | 110 |
 | `kotlin/com/crewcue/android/ui/map` | 6 | 1942 |
@@ -265,8 +266,8 @@ Top-level Swift types per file in `packages/client-core/Sources` (shared by iOS 
 | `kotlin/com/crewcue/android/ui/notifications` | 1 | 76 |
 | `kotlin/com/crewcue/android/ui/onboarding` | 10 | 4379 |
 | `kotlin/com/crewcue/android/ui/outbox` | 1 | 75 |
-| `kotlin/com/crewcue/android/ui/pace` | 2 | 1480 |
+| `kotlin/com/crewcue/android/ui/pace` | 2 | 1503 |
 | `kotlin/com/crewcue/android/ui/profile` | 1 | 403 |
-| `kotlin/com/crewcue/android/ui/settings` | 2 | 374 |
-| `kotlin/com/crewcue/android/ui/strava` | 1 | 250 |
-| `kotlin/com/crewcue/android/ui/theme` | 2 | 688 |
+| `kotlin/com/crewcue/android/ui/settings` | 2 | 383 |
+| `kotlin/com/crewcue/android/ui/strava` | 1 | 247 |
+| `kotlin/com/crewcue/android/ui/theme` | 3 | 880 |
