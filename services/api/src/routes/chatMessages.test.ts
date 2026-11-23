@@ -100,11 +100,11 @@ async function list(app: App, token: string, roomId: string, query = "") {
   });
 }
 
-async function registerPush(app: App, token: string, deviceId: string, platform = "ios") {
+async function registerPush(app: App, token: string, deviceId: string, platform = "ios", pushToken = `tok-${deviceId}`) {
   const res = await app.inject({
     method: "POST",
     url: "/chat/push/tokens",
-    payload: { deviceId, platform, token: `tok-${deviceId}` },
+    payload: { deviceId, platform, token: pushToken },
     headers: { authorization: `Bearer ${token}` }
   });
   assert.equal(res.statusCode, 201);
@@ -526,15 +526,8 @@ test("chat messages: a phone handed to someone else stops getting the first crew
     const boRace = await createRoom(app, owner, ownerSub);
     await addMember(app, boRace, owner, bo, "Bo");
 
-    const register = async (who: string, deviceId: string, pushToken: string) => {
-      const res = await app.inject({
-        method: "POST",
-        url: "/chat/push/tokens",
-        payload: { deviceId, platform: "ios", token: pushToken },
-        headers: { authorization: `Bearer ${who}` }
-      });
-      assert.equal(res.statusCode, 201);
-    };
+    const register = (who: string, deviceId: string, pushToken: string) =>
+      registerPush(app, who, deviceId, "ios", pushToken);
     const pushedTokens = async (roomId: string, clientMessageId: string) => {
       const before = captured.length;
       assert.equal((await send(app, owner, roomId, { clientMessageId, text: "leaving aid 4" })).statusCode, 201);
