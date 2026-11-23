@@ -17,6 +17,9 @@ import Foundation
 ///   billing read for this race; left out while unknown or after a failed read) and
 ///   `onboarding?` (the state `readOnboarding` answered: `flow`, `phase`, `roomId`, `reason`) →
 ///   `RaceAccess`: `unpaid`, `loadsRace`, `samplesLocation`, `gatesActions`, `lockedReason`.
+/// - `suggestedDisplayName`: `name?` and `email?` from the sign-in identity, or a saved name with
+///   no email → `name`, the name the account step suggests for crew (`SuggestedDisplayName`), or
+///   null when it is an email or the email's local part, so the field starts empty.
 extension RuntimeCall {
     static func raceStartInput(_ object: [String: Any]) -> Any {
         let zone = text(object, "timeZone") ?? DeviceTimeZone.current.identifier
@@ -52,6 +55,11 @@ extension RuntimeCall {
             "dateLabel": input.dateLabel(),
             "timeLabel": input.timeLabel()
         ] as [String: Any]
+    }
+
+    static func suggestedDisplayName(_ object: [String: Any]) -> Any {
+        let name = SuggestedDisplayName.from(name: object["name"] as? String, email: object["email"] as? String)
+        return ["name": name ?? NSNull()] as [String: Any]
     }
 
     static func raceAccess(_ object: [String: Any]) -> Any {
