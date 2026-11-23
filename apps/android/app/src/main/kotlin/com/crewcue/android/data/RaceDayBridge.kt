@@ -341,7 +341,10 @@ class RaceDayBridge private constructor(
 
     fun listOutbox(): RuntimeResult = call("listOutbox")
 
-    fun exportCrewSheet(roomId: String): RuntimeResult = call("exportCrewSheet") { put("roomId", roomId) }
+    fun exportCrewSheet(roomId: String, raceName: String = ""): RuntimeResult = call("exportCrewSheet") {
+        put("roomId", roomId)
+        put("raceName", raceName)
+    }
 
     /** #250 Pace edit draft: rows, projected stops, and timeline for the typed minutes. Pure; no network. */
     fun stopPlanDraft(
@@ -367,12 +370,10 @@ class RaceDayBridge private constructor(
         put("stops", edits)
     }
 
-    fun readCourseSettings(roomId: String): RuntimeResult = call("readCourseSettings") { put("roomId", roomId) }
-
-    fun writeCourseSettings(roomId: String, cutoffNote: String, stoppageSeconds: Double): RuntimeResult = call("writeCourseSettings") {
+    /** Aid station stops and cutoffs from the cached schedule; `titles` maps checkpoint ids to names. */
+    fun courseReadout(roomId: String, titles: Map<String, String>): RuntimeResult = call("courseReadout") {
         put("roomId", roomId)
-        put("cutoffNote", cutoffNote)
-        put("stoppageSeconds", stoppageSeconds)
+        put("titles", org.json.JSONObject(titles))
     }
 
     /** `{roomId,isPaid,isUnlimited,crewCount,crewLimit?,hasCrewSeat,offers[],summary}`. Not entitlement-gated. */

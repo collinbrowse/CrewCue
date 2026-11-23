@@ -41,6 +41,9 @@ final class RunnerSetupModel {
     private var generation = 0
     /// The race list says the race has a course.
     private var raceListHasCourse = false
+    /// The race list says the race has an estimate: a phone with no setup progress for it keeps
+    /// that one on the history step's Continue.
+    private var raceListHasEstimate = false
     /// The step the runner changed something on since it opened. Back, Continue and a relaunch
     /// opening a step forget it.
     private var editedStep: OnboardingStep?
@@ -187,13 +190,15 @@ final class RunnerSetupModel {
         }
     }
 
-    /// The race list's entries for setup's race: its name, whether it has a course, its start.
+    /// The race list's entries for setup's race: its name, whether it has a course and an
+    /// estimate, its start.
     private func followRace(_ race: OnboardingRace?, listedName: String?) {
         let listed = listedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !listed.isEmpty { listedRaceName = listed }
         guard let race else { return }
         role = race.role
         raceListHasCourse = race.hasCourse
+        raceListHasEstimate = race.hasEstimate
         followRaceStart(race.raceStartAt)
     }
 
@@ -603,6 +608,7 @@ final class RunnerSetupModel {
         draft.courseUnsaved = true
         draft.historyRedo = nil
         raceListHasCourse = false
+        raceListHasEstimate = false
         // The name field is open again, holding the name the new race gets.
         raceName = name
         persist()
@@ -751,6 +757,8 @@ final class RunnerSetupModel {
             draft.savedRaceStartAt = raceStartAt
             draft.historyRedo = true
             raceListHasCourse = true
+            // The save dropped the race's estimate.
+            raceListHasEstimate = false
             // An estimate the history step attached was for the course or start before.
             historyAttached = false
             historyLine = nil
@@ -766,9 +774,14 @@ final class RunnerSetupModel {
 
     // MARK: History
 
-    /// Continue shows after an import on this visit, and always on a history step already passed.
+    /// Continue shows after an import on this visit, always on a history step already passed, and
+    /// on a race that already has an estimate (this phone has no setup progress for it).
     var historyShowsContinue: Bool {
-        RunnerSetupSteps.historyShowsContinue(reviewing: isReviewing, importedThisVisit: historyImported)
+        RunnerSetupSteps.historyShowsContinue(
+            reviewing: isReviewing,
+            importedThisVisit: historyImported,
+            raceHasEstimate: raceListHasEstimate
+        )
     }
 
     /// A past run file was picked: import it, then compare the finish with and without history.
@@ -822,13 +835,15 @@ final class RunnerSetupModel {
     private func finishHistory(_ outcome: OnboardingOutcome) async {
         guard let roomId, !busy else { return }
         let ticket = generation
-        // Continue keeps the estimate the race has (attached on this visit, or a reviewed step's)
-        // unless a course save dropped it; Skip always attaches the cold start.
+        // Continue keeps the estimate the race has (attached on this visit, a reviewed step's, or
+        // one attached on another phone) unless a course save dropped it; Skip always attaches the
+        // cold start.
         let decision = RunnerSetupSteps.historyContinue(
             reviewing: isReviewing,
             estimateDropped: draft.historyRedo == true,
             importedThisVisit: historyImported,
-            attachedThisVisit: historyAttached
+            attachedThisVisit: historyAttached,
+            raceHasEstimate: raceListHasEstimate
         )
         let recomputes = outcome == .skipped || decision == .recompute
         if recomputes {
@@ -849,9 +864,10 @@ final class RunnerSetupModel {
             busy = false
         }
         guard ticket == generation else { return }
-        // A new estimate, or one attached on this visit: the step is marked with how it ended.
-        // Moving on over an unchanged step keeps how it was marked before.
-        let marks = recomputes || historyAttached
+        // A new estimate, one attached on this visit, or the race's kept on a phone that never
+        // ended the step: the step is marked with how it ended. Moving on over an unchanged,
+        // reviewed step keeps how it was marked before.
+        let marks = outcome == .skipped || RunnerSetupSteps.historyContinueMarks(decision, attachedThisVisit: historyAttached)
         draft.historyRedo = nil
         persist()
         moveOn(to: .projectionTeaser)
@@ -981,6 +997,7 @@ final class RunnerSetupModel {
         previewingCourse = false
         readingCourse = false
         raceListHasCourse = false
+        raceListHasEstimate = false
         listedRaceName = nil
         if let saved = draft.roomId, saved != next {
             // A draft from another race: keep the runner's name, forget the race's name and course.
@@ -1076,6 +1093,7 @@ final class RunnerSetupModel {
         resumeWatching = false
         resumeChecked = false
         raceListHasCourse = false
+        raceListHasEstimate = false
         editedStep = nil
         displayName = ""
         raceName = ""

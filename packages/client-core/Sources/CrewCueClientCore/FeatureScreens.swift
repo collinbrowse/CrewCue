@@ -160,6 +160,8 @@ private struct FeatureCopy {
             return FeatureCopy(accessibilityIdentifier: "crewcue.strava", title: "Strava", body: stravaBody(state))
         case "account-deletion":
             return FeatureCopy(accessibilityIdentifier: "crewcue.account-deletion", title: AccountDeletion.rowTitle, body: accountDeletionBody(state))
+        case "race-delete":
+            return FeatureCopy(accessibilityIdentifier: "crewcue.race-delete", title: RaceDeletion.rowTitle, body: raceDeleteBody(state))
         case "app-shell":
             return FeatureCopy(accessibilityIdentifier: "crewcue.app-shell", title: "CrewCue", body: shellBody(state))
         case "brand-loader":
@@ -214,7 +216,7 @@ private func coldStartBody(_ state: FeatureState) -> String {
 private func exportBody(_ state: FeatureState) -> String {
     switch state {
     case .success: ScheduleFixture.exportText()
-    case .empty: "Nothing to export."
+    case .empty: "No schedule yet. Import the course file to build one."
     case .error: "Couldn't build the crew sheet."
     case .offline: "Offline. Crew sheet is ready to share from this device."
     }
@@ -224,15 +226,13 @@ private func outboxBody(_ state: FeatureState) -> String {
     switch state {
     case .success:
         let pending = OutboxOperation(id: "op-1", type: "ping", status: "pending", conflictKey: "ping:room")
-        return "Pending \(OutboxPolicy.countPending([pending])). Safe retry \(OutboxPolicy.isSafeRetry(pending))."
+        return "\(OutboxPolicy.countPending([pending])) waiting: \(RaceToolsCopy.outboxLabel(type: pending.type))."
     case .empty:
-        return "Outbox is empty."
+        return RaceToolsCopy.outboxEmpty
     case .error:
-        let resolved = OutboxPolicy.resolve(ClientHTTPError(status: 422, message: "no", decision: "rejected"))
-        return resolved.feedback
+        return RaceToolsCopy.outboxRejected
     case .offline:
-        let resolved = OutboxPolicy.resolve(URLError(.notConnectedToInternet))
-        return resolved.feedback
+        return RaceToolsCopy.outboxOffline
     }
 }
 
@@ -293,10 +293,9 @@ private func checkInBody(_ state: FeatureState) -> String {
 
 private func courseSettingsBody(_ state: FeatureState) -> String {
     switch state {
-    case .success: "Cutoff and stoppage saved as a draft."
-    case .empty: "No course settings yet."
-    case .error: "Couldn't save course settings."
-    case .offline: "Offline. Course settings stay on this device."
+    case .success: "2 min planned at each of the 3 aid stations. Use Edit planned stops on Pace to change it."
+    case .empty, .error: "No schedule yet. Import the course file to build one."
+    case .offline: "Offline. From the last schedule saved on this phone."
     }
 }
 
@@ -321,7 +320,7 @@ private func incidentsBody(_ state: FeatureState) -> String {
 private func gpxBody(_ state: FeatureState) -> String {
     switch state {
     case .success: CourseImportStage.calculating.message
-    case .empty: "Choose a route file."
+    case .empty: RaceToolsCopy.courseFileHint
     case .error: "Couldn't read the route file."
     case .offline: "Offline. The file stays on this device until upload."
     }
@@ -398,8 +397,8 @@ private func chatBody(_ state: FeatureState) -> String {
 
 private func chatPrefsBody(_ state: FeatureState) -> String {
     switch state {
-    case .success: "Mentions and check-ins notify."
-    case .empty: "Alerts are off."
+    case .success: "Only messages that @mention you, and check-ins."
+    case .empty: "Crew chat won't notify you. Check-ins still do."
     case .error: "Couldn't save alert settings."
     case .offline: "Offline. Alert settings stay on this device."
     }
@@ -407,9 +406,9 @@ private func chatPrefsBody(_ state: FeatureState) -> String {
 
 private func pushBody(_ state: FeatureState) -> String {
     switch state {
-    case .success: "Push token queued for registration."
-    case .empty: "No push token."
-    case .error: "Push permission was denied."
+    case .success: "On. Check-ins, ETA changes and crew chat reach you, even with the app closed."
+    case .empty: "This phone couldn't set up alerts. Try again."
+    case .error: "Notifications are off for CrewCue. Turn them on in Settings."
     case .offline: "Offline. Token queued."
     }
 }
@@ -456,6 +455,15 @@ private func accountDeletionBody(_ state: FeatureState) -> String {
     case .empty: AccountDeletion.confirmBody
     case .error: AccountDeletion.genericFailureMessage
     case .offline: AccountDeletion.offlineMessage
+    }
+}
+
+private func raceDeleteBody(_ state: FeatureState) -> String {
+    switch state {
+    case .success: RaceDeletion.deletedMessage
+    case .empty: RaceDeletion.confirmBody(paid: true)
+    case .error: RaceDeletion.genericFailureMessage
+    case .offline: RaceDeletion.offlineMessage
     }
 }
 
