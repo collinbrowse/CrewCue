@@ -25,7 +25,7 @@ Confirm each is public on purpose, or guarded somewhere the generator cannot see
 | POST | `/chat/push/tokens` | [services/api/src/routes/chatRoutes.ts:421](../../../services/api/src/routes/chatRoutes.ts#L421) |
 | GET | `/health/live` | [services/api/src/routes/health.ts:6](../../../services/api/src/routes/health.ts#L6) |
 | GET | `/health/ready` | [services/api/src/routes/health.ts:16](../../../services/api/src/routes/health.ts#L16) |
-| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3269](../../../services/api/src/routes/raceRooms.ts#L3269) |
+| GET | `/race-rooms/join-preview/:roomCode` | [services/api/src/routes/raceRooms.ts:3303](../../../services/api/src/routes/raceRooms.ts#L3303) |
 | GET | `/strava/oauth/redirect` | [services/api/src/routes/stravaRoutes.ts:108](../../../services/api/src/routes/stravaRoutes.ts#L108) |
 
 ## Room-scoped routes with no membership check detected
@@ -40,7 +40,7 @@ Files over 800 lines concentrate merge conflicts and review misses.
 
 | File | Lines |
 | --- | --- |
-| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5729 |
+| [services/api/src/routes/raceRooms.ts](../../../services/api/src/routes/raceRooms.ts) | 5763 |
 | [packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift](../../../packages/client-core/Sources/CrewCueClientCore/RuntimeBridge.swift) | 2032 |
 | [services/api/src/lib/roomPersistence.ts](../../../services/api/src/lib/roomPersistence.ts) | 1464 |
 | [packages/map-core/src/courseParse.ts](../../../packages/map-core/src/courseParse.ts) | 1410 |
